@@ -97,19 +97,19 @@ func (s *Switcher) setupNewAccount() error {
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("%s✗ No auth.json found at %s%s\n", ColorRed, authPath, ColorReset)
 	fmt.Printf("%sLet's set up your first account%s\n\n", ColorCyan, ColorReset)
-	
+
 	reader := bufio.NewReader(os.Stdin)
-	
+
 	fmt.Printf("Application name (codex/claude etc) [%scodex%s]: ", ColorYellow, ColorReset)
 	appName, _ := reader.ReadString('\n')
 	appName = strings.TrimSpace(appName)
 	if appName == "" {
 		appName = "codex"
 	}
-	
+
 	fmt.Printf("Account name (suraj/cruel etc): ")
 	accountName, _ := reader.ReadString('\n')
 	accountName = strings.TrimSpace(accountName)
@@ -117,9 +117,9 @@ func (s *Switcher) setupNewAccount() error {
 		fmt.Printf("%s✗ Account name cannot be empty%s\n", ColorRed, ColorReset)
 		return fmt.Errorf("empty account name")
 	}
-	
+
 	s.config.Default.Config = appName
-	fmt.Printf("\n%s✓ Setup complete! Create your auth.json at %s and run 'switch %s add %s'%s\n", 
+	fmt.Printf("\n%s✓ Setup complete! Create your auth.json at %s and run 'switch %s add %s'%s\n",
 		ColorGreen, authPath, appName, accountName, ColorReset)
 	return s.saveConfig()
 }
@@ -129,7 +129,7 @@ func (s *Switcher) AddCodexAccount(name string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if _, err := os.Stat(authPath); err != nil {
 		if len(s.getCodexAccounts()) == 0 {
 			return s.setupNewAccount()
@@ -137,7 +137,7 @@ func (s *Switcher) AddCodexAccount(name string) error {
 		fmt.Printf("%s✗ No auth.json found at %s%s\n", ColorRed, authPath, ColorReset)
 		return fmt.Errorf("auth.json not found")
 	}
-	
+
 	switchPath := authPath + "." + name + ".switch"
 	if _, err := os.Stat(switchPath); err == nil {
 		fmt.Printf("%s✗ Account '%s' already exists%s\n", ColorRed, name, ColorReset)
@@ -150,21 +150,21 @@ func (s *Switcher) AddCodexAccount(name string) error {
 			return nil
 		}
 	}
-	
+
 	if err := copyFile(authPath, switchPath); err != nil {
 		return fmt.Errorf("copy auth file: %w", err)
 	}
-	
+
 	if len(s.config.Codex) == 0 {
 		s.config.Codex[name] = CodexEntry{Current: name}
 	}
 	s.config.Codex[name] = CodexEntry{Current: name}
-	
+
 	if err := s.saveConfig(); err != nil {
 		os.Remove(switchPath)
 		return err
 	}
-	
+
 	fmt.Printf("%s✓ Added account: %s%s\n", ColorGreen, name, ColorReset)
 	return nil
 }
@@ -174,43 +174,43 @@ func (s *Switcher) SwitchCodexAccount(name string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if name == "" {
 		return s.cycleCodexAccount()
 	}
-	
+
 	switchPath := authPath + "." + name + ".switch"
 	if _, err := os.Stat(switchPath); err != nil {
 		fmt.Printf("%s✗ Account '%s' not found%s\n", ColorRed, name, ColorReset)
 		return fmt.Errorf("account not found")
 	}
-	
+
 	currentAuth, _ := os.ReadFile(authPath)
 	currentName := s.findCurrentAccount()
-	
+
 	if currentName != "" && currentName != name {
 		currentPath := authPath + "." + currentName + ".switch"
 		os.WriteFile(currentPath, currentAuth, 0600)
 	}
-	
+
 	data, err := os.ReadFile(switchPath)
 	if err != nil {
 		return fmt.Errorf("read switch file: %w", err)
 	}
-	
+
 	if err := os.WriteFile(authPath, data, 0600); err != nil {
 		return fmt.Errorf("write auth file: %w", err)
 	}
-	
+
 	for k := range s.config.Codex {
 		entry := s.config.Codex[k]
 		entry.Current = name
 		s.config.Codex[k] = entry
 	}
 	s.saveConfig()
-	
+
 	if currentName != "" && currentName != name {
-		fmt.Printf("%s✓ Codex account switched from %s to %s!%s\n", 
+		fmt.Printf("%s✓ Codex account switched from %s to %s!%s\n",
 			ColorGreen, currentName, name, ColorReset)
 	} else {
 		fmt.Printf("%s✓ Switched to: %s%s\n", ColorGreen, name, ColorReset)
@@ -225,10 +225,10 @@ func (s *Switcher) cycleCodexAccount() error {
 		fmt.Printf("Run 'switch codex add <name>' to add your first account\n")
 		return fmt.Errorf("no accounts")
 	}
-	
+
 	current := s.findCurrentAccount()
 	var next string
-	
+
 	if current == "" {
 		next = accounts[0]
 	} else {
@@ -250,15 +250,15 @@ func (s *Switcher) findCurrentAccount() string {
 	if err != nil {
 		return ""
 	}
-	
+
 	currentData, err := os.ReadFile(authPath)
 	if err != nil {
 		return ""
 	}
-	
+
 	var currentJSON map[string]interface{}
 	json.Unmarshal(currentData, &currentJSON)
-	
+
 	for name := range s.config.Codex {
 		switchPath := authPath + "." + name + ".switch"
 		switchData, err := os.ReadFile(switchPath)
@@ -282,7 +282,7 @@ func (s *Switcher) getCodexAccounts() []string {
 	if err != nil {
 		return []string{}
 	}
-	
+
 	var accounts []string
 	for _, f := range files {
 		if strings.HasPrefix(f.Name(), "auth.json.") && strings.HasSuffix(f.Name(), ".switch") {
@@ -297,13 +297,13 @@ func (s *Switcher) getCodexAccounts() []string {
 func (s *Switcher) ListCodexAccounts() {
 	accounts := s.getCodexAccounts()
 	current := s.findCurrentAccount()
-	
+
 	if len(accounts) == 0 {
 		fmt.Printf("%s✗ No accounts configured%s\n", ColorRed, ColorReset)
 		fmt.Printf("Run 'switch codex add <name>' to add your first account\n")
 		return
 	}
-	
+
 	fmt.Printf("%sCodex accounts:%s\n", ColorCyan, ColorReset)
 	for _, acc := range accounts {
 		if acc == current {
@@ -320,13 +320,13 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer source.Close()
-	
+
 	destination, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer destination.Close()
-	
+
 	_, err = io.Copy(destination, source)
 	return err
 }
@@ -345,13 +345,13 @@ func main() {
 	if len(os.Args) < 2 {
 		os.Args = append(os.Args, "codex")
 	}
-	
+
 	s, err := NewSwitcher()
 	if err != nil {
 		printError(err)
 		os.Exit(1)
 	}
-	
+
 	switch os.Args[1] {
 	case "codex":
 		if len(os.Args) == 2 {

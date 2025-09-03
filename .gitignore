@@ -1,1 +1,4 @@
 build/
+.claude/
+coverage.out
+paste.md
