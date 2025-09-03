@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-    "github.com/BurntSushi/toml"
+	"github.com/BurntSushi/toml"
 )
 
 const (
@@ -480,7 +480,7 @@ func DetectApplications() map[string]AppTemplate {
 			if fileOrDirExists(p) {
 				t := tpl
 				t.AuthPath = tpl.AuthPath
-				if fileOrDirExists(expandPath(tpl.AuthPath)) == false {
+				if !fileOrDirExists(expandPath(tpl.AuthPath)) {
 					t.AuthPath = p
 				}
 				found[name] = t
@@ -557,7 +557,8 @@ func (s *Switcher) RunWizard() error {
 	if !hasApps {
 		fmt.Println("\n┌─ Switch Setup Wizard ─────────────────────────────────────┐")
 		fmt.Println("│ 🚀 Welcome to Switch! Let's set up your first profile.   │")
-		fmt.Println("└───────────────────────────────────────────────────────────┘\n")
+		fmt.Println("└───────────────────────────────────────────────────────────┘")
+		fmt.Println()
 
 		detected := DetectApplications()
 		var keys []string
@@ -666,7 +667,8 @@ func (s *Switcher) RunWizard() error {
 
 	fmt.Println("\n┌─ Switch Setup Wizard ─────────────────────────────────────┐")
 	fmt.Println("│ Add new profile                                           │")
-	fmt.Println("└───────────────────────────────────────────────────────────┘\n")
+	fmt.Println("└───────────────────────────────────────────────────────────┘")
+	fmt.Println()
 
 	var existing []string
 	for name := range s.config.Apps {
@@ -869,22 +871,20 @@ func printHelp() {
 	fmt.Printf("  switch add <app> <account>   Add current config as account\n")
 	fmt.Printf("  switch list                  List all apps and profiles\n")
 	fmt.Printf("  switch list <app>            List profiles for specific app\n")
-    fmt.Printf("  switch -v                   Print short version (commit)\n")
-    fmt.Printf("  switch help                 Show this help\n\n")
-    fmt.Printf("Built-in templates: codex, claude, vscode, cursor, ssh, git\n")
+	fmt.Printf("  switch -v                   Print short version (commit)\n")
+	fmt.Printf("  switch help                 Show this help\n\n")
+	fmt.Printf("Built-in templates: codex, claude, vscode, cursor, ssh, git\n")
 }
 
 func shortVersion() string {
-    v := version
-    // strip -dirty suffix if present
-    if strings.HasSuffix(v, "-dirty") {
-        v = strings.TrimSuffix(v, "-dirty")
-    }
-    // extract after -g if present (git describe format)
-    if i := strings.LastIndex(v, "-g"); i != -1 && i+2 < len(v) {
-        return v[i+2:]
-    }
-    return v
+	v := version
+	// strip -dirty suffix (noop if absent)
+	v = strings.TrimSuffix(v, "-dirty")
+	// extract after -g if present (git describe format)
+	if i := strings.LastIndex(v, "-g"); i != -1 && i+2 < len(v) {
+		return v[i+2:]
+	}
+	return v
 }
 
 func runDefaultCycle() int {
@@ -989,13 +989,13 @@ func handleApp(s *Switcher, appName string, args []string) int {
 }
 
 func main() {
-    if len(os.Args) == 1 {
-        os.Exit(runDefaultCycle())
-    }
-    if len(os.Args) == 2 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
-        fmt.Println(shortVersion())
-        return
-    }
+	if len(os.Args) == 1 {
+		os.Exit(runDefaultCycle())
+	}
+	if len(os.Args) == 2 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
+		fmt.Println(shortVersion())
+		return
+	}
 
 	s, err := NewSwitcher()
 	if err != nil {
