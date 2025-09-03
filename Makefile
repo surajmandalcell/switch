@@ -7,7 +7,7 @@ GREEN=\033[0;32m
 BLUE=\033[0;34m
 NC=\033[0m
 
-.PHONY: build install uninstall test fmt vet lint dev run quick
+.PHONY: build install uninstall test fmt vet lint dev run quick update
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -44,3 +44,12 @@ run: build
 	@$(BUILD_DIR)/$(BINARY_NAME)
 
 quick: build install-user
+
+update:
+	@echo "$(BLUE)Updating $(BINARY_NAME)...$(NC)"
+	@rm -rf $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)
+	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
+	@sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
+	@sudo chmod +x /usr/local/bin/$(BINARY_NAME)
+	@echo "$(GREEN)Updated $(BINARY_NAME) to $(VERSION)$(NC)"
