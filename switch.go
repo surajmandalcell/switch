@@ -50,6 +50,8 @@ type Switcher struct {
 	config     *Config
 }
 
+var stdinReader = bufio.NewReader(os.Stdin)
+
 var AppTemplates = map[string]AppTemplate{
 	"codex": {
 		DetectPaths: []string{"~/.codex/auth.json"},
@@ -143,6 +145,11 @@ func expandPath(path string) string {
 	return path
 }
 
+func fileOrDirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func isFolder(path string) bool {
 	stat, err := os.Stat(path)
 	return err == nil && stat.IsDir()
@@ -169,7 +176,6 @@ func copyFile(src, dst string) error {
 	}
 	defer source.Close()
 
-	// Create destination directory if needed
 	dstDir := filepath.Dir(dst)
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return err
@@ -223,18 +229,15 @@ func fileEqual(a, b string) bool {
 		return false
 	}
 
-	// For JSON files, compare structure
 	var aJSON, bJSON map[string]interface{}
 	if json.Unmarshal(aData, &aJSON) == nil && json.Unmarshal(bData, &bJSON) == nil {
 		return jsonEqual(aJSON, bJSON)
 	}
 
-	// Otherwise, compare raw bytes
 	return string(aData) == string(bData)
 }
 
 func folderEqual(a, b string) bool {
-	// Simple folder comparison - check if both exist
 	aInfo, aErr := os.Stat(a)
 	bInfo, bErr := os.Stat(b)
 	if aErr != nil || bErr != nil {
@@ -260,15 +263,13 @@ func (s *Switcher) SetAppConfig(appName string, config AppConfig) {
 }
 
 func (s *Switcher) AddAccount(appName, accountName string) error {
-	// Get or create app config
 	appConfig, exists := s.GetAppConfig(appName)
 	if !exists {
-		// Try to use template
 		template, hasTemplate := AppTemplates[appName]
 		if !hasTemplate {
 			return fmt.Errorf("no configuration found for app '%s'", appName)
 		}
-		
+
 		authPath := expandPath(template.AuthPath)
 		if _, err := os.Stat(authPath); err != nil {
 			return fmt.Errorf("auth path not found: %s", authPath)
@@ -285,13 +286,11 @@ func (s *Switcher) AddAccount(appName, accountName string) error {
 	authPath := expandPath(appConfig.AuthPath)
 	switchPath := resolveSwitchPattern(appConfig.SwitchPattern, authPath, accountName)
 
-	// Check if account already exists
 	for _, acc := range appConfig.Accounts {
 		if acc == accountName {
 			fmt.Printf("%s✗ Account '%s' already exists for %s%s\n", ColorRed, accountName, appName, ColorReset)
 			fmt.Printf("Overwrite? (yes/no): ")
-			reader := bufio.NewReader(os.Stdin)
-			response, _ := reader.ReadString('\n')
+			response, _ := stdinReader.ReadString('\n')
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "yes" && response != "y" {
 				fmt.Printf("%sCancelled%s\n", ColorYellow, ColorReset)
@@ -301,12 +300,10 @@ func (s *Switcher) AddAccount(appName, accountName string) error {
 		}
 	}
 
-	// Copy current config to switch file
 	if err := copyPath(authPath, switchPath); err != nil {
 		return fmt.Errorf("copy config: %w", err)
 	}
 
-	// Update app config
 	if !contains(appConfig.Accounts, accountName) {
 		appConfig.Accounts = append(appConfig.Accounts, accountName)
 		sort.Strings(appConfig.Accounts)
@@ -346,19 +343,16 @@ func (s *Switcher) SwitchAccount(appName, accountName string) error {
 		return fmt.Errorf("switch file not found: %s", switchPath)
 	}
 
-	// Save current config to current account's switch file
 	currentAccount := s.findCurrentAccount(appName)
 	if currentAccount != "" && currentAccount != accountName {
 		currentSwitchPath := resolveSwitchPattern(appConfig.SwitchPattern, authPath, currentAccount)
 		copyPath(authPath, currentSwitchPath)
 	}
 
-	// Load target account's config
 	if err := copyPath(switchPath, authPath); err != nil {
 		return fmt.Errorf("switch config: %w", err)
 	}
 
-	// Update current in config
 	appConfig.Current = accountName
 	s.SetAppConfig(appName, appConfig)
 	s.saveConfig()
@@ -461,18 +455,378 @@ func (s *Switcher) ListAllApps() {
 	for appName, appConfig := range s.config.Apps {
 		current := s.findCurrentAccount(appName)
 		accountCount := len(appConfig.Accounts)
-		
+
 		if appName == s.config.Default.Config {
 			fmt.Printf("  %s●%s %s (%d accounts) %s(default)%s", ColorGreen, ColorReset, appName, accountCount, ColorYellow, ColorReset)
 		} else {
 			fmt.Printf("  ○ %s (%d accounts)", appName, accountCount)
 		}
-		
+
 		if current != "" {
 			fmt.Printf(" - current: %s", current)
 		}
 		fmt.Printf("\n")
 	}
+}
+
+// App detection based on templates
+func DetectApplications() map[string]AppTemplate {
+	found := make(map[string]AppTemplate)
+	for name, tpl := range AppTemplates {
+		for _, p := range tpl.DetectPaths {
+			p = expandPath(p)
+			if fileOrDirExists(p) {
+				t := tpl
+				t.AuthPath = tpl.AuthPath
+				if fileOrDirExists(expandPath(tpl.AuthPath)) == false {
+					t.AuthPath = p
+				}
+				found[name] = t
+				break
+			}
+		}
+	}
+	return found
+}
+
+// Simple interactive prompts
+func promptString(label string, defaultVal string) (string, error) {
+	if defaultVal != "" {
+		fmt.Printf("%s (%s): ", label, defaultVal)
+	} else {
+		fmt.Printf("%s: ", label)
+	}
+	input, err := stdinReader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return defaultVal, nil
+	}
+	return input, nil
+}
+
+func promptYesNo(label string, defaultYes bool) (bool, error) {
+	def := "y/N"
+	if defaultYes {
+		def = "Y/n"
+	}
+	fmt.Printf("%s (%s): ", label, def)
+	input, err := stdinReader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	input = strings.TrimSpace(strings.ToLower(input))
+	if input == "" {
+		return defaultYes, nil
+	}
+	return input == "y" || input == "yes", nil
+}
+
+func promptChoice(title string, options []string) (int, error) {
+	fmt.Println(title)
+	for i, opt := range options {
+		fmt.Printf("  %d. %s\n", i+1, opt)
+	}
+	for {
+		fmt.Printf("Choose (1-%d): ", len(options))
+		line, err := stdinReader.ReadString('\n')
+		if err != nil {
+			return -1, err
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return -1, nil
+		}
+		var idx int
+		_, err = fmt.Sscanf(line, "%d", &idx)
+		if err == nil && idx >= 1 && idx <= len(options) {
+			return idx - 1, nil
+		}
+		fmt.Println("Invalid choice, try again.")
+	}
+}
+
+// Interactive setup wizard
+func (s *Switcher) RunWizard() error {
+	hasApps := len(s.config.Apps) > 0
+
+	if !hasApps {
+		fmt.Println("\n┌─ Switch Setup Wizard ─────────────────────────────────────┐")
+		fmt.Println("│ 🚀 Welcome to Switch! Let's set up your first profile.   │")
+		fmt.Println("└───────────────────────────────────────────────────────────┘\n")
+
+		detected := DetectApplications()
+		var keys []string
+		for name := range detected {
+			keys = append(keys, name)
+		}
+		sort.Strings(keys)
+		var options []string
+		for _, k := range keys {
+			d := detected[k]
+			path := expandPath(d.AuthPath)
+			kind := "File"
+			if isFolder(path) {
+				kind = "Folder"
+			}
+			options = append(options, fmt.Sprintf("%s      %s  [%s]", strings.Title(k), path, kind))
+		}
+		options = append(options, "Other (manual setup)")
+
+		idx, err := promptChoice("Available applications:", options)
+		if err != nil {
+			return err
+		}
+		if idx == -1 {
+			return fmt.Errorf("cancelled")
+		}
+
+		var appName string
+		var authPath string
+		var pattern string
+		if idx == len(options)-1 {
+			appName, err = promptString("Application name", "")
+			if err != nil {
+				return err
+			}
+			authPath, err = promptString("Config file/folder path", "")
+			if err != nil {
+				return err
+			}
+			var defPattern string
+			if strings.Contains(filepath.Base(authPath), ".") {
+				defPattern = "{auth_path}.{name}.switch"
+			} else {
+				defPattern = filepath.Join(filepath.Dir(authPath), "profiles", "{name}.switch")
+			}
+			pattern, err = promptString("Switch pattern", defPattern)
+			if err != nil {
+				return err
+			}
+		} else {
+			key := keys[idx]
+			tpl := detected[key]
+			appName, err = promptString("Application name", key)
+			if err != nil {
+				return err
+			}
+			authPath, err = promptString("Config path", tpl.AuthPath)
+			if err != nil {
+				return err
+			}
+			pattern, err = promptString("Switch pattern", tpl.Pattern)
+			if err != nil {
+				return err
+			}
+		}
+		appName = strings.ToLower(strings.TrimSpace(appName))
+		authPath = expandPath(strings.TrimSpace(authPath))
+		profile, err := promptString("Current profile/account name", "")
+		if err != nil {
+			return err
+		}
+		profile = strings.TrimSpace(profile)
+
+		fmt.Println("\nSummary:")
+		fmt.Printf("  App:         %s\n", appName)
+		fmt.Printf("  Profile:     %s\n", profile)
+		fmt.Printf("  Config path: %s\n", authPath)
+		fmt.Printf("  Backup path: %s\n", resolveSwitchPattern(pattern, authPath, profile))
+
+		ok, err := promptYesNo("Save this configuration?", true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("cancelled")
+		}
+
+		s.SetAppConfig(appName, AppConfig{
+			Current:       profile,
+			Accounts:      []string{},
+			AuthPath:      authPath,
+			SwitchPattern: pattern,
+		})
+		if err := s.AddAccount(appName, profile); err != nil {
+			return err
+		}
+		// Set default app if not set
+		if s.config.Default.Config == "" {
+			s.config.Default.Config = appName
+			if err := s.saveConfig(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	fmt.Println("\n┌─ Switch Setup Wizard ─────────────────────────────────────┐")
+	fmt.Println("│ Add new profile                                           │")
+	fmt.Println("└───────────────────────────────────────────────────────────┘\n")
+
+	var existing []string
+	for name := range s.config.Apps {
+		existing = append(existing, name)
+	}
+	sort.Strings(existing)
+
+	options := append([]string{}, existing...)
+	options = append(options, "Auto-detect new application")
+	options = append(options, "Manual setup")
+
+	idx, err := promptChoice("Choose target:", options)
+	if err != nil {
+		return err
+	}
+	if idx == -1 {
+		return fmt.Errorf("cancelled")
+	}
+
+	if idx < len(existing) {
+		appName := existing[idx]
+		profile, err := promptString("New profile name", "")
+		if err != nil {
+			return err
+		}
+		fmt.Println("\nSummary:")
+		appCfg := s.config.Apps[appName]
+		fmt.Printf("  App:         %s\n", appName)
+		fmt.Printf("  Profile:     %s\n", profile)
+		fmt.Printf("  Config path: %s\n", expandPath(appCfg.AuthPath))
+		fmt.Printf("  Backup path: %s\n", resolveSwitchPattern(appCfg.SwitchPattern, expandPath(appCfg.AuthPath), profile))
+		ok, err := promptYesNo("Save this configuration?", true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("cancelled")
+		}
+		return s.AddAccount(appName, profile)
+	}
+
+	if idx == len(existing) { // auto-detect
+		detected := DetectApplications()
+		var keys []string
+		for name := range detected {
+			if _, exists := s.config.Apps[name]; !exists {
+				keys = append(keys, name)
+			}
+		}
+		if len(keys) == 0 {
+			fmt.Println("No new applications detected.")
+			return nil
+		}
+		sort.Strings(keys)
+		var opts []string
+		for _, k := range keys {
+			d := detected[k]
+			path := expandPath(d.AuthPath)
+			kind := "File"
+			if isFolder(path) {
+				kind = "Folder"
+			}
+			opts = append(opts, fmt.Sprintf("%s      %s  [%s]", strings.Title(k), path, kind))
+		}
+		j, err := promptChoice("Detected applications:", opts)
+		if err != nil {
+			return err
+		}
+		if j == -1 {
+			return fmt.Errorf("cancelled")
+		}
+		key := keys[j]
+		tpl := detected[key]
+		appName, err := promptString("Application name", key)
+		if err != nil {
+			return err
+		}
+		authPath, err := promptString("Config path", tpl.AuthPath)
+		if err != nil {
+			return err
+		}
+		pattern, err := promptString("Switch pattern", tpl.Pattern)
+		if err != nil {
+			return err
+		}
+		profile, err := promptString("Current profile name", "")
+		if err != nil {
+			return err
+		}
+		authPath = expandPath(authPath)
+		fmt.Println("\nSummary:")
+		fmt.Printf("  App:         %s\n", appName)
+		fmt.Printf("  Profile:     %s\n", profile)
+		fmt.Printf("  Config path: %s\n", authPath)
+		fmt.Printf("  Backup path: %s\n", resolveSwitchPattern(pattern, authPath, profile))
+		ok, err := promptYesNo("Save this configuration?", true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("cancelled")
+		}
+		s.SetAppConfig(appName, AppConfig{Current: profile, Accounts: []string{}, AuthPath: authPath, SwitchPattern: pattern})
+		if err := s.AddAccount(appName, profile); err != nil {
+			return err
+		}
+		if s.config.Default.Config == "" {
+			s.config.Default.Config = appName
+			if err := s.saveConfig(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Manual setup
+	appName, err := promptString("Application name", "")
+	if err != nil {
+		return err
+	}
+	authPath, err := promptString("Config file/folder path", "")
+	if err != nil {
+		return err
+	}
+	var defPattern string
+	if strings.Contains(filepath.Base(authPath), ".") {
+		defPattern = "{auth_path}.{name}.switch"
+	} else {
+		defPattern = filepath.Join(filepath.Dir(authPath), "profiles", "{name}.switch")
+	}
+	pattern, err := promptString("Switch pattern", defPattern)
+	if err != nil {
+		return err
+	}
+	profile, err := promptString("Current profile name", "")
+	if err != nil {
+		return err
+	}
+	authPath = expandPath(authPath)
+	fmt.Println("\nSummary:")
+	fmt.Printf("  App:         %s\n", appName)
+	fmt.Printf("  Profile:     %s\n", profile)
+	fmt.Printf("  Config path: %s\n", authPath)
+	fmt.Printf("  Backup path: %s\n", resolveSwitchPattern(pattern, authPath, profile))
+	ok, err := promptYesNo("Save this configuration?", true)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("cancelled")
+	}
+	s.SetAppConfig(appName, AppConfig{Current: profile, Accounts: []string{}, AuthPath: authPath, SwitchPattern: pattern})
+	if err := s.AddAccount(appName, profile); err != nil {
+		return err
+	}
+	if s.config.Default.Config == "" {
+		s.config.Default.Config = appName
+		if err := s.saveConfig(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Utility functions
@@ -502,9 +856,125 @@ func (s *Switcher) ListCodexAccounts() {
 	s.ListAccounts("codex")
 }
 
+func printHelp() {
+	fmt.Printf("%sSwitch - Universal Account Switcher%s\n\n", ColorCyan, ColorReset)
+	fmt.Printf("Usage:\n")
+	fmt.Printf("  switch                       Cycle through default app accounts\n")
+	fmt.Printf("  switch <app>                 Cycle through app accounts\n")
+	fmt.Printf("  switch <app> <account>       Switch to specific account\n")
+	fmt.Printf("  switch add                   Launch setup wizard\n")
+	fmt.Printf("  switch add <app>             Add a profile to app\n")
+	fmt.Printf("  switch add <app> <account>   Add current config as account\n")
+	fmt.Printf("  switch list                  List all apps and profiles\n")
+	fmt.Printf("  switch list <app>            List profiles for specific app\n")
+	fmt.Printf("  switch help                  Show this help\n\n")
+	fmt.Printf("Built-in templates: codex, claude, vscode, cursor, ssh, git\n")
+}
+
+func runDefaultCycle() int {
+	s, err := NewSwitcher()
+	if err != nil {
+		printError(err)
+		return 1
+	}
+	def := s.config.Default.Config
+	if def == "" {
+		fmt.Printf("%s✗ No default application configured%s\n", ColorRed, ColorReset)
+		fmt.Printf("Run 'switch add' to set up an application.\n")
+		return 1
+	}
+	if err := s.CycleAccounts(def); err != nil {
+		printError(err)
+		return 1
+	}
+	return 0
+}
+
+func handleAdd(s *Switcher, args []string) int {
+	switch len(args) {
+	case 0:
+		if err := s.RunWizard(); err != nil {
+			if err.Error() != "cancelled" {
+				printError(err)
+			}
+			return 1
+		}
+		return 0
+	case 1:
+		appName := args[0]
+		profile, err := promptString("Profile name", "")
+		if err != nil {
+			printError(err)
+			return 1
+		}
+		if err := s.AddAccount(appName, profile); err != nil {
+			printError(err)
+			return 1
+		}
+		return 0
+	case 2:
+		if err := s.AddAccount(args[0], args[1]); err != nil {
+			printError(err)
+			return 1
+		}
+		return 0
+	default:
+		fmt.Printf("Usage: switch add <app> <account>\n")
+		return 1
+	}
+}
+
+func handleList(s *Switcher, args []string) int {
+	if len(args) == 0 {
+		s.ListAllApps()
+	} else {
+		s.ListAccounts(args[0])
+	}
+	return 0
+}
+
+func handleApp(s *Switcher, appName string, args []string) int {
+	switch len(args) {
+	case 0:
+		if err := s.CycleAccounts(appName); err != nil {
+			printError(err)
+			return 1
+		}
+		return 0
+	case 1:
+		sub := args[0]
+		if sub == "add" {
+			fmt.Printf("Usage: switch add <app> <account>\n")
+			return 1
+		}
+		if sub == "list" {
+			s.ListAccounts(appName)
+			return 0
+		}
+		if err := s.SwitchAccount(appName, sub); err != nil {
+			printError(err)
+			return 1
+		}
+		return 0
+	case 2:
+		if args[0] == "add" {
+			if err := s.AddAccount(appName, args[1]); err != nil {
+				printError(err)
+				return 1
+			}
+			return 0
+		}
+		fallthrough
+	default:
+		fmt.Printf("%s✗ Unknown command format%s\n", ColorRed, ColorReset)
+		fmt.Printf("Run 'switch help' for usage\n")
+		return 1
+	}
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		os.Args = append(os.Args, "codex")
+	if len(os.Args) == 1 {
+		os.Exit(runDefaultCycle())
 	}
 
 	s, err := NewSwitcher()
@@ -515,73 +985,13 @@ func main() {
 
 	switch os.Args[1] {
 	case "add":
-		if len(os.Args) == 2 {
-			fmt.Printf("Interactive wizard not implemented yet\n")
-			fmt.Printf("Usage: switch add <app> <account>\n")
-			os.Exit(1)
-		} else if len(os.Args) == 4 {
-			if err := s.AddAccount(os.Args[2], os.Args[3]); err != nil {
-				printError(err)
-				os.Exit(1)
-			}
-		} else {
-			fmt.Printf("Usage: switch add <app> <account>\n")
-			os.Exit(1)
-		}
-
+		os.Exit(handleAdd(s, os.Args[2:]))
 	case "list":
-		if len(os.Args) == 2 {
-			s.ListAllApps()
-		} else {
-			s.ListAccounts(os.Args[2])
-		}
-
+		os.Exit(handleList(s, os.Args[2:]))
 	case "help":
-		fmt.Printf("%sSwitch - Universal Account Switcher%s\n\n", ColorCyan, ColorReset)
-		fmt.Printf("Usage:\n")
-		fmt.Printf("  switch                       Cycle through default app accounts\n")
-		fmt.Printf("  switch <app>                 Cycle through app accounts\n")
-		fmt.Printf("  switch <app> <account>       Switch to specific account\n")
-		fmt.Printf("  switch add <app> <account>   Add current config as account\n")
-		fmt.Printf("  switch list                  List all apps and accounts\n")
-		fmt.Printf("  switch list <app>            List accounts for specific app\n")
-		fmt.Printf("  switch help                  Show this help\n\n")
-		fmt.Printf("Supported apps: codex, claude, vscode, cursor, ssh, git\n")
-
-	// Handle app-specific commands
+		printHelp()
 	default:
-		appName := os.Args[1]
-		
-		if len(os.Args) == 2 {
-			// switch <app> - cycle accounts
-			if err := s.CycleAccounts(appName); err != nil {
-				printError(err)
-				os.Exit(1)
-			}
-		} else if len(os.Args) == 3 {
-			accountName := os.Args[2]
-			if accountName == "add" {
-				fmt.Printf("Usage: switch add <app> <account>\n")
-				os.Exit(1)
-			} else if accountName == "list" {
-				s.ListAccounts(appName)
-			} else {
-				// switch <app> <account> - switch to account
-				if err := s.SwitchAccount(appName, accountName); err != nil {
-					printError(err)
-					os.Exit(1)
-				}
-			}
-		} else if len(os.Args) == 4 && os.Args[2] == "add" {
-			// switch <app> add <account>
-			if err := s.AddAccount(appName, os.Args[3]); err != nil {
-				printError(err)
-				os.Exit(1)
-			}
-		} else {
-			fmt.Printf("%s✗ Unknown command format%s\n", ColorRed, ColorReset)
-			fmt.Printf("Run 'switch help' for usage\n")
-			os.Exit(1)
-		}
+		app := os.Args[1]
+		os.Exit(handleApp(s, app, os.Args[2:]))
 	}
 }

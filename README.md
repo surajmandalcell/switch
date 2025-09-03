@@ -1,19 +1,18 @@
 # Switch
 
-A lightweight CLI tool for seamlessly switching between multiple authentication accounts for AI services like Codex, Claude, and other applications.
+Simple CLI to switch between multiple profiles for any app that uses a file or folder for its configuration (e.g., Codex, Claude, VSCode, Cursor, SSH, Git).
 
 ## Overview
 
-Switch eliminates the hassle of manually managing different authentication configurations by allowing you to store multiple account profiles and switch between them instantly. Perfect for developers who work with multiple AI service accounts or different authentication contexts.
+Store multiple profiles and swap your active config with one command. Works for both single files (like `~/.codex/auth.json`) and entire folders (like `~/.vscode/User`).
 
 ## Features
 
-- **Fast Account Switching**: Cycle through accounts with a single command
-- **Multiple Service Support**: Currently supports Codex with extensible architecture
-- **Secure Storage**: Authentication files are stored securely in your home directory
-- **Interactive Setup**: Guided setup for your first account
-- **Cross-Platform**: Supports macOS, Linux, and Windows
-- **Colorful CLI**: Enhanced user experience with colored terminal output
+- **App‑agnostic**: Works with any file/folder config
+- **Built‑in templates**: Codex, Claude, VSCode, Cursor, SSH, Git
+- **Wizard setup**: `switch add` guides detection and setup
+- **Cycle or target**: Cycle profiles or switch to a specific one
+- **Folder support**: Back up and restore whole config directories
 
 ## Installation
 
@@ -55,56 +54,41 @@ GOOS=windows GOARCH=amd64 go build -o ./build/switch-windows-amd64.exe switch.go
 
 ## Quick Start
 
-### 1. Initial Setup
+### 1. Add your first app/profile
 
 ```bash
-# Ensure the codex directory exists
-mkdir -p ~/.codex
-
-# Place your authentication file at ~/.codex/auth.json
-# Example auth.json content:
-# {"api_key": "your-api-key", "organization": "your-org"}
+switch add
+# Wizard will auto-detect known apps or let you set up manually
 ```
 
-### 2. Add Your First Account
+### 2. Switch between profiles
 
 ```bash
-switch codex add myaccount
-```
-
-### 3. Add More Accounts
-
-```bash
-switch codex add work
-switch codex add personal
-```
-
-### 4. Switch Between Accounts
-
-```bash
-# Cycle through all accounts
+# Cycle default app
 switch
 
-# Switch to a specific account
-switch codex myaccount
+# Cycle specific app
+switch codex
 
-# List all accounts
-switch codex list
+# Switch to a specific profile
+switch codex work
+
+# List apps and profiles
+switch list
+switch list codex
 ```
 
 ## Usage
 
 ### Commands
 
-| Command                   | Description                            |
-| ------------------------- | -------------------------------------- |
-| `switch`                  | Cycle through all available accounts   |
-| `switch codex`            | Cycle through Codex accounts           |
-| `switch codex <name>`     | Switch to a specific account           |
-| `switch codex add <name>` | Add current auth.json as a new account |
-| `switch codex list`       | List all configured accounts           |
-| `switch list`             | List all configured accounts (alias)   |
-| `switch help`             | Show help information                  |
+- `switch`: Cycle the default app
+- `switch <app>`: Cycle profiles for an app
+- `switch <app> <profile>`: Switch to a profile
+- `switch add`: Launch setup wizard
+- `switch add <app>`: Add a profile to an app (prompts for name)
+- `switch add <app> <profile>`: Add current config as a profile
+- `switch list` / `switch list <app>`: List apps or profiles
 
 ### Examples
 
@@ -123,28 +107,25 @@ switch codex list         # Shows all accounts with current indicator
 
 ## Configuration
 
-Switch stores its configuration in `~/.switch.toml` and authentication files in `~/.codex/`.
+Config is stored at `~/.switch.toml`.
 
-### Directory Structure
-
-```
-~/.codex/
-├── auth.json              # Current active authentication
-├── auth.json.work.switch  # 'work' account backup
-└── auth.json.personal.switch  # 'personal' account backup
-
-~/.switch.toml             # Switch configuration file
-```
-
-### Configuration File Format
+Example:
 
 ```toml
 [default]
-config = "codex"
+  config = "codex"
 
 [codex]
-work = { current = "work" }
-personal = { current = "personal" }
+  current = "work"
+  accounts = ["work", "personal"]
+  auth_path = "~/.codex/auth.json"
+  switch_pattern = "{auth_path}.{name}.switch"
+
+[vscode]
+  current = "dev"
+  accounts = ["dev", "personal"]
+  auth_path = "~/.vscode/User"
+  switch_pattern = "~/.vscode/profiles/{name}.switch"
 ```
 
 ## Development
@@ -163,11 +144,7 @@ go build -o ./build/switch switch.go
 
 ### Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+PRs welcome.
 
 ## Requirements
 
