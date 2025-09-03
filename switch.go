@@ -147,7 +147,7 @@ func (s *Switcher) AddCodexAccount(name string) error {
 		response = strings.TrimSpace(strings.ToLower(response))
 		if response != "yes" && response != "y" {
 			fmt.Printf("%sCancelled%s\n", ColorYellow, ColorReset)
-			return nil
+			return fmt.Errorf("cancelled by user")
 		}
 	}
 
@@ -204,7 +204,7 @@ func (s *Switcher) SwitchCodexAccount(name string) error {
 
 	for k := range s.config.Codex {
 		entry := s.config.Codex[k]
-		entry.Current = name
+		entry.Current = k
 		s.config.Codex[k] = entry
 	}
 	s.saveConfig()
@@ -259,7 +259,8 @@ func (s *Switcher) findCurrentAccount() string {
 	var currentJSON map[string]interface{}
 	json.Unmarshal(currentData, &currentJSON)
 
-	for name := range s.config.Codex {
+	accounts := s.getCodexAccounts()
+	for _, name := range accounts {
 		switchPath := authPath + "." + name + ".switch"
 		switchData, err := os.ReadFile(switchPath)
 		if err != nil {
