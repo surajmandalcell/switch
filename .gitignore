@@ -2,3 +2,6 @@ build/
 .claude/
 coverage.out
 paste.md
+plan.md
+*.backup
+temp/
