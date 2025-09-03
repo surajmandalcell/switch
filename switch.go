@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+    "github.com/BurntSushi/toml"
 )
 
 const (
@@ -21,6 +21,8 @@ const (
 	ColorBlue   = "\033[34m"
 	ColorCyan   = "\033[36m"
 )
+
+var version = "dev"
 
 type Config struct {
 	Default DefaultConfig        `toml:"default"`
@@ -867,8 +869,22 @@ func printHelp() {
 	fmt.Printf("  switch add <app> <account>   Add current config as account\n")
 	fmt.Printf("  switch list                  List all apps and profiles\n")
 	fmt.Printf("  switch list <app>            List profiles for specific app\n")
-	fmt.Printf("  switch help                  Show this help\n\n")
-	fmt.Printf("Built-in templates: codex, claude, vscode, cursor, ssh, git\n")
+    fmt.Printf("  switch -v                   Print short version (commit)\n")
+    fmt.Printf("  switch help                 Show this help\n\n")
+    fmt.Printf("Built-in templates: codex, claude, vscode, cursor, ssh, git\n")
+}
+
+func shortVersion() string {
+    v := version
+    // strip -dirty suffix if present
+    if strings.HasSuffix(v, "-dirty") {
+        v = strings.TrimSuffix(v, "-dirty")
+    }
+    // extract after -g if present (git describe format)
+    if i := strings.LastIndex(v, "-g"); i != -1 && i+2 < len(v) {
+        return v[i+2:]
+    }
+    return v
 }
 
 func runDefaultCycle() int {
@@ -973,9 +989,13 @@ func handleApp(s *Switcher, appName string, args []string) int {
 }
 
 func main() {
-	if len(os.Args) == 1 {
-		os.Exit(runDefaultCycle())
-	}
+    if len(os.Args) == 1 {
+        os.Exit(runDefaultCycle())
+    }
+    if len(os.Args) == 2 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
+        fmt.Println(shortVersion())
+        return
+    }
 
 	s, err := NewSwitcher()
 	if err != nil {
