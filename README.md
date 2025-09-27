@@ -6,6 +6,22 @@ Simple CLI to switch between multiple profiles for any app that uses a file or f
 
 Store multiple profiles and swap your active config with one command. Works for both single files (like `~/.codex/auth.json`) and entire folders (like `~/.vscode/User`).
 
+## TL;DR for quick usage
+```
+git clone https://github.com/surajmandalcell/switch && cd switch
+make install
+
+# login to one of your codex cli account and then
+switch add codex1
+# logut of current codex cli account and login to new one and then
+switch add codex2
+
+# now you can freely switch between them by just one, if you have more it behaves the same
+switch
+# or
+switch codex codex1
+```
+
 ## Features
 
 - **App‑agnostic**: Works with any file/folder config
