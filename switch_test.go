@@ -728,7 +728,19 @@ func TestMain_CLI_Subprocess(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
-		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		
+		// Start with os.Environ() but filter out HOME/USERPROFILE if we're going to override them
+		baseEnv := []string{"GO_WANT_HELPER_PROCESS=1"}
+		_, overrideHome := env["HOME"]
+		for _, e := range os.Environ() {
+			// Skip HOME and USERPROFILE only if we're going to set HOME explicitly
+			if overrideHome && (strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "USERPROFILE=")) {
+				continue
+			}
+			baseEnv = append(baseEnv, e)
+		}
+		cmd.Env = baseEnv
+		
 		// Provide empty stdin to avoid any accidental reads blocking
 		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
@@ -1375,7 +1387,19 @@ func TestMain_CLI_Subprocess_AppCommands(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
-		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		
+		// Start with os.Environ() but filter out HOME/USERPROFILE if we're going to override them
+		baseEnv := []string{"GO_WANT_HELPER_PROCESS=1"}
+		_, overrideHome := env["HOME"]
+		for _, e := range os.Environ() {
+			// Skip HOME and USERPROFILE only if we're going to set HOME explicitly
+			if overrideHome && (strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "USERPROFILE=")) {
+				continue
+			}
+			baseEnv = append(baseEnv, e)
+		}
+		cmd.Env = baseEnv
+		
 		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
