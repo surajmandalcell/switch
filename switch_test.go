@@ -1269,3 +1269,132 @@ func TestRunDefaultCycle_DefaultAppMissing(t *testing.T) {
 		t.Fatalf("expected error code when default app missing")
 	}
 }
+
+func TestNewSwitcher_ConfigReadError(t *testing.T) {
+	home := setHome(t)
+	// Make ~/.switch.toml a directory so reading fails inside NewSwitcher->loadConfig
+	if err := os.MkdirAll(filepath.Join(home, ".switch.toml"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSwitcher(); err == nil {
+		t.Fatalf("expected NewSwitcher to fail on unreadable config path")
+	}
+}
+
+func TestRunDefaultCycle_NoAccountsInDefault(t *testing.T) {
+	home := setHome(t)
+	// prepare codex auth file so DetectApplications is irrelevant and CycleAccounts runs
+	_ = os.MkdirAll(filepath.Join(home, ".codex"), 0755)
+	_ = os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte("{}"), 0600)
+	cfg := &Config{Default: DefaultConfig{Config: "codex"}, Apps: map[string]AppConfig{
+		"codex": {Current: "", Accounts: []string{}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"},
+	}}
+	s := &Switcher{configPath: filepath.Join(home, ".switch.toml"), config: cfg}
+	if err := s.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if code := runDefaultCycle(); code != 1 {
+		t.Fatalf("expected 1 when default has no accounts, got %d", code)
+	}
+}
+
+func TestMain_CLI_Subprocess_AppCommands(t *testing.T) {
+	run := func(args []string, env map[string]string) (int, string) {
+		cmd := exec.Command(os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
+		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+		out, err := cmd.CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode(), string(out)
+		}
+		return 0, string(out)
+	}
+	tmpHome := t.TempDir()
+	// Prepare codex data and config
+	_ = os.MkdirAll(filepath.Join(tmpHome, ".codex"), 0755)
+	if err := os.WriteFile(filepath.Join(tmpHome, ".codex", "auth.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{Default: DefaultConfig{Config: "codex"}, Apps: map[string]AppConfig{"codex": {Current: "", Accounts: []string{}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"}}}
+	s := &Switcher{configPath: filepath.Join(tmpHome, ".switch.toml"), config: cfg}
+	if err := s.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	// list profiles for app via CLI default case
+	if code, out := run([]string{"codex", "list"}, map[string]string{"HOME": tmpHome}); code != 0 || !strings.Contains(out, "Codex") {
+		t.Fatalf("codex list failed: code=%d out=%q", code, out)
+	}
+	// add and then switch via CLI
+	if code, out := run([]string{"codex", "add", "p1"}, map[string]string{"HOME": tmpHome}); code != 0 {
+		t.Fatalf("codex add failed: %d %q", code, out)
+	}
+	if code, out := run([]string{"codex", "p1"}, map[string]string{"HOME": tmpHome}); code != 0 {
+		t.Fatalf("codex switch failed: %d %q", code, out)
+	}
+}
+
+func TestRunWizard_ManualFolder_DefaultPattern(t *testing.T) {
+	home := setHome(t)
+	// Create a folder as the "config path" so wizard chooses profiles/{name}.switch default pattern
+	confDir := filepath.Join(home, ".confdir")
+	if err := os.MkdirAll(confDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Put a file inside the folder to be copied
+	if err := os.WriteFile(filepath.Join(confDir, "a.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := NewSwitcher()
+	inputs := strings.Join([]string{
+		"1",         // Other (manual setup)
+		"folderapp", // app name
+		confDir,     // folder path
+		"",          // accept default pattern (profiles/{name}.switch)
+		"p1",        // current profile
+		"",          // save yes
+		"",
+	}, "\n") + "\n"
+	withStdin(t, inputs, func() {
+		if err := s.RunWizard(); err != nil {
+			t.Fatalf("wizard folder: %v", err)
+		}
+	})
+	app, ok := s.GetAppConfig("folderapp")
+	if !ok {
+		t.Fatalf("folderapp missing from config")
+	}
+	backup := resolveSwitchPattern(app.SwitchPattern, confDir, "p1")
+	// Expect the file under profiles/{name}.switch/a.txt
+	if _, err := os.Stat(filepath.Join(backup, "a.txt")); err != nil {
+		t.Fatalf("expected copied file in backup dir: %v", err)
+	}
+}
+
+func TestHandleAdd_ZeroArgs_Success(t *testing.T) {
+	home := setHome(t)
+	// Prepare a minimal config file to add
+	if err := os.MkdirAll(filepath.Join(home, ".mapp"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(home, ".mapp", "cfg.json")
+	if err := os.WriteFile(cfg, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := NewSwitcher()
+	inputs := strings.Join([]string{
+		"1",    // manual setup
+		"mapp", // app name
+		cfg,    // config file
+		"",     // pattern default
+		"p0",   // profile
+		"",     // save yes
+		"",
+	}, "\n") + "\n"
+	code := 1
+	withStdin(t, inputs, func() { code = handleAdd(s, []string{}) })
+	if code != 0 {
+		t.Fatalf("expected handleAdd success, got %d", code)
+	}
+}
