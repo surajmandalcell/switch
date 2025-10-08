@@ -149,7 +149,7 @@ Example:
 ### Testing
 
 ```bash
-go test -v -cover
+make test
 ```
 
 ### Building
@@ -166,6 +166,8 @@ PRs welcome.
 
 - Go 1.25.0 or higher
 - Write access to your home directory
+
+Note: This repo uses Go's module-managed toolchain. If you see toolchain mismatch errors locally, ensure your Go is up-to-date (1.25+) or set GOTOOLCHAIN=auto in your environment.
 
 ## License
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Helpers
@@ -702,12 +704,19 @@ func TestHandleAdd_ZeroArgs_Cancelled(t *testing.T) {
 // main() subprocess tests to cover exit paths
 func TestMain_CLI_Subprocess(t *testing.T) {
 	run := func(args []string, env map[string]string) (int, string) {
-		cmd := exec.Command(os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
 		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		// Provide empty stdin to avoid any accidental reads blocking
+		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode(), string(out)
 		}
@@ -937,12 +946,18 @@ func TestHandleApp_AddSubcommand_Success(t *testing.T) {
 
 func TestMain_CLI_Subprocess_ListAndAdd(t *testing.T) {
 	run := func(args []string, env map[string]string) (int, string) {
-		cmd := exec.Command(os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
 		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode(), string(out)
 		}
@@ -1332,12 +1347,18 @@ func TestRunDefaultCycle_NoAccountsInDefault(t *testing.T) {
 
 func TestMain_CLI_Subprocess_AppCommands(t *testing.T) {
 	run := func(args []string, env map[string]string) (int, string) {
-		cmd := exec.Command(os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
 		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode(), string(out)
 		}
