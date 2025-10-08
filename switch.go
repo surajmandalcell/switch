@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -93,8 +94,26 @@ var AppTemplates = map[string]AppTemplate{
 	},
 }
 
+// getHomeDir returns the user's home directory, respecting environment variables.
+// This is needed because os.UserHomeDir() on Windows uses the Windows API which
+// ignores environment variable changes (like those made in tests with t.Setenv).
+func getHomeDir() (string, error) {
+	// First check environment variables
+	if runtime.GOOS == "windows" {
+		// On Windows, check USERPROFILE first, then HOME
+		if home := os.Getenv("USERPROFILE"); home != "" {
+			return home, nil
+		}
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	// Fall back to os.UserHomeDir() if no env vars are set
+	return os.UserHomeDir()
+}
+
 func NewSwitcher() (*Switcher, error) {
-	home, err := os.UserHomeDir()
+	home, err := getHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("get home dir: %w", err)
 	}
@@ -152,7 +171,7 @@ func expandPath(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 
 	if strings.HasPrefix(p, "~") {
-		home, _ := os.UserHomeDir()
+		home, _ := getHomeDir()
 		switch {
 		case p == "~":
 			p = home
