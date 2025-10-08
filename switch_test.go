@@ -117,8 +117,10 @@ func TestLoadSaveConfig_RoundTrip(t *testing.T) {
 func TestExpandAndResolve(t *testing.T) {
 	home := setHome(t)
 	got := expandPath("~/file.txt")
-	if got != filepath.Join(home, "file.txt") {
-		t.Errorf("expandPath mismatch: %s", got)
+	want := filepath.Join(home, "file.txt")
+	// On Windows, compare cleaned paths to handle short names (8.3 format)
+	if filepath.Clean(got) != filepath.Clean(want) {
+		t.Errorf("expandPath mismatch: got %s, want %s", got, want)
 	}
 	p := resolveSwitchPattern("{auth_path}.{name}.switch", filepath.Join(home, ".codex/auth.json"), "alice")
 	if !strings.HasSuffix(p, ".codex/auth.json.alice.switch") {
@@ -623,8 +625,10 @@ func TestDetectApplications(t *testing.T) {
 		t.Fatalf("vscode not detected")
 	}
 	// If default AuthPath (~/.vscode/User) absent, AuthPath should equal the detected path
-	if expandPath(found["vscode"].AuthPath) != vscodeAlt {
-		t.Fatalf("vscode AuthPath not set to detected path: %q", found["vscode"].AuthPath)
+	gotPath := filepath.Clean(expandPath(found["vscode"].AuthPath))
+	wantPath := filepath.Clean(vscodeAlt)
+	if gotPath != wantPath {
+		t.Fatalf("vscode AuthPath not set to detected path: got %q, want %q", gotPath, wantPath)
 	}
 }
 
@@ -729,6 +733,10 @@ func TestMain_CLI_Subprocess(t *testing.T) {
 		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
+			// On Windows, also set USERPROFILE when HOME is set
+			if k == "HOME" && runtime.GOOS == "windows" {
+				cmd.Env = append(cmd.Env, "USERPROFILE="+v)
+			}
 		}
 		out, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
@@ -1371,6 +1379,10 @@ func TestMain_CLI_Subprocess_AppCommands(t *testing.T) {
 		cmd.Stdin = strings.NewReader("")
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
+			// On Windows, also set USERPROFILE when HOME is set
+			if k == "HOME" && runtime.GOOS == "windows" {
+				cmd.Env = append(cmd.Env, "USERPROFILE="+v)
+			}
 		}
 		out, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
