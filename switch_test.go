@@ -107,6 +107,31 @@ func TestExpandAndResolve(t *testing.T) {
 	}
 }
 
+func TestExpandAndResolve_WindowsLikePaths(t *testing.T) {
+	home := setHome(t)
+	// Ensure backslashes after tilde expand correctly
+	got := expandPath("~\\sub\\file.txt")
+	exp := filepath.ToSlash(filepath.Clean(filepath.Join(home, "sub", "file.txt")))
+	if got != exp {
+		t.Errorf("expandPath windows-like mismatch: got %q want %q", got, exp)
+	}
+
+	// Pattern and auth path using backslashes normalize to slash form and resolve correctly
+	auth := "~\\.codex\\auth.json"
+	pat := "{auth_path}\\{name}.switch"
+	out := resolveSwitchPattern(pat, expandPath(auth), "alice")
+	if !strings.HasSuffix(out, ".codex/auth.json/alice.switch") && !strings.HasSuffix(out, ".codex/auth.json.alice.switch") {
+		t.Errorf("resolveSwitchPattern windows-like unexpected: %s", out)
+	}
+
+	// Arbitrary Windows absolute path should be normalized to forward slashes
+	in := "C:\\Users\\me\\file.txt"
+	norm := expandPath(in)
+	if strings.Contains(norm, "\\") {
+		t.Errorf("expected forward slashes, got %q", norm)
+	}
+}
+
 func TestCopyFileFolderAndPath(t *testing.T) {
 	setHome(t)
 	base := t.TempDir()

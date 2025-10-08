@@ -26,7 +26,7 @@ var version = "1.0.2"
 
 type Config struct {
 	Default DefaultConfig        `toml:"default"`
-	Apps    map[string]AppConfig `toml:",inline"`
+	Apps    map[string]AppConfig `toml:"apps"`
 }
 
 type DefaultConfig struct {
@@ -139,12 +139,35 @@ func (s *Switcher) saveConfig() error {
 }
 
 // Utility functions
-func expandPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[2:])
+// expandPath expands a leading ~, ~/ or ~\\ to the user's home directory
+// and normalizes any Windows-style backslashes to forward slashes for
+// consistent cross-platform behavior. Returned paths with forward slashes
+// are still accepted by Go's file APIs on Windows.
+func expandPath(p string) string {
+	if p == "" {
+		return p
 	}
-	return path
+	// Normalize any backslashes to forward slashes first
+	// so we can treat separators uniformly across platforms.
+	p = strings.ReplaceAll(p, "\\", "/")
+
+	if strings.HasPrefix(p, "~") {
+		home, _ := os.UserHomeDir()
+		switch {
+		case p == "~":
+			p = home
+		case strings.HasPrefix(p, "~/"):
+			p = filepath.Join(home, p[2:])
+		default:
+			// Unsupported forms like ~user – just fall back to replacing the tilde
+			// with home if the next char is a path separator (already handled),
+			// otherwise leave as-is.
+		}
+	}
+	// Clean the path and convert to forward slashes for stable comparisons
+	// while remaining valid for OS operations.
+	p = filepath.Clean(p)
+	return filepath.ToSlash(p)
 }
 
 func fileOrDirExists(path string) bool {
@@ -160,6 +183,9 @@ func isFolder(path string) bool {
 func resolveSwitchPattern(pattern, authPath, name string) string {
 	resolved := strings.ReplaceAll(pattern, "{auth_path}", authPath)
 	resolved = strings.ReplaceAll(resolved, "{name}", name)
+	// Support patterns that use backslashes as separators
+	resolved = strings.ReplaceAll(resolved, "\\", "/")
+	// Expand ~ and normalize to slash form
 	return expandPath(resolved)
 }
 
