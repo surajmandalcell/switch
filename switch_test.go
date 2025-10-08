@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -53,8 +54,8 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	oldErr := os.Stderr
 	rOut, wOut, _ := os.Pipe()
 	rErr, wErr, _ := os.Pipe()
-	os.Stdout = wOut
-	os.Stderr = wErr
+	os.Stdout = wOut // Redirect stdout
+	os.Stderr = wErr // Redirect stderr
 	defer func() {
 		os.Stdout = oldOut
 		os.Stderr = oldErr
@@ -70,6 +71,98 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	<-outDone
 	<-errDone
 	return outBuf.String(), errBuf.String()
+}
+
+type envPair struct {
+	key   string
+	value string
+}
+
+func helperProcessEnv(overrides map[string]string) []string {
+	envMap := make(map[string]envPair)
+	for _, entry := range os.Environ() {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		upper := strings.ToUpper(parts[0])
+		envMap[upper] = envPair{key: parts[0], value: parts[1]}
+	}
+
+	envMap["GO_WANT_HELPER_PROCESS"] = envPair{key: "GO_WANT_HELPER_PROCESS", value: "1"}
+
+	overrideLookup := make(map[string]string)
+	for k, v := range overrides {
+		overrideLookup[strings.ToUpper(k)] = v
+	}
+
+	for upper, value := range overrideLookup {
+		key := upper
+		if runtime.GOOS != "windows" {
+			if original := preserveCaseKey(overrides, upper); original != "" {
+				key = original
+			}
+		}
+		envMap[upper] = envPair{key: key, value: value}
+		if runtime.GOOS == "windows" {
+			if upper == "HOME" {
+				envMap["USERPROFILE"] = envPair{key: "USERPROFILE", value: value}
+			}
+			if upper == "USERPROFILE" {
+				envMap["HOME"] = envPair{key: "HOME", value: value}
+			}
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		if home, ok := envMap["HOME"]; ok {
+			drive, path := splitWindowsHome(home.value)
+			if drive != "" {
+				envMap["HOMEDRIVE"] = envPair{key: "HOMEDRIVE", value: drive}
+			}
+			if path != "" {
+				envMap["HOMEPATH"] = envPair{key: "HOMEPATH", value: path}
+			}
+		}
+	}
+
+	keys := make([]string, 0, len(envMap))
+	for k := range envMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	result := make([]string, 0, len(keys))
+	for _, upper := range keys {
+		entry := envMap[upper]
+		result = append(result, entry.key+"="+entry.value)
+	}
+	return result
+}
+
+func preserveCaseKey(overrides map[string]string, upper string) string {
+	for k := range overrides {
+		if strings.ToUpper(k) == upper {
+			return k
+		}
+	}
+	return ""
+}
+
+func splitWindowsHome(home string) (string, string) {
+	if len(home) < 2 || home[1] != ':' {
+		return "", ""
+	}
+	drive := strings.ToUpper(home[:2])
+	path := home[2:]
+	if path == "" {
+		path = "\\"
+	} else {
+		path = strings.ReplaceAll(path, "/", "\\")
+		if !strings.HasPrefix(path, "\\") {
+			path = "\\" + path
+		}
+	}
+	return drive, path
 }
 
 // Config and initialization
@@ -728,28 +821,10 @@ func TestMain_CLI_Subprocess(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
-		
-		// Start with os.Environ() but filter out HOME/USERPROFILE if we're going to override them
-		baseEnv := []string{"GO_WANT_HELPER_PROCESS=1"}
-		_, overrideHome := env["HOME"]
-		for _, e := range os.Environ() {
-			// Skip HOME and USERPROFILE only if we're going to set HOME explicitly
-			if overrideHome && (strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "USERPROFILE=")) {
-				continue
-			}
-			baseEnv = append(baseEnv, e)
-		}
-		cmd.Env = baseEnv
-		
+		cmd.Env = helperProcessEnv(env)
+
 		// Provide empty stdin to avoid any accidental reads blocking
 		cmd.Stdin = strings.NewReader("")
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-			// On Windows, also set USERPROFILE when HOME is set
-			if k == "HOME" && runtime.GOOS == "windows" {
-				cmd.Env = append(cmd.Env, "USERPROFILE="+v)
-			}
-		}
 		out, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
@@ -986,11 +1061,8 @@ func TestMain_CLI_Subprocess_ListAndAdd(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
-		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		cmd.Env = helperProcessEnv(env)
 		cmd.Stdin = strings.NewReader("")
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
 		out, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
@@ -1387,27 +1459,8 @@ func TestMain_CLI_Subprocess_AppCommands(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
-		
-		// Start with os.Environ() but filter out HOME/USERPROFILE if we're going to override them
-		baseEnv := []string{"GO_WANT_HELPER_PROCESS=1"}
-		_, overrideHome := env["HOME"]
-		for _, e := range os.Environ() {
-			// Skip HOME and USERPROFILE only if we're going to set HOME explicitly
-			if overrideHome && (strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "USERPROFILE=")) {
-				continue
-			}
-			baseEnv = append(baseEnv, e)
-		}
-		cmd.Env = baseEnv
-		
+		cmd.Env = helperProcessEnv(env)
 		cmd.Stdin = strings.NewReader("")
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-			// On Windows, also set USERPROFILE when HOME is set
-			if k == "HOME" && runtime.GOOS == "windows" {
-				cmd.Env = append(cmd.Env, "USERPROFILE="+v)
-			}
-		}
 		out, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
