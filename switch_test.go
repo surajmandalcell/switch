@@ -19,7 +19,24 @@ func setHome(t *testing.T) string {
 	t.Helper()
 	temp := t.TempDir()
 	t.Setenv("HOME", temp)
+	// On Windows, os.UserHomeDir() uses USERPROFILE, not HOME
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", temp)
+	}
 	return temp
+}
+
+// newTestSwitcher creates a Switcher with a custom home directory for testing.
+// This works around the issue where os.UserHomeDir() doesn't respect environment
+// variables on Windows.
+func newTestSwitcher(t *testing.T, home string) (*Switcher, error) {
+	t.Helper()
+	configPath := filepath.Join(home, ".switch.toml")
+	s := &Switcher{configPath: configPath}
+	if err := s.loadConfig(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func withStdin(t *testing.T, input string, fn func()) {
@@ -58,7 +75,7 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 // Config and initialization
 func TestNewSwitcher_CreatesConfig(t *testing.T) {
 	home := setHome(t)
-	s, err := NewSwitcher()
+	s, err := newTestSwitcher(t, home)
 	if err != nil {
 		t.Fatalf("NewSwitcher failed: %v", err)
 	}
@@ -75,7 +92,7 @@ func TestNewSwitcher_CreatesConfig(t *testing.T) {
 
 func TestLoadSaveConfig_RoundTrip(t *testing.T) {
 	home := setHome(t)
-	s, err := NewSwitcher()
+	s, err := newTestSwitcher(t, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +300,8 @@ func TestFileEqual_NonJSON_NotEqual(t *testing.T) {
 
 // Switcher core APIs
 func TestGetSetAppConfig(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	_, ok := s.GetAppConfig("codex")
 	if ok {
 		t.Fatalf("expected no codex app yet")
@@ -312,7 +329,7 @@ func setupCodexFiles(t *testing.T, home string, authData string, accounts map[st
 func TestAddAccount_NewTemplateApp(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"t123"}`, map[string]string{})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	if err := s.AddAccount("codex", "alice"); err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}
@@ -332,7 +349,7 @@ func TestAddAccount_NewTemplateApp(t *testing.T) {
 func TestAddAccount_Duplicate_NoOverwrite(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"orig"}`, map[string]string{"alice": `{"token":"old"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// Seed app config to trigger duplicate prompt
 	s.SetAppConfig("codex", AppConfig{Current: "alice", Accounts: []string{"alice"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
@@ -353,7 +370,7 @@ func TestAddAccount_Duplicate_NoOverwrite(t *testing.T) {
 func TestAddAccount_SaveConfigError_RollsBack(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"z"}`, map[string]string{})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// Force saveConfig error
 	badDir := t.TempDir()
 	s.configPath = badDir
@@ -369,7 +386,7 @@ func TestAddAccount_SaveConfigError_RollsBack(t *testing.T) {
 func TestSwitchAccount_Success(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"a"}`, map[string]string{"a": `{"token":"a"}`, "b": `{"token":"b"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a", "b"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -387,7 +404,7 @@ func TestSwitchAccount_SameAccount(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"a"}`, map[string]string{"a": `{"token":"a"}`})
 	_ = authPath
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -399,8 +416,8 @@ func TestSwitchAccount_SameAccount(t *testing.T) {
 }
 
 func TestSwitchAccount_NotFound(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{"a"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.SwitchAccount("codex", "missing"); err == nil {
 		t.Fatalf("expected error for missing account")
@@ -410,7 +427,7 @@ func TestSwitchAccount_NotFound(t *testing.T) {
 func TestCycleAccounts(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"u1"}`, map[string]string{"u1": `{"token":"u1"}`, "u2": `{"token":"u2"}`, "u3": `{"token":"u3"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "u1", Accounts: []string{"u1", "u2", "u3"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -444,7 +461,7 @@ func TestCycleAccounts(t *testing.T) {
 func TestFindCurrentAccount(t *testing.T) {
 	home := setHome(t)
 	setupCodexFiles(t, home, `{"token":"u2data"}`, map[string]string{"u1": `{"token":"u1data"}`, "u2": `{"token":"u2data"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{"u1", "u2"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	cur := s.findCurrentAccount("codex")
 	if cur != "u2" {
@@ -464,7 +481,7 @@ func TestRunWizard_ManualSetup_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	inputs := strings.Join([]string{
 		"1",      // choose Other (manual setup)
 		"myapp",  // app name
@@ -505,7 +522,7 @@ func TestRunWizard_AddToExisting_Success(t *testing.T) {
 	home := setHome(t)
 	// Seed app config
 	authPath := setupCodexFiles(t, home, `{"token":"u1"}`, map[string]string{"u1": `{"token":"u1"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "u1", Accounts: []string{"u1"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -539,7 +556,7 @@ func TestRunWizard_Initial_DetectedTemplate_Success(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(`{"t":1}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// options: only detected templates + Other -> choose first detected
 	inputs := strings.Join([]string{
 		"1",  // choose detected codex
@@ -563,7 +580,7 @@ func TestRunWizard_Initial_DetectedTemplate_Success(t *testing.T) {
 func TestListAccountsAndAllApps(t *testing.T) {
 	home := setHome(t)
 	setupCodexFiles(t, home, `{"token":"u1"}`, map[string]string{"u1": `{"token":"u1"}`, "u2": `{"token":"u2"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "u1", Accounts: []string{"u1", "u2"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	s.config.Default.Config = "codex"
 	if err := s.saveConfig(); err != nil {
@@ -580,8 +597,8 @@ func TestListAccountsAndAllApps(t *testing.T) {
 }
 
 func TestListAllApps_Empty(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	out, _ := captureOutput(t, func() { s.ListAllApps() })
 	if !strings.Contains(out, "No applications configured") {
 		t.Fatalf("expected empty apps message, got: %q", out)
@@ -679,7 +696,7 @@ func TestPrintHelpersAndWrappers(t *testing.T) {
 	// prepare codex file for wrapper adds
 	_ = os.MkdirAll(filepath.Join(home, ".codex"), 0755)
 	_ = os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(`{"t":1}`), 0600)
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	if err := s.AddCodexAccount("wrap"); err != nil {
 		t.Fatalf("AddCodexAccount: %v", err)
 	}
@@ -691,8 +708,8 @@ func TestPrintHelpersAndWrappers(t *testing.T) {
 }
 
 func TestHandleAdd_ZeroArgs_Cancelled(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	// Cause wizard to cancel (empty choice -> -1)
 	withStdin(t, "\n", func() {
 		if code := handleAdd(s, []string{}); code != 1 {
@@ -780,7 +797,7 @@ func TestRunDefaultCycle(t *testing.T) {
 func TestHandleAddAndListAndApp(t *testing.T) {
 	home := setHome(t)
 	setupCodexFiles(t, home, `{"token":"u1"}`, map[string]string{"u1": `{}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// handleAdd with one arg prompts for profile name
 	out, _ := captureOutput(t, func() {
 		withStdin(t, "bob\n", func() {
@@ -825,8 +842,8 @@ func TestLoadConfig_ParseError(t *testing.T) {
 }
 
 func TestAddAccount_TemplateAuthMissing_Error(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	if err := s.AddAccount("codex", "x"); err == nil || !strings.Contains(err.Error(), "auth path not found") {
 		t.Fatalf("expected auth path not found, got %v", err)
 	}
@@ -835,7 +852,7 @@ func TestAddAccount_TemplateAuthMissing_Error(t *testing.T) {
 func TestSwitchAccount_EmptyDelegatesToCycle(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"a"}`, map[string]string{"a": "{}", "b": "{}"})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a", "b"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -852,7 +869,7 @@ func TestSwitchAccount_EmptyDelegatesToCycle(t *testing.T) {
 func TestRunWizard_Existing_AddExisting_Cancel(t *testing.T) {
 	home := setHome(t)
 	_ = setupCodexFiles(t, home, `{"token":"u1"}`, map[string]string{"u1": "{}"})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "u1", Accounts: []string{"u1"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -870,8 +887,8 @@ func TestRunWizard_Existing_AddExisting_Cancel(t *testing.T) {
 }
 
 func TestRunWizard_Existing_AutoDetect_NoNew(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	// Add some existing app, but don't create any detectable paths
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
@@ -887,7 +904,7 @@ func TestRunWizard_Existing_AutoDetect_NoNew(t *testing.T) {
 func TestRunWizard_Existing_ManualSetup_Success(t *testing.T) {
 	home := setHome(t)
 	// seed existing app to enter existing flow
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -920,8 +937,8 @@ func TestRunWizard_Existing_ManualSetup_Success(t *testing.T) {
 }
 
 func TestHandleAdd_PromptError(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	old := stdinReader
 	stdinReader = bufio.NewReader(badReader{})
 	defer func() { stdinReader = old }()
@@ -934,7 +951,7 @@ func TestHandleApp_AddSubcommand_Success(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"u1"}`, map[string]string{"u1": "{}"})
 	_ = authPath
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "u1", Accounts: []string{"u1"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -988,7 +1005,7 @@ func TestMain_CLI_Subprocess_ListAndAdd(t *testing.T) {
 
 func TestSaveConfig_ErrorOnDirectoryPath(t *testing.T) {
 	home := setHome(t)
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// Point configPath to a directory so WriteFile fails
 	dir := filepath.Join(home, "confdir")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -1021,8 +1038,8 @@ func TestPrompts_ErrorPaths(t *testing.T) {
 }
 
 func TestRunWizard_Cancel_NoApps(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	withStdin(t, "\n", func() {
 		if err := s.RunWizard(); err == nil || !strings.Contains(err.Error(), "cancelled") {
 			t.Fatalf("expected cancelled error, got %v", err)
@@ -1031,8 +1048,8 @@ func TestRunWizard_Cancel_NoApps(t *testing.T) {
 }
 
 func TestRunWizard_Cancel_WithExistingApps(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -1045,8 +1062,8 @@ func TestRunWizard_Cancel_WithExistingApps(t *testing.T) {
 }
 
 func TestHandleAdd_UnknownAppError(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	if code := handleAdd(s, []string{"unknown", "p"}); code != 1 {
 		t.Fatalf("expected 1 for unknown app, got %d", code)
 	}
@@ -1055,7 +1072,7 @@ func TestHandleAdd_UnknownAppError(t *testing.T) {
 func TestHandleApp_SwitchSubcommand(t *testing.T) {
 	home := setHome(t)
 	_ = setupCodexFiles(t, home, `{"token":"a"}`, map[string]string{"a": "{}", "b": "{}"})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a", "b"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -1124,7 +1141,7 @@ func TestContentAndFileFolderEqual_Negatives(t *testing.T) {
 func TestAddAccount_OverwriteYes(t *testing.T) {
 	home := setHome(t)
 	authPath := setupCodexFiles(t, home, `{"token":"NEW"}`, map[string]string{"alice": `{"token":"OLD"}`})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "alice", Accounts: []string{"alice"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -1143,8 +1160,8 @@ func TestAddAccount_OverwriteYes(t *testing.T) {
 }
 
 func TestAddAccount_NoTemplateError(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	if err := s.AddAccount("unknownapp", "p"); err == nil || !strings.Contains(err.Error(), "no configuration found") {
 		t.Fatalf("expected no configuration found error, got %v", err)
 	}
@@ -1153,7 +1170,7 @@ func TestAddAccount_NoTemplateError(t *testing.T) {
 func TestSwitchAccount_SwitchFileNotFound(t *testing.T) {
 	home := setHome(t)
 	_ = setupCodexFiles(t, home, `{"t":1}`, map[string]string{})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// Configure an account that has no backup file present
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{"ghost"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
@@ -1167,7 +1184,7 @@ func TestSwitchAccount_SwitchFileNotFound(t *testing.T) {
 func TestCycleAccounts_NoAccounts_And_EmptyCurrent(t *testing.T) {
 	home := setHome(t)
 	_ = setupCodexFiles(t, home, `{"t":1}`, map[string]string{"a": "{}", "b": "{}"})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// No accounts
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.CycleAccounts("codex"); err == nil {
@@ -1183,7 +1200,7 @@ func TestCycleAccounts_NoAccounts_And_EmptyCurrent(t *testing.T) {
 func TestFindCurrentAccount_None(t *testing.T) {
 	home := setHome(t)
 	_ = setupCodexFiles(t, home, `{"token":"main"}`, map[string]string{"a": "{}", "b": "{}"})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{"a", "b"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if cur := s.findCurrentAccount("codex"); cur != "" {
 		t.Fatalf("expected none, got %q", cur)
@@ -1191,8 +1208,8 @@ func TestFindCurrentAccount_None(t *testing.T) {
 }
 
 func TestFindCurrentAccount_MissingAuthPath(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{"a"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if got := s.findCurrentAccount("codex"); got != "" {
 		t.Fatalf("expected empty current, got %q", got)
@@ -1200,8 +1217,8 @@ func TestFindCurrentAccount_MissingAuthPath(t *testing.T) {
 }
 
 func TestListAccounts_Variants(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	out, _ := captureOutput(t, func() { s.ListAccounts("nosuch") })
 	if !strings.Contains(out, "No accounts configured for nosuch") {
 		t.Fatalf("unexpected out: %q", out)
@@ -1231,7 +1248,7 @@ func TestRunWizard_AutoDetect_NewApp(t *testing.T) {
 	if err := os.WriteFile(gitCfg, []byte("[user]\nname = t"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	// Seed with one existing app so we enter the "Add new profile" branch
 	s.SetAppConfig("codex", AppConfig{Current: "c", Accounts: []string{"c"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
@@ -1258,16 +1275,16 @@ func TestRunWizard_AutoDetect_NewApp(t *testing.T) {
 }
 
 func TestHandleAdd_TooManyArgs(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	if code := handleAdd(s, []string{"a", "b", "c"}); code != 1 {
 		t.Fatalf("expected 1 for too many args, got %d", code)
 	}
 }
 
 func TestHandleApp_Branches(t *testing.T) {
-	setHome(t)
-	s, _ := NewSwitcher()
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
 	// No accounts cycle error
 	s.SetAppConfig("codex", AppConfig{Current: "", Accounts: []string{}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if code := handleApp(s, "codex", []string{}); code != 1 {
@@ -1282,7 +1299,7 @@ func TestHandleApp_Branches(t *testing.T) {
 func TestHandleApp_CycleSuccess(t *testing.T) {
 	home := setHome(t)
 	_ = setupCodexFiles(t, home, `{"token":"a"}`, map[string]string{"a": "{}", "b": "{}"})
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	s.SetAppConfig("codex", AppConfig{Current: "a", Accounts: []string{"a", "b"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
 	if err := s.saveConfig(); err != nil {
 		t.Fatal(err)
@@ -1319,12 +1336,12 @@ func TestRunDefaultCycle_DefaultAppMissing(t *testing.T) {
 
 func TestNewSwitcher_ConfigReadError(t *testing.T) {
 	home := setHome(t)
-	// Make ~/.switch.toml a directory so reading fails inside NewSwitcher->loadConfig
+	// Make ~/.switch.toml a directory so reading fails inside newTestSwitcher->loadConfig
 	if err := os.MkdirAll(filepath.Join(home, ".switch.toml"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewSwitcher(); err == nil {
-		t.Fatalf("expected NewSwitcher to fail on unreadable config path")
+	if _, err := newTestSwitcher(t, home); err == nil {
+		t.Fatalf("expected newTestSwitcher to fail on unreadable config path")
 	}
 }
 
@@ -1399,7 +1416,7 @@ func TestRunWizard_ManualFolder_DefaultPattern(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(confDir, "a.txt"), []byte("data"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	inputs := strings.Join([]string{
 		"1",         // Other (manual setup)
 		"folderapp", // app name
@@ -1435,7 +1452,7 @@ func TestHandleAdd_ZeroArgs_Success(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte("{}"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewSwitcher()
+	s, _ := newTestSwitcher(t, home)
 	inputs := strings.Join([]string{
 		"1",    // manual setup
 		"mapp", // app name
