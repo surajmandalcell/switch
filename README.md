@@ -164,7 +164,7 @@ PRs welcome.
 
 ## Requirements
 
-- Go 1.25.0 or higher
+- Go 1.24.5 or higher
 - Write access to your home directory
 
 Note: This repo uses Go's module-managed toolchain. If you see toolchain mismatch errors locally, ensure your Go is up-to-date (1.25+) or set GOTOOLCHAIN=auto in your environment.
