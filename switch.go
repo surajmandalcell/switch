@@ -22,7 +22,7 @@ const (
 	ColorCyan   = "\033[36m"
 )
 
-var version = "dev"
+var version = "1.0.2"
 
 type Config struct {
 	Default DefaultConfig        `toml:"default"`
@@ -172,6 +172,11 @@ func copyPath(src, dst string) error {
 }
 
 func copyFile(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	perm := srcInfo.Mode().Perm()
 	source, err := os.Open(src)
 	if err != nil {
 		return err
@@ -183,14 +188,17 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	destination, err := os.Create(dst)
+	destination, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
 	defer destination.Close()
 
 	_, err = io.Copy(destination, source)
-	return err
+	if err != nil {
+		return err
+	}
+	return os.Chmod(dst, perm)
 }
 
 func copyFolder(src, dst string) error {
@@ -206,7 +214,10 @@ func copyFolder(src, dst string) error {
 		dstPath := filepath.Join(dst, relPath)
 
 		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
+			if err := os.MkdirAll(dstPath, info.Mode().Perm()); err != nil {
+				return err
+			}
+			return os.Chmod(dstPath, info.Mode().Perm())
 		}
 		return copyFile(path, dstPath)
 	})
@@ -1004,6 +1015,9 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "version":
+		fmt.Println(shortVersion())
+		return
 	case "add":
 		os.Exit(handleAdd(s, os.Args[2:]))
 	case "list":
