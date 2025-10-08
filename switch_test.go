@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,6 +135,9 @@ func TestCopyFileFolderAndPath(t *testing.T) {
 }
 
 func TestCopyPreservesPermissions_FileAndDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping POSIX permission tests on Windows")
+	}
 	setHome(t)
 	base := t.TempDir()
 	// File perms
@@ -183,6 +187,9 @@ func TestCopyFile_Errors(t *testing.T) {
 }
 
 func TestCopyFile_DestinationOpenError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping POSIX permission tests on Windows")
+	}
 	setHome(t)
 	base := t.TempDir()
 	src := filepath.Join(base, "src.txt")
