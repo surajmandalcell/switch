@@ -1811,15 +1811,13 @@ func TestOpenConfig_EditorDetection(t *testing.T) {
 	}
 
 	editorName := "nano"
+	content := "#!/bin/sh\necho 'fake editor'\n"
 	if runtime.GOOS == "windows" {
-		editorName = "nano.exe"
+		editorName = "nano.bat"
+		content = "@echo off\necho fake editor\n"
 	}
 
 	editorPath := filepath.Join(binDir, editorName)
-	content := "#!/bin/sh\necho 'fake editor'\n"
-	if runtime.GOOS == "windows" {
-		content = "@echo off\necho fake editor\n"
-	}
 
 	if err := os.WriteFile(editorPath, []byte(content), 0755); err != nil {
 		t.Fatal(err)
