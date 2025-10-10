@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -527,6 +528,48 @@ func (s *Switcher) ListAllApps() {
 	}
 }
 
+func (s *Switcher) SetDefaultApp(appName string) error {
+	_, exists := s.GetAppConfig(appName)
+	if !exists {
+		return fmt.Errorf("app '%s' not found", appName)
+	}
+
+	oldDefault := s.config.Default.Config
+	s.config.Default.Config = appName
+	if err := s.saveConfig(); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+
+	if oldDefault != "" {
+		fmt.Printf("%s✓ Default app changed from %s to %s%s\n", ColorGreen, oldDefault, appName, ColorReset)
+	} else {
+		fmt.Printf("%s✓ Default app set to %s%s\n", ColorGreen, appName, ColorReset)
+	}
+	return nil
+}
+
+func (s *Switcher) OpenConfig() error {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		// Try common editors
+		for _, e := range []string{"nano", "vi", "vim", "code", "gedit"} {
+			if _, err := exec.LookPath(e); err == nil {
+				editor = e
+				break
+			}
+		}
+	}
+	if editor == "" {
+		return fmt.Errorf("no text editor found. Set EDITOR environment variable or install nano/vim/code")
+	}
+
+	cmd := exec.Command(editor, s.configPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // App detection based on templates
 func DetectApplications() map[string]AppTemplate {
 	found := make(map[string]AppTemplate)
@@ -927,6 +970,9 @@ func printHelp() {
 	fmt.Printf("  switch add <app> <account>   Add current config as account\n")
 	fmt.Printf("  switch list                  List all apps and profiles\n")
 	fmt.Printf("  switch list <app>            List profiles for specific app\n")
+	fmt.Printf("  switch default <app>         Set default app\n")
+	fmt.Printf("  switch config                Open config file in editor\n")
+	fmt.Printf("  switch <app> config          Open config file in editor\n")
 	fmt.Printf("  switch -v                   Print short version (commit)\n")
 	fmt.Printf("  switch help                 Show this help\n\n")
 	fmt.Printf("Built-in templates: codex, claude, vscode, cursor, ssh, git\n")
@@ -1023,6 +1069,13 @@ func handleApp(s *Switcher, appName string, args []string) int {
 			s.ListAccounts(appName)
 			return 0
 		}
+		if sub == "config" {
+			if err := s.OpenConfig(); err != nil {
+				printError(err)
+				return 1
+			}
+			return 0
+		}
 		if err := s.SwitchAccount(appName, sub); err != nil {
 			printError(err)
 			return 1
@@ -1067,6 +1120,20 @@ func main() {
 		os.Exit(handleAdd(s, os.Args[2:]))
 	case "list":
 		os.Exit(handleList(s, os.Args[2:]))
+	case "default":
+		if len(os.Args) != 3 {
+			fmt.Printf("Usage: switch default <app>\n")
+			os.Exit(1)
+		}
+		if err := s.SetDefaultApp(os.Args[2]); err != nil {
+			printError(err)
+			os.Exit(1)
+		}
+	case "config":
+		if err := s.OpenConfig(); err != nil {
+			printError(err)
+			os.Exit(1)
+		}
 	case "help":
 		printHelp()
 	default:

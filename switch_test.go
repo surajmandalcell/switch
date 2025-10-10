@@ -1557,3 +1557,288 @@ func TestHandleAdd_ZeroArgs_Success(t *testing.T) {
 		t.Fatalf("expected handleAdd success, got %d", code)
 	}
 }
+
+// Tests for new functionality
+func TestSetDefaultApp_Success(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+	// Add two apps
+	s.SetAppConfig("codex", AppConfig{Current: "p1", Accounts: []string{"p1"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
+	s.SetAppConfig("vscode", AppConfig{Current: "p1", Accounts: []string{"p1"}, AuthPath: "~/.vscode/User", SwitchPattern: "~/.vscode/profiles/{name}.switch"})
+	s.config.Default.Config = "codex"
+	if err := s.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test setting new default
+	if err := s.SetDefaultApp("vscode"); err != nil {
+		t.Fatalf("SetDefaultApp failed: %v", err)
+	}
+
+	// Verify default changed
+	if s.config.Default.Config != "vscode" {
+		t.Fatalf("default not changed: got %q, want vscode", s.config.Default.Config)
+	}
+
+	// Reload config to verify persistence
+	s2, _ := newTestSwitcher(t, home)
+	if s2.config.Default.Config != "vscode" {
+		t.Fatalf("default not persisted: got %q, want vscode", s2.config.Default.Config)
+	}
+}
+
+func TestSetDefaultApp_AppNotFound(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+
+	if err := s.SetDefaultApp("nonexistent"); err == nil || !strings.Contains(err.Error(), "app 'nonexistent' not found") {
+		t.Fatalf("expected app not found error, got %v", err)
+	}
+}
+
+func TestSetDefaultApp_FirstTime(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+	s.SetAppConfig("codex", AppConfig{Current: "p1", Accounts: []string{"p1"}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"})
+	s.config.Default.Config = "" // No default set
+	if err := s.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _ := captureOutput(t, func() {
+		if err := s.SetDefaultApp("codex"); err != nil {
+			t.Fatalf("SetDefaultApp first time failed: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Default app set to codex") {
+		t.Fatalf("expected first time message, got: %q", out)
+	}
+}
+
+func TestOpenConfig_WithEditor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping editor tests on Windows")
+	}
+
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+
+	// Test with EDITOR environment variable
+	t.Setenv("EDITOR", "echo")
+
+	// This should succeed since echo is available
+	if err := s.OpenConfig(); err != nil {
+		t.Fatalf("OpenConfig with EDITOR failed: %v", err)
+	}
+}
+
+func TestOpenConfig_NoEditor(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+
+	// Clear EDITOR and use a PATH that doesn't have common editors
+	t.Setenv("EDITOR", "")
+	t.Setenv("PATH", "")
+
+	if err := s.OpenConfig(); err == nil || !strings.Contains(err.Error(), "no text editor found") {
+		t.Fatalf("expected no text editor error, got %v", err)
+	}
+}
+
+func TestOpenConfig_EditorNotFound(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+
+	// Set EDITOR to non-existent command
+	t.Setenv("EDITOR", "nonexistent-editor-12345")
+	t.Setenv("PATH", "")
+
+	if err := s.OpenConfig(); err == nil {
+		t.Fatalf("expected error when editor not found")
+	}
+}
+
+func TestHandleApp_ConfigCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping editor tests on Windows")
+	}
+
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+	t.Setenv("EDITOR", "echo")
+
+	if code := handleApp(s, "codex", []string{"config"}); code != 0 {
+		t.Fatalf("expected 0 for config command, got %d", code)
+	}
+}
+
+func TestHandleApp_ConfigCommand_Error(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+	t.Setenv("EDITOR", "")
+	t.Setenv("PATH", "")
+
+	if code := handleApp(s, "codex", []string{"config"}); code != 1 {
+		t.Fatalf("expected 1 for config error, got %d", code)
+	}
+}
+
+func TestMain_CLI_Subprocess_DefaultCommand(t *testing.T) {
+	run := func(args []string, env map[string]string) (int, string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
+		cmd.Env = helperProcessEnv(env)
+		cmd.Stdin = strings.NewReader("")
+		out, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
+		}
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode(), string(out)
+		}
+		return 0, string(out)
+	}
+
+	tmpHome := t.TempDir()
+	// Prepare config with two apps
+	cfg := &Config{
+		Default: DefaultConfig{Config: "codex"},
+		Apps: map[string]AppConfig{
+			"codex":  {Current: "", Accounts: []string{}, AuthPath: "~/.codex/auth.json", SwitchPattern: "{auth_path}.{name}.switch"},
+			"vscode": {Current: "", Accounts: []string{}, AuthPath: "~/.vscode/User", SwitchPattern: "~/.vscode/profiles/{name}.switch"},
+		},
+	}
+	s := &Switcher{configPath: filepath.Join(tmpHome, ".switch.toml"), config: cfg}
+	if err := s.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test default command success
+	if code, out := run([]string{"default", "vscode"}, map[string]string{"HOME": tmpHome}); code != 0 {
+		t.Fatalf("default command failed: code=%d out=%q", code, out)
+	}
+
+	// Test default command with wrong number of args
+	if code, _ := run([]string{"default"}, map[string]string{"HOME": tmpHome}); code != 1 {
+		t.Fatalf("expected 1 for default without args, got %d", code)
+	}
+
+	// Test default command with too many args
+	if code, _ := run([]string{"default", "a", "b"}, map[string]string{"HOME": tmpHome}); code != 1 {
+		t.Fatalf("expected 1 for default with too many args, got %d", code)
+	}
+
+	// Test default command with nonexistent app
+	if code, _ := run([]string{"default", "nonexistent"}, map[string]string{"HOME": tmpHome}); code != 1 {
+		t.Fatalf("expected 1 for default with nonexistent app, got %d", code)
+	}
+}
+
+func TestMain_CLI_Subprocess_ConfigCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping editor tests on Windows")
+	}
+
+	run := func(args []string, env map[string]string) (int, string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run", "TestHelperProcess"}, args...)...)
+		cmd.Env = helperProcessEnv(env)
+		cmd.Stdin = strings.NewReader("")
+		out, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out: args=%v\noutput=%s", args, string(out))
+		}
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode(), string(out)
+		}
+		return 0, string(out)
+	}
+
+	tmpHome := t.TempDir()
+	cfg := &Config{Default: DefaultConfig{Config: "codex"}, Apps: map[string]AppConfig{}}
+	s := &Switcher{configPath: filepath.Join(tmpHome, ".switch.toml"), config: cfg}
+	if err := s.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test global config command
+	if code, _ := run([]string{"config"}, map[string]string{"HOME": tmpHome, "EDITOR": "echo"}); code != 0 {
+		t.Fatalf("expected 0 for config command, got %d", code)
+	}
+
+	// Test app-specific config command
+	if code, _ := run([]string{"codex", "config"}, map[string]string{"HOME": tmpHome, "EDITOR": "echo"}); code != 0 {
+		t.Fatalf("expected 0 for app config command, got %d", code)
+	}
+
+	// Test config command with no editor
+	if code, _ := run([]string{"config"}, map[string]string{"HOME": tmpHome, "EDITOR": "", "PATH": ""}); code != 1 {
+		t.Fatalf("expected 1 for config with no editor, got %d", code)
+	}
+}
+
+func TestPrintHelp_ContainsNewCommands(t *testing.T) {
+	out, _ := captureOutput(t, func() { printHelp() })
+
+	if !strings.Contains(out, "switch default <app>") {
+		t.Fatalf("help should contain default command: %q", out)
+	}
+
+	if !strings.Contains(out, "switch config") {
+		t.Fatalf("help should contain config command: %q", out)
+	}
+
+	if !strings.Contains(out, "switch <app> config") {
+		t.Fatalf("help should contain app config command: %q", out)
+	}
+}
+
+// Cross-platform editor detection test
+func TestOpenConfig_EditorDetection(t *testing.T) {
+	home := setHome(t)
+	s, _ := newTestSwitcher(t, home)
+
+	// Clear EDITOR and PATH
+	t.Setenv("EDITOR", "")
+
+	// Create a fake bin directory with a mock editor
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	editorName := "nano"
+	if runtime.GOOS == "windows" {
+		editorName = "nano.exe"
+	}
+
+	editorPath := filepath.Join(binDir, editorName)
+	content := "#!/bin/sh\necho 'fake editor'\n"
+	if runtime.GOOS == "windows" {
+		content = "@echo off\necho fake editor\n"
+	}
+
+	if err := os.WriteFile(editorPath, []byte(content), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update PATH to include our fake bin
+	oldPath := os.Getenv("PATH")
+	newPath := binDir
+	if oldPath != "" {
+		pathSep := ":"
+		if runtime.GOOS == "windows" {
+			pathSep = ";"
+		}
+		newPath = binDir + pathSep + oldPath
+	}
+	t.Setenv("PATH", newPath)
+
+	// OpenConfig should find and use the fake nano
+	if err := s.OpenConfig(); err != nil {
+		t.Fatalf("OpenConfig should succeed with fake nano: %v", err)
+	}
+}

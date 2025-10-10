@@ -106,6 +106,9 @@ switch list codex
 - `switch add <app>`: Add a profile to an app (prompts for name)
 - `switch add <app> <profile>`: Add current config as a profile
 - `switch list` / `switch list <app>`: List apps or profiles
+- `switch default <app>`: Set default app
+- `switch config`: Open config file in editor
+- `switch <app> config`: Open config file in editor
 
 ### Examples
 
@@ -118,8 +121,13 @@ switch codex work         # Switches to 'work' account
 switch codex personal     # Switches to 'personal' account
 
 # Account management
-switch codex add staging  # Saves current auth.json as 'staging'
-switch codex list         # Shows all accounts with current indicator
+switch add codex staging  # Saves current auth.json as 'staging'
+switch list codex         # Shows all accounts with current indicator
+
+# Configuration management
+switch default codex      # Sets codex as the default app
+switch config             # Opens ~/.switch.toml in your editor
+switch codex config       # Alternative way to open config
 ```
 
 ## Configuration
