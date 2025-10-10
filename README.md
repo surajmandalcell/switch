@@ -12,9 +12,10 @@ git clone https://github.com/surajmandalcell/switch && cd switch
 make install
 
 # login to one of your codex cli account and then
-switch add codex1
+switch add codex codex1
+
 # logut of current codex cli account and login to new one and then
-switch add codex2
+switch add codex codex2
 
 # now you can freely switch between them by just one, if you have more it behaves the same
 switch
