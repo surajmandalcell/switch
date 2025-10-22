@@ -6,6 +6,14 @@ Simple CLI to switch between multiple profiles for any app that uses a file or f
 
 Store multiple profiles and swap your active config with one command. Works for both single files (like `~/.codex/auth.json`) and entire folders (like `~/.vscode/User`).
 
+## Download prebuilt binaries
+
+Continuous integration builds upload platform-specific archives for each successful run. You can download the latest artifacts here:
+
+- Latest CI build artifacts: [release-binaries workflow](https://github.com/surajmandalcell/switch/actions/workflows/release-binaries.yml)
+
+Artifact URLs are tied to individual runs, so open the most recent successful run to grab the archive for your platform. If you prefer to build locally, follow the setup instructions below.
+
 ## TL;DR for quick usage
 
 ```

@@ -1,0 +1,91 @@
+name: Build binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            binary_ext: ""
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: arm64
+            binary_ext: ""
+            archive_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            binary_ext: ".exe"
+            archive_ext: zip
+
+    env:
+      BINARY_NAME: switch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="snapshot-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BINARY_EXT: ${{ matrix.binary_ext }}
+        run: |
+          mkdir -p dist/${GOOS}-${GOARCH}
+          OUTPUT="dist/${GOOS}-${GOARCH}/${BINARY_NAME}${BINARY_EXT}"
+          CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "-X main.version=${VERSION}" -o "${OUTPUT}" .
+
+      - name: Package archive
+        id: package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCHIVE_EXT: ${{ matrix.archive_ext }}
+          BINARY_EXT: ${{ matrix.binary_ext }}
+        run: |
+          ARCHIVE_NAME="${BINARY_NAME}-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir -p artifacts
+          if [[ "${ARCHIVE_EXT}" == "zip" ]]; then
+            ARCHIVE_PATH="artifacts/${ARCHIVE_NAME}.zip"
+            (cd dist/${GOOS}-${GOARCH} && zip -9 "${GITHUB_WORKSPACE}/${ARCHIVE_PATH}" "${BINARY_NAME}${BINARY_EXT}")
+          else
+            ARCHIVE_PATH="artifacts/${ARCHIVE_NAME}.tar.gz"
+            tar -czf "${ARCHIVE_PATH}" -C dist/${GOOS}-${GOARCH} "${BINARY_NAME}${BINARY_EXT}"
+          fi
+          echo "archive_path=${ARCHIVE_PATH}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ steps.package.outputs.archive_path }}
