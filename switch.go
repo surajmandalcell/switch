@@ -69,6 +69,18 @@ var AppTemplates = map[string]AppTemplate{
 		Pattern:     "{auth_path}.{name}.switch",
 		Description: "Claude configuration file",
 	},
+	"claudecode": {
+		DetectPaths: []string{"~/.claude.json"},
+		AuthPath:    "~/.claude.json",
+		Pattern:     "{auth_path}.{name}.switch",
+		Description: "Claude Code configuration file",
+	},
+	"antigravity": {
+		DetectPaths: []string{"~/.antigravity"},
+		AuthPath:    "~/.antigravity",
+		Pattern:     "~/.antigravity/profiles/{name}.switch",
+		Description: "Antigravity configuration folder",
+	},
 	"vscode": {
 		DetectPaths: []string{"~/.vscode/User", "~/Library/Application Support/Code/User"},
 		AuthPath:    "~/.vscode/User",
