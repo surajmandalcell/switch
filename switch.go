@@ -70,15 +70,20 @@ var AppTemplates = map[string]AppTemplate{
 		Description: "Claude configuration file",
 	},
 	"claudecode": {
-		DetectPaths: []string{"~/.claude.json"},
-		AuthPath:    "~/.claude.json",
+		DetectPaths: []string{"~/.claude/settings.json", "~/.claude/config.json"},
+		AuthPath:    "~/.claude/settings.json",
 		Pattern:     "{auth_path}.{name}.switch",
 		Description: "Claude Code configuration file",
 	},
 	"antigravity": {
-		DetectPaths: []string{"~/.antigravity"},
-		AuthPath:    "~/.antigravity",
-		Pattern:     "~/.antigravity/profiles/{name}.switch",
+		// Checks macOS/Linux standard paths first, then legacy
+		DetectPaths: []string{
+			"~/Library/Application Support/Antigravity", // macOS
+			"~/.config/Antigravity",                     // Linux XDG
+			"~/.antigravity",                            // Legacy/Custom
+		},
+		AuthPath:    "~/Library/Application Support/Antigravity",
+		Pattern:     "{auth_path}/profiles/{name}.switch",
 		Description: "Antigravity configuration folder",
 	},
 	"vscode": {
