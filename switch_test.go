@@ -706,13 +706,13 @@ func TestDetectApplications(t *testing.T) {
 	vscodeAlt := filepath.Join(home, "Library", "Application Support", "Code", "User")
 	os.MkdirAll(vscodeAlt, 0755)
 	// Create claude config file
-	claude := filepath.Join(home, ".claude", "config.json")
+	claude := filepath.Join(home, ".claude", "settings.json")
 	os.MkdirAll(filepath.Dir(claude), 0755)
 	os.WriteFile(claude, []byte("{}"), 0644)
 
 	found := DetectApplications()
-	if _, ok := found["claude"]; !ok {
-		t.Fatalf("claude not detected")
+	if _, ok := found["claudecode"]; !ok {
+		t.Fatalf("claudecode not detected")
 	}
 	if _, ok := found["vscode"]; !ok {
 		t.Fatalf("vscode not detected")
