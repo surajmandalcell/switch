@@ -140,8 +140,21 @@ class Logger extends EventEmitter {
 
     response(status, details = {}) {
         const parts = [`status=${status}`];
+        const usage = details.usage || {};
+        const inputTokens = usage.input_tokens ?? usage.prompt_tokens;
+        const outputTokens = usage.output_tokens ?? usage.completion_tokens;
+        const cacheTokens = usage.cache_read_input_tokens ?? usage.prompt_tokens_details?.cached_tokens;
+        const totalTokens = details.tokens ?? usage.total_tokens ?? (
+            Number.isFinite(inputTokens) && Number.isFinite(outputTokens)
+                ? inputTokens + outputTokens
+                : undefined
+        );
+
         if (details.model) parts.push(`model=${details.model}`);
-        if (details.tokens) parts.push(`tokens=${details.tokens}`);
+        if (Number.isFinite(totalTokens)) parts.push(`tokens=${totalTokens}`);
+        if (Number.isFinite(inputTokens)) parts.push(`input=${inputTokens}`);
+        if (Number.isFinite(outputTokens)) parts.push(`output=${outputTokens}`);
+        if (Number.isFinite(cacheTokens)) parts.push(`cache=${cacheTokens}`);
         if (details.duration) parts.push(`${details.duration}ms`);
         if (details.error) parts.push(`error=${details.error}`);
         
