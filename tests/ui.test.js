@@ -20,8 +20,9 @@ test('Web UI loads and includes core navigation', async () => {
   assert.ok(html.includes('Accounts'));
   assert.ok(html.includes('Server Logs'));
   assert.ok(html.includes('Settings'));
-  assert.ok(html.includes('Monitor'));
-  assert.ok(html.includes('Manage'));
+  assert.ok(html.includes('class="bottom-nav"'));
+  assert.equal(html.includes('Monitor'), false);
+  assert.equal(html.includes('Manage'), false);
 });
 
 test('Web UI loads app bundle and has a logs container', async () => {
@@ -58,6 +59,21 @@ test('UI Quick Test and Haiku test controls are present', async () => {
   // Buttons: labels should remain stable.
   assert.ok(html.includes('>Test<'));
   assert.ok(html.includes('>Test Haiku<'));
+  assert.ok(html.includes('data-quick-test-status'));
+  assert.ok(html.includes('data-haiku-test-status'));
+  assert.ok(html.includes('quick-test-meta'));
+});
+
+test('Logs UI is compact and exposes stream status controls', async () => {
+  const res = await fetch(UI_URL);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+
+  assert.ok(html.includes('class="logs-shell'));
+  assert.ok(html.includes('class="logs-grid"'));
+  assert.ok(html.includes('log-stream-status'));
+  assert.ok(html.includes('filteredLogs.length'));
+  assert.ok(html.includes('logLevelCounts'));
 });
 
 test('Settings UI includes Claude model mapping controls', async () => {
@@ -155,7 +171,13 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
     'setReasoningMapping(alias, reasoning)',
     'setHaikuModel(model)',
     'testChat()',
-    'testHaikuChat()'
+    'testHaikuChat()',
+    'testStatusText',
+    'haikuTestStatusText',
+    'formatUsageSummary(usage)',
+    'logStreamStatus',
+    'logLevelCounts',
+    'formatLogTime(timestamp)'
   ]) {
     assert.ok(js.includes(needle), `Expected app.js to include ${needle}`);
   }

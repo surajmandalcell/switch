@@ -240,7 +240,9 @@ export async function handleMessages(req, res) {
 async function _streamDirectWithRotation(res, anthropicRequest, creds, responseModel, startTime, rotator) {
     initSSEResponse(res);
     const sourceStream = sendMessageStream(anthropicRequest, creds.accessToken, creds.accountId, rotator, creds.email);
+    let finalUsage = null;
     const stream = tapUsageEventStream(sourceStream, (usage) => {
+        finalUsage = usage;
         recordMessageMetric({
             body: anthropicRequest,
             endpoint: '/v1/messages',
@@ -255,13 +257,13 @@ async function _streamDirectWithRotation(res, anthropicRequest, creds, responseM
         });
     });
     await pipeSSEStream(res, stream);
-    logger.response(200, { model: anthropicRequest.model, duration: Date.now() - startTime });
+    logger.response(200, { model: anthropicRequest.model, usage: finalUsage, duration: Date.now() - startTime });
 }
 
 async function _sendDirectWithRotation(res, anthropicRequest, creds, responseModel, startTime, rotator) {
     const response = await sendMessage(anthropicRequest, creds.accessToken, creds.accountId);
     const duration = Date.now() - startTime;
-    logger.response(200, { model: anthropicRequest.model, tokens: response.usage?.output_tokens || 0, duration });
+    logger.response(200, { model: anthropicRequest.model, usage: response.usage, duration });
     recordMessageMetric({
         body: anthropicRequest,
         endpoint: '/v1/messages',
@@ -281,7 +283,9 @@ async function _sendDirectWithRotation(res, anthropicRequest, creds, responseMod
 async function _streamKilo(res, anthropicRequest, kiloTarget, responseModel, startTime) {
     initSSEResponse(res);
     const sourceStream = sendKiloMessageStream(anthropicRequest, kiloTarget);
+    let finalUsage = null;
     const stream = tapUsageEventStream(sourceStream, (usage) => {
+        finalUsage = usage;
         recordMessageMetric({
             body: anthropicRequest,
             endpoint: '/v1/messages',
@@ -296,13 +300,13 @@ async function _streamKilo(res, anthropicRequest, kiloTarget, responseModel, sta
         });
     });
     await pipeSSEStream(res, stream);
-    logger.response(200, { model: kiloTarget, duration: Date.now() - startTime });
+    logger.response(200, { model: kiloTarget, usage: finalUsage, duration: Date.now() - startTime });
 }
 
 async function _sendKilo(res, anthropicRequest, kiloTarget, responseModel, startTime) {
     const response = await sendKiloMessage(anthropicRequest, kiloTarget);
     const duration = Date.now() - startTime;
-    logger.response(200, { model: kiloTarget, tokens: response.usage?.output_tokens || 0, duration });
+    logger.response(200, { model: kiloTarget, usage: response.usage, duration });
     recordMessageMetric({
         body: anthropicRequest,
         endpoint: '/v1/messages',

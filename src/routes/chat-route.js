@@ -77,7 +77,7 @@ export async function handleChatCompletion(req, res) {
       : await sendMessage(anthropicRequest, creds.accessToken, creds.accountId);
 
     const duration = Date.now() - startTime;
-    logger.response(200, { model: upstreamModel, tokens: response.usage?.output_tokens || 0, duration });
+    logger.response(200, { model: upstreamModel, usage: response.usage, duration });
     recordChatMetric({
       body,
       requestedModel,

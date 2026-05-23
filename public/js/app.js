@@ -10,7 +10,6 @@ document.addEventListener('alpine:init', () => {
         version: '1.0.7',
         connectionStatus: 'connecting',
         activeTab: initialTab(),
-        sidebarOpen: window.innerWidth >= 1024,
         loading: false,
         toast: null,
         currentTime: '',
@@ -70,32 +69,72 @@ document.addEventListener('alpine:init', () => {
         
         testPrompt: 'Say hello',
         testResponse: '',
+        testStatus: 'idle',
+        testError: '',
+        testMeta: null,
         testing: false,
 
         haikuTestPrompt: 'Say hello',
         haikuTestResponse: '',
+        haikuTestStatus: 'idle',
+        haikuTestError: '',
+        haikuTestMeta: null,
         haikuTesting: false,
 
         haikuModelLabel() {
             return this.modelOptionName(this.modelMappings?.haiku || 'gpt-5.4-mini');
         },
 
+        get testStatusText() {
+            const labels = {
+                idle: 'Ready',
+                running: 'Sending request',
+                success: 'Response received',
+                error: 'Request failed'
+            };
+            return labels[this.testStatus] || 'Ready';
+        },
+
+        get haikuTestStatusText() {
+            const labels = {
+                idle: 'Ready',
+                running: 'Sending Haiku request',
+                success: 'Response received',
+                error: 'Request failed'
+            };
+            return labels[this.haikuTestStatus] || 'Ready';
+        },
+
         async testHaikuChat() {
             if (!this.haikuTestPrompt.trim()) return;
+            const startedAt = Date.now();
             this.haikuTesting = true;
             this.haikuTestResponse = '';
-            const { ok, data } = await this.api('/v1/chat/completions', {
-                method: 'POST',
-                body: JSON.stringify({
-                    model: 'claude-haiku-4',
-                    messages: [{ role: 'user', content: this.haikuTestPrompt }]
-                })
-            });
-            this.haikuTesting = false;
-            if (ok && data.choices) {
-                this.haikuTestResponse = data.choices[0].message.content;
-            } else {
-                this.haikuTestResponse = data?.error?.message || 'Request failed';
+            this.haikuTestStatus = 'running';
+            this.haikuTestError = '';
+            this.haikuTestMeta = null;
+
+            try {
+                const { ok, data, error } = await this.api('/v1/chat/completions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        model: 'claude-haiku-4',
+                        messages: [{ role: 'user', content: this.haikuTestPrompt }]
+                    })
+                });
+                const durationMs = Date.now() - startedAt;
+                this.haikuTestMeta = { durationMs, usage: data?.usage || null };
+
+                if (ok && data.choices) {
+                    this.haikuTestResponse = data.choices[0].message.content;
+                    this.haikuTestStatus = 'success';
+                } else {
+                    this.haikuTestError = data?.error?.message || error || 'Request failed';
+                    this.haikuTestResponse = this.haikuTestError;
+                    this.haikuTestStatus = 'error';
+                }
+            } finally {
+                this.haikuTesting = false;
             }
         },
         
@@ -106,6 +145,7 @@ document.addEventListener('alpine:init', () => {
         logSearchQuery: '',
         logFilters: { INFO: true, SUCCESS: true, WARN: true, ERROR: true, DEBUG: false },
         logEventSource: null,
+        logStreamStatus: 'connecting',
 
         get filteredLogs() {
             const query = this.logSearchQuery.trim().toLowerCase();
@@ -114,6 +154,13 @@ document.addEventListener('alpine:init', () => {
                 if (query && !log.message.toLowerCase().includes(query)) return false;
                 return true;
             });
+        },
+
+        get logLevelCounts() {
+            return this.logs.reduce((counts, log) => {
+                counts[log.level] = (counts[log.level] || 0) + 1;
+                return counts;
+            }, { INFO: 0, SUCCESS: 0, WARN: 0, ERROR: 0, DEBUG: 0 });
         },
 
         get filteredAccounts() {
@@ -159,10 +206,6 @@ document.addEventListener('alpine:init', () => {
             this.loadClaudeProxySetting();
             this.loadMetrics();
 
-            window.addEventListener('resize', () => {
-                this.sidebarOpen = window.innerWidth >= 1024;
-            });
-
             window.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'oauth-success') {
                     this.showToast(`Account ${event.data.email} added!`, 'success');
@@ -191,9 +234,6 @@ document.addEventListener('alpine:init', () => {
                 nextUrl.hash = '';
             }
             window.history.replaceState({}, '', nextUrl);
-            if (window.innerWidth < 1024) {
-                this.sidebarOpen = false;
-            }
         },
 
         async api(endpoint, options = {}) {
@@ -299,6 +339,15 @@ document.addEventListener('alpine:init', () => {
             const number = Number(value) || 0;
             if (number >= 1000) return `${(number / 1000).toFixed(1)}s`;
             return `${number}ms`;
+        },
+
+        formatUsageSummary(usage) {
+            if (!usage) return '';
+            const input = Number(usage.prompt_tokens ?? usage.input_tokens) || 0;
+            const output = Number(usage.completion_tokens ?? usage.output_tokens) || 0;
+            const total = Number(usage.total_tokens ?? (input + output)) || 0;
+            if (total <= 0) return '';
+            return `${this.formatTokenCount(total)} tokens (${this.formatTokenCount(input)} in, ${this.formatTokenCount(output)} out)`;
         },
 
         formatBytes(value) {
@@ -578,20 +627,34 @@ document.addEventListener('alpine:init', () => {
 
         async testChat() {
             if (!this.testPrompt.trim()) return;
+            const startedAt = Date.now();
             this.testing = true;
             this.testResponse = '';
-            const { ok, data } = await this.api('/v1/chat/completions', {
-                method: 'POST',
-                body: JSON.stringify({
-                    model: 'gpt-5.5',
-                    messages: [{ role: 'user', content: this.testPrompt }]
-                })
-            });
-            this.testing = false;
-            if (ok && data.choices) {
-                this.testResponse = data.choices[0].message.content;
-            } else {
-                this.testResponse = data?.error?.message || 'Request failed';
+            this.testStatus = 'running';
+            this.testError = '';
+            this.testMeta = null;
+
+            try {
+                const { ok, data, error } = await this.api('/v1/chat/completions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        model: 'gpt-5.5',
+                        messages: [{ role: 'user', content: this.testPrompt }]
+                    })
+                });
+                const durationMs = Date.now() - startedAt;
+                this.testMeta = { durationMs, usage: data?.usage || null };
+
+                if (ok && data.choices) {
+                    this.testResponse = data.choices[0].message.content;
+                    this.testStatus = 'success';
+                } else {
+                    this.testError = data?.error?.message || error || 'Request failed';
+                    this.testResponse = this.testError;
+                    this.testStatus = 'error';
+                }
+            } finally {
+                this.testing = false;
             }
         },
 
@@ -773,11 +836,16 @@ document.addEventListener('alpine:init', () => {
 
         startLogStream() {
             if (this.logEventSource) this.logEventSource.close();
-            
+
+            this.logStreamStatus = 'connecting';
             this.logEventSource = new EventSource('/api/logs/stream?history=true');
+            this.logEventSource.onopen = () => {
+                this.logStreamStatus = 'connected';
+            };
             this.logEventSource.onmessage = (event) => {
                 try {
                     const log = JSON.parse(event.data);
+                    this.logStreamStatus = 'connected';
                     this.logs.unshift(log);
                     
                     if (this.logs.length > 500) {
@@ -787,6 +855,8 @@ document.addEventListener('alpine:init', () => {
             };
             
             this.logEventSource.onerror = () => {
+                this.logStreamStatus = 'disconnected';
+                if (this.logEventSource) this.logEventSource.close();
                 setTimeout(() => this.startLogStream(), 3000);
             };
         },
@@ -802,6 +872,22 @@ document.addEventListener('alpine:init', () => {
                 return message.replace(match[0], '');
             }
             return message;
+        },
+
+        formatLogTime(timestamp) {
+            if (!timestamp) return '--:--:--';
+            const date = new Date(timestamp);
+            if (Number.isNaN(date.getTime())) return '--:--:--';
+            return date.toLocaleTimeString([], { hour12: false });
+        },
+
+        logStreamStatusText() {
+            const labels = {
+                connecting: 'Connecting',
+                connected: 'Live',
+                disconnected: 'Reconnecting'
+            };
+            return labels[this.logStreamStatus] || 'Unknown';
         },
 
         getLogDetails(message) {
