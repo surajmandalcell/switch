@@ -1,6 +1,6 @@
 {
   "name": "@pikoloo/codex-proxy",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Local personal proxy for OpenAI Codex models with Claude API compatibility",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",
   "type": "module",
