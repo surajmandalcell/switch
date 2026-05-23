@@ -21,8 +21,6 @@ import {
   handleGetKiloModels,
   handleGetModelMappings,
   handleSetModelMappings,
-  handleGetAccountStrategy,
-  handleSetAccountStrategy,
   handleGetClaudeProxySetting,
   handleSetClaudeProxySetting
 } from './settings-route.js';
@@ -77,8 +75,6 @@ export function registerApiRoutes(app, { port }) {
   app.get('/settings/kilo-models', handleGetKiloModels);
   app.get('/settings/model-mappings', handleGetModelMappings);
   app.post('/settings/model-mappings', handleSetModelMappings);
-  app.get('/settings/account-strategy', handleGetAccountStrategy);
-  app.post('/settings/account-strategy', handleSetAccountStrategy);
   app.get('/settings/claude-proxy', handleGetClaudeProxySetting);
   app.post('/settings/claude-proxy', handleSetClaudeProxySetting);
 

@@ -3,14 +3,12 @@
  * Handles server settings endpoints:
  *   GET  /settings/haiku-model
  *   POST /settings/haiku-model
- *   GET  /settings/account-strategy
- *   POST /settings/account-strategy
  *   GET  /settings/claude-proxy
  *   POST /settings/claude-proxy
  *   GET  /settings/kilo-models
  */
 
-import { getServerSettings, isMultiAccountRotationEnabled, setServerSettings } from '../server-settings.js';
+import { getServerSettings, setServerSettings } from '../server-settings.js';
 import { fetchFreeModels } from '../kilo-models.js';
 import {
   CLAUDE_MODEL_ALIASES,
@@ -23,7 +21,6 @@ import {
   normalizeReasoningMappings
 } from '../model-mapper.js';
 
-const VALID_STRATEGIES = ['sticky', 'round-robin'];
 const VALID_OPENAI_MODEL_IDS = new Set(OPENAI_MODEL_OPTIONS.map((model) => model.id));
 const VALID_REASONING_LEVEL_IDS = new Set(REASONING_LEVEL_OPTIONS.map((level) => level.id));
 
@@ -209,41 +206,6 @@ export function handleSetModelMappings(req, res) {
 }
 
 /**
- * GET /settings/account-strategy
- * Returns the current account selection strategy.
- */
-export function handleGetAccountStrategy(req, res) {
-  const settings = getServerSettings();
-  res.json({
-    success: true,
-    accountStrategy: settings.accountStrategy,
-    rotationEnabled: isMultiAccountRotationEnabled()
-  });
-}
-
-/**
- * POST /settings/account-strategy
- * Updates the account selection strategy.
- */
-export function handleSetAccountStrategy(req, res) {
-  const { accountStrategy } = req.body || {};
-
-  if (!VALID_STRATEGIES.includes(accountStrategy)) {
-    return res.status(400).json({
-      success: false,
-      error: `Invalid accountStrategy. Use one of: ${VALID_STRATEGIES.join(', ')}`
-    });
-  }
-
-  const settings = setServerSettings({ accountStrategy });
-  res.json({
-    success: true,
-    accountStrategy: settings.accountStrategy,
-    rotationEnabled: isMultiAccountRotationEnabled()
-  });
-}
-
-/**
  * GET /settings/claude-proxy
  * Returns Claude proxy configuration preferences.
  */
@@ -282,8 +244,6 @@ export default {
   handleGetKiloModels,
   handleGetModelMappings,
   handleSetModelMappings,
-  handleGetAccountStrategy,
-  handleSetAccountStrategy,
   handleGetClaudeProxySetting,
   handleSetClaudeProxySetting
 };

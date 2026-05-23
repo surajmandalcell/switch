@@ -51,7 +51,6 @@ import {
   handleSetHaikuModel,
   handleGetModelMappings,
   handleSetModelMappings,
-  handleGetAccountStrategy,
   handleGetClaudeProxySetting,
   handleSetClaudeProxySetting
 } from '../../src/routes/settings-route.js';
@@ -128,12 +127,10 @@ test('handleSetModelMappings: rejects unsupported reasoning level with 400', () 
   assert.equal(res._body.success, false);
 });
 
-test('handleGetAccountStrategy: reports multi-account rotation disabled by default', () => {
-  const req = mockReq();
-  const res = mockRes();
-  handleGetAccountStrategy(req, res);
-  assert.equal(res._status, 200);
-  assert.equal(res._body.rotationEnabled, false);
+test('settings-route: does not expose account strategy handlers', async () => {
+  const settingsRoute = await import('../../src/routes/settings-route.js');
+  assert.equal('handleGetAccountStrategy' in settingsRoute, false);
+  assert.equal('handleSetAccountStrategy' in settingsRoute, false);
 });
 
 test('handleGetClaudeProxySetting: returns startup configuration flag', () => {

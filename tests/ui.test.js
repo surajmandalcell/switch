@@ -83,6 +83,25 @@ test('Settings UI includes Claude proxy configuration controls', async () => {
   assert.ok(html.includes('@change="setConfigureClaudeOnStartup($event.target.checked)"'));
 });
 
+test('Settings UI does not expose account strategy controls', async () => {
+  const htmlRes = await fetch(UI_URL);
+  assert.equal(htmlRes.status, 200);
+  const html = await htmlRes.text();
+
+  assert.equal(html.includes('Account Selection Strategy'), false);
+  assert.equal(html.includes('setAccountStrategy'), false);
+  assert.equal(html.includes('Round-Robin'), false);
+
+  const jsRes = await fetch(new URL('/js/app.js', UI_URL));
+  assert.equal(jsRes.status, 200);
+  const js = await jsRes.text();
+
+  assert.equal(js.includes('/settings/account-strategy'), false);
+  assert.equal(js.includes('accountStrategy'), false);
+  assert.equal(js.includes('strategySaving'), false);
+  assert.equal(js.includes('multiAccountRotationEnabled'), false);
+});
+
 test('light macOS theme keeps hover text readable', async () => {
   const res = await fetch(new URL('/css/style.css', UI_URL));
   assert.equal(res.status, 200);
@@ -119,7 +138,6 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
   for (const needle of [
     "Alpine.data('app'",
     'activeTab',
-    'multiAccountRotationEnabled',
     'refreshAccounts()',
     'checkHealth()',
     'serverUrl',

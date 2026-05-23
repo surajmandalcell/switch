@@ -5,8 +5,8 @@ import { sendAuthError, getCredentialsOrError, getCredentialsForAccount } from '
 import { initSSEResponse, pipeSSEStream, handleStreamError } from '../middleware/sse.js';
 import { logger } from '../utils/logger.js';
 import { AccountRotator } from '../account-rotation/index.js';
-import { listAccounts, getActiveAccount, save } from '../account-manager.js';
-import { getServerSettings, isMultiAccountRotationEnabled } from '../server-settings.js';
+import { listAccounts, save } from '../account-manager.js';
+import { isMultiAccountRotationEnabled } from '../server-settings.js';
 import { recordUsageEventSafe, tapUsageEventStream } from '../usage-metrics.js';
 
 const MAX_RETRIES = 5;
@@ -14,20 +14,14 @@ const MAX_WAIT_BEFORE_ERROR_MS = 120000;
 const SHORT_RATE_LIMIT_THRESHOLD_MS = 5000;
 
 let accountRotator = null;
-let currentStrategy = null;
 
 function getAccountRotator() {
-    const settings = getServerSettings();
-    const strategy = settings.accountStrategy || 'sticky';
-    
-    if (!accountRotator || currentStrategy !== strategy) {
+    if (!accountRotator) {
         accountRotator = new AccountRotator({
             listAccounts,
-            save,
-            getActiveAccount
-        }, strategy);
-        currentStrategy = strategy;
-        logger.info(`[Messages] Account strategy: ${strategy}`);
+            save
+        });
+        logger.info('[Messages] Account rotation enabled');
     }
     return accountRotator;
 }

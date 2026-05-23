@@ -7,7 +7,6 @@ const MULTI_ACCOUNT_ROTATION_ENV = 'CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTA
 
 const DEFAULT_SETTINGS = {
     haikuKiloModel: 'minimax/minimax-m2.5:free',
-    accountStrategy: 'sticky',
     configureClaudeOnStartup: false,
     modelMappings: {
         opus: 'gpt-5.5',
@@ -21,6 +20,30 @@ const DEFAULT_SETTINGS = {
     }
 };
 
+export function normalizeSettings(data = {}) {
+    const modelMappings = data?.modelMappings && typeof data.modelMappings === 'object' && !Array.isArray(data.modelMappings)
+        ? data.modelMappings
+        : {};
+    const reasoningMappings = data?.reasoningMappings && typeof data.reasoningMappings === 'object' && !Array.isArray(data.reasoningMappings)
+        ? data.reasoningMappings
+        : {};
+
+    return {
+        haikuKiloModel: typeof data.haikuKiloModel === 'string'
+            ? data.haikuKiloModel
+            : DEFAULT_SETTINGS.haikuKiloModel,
+        configureClaudeOnStartup: data.configureClaudeOnStartup === true,
+        modelMappings: {
+            ...DEFAULT_SETTINGS.modelMappings,
+            ...modelMappings
+        },
+        reasoningMappings: {
+            ...DEFAULT_SETTINGS.reasoningMappings,
+            ...reasoningMappings
+        }
+    };
+}
+
 function ensureConfigDir() {
     if (!existsSync(CONFIG_DIR)) {
         mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
@@ -31,46 +54,21 @@ export function getServerSettings() {
     ensureConfigDir();
 
     if (!existsSync(SETTINGS_FILE)) {
-        return {
-            ...DEFAULT_SETTINGS,
-            modelMappings: { ...DEFAULT_SETTINGS.modelMappings },
-            reasoningMappings: { ...DEFAULT_SETTINGS.reasoningMappings }
-        };
+        return normalizeSettings();
     }
 
     try {
         const data = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
-        const modelMappings = data?.modelMappings && typeof data.modelMappings === 'object' && !Array.isArray(data.modelMappings)
-            ? data.modelMappings
-            : {};
-        const reasoningMappings = data?.reasoningMappings && typeof data.reasoningMappings === 'object' && !Array.isArray(data.reasoningMappings)
-            ? data.reasoningMappings
-            : {};
-        return {
-            ...DEFAULT_SETTINGS,
-            ...data,
-            modelMappings: {
-                ...DEFAULT_SETTINGS.modelMappings,
-                ...modelMappings
-            },
-            reasoningMappings: {
-                ...DEFAULT_SETTINGS.reasoningMappings,
-                ...reasoningMappings
-            }
-        };
+        return normalizeSettings(data);
     } catch (error) {
         console.error('[ServerSettings] Failed to read settings:', error.message);
-        return {
-            ...DEFAULT_SETTINGS,
-            modelMappings: { ...DEFAULT_SETTINGS.modelMappings },
-            reasoningMappings: { ...DEFAULT_SETTINGS.reasoningMappings }
-        };
+        return normalizeSettings();
     }
 }
 
 export function setServerSettings(patch = {}) {
     const current = getServerSettings();
-    const next = { ...current, ...patch };
+    const next = normalizeSettings({ ...current, ...patch });
 
     ensureConfigDir();
     writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
@@ -86,6 +84,7 @@ export { SETTINGS_FILE, MULTI_ACCOUNT_ROTATION_ENV };
 export default {
     getServerSettings,
     setServerSettings,
+    normalizeSettings,
     isMultiAccountRotationEnabled,
     MULTI_ACCOUNT_ROTATION_ENV,
     SETTINGS_FILE

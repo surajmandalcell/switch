@@ -49,10 +49,7 @@ document.addEventListener('alpine:init', () => {
         reasoningLevelOptions: [],
         modelMappingSaving: null,
         reasoningMappingSaving: null,
-        accountStrategy: 'sticky',
-        multiAccountRotationEnabled: false,
         haikuModelSaving: false,
-        strategySaving: false,
         configureClaudeOnStartup: false,
         claudeProxyConfiguring: false,
         claudeProxyStartupSaving: false,
@@ -159,7 +156,6 @@ document.addEventListener('alpine:init', () => {
             this.startLogStream();
             this.loadModelMappingsSetting();
             this.loadHaikuModelSetting();
-            this.loadAccountStrategySetting();
             this.loadClaudeProxySetting();
             this.loadMetrics();
 
@@ -722,31 +718,6 @@ document.addEventListener('alpine:init', () => {
             } else {
                 this.reasoningMappings = { ...this.reasoningMappings, [alias]: previous };
                 this.showToast(data?.error || 'Failed to update reasoning level', 'error');
-            }
-        },
-
-        async loadAccountStrategySetting() {
-            const { ok, data } = await this.api('/settings/account-strategy');
-            if (ok && data?.accountStrategy) {
-                this.accountStrategy = data.accountStrategy;
-                this.multiAccountRotationEnabled = data.rotationEnabled === true;
-            }
-        },
-
-        async setAccountStrategy(strategy) {
-            if (!this.multiAccountRotationEnabled || this.strategySaving || this.accountStrategy === strategy) return;
-            this.strategySaving = true;
-            const { ok, data } = await this.api('/settings/account-strategy', {
-                method: 'POST',
-                body: JSON.stringify({ accountStrategy: strategy })
-            });
-            this.strategySaving = false;
-            if (ok && data?.accountStrategy) {
-                this.accountStrategy = data.accountStrategy;
-                this.multiAccountRotationEnabled = data.rotationEnabled === true;
-                this.showToast(`Account strategy set to ${data.accountStrategy === 'sticky' ? 'Sticky' : 'Round-Robin'}`, 'success');
-            } else {
-                this.showToast(data?.error || 'Failed to update strategy', 'error');
             }
         },
 

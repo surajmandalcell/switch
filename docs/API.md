@@ -115,21 +115,6 @@ Content-Type: application/json
 }
 ```
 
-### Account Selection Strategy
-
-Requests use the active account only by default. Account rotation settings are inert unless `CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTATION=true` is set.
-
-```bash
-GET /settings/account-strategy
-
-# Response
-{
-  "success": true,
-  "accountStrategy": "sticky",
-  "rotationEnabled": false
-}
-```
-
 ### Switch Account
 
 ```bash
