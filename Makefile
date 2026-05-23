@@ -1,6 +1,9 @@
 SHELL := /bin/sh
 
-.PHONY: update publish
+.PHONY: dev update publish
+
+dev:
+	@npm run start
 
 update:
 	@./scripts/npm.sh update
