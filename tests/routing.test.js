@@ -74,9 +74,17 @@ function startLogListener() {
   const url = new URL('/api/logs/stream?history=false', baseUrl);
   const req = http.get(url);
   const logs = [];
+  let response = null;
+  let closed = false;
+  const done = new Promise((resolve) => {
+    req.on('close', resolve);
+    req.on('error', resolve);
+  });
 
   req.on('response', (res) => {
+    response = res;
     res.setEncoding('utf8');
+    res.on('error', () => {});
     let buffer = '';
     res.on('data', (chunk) => {
       buffer += chunk;
@@ -94,8 +102,18 @@ function startLogListener() {
       }
     });
   });
+  req.on('error', () => {});
 
-  return { req, logs };
+  return {
+    logs,
+    async close() {
+      if (closed) return;
+      closed = true;
+      response?.destroy();
+      req.destroy();
+      await done;
+    }
+  };
 }
 
 test('logs do not show implicit Kilo routing for haiku aliases', { skip: shouldSkip }, async () => {
@@ -118,7 +136,7 @@ test('logs do not show implicit Kilo routing for haiku aliases', { skip: shouldS
   await postJson('/v1/messages', opusPayload);
 
   await new Promise((resolve) => setTimeout(resolve, 500));
-  listener.req.destroy();
+  await listener.close();
 
   const messages = listener.logs
     .map((entry) => entry?.message)
