@@ -16,7 +16,7 @@ _Current dashboard preview: a real capture of the local Web UI with the macOS-st
 | Maintainer | Suraj Mandal |
 | GitHub | [surajmandalcell](https://github.com/surajmandalcell) |
 | Contact | [surajmandalcell@gmail.com](mailto:surajmandalcell@gmail.com) |
-| Package | [@smc/codex-proxy](https://www.npmjs.com/package/@smc/codex-proxy) |
+| Package | [@pikoloo/codex-proxy](https://www.npmjs.com/package/@pikoloo/codex-proxy) |
 
 ---
 
@@ -67,17 +67,17 @@ This tool acts as a "translation layer" between the Claude CLI and ChatGPT's Cod
 Install globally to use the CLI commands anywhere:
 
 ```bash
-npm install -g @smc/codex-proxy
+npm install -g @pikoloo/codex-proxy
 codex-proxy start
 ```
 
 Or run the published package without a global install:
 
 ```bash
-npx @smc/codex-proxy@latest start
+npx @pikoloo/codex-proxy@latest start
 ```
 
-For local development from this checkout, use `make dev`.
+For release work from this checkout, use `make update` and `make publish`.
 
 The legacy `codex-claude-proxy` command remains available after installing this package.
 
