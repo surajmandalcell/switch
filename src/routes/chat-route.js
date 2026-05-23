@@ -21,7 +21,7 @@ export async function handleChatCompletion(req, res) {
   const body = req.body;
   const requestedModel = body.model || DEFAULT_OPENAI_MODEL;
 
-  const { isKilo, kiloTarget, upstreamModel } = resolveModelRouting(requestedModel);
+  const { isKilo, kiloTarget, upstreamModel, reasoningLevel } = resolveModelRouting(requestedModel);
 
   if (isKilo && !isKiloEnabled()) {
     return res.status(403).json({
@@ -42,7 +42,7 @@ export async function handleChatCompletion(req, res) {
     }
   }
 
-  const anthropicRequest = _buildAnthropicRequest(body, upstreamModel);
+  const anthropicRequest = _buildAnthropicRequest(body, upstreamModel, reasoningLevel);
 
   logger.request('POST', '/v1/chat/completions', {
     model: upstreamModel,
@@ -117,13 +117,17 @@ export function handleCountTokens(req, res) {
  * @param {string} upstreamModel
  * @returns {object}
  */
-function _buildAnthropicRequest(body, upstreamModel) {
+function _buildAnthropicRequest(body, upstreamModel, reasoningLevel = null) {
   const anthropicRequest = {
     model: upstreamModel,
     messages: [],
     system: null,
     stream: false
   };
+
+  if (reasoningLevel) {
+    anthropicRequest.reasoningLevel = reasoningLevel;
+  }
 
   if (body.messages) {
     const systemMsg = body.messages.find(m => m.role === 'system');

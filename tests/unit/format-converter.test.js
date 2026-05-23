@@ -51,6 +51,16 @@ test('convertAnthropicToResponsesAPI: no system prompt sets empty instructions',
   assert.equal(result.instructions, '');
 });
 
+test('convertAnthropicToResponsesAPI: forwards configured reasoning effort', () => {
+  const req = {
+    model: 'gpt-5.5',
+    reasoningLevel: 'xhigh',
+    messages: [{ role: 'user', content: 'hi' }]
+  };
+  const result = convertAnthropicToResponsesAPI(req);
+  assert.deepEqual(result.reasoning, { effort: 'xhigh' });
+});
+
 test('convertAnthropicToResponsesAPI: user text message becomes input_text', () => {
   const req = {
     model: 'gpt-5.2',

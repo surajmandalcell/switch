@@ -37,7 +37,7 @@ export async function handleMessages(req, res) {
     const requestedModel = body.model || DEFAULT_OPENAI_MODEL;
     const isStreaming = body.stream !== false;
     
-    const { isKilo, kiloTarget, upstreamModel } = resolveModelRouting(requestedModel);
+    const { isKilo, kiloTarget, upstreamModel, reasoningLevel } = resolveModelRouting(requestedModel);
     
     if (isKilo) {
         if (!isKiloEnabled()) {
@@ -62,7 +62,7 @@ export async function handleMessages(req, res) {
             return sendAuthError(res);
         }
 
-        const anthropicRequest = { ...body, model: upstreamModel };
+        const anthropicRequest = { ...body, model: upstreamModel, ...(reasoningLevel ? { reasoningLevel } : {}) };
         try {
             if (isStreaming) {
                 await _streamDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, null);
@@ -118,7 +118,7 @@ export async function handleMessages(req, res) {
             continue;
         }
         
-        const anthropicRequest = { ...body, model: upstreamModel };
+        const anthropicRequest = { ...body, model: upstreamModel, ...(reasoningLevel ? { reasoningLevel } : {}) };
         
         try {
             if (isStreaming) {

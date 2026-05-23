@@ -12,6 +12,11 @@ const DEFAULT_SETTINGS = {
         opus: 'gpt-5.5',
         sonnet: 'gpt-5.5',
         haiku: 'gpt-5.4-mini'
+    },
+    reasoningMappings: {
+        opus: 'high',
+        sonnet: 'medium',
+        haiku: 'low'
     }
 };
 
@@ -27,7 +32,8 @@ export function getServerSettings() {
     if (!existsSync(SETTINGS_FILE)) {
         return {
             ...DEFAULT_SETTINGS,
-            modelMappings: { ...DEFAULT_SETTINGS.modelMappings }
+            modelMappings: { ...DEFAULT_SETTINGS.modelMappings },
+            reasoningMappings: { ...DEFAULT_SETTINGS.reasoningMappings }
         };
     }
 
@@ -36,19 +42,27 @@ export function getServerSettings() {
         const modelMappings = data?.modelMappings && typeof data.modelMappings === 'object' && !Array.isArray(data.modelMappings)
             ? data.modelMappings
             : {};
+        const reasoningMappings = data?.reasoningMappings && typeof data.reasoningMappings === 'object' && !Array.isArray(data.reasoningMappings)
+            ? data.reasoningMappings
+            : {};
         return {
             ...DEFAULT_SETTINGS,
             ...data,
             modelMappings: {
                 ...DEFAULT_SETTINGS.modelMappings,
                 ...modelMappings
+            },
+            reasoningMappings: {
+                ...DEFAULT_SETTINGS.reasoningMappings,
+                ...reasoningMappings
             }
         };
     } catch (error) {
         console.error('[ServerSettings] Failed to read settings:', error.message);
         return {
             ...DEFAULT_SETTINGS,
-            modelMappings: { ...DEFAULT_SETTINGS.modelMappings }
+            modelMappings: { ...DEFAULT_SETTINGS.modelMappings },
+            reasoningMappings: { ...DEFAULT_SETTINGS.reasoningMappings }
         };
     }
 }

@@ -56,6 +56,7 @@ test('Settings UI includes Claude model mapping controls', async () => {
   assert.ok(html.includes('data-model-mapping-alias="opus"'));
   assert.ok(html.includes('data-model-mapping-alias="sonnet"'));
   assert.ok(html.includes('data-model-mapping-alias="haiku"'));
+  assert.ok(html.includes('Reasoning'));
 });
 
 test('app.js defines expected Alpine state keys (smoke)', async () => {
@@ -73,6 +74,7 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
     'startLogStream()',
     'loadModelMappingsSetting()',
     'setModelMapping(alias, model)',
+    'setReasoningMapping(alias, reasoning)',
     'setHaikuModel(model)',
     'testChat()',
     'testHaikuChat()'

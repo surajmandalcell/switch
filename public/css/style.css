@@ -258,7 +258,7 @@ select:focus {
 
 .model-mapping-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem);
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem);
     align-items: center;
     gap: 1rem;
     padding: 1rem;
@@ -269,6 +269,24 @@ select:focus {
 
 .model-mapping-copy {
     min-width: 0;
+}
+
+.model-mapping-controls {
+    display: grid;
+    grid-template-columns: minmax(13rem, 1fr) minmax(9rem, 0.72fr);
+    gap: 0.75rem;
+}
+
+.model-mapping-field {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.model-mapping-field > span {
+    color: var(--text-faint);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.68rem;
 }
 
 .model-mapping-select {
@@ -283,6 +301,10 @@ select:focus {
     .model-mapping-row {
         grid-template-columns: 1fr;
         gap: 0.75rem;
+    }
+
+    .model-mapping-controls {
+        grid-template-columns: 1fr;
     }
 }
 

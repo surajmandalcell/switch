@@ -103,27 +103,45 @@ test('GET/POST /settings/model-mappings returns and persists Claude alias mappin
   assert.equal(original.status, 200, `Expected 200, got ${original.status}: ${original.text}`);
   assert.equal(original.json?.success, true);
   assert.ok(Array.isArray(original.json?.models));
+  assert.ok(Array.isArray(original.json?.reasoningLevels));
   assert.ok(original.json.models.some((model) => model.id === 'gpt-5.4'));
+  assert.ok(original.json.reasoningLevels.some((level) => level.id === 'xhigh'));
 
   const originalMappings = original.json.modelMappings;
+  const originalReasoningMappings = original.json.reasoningMappings;
   const nextHaiku = originalMappings.haiku === 'gpt-5.4' ? 'gpt-5.4-mini' : 'gpt-5.4';
+  const nextReasoning = originalReasoningMappings.haiku === 'xhigh' ? 'low' : 'xhigh';
 
   try {
-    const updated = await postJson('/settings/model-mappings', { modelMappings: { haiku: nextHaiku } });
+    const updated = await postJson('/settings/model-mappings', {
+      modelMappings: { haiku: nextHaiku },
+      reasoningMappings: { haiku: nextReasoning }
+    });
     assert.equal(updated.status, 200, `Expected 200, got ${updated.status}: ${updated.text}`);
     assert.equal(updated.json?.success, true);
     assert.equal(updated.json?.modelMappings?.haiku, nextHaiku);
+    assert.equal(updated.json?.reasoningMappings?.haiku, nextReasoning);
 
     const reread = await getJson('/settings/model-mappings');
     assert.equal(reread.status, 200, `Expected 200, got ${reread.status}: ${reread.text}`);
     assert.equal(reread.json?.modelMappings?.haiku, nextHaiku);
+    assert.equal(reread.json?.reasoningMappings?.haiku, nextReasoning);
   } finally {
-    await postJson('/settings/model-mappings', { modelMappings: originalMappings });
+    await postJson('/settings/model-mappings', {
+      modelMappings: originalMappings,
+      reasoningMappings: originalReasoningMappings
+    });
   }
 });
 
 test('POST /settings/model-mappings rejects unsupported GPT model', { skip: shouldSkip }, async () => {
   const { status, json } = await postJson('/settings/model-mappings', { modelMappings: { haiku: 'fake-gpt-model' } });
+  assert.equal(status, 400);
+  assert.equal(json?.success, false);
+});
+
+test('POST /settings/model-mappings rejects unsupported reasoning level', { skip: shouldSkip }, async () => {
+  const { status, json } = await postJson('/settings/model-mappings', { reasoningMappings: { haiku: 'extreme' } });
   assert.equal(status, 400);
   assert.equal(json?.success, false);
 });

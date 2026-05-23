@@ -80,7 +80,9 @@ test('handleGetModelMappings: returns aliases, defaults, models, and current map
   assert.ok(res._body.aliases.includes('sonnet'));
   assert.ok(res._body.aliases.includes('haiku'));
   assert.ok(Array.isArray(res._body.models));
+  assert.ok(Array.isArray(res._body.reasoningLevels));
   assert.ok(typeof res._body.modelMappings.haiku === 'string');
+  assert.ok(typeof res._body.reasoningMappings.haiku === 'string');
 });
 
 test('handleSetModelMappings: rejects unknown alias with 400', () => {
@@ -93,6 +95,14 @@ test('handleSetModelMappings: rejects unknown alias with 400', () => {
 
 test('handleSetModelMappings: rejects unsupported model ID with 400', () => {
   const req = mockReq({ modelMappings: { haiku: 'not-a-real-gpt-model' } });
+  const res = mockRes();
+  handleSetModelMappings(req, res);
+  assert.equal(res._status, 400);
+  assert.equal(res._body.success, false);
+});
+
+test('handleSetModelMappings: rejects unsupported reasoning level with 400', () => {
+  const req = mockReq({ reasoningMappings: { haiku: 'extreme' } });
   const res = mockRes();
   handleSetModelMappings(req, res);
   assert.equal(res._status, 400);

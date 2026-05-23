@@ -22,8 +22,12 @@ document.addEventListener('alpine:init', () => {
         haikuKiloModel: 'minimax/minimax-m2.5:free',
         modelMappings: { opus: 'gpt-5.5', sonnet: 'gpt-5.5', haiku: 'gpt-5.4-mini' },
         modelMappingDefaults: { opus: 'gpt-5.5', sonnet: 'gpt-5.5', haiku: 'gpt-5.4-mini' },
+        reasoningMappings: { opus: 'high', sonnet: 'medium', haiku: 'low' },
+        reasoningMappingDefaults: { opus: 'high', sonnet: 'medium', haiku: 'low' },
         openAiModelOptions: [],
+        reasoningLevelOptions: [],
         modelMappingSaving: null,
+        reasoningMappingSaving: null,
         accountStrategy: 'sticky',
         multiAccountRotationEnabled: false,
         haikuModelSaving: false,
@@ -512,7 +516,10 @@ document.addEventListener('alpine:init', () => {
 
             this.modelMappings = data.modelMappings;
             this.modelMappingDefaults = data.defaults || this.modelMappingDefaults;
+            this.reasoningMappings = data.reasoningMappings || this.reasoningMappings;
+            this.reasoningMappingDefaults = data.reasoningDefaults || this.reasoningMappingDefaults;
             this.openAiModelOptions = Array.isArray(data.models) ? data.models : [];
+            this.reasoningLevelOptions = Array.isArray(data.reasoningLevels) ? data.reasoningLevels : [];
         },
 
         async setModelMapping(alias, model) {
@@ -532,11 +539,44 @@ document.addEventListener('alpine:init', () => {
             if (ok && data?.modelMappings) {
                 this.modelMappings = data.modelMappings;
                 this.modelMappingDefaults = data.defaults || this.modelMappingDefaults;
+                this.reasoningMappings = data.reasoningMappings || this.reasoningMappings;
+                this.reasoningMappingDefaults = data.reasoningDefaults || this.reasoningMappingDefaults;
                 this.openAiModelOptions = Array.isArray(data.models) ? data.models : this.openAiModelOptions;
+                this.reasoningLevelOptions = Array.isArray(data.reasoningLevels) ? data.reasoningLevels : this.reasoningLevelOptions;
                 this.showToast(`${this.modelMappingLabel(alias)} now maps to ${this.modelOptionName(data.modelMappings[alias])}`, 'success');
             } else {
                 this.modelMappings = { ...this.modelMappings, [alias]: previous };
                 this.showToast(data?.error || 'Failed to update model mapping', 'error');
+            }
+        },
+
+        reasoningOptionName(reasoningId) {
+            const option = this.reasoningLevelOptions.find((level) => level.id === reasoningId);
+            return option ? option.name : reasoningId;
+        },
+
+        async setReasoningMapping(alias, reasoning) {
+            if (this.reasoningMappingSaving || !alias || !reasoning) return;
+
+            const previous = this.reasoningMappings[alias];
+            if (previous === reasoning) return;
+
+            this.reasoningMappings = { ...this.reasoningMappings, [alias]: reasoning };
+            this.reasoningMappingSaving = alias;
+            const { ok, data } = await this.api('/settings/model-mappings', {
+                method: 'POST',
+                body: JSON.stringify({ reasoningMappings: { [alias]: reasoning } })
+            });
+            this.reasoningMappingSaving = null;
+
+            if (ok && data?.reasoningMappings) {
+                this.reasoningMappings = data.reasoningMappings;
+                this.reasoningMappingDefaults = data.reasoningDefaults || this.reasoningMappingDefaults;
+                this.reasoningLevelOptions = Array.isArray(data.reasoningLevels) ? data.reasoningLevels : this.reasoningLevelOptions;
+                this.showToast(`${this.modelMappingLabel(alias)} reasoning set to ${this.reasoningOptionName(data.reasoningMappings[alias])}`, 'success');
+            } else {
+                this.reasoningMappings = { ...this.reasoningMappings, [alias]: previous };
+                this.showToast(data?.error || 'Failed to update reasoning level', 'error');
             }
         },
 

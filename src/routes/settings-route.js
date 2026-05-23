@@ -13,21 +13,28 @@ import { fetchFreeModels } from '../kilo-models.js';
 import {
   CLAUDE_MODEL_ALIASES,
   DEFAULT_MODEL_MAPPINGS,
+  DEFAULT_REASONING_MAPPINGS,
   OPENAI_MODEL_OPTIONS,
+  REASONING_LEVEL_OPTIONS,
   isKiloEnabled,
-  normalizeModelMappings
+  normalizeModelMappings,
+  normalizeReasoningMappings
 } from '../model-mapper.js';
 
 const VALID_STRATEGIES = ['sticky', 'round-robin'];
 const VALID_OPENAI_MODEL_IDS = new Set(OPENAI_MODEL_OPTIONS.map((model) => model.id));
+const VALID_REASONING_LEVEL_IDS = new Set(REASONING_LEVEL_OPTIONS.map((level) => level.id));
 
-function modelMappingsPayload(modelMappings) {
+function modelMappingsPayload(modelMappings, reasoningMappings) {
   return {
     success: true,
     aliases: CLAUDE_MODEL_ALIASES,
     models: OPENAI_MODEL_OPTIONS,
+    reasoningLevels: REASONING_LEVEL_OPTIONS,
     defaults: DEFAULT_MODEL_MAPPINGS,
-    modelMappings: normalizeModelMappings(modelMappings)
+    reasoningDefaults: DEFAULT_REASONING_MAPPINGS,
+    modelMappings: normalizeModelMappings(modelMappings),
+    reasoningMappings: normalizeReasoningMappings(reasoningMappings)
   };
 }
 
@@ -122,7 +129,7 @@ export async function handleGetKiloModels(req, res) {
  */
 export function handleGetModelMappings(req, res) {
   const settings = getServerSettings();
-  res.json(modelMappingsPayload(settings.modelMappings));
+  res.json(modelMappingsPayload(settings.modelMappings, settings.reasoningMappings));
 }
 
 /**
@@ -130,16 +137,34 @@ export function handleGetModelMappings(req, res) {
  * Updates one or more Claude alias mappings.
  */
 export function handleSetModelMappings(req, res) {
-  const { modelMappings } = req.body || {};
+  const { modelMappings, reasoningMappings } = req.body || {};
+  const hasModelMappings = modelMappings !== undefined;
+  const hasReasoningMappings = reasoningMappings !== undefined;
 
-  if (!modelMappings || typeof modelMappings !== 'object' || Array.isArray(modelMappings)) {
+  if (!hasModelMappings && !hasReasoningMappings) {
+    return res.status(400).json({
+      success: false,
+      error: 'modelMappings or reasoningMappings is required'
+    });
+  }
+
+  if (hasModelMappings && (!modelMappings || typeof modelMappings !== 'object' || Array.isArray(modelMappings))) {
     return res.status(400).json({
       success: false,
       error: 'modelMappings is required and must be an object'
     });
   }
 
-  const unknownAliases = Object.keys(modelMappings).filter((alias) => !CLAUDE_MODEL_ALIASES.includes(alias));
+  if (hasReasoningMappings && (!reasoningMappings || typeof reasoningMappings !== 'object' || Array.isArray(reasoningMappings))) {
+    return res.status(400).json({
+      success: false,
+      error: 'reasoningMappings must be an object'
+    });
+  }
+
+  const modelAliases = hasModelMappings ? Object.keys(modelMappings) : [];
+  const reasoningAliases = hasReasoningMappings ? Object.keys(reasoningMappings) : [];
+  const unknownAliases = [...modelAliases, ...reasoningAliases].filter((alias) => !CLAUDE_MODEL_ALIASES.includes(alias));
   if (unknownAliases.length > 0) {
     return res.status(400).json({
       success: false,
@@ -147,7 +172,7 @@ export function handleSetModelMappings(req, res) {
     });
   }
 
-  for (const [alias, model] of Object.entries(modelMappings)) {
+  for (const [alias, model] of Object.entries(modelMappings || {})) {
     if (typeof model !== 'string' || !VALID_OPENAI_MODEL_IDS.has(model)) {
       return res.status(400).json({
         success: false,
@@ -156,13 +181,29 @@ export function handleSetModelMappings(req, res) {
     }
   }
 
+  for (const [alias, reasoning] of Object.entries(reasoningMappings || {})) {
+    if (typeof reasoning !== 'string' || !VALID_REASONING_LEVEL_IDS.has(reasoning)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid reasoning level for ${alias}. Use one of: ${REASONING_LEVEL_OPTIONS.map((option) => option.id).join(', ')}`
+      });
+    }
+  }
+
   const settings = getServerSettings();
   const nextMappings = {
     ...normalizeModelMappings(settings.modelMappings),
-    ...modelMappings
+    ...(modelMappings || {})
   };
-  const nextSettings = setServerSettings({ modelMappings: nextMappings });
-  res.json(modelMappingsPayload(nextSettings.modelMappings));
+  const nextReasoningMappings = {
+    ...normalizeReasoningMappings(settings.reasoningMappings),
+    ...(reasoningMappings || {})
+  };
+  const nextSettings = setServerSettings({
+    modelMappings: nextMappings,
+    reasoningMappings: nextReasoningMappings
+  });
+  res.json(modelMappingsPayload(nextSettings.modelMappings, nextSettings.reasoningMappings));
 }
 
 /**

@@ -620,35 +620,74 @@
                         <div class="model-mapping-row" data-model-mapping-alias="opus">
                             <div class="model-mapping-copy">
                                 <div class="text-sm text-gray-300">Opus</div>
-                                <div class="text-xs text-gray-500 font-mono">Default <span x-text="modelOptionName(modelMappingDefaults.opus)"></span></div>
+                                <div class="text-xs text-gray-500 font-mono">Default <span x-text="modelOptionName(modelMappingDefaults.opus)"></span> / <span x-text="reasoningOptionName(reasoningMappingDefaults.opus)"></span></div>
                             </div>
-                            <select class="model-mapping-select" :value="modelMappings.opus" @change="setModelMapping('opus', $event.target.value)" :disabled="Boolean(modelMappingSaving)">
-                                <template x-for="model in openAiModelOptions" :key="model.id">
-                                    <option :value="model.id" x-text="model.name"></option>
-                                </template>
-                            </select>
+                            <div class="model-mapping-controls">
+                                <label class="model-mapping-field">
+                                    <span>Model</span>
+                                    <select class="model-mapping-select" :value="modelMappings.opus" @change="setModelMapping('opus', $event.target.value)" :disabled="Boolean(modelMappingSaving)">
+                                        <template x-for="model in openAiModelOptions" :key="model.id">
+                                            <option :value="model.id" x-text="model.name"></option>
+                                        </template>
+                                    </select>
+                                </label>
+                                <label class="model-mapping-field">
+                                    <span>Reasoning</span>
+                                    <select class="model-mapping-select" :value="reasoningMappings.opus" @change="setReasoningMapping('opus', $event.target.value)" :disabled="Boolean(reasoningMappingSaving)">
+                                        <template x-for="level in reasoningLevelOptions" :key="level.id">
+                                            <option :value="level.id" x-text="level.name"></option>
+                                        </template>
+                                    </select>
+                                </label>
+                            </div>
                         </div>
                         <div class="model-mapping-row" data-model-mapping-alias="sonnet">
                             <div class="model-mapping-copy">
                                 <div class="text-sm text-gray-300">Sonnet</div>
-                                <div class="text-xs text-gray-500 font-mono">Default <span x-text="modelOptionName(modelMappingDefaults.sonnet)"></span></div>
+                                <div class="text-xs text-gray-500 font-mono">Default <span x-text="modelOptionName(modelMappingDefaults.sonnet)"></span> / <span x-text="reasoningOptionName(reasoningMappingDefaults.sonnet)"></span></div>
                             </div>
-                            <select class="model-mapping-select" :value="modelMappings.sonnet" @change="setModelMapping('sonnet', $event.target.value)" :disabled="Boolean(modelMappingSaving)">
-                                <template x-for="model in openAiModelOptions" :key="model.id">
-                                    <option :value="model.id" x-text="model.name"></option>
-                                </template>
-                            </select>
+                            <div class="model-mapping-controls">
+                                <label class="model-mapping-field">
+                                    <span>Model</span>
+                                    <select class="model-mapping-select" :value="modelMappings.sonnet" @change="setModelMapping('sonnet', $event.target.value)" :disabled="Boolean(modelMappingSaving)">
+                                        <template x-for="model in openAiModelOptions" :key="model.id">
+                                            <option :value="model.id" x-text="model.name"></option>
+                                        </template>
+                                    </select>
+                                </label>
+                                <label class="model-mapping-field">
+                                    <span>Reasoning</span>
+                                    <select class="model-mapping-select" :value="reasoningMappings.sonnet" @change="setReasoningMapping('sonnet', $event.target.value)" :disabled="Boolean(reasoningMappingSaving)">
+                                        <template x-for="level in reasoningLevelOptions" :key="level.id">
+                                            <option :value="level.id" x-text="level.name"></option>
+                                        </template>
+                                    </select>
+                                </label>
+                            </div>
                         </div>
                         <div class="model-mapping-row" data-model-mapping-alias="haiku">
                             <div class="model-mapping-copy">
                                 <div class="text-sm text-gray-300">Haiku</div>
-                                <div class="text-xs text-gray-500 font-mono">Default <span x-text="modelOptionName(modelMappingDefaults.haiku)"></span></div>
+                                <div class="text-xs text-gray-500 font-mono">Default <span x-text="modelOptionName(modelMappingDefaults.haiku)"></span> / <span x-text="reasoningOptionName(reasoningMappingDefaults.haiku)"></span></div>
                             </div>
-                            <select class="model-mapping-select" :value="modelMappings.haiku" @change="setModelMapping('haiku', $event.target.value)" :disabled="Boolean(modelMappingSaving)">
-                                <template x-for="model in openAiModelOptions" :key="model.id">
-                                    <option :value="model.id" x-text="model.name"></option>
-                                </template>
-                            </select>
+                            <div class="model-mapping-controls">
+                                <label class="model-mapping-field">
+                                    <span>Model</span>
+                                    <select class="model-mapping-select" :value="modelMappings.haiku" @change="setModelMapping('haiku', $event.target.value)" :disabled="Boolean(modelMappingSaving)">
+                                        <template x-for="model in openAiModelOptions" :key="model.id">
+                                            <option :value="model.id" x-text="model.name"></option>
+                                        </template>
+                                    </select>
+                                </label>
+                                <label class="model-mapping-field">
+                                    <span>Reasoning</span>
+                                    <select class="model-mapping-select" :value="reasoningMappings.haiku" @change="setReasoningMapping('haiku', $event.target.value)" :disabled="Boolean(reasoningMappingSaving)">
+                                        <template x-for="level in reasoningLevelOptions" :key="level.id">
+                                            <option :value="level.id" x-text="level.name"></option>
+                                        </template>
+                                    </select>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>

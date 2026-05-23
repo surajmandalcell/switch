@@ -29,10 +29,22 @@ const OPENAI_MODEL_OPTIONS = [
   { id: 'gpt-5-codex-mini', name: 'GPT-5 Codex Mini' }
 ];
 const OPENAI_MODEL_IDS = new Set(OPENAI_MODEL_OPTIONS.map((model) => model.id));
+const REASONING_LEVEL_OPTIONS = [
+  { id: 'low', name: 'Low', description: 'Fast responses with lighter reasoning' },
+  { id: 'medium', name: 'Medium', description: 'Balanced speed and reasoning depth' },
+  { id: 'high', name: 'High', description: 'Greater reasoning depth for complex work' },
+  { id: 'xhigh', name: 'Extra High', description: 'Extra high reasoning depth for complex work' }
+];
+const REASONING_LEVEL_IDS = new Set(REASONING_LEVEL_OPTIONS.map((level) => level.id));
 const DEFAULT_MODEL_MAPPINGS = {
   opus: DEFAULT_OPENAI_MODEL,
   sonnet: DEFAULT_OPENAI_MODEL,
   haiku: DEFAULT_SMALL_OPENAI_MODEL
+};
+const DEFAULT_REASONING_MAPPINGS = {
+  opus: 'high',
+  sonnet: 'medium',
+  haiku: 'low'
 };
 
 const CLAUDE_MODEL_MAP = {
@@ -110,6 +122,27 @@ export function normalizeModelMappings(modelMappings = {}) {
   return normalized;
 }
 
+/**
+ * Normalizes persisted Claude alias reasoning mappings against supported efforts.
+ * @param {Record<string, string>} reasoningMappings
+ * @returns {{ opus: string, sonnet: string, haiku: string }}
+ */
+export function normalizeReasoningMappings(reasoningMappings = {}) {
+  const normalized = { ...DEFAULT_REASONING_MAPPINGS };
+  if (!reasoningMappings || typeof reasoningMappings !== 'object' || Array.isArray(reasoningMappings)) {
+    return normalized;
+  }
+
+  for (const alias of CLAUDE_MODEL_ALIASES) {
+    const candidate = reasoningMappings[alias];
+    if (typeof candidate === 'string' && REASONING_LEVEL_IDS.has(candidate)) {
+      normalized[alias] = candidate;
+    }
+  }
+
+  return normalized;
+}
+
 function inferClaudeAlias(modelLower) {
   for (const alias of CLAUDE_MODEL_ALIASES) {
     if (modelLower === alias || modelLower.includes(alias)) {
@@ -156,6 +189,27 @@ export function mapClaudeModel(model, settings = getServerSettings()) {
 }
 
 /**
+ * Resolves the configured reasoning effort for Claude aliases.
+ * Direct GPT, codex, kilo, and unknown model requests do not force a reasoning level.
+ * @param {string} model
+ * @param {{ reasoningMappings?: Record<string, string> }} settings
+ * @returns {string|null}
+ */
+export function mapClaudeReasoningLevel(model, settings = getServerSettings()) {
+  if (!model) return null;
+
+  const modelLower = String(model).toLowerCase();
+  if (modelLower.startsWith('gpt-') || modelLower === 'codex' || modelLower === 'kilo') {
+    return null;
+  }
+
+  const mappedAlias = inferClaudeAlias(modelLower);
+  if (!mappedAlias) return null;
+
+  return normalizeReasoningMappings(settings?.reasoningMappings)[mappedAlias];
+}
+
+/**
  * Returns true if the mapped model should be routed through Kilo.
  * @param {string} mappedModel
  * @returns {boolean}
@@ -180,14 +234,15 @@ export function resolveKiloModel(settings = getServerSettings()) {
 /**
  * Resolves all model routing info from a requested model name.
  * @param {string} requestedModel
- * @returns {{ mappedModel: string, isKilo: boolean, kiloTarget: string|null, upstreamModel: string }}
+ * @returns {{ mappedModel: string, isKilo: boolean, kiloTarget: string|null, upstreamModel: string, reasoningLevel: string|null }}
  */
 export function resolveModelRouting(requestedModel, settings = getServerSettings()) {
   const mappedModel = mapClaudeModel(requestedModel || DEFAULT_OPENAI_MODEL, settings);
+  const reasoningLevel = mapClaudeReasoningLevel(requestedModel, settings);
   const isKilo = isKiloModel(mappedModel);
   const kiloTarget = isKilo ? resolveKiloModel(settings) : null;
   const upstreamModel = isKilo ? kiloTarget : mappedModel;
-  return { mappedModel, isKilo, kiloTarget, upstreamModel };
+  return { mappedModel, isKilo, kiloTarget, upstreamModel, reasoningLevel };
 }
 
 export {
@@ -195,14 +250,17 @@ export {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SMALL_OPENAI_MODEL,
   DEFAULT_MODEL_MAPPINGS,
+  DEFAULT_REASONING_MAPPINGS,
   CLAUDE_MODEL_ALIASES,
   OPENAI_MODEL_OPTIONS,
+  REASONING_LEVEL_OPTIONS,
   LATEST_CODEX_MODEL,
   KILO_ENABLED_ENV
 };
 
 export default {
   mapClaudeModel,
+  mapClaudeReasoningLevel,
   isKiloModel,
   resolveKiloModel,
   resolveModelRouting,
@@ -210,9 +268,12 @@ export default {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SMALL_OPENAI_MODEL,
   DEFAULT_MODEL_MAPPINGS,
+  DEFAULT_REASONING_MAPPINGS,
   CLAUDE_MODEL_ALIASES,
   OPENAI_MODEL_OPTIONS,
+  REASONING_LEVEL_OPTIONS,
   normalizeModelMappings,
+  normalizeReasoningMappings,
   LATEST_CODEX_MODEL,
   KILO_ENABLED_ENV,
   isKiloEnabled

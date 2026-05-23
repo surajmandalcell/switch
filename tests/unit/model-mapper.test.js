@@ -11,10 +11,11 @@ import {
   isKiloModel,
   resolveKiloModel,
   resolveModelRouting,
-  normalizeModelMappings
+  normalizeModelMappings,
+  normalizeReasoningMappings
 } from '../../src/model-mapper.js';
 import modelMapperDefault from '../../src/model-mapper.js';
-const { CLAUDE_MODEL_MAP, OPENAI_MODEL_OPTIONS } = modelMapperDefault;
+const { CLAUDE_MODEL_MAP, OPENAI_MODEL_OPTIONS, REASONING_LEVEL_OPTIONS } = modelMapperDefault;
 
 // ─── mapClaudeModel ───────────────────────────────────────────────────────────
 
@@ -120,6 +121,18 @@ test('normalizeModelMappings: fills defaults and ignores unsupported model IDs',
   });
 });
 
+test('normalizeReasoningMappings: fills defaults and ignores unsupported reasoning levels', () => {
+  assert.deepEqual(normalizeReasoningMappings({
+    opus: 'xhigh',
+    sonnet: 'unsupported',
+    haiku: 42
+  }), {
+    opus: 'xhigh',
+    sonnet: 'medium',
+    haiku: 'low'
+  });
+});
+
 // ─── isKiloModel ─────────────────────────────────────────────────────────────
 
 test('isKiloModel: returns true for "kilo"', () => {
@@ -162,6 +175,7 @@ test('resolveModelRouting: opus model does NOT route to kilo', () => {
   assert.equal(result.kiloTarget, null);
   assert.equal(result.mappedModel, 'gpt-5.5');
   assert.equal(result.upstreamModel, 'gpt-5.5');
+  assert.equal(result.reasoningLevel, 'high');
 });
 
 test('resolveModelRouting: sonnet model does NOT route to kilo', () => {
@@ -189,12 +203,13 @@ test('resolveModelRouting: explicit kilo still routes to Kilo', () => {
   assert.ok(result.kiloTarget !== null);
 });
 
-test('resolveModelRouting: returns all four expected keys', () => {
+test('resolveModelRouting: returns all expected keys', () => {
   const result = resolveModelRouting('kilo');
   assert.ok('mappedModel' in result);
   assert.ok('isKilo' in result);
   assert.ok('kiloTarget' in result);
   assert.ok('upstreamModel' in result);
+  assert.ok('reasoningLevel' in result);
 });
 
 // ─── CLAUDE_MODEL_MAP sanity checks ──────────────────────────────────────────
@@ -215,4 +230,9 @@ test('OPENAI_MODEL_OPTIONS: exposes supported GPT dropdown options', () => {
   assert.ok(ids.includes('gpt-5.5'));
   assert.ok(ids.includes('gpt-5.4-mini'));
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('REASONING_LEVEL_OPTIONS: exposes supported reasoning dropdown options', () => {
+  const ids = REASONING_LEVEL_OPTIONS.map((level) => level.id);
+  assert.deepEqual(ids, ['low', 'medium', 'high', 'xhigh']);
 });

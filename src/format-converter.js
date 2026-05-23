@@ -64,7 +64,7 @@ function extractSystemPrompt(system) {
  * Convert Anthropic Messages API request to OpenAI Responses API format
  */
 export function convertAnthropicToResponsesAPI(anthropicRequest) {
-    const { model, messages, system, tools, tool_choice } = anthropicRequest;
+    const { model, messages, system, tools, tool_choice, reasoningLevel } = anthropicRequest;
 
     // [CRITICAL] Clean cache_control from all messages FIRST
     // Claude Code CLI sends cache_control fields that the API rejects
@@ -87,6 +87,10 @@ export function convertAnthropicToResponsesAPI(anthropicRequest) {
         request.instructions = instructions;
     } else {
         request.instructions = '';
+    }
+
+    if (reasoningLevel) {
+        request.reasoning = { effort: reasoningLevel };
     }
 
     return request;
