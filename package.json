@@ -1,6 +1,6 @@
 {
   "name": "@pikoloo/codex-proxy",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Local personal proxy for OpenAI Codex models with Claude API compatibility",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",
   "type": "module",
@@ -57,6 +57,13 @@
     "path-to-regexp": "0.1.13",
     "qs": "6.15.2"
   },
-  "keywords": ["codex", "openai", "proxy", "claude", "chatgpt", "oauth"],
+  "keywords": [
+    "codex",
+    "openai",
+    "proxy",
+    "claude",
+    "chatgpt",
+    "oauth"
+  ],
   "license": "MIT"
 }
