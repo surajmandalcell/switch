@@ -8,6 +8,7 @@ cd "$ROOT_DIR"
 NPM="${NPM:-npm}"
 NODE="${NODE:-node}"
 TEST_HOST="${TEST_HOST:-127.0.0.1}"
+TEST_PORT_WAS_SET="${TEST_PORT+x}"
 TEST_PORT="${TEST_PORT:-28081}"
 NPM_SCOPE="${NPM_SCOPE:-@pikoloo}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org/}"
@@ -53,7 +54,18 @@ test_with_server() {
   local log_file="tmp/test-server.log"
   rm -f "$log_file"
 
-  HOST="$TEST_HOST" PORT="$TEST_PORT" "$NODE" src/index.js >"$log_file" 2>&1 &
+  local explicit_port=0
+  if [ -n "$TEST_PORT_WAS_SET" ]; then
+    explicit_port=1
+  fi
+
+  local test_port
+  test_port="$("$NODE" scripts/resolve-test-port.mjs "$TEST_HOST" "$TEST_PORT" "$explicit_port")"
+  if [ "$test_port" != "$TEST_PORT" ]; then
+    echo "TEST_PORT $TEST_PORT is unavailable on $TEST_HOST; using $test_port for release verification."
+  fi
+
+  HOST="$TEST_HOST" PORT="$test_port" "$NODE" src/index.js >"$log_file" 2>&1 &
   local server_pid=$!
 
   cleanup() {
@@ -64,7 +76,13 @@ test_with_server() {
 
   local ready=0
   for _ in {1..20}; do
-    if curl -fsS "http://$TEST_HOST:$TEST_PORT/health" >/dev/null 2>&1; then
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+      echo "Test server exited before becoming ready on http://$TEST_HOST:$test_port"
+      cat "$log_file"
+      exit 1
+    fi
+
+    if curl -fsS "http://$TEST_HOST:$test_port/health" >/dev/null 2>&1; then
       ready=1
       break
     fi
@@ -72,13 +90,13 @@ test_with_server() {
   done
 
   if [ "$ready" -ne 1 ]; then
-    echo "Server did not start on http://$TEST_HOST:$TEST_PORT"
+    echo "Server did not start on http://$TEST_HOST:$test_port"
     cat "$log_file"
     exit 1
   fi
 
-  ROUTING_TEST_BASE_URL="http://$TEST_HOST:$TEST_PORT" \
-    UI_TEST_URL="http://$TEST_HOST:$TEST_PORT/" \
+  ROUTING_TEST_BASE_URL="http://$TEST_HOST:$test_port" \
+    UI_TEST_URL="http://$TEST_HOST:$test_port/" \
     "$NPM" run test:all
 
   cleanup
