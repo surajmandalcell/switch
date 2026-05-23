@@ -13,10 +13,12 @@
     --color-neon-yellow: #eab308;
     --color-text-dim: #9ca3af;
     --color-surface-glow: rgba(34, 211, 238, 0.06);
+    --app-header-height: 48px;
     --surface-nav: rgba(15, 15, 26, 0.88);
-    --surface-nav-border: rgba(255, 255, 255, 0.1);
-    --surface-nav-active: linear-gradient(135deg, rgba(168, 85, 247, 0.24), rgba(34, 211, 238, 0.18));
-    --surface-nav-glow: 0 20px 45px rgba(0, 0, 0, 0.36);
+    --surface-nav-border: rgba(255, 255, 255, 0.12);
+    --surface-nav-active: rgba(255, 255, 255, 0.1);
+    --surface-nav-glow: 0 18px 38px rgba(0, 0, 0, 0.32);
+    --surface-nav-accent: var(--color-neon-cyan);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -87,8 +89,57 @@ body::before {
     color: white;
 }
 
+.app-header {
+    height: var(--app-header-height);
+    min-height: var(--app-header-height);
+}
+
+.app-brand {
+    min-width: 0;
+}
+
+.app-brand-mark {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    letter-spacing: 0;
+}
+
+.app-brand-title {
+    white-space: nowrap;
+    font-size: 0.75rem;
+    letter-spacing: 0;
+}
+
+.app-brand-meta {
+    height: 1.15rem;
+    padding: 0 0.38rem;
+    font-size: 0.62rem;
+}
+
+.app-toolbar {
+    gap: 0.5rem;
+}
+
+.app-connection-status {
+    min-height: 1.55rem;
+    padding: 0.18rem 0.55rem;
+    font-size: 0.68rem;
+}
+
+.app-header-action {
+    width: 1.8rem;
+    min-height: 1.8rem;
+    padding: 0;
+}
+
+.app-toolbar-divider {
+    height: 1rem;
+}
+
 .app-shell {
-    height: calc(100vh - 56px);
+    height: calc(100vh - var(--app-header-height));
     position: relative;
 }
 
@@ -105,27 +156,27 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
-    width: min(760px, calc(100vw - 1.5rem));
-    min-height: 58px;
-    padding: 0.4rem;
+    gap: 0.18rem;
+    width: min(700px, calc(100vw - 1.5rem));
+    min-height: 52px;
+    padding: 0.28rem;
     border: 1px solid var(--surface-nav-border);
-    border-radius: 18px;
+    border-radius: 16px;
     background: var(--surface-nav);
     box-shadow: var(--surface-nav-glow);
-    backdrop-filter: blur(24px) saturate(150%);
-    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
     transform: translateX(-50%);
 }
 
 .bottom-nav::before {
     content: "";
     position: absolute;
-    inset: -1px;
+    inset: 0;
     z-index: -1;
-    border-radius: 19px;
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.35), rgba(34, 211, 238, 0.26), rgba(34, 197, 94, 0.2));
-    opacity: 0.75;
+    border-radius: inherit;
+    background: rgba(255, 255, 255, 0.035);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .bottom-nav-item {
@@ -133,26 +184,47 @@ body::before {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
-    min-width: 46px;
-    min-height: 44px;
-    padding: 0 0.75rem;
+    gap: 0.38rem;
+    min-width: 44px;
+    min-height: 42px;
+    padding: 0 0.68rem;
+    border: 1px solid transparent;
     border-radius: 12px;
     color: #9ca3af;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 650;
     transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
+.bottom-nav-item::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 0.32rem;
+    width: 1.15rem;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--surface-nav-accent);
+    opacity: 0;
+    transform: translateX(-50%) scaleX(0.65);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
 .bottom-nav-item:hover {
     color: #f8fafc;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.07);
 }
 
 .bottom-nav-item.active {
     color: white;
     background: var(--surface-nav-active);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8px 22px rgba(34, 211, 238, 0.12);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.13), 0 8px 20px rgba(0, 0, 0, 0.14);
+}
+
+.bottom-nav-item.active::after {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1);
 }
 
 .bottom-nav-icon {
@@ -174,7 +246,8 @@ body::before {
     text-overflow: ellipsis;
     padding: 0.1rem 0.35rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.08);
     color: currentColor;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     font-size: 0.65rem;
@@ -1263,10 +1336,12 @@ table .btn-outline:hover {
     --success: #1f8f4d;
     --warning: #a56800;
     --danger: #d70015;
-    --surface-nav: rgba(255, 255, 255, 0.78);
-    --surface-nav-border: rgba(255, 255, 255, 0.84);
-    --surface-nav-active: linear-gradient(135deg, rgba(10, 132, 255, 0.16), rgba(88, 86, 214, 0.12), rgba(52, 199, 89, 0.1));
-    --surface-nav-glow: 0 18px 40px rgba(31, 35, 40, 0.13);
+    --app-header-height: 48px;
+    --surface-nav: rgba(248, 249, 251, 0.86);
+    --surface-nav-border: rgba(36, 41, 47, 0.12);
+    --surface-nav-active: rgba(255, 255, 255, 0.9);
+    --surface-nav-glow: 0 14px 32px rgba(31, 35, 40, 0.12);
+    --surface-nav-accent: var(--accent);
 }
 
 body {
@@ -1358,21 +1433,24 @@ body::after {
 }
 
 .h-14.border-b {
-    height: 60px;
+    height: var(--app-header-height);
+    min-height: var(--app-header-height);
     margin: 0;
     border: 0;
     border-bottom: 1px solid var(--glass-line);
     border-radius: 0;
-    background-color: var(--glass-toolbar);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    background-color: rgba(249, 250, 252, 0.9);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 24px rgba(31, 35, 40, 0.035);
+    backdrop-filter: blur(20px) saturate(155%);
+    -webkit-backdrop-filter: blur(20px) saturate(155%);
 }
 
-.h-14.border-b .w-8.h-8 {
+.h-14.border-b .app-brand-mark {
+    width: 1.65rem;
+    height: 1.65rem;
     background-color: #1f2328;
     background-image: none;
-    border-radius: 8px;
+    border-radius: 7px;
     box-shadow: none;
     color: white;
 }
@@ -1388,27 +1466,42 @@ body::after {
 
 .app-brand-title {
     white-space: nowrap;
+    font-size: 0.72rem;
+    font-weight: 750;
 }
 
 .app-brand-meta {
     display: inline-flex;
     align-items: center;
-    height: 22px;
-    padding: 0 0.55rem;
+    height: 18px;
+    padding: 0 0.42rem;
     border: 1px solid var(--glass-line);
-    border-radius: 999px;
-    background-color: rgba(255, 255, 255, 0.64);
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.58);
     color: var(--text-muted);
+    font-size: 0.62rem;
 }
 
 .app-toolbar {
-    gap: 0.7rem;
+    gap: 0.5rem;
 }
 
 .app-toolbar .btn-square {
-    width: 32px;
-    min-height: 32px;
+    width: 28px;
+    min-height: 28px;
     padding: 0;
+}
+
+.app-connection-status {
+    min-height: 26px;
+    padding: 0.18rem 0.55rem;
+    border-radius: 7px;
+    font-size: 0.68rem;
+}
+
+.app-toolbar-divider {
+    height: 14px;
+    opacity: 0.72;
 }
 
 .h-14.border-b a {
@@ -1420,20 +1513,21 @@ body::after {
 }
 
 .h-\[calc\(100vh-56px\)\] {
-    height: calc(100vh - 60px);
+    height: calc(100vh - var(--app-header-height));
 }
 
 .app-shell {
-    height: calc(100vh - 60px);
+    height: calc(100vh - var(--app-header-height));
 }
 
 .bottom-nav {
     color: var(--text-body);
+    box-shadow: var(--surface-nav-glow), inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .bottom-nav::before {
-    background: linear-gradient(135deg, rgba(10, 132, 255, 0.34), rgba(88, 86, 214, 0.22), rgba(52, 199, 89, 0.2));
-    opacity: 0.62;
+    background: rgba(255, 255, 255, 0.36);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
 }
 
 .bottom-nav-item {
@@ -1442,12 +1536,13 @@ body::after {
 
 .bottom-nav-item:hover {
     color: var(--text-strong);
-    background: rgba(36, 41, 47, 0.055);
+    background: rgba(36, 41, 47, 0.045);
 }
 
 .bottom-nav-item.active {
     color: var(--text-strong);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 6px 18px rgba(10, 132, 255, 0.09);
+    border-color: rgba(36, 41, 47, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 3px 10px rgba(31, 35, 40, 0.08);
 }
 
 .bottom-nav-item.active svg {
@@ -1459,7 +1554,17 @@ body::after {
 .logs-count-strip span,
 .log-stream-status {
     border-color: var(--glass-line);
-    background: rgba(255, 255, 255, 0.62);
+    background: rgba(255, 255, 255, 0.66);
+}
+
+.bottom-nav-badge {
+    color: var(--text-muted);
+}
+
+.bottom-nav-item.active .bottom-nav-badge {
+    color: var(--accent);
+    border-color: rgba(10, 132, 255, 0.14);
+    background: rgba(10, 132, 255, 0.06);
 }
 
 .quick-test-meta {
@@ -2214,7 +2319,8 @@ dialog::backdrop,
 
 @media (max-width: 640px) {
     .h-14.border-b {
-        height: 58px;
+        height: var(--app-header-height);
+        min-height: var(--app-header-height);
         padding-left: 0.75rem;
         padding-right: 0.75rem;
     }
@@ -2224,9 +2330,9 @@ dialog::backdrop,
         gap: 0.55rem;
     }
 
-    .h-14.border-b .w-8.h-8 {
-        width: 1.75rem;
-        height: 1.75rem;
+    .h-14.border-b .app-brand-mark {
+        width: 1.55rem;
+        height: 1.55rem;
         flex-shrink: 0;
     }
 
@@ -2254,9 +2360,10 @@ dialog::backdrop,
         display: none;
     }
 
-    .h-14.border-b .rounded-full.text-xs {
-        padding: 0.3rem 0.55rem;
-        font-size: 0.68rem;
+    .h-14.border-b .app-connection-status {
+        min-height: 24px;
+        padding: 0.14rem 0.48rem;
+        font-size: 0.66rem;
     }
 
     .view-container {
@@ -2269,7 +2376,7 @@ dialog::backdrop,
 
     .bottom-nav {
         width: min(27rem, calc(100vw - 1rem));
-        min-height: 54px;
+        min-height: 52px;
         padding: 0.3rem;
         border-radius: 15px;
     }

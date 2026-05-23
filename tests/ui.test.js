@@ -76,6 +76,26 @@ test('Logs UI is compact and exposes stream status controls', async () => {
   assert.ok(html.includes('logLevelCounts'));
 });
 
+test('Bottom navigation and header use compact non-gradient chrome', async () => {
+  const res = await fetch(new URL('/css/style.css', UI_URL));
+  assert.equal(res.status, 200);
+  const css = await res.text();
+
+  assert.ok(css.includes('--app-header-height: 48px'));
+  assert.ok(css.includes('.app-connection-status'));
+  assert.ok(css.includes('.bottom-nav-item.active::after'));
+
+  const activeDeclarations = css.match(/--surface-nav-active:\s*[^;]+;/g) || [];
+  assert.ok(activeDeclarations.length > 0, 'Expected bottom nav active surface tokens');
+  for (const declaration of activeDeclarations) {
+    assert.equal(
+      declaration.includes('linear-gradient'),
+      false,
+      'Bottom nav active state should not use a gradient fill'
+    );
+  }
+});
+
 test('Settings UI includes Claude model mapping controls', async () => {
   const res = await fetch(UI_URL);
   assert.equal(res.status, 200);
