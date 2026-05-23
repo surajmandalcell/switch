@@ -1,10 +1,11 @@
 {
-  "name": "codex-claude-proxy",
+  "name": "@smc/codex-proxy",
   "version": "1.0.5",
   "description": "Multi-account proxy server for OpenAI Codex CLI with Claude API compatibility",
   "type": "module",
   "main": "src/index.js",
   "bin": {
+    "codex-proxy": "./bin/cli.js",
     "codex-claude-proxy": "./bin/cli.js"
   },
   "files": [

@@ -11,17 +11,19 @@ const packageJson = JSON.parse(
   readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')
 );
 
+const CLI_NAME = 'codex-proxy';
+const LEGACY_CLI_NAME = 'codex-claude-proxy';
 const args = process.argv.slice(2);
 const command = args[0];
 
 function showHelp() {
   console.log(`
-codex-claude-proxy v${packageJson.version}
+${CLI_NAME} v${packageJson.version}
 
 Proxy server for using ChatGPT Codex models with Claude Code CLI.
 
 USAGE:
-  codex-claude-proxy <command> [options]
+  ${CLI_NAME} <command> [options]
 
 COMMANDS:
   start                 Start the proxy server (default port: 8081)
@@ -41,15 +43,18 @@ ENVIRONMENT:
   PORT                  Server port (default: 8081)
 
 EXAMPLES:
-  codex-claude-proxy start
-  PORT=3000 codex-claude-proxy start
-  codex-claude-proxy accounts add
-  codex-claude-proxy accounts add --no-browser
-  codex-claude-proxy accounts list
-  codex-claude-proxy accounts verify
+  ${CLI_NAME} start
+  PORT=3000 ${CLI_NAME} start
+  ${CLI_NAME} accounts add
+  ${CLI_NAME} accounts add --no-browser
+  ${CLI_NAME} accounts list
+  ${CLI_NAME} accounts verify
+
+ALIASES:
+  ${LEGACY_CLI_NAME}    Legacy command name, still supported
 
 HEADLESS/VM USAGE:
-  1. Run: codex-claude-proxy accounts add --no-browser
+  1. Run: ${CLI_NAME} accounts add --no-browser
   2. Copy the URL shown and open in browser on another device
   3. After login, paste the callback URL back in terminal
 
@@ -102,7 +107,7 @@ async function main() {
 
     default:
       console.error(`Unknown command: ${command}`);
-      console.error('Run "codex-claude-proxy --help" for usage information.');
+      console.error(`Run "${CLI_NAME} --help" for usage information.`);
       process.exit(1);
   }
 }

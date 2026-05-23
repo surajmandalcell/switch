@@ -530,18 +530,20 @@ async function main() {
             case 'help':
             default:
                 console.log('\nUsage:');
-                console.log('  codex-claude-proxy accounts add           Add account (opens browser)');
-                console.log('  codex-claude-proxy accounts add --no-browser  Add account (manual code)');
-                console.log('  codex-claude-proxy accounts list         List all accounts');
-                console.log('  codex-claude-proxy accounts remove       Remove accounts interactively');
-                console.log('  codex-claude-proxy accounts verify       Verify account tokens');
-                console.log('  codex-claude-proxy accounts clear        Remove all accounts');
-                console.log('  codex-claude-proxy accounts help         Show this help');
+                console.log('  codex-proxy accounts add           Add account (opens browser)');
+                console.log('  codex-proxy accounts add --no-browser  Add account (manual code)');
+                console.log('  codex-proxy accounts list          List all accounts');
+                console.log('  codex-proxy accounts remove        Remove accounts interactively');
+                console.log('  codex-proxy accounts verify        Verify account tokens');
+                console.log('  codex-proxy accounts clear         Remove all accounts');
+                console.log('  codex-proxy accounts help          Show this help');
+                console.log('\nAlias:');
+                console.log('  codex-claude-proxy accounts ...    Legacy command name, still supported');
                 console.log('\nOptions:');
                 console.log('  --no-browser    Manual authorization code input (for headless/VM servers)');
                 console.log('  --port=<port>   Server port (default: 8081)');
                 console.log('\nHeadless/VM Usage:');
-                console.log('  1. Run: codex-claude-proxy accounts add --no-browser');
+                console.log('  1. Run: codex-proxy accounts add --no-browser');
                 console.log('  2. Copy the URL shown and open in browser on another device');
                 console.log('  3. After login, paste the callback URL back in terminal');
                 break;
