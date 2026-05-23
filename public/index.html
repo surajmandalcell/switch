@@ -125,8 +125,8 @@
                             </svg>
                         </div>
                         <div class="stat-value text-white font-mono text-2xl lg:text-3xl font-bold mb-1 truncate" x-text="stats.total"></div>
-                        <div class="stat-title text-gray-500 font-mono text-[10px] uppercase tracking-wider truncate">Total Accounts</div>
-                        <div class="stat-desc text-cyan-400/60 text-[10px] truncate">Linked accounts</div>
+                        <div class="stat-title text-gray-500 font-mono text-[10px] uppercase tracking-wider truncate">Account</div>
+                        <div class="stat-desc text-cyan-400/60 text-[10px] truncate">Single local profile</div>
                     </div>
 
                     <div class="stat bg-space-900/40 border border-space-border/30 rounded-xl p-3 lg:p-4 hover:border-green-500/30 hover:bg-green-500/5 transition-all duration-300 group relative cursor-pointer min-w-0">
@@ -456,188 +456,127 @@
                 </div>
             </div>
 
-            <div x-show="activeTab === 'accounts'" x-transition class="view-container">
+            <div x-show="activeTab === 'account'" x-transition class="view-container">
                 <div class="section-header flex items-center justify-between gap-4 mb-6">
                     <div class="section-heading flex flex-wrap items-center gap-4">
-                        <h1 class="text-2xl font-bold text-white tracking-tight">Accounts</h1>
+                        <h1 class="text-2xl font-bold text-white tracking-tight">Account</h1>
                         <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
-                            <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">ChatGPT accounts</span>
-                        </div>
-                        <div class="account-count-pill flex items-center h-6 px-2 rounded bg-space-800/80 border border-space-border/50">
-                            <span class="text-[11px] font-mono text-gray-400">
-                                <span x-text="accounts.length"></span><span class="account-count-word" x-text="accounts.length === 1 ? ' account' : ' accounts'"></span>
-                            </span>
+                            <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">Single ChatGPT account</span>
                         </div>
                     </div>
 
-                    <div class="section-actions accounts-actions flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
-                        <div class="account-search relative" x-show="accounts.length > 0">
-                            <input type="text" x-model="searchQuery" placeholder="Search accounts..."
-                                class="input-search-sm w-48 pl-9 h-8" @keydown.escape="searchQuery = ''">
-                            <svg class="w-4 h-4 absolute left-3 top-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                        </div>
-
+                    <div class="section-actions account-actions flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
                         <button class="btn btn-xs btn-outline border-space-border text-gray-400 hover:text-white transition-all gap-2 h-8"
-                            @click="refreshAllTokens()" x-show="accounts.length > 0"
-                            aria-label="Refresh all account tokens" title="Refresh all account tokens">
+                            @click="refreshToken(accounts[0]?.email)" x-show="accounts.length > 0"
+                            aria-label="Refresh account token" title="Refresh account token">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
                             </svg>
-                            <span class="action-label">Refresh All</span>
+                            <span class="action-label">Refresh</span>
                         </button>
 
                         <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-xs gap-2 shadow-lg shadow-neon-purple/20 h-8"
-                            @click="showAddModal = true" aria-label="Add account" title="Add account">
+                            @click="showAddModal = true" aria-label="Configure account" title="Configure account">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
-                            <span class="action-label">Add Account</span>
+                            <span class="action-label" x-text="accounts.length ? 'Replace Account' : 'Add Account'"></span>
                         </button>
                     </div>
                 </div>
 
-                <div class="view-card !p-0 overflow-x-auto">
-                    <table class="w-full min-w-[860px]">
-                        <thead x-show="filteredAccounts.length > 0">
-                            <tr class="bg-space-900/50 border-b border-space-border/50">
-                                <th class="py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider w-20">Status</th>
-                                <th class="py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider flex-1 min-w-[200px]">Account (Email)</th>
-                                <th class="py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider w-20">Plan</th>
-                                <th class="py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider w-32">Token</th>
-                                <th class="py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider w-24">Quota</th>
-                                <th class="py-3 pr-6 text-right text-[10px] font-bold text-gray-500 uppercase tracking-wider w-40">Operations</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-if="filteredAccounts.length === 0 && accounts.length === 0">
-                                <tr>
-                                    <td colspan="6" class="py-16 text-center">
-                                        <div class="flex flex-col items-center gap-4 max-w-lg mx-auto">
-                                            <svg class="w-20 h-20 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                            </svg>
-                                            <h3 class="text-xl font-semibold text-gray-400">No Accounts Yet</h3>
-                                            <p class="text-sm text-gray-600 max-w-md leading-relaxed">Get started by adding a ChatGPT account via OAuth, or import from the Codex app.</p>
-                                            <div class="flex items-center gap-4 mt-2">
-                                                <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-sm gap-2 shadow-lg shadow-neon-purple/20"
-                                                    @click="showAddModal = true">
-                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                                                    </svg>
-                                                    <span>Add Your First Account</span>
-                                                </button>
-                                                <span class="text-xs text-gray-600">or</span>
-                                                <button class="btn btn-outline btn-sm text-gray-400" @click="importFromCodex()">
-                                                    Import from Codex
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </template>
+                <div class="view-card">
+                    <template x-if="accounts.length === 0">
+                        <div class="py-14 text-center">
+                            <div class="flex flex-col items-center gap-4 max-w-lg mx-auto">
+                                <svg class="w-20 h-20 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.121 17.804A9 9 0 1118.88 17.8M15 11a3 3 0 11-6 0 3 3 0 016 0zm-7.5 8a6 6 0 019 0" />
+                                </svg>
+                                <h3 class="text-xl font-semibold text-gray-400">No Account Configured</h3>
+                                <p class="text-sm text-gray-600 max-w-md leading-relaxed">Add your ChatGPT account via OAuth, or import your local Codex app account. Importing or adding an account replaces the existing local account.</p>
+                                <div class="flex flex-wrap items-center justify-center gap-3 mt-2">
+                                    <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-sm gap-2 shadow-lg shadow-neon-purple/20"
+                                        @click="showAddModal = true">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                        </svg>
+                                        <span>Add Account</span>
+                                    </button>
+                                    <button class="btn btn-outline btn-sm text-gray-400" @click="importFromCodex()">
+                                        Import from Codex
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
 
-                            <template x-for="acc in filteredAccounts" :key="acc.email">
-                                <tr class="border-b border-space-border/30 last:border-0 hover:bg-white/5 transition-colors group">
-                                    <td class="py-4 pl-6">
-                                        <div class="flex items-center gap-2">
-                                            <div class="w-2 h-2 rounded-full flex-shrink-0"
-                                                :class="acc.isActive ? 'bg-neon-green shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse' : 'bg-gray-500'">
+                    <template x-if="accounts.length > 0">
+                        <div class="space-y-6">
+                            <div class="flex flex-wrap items-start justify-between gap-4">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <div class="w-2 h-2 rounded-full bg-neon-green shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse"></div>
+                                        <span class="text-xs font-mono font-semibold text-neon-green">ACTIVE</span>
+                                    </div>
+                                    <p class="font-mono text-base text-white truncate max-w-full" x-text="accounts[0].email"></p>
+                                    <p class="text-xs text-gray-500 mt-1">This is the only configured account used for proxy requests.</p>
+                                </div>
+                                <span class="text-[10px] font-bold uppercase px-2 py-1 rounded"
+                                    :class="{
+                                        'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30': accounts[0].planType === 'plus',
+                                        'bg-blue-500/10 text-blue-400 border border-blue-500/30': accounts[0].planType === 'pro',
+                                        'bg-gray-500/10 text-gray-400 border border-gray-500/30': accounts[0].planType === 'free'
+                                    }"
+                                    x-text="(accounts[0].planType || 'free').toUpperCase()"></span>
+                            </div>
+
+                            <div class="grid gap-3 sm:grid-cols-3">
+                                <div class="rounded-lg border border-space-border/40 bg-space-900/40 p-3">
+                                    <div class="text-[10px] font-mono uppercase tracking-wider text-gray-500 mb-1">Token</div>
+                                    <div class="text-sm font-mono"
+                                        :class="accounts[0].tokenExpired ? 'text-red-400' : 'text-neon-green'"
+                                        x-text="accounts[0].tokenExpired ? 'Expired' : 'Valid'"></div>
+                                </div>
+                                <div class="rounded-lg border border-space-border/40 bg-space-900/40 p-3">
+                                    <div class="text-[10px] font-mono uppercase tracking-wider text-gray-500 mb-1">Quota</div>
+                                    <template x-if="getRemainingPercentage(accounts[0]) !== null">
+                                        <button class="flex items-center gap-2 text-left" @click="showQuotaModal(accounts[0])">
+                                            <div class="w-20 bg-gray-700 rounded-full h-2 overflow-hidden">
+                                                <div class="h-full rounded-full transition-all"
+                                                    :class="quotaBarClass(accounts[0])"
+                                                    :style="`width: ${getRemainingPercentage(accounts[0])}%`"></div>
                                             </div>
-                                            <span class="text-xs font-mono font-semibold"
-                                                :class="acc.isActive ? 'text-neon-green' : 'text-gray-500'"
-                                                x-text="acc.isActive ? 'ACTIVE' : 'IDLE'">
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td class="py-4">
-                                        <span class="font-mono text-sm text-gray-300 truncate max-w-[320px] inline-block group-hover:text-white transition-colors"
-                                            x-text="acc.email"></span>
-                                    </td>
-                                    <td class="py-4">
-                                        <span class="text-[10px] font-bold uppercase px-2 py-1 rounded"
-                                            :class="{
-                                                'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30': acc.planType === 'plus',
-                                                'bg-blue-500/10 text-blue-400 border border-blue-500/30': acc.planType === 'pro',
-                                                'bg-gray-500/10 text-gray-400 border border-gray-500/30': acc.planType === 'free'
-                                            }"
-                                            x-text="(acc.planType || 'free').toUpperCase()"></span>
-                                    </td>
-                                    <td class="py-4">
-                                        <div class="flex items-center gap-2">
                                             <span class="text-xs font-mono"
-                                                :class="acc.tokenExpired ? 'text-red-400' : 'text-neon-green'"
-                                                x-text="acc.tokenExpired ? 'Expired' : 'Valid'"></span>
-                                        </div>
-                                    </td>
-                                    <td class="py-4 cursor-pointer" @click="showQuotaModal(acc)">
-                                        <template x-if="getRemainingPercentage(acc) !== null">
-                                            <div class="flex flex-col gap-1">
-                                                <div class="flex items-center gap-2">
-                                                    <div class="w-16 bg-gray-700 rounded-full h-2 overflow-hidden">
-                                                        <div class="h-full rounded-full transition-all"
-                                                            :class="quotaBarClass(acc)"
-                                                            :style="`width: ${getRemainingPercentage(acc)}%`">
-                                                        </div>
-                                                    </div>
-                                                    <template x-if="isQuotaExhausted(acc)">
-                                                        <span class="text-[10px] font-bold uppercase text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/30">USED</span>
-                                                    </template>
-                                                    <template x-if="!isQuotaExhausted(acc)">
-                                                        <span class="text-xs font-mono"
-                                                            :class="quotaTextClass(acc)"
-                                                            x-text="quotaLabel(acc)"></span>
-                                                    </template>
-                                                </div>
-                                                <template x-if="quotaResetSummary(acc)">
-                                                    <span class="quota-reset-summary text-[10px] font-mono text-gray-500" x-text="quotaResetSummary(acc)"></span>
-                                                </template>
-                                            </div>
-                                        </template>
-                                        <template x-if="getRemainingPercentage(acc) === null">
-                                            <span class="text-xs text-gray-600">-</span>
-                                        </template>
-                                    </td>
-                                    <td class="py-4 pr-6">
-                                        <div class="flex justify-end gap-2">
-                                            <button x-show="!acc.isActive"
-                                                class="px-3 py-1 text-[10px] font-bold font-mono uppercase tracking-wider rounded bg-neon-purple/10 text-neon-purple hover:bg-neon-purple/20 border border-neon-purple/30 hover:border-neon-purple/50 transition-all"
-                                                @click="switchAccount(acc.email)">
-                                                SWITCH
-                                            </button>
-                                            <button class="btn btn-xs btn-ghost p-2 rounded hover:bg-white/10 text-gray-500 hover:text-white transition-colors"
-                                                @click="refreshToken(acc.email)" title="Refresh token">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                </svg>
-                                            </button>
-                                            <button class="btn btn-xs btn-ghost p-2 rounded hover:bg-red-500/10 text-gray-500 hover:text-red-400 transition-colors"
-                                                @click="confirmDelete(acc.email)" title="Delete account">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </template>
+                                                :class="quotaTextClass(accounts[0])"
+                                                x-text="isQuotaExhausted(accounts[0]) ? 'USED' : quotaLabel(accounts[0])"></span>
+                                        </button>
+                                    </template>
+                                    <template x-if="getRemainingPercentage(accounts[0]) === null">
+                                        <span class="text-xs text-gray-600">Unavailable</span>
+                                    </template>
+                                </div>
+                                <div class="rounded-lg border border-space-border/40 bg-space-900/40 p-3">
+                                    <div class="text-[10px] font-mono uppercase tracking-wider text-gray-500 mb-1">Reset</div>
+                                    <div class="text-xs font-mono text-gray-300" x-text="quotaResetSummary(accounts[0]) || '-'"></div>
+                                </div>
+                            </div>
 
-                            <template x-if="accounts.length > 0 && filteredAccounts.length === 0">
-                                <tr>
-                                    <td colspan="6" class="py-12 text-center">
-                                        <div class="flex flex-col items-center gap-3">
-                                            <svg class="w-12 h-12 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                            </svg>
-                                            <p class="text-sm text-gray-600">No accounts match your search</p>
-                                            <button class="text-xs text-neon-cyan hover:underline" @click="searchQuery = ''">Clear Search</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <button class="btn btn-outline btn-sm text-gray-400 hover:text-white" @click="refreshToken(accounts[0].email)">
+                                    Refresh
+                                </button>
+                                <button class="btn btn-outline btn-sm text-gray-400 hover:text-white" @click="showAddModal = true">
+                                    Replace
+                                </button>
+                                <button class="btn btn-outline btn-sm text-gray-400 hover:text-white" @click="importFromCodex()">
+                                    Import
+                                </button>
+                                <button class="btn btn-outline btn-sm text-red-400 border-red-500/30 hover:bg-red-500/10" @click="confirmDelete(accounts[0].email)">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
 
@@ -662,7 +601,7 @@
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
-                            <input type="text" x-model="logSearchQuery" placeholder="Search logs, models, accounts..."
+                            <input type="text" x-model="logSearchQuery" placeholder="Search logs, models, account..."
                                 class="logs-search-input">
                         </div>
 
@@ -896,13 +835,13 @@
                 <span class="bottom-nav-label">Logs</span>
                 <span class="bottom-nav-badge" x-text="logs.length"></span>
             </button>
-            <button class="bottom-nav-item" :class="{'active': activeTab === 'accounts'}" @click="setActiveTab('accounts')" type="button" aria-label="Accounts">
+            <button class="bottom-nav-item" :class="{'active': activeTab === 'account'}" @click="setActiveTab('account')" type="button" aria-label="Account">
                 <span class="bottom-nav-icon">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                     </svg>
                 </span>
-                <span class="bottom-nav-label">Accounts</span>
+                <span class="bottom-nav-label">Account</span>
                 <span class="bottom-nav-badge" x-text="stats.total"></span>
             </button>
             <button class="bottom-nav-item" :class="{'active': activeTab === 'settings'}" @click="setActiveTab('settings')" type="button" aria-label="Settings">
@@ -920,11 +859,11 @@
     <div x-show="showAddModal" x-transition class="fixed inset-0 z-50 flex items-center justify-center p-4" style="display: none;">
         <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="showAddModal = false"></div>
         <div class="relative bg-space-900 border border-space-border rounded-xl shadow-2xl max-w-md w-full p-6">
-            <h3 class="font-bold text-lg text-white mb-4">Add New Account</h3>
+            <h3 class="font-bold text-lg text-white mb-4">Configure Account</h3>
             
             <template x-if="!oauthManualMode">
                 <div>
-                    <p class="text-sm text-gray-400 mb-6">Connect a ChatGPT account to use with the proxy. The account will be used for API calls.</p>
+                    <p class="text-sm text-gray-400 mb-6">Connect your ChatGPT account to use with the proxy. Adding or importing an account replaces the existing local account.</p>
                     
                     <div class="flex flex-col gap-3">
                         <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-sm gap-3 h-11"
@@ -997,7 +936,7 @@
                         <button class="btn btn-outline btn-sm text-gray-400" @click="oauthManualMode = false">Back</button>
                         <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-sm" 
                             @click="submitManualOAuth()" :disabled="!oauthManualCode">
-                            Add Account
+                            Configure Account
                         </button>
                     </div>
                 </div>

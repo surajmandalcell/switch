@@ -2,12 +2,12 @@
  * Models Route
  * Handles:
  *   GET /v1/models            — OpenAI-compatible model list
- *   GET /accounts/models      — Raw model list for the active/specified account
- *   GET /accounts/usage       — Usage stats for the active/specified account
+ *   GET /account/models       — Raw model list for the configured account
+ *   GET /account/usage        — Usage stats for the configured account
  */
 
 import { fetchModels, fetchUsage } from '../model-api.js';
-import { getActiveAccount, loadAccounts } from '../account-manager.js';
+import { getActiveAccount } from '../account-manager.js';
 import { logger } from '../utils/logger.js';
 import { getCredentialsOrError } from '../middleware/credentials.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_SMALL_OPENAI_MODEL, LATEST_CODEX_MODEL } from '../model-mapper.js';
@@ -61,16 +61,16 @@ export async function handleListModels(req, res) {
 }
 
 /**
- * GET /accounts/models
- * Returns the raw model list for the active or specified account.
+ * GET /account/models
+ * Returns the raw model list for the configured account.
  */
 export async function handleAccountModels(req, res) {
-  const account = _resolveAccount(req.query.email);
+  const account = getActiveAccount();
 
   if (!account) {
     return res.status(404).json({
       success: false,
-      error: req.query.email ? `Account not found: ${req.query.email}` : 'No active account'
+      error: 'No account configured'
     });
   }
 
@@ -84,16 +84,16 @@ export async function handleAccountModels(req, res) {
 }
 
 /**
- * GET /accounts/usage
- * Returns usage stats for the active or specified account.
+ * GET /account/usage
+ * Returns usage stats for the configured account.
  */
 export async function handleAccountUsage(req, res) {
-  const account = _resolveAccount(req.query.email);
+  const account = getActiveAccount();
 
   if (!account) {
     return res.status(404).json({
       success: false,
-      error: req.query.email ? `Account not found: ${req.query.email}` : 'No active account'
+      error: 'No account configured'
     });
   }
 
@@ -104,16 +104,6 @@ export async function handleAccountUsage(req, res) {
     logger.error(`Failed to fetch usage: ${error.message}`);
     res.status(500).json({ success: false, error: error.message });
   }
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function _resolveAccount(email) {
-  if (email) {
-    const data = loadAccounts();
-    return data.accounts.find(a => a.email === email) || null;
-  }
-  return getActiveAccount();
 }
 
 export default { handleListModels, handleAccountModels, handleAccountUsage };

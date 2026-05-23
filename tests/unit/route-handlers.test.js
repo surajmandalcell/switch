@@ -5,7 +5,7 @@
  * Covers:
  *  - settings-route.js  (GET/POST /settings/haiku-model)
  *  - claude-config-route.js (POST /claude/config/direct validation)
- *  - accounts-route.js  (POST /accounts/switch validation)
+ *  - account-route.js  (POST /account/add/manual validation)
  */
 
 import test from 'node:test';
@@ -183,38 +183,9 @@ test('handleSetDirectMode: rejects null body with 400', async () => {
   assert.equal(res._body.error, 'API key required');
 });
 
-// ─── accounts-route ───────────────────────────────────────────────────────────
+// ─── account-route ────────────────────────────────────────────────────────────
 
-import { handleSwitchAccount } from '../../src/routes/accounts-route.js';
-
-test('handleSwitchAccount: rejects missing email with 400', () => {
-  const req = mockReq({});
-  const res = mockRes();
-  handleSwitchAccount(req, res);
-  assert.equal(res._status, 400);
-  assert.equal(res._body.success, false);
-  assert.equal(res._body.message, 'Email is required');
-});
-
-test('handleSwitchAccount: rejects null body with 400', () => {
-  const req = { body: null };
-  const res = mockRes();
-  handleSwitchAccount(req, res);
-  assert.equal(res._status, 400);
-  assert.equal(res._body.message, 'Email is required');
-});
-
-test('handleSwitchAccount: returns result for non-existent email (graceful)', () => {
-  // The account doesn't exist, but the handler should still return a JSON response
-  const req = mockReq({ email: 'nonexistent@example.com' });
-  const res = mockRes();
-  handleSwitchAccount(req, res);
-  // Should return a response (success or failure) but not throw
-  assert.ok(res._body !== null);
-  assert.ok('success' in res._body);
-});
-
-import { handleAddAccountManual } from '../../src/routes/accounts-route.js';
+import { handleAddAccountManual } from '../../src/routes/account-route.js';
 
 test('handleAddAccountManual: rejects missing code with 400', async () => {
   const req = mockReq({});

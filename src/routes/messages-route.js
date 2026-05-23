@@ -1,30 +1,10 @@
 import { sendMessageStream, sendMessage } from '../direct-api.js';
 import { sendKiloMessageStream, sendKiloMessage } from '../kilo-api.js';
 import { DEFAULT_OPENAI_MODEL, isKiloEnabled, resolveModelRouting } from '../model-mapper.js';
-import { sendAuthError, getCredentialsOrError, getCredentialsForAccount } from '../middleware/credentials.js';
+import { sendAuthError, getCredentialsOrError } from '../middleware/credentials.js';
 import { initSSEResponse, pipeSSEStream, handleStreamError } from '../middleware/sse.js';
 import { logger } from '../utils/logger.js';
-import { AccountRotator } from '../account-rotation/index.js';
-import { listAccounts, save } from '../account-manager.js';
-import { isMultiAccountRotationEnabled } from '../server-settings.js';
 import { recordUsageEventSafe, tapUsageEventStream } from '../usage-metrics.js';
-
-const MAX_RETRIES = 5;
-const MAX_WAIT_BEFORE_ERROR_MS = 120000;
-const SHORT_RATE_LIMIT_THRESHOLD_MS = 5000;
-
-let accountRotator = null;
-
-function getAccountRotator() {
-    if (!accountRotator) {
-        accountRotator = new AccountRotator({
-            listAccounts,
-            save
-        });
-        logger.info('[Messages] Account rotation enabled');
-    }
-    return accountRotator;
-}
 
 export async function handleMessages(req, res) {
     const startTime = Date.now();
@@ -62,50 +42,8 @@ export async function handleMessages(req, res) {
             : _sendKilo(res, { ...body, model: upstreamModel }, kiloTarget, requestedModel, startTime);
     }
 
-    if (!isMultiAccountRotationEnabled()) {
-        const creds = await getCredentialsOrError();
-        if (!creds) {
-            recordMessageMetric({
-                body,
-                endpoint: '/v1/messages',
-                requestedModel,
-                upstreamModel,
-                provider: 'openai',
-                startTime,
-                status: 401,
-                errorType: 'auth_error'
-            });
-            return sendAuthError(res);
-        }
-
-        const anthropicRequest = { ...body, model: upstreamModel, ...(reasoningLevel ? { reasoningLevel } : {}) };
-        try {
-            if (isStreaming) {
-                await _streamDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, null);
-            } else {
-                await _sendDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, null);
-            }
-            return;
-        } catch (error) {
-            recordMessageMetric({
-                body,
-                endpoint: '/v1/messages',
-                requestedModel,
-                upstreamModel,
-                provider: 'openai',
-                accountLabel: creds.email,
-                startTime,
-                status: error.status || 500,
-                errorType: classifyMetricError(error)
-            });
-            return handleStreamError(res, error, requestedModel, startTime);
-        }
-    }
-    
-    const rotator = getAccountRotator();
-    const accountSnapshot = listAccounts();
-
-    if (accountSnapshot.total === 0) {
+    const creds = await getCredentialsOrError();
+    if (!creds) {
         recordMessageMetric({
             body,
             endpoint: '/v1/messages',
@@ -116,130 +54,36 @@ export async function handleMessages(req, res) {
             status: 401,
             errorType: 'auth_error'
         });
-        return sendAuthError(res, 'No active account with valid credentials. Add an account via /accounts/add');
+        return sendAuthError(res);
     }
-    
-    rotator.clearExpiredLimits();
-    
-    const maxAttempts = Math.max(MAX_RETRIES, accountSnapshot.total);
-    
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (rotator.isAllRateLimited(upstreamModel)) {
-            const minWait = rotator.getMinWaitTimeMs(upstreamModel);
-            
-            if (minWait > MAX_WAIT_BEFORE_ERROR_MS) {
-                recordMessageMetric({
-                    body,
-                    endpoint: '/v1/messages',
-                    requestedModel,
-                    upstreamModel,
-                    provider: 'openai',
-                    startTime,
-                    status: 429,
-                    errorType: 'rate_limited'
-                });
-                return handleStreamError(res, new Error(`RESOURCE_EXHAUSTED: All accounts rate-limited. Wait ${Math.round(minWait/1000)}s`), requestedModel, startTime);
-            }
-            
-            logger.info(`[Messages] All accounts rate-limited, waiting ${Math.round(minWait/1000)}s...`);
-            await sleep(minWait + 500);
-            rotator.clearExpiredLimits();
-            attempt--;
-            continue;
+
+    const anthropicRequest = { ...body, model: upstreamModel, ...(reasoningLevel ? { reasoningLevel } : {}) };
+    try {
+        if (isStreaming) {
+            await _streamDirect(res, anthropicRequest, creds, requestedModel, startTime);
+        } else {
+            await _sendDirect(res, anthropicRequest, creds, requestedModel, startTime);
         }
-        
-        const { account, waitMs } = rotator.selectAccount(upstreamModel);
-        
-        if (!account) {
-            if (waitMs > 0) {
-                await sleep(waitMs);
-                attempt--;
-                continue;
-            }
-            recordMessageMetric({
-                body,
-                endpoint: '/v1/messages',
-                requestedModel,
-                upstreamModel,
-                provider: 'openai',
-                startTime,
-                status: 401,
-                errorType: 'auth_error'
-            });
-            return sendAuthError(res, 'No available accounts');
-        }
-        
-        const creds = await getCredentialsForAccount(account.email);
-        if (!creds) {
-            rotator.markInvalid(account.email, 'Failed to get credentials');
-            continue;
-        }
-        
-        const anthropicRequest = { ...body, model: upstreamModel, ...(reasoningLevel ? { reasoningLevel } : {}) };
-        
-        try {
-            if (isStreaming) {
-                await _streamDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, rotator);
-            } else {
-                await _sendDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, rotator);
-            }
-            rotator.notifySuccess(account, upstreamModel);
-            return;
-        } catch (error) {
-            if (error.message.startsWith('RATE_LIMITED:')) {
-                const parts = error.message.split(':');
-                const resetMs = parseInt(parts[1], 10);
-                const errorText = parts.slice(2).join(':');
-                
-                rotator.notifyRateLimit(account, upstreamModel);
-                
-                if (resetMs <= SHORT_RATE_LIMIT_THRESHOLD_MS) {
-                    logger.info(`[Messages] Short rate limit on ${account.email}, waiting ${resetMs}ms...`);
-                    await sleep(resetMs);
-                    attempt--;
-                    continue;
-                }
-                
-                logger.info(`[Messages] Rate limit on ${account.email}, switching account...`);
-                continue;
-            }
-            
-            if (error.message.includes('AUTH_EXPIRED')) {
-                rotator.markInvalid(account.email, 'Auth expired');
-                continue;
-            }
-            
-            recordMessageMetric({
-                body,
-                endpoint: '/v1/messages',
-                requestedModel,
-                upstreamModel,
-                provider: 'openai',
-                accountLabel: account.email,
-                startTime,
-                status: error.status || 500,
-                errorType: classifyMetricError(error)
-            });
-            return handleStreamError(res, error, requestedModel, startTime);
-        }
+        return;
+    } catch (error) {
+        recordMessageMetric({
+            body,
+            endpoint: '/v1/messages',
+            requestedModel,
+            upstreamModel,
+            provider: 'openai',
+            accountLabel: creds.email,
+            startTime,
+            status: error.message?.startsWith('RATE_LIMITED:') ? 429 : error.status || 500,
+            errorType: classifyMetricError(error)
+        });
+        return handleStreamError(res, error, requestedModel, startTime);
     }
-    
-    recordMessageMetric({
-        body,
-        endpoint: '/v1/messages',
-        requestedModel,
-        upstreamModel,
-        provider: 'openai',
-        startTime,
-        status: 500,
-        errorType: 'max_retries'
-    });
-    return handleStreamError(res, new Error('Max retries exceeded'), requestedModel, startTime);
 }
 
-async function _streamDirectWithRotation(res, anthropicRequest, creds, responseModel, startTime, rotator) {
+async function _streamDirect(res, anthropicRequest, creds, responseModel, startTime) {
     initSSEResponse(res);
-    const sourceStream = sendMessageStream(anthropicRequest, creds.accessToken, creds.accountId, rotator, creds.email);
+    const sourceStream = sendMessageStream(anthropicRequest, creds.accessToken, creds.accountId);
     let finalUsage = null;
     const stream = tapUsageEventStream(sourceStream, (usage) => {
         finalUsage = usage;
@@ -260,7 +104,7 @@ async function _streamDirectWithRotation(res, anthropicRequest, creds, responseM
     logger.response(200, { model: anthropicRequest.model, usage: finalUsage, duration: Date.now() - startTime });
 }
 
-async function _sendDirectWithRotation(res, anthropicRequest, creds, responseModel, startTime, rotator) {
+async function _sendDirect(res, anthropicRequest, creds, responseModel, startTime) {
     const response = await sendMessage(anthropicRequest, creds.accessToken, creds.accountId);
     const duration = Date.now() - startTime;
     logger.response(200, { model: anthropicRequest.model, usage: response.usage, duration });
@@ -332,10 +176,6 @@ async function _sendKilo(res, anthropicRequest, kiloTarget, responseModel, start
     });
 }
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function recordMessageMetric(options) {
     const body = options.body || {};
     recordUsageEventSafe({
@@ -358,7 +198,7 @@ function recordMessageMetric(options) {
 
 function classifyMetricError(error) {
     const message = error?.message || '';
-    if (message.startsWith('RATE_LIMITED:') || message.startsWith('RESOURCE_EXHAUSTED:')) return 'rate_limited';
+    if (message.startsWith('RATE_LIMITED:')) return 'rate_limited';
     if (message.includes('AUTH_EXPIRED')) return 'auth_expired';
     if (message.startsWith('CLOUDFLARE_BLOCKED:')) return 'cloudflare_blocked';
     if (message.startsWith('FORBIDDEN:')) return 'forbidden';

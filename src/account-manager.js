@@ -1,6 +1,6 @@
 /**
  * Account Manager
- * Manages multiple ChatGPT accounts with manual switching
+ * Manages one local ChatGPT account for personal proxy use.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'fs';
@@ -9,20 +9,23 @@ import { homedir } from 'os';
 import { refreshAccessToken, extractAccountInfo } from './oauth.js';
 import { getAccountQuota as fetchQuota } from './model-api.js';
 
-const CONFIG_DIR = join(homedir(), '.codex-claude-proxy');
-const ACCOUNTS_FILE = join(CONFIG_DIR, 'accounts.json');
-const ACCOUNTS_DIR = join(CONFIG_DIR, 'accounts');
+const CONFIG_DIR_ENV = 'CODEX_CLAUDE_PROXY_CONFIG_DIR';
+const CONFIG_DIR = process.env[CONFIG_DIR_ENV] || join(homedir(), '.codex-claude-proxy');
+const ACCOUNT_FILE = join(CONFIG_DIR, 'account.json');
+const LEGACY_ACCOUNTS_FILE = join(CONFIG_DIR, 'accounts.json');
+const ACCOUNT_AUTH_FILE = join(CONFIG_DIR, 'auth.json');
 
 const TOKEN_REFRESH_INTERVAL_MS = 55 * 60 * 1000;
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
-const DEFAULT_ACCOUNTS = {
+const DEFAULT_STATE = {
     accounts: [],
     activeAccount: null,
-    version: 1
+    version: 2
 };
 
 let autoRefreshIntervalId = null;
+let startupRefreshTimeoutId = null;
 const tokenCache = new Map();
 let accountsData = null;
 
@@ -30,82 +33,106 @@ function ensureConfigDir() {
     if (!existsSync(CONFIG_DIR)) {
         mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
     }
-    if (!existsSync(ACCOUNTS_DIR)) {
-        mkdirSync(ACCOUNTS_DIR, { recursive: true, mode: 0o700 });
+}
+
+function normalizeAccount(account) {
+    if (!account || typeof account !== 'object' || !account.email) {
+        return null;
     }
+
+    return {
+        ...account,
+        lastUsed: account.lastUsed || null
+    };
 }
 
-function sanitizeEmailForPath(email) {
-    return email.replace(/[^a-zA-Z0-9._-]/g, '_');
+function pickConfiguredAccount(data = {}) {
+    const directAccount = normalizeAccount(data.account);
+    if (directAccount) return directAccount;
+
+    if (!Array.isArray(data.accounts) || data.accounts.length === 0) {
+        return null;
+    }
+
+    const active = data.accounts.find((account) => account?.email === data.activeAccount);
+    return normalizeAccount(active || data.accounts[0]);
 }
 
-function getAccountDir(email) {
-    const safeEmail = sanitizeEmailForPath(email);
-    return join(ACCOUNTS_DIR, safeEmail);
+function normalizeState(data = {}) {
+    const account = pickConfiguredAccount(data);
+    return {
+        accounts: account ? [account] : [],
+        activeAccount: account?.email || null,
+        version: 2
+    };
 }
 
-function getAccountAuthFile(email) {
-    return join(getAccountDir(email), 'auth.json');
+function serializeState(state) {
+    const account = state.accounts[0] || null;
+    return {
+        account,
+        activeAccount: account?.email || null,
+        version: 2
+    };
+}
+
+function readJsonFile(path) {
+    return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function writeState(data) {
+    ensureConfigDir();
+    accountsData = normalizeState(data);
+    writeFileSync(ACCOUNT_FILE, JSON.stringify(serializeState(accountsData), null, 2), { mode: 0o600 });
+    return accountsData;
 }
 
 function loadAccounts() {
     if (accountsData !== null) {
         return accountsData;
     }
-    
+
     ensureConfigDir();
-    
-    if (!existsSync(ACCOUNTS_FILE)) {
-        accountsData = { ...DEFAULT_ACCOUNTS };
-        return accountsData;
-    }
-    
+
     try {
-        const data = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8'));
-        accountsData = { ...DEFAULT_ACCOUNTS, ...data };
-        return accountsData;
-    } catch (e) {
-        console.error('[AccountManager] Error loading accounts:', e.message);
-        accountsData = { ...DEFAULT_ACCOUNTS };
-        return accountsData;
+        if (existsSync(ACCOUNT_FILE)) {
+            accountsData = normalizeState(readJsonFile(ACCOUNT_FILE));
+            return accountsData;
+        }
+
+        if (existsSync(LEGACY_ACCOUNTS_FILE)) {
+            return writeState(readJsonFile(LEGACY_ACCOUNTS_FILE));
+        }
+    } catch (error) {
+        console.error('[AccountManager] Error loading account:', error.message);
     }
+
+    accountsData = { ...DEFAULT_STATE };
+    return accountsData;
 }
 
 function saveAccounts(data) {
-    ensureConfigDir();
-    accountsData = data;
-    writeFileSync(ACCOUNTS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+    return writeState(data);
 }
 
 function save() {
-    if (accountsData === null) {
-        loadAccounts();
-    }
-    ensureConfigDir();
-    writeFileSync(ACCOUNTS_FILE, JSON.stringify(accountsData, null, 2), { mode: 0o600 });
+    return writeState(accountsData || loadAccounts());
 }
 
 function getAccount(email) {
-    const data = loadAccounts();
-    return data.accounts.find(a => a.email === email) || null;
+    const account = getActiveAccount();
+    if (!email) return account;
+    return account?.email === email ? account : null;
 }
 
 function getActiveAccount() {
     const data = loadAccounts();
-    if (!data.activeAccount) return null;
-    return data.accounts.find(a => a.email === data.activeAccount) || null;
+    return data.accounts[0] || null;
 }
 
 function updateAccountAuth(account) {
     if (!account) return;
-    
-    const accountDir = getAccountDir(account.email);
-    const authFile = getAccountAuthFile(account.email);
-    
-    if (!existsSync(accountDir)) {
-        mkdirSync(accountDir, { recursive: true, mode: 0o700 });
-    }
-    
+
     const authData = {
         auth_mode: 'chatgpt',
         OPENAI_API_KEY: null,
@@ -117,223 +144,181 @@ function updateAccountAuth(account) {
         },
         last_refresh: new Date().toISOString()
     };
-    
+
     try {
-        writeFileSync(authFile, JSON.stringify(authData, null, 2), { mode: 0o600 });
+        ensureConfigDir();
+        writeFileSync(ACCOUNT_AUTH_FILE, JSON.stringify(authData, null, 2), { mode: 0o600 });
         console.log(`[AccountManager] Updated auth for: ${account.email}`);
-    } catch (e) {
-        console.error('[AccountManager] Failed to update auth:', e.message);
+    } catch (error) {
+        console.error('[AccountManager] Failed to update auth:', error.message);
     }
 }
 
-function setActiveAccount(email) {
-    const data = loadAccounts();
-    const account = data.accounts.find(a => a.email === email);
-    
+function setConfiguredAccount(account) {
+    const normalized = normalizeAccount(account);
+    if (!normalized) {
+        return { success: false, message: 'No valid account provided' };
+    }
+
+    const state = saveAccounts({
+        accounts: [normalized],
+        activeAccount: normalized.email,
+        version: 2
+    });
+    updateAccountAuth(state.accounts[0]);
+    return { success: true, message: `Configured account: ${normalized.email}` };
+}
+
+function removeAccount() {
+    const account = getActiveAccount();
     if (!account) {
-        return { success: false, message: `Account not found: ${email}` };
+        return { success: false, message: 'No account configured' };
     }
-    
-    data.activeAccount = email;
-    saveAccounts(data);
-    
-    updateAccountAuth(account);
-    
-    return { success: true, message: `Switched to account: ${email}` };
-}
 
-function removeAccount(email) {
-    const data = loadAccounts();
-    const index = data.accounts.findIndex(a => a.email === email);
-    
-    if (index < 0) {
-        return { success: false, message: `Account not found: ${email}` };
-    }
-    
-    const accountDir = getAccountDir(email);
     try {
-        if (existsSync(accountDir)) {
-            rmSync(accountDir, { recursive: true, force: true });
+        if (existsSync(ACCOUNT_AUTH_FILE)) {
+            rmSync(ACCOUNT_AUTH_FILE, { force: true });
         }
-    } catch (e) {
-        console.error('[AccountManager] Failed to remove account directory:', e.message);
+    } catch (error) {
+        console.error('[AccountManager] Failed to remove auth file:', error.message);
     }
-    
-    data.accounts.splice(index, 1);
-    
-    if (data.activeAccount === email) {
-        data.activeAccount = data.accounts[0]?.email || null;
-        
-        if (data.activeAccount) {
-            const newActive = data.accounts.find(a => a.email === data.activeAccount);
-            updateAccountAuth(newActive);
-        }
-    }
-    
-    saveAccounts(data);
-    
-    return { success: true, message: `Account removed: ${email}` };
+
+    saveAccounts(DEFAULT_STATE);
+    tokenCache.clear();
+    return { success: true, message: `Account removed: ${account.email}` };
 }
 
 function listAccounts() {
-    const data = loadAccounts();
-    
-    const accounts = data.accounts.map(account => {
-        const info = extractAccountInfo(account.accessToken);
-        return {
-            email: account.email,
-            accountId: account.accountId,
-            planType: info?.planType || account.planType || 'unknown',
-            addedAt: account.addedAt,
-            lastUsed: account.lastUsed,
-            isActive: account.email === data.activeAccount,
-            tokenExpired: info?.expiresAt ? info.expiresAt < Date.now() : false,
-            quota: account.quota || null
-        };
-    });
-    
+    const account = getActiveAccount();
+    const info = account ? extractAccountInfo(account.accessToken) : null;
+    const publicAccount = account ? {
+        email: account.email,
+        accountId: account.accountId,
+        planType: info?.planType || account.planType || 'unknown',
+        addedAt: account.addedAt,
+        lastUsed: account.lastUsed,
+        isActive: true,
+        tokenExpired: info?.expiresAt ? info.expiresAt < Date.now() : false,
+        quota: account.quota || null
+    } : null;
+
     return {
-        accounts,
-        activeAccount: data.activeAccount,
-        total: accounts.length
+        account: publicAccount,
+        activeAccount: publicAccount?.email || null,
+        total: publicAccount ? 1 : 0
     };
 }
 
 function updateAccountQuota(email, quotaData) {
     const data = loadAccounts();
-    const account = data.accounts.find(a => a.email === email);
-    
-    if (!account) {
-        return { success: false, message: `Account not found: ${email}` };
+    const account = data.accounts[0];
+
+    if (!account || (email && account.email !== email)) {
+        return { success: false, message: email ? `Account not found: ${email}` : 'No account configured' };
     }
-    
+
     account.quota = {
         ...quotaData,
         lastChecked: new Date().toISOString()
     };
-    
+
     saveAccounts(data);
-    return { success: true, message: `Quota updated for: ${email}` };
+    return { success: true, message: `Quota updated for: ${account.email}` };
 }
 
 function getAccountQuota(email) {
-    const data = loadAccounts();
-    const account = data.accounts.find(a => a.email === email);
-    
-    if (!account) {
+    const account = getActiveAccount();
+    if (!account || (email && account.email !== email)) {
         return null;
     }
-    
     return account.quota || null;
 }
 
 function isTokenExpiredOrExpiringSoon(account) {
-    if (!account.expiresAt) return true;
+    if (!account?.expiresAt) return true;
     return Date.now() >= (account.expiresAt - TOKEN_EXPIRY_BUFFER_MS);
 }
 
 async function refreshAccountToken(email) {
-    const data = loadAccounts();
-    const account = data.accounts.find(a => a.email === email);
-    
-    if (!account) {
-        return { success: false, message: `Account not found: ${email}` };
+    const account = getActiveAccount();
+
+    if (!account || (email && account.email !== email)) {
+        return { success: false, message: email ? `Account not found: ${email}` : 'No account configured' };
     }
-    
+
     if (!account.refreshToken) {
         return { success: false, message: 'No refresh token available' };
     }
-    
+
     try {
         const tokens = await refreshAccessToken(account.refreshToken);
         const accountInfo = extractAccountInfo(tokens.accessToken);
-        
-        const index = data.accounts.findIndex(a => a.email === email);
-        if (index >= 0) {
-            data.accounts[index].accessToken = tokens.accessToken;
-            data.accounts[index].refreshToken = tokens.refreshToken || data.accounts[index].refreshToken;
-            data.accounts[index].idToken = tokens.idToken || data.accounts[index].idToken;
-            data.accounts[index].expiresAt = accountInfo?.expiresAt || (Date.now() + tokens.expiresIn * 1000);
-            if (accountInfo?.planType) {
-                data.accounts[index].planType = accountInfo.planType;
-            }
-            saveAccounts(data);
-            
-            tokenCache.set(email, {
-                token: tokens.accessToken,
-                extractedAt: Date.now()
-            });
-            
-            if (data.activeAccount === email) {
-                updateAccountAuth(data.accounts[index]);
-            }
-        }
-        
-        console.log(`[AccountManager] Token refreshed for: ${email}`);
-        
-        // Auto-fetch quota after refresh
+        const updatedAccount = {
+            ...account,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken || account.refreshToken,
+            idToken: tokens.idToken || account.idToken,
+            expiresAt: accountInfo?.expiresAt || (Date.now() + tokens.expiresIn * 1000),
+            planType: accountInfo?.planType || account.planType
+        };
+
+        setConfiguredAccount(updatedAccount);
+        tokenCache.set(updatedAccount.email, {
+            token: updatedAccount.accessToken,
+            extractedAt: Date.now()
+        });
+
+        console.log(`[AccountManager] Token refreshed for: ${updatedAccount.email}`);
+
         try {
-            const quotaData = await fetchQuota(tokens.accessToken, accountInfo.accountId);
-            updateAccountQuota(email, quotaData);
-            console.log(`[AccountManager] Quota refreshed for: ${email}`);
-        } catch (qErr) {
-            console.warn(`[AccountManager] Failed to auto-fetch quota for ${email}: ${qErr.message}`);
+            const quotaData = await fetchQuota(updatedAccount.accessToken, updatedAccount.accountId);
+            updateAccountQuota(updatedAccount.email, quotaData);
+            console.log(`[AccountManager] Quota refreshed for: ${updatedAccount.email}`);
+        } catch (error) {
+            console.warn(`[AccountManager] Failed to auto-fetch quota for ${updatedAccount.email}: ${error.message}`);
         }
 
-        return { success: true, message: `Token refreshed for: ${email}` };
+        return { success: true, message: `Token refreshed for: ${updatedAccount.email}` };
     } catch (error) {
-        console.error(`[AccountManager] Token refresh failed for ${email}:`, error.message);
+        console.error(`[AccountManager] Token refresh failed for ${account.email}:`, error.message);
         return { success: false, message: `Token refresh failed: ${error.message}` };
     }
-}
-
-async function refreshAllAccounts() {
-    const data = loadAccounts();
-    const results = [];
-    
-    for (const account of data.accounts) {
-        if (account.refreshToken) {
-            const result = await refreshAccountToken(account.email);
-            results.push({ email: account.email, ...result });
-        }
-    }
-    
-    return results;
 }
 
 function startAutoRefresh() {
     if (autoRefreshIntervalId) {
         clearInterval(autoRefreshIntervalId);
     }
-    
-    const startupRefreshTimeout = setTimeout(async () => {
-        console.log('[AccountManager] Startup: refreshing all account tokens...');
-        const data = loadAccounts();
-        for (const account of data.accounts) {
-            if (account.refreshToken) {
-                console.log(`[AccountManager] Startup refresh for ${account.email}`);
-                await refreshAccountToken(account.email);
-            }
+    if (startupRefreshTimeoutId) {
+        clearTimeout(startupRefreshTimeoutId);
+    }
+
+    startupRefreshTimeoutId = setTimeout(async () => {
+        const account = getActiveAccount();
+        if (account?.refreshToken) {
+            console.log(`[AccountManager] Startup refresh for ${account.email}`);
+            await refreshAccountToken(account.email);
         }
     }, 2000);
-    startupRefreshTimeout.unref?.();
-    
+    startupRefreshTimeoutId.unref?.();
+
     autoRefreshIntervalId = setInterval(async () => {
-        const data = loadAccounts();
-        
-        for (const account of data.accounts) {
-            if (account.refreshToken) {
-                console.log(`[AccountManager] Periodic refresh for ${account.email}`);
-                await refreshAccountToken(account.email);
-            }
+        const account = getActiveAccount();
+        if (account?.refreshToken) {
+            console.log(`[AccountManager] Periodic refresh for ${account.email}`);
+            await refreshAccountToken(account.email);
         }
     }, TOKEN_REFRESH_INTERVAL_MS);
     autoRefreshIntervalId.unref?.();
-    
+
     console.log('[AccountManager] Auto-refresh started (every 55 minutes)');
 }
 
 function stopAutoRefresh() {
+    if (startupRefreshTimeoutId) {
+        clearTimeout(startupRefreshTimeoutId);
+        startupRefreshTimeoutId = null;
+    }
     if (autoRefreshIntervalId) {
         clearInterval(autoRefreshIntervalId);
         autoRefreshIntervalId = null;
@@ -356,58 +341,27 @@ function setCachedToken(email, token) {
 async function refreshActiveAccount() {
     const account = getActiveAccount();
     if (!account) {
-        return { success: false, message: 'No active account' };
+        return { success: false, message: 'No account configured' };
     }
-    
-    if (!account.refreshToken) {
-        return { success: false, message: 'No refresh token available' };
-    }
-    
-    try {
-        const tokens = await refreshAccessToken(account.refreshToken);
-        const accountInfo = extractAccountInfo(tokens.accessToken);
-        
-        const data = loadAccounts();
-        const index = data.accounts.findIndex(a => a.email === account.email);
-        
-        if (index >= 0) {
-            data.accounts[index].accessToken = tokens.accessToken;
-            data.accounts[index].refreshToken = tokens.refreshToken || data.accounts[index].refreshToken;
-            data.accounts[index].idToken = tokens.idToken || data.accounts[index].idToken;
-            data.accounts[index].expiresAt = accountInfo?.expiresAt || (Date.now() + tokens.expiresIn * 1000);
-            if (accountInfo?.planType) {
-                data.accounts[index].planType = accountInfo.planType;
-            }
-            saveAccounts(data);
-            
-            updateAccountAuth(data.accounts[index]);
-            console.log(`[AccountManager] Active account token refreshed: ${account.email}`);
-        }
-        
-        return { success: true, message: `Token refreshed for: ${account.email}` };
-    } catch (error) {
-        console.error(`[AccountManager] Token refresh failed for ${account.email}:`, error.message);
-        return { success: false, message: `Token refresh failed: ${error.message}` };
-    }
+    return refreshAccountToken(account.email);
 }
 
 function importFromCodex() {
-    const codeAuthFile = join(homedir(), '.codex', 'auth.json');
-    
+    const codexAuthFile = join(homedir(), '.codex', 'auth.json');
+
     try {
-        if (!existsSync(codeAuthFile)) {
+        if (!existsSync(codexAuthFile)) {
             return { success: false, message: 'No Codex auth.json found' };
         }
-        
-        const codexAuth = JSON.parse(readFileSync(codeAuthFile, 'utf8'));
-        
+
+        const codexAuth = readJsonFile(codexAuthFile);
+
         if (!codexAuth.tokens?.access_token) {
             return { success: false, message: 'No valid tokens in Codex auth.json' };
         }
-        
+
         const info = extractAccountInfo(codexAuth.tokens.access_token);
-        
-        const newAccount = {
+        const account = {
             email: info?.email || 'imported@unknown.com',
             accountId: codexAuth.tokens.account_id,
             planType: info?.planType || 'unknown',
@@ -419,26 +373,12 @@ function importFromCodex() {
             lastUsed: new Date().toISOString(),
             source: 'imported'
         };
-        
-        const data = loadAccounts();
-        
-        const existingIndex = data.accounts.findIndex(a => a.email === newAccount.email);
-        if (existingIndex >= 0) {
-            data.accounts[existingIndex] = newAccount;
-        } else {
-            data.accounts.push(newAccount);
-        }
-        
-        if (!data.activeAccount) {
-            data.activeAccount = newAccount.email;
-        }
-        
-        saveAccounts(data);
-        updateAccountAuth(newAccount);
-        
+
+        setConfiguredAccount(account);
+
         return {
             success: true,
-            message: `Imported account: ${newAccount.email} (${newAccount.planType})`
+            message: `Imported account: ${account.email} (${account.planType})`
         };
     } catch (error) {
         return { success: false, message: `Import failed: ${error.message}` };
@@ -446,34 +386,19 @@ function importFromCodex() {
 }
 
 function getStatus() {
-    const data = loadAccounts();
-    const accounts = data.accounts.map(a => {
-        const info = extractAccountInfo(a.accessToken);
-        return {
-            email: a.email,
-            planType: a.planType,
-            isActive: a.email === data.activeAccount,
-            quota: a.quota || null,
-            tokenExpired: info?.expiresAt ? info.expiresAt < Date.now() : false,
-            lastUsed: a.lastUsed
-        };
-    });
-    
+    const { account, activeAccount, total } = listAccounts();
     return {
-        total: data.accounts.length,
-        active: data.activeAccount,
-        accounts
+        total,
+        active: activeAccount,
+        account
     };
 }
 
 function ensureAccountsPersist() {
-    const data = loadAccounts();
-    if (data.accounts.length > 0 && data.activeAccount) {
-        const active = data.accounts.find(a => a.email === data.activeAccount);
-        if (active) {
-            updateAccountAuth(active);
-            console.log(`[AccountManager] Restored active account: ${active.email}`);
-        }
+    const account = getActiveAccount();
+    if (account) {
+        updateAccountAuth(account);
+        console.log(`[AccountManager] Restored account: ${account.email}`);
     }
 }
 
@@ -483,12 +408,11 @@ export {
     save,
     getAccount,
     getActiveAccount,
-    setActiveAccount,
+    setConfiguredAccount,
     removeAccount,
     listAccounts,
     refreshActiveAccount,
     refreshAccountToken,
-    refreshAllAccounts,
     importFromCodex,
     getStatus,
     updateAccountAuth,
@@ -501,28 +425,22 @@ export {
     getCachedToken,
     setCachedToken,
     TOKEN_REFRESH_INTERVAL_MS,
-    ACCOUNTS_FILE,
+    ACCOUNT_FILE,
+    LEGACY_ACCOUNTS_FILE,
+    ACCOUNT_AUTH_FILE,
     CONFIG_DIR
 };
 
 export default {
     getActiveAccount,
-    setActiveAccount,
+    setConfiguredAccount,
     removeAccount,
     listAccounts,
     refreshActiveAccount,
     refreshAccountToken,
-    refreshAllAccounts,
     importFromCodex,
     getStatus,
     ensureAccountsPersist,
     updateAccountQuota,
-    getAccountQuota,
-    startAutoRefresh,
-    stopAutoRefresh,
-    isTokenExpiredOrExpiringSoon,
-    getCachedToken,
-    setCachedToken,
-    save,
-    getAccount
+    getAccountQuota
 };

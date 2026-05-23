@@ -6,12 +6,12 @@ This proxy uses **OAuth 2.0 with PKCE** for secure authentication with ChatGPT.
 
 ### Desktop (Browser)
 ```bash
-codex-proxy accounts add
+codex-proxy account add
 ```
 
 ### Headless/VM (No Browser)
 ```bash
-codex-proxy accounts add --no-browser
+codex-proxy account add --no-browser
 ```
 
 The legacy `codex-claude-proxy` command remains supported as an alias.
@@ -22,7 +22,7 @@ When running on a server without a browser (VM, Docker, SSH):
 
 1. Run the command with `--no-browser`:
    ```bash
-   codex-proxy accounts add --no-browser
+   codex-proxy account add --no-browser
    ```
 
 2. It prints a URL like:
@@ -41,7 +41,7 @@ When running on a server without a browser (VM, Docker, SSH):
 
 6. Copy that entire URL (or just the `code` parameter) and paste it back in the terminal
 
-7. The proxy exchanges the code for tokens and saves your account
+7. The proxy exchanges the code for tokens and saves your account, replacing any existing local account
 
 ## OAuth Config
 
@@ -54,29 +54,29 @@ When running on a server without a browser (VM, Docker, SSH):
 
 - **PKCE**: Secure code exchange with SHA256 challenge
 - **Auto-Refresh**: Tokens refresh automatically before expiry
-- **Account Selection**: Uses `prompt=login` so you can choose the account to add
+- **Account Selection**: Uses `prompt=login` so you can choose the personal account that replaces the local account
 - **Headless Support**: Works on servers without browsers
 
-## Managing Accounts
+## Managing Account
 
 ```bash
-# List accounts
-codex-proxy accounts list
+# Show account
+codex-proxy account show
 
 # Add account (browser)
-codex-proxy accounts add
+codex-proxy account add
 
 # Add account (headless)
-codex-proxy accounts add --no-browser
+codex-proxy account add --no-browser
 
-# Clear all accounts
-codex-proxy accounts clear
+# Clear account
+codex-proxy account clear
 ```
 
 ## Troubleshooting
 
 ### "Port already in use"
-The `--no-browser` mode works independently of the server - you can add accounts even while the proxy is running.
+The `--no-browser` mode works independently of the server, so you can replace the local account even while the proxy is running.
 
 ### "Invalid state" error
 This happens if you use a code from an old session. Generate a fresh URL and try again.

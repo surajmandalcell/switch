@@ -115,7 +115,7 @@ function getAuthorizationUrl(verifier, state, port) {
         id_token_add_organizations: 'true',
         codex_cli_simplified_flow: 'true',
         originator: 'codex_cli_rs',
-        prompt: 'login', // Force login screen for multi-account support
+        prompt: 'login',
         max_age: '0'      // Force re-authentication
     });
     
@@ -624,6 +624,7 @@ export function extractCodeFromInput(input) {
                 throw new Error('No authorization code found in URL');
             }
 
+            const port = Number(url.port);
             return { code, state, port: Number.isInteger(port) && port > 0 ? port : null };
         } catch (e) {
             if (e.message.includes('OAuth error') || e.message.includes('No authorization code')) {

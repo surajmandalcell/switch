@@ -1,5 +1,5 @@
 document.addEventListener('alpine:init', () => {
-    const validTabs = ['dashboard', 'metrics', 'accounts', 'logs', 'settings'];
+    const validTabs = ['dashboard', 'metrics', 'account', 'logs', 'settings'];
     const initialTab = () => {
         const params = new URLSearchParams(window.location.search);
         const requested = params.get('tab') || window.location.hash.replace(/^#/, '');
@@ -7,7 +7,7 @@ document.addEventListener('alpine:init', () => {
     };
 
     Alpine.data('app', () => ({
-        version: '1.0.7',
+        version: '2.0.0',
         connectionStatus: 'connecting',
         activeTab: initialTab(),
         loading: false,
@@ -15,7 +15,6 @@ document.addEventListener('alpine:init', () => {
         currentTime: '',
         
         accounts: [],
-        searchQuery: '',
         stats: { total: 0, active: 0, expired: 0, planType: '-' },
         metricsRange: '24h',
         metricsStatusFilter: '',
@@ -138,7 +137,7 @@ document.addEventListener('alpine:init', () => {
             }
         },
         
-        configPath: '~/.codex-claude-proxy/accounts.json',
+        configPath: '~/.codex-claude-proxy/account.json',
         serverUrl: window.location.origin,
         
         logs: [],
@@ -161,12 +160,6 @@ document.addEventListener('alpine:init', () => {
                 counts[log.level] = (counts[log.level] || 0) + 1;
                 return counts;
             }, { INFO: 0, SUCCESS: 0, WARN: 0, ERROR: 0, DEBUG: 0 });
-        },
-
-        get filteredAccounts() {
-            if (!this.searchQuery) return this.accounts;
-            const q = this.searchQuery.toLowerCase();
-            return this.accounts.filter(a => a.email.toLowerCase().includes(q));
         },
 
         get metricsTotals() {
@@ -256,15 +249,15 @@ document.addEventListener('alpine:init', () => {
 
         async refreshAccounts() {
             this.loading = true;
-            const { ok, data } = await this.api('/accounts');
+            const { ok, data } = await this.api('/account');
             
-            if (ok && data.accounts) {
-                this.accounts = data.accounts;
+            if (ok) {
+                this.accounts = data.account ? [data.account] : [];
                 this.stats = {
-                    total: data.total || data.accounts.length,
-                    active: data.accounts.filter(a => a.isActive).length,
-                    expired: data.accounts.filter(a => a.tokenExpired).length,
-                    planType: data.accounts.find(a => a.isActive)?.planType || '-'
+                    total: data.total || this.accounts.length,
+                    active: this.accounts.filter(a => a.isActive).length,
+                    expired: this.accounts.filter(a => a.tokenExpired).length,
+                    planType: this.accounts.find(a => a.isActive)?.planType || '-'
                 };
 
                 await this.refreshAllQuotaData();
@@ -373,16 +366,12 @@ document.addEventListener('alpine:init', () => {
 
         async refreshAllQuotaData() {
             if (!this.accounts.length) return;
-            const { ok, data } = await this.api('/accounts/quota/all');
-            if (!ok || !data?.accounts) return;
-
-            const quotaMap = new Map(
-                data.accounts.map((entry) => [entry.email, entry.quota || null])
-            );
+            const { ok, data } = await this.api('/account/quota');
+            if (!ok || !data?.email) return;
 
             this.accounts = this.accounts.map((account) => ({
                 ...account,
-                quota: quotaMap.has(account.email) ? quotaMap.get(account.email) : account.quota
+                quota: account.email === data.email ? data.quota || null : account.quota
             }));
 
             if (this.selectedAccount?.email) {
@@ -491,8 +480,8 @@ document.addEventListener('alpine:init', () => {
         },
 
         async startOAuth() {
-            await this.api('/accounts/oauth/cleanup', { method: 'POST' });
-            const { ok, data } = await this.api('/accounts/add', { method: 'POST' });
+            await this.api('/account/oauth/cleanup', { method: 'POST' });
+            const { ok, data } = await this.api('/account/add', { method: 'POST' });
             
             if (ok && data.oauth_url) {
                 const width = 500, height = 700;
@@ -501,8 +490,8 @@ document.addEventListener('alpine:init', () => {
                 window.open(data.oauth_url, 'ChatGPT Login', `width=${width},height=${height},left=${left},top=${top}`);
                 
                 const checkAdded = setInterval(async () => {
-                    const { ok, data } = await this.api('/accounts');
-                    if (ok && data.accounts?.length > this.accounts.length) {
+                    const { ok, data } = await this.api('/account');
+                    if (ok && data.account) {
                         clearInterval(checkAdded);
                         this.showAddModal = false;
                         this.refreshAccounts();
@@ -516,8 +505,8 @@ document.addEventListener('alpine:init', () => {
         },
 
         async startManualOAuth() {
-            await this.api('/accounts/oauth/cleanup', { method: 'POST' });
-            const { ok, data } = await this.api('/accounts/add', { method: 'POST' });
+            await this.api('/account/oauth/cleanup', { method: 'POST' });
+            const { ok, data } = await this.api('/account/add', { method: 'POST' });
             
             if (ok && data.oauth_url) {
                 this.oauthManualUrl = data.oauth_url;
@@ -532,7 +521,7 @@ document.addEventListener('alpine:init', () => {
         async submitManualOAuth() {
             if (!this.oauthManualCode) return;
             
-            const { ok, data } = await this.api('/accounts/add/manual', {
+            const { ok, data } = await this.api('/account/add/manual', {
                 method: 'POST',
                 body: JSON.stringify({
                     code: this.oauthManualCode,
@@ -560,7 +549,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         async importFromCodex() {
-            const { ok, data } = await this.api('/accounts/import', { method: 'POST' });
+            const { ok, data } = await this.api('/account/import', { method: 'POST' });
             if (ok && data.success) {
                 this.showToast(data.message, 'success');
                 this.showAddModal = false;
@@ -570,37 +559,13 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async switchAccount(email) {
-            const { ok, data } = await this.api('/accounts/switch', {
-                method: 'POST',
-                body: JSON.stringify({ email })
-            });
-            if (ok && data.success) {
-                this.showToast(data.message, 'success');
-                this.refreshAccounts();
-            } else {
-                this.showToast(data?.message || 'Failed to switch', 'error');
-            }
-        },
-
         async refreshToken(email) {
-            const { ok, data } = await this.api(`/accounts/${encodeURIComponent(email)}/refresh`, { method: 'POST' });
+            const { ok, data } = await this.api('/account/refresh', { method: 'POST' });
             if (ok && data.success) {
                 this.showToast(data.message, 'success');
                 this.refreshAccounts();
             } else {
                 this.showToast(data?.message || 'Refresh failed', 'error');
-            }
-        },
-
-        async refreshAllTokens() {
-            this.showToast('Refreshing all tokens...', 'info');
-            const { ok, data } = await this.api('/accounts/refresh/all', { method: 'POST' });
-            if (ok) {
-                this.showToast(data.message, 'success');
-                this.refreshAccounts();
-            } else {
-                this.showToast(data?.message || 'Failed', 'error');
             }
         },
 
@@ -610,7 +575,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         async executeDelete() {
-            const { ok, data } = await this.api(`/accounts/${encodeURIComponent(this.deleteTarget)}`, { method: 'DELETE' });
+            const { ok, data } = await this.api('/account', { method: 'DELETE' });
             this.showDeleteModal = false;
             if (ok && data.success) {
                 this.showToast(data.message, 'success');

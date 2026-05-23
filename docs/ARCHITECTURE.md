@@ -31,7 +31,7 @@ codex-proxy/
 │   ├── ARCHITECTURE.md
 │   ├── API.md
 │   ├── OAUTH.md
-│   ├── ACCOUNTS.md
+│   ├── ACCOUNT.md
 │   └── CLAUDE_INTEGRATION.md
 ├── public/
 │   ├── index.html
@@ -41,7 +41,7 @@ codex-proxy/
     ├── index.js               # App entrypoint
     ├── server.js              # Express server setup
     ├── routes/api-routes.js   # API route registrations
-    └── ...                    # OAuth, accounts, converters, upstream clients
+    └── ...                    # OAuth, account storage, converters, upstream clients
 ```
 
 (See the `src/` directory for the full implementation; this doc focuses on the high-level shape.)
@@ -54,7 +54,7 @@ codex-proxy/
 | `server.js` | Express server, routes, request handling (CORS restricted) |
 | `routes/api-routes.js` | API route registrations (mounted by server) |
 | `oauth.js` | OAuth 2.0 PKCE flow, token exchange |
-| `account-manager.js` | Account persistence, switching, token refresh |
+| `account-manager.js` | Single-account persistence, one-time migration, token refresh |
 | `format-converter.js` | Convert between Anthropic and OpenAI Responses API formats |
 | `response-streamer.js` | Parse SSE events, convert to Anthropic streaming format |
 | `direct-api.js` | HTTP client for ChatGPT backend |
@@ -77,11 +77,11 @@ codex-proxy/
 
 ### Web UI Account/Quota Flow
 
-1. Web UI loads account list from `/accounts`
-2. Web UI fetches quota snapshots from `/accounts/quota/all`
-3. Quota values are merged into account rows for table + modal views
+1. Web UI loads the configured account from `/account`
+2. Web UI fetches the quota snapshot from `/account/quota`
+3. Quota values are merged into the account card and modal views
 4. Remaining quota is rendered from normalized usage percentages
-5. On mobile/tablet, sidebar navigation auto-closes after tab change and account table uses horizontal scrolling
+5. On mobile/tablet, sidebar navigation auto-closes after tab change and account controls stay compact
 
 ### Format Conversion
 
@@ -122,8 +122,8 @@ Kilo routing is explicit and disabled unless `CODEX_CLAUDE_PROXY_ENABLE_KILO=tru
 
 ## Account Selection
 
-The default execution mode is personal local use: `/v1/messages` uses the active account only and does not rotate across configured accounts. Multi-account rotation is disabled unless `CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTATION=true` is set.
+The default execution mode is personal local use: `/v1/messages` uses the single configured account. Adding, importing, or completing OAuth for another account replaces the prior local account. The request path does not pool accounts, retry on another account, or attempt to avoid usage limits.
 
 ## Data Storage
 
-Account and configuration files are stored under your home directory (platform-specific). See `docs/ACCOUNTS.md` and `docs/CLAUDE_INTEGRATION.md` for details.
+Account and configuration files are stored under your home directory (platform-specific). See `docs/ACCOUNT.md` and `docs/CLAUDE_INTEGRATION.md` for details.

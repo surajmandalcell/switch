@@ -41,8 +41,7 @@ function parseResetTime(response, errorText) {
 /**
  * Send a streaming request to ChatGPT API
  */
-export async function* sendMessageStream(anthropicRequest, accessToken, accountId, accountRotator = null, currentEmail = null) {
-    const modelId = anthropicRequest.model;
+export async function* sendMessageStream(anthropicRequest, accessToken, accountId) {
     const request = convertAnthropicToResponsesAPI(anthropicRequest);
     
     const response = await fetch(API_URL, {
@@ -60,17 +59,11 @@ export async function* sendMessageStream(anthropicRequest, accessToken, accountI
         const errorText = await response.text();
         
         if (response.status === 401) {
-            if (accountRotator && currentEmail) {
-                accountRotator.markInvalid(currentEmail, 'Token expired or revoked');
-            }
             throw new Error('AUTH_EXPIRED: Token expired or revoked. Please re-authenticate.');
         }
         
         if (response.status === 429) {
             const resetMs = parseResetTime(response, errorText);
-            if (accountRotator && currentEmail) {
-                accountRotator.markRateLimited(currentEmail, resetMs, modelId);
-            }
             throw new Error(`RATE_LIMITED:${resetMs}:${errorText}`);
         }
         
@@ -116,6 +109,11 @@ export async function sendMessage(anthropicRequest, accessToken, accountId) {
         
         if (response.status === 401) {
             throw new Error('AUTH_EXPIRED: Token expired or revoked. Please re-authenticate.');
+        }
+
+        if (response.status === 429) {
+            const resetMs = parseResetTime(response, errorText);
+            throw new Error(`RATE_LIMITED:${resetMs}:${errorText}`);
         }
         
         throw new Error(`API_ERROR: ${response.status} - ${errorText}`);

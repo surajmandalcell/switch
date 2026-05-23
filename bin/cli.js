@@ -27,13 +27,13 @@ USAGE:
 
 COMMANDS:
   start                 Start the proxy server (default port: 8081)
-  accounts              Manage ChatGPT accounts (interactive)
-  accounts add          Add a new ChatGPT account via OAuth
-  accounts add --no-browser  Add account manually (headless/VM)
-  accounts list         List all configured accounts
-  accounts remove       Remove accounts interactively
-  accounts verify       Verify account tokens are valid
-  accounts clear        Remove all accounts
+  account               Manage the configured ChatGPT account
+  account add           Configure an account via OAuth
+  account add --no-browser  Configure account manually (headless/VM)
+  account show          Show the configured account
+  account remove        Remove the configured account
+  account verify        Verify account tokens are valid
+  account clear         Remove the configured account
 
 OPTIONS:
   --help, -h            Show this help message
@@ -45,16 +45,16 @@ ENVIRONMENT:
 EXAMPLES:
   ${CLI_NAME} start
   PORT=3000 ${CLI_NAME} start
-  ${CLI_NAME} accounts add
-  ${CLI_NAME} accounts add --no-browser
-  ${CLI_NAME} accounts list
-  ${CLI_NAME} accounts verify
+  ${CLI_NAME} account add
+  ${CLI_NAME} account add --no-browser
+  ${CLI_NAME} account show
+  ${CLI_NAME} account verify
 
 ALIASES:
   ${LEGACY_CLI_NAME}    Legacy command name, still supported
 
 HEADLESS/VM USAGE:
-  1. Run: ${CLI_NAME} accounts add --no-browser
+  1. Run: ${CLI_NAME} account add --no-browser
   2. Copy the URL shown and open in browser on another device
   3. After login, paste the callback URL back in terminal
 
@@ -90,10 +90,10 @@ async function main() {
       await import('../src/index.js');
       break;
 
-    case 'accounts': {
+    case 'account': {
       const subCommand = args[1] || 'add';
-      process.argv = ['node', 'accounts-cli.js', subCommand, ...args.slice(2)];
-      await import('../src/cli/accounts.js');
+      process.argv = ['node', 'account-cli.js', subCommand, ...args.slice(2)];
+      await import('../src/cli/account.js');
       break;
     }
 

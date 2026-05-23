@@ -1,36 +1,19 @@
 /**
- * Accounts Route
- * Handles all /accounts/* endpoints:
- *   GET    /accounts
- *   GET    /accounts/status
- *   GET    /accounts/quota
- *   GET    /accounts/quota/all
- *   POST   /accounts/add
- *   POST   /accounts/add/manual
- *   POST   /accounts/switch
- *   POST   /accounts/import
- *   POST   /accounts/refresh
- *   POST   /accounts/refresh/all
- *   POST   /accounts/:email/refresh
- *   POST   /accounts/oauth/cleanup
- *   DELETE /accounts/:email
+ * Account Route
+ * Handles single-account management endpoints.
  */
 
 import {
   getActiveAccount,
-  setActiveAccount,
   removeAccount,
   listAccounts,
   refreshActiveAccount,
-  refreshAccountToken,
-  refreshAllAccounts,
   importFromCodex,
-  getStatus,
+  updateAccountQuota,
+  getAccountQuota,
   loadAccounts,
   saveAccounts,
-  updateAccountAuth,
-  updateAccountQuota,
-  getAccountQuota
+  updateAccountAuth
 } from '../account-manager.js';
 
 import {
@@ -51,17 +34,14 @@ import {
 
 import { logger } from '../utils/logger.js';
 
-// Tracks active OAuth callback servers keyed by port
 const activeCallbackServers = new Map();
 
-// ─── Route Handlers ──────────────────────────────────────────────────────────
-
-export function handleListAccounts(req, res) {
+export function handleGetAccount(req, res) {
   res.json(listAccounts());
 }
 
 export function handleAccountStatus(req, res) {
-  res.json(getStatus());
+  res.json(listAccounts());
 }
 
 export function handleOAuthCleanup(req, res) {
@@ -69,17 +49,15 @@ export function handleOAuthCleanup(req, res) {
     try { callback.abort(); } catch { /* ignore */ }
   }
   activeCallbackServers.clear();
-  res.json({ success: true, message: 'OAuth servers cleaned up' });
+  res.json({ success: true, message: 'OAuth server cleaned up' });
 }
 
 export async function handleAddAccount(req, res) {
   const { port } = req.body || {};
   const callbackPort = port || OAUTH_CONFIG.callbackPort;
-
   const { verifier } = generatePKCE();
   const state = generateState();
 
-  // Close any existing server on this port
   if (activeCallbackServers.has(callbackPort)) {
     const existing = activeCallbackServers.get(callbackPort);
     if (existing.abort) existing.abort();
@@ -100,7 +78,6 @@ export async function handleAddAccount(req, res) {
   }
 
   const oauthUrl = getAuthorizationUrl(verifier, state, actualPort);
-
   activeCallbackServers.set(actualPort, serverResult);
 
   serverResult.promise
@@ -110,8 +87,8 @@ export async function handleAddAccount(req, res) {
         return exchangeCodeForTokens(result.code, verifier, actualPort)
           .then(async tokens => {
             const accountInfo = _buildAccountInfo(tokens);
-            await _upsertAccount(accountInfo);
-            logger.info(`Added account: ${accountInfo.email}`);
+            await _replaceAccount(accountInfo);
+            logger.info(`Configured account: ${accountInfo.email}`);
           });
       }
     })
@@ -150,54 +127,30 @@ export async function handleAddAccountManual(req, res) {
     const tokens = await exchangeCodeForTokens(extractedCode, codeVerifier, callbackPort);
     const accountInfo = _buildAccountInfo(tokens);
 
-    await _upsertAccount(accountInfo);
+    await _replaceAccount(accountInfo);
     const callback = activeCallbackServers.get(callbackPort);
     if (callback?.abort) callback.abort();
     activeCallbackServers.delete(callbackPort);
-    logger.info(`Added account via manual OAuth: ${accountInfo.email}`);
-    res.json({ success: true, message: `Account ${accountInfo.email} added successfully` });
+    logger.info(`Configured account via manual OAuth: ${accountInfo.email}`);
+    res.json({ success: true, message: `Account ${accountInfo.email} configured successfully` });
   } catch (err) {
     logger.error(`Manual OAuth failed: ${err.message}`);
     res.status(400).json({ success: false, error: err.message });
   }
 }
 
-export function handleSwitchAccount(req, res) {
-  const { email } = req.body || {};
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'Email is required' });
-  }
-  const result = setActiveAccount(email);
-  if (result.success) {
-    logger.info(`Switched to account: ${email}`);
-  }
-  res.json(result);
-}
-
 export async function handleRefreshAccount(req, res) {
-  const email = decodeURIComponent(req.params.email);
-  const result = await refreshAccountToken(email);
-  if (result.success) {
-    logger.info(`Refreshed token for: ${email}`);
-  }
-  res.json(result);
-}
-
-export async function handleRefreshAllAccounts(req, res) {
-  const result = await refreshAllAccounts();
-  res.json(result);
-}
-
-export async function handleRefreshActiveAccount(req, res) {
   const result = await refreshActiveAccount();
+  if (result.success) {
+    logger.info(result.message);
+  }
   res.json(result);
 }
 
 export function handleRemoveAccount(req, res) {
-  const email = decodeURIComponent(req.params.email);
-  const result = removeAccount(email);
+  const result = removeAccount();
   if (result.success) {
-    logger.info(`Removed account: ${email}`);
+    logger.info(result.message);
   }
   res.json(result);
 }
@@ -208,15 +161,13 @@ export function handleImportAccount(req, res) {
 }
 
 export async function handleGetQuota(req, res) {
-  const { email, refresh } = req.query;
-  const account = email
-    ? loadAccounts().accounts.find(a => a.email === email)
-    : getActiveAccount();
+  const { refresh } = req.query;
+  const account = getActiveAccount();
 
   if (!account) {
     return res.status(404).json({
       success: false,
-      error: email ? `Account not found: ${email}` : 'No active account'
+      error: 'No account configured'
     });
   }
 
@@ -248,48 +199,17 @@ export async function handleGetQuota(req, res) {
   }
 }
 
-export async function handleGetAllQuotas(req, res) {
-  const { accounts: accountList } = listAccounts();
-  const results = [];
-
-  for (const account of accountList) {
-    try {
-      const quota = await getAccountQuota(account.email);
-      results.push({ email: account.email, quota: quota || null });
-    } catch {
-      results.push({ email: account.email, quota: null });
-    }
-  }
-
-  res.json({ accounts: results });
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Inserts or updates an account in the persisted accounts store,
- * and sets it as the active account.
- * @param {object} accountInfo
- */
-async function _upsertAccount(accountInfo) {
+async function _replaceAccount(accountInfo) {
   if (!accountInfo?.email) {
     throw new Error('OAuth response did not include account email');
   }
 
   const data = loadAccounts();
-  const existingIndex = data.accounts.findIndex(a => a.email === accountInfo.email);
-
-  if (existingIndex >= 0) {
-    data.accounts[existingIndex] = { ...data.accounts[existingIndex], ...accountInfo };
-  } else {
-    data.accounts.push(accountInfo);
-  }
-
+  data.accounts = [accountInfo];
   data.activeAccount = accountInfo.email;
   saveAccounts(data);
   updateAccountAuth(accountInfo);
-  
-  // Fetch initial quota immediately
+
   try {
     const quotaData = await fetchAccountQuota(accountInfo.accessToken, accountInfo.accountId);
     updateAccountQuota(accountInfo.email, quotaData);
@@ -316,17 +236,13 @@ function _buildAccountInfo(tokens) {
 }
 
 export default {
-  handleListAccounts,
+  handleGetAccount,
   handleAccountStatus,
   handleOAuthCleanup,
   handleAddAccount,
   handleAddAccountManual,
-  handleSwitchAccount,
   handleRefreshAccount,
-  handleRefreshAllAccounts,
-  handleRefreshActiveAccount,
   handleRemoveAccount,
   handleImportAccount,
-  handleGetQuota,
-  handleGetAllQuotas
+  handleGetQuota
 };

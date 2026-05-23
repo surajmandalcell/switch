@@ -153,24 +153,10 @@ body::before {
     max-width: 100%;
 }
 
-.accounts-actions,
+.account-actions,
 .logs-count-strip,
 .metrics-range-controls {
     flex-wrap: nowrap;
-}
-
-.account-search {
-    flex: 0 1 12rem;
-    min-width: 8rem;
-}
-
-.account-search .input-search-sm {
-    width: 100%;
-}
-
-.account-count-pill {
-    flex: 0 0 auto;
-    white-space: nowrap;
 }
 
 .quota-reset-summary {
@@ -2374,7 +2360,7 @@ dialog::backdrop,
         width: 100%;
     }
 
-    .accounts-actions {
+    .account-actions {
         display: flex;
         flex-wrap: nowrap;
         justify-content: flex-start;
@@ -2382,19 +2368,7 @@ dialog::backdrop,
         overflow: hidden;
     }
 
-    .account-search {
-        flex: 1 1 auto;
-        min-width: 0;
-    }
-
-    .account-search .input-search-sm {
-        width: 100%;
-        min-width: 0;
-        height: 32px;
-        padding-right: 0.5rem;
-    }
-
-    .accounts-actions .btn {
+    .account-actions .btn {
         flex: 0 0 32px;
         width: 32px;
         min-width: 32px;
@@ -2404,7 +2378,7 @@ dialog::backdrop,
         gap: 0;
     }
 
-    .accounts-actions .action-label {
+    .account-actions .action-label {
         display: none;
     }
 
@@ -2477,10 +2451,6 @@ dialog::backdrop,
     }
 
     .section-heading > .rounded-full {
-        display: none;
-    }
-
-    .account-count-word {
         display: none;
     }
 

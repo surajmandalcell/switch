@@ -87,21 +87,22 @@ Common endpoints:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/accounts` | GET | List all accounts |
-| `/accounts/status` | GET | Get account status summary |
-| `/accounts/add` | POST | Start OAuth flow (returns URL) |
-| `/accounts/switch` | POST | Switch active account |
-| `/accounts/models` | GET | Get models for account |
-| `/accounts/quota` | GET | Get quota info |
-| `/accounts/quota/all` | GET | Refresh all quotas |
-| `/accounts/usage` | GET | Get usage stats |
-
-(Additional maintenance endpoints exist for token refresh/import/removal; see the source if you need them.)
+| `/account` | GET | View the configured account |
+| `/account/status` | GET | Get account status summary |
+| `/account/add` | POST | Start OAuth flow that replaces the local account |
+| `/account/add/manual` | POST | Complete headless OAuth manually |
+| `/account/import` | POST | Import the local Codex app account, replacing the existing local account |
+| `/account/refresh` | POST | Refresh the configured account token |
+| `/account/quota` | GET | Get quota info |
+| `/account/models` | GET | Get models for the configured account |
+| `/account/usage` | GET | Get usage stats for the configured account |
+| `/account/oauth/cleanup` | POST | Stop any pending OAuth callback server |
+| `/account` | DELETE | Remove the configured account |
 
 ### Add Account
 
 ```bash
-POST /accounts/add
+POST /account/add
 Content-Type: application/json
 
 # Optional: specify callback port
@@ -115,16 +116,22 @@ Content-Type: application/json
 }
 ```
 
-### Switch Account
+### Import Account
 
 ```bash
-POST /accounts/switch
-Content-Type: application/json
-
-{"email": "user@gmail.com"}
+POST /account/import
 
 # Response
-{"success": true, "message": "Switched to account: user@gmail.com"}
+{"success": true, "message": "Imported account from Codex"}
+```
+
+### Refresh Account
+
+```bash
+POST /account/refresh
+
+# Response
+{"success": true, "message": "Token refreshed"}
 ```
 
 ### OAuth Callback
@@ -162,9 +169,9 @@ GET /health
 # Response
 {
   "status": "ok",
-  "total": 2,
+  "total": 1,
   "active": "active@example.com",
-  "accounts": [...]
+  "account": {...}
 }
 ```
 
@@ -177,7 +184,7 @@ GET /health
   "type": "error",
   "error": {
     "type": "authentication_error",
-    "message": "No active account with valid credentials"
+    "message": "No account configured"
   }
 }
 ```

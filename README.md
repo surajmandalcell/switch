@@ -24,8 +24,8 @@ _Current README cover: a short, thumbgen-style composite generated from fresh lo
 
 - **Seamless Translation**: Translates Anthropic Messages API calls to ChatGPT Codex format.
 - **Model Mapping**: maps Claude model aliases to current OpenAI models, with direct GPT model IDs passed through.
-- **Personal Account Mode**: Uses the active ChatGPT account by default for local-only personal use, with account switching and auto-refresh.
-- **Web Dashboard**: Built-in macOS-style UI (`http://localhost:8081`) for managing accounts, configuring Claude Code, viewing logs, adjusting settings, and testing prompts.
+- **Personal Account Mode**: Stores and uses one configured ChatGPT account for local-only personal use, with token auto-refresh.
+- **Web Dashboard**: Built-in macOS-style UI (`http://localhost:8081`) for managing the local account, configuring Claude Code, viewing logs, adjusting settings, and testing prompts.
 - **Streaming Support**: Full Server-Sent Events (SSE) support for real-time responses.
 - **Native Tool Calling**: Supports Claude's tool use capabilities by translating them to Codex function calls.
 
@@ -37,10 +37,26 @@ _Current README cover: a short, thumbgen-style composite generated from fresh lo
 
 - **Local Execution**: This server binds to `127.0.0.1` by default.
 - **Direct Communication by Default**: Claude and GPT model requests connect directly to OpenAI/ChatGPT endpoints.
-- **No Rotation by Default**: Requests use the active account only. Multi-account rotation is disabled unless `CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTATION=true` is set.
+- **Single Account Only**: Requests use one configured ChatGPT account. Adding or importing an account replaces the existing local account.
 - **Third-Party Opt-In**: The explicit `kilo` model route uses Kilo/OpenRouter-backed free models only when `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. Default routing is OpenAI-only.
 - **Open Source**: The full source code is available here for you to audit.
 - **No Data Collection**: We do not track your prompts, keys, or personal data.
+
+---
+
+## Responsible Use And Account Boundaries
+
+| Boundary | Commitment |
+| --- | --- |
+| Single user | This tool is intended for local, single-user use with your own ChatGPT/Codex account. |
+| Single account | The proxy stores and uses one configured ChatGPT account at a time. Adding or importing an account replaces the existing local account. |
+| No sharing | Do not expose the proxy to other users or make your ChatGPT credentials, session, or local proxy available to anyone else. |
+| No resale | This package distributes client software only. It does not sell, rent, sublicense, bundle, or provide OpenAI service access. |
+| No rate-limit bypass | The project does not pool accounts, rotate accounts, retry on another account, or attempt to avoid usage limits. |
+| Unofficial tool | This project is independent and is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, or Kilo. |
+| Terms reminder | Users remain responsible for their own compliance with the [OpenAI Terms](https://openai.com/policies/terms-of-use/) and [Anthropic Terms](https://www.anthropic.com/legal/consumer-terms). |
+
+This project uses unofficial ChatGPT/Codex backend behavior and does not claim official approval or guaranteed Terms compliance.
 
 ---
 
@@ -97,17 +113,17 @@ The server will start at `http://localhost:8081`.
 #### **Option A: Web Dashboard (Local Desktop)**
 
 1. Open the dashboard at **[http://localhost:8081](http://localhost:8081)**
-2. Go to the **Accounts** tab
+2. Go to the **Account** tab
 3. Click **Add Account** and login with your ChatGPT account
 
 #### **Option B: CLI (Desktop or Headless/VM)**
 
 ```bash
 # Desktop (opens browser)
-codex-proxy accounts add
+codex-proxy account add
 
 # Headless/VM server (manual code input)
-codex-proxy accounts add --no-browser
+codex-proxy account add --no-browser
 ```
 
 For **headless/VM servers** without a browser:
@@ -156,22 +172,22 @@ The proxy automatically maps Claude model names to current OpenAI backend models
 
 ### Web Dashboard
 
-The dashboard uses a clean desktop split-view layout with a compact toolbar, native-feeling glass surfaces, account management, live logs, settings, Claude Code configuration, and prompt test panels. The screenshots below are captured from the actual local app.
+The dashboard uses a clean desktop split-view layout with a compact toolbar, native-feeling glass surfaces, single-account management, live logs, settings, Claude Code configuration, and prompt test panels. The screenshots below are captured from the actual local app.
 
 | Dashboard | Settings |
 | --- | --- |
 | ![Codex Proxy dashboard screenshot](./images/dashboard-screenshot.png) | ![Codex Proxy settings screenshot](./images/settings-screenshot.png) |
 
 Visit `http://localhost:8081` to:
-- **Manage Accounts**: Add, remove, or switch active ChatGPT accounts.
-- **Personal Mode**: Requests use the active account only unless multi-account rotation is explicitly enabled by environment variable.
+- **Manage Account**: Add, import, refresh, replace, or remove the one local ChatGPT account.
+- **Personal Mode**: Requests use the configured account only.
 - **Configure Claude Code**: Use the dashboard button to set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and Claude model defaults, or enable the startup toggle to do it automatically.
 - **View Logs**: See real-time request/response logs for debugging.
 - **Test Models**: Run quick tests against the configured models.
 
 ### API Endpoints
 - `GET /health`: Check server status.
-- `GET /accounts`: List configured accounts.
+- `GET /account`: View the configured account.
 - `POST /v1/messages`: Anthropic-compatible chat completion endpoint.
 
 See [API Documentation](./docs/API.md) for full details.
@@ -194,7 +210,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## ⚠️ Disclaimer
-This project is an independent open-source tool and is not affiliated with, endorsed by, or sponsored by Anthropic or OpenAI. "Claude" is a trademark of Anthropic PBC. "ChatGPT" and "Codex" are trademarks of OpenAI. Use responsibly and in accordance with applicable Terms of Service.
+This project is an independent open-source tool and is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, or Kilo. "Claude" is a trademark of Anthropic PBC. "ChatGPT" and "Codex" are trademarks of OpenAI. Use responsibly and in accordance with applicable Terms of Service.
 
 ---
 

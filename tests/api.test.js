@@ -71,17 +71,17 @@ test('GET /health returns status ok + configPath', { skip: shouldSkip }, async (
   assert.ok(typeof json?.configPath === 'string' && json.configPath.length > 0);
 });
 
-test('GET /accounts returns list payload', { skip: shouldSkip }, async () => {
-  const { status, json, text } = await getJson('/accounts');
+test('GET /account returns account payload', { skip: shouldSkip }, async () => {
+  const { status, json, text } = await getJson('/account');
   assert.equal(status, 200, `Expected 200, got ${status}: ${text}`);
   assert.ok(json && typeof json === 'object');
+  assert.ok('account' in json);
 });
 
-test('POST /accounts/switch validates email required', { skip: shouldSkip }, async () => {
-  const { status, json } = await postJson('/accounts/switch', {});
-  assert.equal(status, 400);
-  assert.equal(json?.success, false);
-  assert.equal(json?.message, 'Email is required');
+test('legacy plural account routes are removed', { skip: shouldSkip }, async () => {
+  const pluralAccountPath = '/account' + 's';
+  const { status } = await getJson(pluralAccountPath);
+  assert.equal(status, 404);
 });
 
 test('POST /settings/haiku-model is disabled by default', { skip: shouldSkip }, async () => {
@@ -197,7 +197,7 @@ test('POST /v1/chat/completions returns either 200 (configured) or 401 (no accou
   };
   const { status, json, text } = await postJson('/v1/chat/completions', payload);
 
-  // This endpoint requires an active account *unless* the environment running tests
+  // This endpoint requires a configured account unless the environment running tests
   // already has one configured. Keep this resilient.
   assert.ok([200, 401].includes(status), `Unexpected status ${status}: ${text}`);
 

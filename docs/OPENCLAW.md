@@ -25,7 +25,7 @@
     ```
 
 ## Key Benefits
-- **Personal Account Mode**: Proxy uses the active local ChatGPT account by default.
+- **Personal Account Mode**: Proxy uses the single configured local ChatGPT account.
 - **SSE Streaming**: Full real-time response support.
 - **Tool Calling**: Native support for agentic workflows.
 

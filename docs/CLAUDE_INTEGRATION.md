@@ -144,12 +144,12 @@ curl -X POST http://localhost:8081/claude/config/direct \
 2. Verify config: `cat ~/.claude/settings.json`
 3. Re-configure: `curl -X POST http://localhost:8081/claude/config/proxy`
 
-### "No active account" error
+### "No configured account" error
 
 Add an account first:
 
 ```bash
-curl -X POST http://localhost:8081/accounts/import
+curl -X POST http://localhost:8081/account/import
 # or use WebUI
 ```
 
@@ -159,5 +159,5 @@ Ensure you're using the direct API mode (not CLI subprocess). Check:
 
 ```bash
 curl http://localhost:8081/health
-# Should show accounts with valid tokens
+# Should show an account with a valid token
 ```

@@ -112,15 +112,13 @@ test('Small-screen action bars use compact non-wrapping controls', async () => {
   const css = await cssRes.text();
 
   assert.ok(html.includes('section-header'));
-  assert.ok(html.includes('accounts-actions'));
-  assert.ok(html.includes('account-search'));
-  assert.ok(html.includes('account-count-pill'));
+  assert.ok(html.includes('account-actions'));
+  assert.ok(html.includes('Single ChatGPT account'));
+  assert.ok(html.includes('Replace Account'));
   assert.ok(html.includes('action-label'));
-  assert.ok(html.includes('account-count-word'));
-  assert.ok(css.includes('.accounts-actions'));
+  assert.ok(css.includes('.account-actions'));
   assert.ok(css.includes('flex-wrap: nowrap'));
-  assert.ok(css.includes('.accounts-actions .action-label'));
-  assert.ok(css.includes('.account-count-word'));
+  assert.ok(css.includes('.account-actions .action-label'));
 });
 
 test('Account controls compact before tablet widths and quota reset text does not wrap', async () => {
@@ -133,14 +131,14 @@ test('Account controls compact before tablet widths and quota reset text does no
 
   const html = await htmlRes.text();
   const css = await cssRes.text();
-  const accountsActionsStart = html.indexOf('section-actions accounts-actions');
-  const accountsTableStart = html.indexOf('<div class="view-card', accountsActionsStart);
-  const accountsActionsMarkup = html.slice(accountsActionsStart, accountsTableStart);
+  const accountActionsStart = html.indexOf('section-actions account-actions');
+  const accountCardStart = html.indexOf('<div class="view-card', accountActionsStart);
+  const accountActionsMarkup = html.slice(accountActionsStart, accountCardStart);
 
-  assert.ok(html.includes('aria-label="Refresh all account tokens"'));
-  assert.ok(html.includes('aria-label="Add account"'));
+  assert.ok(html.includes('aria-label="Refresh account token"'));
+  assert.ok(html.includes('aria-label="Configure account"'));
   assert.ok(html.includes('quota-reset-summary'));
-  assert.equal(accountsActionsMarkup.includes('account-count-pill'), false);
+  assert.ok(accountActionsMarkup.includes('aria-label="Configure account"'));
   assert.ok(css.includes('@media (max-width: 900px)'));
   assert.ok(css.includes('display: none'));
   assert.ok(css.includes('.quota-reset-summary'));

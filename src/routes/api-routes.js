@@ -9,7 +9,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 
-import { getStatus, ACCOUNTS_FILE } from '../account-manager.js';
+import { getStatus, ACCOUNT_FILE } from '../account-manager.js';
 
 // Route handlers
 import { handleMessages } from './messages-route.js';
@@ -28,20 +28,16 @@ import { handleGetLogs, handleStreamLogs } from './logs-route.js';
 import { handleGetMetricsRecent, handleGetMetricsStorage, handleGetMetricsSummary } from './metrics-route.js';
 import { handleGetClaudeConfig, handleSetProxyMode, handleSetDirectMode, handleSetClaudeApiEndpoint } from './claude-config-route.js';
 import {
-  handleListAccounts,
+  handleGetAccount,
   handleAccountStatus,
   handleOAuthCleanup,
   handleAddAccount,
   handleAddAccountManual,
-  handleSwitchAccount,
   handleRefreshAccount,
-  handleRefreshAllAccounts,
-  handleRefreshActiveAccount,
   handleRemoveAccount,
   handleImportAccount,
-  handleGetQuota,
-  handleGetAllQuotas
-} from './accounts-route.js';
+  handleGetQuota
+} from './account-route.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -54,7 +50,7 @@ export function registerApiRoutes(app, { port }) {
 
   // ─── Health ────────────────────────────────────────────────────────────────
   app.get('/health', (req, res) => {
-    res.json({ status: 'ok', ...getStatus(), configPath: ACCOUNTS_FILE });
+    res.json({ status: 'ok', ...getStatus(), configPath: ACCOUNT_FILE });
   });
 
   // ─── Anthropic Messages API ────────────────────────────────────────────────
@@ -66,8 +62,8 @@ export function registerApiRoutes(app, { port }) {
 
   // ─── Models ────────────────────────────────────────────────────────────────
   app.get('/v1/models', handleListModels);
-  app.get('/accounts/models', handleAccountModels);
-  app.get('/accounts/usage', handleAccountUsage);
+  app.get('/account/models', handleAccountModels);
+  app.get('/account/usage', handleAccountUsage);
 
   // ─── Settings ──────────────────────────────────────────────────────────────
   app.get('/settings/haiku-model', handleGetHaikuModel);
@@ -79,21 +75,17 @@ export function registerApiRoutes(app, { port }) {
   app.post('/settings/claude-proxy', handleSetClaudeProxySetting);
 
   // ─── Account Management ───────────────────────────────────────────────────
-  app.get('/accounts', handleListAccounts);
-  app.get('/accounts/status', handleAccountStatus);
-  app.get('/accounts/quota', handleGetQuota);
-  app.get('/accounts/quota/all', handleGetAllQuotas);
+  app.get('/account', handleGetAccount);
+  app.get('/account/status', handleAccountStatus);
+  app.get('/account/quota', handleGetQuota);
 
-  app.post('/accounts/add', handleAddAccount);
-  app.post('/accounts/add/manual', handleAddAccountManual);
-  app.post('/accounts/switch', handleSwitchAccount);
-  app.post('/accounts/import', handleImportAccount);
-  app.post('/accounts/refresh', handleRefreshActiveAccount);
-  app.post('/accounts/refresh/all', handleRefreshAllAccounts);
-  app.post('/accounts/oauth/cleanup', handleOAuthCleanup);
-  app.post('/accounts/:email/refresh', handleRefreshAccount);
+  app.post('/account/add', handleAddAccount);
+  app.post('/account/add/manual', handleAddAccountManual);
+  app.post('/account/import', handleImportAccount);
+  app.post('/account/refresh', handleRefreshAccount);
+  app.post('/account/oauth/cleanup', handleOAuthCleanup);
 
-  app.delete('/accounts/:email', handleRemoveAccount);
+  app.delete('/account', handleRemoveAccount);
 
   // ─── Claude CLI Configuration ──────────────────────────────────────────────
   app.get('/claude/config', handleGetClaudeConfig);

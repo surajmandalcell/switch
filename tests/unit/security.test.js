@@ -26,22 +26,22 @@ test('isLoopbackAddress: recognizes IPv4, IPv6, and mapped loopback addresses', 
 });
 
 test('evaluateRequestAccess: blocks browser cross-site control-plane mutations', () => {
-  const result = evaluateRequestAccess(req({
-    method: 'POST',
-    path: '/accounts/refresh',
-    headers: { 'sec-fetch-site': 'cross-site' }
-  }));
+	const result = evaluateRequestAccess(req({
+	  method: 'POST',
+	  path: '/account/refresh',
+	  headers: { 'sec-fetch-site': 'cross-site' }
+	}));
 
   assert.equal(result.allowed, false);
   assert.equal(result.status, 403);
 });
 
 test('evaluateRequestAccess: permits same-origin control-plane mutations on loopback', () => {
-  const result = evaluateRequestAccess(req({
-    method: 'POST',
-    path: '/accounts/refresh',
-    headers: { 'sec-fetch-site': 'same-origin', origin: 'http://localhost:8081' }
-  }), { allowedOrigins: ['http://localhost:8081'] });
+	const result = evaluateRequestAccess(req({
+	  method: 'POST',
+	  path: '/account/refresh',
+	  headers: { 'sec-fetch-site': 'same-origin', origin: 'http://localhost:8081' }
+	}), { allowedOrigins: ['http://localhost:8081'] });
 
   assert.equal(result.allowed, true);
 });
@@ -58,11 +58,11 @@ test('evaluateRequestAccess: blocks non-loopback control-plane requests without 
 });
 
 test('evaluateRequestAccess: blocks non-loopback control-plane reads without admin token', () => {
-  const result = evaluateRequestAccess(req({
-    method: 'GET',
-    path: '/accounts',
-    remoteAddress: '192.168.1.50'
-  }), { adminToken: 'local-secret' });
+	const result = evaluateRequestAccess(req({
+	  method: 'GET',
+	  path: '/account',
+	  remoteAddress: '192.168.1.50'
+	}), { adminToken: 'local-secret' });
 
   assert.equal(result.allowed, false);
   assert.equal(result.status, 403);

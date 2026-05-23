@@ -48,7 +48,7 @@ export async function handleChatCompletion(req, res) {
   if (!isKilo) {
     creds = await getCredentialsOrError();
     if (!creds) {
-      logger.response(401, { error: 'No active account' });
+      logger.response(401, { error: 'No configured account' });
       recordChatMetric({
         body,
         requestedModel,
@@ -58,7 +58,7 @@ export async function handleChatCompletion(req, res) {
         status: 401,
         errorType: 'auth_error'
       });
-      return sendAuthError(res, 'No active account. Add an account via /accounts/add');
+      return sendAuthError(res, 'No configured account. Add an account via /account/add');
     }
   }
 

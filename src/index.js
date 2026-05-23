@@ -5,7 +5,7 @@
 
 import { startServer } from './server.js';
 import { logger } from './utils/logger.js';
-import { getStatus, ACCOUNTS_FILE } from './account-manager.js';
+import { getStatus, ACCOUNT_FILE } from './account-manager.js';
 
 const PORT = Number(process.env.PORT || 8081);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -14,19 +14,19 @@ startServer({ port: PORT, host: HOST });
 
 console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║                 Codex Claude Proxy v1.1.0                    ║
+	║                 Codex Claude Proxy v2.0.0                    ║
 ║                   (Direct API Mode)                          ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server:   http://${HOST}:${PORT}                          ║
 ║  WebUI:    http://${HOST}:${PORT}                          ║
 ║  Health:   http://${HOST}:${PORT}/health                   ║
-║  Accounts: http://${HOST}:${PORT}/accounts                 ║
+	║  Account:  http://${HOST}:${PORT}/account                  ║
 ║  Logs:     http://${HOST}:${PORT}/api/logs/stream          ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Features:                                                   ║
 ║    ✓ Native tool calling support                             ║
 ║    ✓ Real-time streaming                                     ║
-║    ✓ Multi-account management                                ║
+	║    ✓ Single-account local mode                               ║
 ║    ✓ OpenAI & Anthropic API compatibility                    ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Support:                                                    ║
@@ -36,11 +36,11 @@ console.log(`
 `);
 
 const status = getStatus();
-logger.info(`Accounts: ${status.total} total, Active: ${status.active || 'None'}`);
+logger.info(`Account configured: ${status.active || 'None'}`);
 
 if (status.total === 0) {
-  logger.warn(`No accounts configured. Open http://${HOST}:${PORT} to add one.`);
+  logger.warn(`No account configured. Open http://${HOST}:${PORT} to add one.`);
 }
 
 // Expose config path in logs for convenience
-logger.info(`Accounts config: ${ACCOUNTS_FILE}`);
+logger.info(`Account config: ${ACCOUNT_FILE}`);
