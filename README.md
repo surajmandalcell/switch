@@ -2,6 +2,8 @@
 
 ![Codex Proxy dashboard screenshot](./images/dashboard-screenshot.png)
 
+_Current dashboard preview: a real capture of the local Web UI with the macOS-style glass layout._
+
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-blue.svg)](https://nodejs.org/)
 [![GitHub stars](https://img.shields.io/github/stars/surajmandalcell/codex-proxy?style=social)](https://github.com/surajmandalcell/codex-proxy)
@@ -9,11 +11,12 @@
 > **Use Claude Code CLI with the power of ChatGPT Codex models.**
 > A local proxy that translates Anthropic API requests into ChatGPT Codex calls, enabling you to use the `claude` CLI tool with your ChatGPT Free/Plus/Pro subscription.
 
-| Maintainer | Details |
+| Role | Details |
 | --- | --- |
 | Maintainer | Suraj Mandal |
 | GitHub | [surajmandalcell](https://github.com/surajmandalcell) |
 | Contact | [surajmandalcell@gmail.com](mailto:surajmandalcell@gmail.com) |
+| Package | [@smc/codex-proxy](https://www.npmjs.com/package/@smc/codex-proxy) |
 
 ---
 
@@ -22,7 +25,7 @@
 - **Seamless Translation**: Translates Anthropic Messages API calls to ChatGPT Codex format.
 - **Model Mapping**: maps Claude model aliases to current OpenAI models, with direct GPT model IDs passed through.
 - **Personal Account Mode**: Uses the active ChatGPT account by default for local-only personal use, with account switching and auto-refresh.
-- **Web Dashboard**: Built-in UI (`http://localhost:8081`) for managing accounts, viewing logs, and testing prompts.
+- **Web Dashboard**: Built-in macOS-style UI (`http://localhost:8081`) for managing accounts, viewing logs, adjusting settings, and testing prompts.
 - **Streaming Support**: Full Server-Sent Events (SSE) support for real-time responses.
 - **Native Tool Calling**: Supports Claude's tool use capabilities by translating them to Codex function calls.
 
@@ -150,6 +153,9 @@ The proxy automatically maps Claude model names to current OpenAI backend models
 ## 🛠️ Configuration & API
 
 ### Web Dashboard
+
+The dashboard uses a clean desktop split-view layout with a compact toolbar, native-feeling glass surfaces, account management, live logs, settings, and prompt test panels. The screenshot at the top of this README is captured from the actual local app.
+
 Visit `http://localhost:8081` to:
 - **Manage Accounts**: Add, remove, or switch active ChatGPT accounts.
 - **Personal Mode**: Requests use the active account only unless multi-account rotation is explicitly enabled by environment variable.
