@@ -6,8 +6,8 @@
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "codex-proxy": "./bin/cli.js",
-    "codex-claude-proxy": "./bin/cli.js"
+    "codex-proxy": "bin/cli.js",
+    "codex-claude-proxy": "bin/cli.js"
   },
   "files": [
     "src",
@@ -24,12 +24,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/surajmandalcell/codex-claude-proxy.git"
+    "url": "git+https://github.com/surajmandalcell/codex-proxy.git"
   },
   "bugs": {
-    "url": "https://github.com/surajmandalcell/codex-claude-proxy/issues"
+    "url": "https://github.com/surajmandalcell/codex-proxy/issues"
   },
-  "homepage": "https://github.com/surajmandalcell/codex-claude-proxy#readme",
+  "homepage": "https://github.com/surajmandalcell/codex-proxy#readme",
   "scripts": {
     "start": "node src/index.js",
     "accounts": "node src/cli/accounts.js",

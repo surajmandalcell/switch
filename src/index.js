@@ -31,7 +31,7 @@ console.log(`
 ╠══════════════════════════════════════════════════════════════╣
 ║  Support:                                                    ║
 ║    ★ Give it a star on GitHub!                               ║
-║    https://github.com/surajmandalcell/codex-claude-proxy     ║
+║    https://github.com/surajmandalcell/codex-proxy            ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
 

@@ -1,10 +1,10 @@
 # Codex Claude Proxy
 
-![Architecture banner](./images/f757093f-507b-4453-994e-f8275f8b07a9.png)
+![Codex Proxy dashboard screenshot](./images/dashboard-screenshot.png)
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-blue.svg)](https://nodejs.org/)
-[![GitHub stars](https://img.shields.io/github/stars/surajmandalcell/codex-claude-proxy?style=social)](https://github.com/surajmandalcell/codex-claude-proxy)
+[![GitHub stars](https://img.shields.io/github/stars/surajmandalcell/codex-proxy?style=social)](https://github.com/surajmandalcell/codex-proxy)
 
 > **Use Claude Code CLI with the power of ChatGPT Codex models.**
 > A local proxy that translates Anthropic API requests into ChatGPT Codex calls, enabling you to use the `claude` CLI tool with your ChatGPT Free/Plus/Pro subscription.
@@ -61,15 +61,22 @@ This tool acts as a "translation layer" between the Claude CLI and ChatGPT's Cod
 
 ## Installation
 
-From this checkout, install dependencies and link the local CLI:
+Install globally to use the CLI commands anywhere:
 
 ```bash
-npm install
-npm link
+npm install -g @smc/codex-proxy
 codex-proxy start
 ```
 
-The legacy `codex-claude-proxy` command remains available after linking or installing this package.
+Or run the published package without a global install:
+
+```bash
+npx @smc/codex-proxy@latest start
+```
+
+For local development from this checkout, use `make dev`.
+
+The legacy `codex-claude-proxy` command remains available after installing this package.
 
 ---
 
@@ -180,7 +187,7 @@ This project is an independent open-source tool and is not affiliated with, endo
 
 <div align="center">
   <p>If you find this project useful, please give it a star! ⭐️</p>
-  <a href="https://github.com/surajmandalcell/codex-claude-proxy">
-    <img src="https://img.shields.io/github/stars/surajmandalcell/codex-claude-proxy?style=social" alt="Star on GitHub">
+  <a href="https://github.com/surajmandalcell/codex-proxy">
+    <img src="https://img.shields.io/github/stars/surajmandalcell/codex-proxy?style=social" alt="Star on GitHub">
   </a>
 </div>
