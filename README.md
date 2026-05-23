@@ -1,8 +1,8 @@
 # Codex Claude Proxy
 
-![Codex Proxy dashboard screenshot](./images/dashboard-screenshot.png)
+![Codex Claude Proxy README cover](./images/readme-cover.png)
 
-_Current dashboard preview: a real capture of the local Web UI with the macOS-style glass layout._
+_Current README cover: a short, thumbgen-style composite generated from fresh local dashboard screenshots._
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-blue.svg)](https://nodejs.org/)
@@ -25,7 +25,7 @@ _Current dashboard preview: a real capture of the local Web UI with the macOS-st
 - **Seamless Translation**: Translates Anthropic Messages API calls to ChatGPT Codex format.
 - **Model Mapping**: maps Claude model aliases to current OpenAI models, with direct GPT model IDs passed through.
 - **Personal Account Mode**: Uses the active ChatGPT account by default for local-only personal use, with account switching and auto-refresh.
-- **Web Dashboard**: Built-in macOS-style UI (`http://localhost:8081`) for managing accounts, viewing logs, adjusting settings, and testing prompts.
+- **Web Dashboard**: Built-in macOS-style UI (`http://localhost:8081`) for managing accounts, configuring Claude Code, viewing logs, adjusting settings, and testing prompts.
 - **Streaming Support**: Full Server-Sent Events (SSE) support for real-time responses.
 - **Native Tool Calling**: Supports Claude's tool use capabilities by translating them to Codex function calls.
 
@@ -118,7 +118,9 @@ For **headless/VM servers** without a browser:
 5. Paste it back in the terminal
 
 ### 3. Configure Claude Code
-   Run this command to automatically configure your `claude` CLI to use the proxy:
+   In the dashboard, click **Configure Claude Code** to write the proxy settings into Claude Code. Enable **Configure on startup** if you want the proxy to keep Claude Code pointed at the local server whenever it starts.
+
+   You can also run this command:
    ```bash
    curl -X POST http://localhost:8081/claude/config/proxy
    ```
@@ -154,11 +156,16 @@ The proxy automatically maps Claude model names to current OpenAI backend models
 
 ### Web Dashboard
 
-The dashboard uses a clean desktop split-view layout with a compact toolbar, native-feeling glass surfaces, account management, live logs, settings, and prompt test panels. The screenshot at the top of this README is captured from the actual local app.
+The dashboard uses a clean desktop split-view layout with a compact toolbar, native-feeling glass surfaces, account management, live logs, settings, Claude Code configuration, and prompt test panels. The screenshots below are captured from the actual local app.
+
+| Dashboard | Settings |
+| --- | --- |
+| ![Codex Proxy dashboard screenshot](./images/dashboard-screenshot.png) | ![Codex Proxy settings screenshot](./images/settings-screenshot.png) |
 
 Visit `http://localhost:8081` to:
 - **Manage Accounts**: Add, remove, or switch active ChatGPT accounts.
 - **Personal Mode**: Requests use the active account only unless multi-account rotation is explicitly enabled by environment variable.
+- **Configure Claude Code**: Use the dashboard button to set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and Claude model defaults, or enable the startup toggle to do it automatically.
 - **View Logs**: See real-time request/response logs for debugging.
 - **Test Models**: Run quick tests against the configured models.
 
