@@ -27,6 +27,7 @@ import {
   handleSetClaudeProxySetting
 } from './settings-route.js';
 import { handleGetLogs, handleStreamLogs } from './logs-route.js';
+import { handleGetMetricsRecent, handleGetMetricsStorage, handleGetMetricsSummary } from './metrics-route.js';
 import { handleGetClaudeConfig, handleSetProxyMode, handleSetDirectMode, handleSetClaudeApiEndpoint } from './claude-config-route.js';
 import {
   handleListAccounts,
@@ -107,6 +108,11 @@ export function registerApiRoutes(app, { port }) {
   // ─── Logs ──────────────────────────────────────────────────────────────────
   app.get('/api/logs', handleGetLogs);
   app.get('/api/logs/stream', handleStreamLogs);
+
+  // ─── Metrics ───────────────────────────────────────────────────────────────
+  app.get('/api/metrics/summary', handleGetMetricsSummary);
+  app.get('/api/metrics/recent', handleGetMetricsRecent);
+  app.get('/api/metrics/storage', handleGetMetricsStorage);
 }
 
 export default { registerApiRoutes };

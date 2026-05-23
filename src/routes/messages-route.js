@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { AccountRotator } from '../account-rotation/index.js';
 import { listAccounts, getActiveAccount, save } from '../account-manager.js';
 import { getServerSettings, isMultiAccountRotationEnabled } from '../server-settings.js';
+import { recordUsageEventSafe, tapUsageEventStream } from '../usage-metrics.js';
 
 const MAX_RETRIES = 5;
 const MAX_WAIT_BEFORE_ERROR_MS = 120000;
@@ -41,6 +42,17 @@ export async function handleMessages(req, res) {
     
     if (isKilo) {
         if (!isKiloEnabled()) {
+            recordMessageMetric({
+                body,
+                endpoint: '/v1/messages',
+                requestedModel,
+                upstreamModel,
+                provider: 'kilo',
+                accountLabel: 'kilo',
+                startTime,
+                status: 403,
+                errorType: 'kilo_disabled'
+            });
             return res.status(403).json({
                 type: 'error',
                 error: {
@@ -59,6 +71,16 @@ export async function handleMessages(req, res) {
     if (!isMultiAccountRotationEnabled()) {
         const creds = await getCredentialsOrError();
         if (!creds) {
+            recordMessageMetric({
+                body,
+                endpoint: '/v1/messages',
+                requestedModel,
+                upstreamModel,
+                provider: 'openai',
+                startTime,
+                status: 401,
+                errorType: 'auth_error'
+            });
             return sendAuthError(res);
         }
 
@@ -71,6 +93,17 @@ export async function handleMessages(req, res) {
             }
             return;
         } catch (error) {
+            recordMessageMetric({
+                body,
+                endpoint: '/v1/messages',
+                requestedModel,
+                upstreamModel,
+                provider: 'openai',
+                accountLabel: creds.email,
+                startTime,
+                status: error.status || 500,
+                errorType: classifyMetricError(error)
+            });
             return handleStreamError(res, error, requestedModel, startTime);
         }
     }
@@ -79,6 +112,16 @@ export async function handleMessages(req, res) {
     const accountSnapshot = listAccounts();
 
     if (accountSnapshot.total === 0) {
+        recordMessageMetric({
+            body,
+            endpoint: '/v1/messages',
+            requestedModel,
+            upstreamModel,
+            provider: 'openai',
+            startTime,
+            status: 401,
+            errorType: 'auth_error'
+        });
         return sendAuthError(res, 'No active account with valid credentials. Add an account via /accounts/add');
     }
     
@@ -91,6 +134,16 @@ export async function handleMessages(req, res) {
             const minWait = rotator.getMinWaitTimeMs(upstreamModel);
             
             if (minWait > MAX_WAIT_BEFORE_ERROR_MS) {
+                recordMessageMetric({
+                    body,
+                    endpoint: '/v1/messages',
+                    requestedModel,
+                    upstreamModel,
+                    provider: 'openai',
+                    startTime,
+                    status: 429,
+                    errorType: 'rate_limited'
+                });
                 return handleStreamError(res, new Error(`RESOURCE_EXHAUSTED: All accounts rate-limited. Wait ${Math.round(minWait/1000)}s`), requestedModel, startTime);
             }
             
@@ -109,6 +162,16 @@ export async function handleMessages(req, res) {
                 attempt--;
                 continue;
             }
+            recordMessageMetric({
+                body,
+                endpoint: '/v1/messages',
+                requestedModel,
+                upstreamModel,
+                provider: 'openai',
+                startTime,
+                status: 401,
+                errorType: 'auth_error'
+            });
             return sendAuthError(res, 'No available accounts');
         }
         
@@ -152,16 +215,51 @@ export async function handleMessages(req, res) {
                 continue;
             }
             
+            recordMessageMetric({
+                body,
+                endpoint: '/v1/messages',
+                requestedModel,
+                upstreamModel,
+                provider: 'openai',
+                accountLabel: account.email,
+                startTime,
+                status: error.status || 500,
+                errorType: classifyMetricError(error)
+            });
             return handleStreamError(res, error, requestedModel, startTime);
         }
     }
     
+    recordMessageMetric({
+        body,
+        endpoint: '/v1/messages',
+        requestedModel,
+        upstreamModel,
+        provider: 'openai',
+        startTime,
+        status: 500,
+        errorType: 'max_retries'
+    });
     return handleStreamError(res, new Error('Max retries exceeded'), requestedModel, startTime);
 }
 
 async function _streamDirectWithRotation(res, anthropicRequest, creds, responseModel, startTime, rotator) {
     initSSEResponse(res);
-    const stream = sendMessageStream(anthropicRequest, creds.accessToken, creds.accountId, rotator, creds.email);
+    const sourceStream = sendMessageStream(anthropicRequest, creds.accessToken, creds.accountId, rotator, creds.email);
+    const stream = tapUsageEventStream(sourceStream, (usage) => {
+        recordMessageMetric({
+            body: anthropicRequest,
+            endpoint: '/v1/messages',
+            requestedModel: responseModel,
+            upstreamModel: anthropicRequest.model,
+            provider: 'openai',
+            accountLabel: creds.email,
+            stream: true,
+            usage,
+            startTime,
+            status: 200
+        });
+    });
     await pipeSSEStream(res, stream);
     logger.response(200, { model: anthropicRequest.model, duration: Date.now() - startTime });
 }
@@ -170,12 +268,39 @@ async function _sendDirectWithRotation(res, anthropicRequest, creds, responseMod
     const response = await sendMessage(anthropicRequest, creds.accessToken, creds.accountId);
     const duration = Date.now() - startTime;
     logger.response(200, { model: anthropicRequest.model, tokens: response.usage?.output_tokens || 0, duration });
+    recordMessageMetric({
+        body: anthropicRequest,
+        endpoint: '/v1/messages',
+        requestedModel: responseModel,
+        upstreamModel: anthropicRequest.model,
+        provider: 'openai',
+        accountLabel: creds.email,
+        stream: false,
+        usage: response.usage,
+        startTime,
+        status: 200,
+        duration
+    });
     res.json({ ...response, model: responseModel });
 }
 
 async function _streamKilo(res, anthropicRequest, kiloTarget, responseModel, startTime) {
     initSSEResponse(res);
-    const stream = sendKiloMessageStream(anthropicRequest, kiloTarget);
+    const sourceStream = sendKiloMessageStream(anthropicRequest, kiloTarget);
+    const stream = tapUsageEventStream(sourceStream, (usage) => {
+        recordMessageMetric({
+            body: anthropicRequest,
+            endpoint: '/v1/messages',
+            requestedModel: responseModel,
+            upstreamModel: kiloTarget,
+            provider: 'kilo',
+            accountLabel: 'kilo',
+            stream: true,
+            usage,
+            startTime,
+            status: 200
+        });
+    });
     await pipeSSEStream(res, stream);
     logger.response(200, { model: kiloTarget, duration: Date.now() - startTime });
 }
@@ -184,6 +309,19 @@ async function _sendKilo(res, anthropicRequest, kiloTarget, responseModel, start
     const response = await sendKiloMessage(anthropicRequest, kiloTarget);
     const duration = Date.now() - startTime;
     logger.response(200, { model: kiloTarget, tokens: response.usage?.output_tokens || 0, duration });
+    recordMessageMetric({
+        body: anthropicRequest,
+        endpoint: '/v1/messages',
+        requestedModel: responseModel,
+        upstreamModel: kiloTarget,
+        provider: 'kilo',
+        accountLabel: 'kilo',
+        stream: false,
+        usage: response.usage,
+        startTime,
+        status: 200,
+        duration
+    });
     res.json({
         id: response.id || undefined,
         type: 'message',
@@ -198,6 +336,38 @@ async function _sendKilo(res, anthropicRequest, kiloTarget, responseModel, start
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function recordMessageMetric(options) {
+    const body = options.body || {};
+    recordUsageEventSafe({
+        startedAt: new Date(options.startTime || Date.now()).toISOString(),
+        completedAt: new Date().toISOString(),
+        endpoint: options.endpoint,
+        requestedModel: options.requestedModel,
+        upstreamModel: options.upstreamModel,
+        accountLabel: options.accountLabel,
+        provider: options.provider,
+        stream: options.stream ?? body.stream !== false,
+        messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
+        toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+        usage: options.usage,
+        status: options.status,
+        errorType: options.errorType,
+        durationMs: options.duration ?? Date.now() - (options.startTime || Date.now())
+    });
+}
+
+function classifyMetricError(error) {
+    const message = error?.message || '';
+    if (message.startsWith('RATE_LIMITED:') || message.startsWith('RESOURCE_EXHAUSTED:')) return 'rate_limited';
+    if (message.includes('AUTH_EXPIRED')) return 'auth_expired';
+    if (message.startsWith('CLOUDFLARE_BLOCKED:')) return 'cloudflare_blocked';
+    if (message.startsWith('FORBIDDEN:')) return 'forbidden';
+    if (message.startsWith('INVALID_REQUEST:')) return 'invalid_request';
+    if (message.startsWith('KILO_API_ERROR:')) return 'kilo_api_error';
+    if (message.startsWith('API_ERROR:')) return 'api_error';
+    return 'unknown_error';
 }
 
 export default { handleMessages };

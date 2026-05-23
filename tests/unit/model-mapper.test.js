@@ -17,6 +17,20 @@ import {
 import modelMapperDefault from '../../src/model-mapper.js';
 const { CLAUDE_MODEL_MAP, OPENAI_MODEL_OPTIONS, REASONING_LEVEL_OPTIONS } = modelMapperDefault;
 
+const defaultRoutingSettings = {
+  modelMappings: {
+    opus: 'gpt-5.5',
+    sonnet: 'gpt-5.5',
+    haiku: 'gpt-5.4-mini'
+  },
+  reasoningMappings: {
+    opus: 'high',
+    sonnet: 'medium',
+    haiku: 'low'
+  },
+  haikuKiloModel: 'minimax/minimax-m2.5:free'
+};
+
 // ─── mapClaudeModel ───────────────────────────────────────────────────────────
 
 test('mapClaudeModel: maps claude-opus-4-5 to current OpenAI default', () => {
@@ -163,14 +177,14 @@ test('resolveKiloModel: returns one of the known kilo model identifiers', () => 
 // ─── resolveModelRouting ─────────────────────────────────────────────────────
 
 test('resolveModelRouting: haiku model uses OpenAI by default', () => {
-  const result = resolveModelRouting('claude-haiku-4');
+  const result = resolveModelRouting('claude-haiku-4', defaultRoutingSettings);
   assert.equal(result.isKilo, false);
   assert.equal(result.kiloTarget, null);
   assert.equal(result.upstreamModel, 'gpt-5.4-mini');
 });
 
 test('resolveModelRouting: opus model does NOT route to kilo', () => {
-  const result = resolveModelRouting('claude-opus-4-5');
+  const result = resolveModelRouting('claude-opus-4-5', defaultRoutingSettings);
   assert.equal(result.isKilo, false);
   assert.equal(result.kiloTarget, null);
   assert.equal(result.mappedModel, 'gpt-5.5');
@@ -179,32 +193,32 @@ test('resolveModelRouting: opus model does NOT route to kilo', () => {
 });
 
 test('resolveModelRouting: sonnet model does NOT route to kilo', () => {
-  const result = resolveModelRouting('claude-sonnet-4-5');
+  const result = resolveModelRouting('claude-sonnet-4-5', defaultRoutingSettings);
   assert.equal(result.isKilo, false);
   assert.equal(result.kiloTarget, null);
   assert.equal(result.mappedModel, 'gpt-5.5');
 });
 
 test('resolveModelRouting: unknown model falls back to gpt-5.5 (non-kilo)', () => {
-  const result = resolveModelRouting('totally-unknown-model');
+  const result = resolveModelRouting('totally-unknown-model', defaultRoutingSettings);
   assert.equal(result.isKilo, false);
   assert.equal(result.mappedModel, 'gpt-5.5');
 });
 
 test('resolveModelRouting: null/undefined defaults to gpt-5.5 (non-kilo)', () => {
-  const result = resolveModelRouting(null);
+  const result = resolveModelRouting(null, defaultRoutingSettings);
   assert.equal(result.isKilo, false);
   assert.equal(result.mappedModel, 'gpt-5.5');
 });
 
 test('resolveModelRouting: explicit kilo still routes to Kilo', () => {
-  const result = resolveModelRouting('kilo');
+  const result = resolveModelRouting('kilo', defaultRoutingSettings);
   assert.equal(result.isKilo, true);
   assert.ok(result.kiloTarget !== null);
 });
 
 test('resolveModelRouting: returns all expected keys', () => {
-  const result = resolveModelRouting('kilo');
+  const result = resolveModelRouting('kilo', defaultRoutingSettings);
   assert.ok('mappedModel' in result);
   assert.ok('isKilo' in result);
   assert.ok('kiloTarget' in result);

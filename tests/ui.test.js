@@ -16,9 +16,12 @@ test('Web UI loads and includes core navigation', async () => {
   // Basic smoke checks that are resilient to styling changes.
   assert.ok(html.includes('<title>Codex Claude Proxy</title>'));
   assert.ok(html.includes('Dashboard'));
+  assert.ok(html.includes('Metrics'));
   assert.ok(html.includes('Accounts'));
   assert.ok(html.includes('Server Logs'));
   assert.ok(html.includes('Settings'));
+  assert.ok(html.includes('Monitor'));
+  assert.ok(html.includes('Manage'));
 });
 
 test('Web UI loads app bundle and has a logs container', async () => {
@@ -31,6 +34,16 @@ test('Web UI loads app bundle and has a logs container', async () => {
 
   // Logs view uses this id; useful for streaming/log rendering.
   assert.ok(html.includes('id="logs-container"'));
+});
+
+test('Metrics UI includes usage panels and recent request table', async () => {
+  const res = await fetch(UI_URL);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+
+  assert.ok(html.includes('Token Usage'));
+  assert.ok(html.includes('id="metrics-recent-events"'));
+  assert.ok(html.includes(`x-show="activeTab === 'metrics'"`));
 });
 
 test('UI Quick Test and Haiku test controls are present', async () => {
@@ -83,6 +96,11 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
     'refreshAccounts()',
     'checkHealth()',
     'serverUrl',
+    'loadMetrics()',
+    'metricsSummary',
+    'metricsStorage',
+    'metricsRecent',
+    'formatTokenCount(value)',
     'startLogStream()',
     'loadModelMappingsSetting()',
     'loadClaudeProxySetting()',

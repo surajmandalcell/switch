@@ -10,6 +10,7 @@ import { DEFAULT_OPENAI_MODEL, isKiloEnabled, resolveModelRouting } from '../mod
 import { getCredentialsOrError, sendAuthError } from '../middleware/credentials.js';
 import { handleStreamError } from '../middleware/sse.js';
 import { logger } from '../utils/logger.js';
+import { recordUsageEventSafe } from '../usage-metrics.js';
 
 /**
  * POST /v1/chat/completions
@@ -24,6 +25,16 @@ export async function handleChatCompletion(req, res) {
   const { isKilo, kiloTarget, upstreamModel, reasoningLevel } = resolveModelRouting(requestedModel);
 
   if (isKilo && !isKiloEnabled()) {
+    recordChatMetric({
+      body,
+      requestedModel,
+      upstreamModel,
+      provider: 'kilo',
+      accountLabel: 'kilo',
+      startTime,
+      status: 403,
+      errorType: 'kilo_disabled'
+    });
     return res.status(403).json({
       error: {
         message: 'Kilo routing is disabled. Set CODEX_CLAUDE_PROXY_ENABLE_KILO=true to enable third-party Kilo model routing.',
@@ -38,6 +49,15 @@ export async function handleChatCompletion(req, res) {
     creds = await getCredentialsOrError();
     if (!creds) {
       logger.response(401, { error: 'No active account' });
+      recordChatMetric({
+        body,
+        requestedModel,
+        upstreamModel,
+        provider: 'openai',
+        startTime,
+        status: 401,
+        errorType: 'auth_error'
+      });
       return sendAuthError(res, 'No active account. Add an account via /accounts/add');
     }
   }
@@ -58,9 +78,30 @@ export async function handleChatCompletion(req, res) {
 
     const duration = Date.now() - startTime;
     logger.response(200, { model: upstreamModel, tokens: response.usage?.output_tokens || 0, duration });
+    recordChatMetric({
+      body,
+      requestedModel,
+      upstreamModel,
+      provider: isKilo ? 'kilo' : 'openai',
+      accountLabel: isKilo ? 'kilo' : creds.email,
+      usage: response.usage,
+      startTime,
+      status: 200,
+      duration
+    });
 
     res.json(_buildOpenAIResponse(response, requestedModel));
   } catch (error) {
+    recordChatMetric({
+      body,
+      requestedModel,
+      upstreamModel,
+      provider: isKilo ? 'kilo' : 'openai',
+      accountLabel: isKilo ? 'kilo' : creds?.email,
+      startTime,
+      status: error.status || 500,
+      errorType: classifyMetricError(error)
+    });
     handleStreamError(res, error, upstreamModel, startTime);
   }
 }
@@ -228,6 +269,34 @@ function _buildOpenAIResponse(response, responseModel) {
       total_tokens: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0)
     }
   };
+}
+
+function recordChatMetric(options) {
+  const body = options.body || {};
+  recordUsageEventSafe({
+    startedAt: new Date(options.startTime || Date.now()).toISOString(),
+    completedAt: new Date().toISOString(),
+    endpoint: '/v1/chat/completions',
+    requestedModel: options.requestedModel,
+    upstreamModel: options.upstreamModel,
+    accountLabel: options.accountLabel,
+    provider: options.provider,
+    stream: false,
+    messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
+    toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+    usage: options.usage,
+    status: options.status,
+    errorType: options.errorType,
+    durationMs: options.duration ?? Date.now() - (options.startTime || Date.now())
+  });
+}
+
+function classifyMetricError(error) {
+  const message = error?.message || '';
+  if (message.includes('AUTH_EXPIRED')) return 'auth_expired';
+  if (message.startsWith('KILO_API_ERROR:')) return 'kilo_api_error';
+  if (message.startsWith('API_ERROR:')) return 'api_error';
+  return 'unknown_error';
 }
 
 export default { handleChatCompletion, handleCountTokens };

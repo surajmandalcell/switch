@@ -1,5 +1,5 @@
 document.addEventListener('alpine:init', () => {
-    const validTabs = ['dashboard', 'accounts', 'logs', 'settings'];
+    const validTabs = ['dashboard', 'metrics', 'accounts', 'logs', 'settings'];
     const initialTab = () => {
         const params = new URLSearchParams(window.location.search);
         const requested = params.get('tab') || window.location.hash.replace(/^#/, '');
@@ -18,6 +18,27 @@ document.addEventListener('alpine:init', () => {
         accounts: [],
         searchQuery: '',
         stats: { total: 0, active: 0, expired: 0, planType: '-' },
+        metricsRange: '24h',
+        metricsStatusFilter: '',
+        metricsLoading: false,
+        metricsError: '',
+        metricsSummary: {
+            totals: {
+                requestCount: 0,
+                successCount: 0,
+                errorCount: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadInputTokens: 0,
+                totalTokens: 0,
+                averageDurationMs: 0
+            },
+            byModel: [],
+            byAccount: [],
+            timeline: []
+        },
+        metricsRecent: [],
+        metricsStorage: null,
 
         haikuKiloModel: 'minimax/minimax-m2.5:free',
         modelMappings: { opus: 'gpt-5.5', sonnet: 'gpt-5.5', haiku: 'gpt-5.4-mini' },
@@ -104,6 +125,31 @@ document.addEventListener('alpine:init', () => {
             return this.accounts.filter(a => a.email.toLowerCase().includes(q));
         },
 
+        get metricsTotals() {
+            return this.metricsSummary?.totals || {
+                requestCount: 0,
+                successCount: 0,
+                errorCount: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadInputTokens: 0,
+                totalTokens: 0,
+                averageDurationMs: 0
+            };
+        },
+
+        get metricsTimelineMax() {
+            return Math.max(1, ...this.metricsSummary.timeline.map((entry) => Number(entry.totalTokens) || 0));
+        },
+
+        get metricsModelMax() {
+            return Math.max(1, ...this.metricsSummary.byModel.map((entry) => Number(entry.totalTokens) || 0));
+        },
+
+        get metricsAccountMax() {
+            return Math.max(1, ...this.metricsSummary.byAccount.map((entry) => Number(entry.totalTokens) || 0));
+        },
+
         init() {
             this.updateTime();
             setInterval(() => this.updateTime(), 1000);
@@ -115,6 +161,7 @@ document.addEventListener('alpine:init', () => {
             this.loadHaikuModelSetting();
             this.loadAccountStrategySetting();
             this.loadClaudeProxySetting();
+            this.loadMetrics();
 
             window.addEventListener('resize', () => {
                 this.sidebarOpen = window.innerWidth >= 1024;
@@ -136,6 +183,9 @@ document.addEventListener('alpine:init', () => {
         setActiveTab(tab) {
             if (!validTabs.includes(tab)) return;
             this.activeTab = tab;
+            if (tab === 'metrics') {
+                this.loadMetrics();
+            }
             const nextUrl = new URL(window.location.href);
             if (tab === 'dashboard') {
                 nextUrl.searchParams.delete('tab');
@@ -184,6 +234,96 @@ document.addEventListener('alpine:init', () => {
                 await this.refreshAllQuotaData();
             }
             this.loading = false;
+        },
+
+        refreshCurrentView() {
+            if (this.activeTab === 'metrics') {
+                return this.loadMetrics();
+            }
+            return this.refreshAccounts();
+        },
+
+        async loadMetrics() {
+            this.metricsLoading = true;
+            this.metricsError = '';
+            const params = new URLSearchParams({ range: this.metricsRange });
+            if (this.metricsStatusFilter) {
+                params.set('status', this.metricsStatusFilter);
+            }
+
+            const [summary, recent, storage] = await Promise.all([
+                this.api(`/api/metrics/summary?${params.toString()}`),
+                this.api(`/api/metrics/recent?${params.toString()}&limit=50`),
+                this.api('/api/metrics/storage')
+            ]);
+
+            if (summary.ok && summary.data?.summary) {
+                this.metricsSummary = summary.data.summary;
+            } else {
+                this.metricsError = summary.data?.error || summary.error || 'Failed to load metrics';
+            }
+
+            if (recent.ok && Array.isArray(recent.data?.events)) {
+                this.metricsRecent = recent.data.events;
+            }
+
+            if (storage.ok && storage.data?.storage) {
+                this.metricsStorage = storage.data.storage;
+            }
+
+            this.metricsLoading = false;
+        },
+
+        setMetricsRange(range) {
+            if (this.metricsRange === range) return;
+            this.metricsRange = range;
+            this.loadMetrics();
+        },
+
+        setMetricsStatusFilter(status) {
+            if (this.metricsStatusFilter === status) return;
+            this.metricsStatusFilter = status;
+            this.loadMetrics();
+        },
+
+        metricBarWidth(value, maxValue) {
+            const valueNumber = Number(value) || 0;
+            const maxNumber = Number(maxValue) || 1;
+            return Math.max(2, Math.min(100, Math.round((valueNumber / maxNumber) * 100)));
+        },
+
+        formatTokenCount(value) {
+            const number = Number(value) || 0;
+            if (number >= 1000000) return `${(number / 1000000).toFixed(1)}M`;
+            if (number >= 1000) return `${(number / 1000).toFixed(1)}K`;
+            return String(number);
+        },
+
+        formatDuration(value) {
+            const number = Number(value) || 0;
+            if (number >= 1000) return `${(number / 1000).toFixed(1)}s`;
+            return `${number}ms`;
+        },
+
+        formatBytes(value) {
+            const number = Number(value) || 0;
+            if (number >= 1024 * 1024) return `${(number / (1024 * 1024)).toFixed(1)} MB`;
+            if (number >= 1024) return `${(number / 1024).toFixed(1)} KB`;
+            return `${number} B`;
+        },
+
+        formatMetricTime(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        },
+
+        metricsStatusClass(status) {
+            const code = Number(status) || 0;
+            if (code >= 200 && code < 400) return 'metrics-status-success';
+            if (code >= 400) return 'metrics-status-error';
+            return 'metrics-status-muted';
         },
 
         async refreshAllQuotaData() {

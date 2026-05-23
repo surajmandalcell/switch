@@ -1424,6 +1424,196 @@ table .bg-gray-700,
     color: var(--success);
 }
 
+.nav-count {
+    min-width: 2rem;
+    padding: 0.12rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--glass-line);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    line-height: 1.1;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.metrics-range-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem;
+    border: 1px solid var(--glass-line);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.56);
+}
+
+.metrics-range-button {
+    min-width: 2.6rem;
+    padding: 0.38rem 0.65rem;
+    border-radius: 7px;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+
+.metrics-range-button.active {
+    color: var(--text-strong);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+}
+
+@media (min-width: 980px) {
+    .metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.metrics-panel {
+    min-width: 0;
+}
+
+.metrics-panel-header,
+.metrics-table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.metrics-table-toolbar {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--glass-line);
+}
+
+.metrics-panel-header h3,
+.metrics-table-toolbar h3 {
+    color: var(--text-strong);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.metrics-muted {
+    color: var(--text-faint);
+    font-size: 0.72rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.metrics-timeline,
+.metrics-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.metrics-timeline-row,
+.metrics-breakdown-row {
+    display: grid;
+    grid-template-columns: minmax(8rem, 0.65fr) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.metrics-breakdown-row {
+    grid-template-columns: minmax(8rem, 0.9fr) minmax(12rem, 1fr);
+}
+
+.metrics-breakdown-meter {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.metrics-timeline-label,
+.metrics-breakdown-title,
+.metrics-value {
+    min-width: 0;
+    color: var(--text-body);
+    font-size: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.metrics-value {
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.metrics-bar-track {
+    height: 0.48rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(36, 41, 47, 0.12);
+    border: 1px solid var(--glass-line);
+}
+
+.metrics-bar-fill {
+    height: 100%;
+    min-width: 0.25rem;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), #22c55e);
+}
+
+.metrics-storage-warning {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.metrics-empty {
+    padding: 1.25rem;
+    border: 1px dashed var(--glass-line);
+    border-radius: 10px;
+    color: var(--text-faint);
+    text-align: center;
+    font-size: 0.82rem;
+}
+
+.metrics-status {
+    display: inline-flex;
+    min-width: 3rem;
+    justify-content: center;
+    padding: 0.22rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.metrics-status-success {
+    color: #047857;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.metrics-status-error {
+    color: #b91c1c;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+.metrics-status-muted {
+    color: var(--text-muted);
+    background: rgba(36, 41, 47, 0.08);
+    border: 1px solid var(--glass-line);
+}
+
 .alert {
     background-color: rgba(255, 255, 255, 0.86);
     border-color: var(--glass-line);

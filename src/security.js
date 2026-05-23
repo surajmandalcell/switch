@@ -3,7 +3,8 @@ const CONTROL_PATH_PREFIXES = [
   '/accounts',
   '/settings',
   '/claude/config',
-  '/api/logs'
+  '/api/logs',
+  '/api/metrics'
 ];
 const SAFE_FETCH_SITES = new Set(['same-origin', 'same-site', 'none']);
 const SENSITIVE_KEY_RE = /(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|password)/i;

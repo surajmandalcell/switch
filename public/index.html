@@ -94,8 +94,8 @@
             </a>
 
             <button type="button" class="btn btn-ghost btn-xs btn-square text-gray-400 hover:text-white hover:bg-white/5"
-                @click="refreshAccounts()" :disabled="loading" title="Refresh data">
-                <svg class="w-4 h-4" :class="{'animate-spin': loading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                @click="refreshCurrentView()" :disabled="loading || metricsLoading" title="Refresh data">
+                <svg class="w-4 h-4" :class="{'animate-spin': loading || metricsLoading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
             </button>
@@ -115,7 +115,7 @@
                 '-translate-x-full': !sidebarOpen
             }">
             <div class="w-64 flex flex-col h-full pt-6 pb-4 flex-shrink-0">
-                <div class="px-4 mb-2 text-xs font-bold text-gray-600 uppercase tracking-widest hidden lg:block">Main</div>
+                <div class="px-4 mb-2 text-xs font-bold text-gray-600 uppercase tracking-widest hidden lg:block">Monitor</div>
                 
                 <nav class="flex flex-col gap-1">
                     <button class="nav-item flex items-center gap-3 px-6 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5"
@@ -126,22 +126,32 @@
                         <span>Dashboard</span>
                     </button>
                     <button class="nav-item flex items-center gap-3 px-6 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5"
-                        :class="{'active': activeTab === 'accounts'}" @click="setActiveTab('accounts')">
+                        :class="{'active': activeTab === 'metrics'}" @click="setActiveTab('metrics')">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 15l3-3 3 2 5-7" />
                         </svg>
-                        <span>Accounts</span>
+                        <span>Metrics</span>
+                        <span class="nav-count ml-auto" x-text="formatTokenCount(metricsTotals.totalTokens)"></span>
                     </button>
-                </nav>
-
-                <div class="px-4 mt-8 mb-2 text-xs font-bold text-gray-600 uppercase tracking-widest">System</div>
-                <nav class="flex flex-col gap-1">
                     <button class="nav-item flex items-center gap-3 px-6 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5"
                         :class="{'active': activeTab === 'logs'}" @click="setActiveTab('logs')">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <span>Logs</span>
+                        <span class="nav-count ml-auto" x-text="logs.length"></span>
+                    </button>
+                </nav>
+
+                <div class="px-4 mt-8 mb-2 text-xs font-bold text-gray-600 uppercase tracking-widest">Manage</div>
+                <nav class="flex flex-col gap-1">
+                    <button class="nav-item flex items-center gap-3 px-6 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5"
+                        :class="{'active': activeTab === 'accounts'}" @click="setActiveTab('accounts')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        <span>Accounts</span>
+                        <span class="nav-count ml-auto" x-text="stats.total"></span>
                     </button>
                     <button class="nav-item flex items-center gap-3 px-6 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5"
                         :class="{'active': activeTab === 'settings'}" @click="setActiveTab('settings')">
@@ -308,6 +318,197 @@
                             </svg>
                             <span x-text="claudeProxyConfiguring ? 'Configuring...' : 'Configure Claude Code'">Configure Claude Code</span>
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <div x-show="activeTab === 'metrics'" x-transition class="view-container">
+                <div class="flex items-center justify-between gap-4 mb-6">
+                    <div class="flex flex-wrap items-center gap-4">
+                        <h1 class="text-2xl font-bold text-white tracking-tight">Token Usage</h1>
+                        <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
+                            <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">Request metrics</span>
+                        </div>
+                    </div>
+                    <div class="metrics-range-controls">
+                        <button class="metrics-range-button" :class="{'active': metricsRange === '24h'}" @click="setMetricsRange('24h')">24h</button>
+                        <button class="metrics-range-button" :class="{'active': metricsRange === '7d'}" @click="setMetricsRange('7d')">7d</button>
+                        <button class="metrics-range-button" :class="{'active': metricsRange === '30d'}" @click="setMetricsRange('30d')">30d</button>
+                        <button class="metrics-range-button" :class="{'active': metricsRange === 'all'}" @click="setMetricsRange('all')">All</button>
+                    </div>
+                </div>
+
+                <div x-show="metricsError" class="alert alert-error mb-4">
+                    <span x-text="metricsError"></span>
+                </div>
+
+                <div x-show="metricsStorage && metricsStorage.overLimit" class="metrics-storage-warning mb-4">
+                    <div>
+                        <div class="text-sm font-semibold text-red-300">Metrics database is above the configured cap</div>
+                        <div class="text-xs text-red-200/80 font-mono">
+                            <span x-text="formatBytes(metricsStorage?.sizeBytes)"></span>
+                            <span>/</span>
+                            <span x-text="formatBytes(metricsStorage?.maxBytes)"></span>
+                            <span>after compact-only maintenance</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-xs btn-outline" @click="loadMetrics()" :disabled="metricsLoading">Refresh</button>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 lg:gap-3 mb-6">
+                    <div class="stat bg-space-900/40 border border-space-border/30 rounded-xl p-3 lg:p-4 min-w-0">
+                        <div class="stat-value text-white font-mono text-2xl lg:text-3xl font-bold mb-1 truncate" x-text="formatTokenCount(metricsTotals.totalTokens)"></div>
+                        <div class="stat-title text-gray-500 font-mono text-[10px] uppercase tracking-wider truncate">Total Tokens</div>
+                        <div class="stat-desc text-cyan-400/60 text-[10px] truncate">Input + output</div>
+                    </div>
+                    <div class="stat bg-space-900/40 border border-space-border/30 rounded-xl p-3 lg:p-4 min-w-0">
+                        <div class="stat-value text-white font-mono text-2xl lg:text-3xl font-bold mb-1 truncate" x-text="metricsTotals.requestCount"></div>
+                        <div class="stat-title text-gray-500 font-mono text-[10px] uppercase tracking-wider truncate">Requests</div>
+                        <div class="stat-desc text-green-400/60 text-[10px] truncate"><span x-text="metricsTotals.successCount"></span> successful</div>
+                    </div>
+                    <div class="stat bg-space-900/40 border border-space-border/30 rounded-xl p-3 lg:p-4 min-w-0">
+                        <div class="stat-value text-white font-mono text-2xl lg:text-3xl font-bold mb-1 truncate" x-text="formatTokenCount(metricsTotals.outputTokens)"></div>
+                        <div class="stat-title text-gray-500 font-mono text-[10px] uppercase tracking-wider truncate">Output Tokens</div>
+                        <div class="stat-desc text-purple-400/60 text-[10px] truncate"><span x-text="formatTokenCount(metricsTotals.inputTokens)"></span> input</div>
+                    </div>
+                    <div class="stat bg-space-900/40 border border-space-border/30 rounded-xl p-3 lg:p-4 min-w-0">
+                        <div class="stat-value text-white font-mono text-2xl lg:text-3xl font-bold mb-1 truncate" x-text="formatDuration(metricsTotals.averageDurationMs)"></div>
+                        <div class="stat-title text-gray-500 font-mono text-[10px] uppercase tracking-wider truncate">Avg Latency</div>
+                        <div class="stat-desc text-yellow-400/60 text-[10px] truncate"><span x-text="metricsTotals.errorCount"></span> errors</div>
+                    </div>
+                </div>
+
+                <div class="metrics-grid mb-6">
+                    <div class="view-card metrics-panel">
+                        <div class="metrics-panel-header">
+                            <h3>Token Trend</h3>
+                            <span x-show="metricsLoading" class="metrics-muted">Loading</span>
+                        </div>
+                        <div class="metrics-timeline">
+                            <template x-for="entry in metricsSummary.timeline" :key="entry.bucket">
+                                <div class="metrics-timeline-row">
+                                    <span class="metrics-timeline-label" x-text="entry.bucket"></span>
+                                    <div class="metrics-bar-track">
+                                        <div class="metrics-bar-fill" :style="'width:' + metricBarWidth(entry.totalTokens, metricsTimelineMax) + '%'"></div>
+                                    </div>
+                                    <span class="metrics-value" x-text="formatTokenCount(entry.totalTokens)"></span>
+                                </div>
+                            </template>
+                            <div x-show="metricsSummary.timeline.length === 0" class="metrics-empty">No usage recorded for this range</div>
+                        </div>
+                    </div>
+
+                    <div class="view-card metrics-panel">
+                        <div class="metrics-panel-header">
+                            <h3>Storage</h3>
+                            <span class="metrics-muted" x-text="formatBytes(metricsStorage?.sizeBytes)"></span>
+                        </div>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between py-2 border-b border-space-border/30">
+                                <span class="text-sm text-gray-400">Database</span>
+                                <span class="font-mono text-xs text-white truncate max-w-[260px]" x-text="metricsStorage?.dbPath || '-'"></span>
+                            </div>
+                            <div class="flex items-center justify-between py-2 border-b border-space-border/30">
+                                <span class="text-sm text-gray-400">Cap</span>
+                                <span class="font-mono text-sm text-white" x-text="formatBytes(metricsStorage?.maxBytes)"></span>
+                            </div>
+                            <div class="flex items-center justify-between py-2">
+                                <span class="text-sm text-gray-400">Last compact</span>
+                                <span class="font-mono text-xs text-white" x-text="formatMetricTime(metricsStorage?.lastCompactionAttemptAt)"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metrics-grid mb-6">
+                    <div class="view-card metrics-panel">
+                        <div class="metrics-panel-header">
+                            <h3>Models</h3>
+                            <span class="metrics-muted" x-text="metricsSummary.byModel.length"></span>
+                        </div>
+                        <div class="metrics-list">
+                            <template x-for="entry in metricsSummary.byModel" :key="entry.model">
+                                <div class="metrics-breakdown-row">
+                                    <div class="min-w-0">
+                                        <div class="metrics-breakdown-title" x-text="entry.model"></div>
+                                        <div class="metrics-muted"><span x-text="entry.requestCount"></span> requests</div>
+                                    </div>
+                                    <div class="metrics-breakdown-meter">
+                                        <div class="metrics-bar-track">
+                                            <div class="metrics-bar-fill" :style="'width:' + metricBarWidth(entry.totalTokens, metricsModelMax) + '%'"></div>
+                                        </div>
+                                        <span class="metrics-value" x-text="formatTokenCount(entry.totalTokens)"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="metricsSummary.byModel.length === 0" class="metrics-empty">No model usage</div>
+                        </div>
+                    </div>
+
+                    <div class="view-card metrics-panel">
+                        <div class="metrics-panel-header">
+                            <h3>Accounts</h3>
+                            <span class="metrics-muted" x-text="metricsSummary.byAccount.length"></span>
+                        </div>
+                        <div class="metrics-list">
+                            <template x-for="entry in metricsSummary.byAccount" :key="entry.accountLabel">
+                                <div class="metrics-breakdown-row">
+                                    <div class="min-w-0">
+                                        <div class="metrics-breakdown-title" x-text="entry.accountLabel"></div>
+                                        <div class="metrics-muted"><span x-text="entry.requestCount"></span> requests</div>
+                                    </div>
+                                    <div class="metrics-breakdown-meter">
+                                        <div class="metrics-bar-track">
+                                            <div class="metrics-bar-fill" :style="'width:' + metricBarWidth(entry.totalTokens, metricsAccountMax) + '%'"></div>
+                                        </div>
+                                        <span class="metrics-value" x-text="formatTokenCount(entry.totalTokens)"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="metricsSummary.byAccount.length === 0" class="metrics-empty">No account usage</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="view-card !p-0">
+                    <div class="metrics-table-toolbar">
+                        <h3>Recent Requests</h3>
+                        <div class="metrics-range-controls">
+                            <button class="metrics-range-button" :class="{'active': metricsStatusFilter === ''}" @click="setMetricsStatusFilter('')">All</button>
+                            <button class="metrics-range-button" :class="{'active': metricsStatusFilter === 'success'}" @click="setMetricsStatusFilter('success')">Success</button>
+                            <button class="metrics-range-button" :class="{'active': metricsStatusFilter === 'error'}" @click="setMetricsStatusFilter('error')">Error</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table id="metrics-recent-events" class="w-full text-sm text-left">
+                            <thead class="text-xs text-gray-500 uppercase bg-space-800/50 border-b border-space-border/30">
+                                <tr>
+                                    <th class="px-4 py-3">Time</th>
+                                    <th class="px-4 py-3">Endpoint</th>
+                                    <th class="px-4 py-3">Model</th>
+                                    <th class="px-4 py-3">Account</th>
+                                    <th class="px-4 py-3 text-right">Tokens</th>
+                                    <th class="px-4 py-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-space-border/30">
+                                <template x-for="event in metricsRecent" :key="event.id">
+                                    <tr class="hover:bg-white/[0.03]">
+                                        <td class="px-4 py-3 font-mono text-xs text-gray-400" x-text="formatMetricTime(event.startedAt)"></td>
+                                        <td class="px-4 py-3 font-mono text-xs text-gray-300" x-text="event.endpoint"></td>
+                                        <td class="px-4 py-3 font-mono text-xs text-gray-300" x-text="event.upstreamModel"></td>
+                                        <td class="px-4 py-3 font-mono text-xs text-gray-400" x-text="event.accountLabel || '-'"></td>
+                                        <td class="px-4 py-3 font-mono text-xs text-right text-gray-300" x-text="formatTokenCount(event.totalTokens)"></td>
+                                        <td class="px-4 py-3">
+                                            <span class="metrics-status" :class="metricsStatusClass(event.status)" x-text="event.status"></span>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="metricsRecent.length === 0">
+                                    <td colspan="6" class="px-4 py-10 text-center text-sm text-gray-500">No requests recorded</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
