@@ -1246,6 +1246,11 @@ select:focus {
     transform: none;
 }
 
+.hover\:text-white:hover,
+.group:hover .group-hover\:text-white {
+    color: var(--text-strong);
+}
+
 .btn-outline,
 table .btn-outline {
     background-color: rgba(255, 255, 255, 0.58);

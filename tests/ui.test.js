@@ -83,6 +83,33 @@ test('Settings UI includes Claude proxy configuration controls', async () => {
   assert.ok(html.includes('@change="setConfigureClaudeOnStartup($event.target.checked)"'));
 });
 
+test('light macOS theme keeps hover text readable', async () => {
+  const res = await fetch(new URL('/css/style.css', UI_URL));
+  assert.equal(res.status, 200);
+  const css = await res.text();
+
+  const lightThemeStart = css.indexOf('/* Native macOS glass treatment */');
+  assert.ok(lightThemeStart > -1, 'Expected light macOS theme CSS block');
+
+  for (const selector of [
+    '.hover\\:text-white:hover',
+    '.group:hover .group-hover\\:text-white'
+  ]) {
+    const overrideIndex = css.indexOf(selector, lightThemeStart);
+    assert.ok(
+      overrideIndex > lightThemeStart,
+      `Expected ${selector} to be overridden inside the light theme block`
+    );
+
+    const overrideRule = css.slice(overrideIndex, css.indexOf('}', overrideIndex) + 1);
+    assert.match(
+      overrideRule,
+      /color:\s*var\(--text-strong\)/,
+      `Expected ${selector} hover text to use the light theme strong text color`
+    );
+  }
+});
+
 test('app.js defines expected Alpine state keys (smoke)', async () => {
   const res = await fetch(new URL('/js/app.js', UI_URL));
   assert.equal(res.status, 200);
