@@ -1,8 +1,15 @@
 document.addEventListener('alpine:init', () => {
+    const validTabs = ['dashboard', 'accounts', 'logs', 'settings'];
+    const initialTab = () => {
+        const params = new URLSearchParams(window.location.search);
+        const requested = params.get('tab') || window.location.hash.replace(/^#/, '');
+        return validTabs.includes(requested) ? requested : 'dashboard';
+    };
+
     Alpine.data('app', () => ({
         version: '1.0.5',
         connectionStatus: 'connecting',
-        activeTab: 'dashboard',
+        activeTab: initialTab(),
         sidebarOpen: window.innerWidth >= 1024,
         loading: false,
         toast: null,
@@ -115,7 +122,17 @@ document.addEventListener('alpine:init', () => {
         },
 
         setActiveTab(tab) {
+            if (!validTabs.includes(tab)) return;
             this.activeTab = tab;
+            const nextUrl = new URL(window.location.href);
+            if (tab === 'dashboard') {
+                nextUrl.searchParams.delete('tab');
+                nextUrl.hash = '';
+            } else {
+                nextUrl.searchParams.set('tab', tab);
+                nextUrl.hash = '';
+            }
+            window.history.replaceState({}, '', nextUrl);
             if (window.innerWidth < 1024) {
                 this.sidebarOpen = false;
             }
