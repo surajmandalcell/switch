@@ -10,10 +10,11 @@ import {
   mapClaudeModel,
   isKiloModel,
   resolveKiloModel,
-  resolveModelRouting
+  resolveModelRouting,
+  normalizeModelMappings
 } from '../../src/model-mapper.js';
 import modelMapperDefault from '../../src/model-mapper.js';
-const { CLAUDE_MODEL_MAP } = modelMapperDefault;
+const { CLAUDE_MODEL_MAP, OPENAI_MODEL_OPTIONS } = modelMapperDefault;
 
 // ─── mapClaudeModel ───────────────────────────────────────────────────────────
 
@@ -93,6 +94,30 @@ test('mapClaudeModel: fuzzy match claude-*-haiku-* to OpenAI mini by default', (
 
 test('mapClaudeModel: fuzzy match claude-*-sonnet-* to current OpenAI default', () => {
   assert.equal(mapClaudeModel('claude-3-5-sonnet-20250514'), 'gpt-5.5');
+});
+
+test('mapClaudeModel: applies custom Opus mapping to Claude variants', () => {
+  const settings = { modelMappings: { opus: 'gpt-5.4', sonnet: 'gpt-5.5', haiku: 'gpt-5.4-mini' } };
+  assert.equal(mapClaudeModel('claude-opus-4-5', settings), 'gpt-5.4');
+  assert.equal(mapClaudeModel('opus', settings), 'gpt-5.4');
+});
+
+test('mapClaudeModel: applies custom Sonnet and Haiku mappings', () => {
+  const settings = { modelMappings: { sonnet: 'gpt-5.4-mini', haiku: 'gpt-5.4' } };
+  assert.equal(mapClaudeModel('sonnet', settings), 'gpt-5.4-mini');
+  assert.equal(mapClaudeModel('claude-haiku-4', settings), 'gpt-5.4');
+});
+
+test('normalizeModelMappings: fills defaults and ignores unsupported model IDs', () => {
+  assert.deepEqual(normalizeModelMappings({
+    opus: 'gpt-5.4',
+    sonnet: 'unsupported-model',
+    haiku: 42
+  }), {
+    opus: 'gpt-5.4',
+    sonnet: 'gpt-5.5',
+    haiku: 'gpt-5.4-mini'
+  });
 });
 
 // ─── isKiloModel ─────────────────────────────────────────────────────────────
@@ -183,4 +208,11 @@ test('CLAUDE_MODEL_MAP: all values are non-empty strings', () => {
   for (const [key, value] of Object.entries(CLAUDE_MODEL_MAP)) {
     assert.ok(typeof value === 'string' && value.length > 0, `Value for "${key}" is invalid: ${value}`);
   }
+});
+
+test('OPENAI_MODEL_OPTIONS: exposes supported GPT dropdown options', () => {
+  const ids = OPENAI_MODEL_OPTIONS.map((model) => model.id);
+  assert.ok(ids.includes('gpt-5.5'));
+  assert.ok(ids.includes('gpt-5.4-mini'));
+  assert.equal(new Set(ids).size, ids.length);
 });

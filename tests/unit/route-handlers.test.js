@@ -29,7 +29,13 @@ function mockReq(body = {}, params = {}, query = {}) {
 
 // ─── settings-route ───────────────────────────────────────────────────────────
 
-import { handleGetHaikuModel, handleSetHaikuModel, handleGetAccountStrategy } from '../../src/routes/settings-route.js';
+import {
+  handleGetHaikuModel,
+  handleSetHaikuModel,
+  handleGetModelMappings,
+  handleSetModelMappings,
+  handleGetAccountStrategy
+} from '../../src/routes/settings-route.js';
 
 test('handleGetHaikuModel: returns current haikuKiloModel', () => {
   const req = mockReq();
@@ -60,6 +66,35 @@ test('handleSetHaikuModel: rejects non-string model with 400', async () => {
   const req = mockReq({ haikuKiloModel: 123 });
   const res = mockRes();
   await handleSetHaikuModel(req, res);
+  assert.equal(res._status, 400);
+  assert.equal(res._body.success, false);
+});
+
+test('handleGetModelMappings: returns aliases, defaults, models, and current mappings', () => {
+  const req = mockReq();
+  const res = mockRes();
+  handleGetModelMappings(req, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.success, true);
+  assert.ok(res._body.aliases.includes('opus'));
+  assert.ok(res._body.aliases.includes('sonnet'));
+  assert.ok(res._body.aliases.includes('haiku'));
+  assert.ok(Array.isArray(res._body.models));
+  assert.ok(typeof res._body.modelMappings.haiku === 'string');
+});
+
+test('handleSetModelMappings: rejects unknown alias with 400', () => {
+  const req = mockReq({ modelMappings: { wrong: 'gpt-5.5' } });
+  const res = mockRes();
+  handleSetModelMappings(req, res);
+  assert.equal(res._status, 400);
+  assert.equal(res._body.success, false);
+});
+
+test('handleSetModelMappings: rejects unsupported model ID with 400', () => {
+  const req = mockReq({ modelMappings: { haiku: 'not-a-real-gpt-model' } });
+  const res = mockRes();
+  handleSetModelMappings(req, res);
   assert.equal(res._status, 400);
   assert.equal(res._body.success, false);
 });

@@ -251,6 +251,41 @@ select:focus {
     border-color: var(--color-neon-purple);
 }
 
+.model-mapping-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.model-mapping-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem);
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(36, 41, 47, 0.16);
+    border-radius: 0.625rem;
+    background: rgba(255, 255, 255, 0.42);
+}
+
+.model-mapping-copy {
+    min-width: 0;
+}
+
+.model-mapping-select {
+    width: 100%;
+    min-height: 2.25rem;
+    background-color: rgba(255, 255, 255, 0.82);
+    color: var(--text-strong);
+    color-scheme: light;
+}
+
+@media (max-width: 700px) {
+    .model-mapping-row {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+}
+
 dialog {
     background: transparent;
     color: #e5e7eb;

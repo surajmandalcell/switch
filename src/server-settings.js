@@ -7,7 +7,12 @@ const MULTI_ACCOUNT_ROTATION_ENV = 'CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTA
 
 const DEFAULT_SETTINGS = {
     haikuKiloModel: 'minimax/minimax-m2.5:free',
-    accountStrategy: 'sticky'
+    accountStrategy: 'sticky',
+    modelMappings: {
+        opus: 'gpt-5.5',
+        sonnet: 'gpt-5.5',
+        haiku: 'gpt-5.4-mini'
+    }
 };
 
 function ensureConfigDir() {
@@ -20,15 +25,31 @@ export function getServerSettings() {
     ensureConfigDir();
 
     if (!existsSync(SETTINGS_FILE)) {
-        return { ...DEFAULT_SETTINGS };
+        return {
+            ...DEFAULT_SETTINGS,
+            modelMappings: { ...DEFAULT_SETTINGS.modelMappings }
+        };
     }
 
     try {
         const data = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
-        return { ...DEFAULT_SETTINGS, ...data };
+        const modelMappings = data?.modelMappings && typeof data.modelMappings === 'object' && !Array.isArray(data.modelMappings)
+            ? data.modelMappings
+            : {};
+        return {
+            ...DEFAULT_SETTINGS,
+            ...data,
+            modelMappings: {
+                ...DEFAULT_SETTINGS.modelMappings,
+                ...modelMappings
+            }
+        };
     } catch (error) {
         console.error('[ServerSettings] Failed to read settings:', error.message);
-        return { ...DEFAULT_SETTINGS };
+        return {
+            ...DEFAULT_SETTINGS,
+            modelMappings: { ...DEFAULT_SETTINGS.modelMappings }
+        };
     }
 }
 

@@ -10,9 +10,26 @@
 
 import { getServerSettings, isMultiAccountRotationEnabled, setServerSettings } from '../server-settings.js';
 import { fetchFreeModels } from '../kilo-models.js';
-import { isKiloEnabled } from '../model-mapper.js';
+import {
+  CLAUDE_MODEL_ALIASES,
+  DEFAULT_MODEL_MAPPINGS,
+  OPENAI_MODEL_OPTIONS,
+  isKiloEnabled,
+  normalizeModelMappings
+} from '../model-mapper.js';
 
 const VALID_STRATEGIES = ['sticky', 'round-robin'];
+const VALID_OPENAI_MODEL_IDS = new Set(OPENAI_MODEL_OPTIONS.map((model) => model.id));
+
+function modelMappingsPayload(modelMappings) {
+  return {
+    success: true,
+    aliases: CLAUDE_MODEL_ALIASES,
+    models: OPENAI_MODEL_OPTIONS,
+    defaults: DEFAULT_MODEL_MAPPINGS,
+    modelMappings: normalizeModelMappings(modelMappings)
+  };
+}
 
 /**
  * GET /settings/haiku-model
@@ -100,6 +117,55 @@ export async function handleGetKiloModels(req, res) {
 }
 
 /**
+ * GET /settings/model-mappings
+ * Returns editable Claude alias -> upstream GPT model mappings.
+ */
+export function handleGetModelMappings(req, res) {
+  const settings = getServerSettings();
+  res.json(modelMappingsPayload(settings.modelMappings));
+}
+
+/**
+ * POST /settings/model-mappings
+ * Updates one or more Claude alias mappings.
+ */
+export function handleSetModelMappings(req, res) {
+  const { modelMappings } = req.body || {};
+
+  if (!modelMappings || typeof modelMappings !== 'object' || Array.isArray(modelMappings)) {
+    return res.status(400).json({
+      success: false,
+      error: 'modelMappings is required and must be an object'
+    });
+  }
+
+  const unknownAliases = Object.keys(modelMappings).filter((alias) => !CLAUDE_MODEL_ALIASES.includes(alias));
+  if (unknownAliases.length > 0) {
+    return res.status(400).json({
+      success: false,
+      error: `Invalid model mapping alias. Use one of: ${CLAUDE_MODEL_ALIASES.join(', ')}`
+    });
+  }
+
+  for (const [alias, model] of Object.entries(modelMappings)) {
+    if (typeof model !== 'string' || !VALID_OPENAI_MODEL_IDS.has(model)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid model for ${alias}. Use one of: ${OPENAI_MODEL_OPTIONS.map((option) => option.id).join(', ')}`
+      });
+    }
+  }
+
+  const settings = getServerSettings();
+  const nextMappings = {
+    ...normalizeModelMappings(settings.modelMappings),
+    ...modelMappings
+  };
+  const nextSettings = setServerSettings({ modelMappings: nextMappings });
+  res.json(modelMappingsPayload(nextSettings.modelMappings));
+}
+
+/**
  * GET /settings/account-strategy
  * Returns the current account selection strategy.
  */
@@ -138,6 +204,8 @@ export default {
   handleGetHaikuModel, 
   handleSetHaikuModel,
   handleGetKiloModels,
+  handleGetModelMappings,
+  handleSetModelMappings,
   handleGetAccountStrategy,
   handleSetAccountStrategy
 };

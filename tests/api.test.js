@@ -98,6 +98,36 @@ test('GET /settings/account-strategy reports rotation disabled by default', { sk
   assert.equal(json?.rotationEnabled, false);
 });
 
+test('GET/POST /settings/model-mappings returns and persists Claude alias mappings', { skip: shouldSkip }, async () => {
+  const original = await getJson('/settings/model-mappings');
+  assert.equal(original.status, 200, `Expected 200, got ${original.status}: ${original.text}`);
+  assert.equal(original.json?.success, true);
+  assert.ok(Array.isArray(original.json?.models));
+  assert.ok(original.json.models.some((model) => model.id === 'gpt-5.4'));
+
+  const originalMappings = original.json.modelMappings;
+  const nextHaiku = originalMappings.haiku === 'gpt-5.4' ? 'gpt-5.4-mini' : 'gpt-5.4';
+
+  try {
+    const updated = await postJson('/settings/model-mappings', { modelMappings: { haiku: nextHaiku } });
+    assert.equal(updated.status, 200, `Expected 200, got ${updated.status}: ${updated.text}`);
+    assert.equal(updated.json?.success, true);
+    assert.equal(updated.json?.modelMappings?.haiku, nextHaiku);
+
+    const reread = await getJson('/settings/model-mappings');
+    assert.equal(reread.status, 200, `Expected 200, got ${reread.status}: ${reread.text}`);
+    assert.equal(reread.json?.modelMappings?.haiku, nextHaiku);
+  } finally {
+    await postJson('/settings/model-mappings', { modelMappings: originalMappings });
+  }
+});
+
+test('POST /settings/model-mappings rejects unsupported GPT model', { skip: shouldSkip }, async () => {
+  const { status, json } = await postJson('/settings/model-mappings', { modelMappings: { haiku: 'fake-gpt-model' } });
+  assert.equal(status, 400);
+  assert.equal(json?.success, false);
+});
+
 test('POST /claude/config/direct validates API key required', { skip: shouldSkip }, async () => {
   const { status, json } = await postJson('/claude/config/direct', {});
   assert.equal(status, 400);

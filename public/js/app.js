@@ -20,6 +20,10 @@ document.addEventListener('alpine:init', () => {
         stats: { total: 0, active: 0, expired: 0, planType: '-' },
 
         haikuKiloModel: 'minimax/minimax-m2.5:free',
+        modelMappings: { opus: 'gpt-5.5', sonnet: 'gpt-5.5', haiku: 'gpt-5.4-mini' },
+        modelMappingDefaults: { opus: 'gpt-5.5', sonnet: 'gpt-5.5', haiku: 'gpt-5.4-mini' },
+        openAiModelOptions: [],
+        modelMappingSaving: null,
         accountStrategy: 'sticky',
         multiAccountRotationEnabled: false,
         haikuModelSaving: false,
@@ -48,9 +52,7 @@ document.addEventListener('alpine:init', () => {
         haikuTesting: false,
 
         haikuModelLabel() {
-            if (!this.kiloEnabled) return 'gpt-5.4-mini';
-            const model = this.kiloModels.find(m => m.id === this.haikuKiloModel);
-            return model ? model.name : this.haikuKiloModel;
+            return this.modelOptionName(this.modelMappings?.haiku || 'gpt-5.4-mini');
         },
 
         async testHaikuChat() {
@@ -101,6 +103,7 @@ document.addEventListener('alpine:init', () => {
             this.checkHealth();
             setInterval(() => this.checkHealth(), 30000);
             this.startLogStream();
+            this.loadModelMappingsSetting();
             this.loadHaikuModelSetting();
             this.loadAccountStrategySetting();
 
@@ -490,6 +493,50 @@ document.addEventListener('alpine:init', () => {
                 this.showToast(`Kilo target set to ${data.haikuKiloModel.toUpperCase()}`, 'success');
             } else {
                 this.showToast(data?.error || 'Failed to update Kilo model', 'error');
+            }
+        },
+
+        modelOptionName(modelId) {
+            const option = this.openAiModelOptions.find((model) => model.id === modelId);
+            return option ? option.name : modelId;
+        },
+
+        modelMappingLabel(alias) {
+            const labels = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' };
+            return labels[alias] || alias;
+        },
+
+        async loadModelMappingsSetting() {
+            const { ok, data } = await this.api('/settings/model-mappings');
+            if (!ok || !data?.modelMappings) return;
+
+            this.modelMappings = data.modelMappings;
+            this.modelMappingDefaults = data.defaults || this.modelMappingDefaults;
+            this.openAiModelOptions = Array.isArray(data.models) ? data.models : [];
+        },
+
+        async setModelMapping(alias, model) {
+            if (this.modelMappingSaving || !alias || !model) return;
+
+            const previous = this.modelMappings[alias];
+            if (previous === model) return;
+
+            this.modelMappings = { ...this.modelMappings, [alias]: model };
+            this.modelMappingSaving = alias;
+            const { ok, data } = await this.api('/settings/model-mappings', {
+                method: 'POST',
+                body: JSON.stringify({ modelMappings: { [alias]: model } })
+            });
+            this.modelMappingSaving = null;
+
+            if (ok && data?.modelMappings) {
+                this.modelMappings = data.modelMappings;
+                this.modelMappingDefaults = data.defaults || this.modelMappingDefaults;
+                this.openAiModelOptions = Array.isArray(data.models) ? data.models : this.openAiModelOptions;
+                this.showToast(`${this.modelMappingLabel(alias)} now maps to ${this.modelOptionName(data.modelMappings[alias])}`, 'success');
+            } else {
+                this.modelMappings = { ...this.modelMappings, [alias]: previous };
+                this.showToast(data?.error || 'Failed to update model mapping', 'error');
             }
         },
 

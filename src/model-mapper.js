@@ -9,6 +9,31 @@ const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
 const DEFAULT_SMALL_OPENAI_MODEL = 'gpt-5.4-mini';
 const LATEST_CODEX_MODEL = 'gpt-5.3-codex';
 const KILO_ENABLED_ENV = 'CODEX_CLAUDE_PROXY_ENABLE_KILO';
+const CLAUDE_MODEL_ALIASES = ['opus', 'sonnet', 'haiku'];
+const OPENAI_MODEL_OPTIONS = [
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'gpt-5.5-2026-04-23', name: 'GPT-5.5 Snapshot' },
+  { id: 'gpt-5.4', name: 'GPT-5.4' },
+  { id: 'gpt-5.4-2026-03-05', name: 'GPT-5.4 Snapshot' },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini' },
+  { id: 'gpt-5.4-nano', name: 'GPT-5.4 Nano' },
+  { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
+  { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex' },
+  { id: 'gpt-5.2', name: 'GPT-5.2' },
+  { id: 'gpt-5.1', name: 'GPT-5.1' },
+  { id: 'gpt-5', name: 'GPT-5' },
+  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
+  { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex' },
+  { id: 'gpt-5-codex', name: 'GPT-5 Codex' },
+  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+  { id: 'gpt-5-codex-mini', name: 'GPT-5 Codex Mini' }
+];
+const OPENAI_MODEL_IDS = new Set(OPENAI_MODEL_OPTIONS.map((model) => model.id));
+const DEFAULT_MODEL_MAPPINGS = {
+  opus: DEFAULT_OPENAI_MODEL,
+  sonnet: DEFAULT_OPENAI_MODEL,
+  haiku: DEFAULT_SMALL_OPENAI_MODEL
+};
 
 const CLAUDE_MODEL_MAP = {
   // Current Claude 4.6 models (Feb 2026)
@@ -65,35 +90,66 @@ const CLAUDE_MODEL_MAP = {
 };
 
 /**
+ * Normalizes persisted Claude alias mappings against supported GPT targets.
+ * @param {Record<string, string>} modelMappings
+ * @returns {{ opus: string, sonnet: string, haiku: string }}
+ */
+export function normalizeModelMappings(modelMappings = {}) {
+  const normalized = { ...DEFAULT_MODEL_MAPPINGS };
+  if (!modelMappings || typeof modelMappings !== 'object' || Array.isArray(modelMappings)) {
+    return normalized;
+  }
+
+  for (const alias of CLAUDE_MODEL_ALIASES) {
+    const candidate = modelMappings[alias];
+    if (typeof candidate === 'string' && OPENAI_MODEL_IDS.has(candidate)) {
+      normalized[alias] = candidate;
+    }
+  }
+
+  return normalized;
+}
+
+function inferClaudeAlias(modelLower) {
+  for (const alias of CLAUDE_MODEL_ALIASES) {
+    if (modelLower === alias || modelLower.includes(alias)) {
+      return alias;
+    }
+  }
+  return null;
+}
+
+/**
  * Maps a Claude/Anthropic model name to the upstream model identifier.
  * Falls back to the current OpenAI flagship model for unknown models.
  * @param {string} model
+ * @param {{ modelMappings?: Record<string, string> }} settings
  * @returns {string}
  */
-export function mapClaudeModel(model) {
+export function mapClaudeModel(model, settings = getServerSettings()) {
   if (!model) return DEFAULT_OPENAI_MODEL;
 
-  if (CLAUDE_MODEL_MAP[model]) {
-    return CLAUDE_MODEL_MAP[model];
-  }
-
-  const modelLower = model.toLowerCase();
+  const modelLower = String(model).toLowerCase();
 
   if (modelLower.startsWith('gpt-')) {
     return modelLower;
   }
 
-  if (modelLower.startsWith('claude-')) {
-    const cleanModel = modelLower.replace(/^claude-/, '');
-    if (cleanModel.includes('opus')) return DEFAULT_OPENAI_MODEL;
-    if (cleanModel.includes('sonnet')) return DEFAULT_OPENAI_MODEL;
-    if (cleanModel.includes('haiku')) return DEFAULT_SMALL_OPENAI_MODEL;
+  if (modelLower === 'codex') {
+    return LATEST_CODEX_MODEL;
   }
 
-  for (const [key, value] of Object.entries(CLAUDE_MODEL_MAP)) {
-    if (modelLower.includes(key.toLowerCase())) {
-      return value;
-    }
+  if (modelLower === 'kilo') {
+    return 'kilo';
+  }
+
+  const mappedAlias = inferClaudeAlias(modelLower);
+  if (mappedAlias) {
+    return normalizeModelMappings(settings?.modelMappings)[mappedAlias];
+  }
+
+  if (CLAUDE_MODEL_MAP[modelLower]) {
+    return CLAUDE_MODEL_MAP[modelLower];
   }
 
   return DEFAULT_OPENAI_MODEL;
@@ -117,8 +173,7 @@ export function isKiloEnabled() {
  * The setting stores the full Kilo model ID (e.g. 'minimax/minimax-m2.5:free').
  * @returns {string}
  */
-export function resolveKiloModel() {
-  const settings = getServerSettings();
+export function resolveKiloModel(settings = getServerSettings()) {
   return settings.haikuKiloModel || 'minimax/minimax-m2.5:free';
 }
 
@@ -127,10 +182,10 @@ export function resolveKiloModel() {
  * @param {string} requestedModel
  * @returns {{ mappedModel: string, isKilo: boolean, kiloTarget: string|null, upstreamModel: string }}
  */
-export function resolveModelRouting(requestedModel) {
-  const mappedModel = mapClaudeModel(requestedModel || DEFAULT_OPENAI_MODEL);
+export function resolveModelRouting(requestedModel, settings = getServerSettings()) {
+  const mappedModel = mapClaudeModel(requestedModel || DEFAULT_OPENAI_MODEL, settings);
   const isKilo = isKiloModel(mappedModel);
-  const kiloTarget = isKilo ? resolveKiloModel() : null;
+  const kiloTarget = isKilo ? resolveKiloModel(settings) : null;
   const upstreamModel = isKilo ? kiloTarget : mappedModel;
   return { mappedModel, isKilo, kiloTarget, upstreamModel };
 }
@@ -139,6 +194,9 @@ export {
   CLAUDE_MODEL_MAP,
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SMALL_OPENAI_MODEL,
+  DEFAULT_MODEL_MAPPINGS,
+  CLAUDE_MODEL_ALIASES,
+  OPENAI_MODEL_OPTIONS,
   LATEST_CODEX_MODEL,
   KILO_ENABLED_ENV
 };
@@ -151,6 +209,10 @@ export default {
   CLAUDE_MODEL_MAP,
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SMALL_OPENAI_MODEL,
+  DEFAULT_MODEL_MAPPINGS,
+  CLAUDE_MODEL_ALIASES,
+  OPENAI_MODEL_OPTIONS,
+  normalizeModelMappings,
   LATEST_CODEX_MODEL,
   KILO_ENABLED_ENV,
   isKiloEnabled

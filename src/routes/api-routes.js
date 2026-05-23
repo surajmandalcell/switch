@@ -15,7 +15,15 @@ import { getStatus, ACCOUNTS_FILE } from '../account-manager.js';
 import { handleMessages } from './messages-route.js';
 import { handleChatCompletion, handleCountTokens } from './chat-route.js';
 import { handleListModels, handleAccountModels, handleAccountUsage } from './models-route.js';
-import { handleGetHaikuModel, handleSetHaikuModel, handleGetKiloModels, handleGetAccountStrategy, handleSetAccountStrategy } from './settings-route.js';
+import {
+  handleGetHaikuModel,
+  handleSetHaikuModel,
+  handleGetKiloModels,
+  handleGetModelMappings,
+  handleSetModelMappings,
+  handleGetAccountStrategy,
+  handleSetAccountStrategy
+} from './settings-route.js';
 import { handleGetLogs, handleStreamLogs } from './logs-route.js';
 import { handleGetClaudeConfig, handleSetProxyMode, handleSetDirectMode, handleSetClaudeApiEndpoint } from './claude-config-route.js';
 import {
@@ -64,6 +72,8 @@ export function registerApiRoutes(app, { port }) {
   app.get('/settings/haiku-model', handleGetHaikuModel);
   app.post('/settings/haiku-model', handleSetHaikuModel);
   app.get('/settings/kilo-models', handleGetKiloModels);
+  app.get('/settings/model-mappings', handleGetModelMappings);
+  app.post('/settings/model-mappings', handleSetModelMappings);
   app.get('/settings/account-strategy', handleGetAccountStrategy);
   app.post('/settings/account-strategy', handleSetAccountStrategy);
 

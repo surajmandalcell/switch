@@ -47,6 +47,17 @@ test('UI Quick Test and Haiku test controls are present', async () => {
   assert.ok(html.includes('>Test Haiku<'));
 });
 
+test('Settings UI includes Claude model mapping controls', async () => {
+  const res = await fetch(UI_URL);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+
+  assert.ok(html.includes('Claude Model Mapping'));
+  assert.ok(html.includes('data-model-mapping-alias="opus"'));
+  assert.ok(html.includes('data-model-mapping-alias="sonnet"'));
+  assert.ok(html.includes('data-model-mapping-alias="haiku"'));
+});
+
 test('app.js defines expected Alpine state keys (smoke)', async () => {
   const res = await fetch(new URL('/js/app.js', UI_URL));
   assert.equal(res.status, 200);
@@ -60,6 +71,8 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
     'refreshAccounts()',
     'checkHealth()',
     'startLogStream()',
+    'loadModelMappingsSetting()',
+    'setModelMapping(alias, model)',
     'setHaikuModel(model)',
     'testChat()',
     'testHaikuChat()'
