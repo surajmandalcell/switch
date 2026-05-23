@@ -62,6 +62,10 @@ test('UI Quick Test and Haiku test controls are present', async () => {
   assert.ok(html.includes('data-quick-test-status'));
   assert.ok(html.includes('data-haiku-test-status'));
   assert.ok(html.includes('quick-test-meta'));
+  assert.ok(html.includes('formatDuration(testMeta?.durationMs)'));
+  assert.ok(html.includes('formatDuration(haikuTestMeta?.durationMs)'));
+  assert.equal(html.includes('formatDuration(testMeta.durationMs)'), false);
+  assert.equal(html.includes('formatDuration(haikuTestMeta.durationMs)'), false);
 });
 
 test('Logs UI is compact and exposes stream status controls', async () => {
@@ -117,6 +121,30 @@ test('Small-screen action bars use compact non-wrapping controls', async () => {
   assert.ok(css.includes('flex-wrap: nowrap'));
   assert.ok(css.includes('.accounts-actions .action-label'));
   assert.ok(css.includes('.account-count-word'));
+});
+
+test('Account controls compact before tablet widths and quota reset text does not wrap', async () => {
+  const [htmlRes, cssRes] = await Promise.all([
+    fetch(UI_URL),
+    fetch(new URL('/css/style.css', UI_URL))
+  ]);
+  assert.equal(htmlRes.status, 200);
+  assert.equal(cssRes.status, 200);
+
+  const html = await htmlRes.text();
+  const css = await cssRes.text();
+  const accountsActionsStart = html.indexOf('section-actions accounts-actions');
+  const accountsTableStart = html.indexOf('<div class="view-card', accountsActionsStart);
+  const accountsActionsMarkup = html.slice(accountsActionsStart, accountsTableStart);
+
+  assert.ok(html.includes('aria-label="Refresh all account tokens"'));
+  assert.ok(html.includes('aria-label="Add account"'));
+  assert.ok(html.includes('quota-reset-summary'));
+  assert.equal(accountsActionsMarkup.includes('account-count-pill'), false);
+  assert.ok(css.includes('@media (max-width: 900px)'));
+  assert.ok(css.includes('display: none'));
+  assert.ok(css.includes('.quota-reset-summary'));
+  assert.ok(css.includes('white-space: nowrap'));
 });
 
 test('Settings UI includes Claude model mapping controls', async () => {

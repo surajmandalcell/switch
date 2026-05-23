@@ -186,7 +186,7 @@
                     <div class="quick-test-meta" data-quick-test-status>
                         <span class="quick-test-dot" :class="'is-' + testStatus"></span>
                         <span x-text="testStatusText"></span>
-                        <span x-show="testMeta?.durationMs" x-text="formatDuration(testMeta.durationMs)"></span>
+                        <span x-show="testMeta?.durationMs" x-text="formatDuration(testMeta?.durationMs)"></span>
                         <span x-show="formatUsageSummary(testMeta?.usage)" x-text="formatUsageSummary(testMeta?.usage)"></span>
                     </div>
                     <div x-show="testResponse" class="mt-4 p-3 rounded-lg bg-space-800/50 border border-space-border/30">
@@ -219,7 +219,7 @@
                     <div class="quick-test-meta" data-haiku-test-status>
                         <span class="quick-test-dot" :class="'is-' + haikuTestStatus"></span>
                         <span x-text="haikuTestStatusText"></span>
-                        <span x-show="haikuTestMeta?.durationMs" x-text="formatDuration(haikuTestMeta.durationMs)"></span>
+                        <span x-show="haikuTestMeta?.durationMs" x-text="formatDuration(haikuTestMeta?.durationMs)"></span>
                         <span x-show="formatUsageSummary(haikuTestMeta?.usage)" x-text="formatUsageSummary(haikuTestMeta?.usage)"></span>
                     </div>
                     <div x-show="haikuTestResponse" class="mt-4 p-3 rounded-lg bg-space-800/50 border border-space-border/30">
@@ -463,6 +463,11 @@
                         <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
                             <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">ChatGPT accounts</span>
                         </div>
+                        <div class="account-count-pill flex items-center h-6 px-2 rounded bg-space-800/80 border border-space-border/50">
+                            <span class="text-[11px] font-mono text-gray-400">
+                                <span x-text="accounts.length"></span><span class="account-count-word" x-text="accounts.length === 1 ? ' account' : ' accounts'"></span>
+                            </span>
+                        </div>
                     </div>
 
                     <div class="section-actions accounts-actions flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
@@ -475,21 +480,16 @@
                         </div>
 
                         <button class="btn btn-xs btn-outline border-space-border text-gray-400 hover:text-white transition-all gap-2 h-8"
-                            @click="refreshAllTokens()" x-show="accounts.length > 0">
+                            @click="refreshAllTokens()" x-show="accounts.length > 0"
+                            aria-label="Refresh all account tokens" title="Refresh all account tokens">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
                             </svg>
                             <span class="action-label">Refresh All</span>
                         </button>
 
-                        <div class="account-count-pill flex items-center h-6 px-2 rounded bg-space-800/80 border border-space-border/50 sm:ml-1">
-                            <span class="text-[11px] font-mono text-gray-400">
-                                <span x-text="accounts.length"></span><span class="account-count-word" x-text="accounts.length === 1 ? ' account' : ' accounts'"></span>
-                            </span>
-                        </div>
-
                         <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-xs gap-2 shadow-lg shadow-neon-purple/20 h-8"
-                            @click="showAddModal = true">
+                            @click="showAddModal = true" aria-label="Add account" title="Add account">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
@@ -591,7 +591,7 @@
                                                     </template>
                                                 </div>
                                                 <template x-if="quotaResetSummary(acc)">
-                                                    <span class="text-[10px] font-mono text-gray-500" x-text="quotaResetSummary(acc)"></span>
+                                                    <span class="quota-reset-summary text-[10px] font-mono text-gray-500" x-text="quotaResetSummary(acc)"></span>
                                                 </template>
                                             </div>
                                         </template>
@@ -1059,12 +1059,12 @@
                     <div class="mt-3 pt-3 border-t border-space-border/30 space-y-1">
                         <div class="flex items-center justify-between text-xs">
                             <span class="text-gray-500">Reset window</span>
-                            <span class="font-mono text-gray-300" x-text="quotaResetSummary(selectedAccount) || '-'"></span>
+                            <span class="quota-reset-summary font-mono text-gray-300" x-text="quotaResetSummary(selectedAccount) || '-'"></span>
                         </div>
                         <template x-if="quotaResetAtLabel(selectedAccount)">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="text-gray-500">Resets at</span>
-                                <span class="font-mono text-gray-300" x-text="quotaResetAtLabel(selectedAccount)"></span>
+                                <span class="quota-reset-summary font-mono text-gray-300" x-text="quotaResetAtLabel(selectedAccount)"></span>
                             </div>
                         </template>
                     </div>

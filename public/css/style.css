@@ -173,6 +173,12 @@ body::before {
     white-space: nowrap;
 }
 
+.quota-reset-summary {
+    display: inline-flex;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
 .action-label {
     white-space: nowrap;
 }
@@ -2355,6 +2361,63 @@ dialog::backdrop,
 }
 
 @media (max-width: 900px) {
+    .section-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .section-heading {
+        gap: 0.65rem;
+    }
+
+    .section-actions {
+        width: 100%;
+    }
+
+    .accounts-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        gap: 0.45rem;
+        overflow: hidden;
+    }
+
+    .account-search {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .account-search .input-search-sm {
+        width: 100%;
+        min-width: 0;
+        height: 32px;
+        padding-right: 0.5rem;
+    }
+
+    .accounts-actions .btn {
+        flex: 0 0 32px;
+        width: 32px;
+        min-width: 32px;
+        height: 32px;
+        min-height: 32px;
+        padding: 0;
+        gap: 0;
+    }
+
+    .accounts-actions .action-label {
+        display: none;
+    }
+
+    .metrics-range-controls {
+        justify-content: flex-start;
+        overflow-x: auto;
+    }
+
+    .logs-count-strip {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+
     .dashboard-test-grid {
         grid-template-columns: 1fr;
     }
@@ -2413,77 +2476,12 @@ dialog::backdrop,
         padding: 1rem;
     }
 
-    .section-header {
-        align-items: stretch;
-    }
-
-    .section-heading {
-        gap: 0.65rem;
-    }
-
     .section-heading > .rounded-full {
         display: none;
     }
 
-    .section-actions {
-        width: 100%;
-    }
-
-    .accounts-actions {
-        display: flex;
-        flex-wrap: nowrap;
-        justify-content: flex-start;
-        gap: 0.4rem;
-        overflow: hidden;
-    }
-
-    .account-search {
-        flex: 1 1 auto;
-        min-width: 0;
-    }
-
-    .account-search .input-search-sm {
-        width: 100%;
-        min-width: 0;
-        height: 30px;
-        padding-right: 0.5rem;
-    }
-
-    .accounts-actions .btn {
-        flex: 0 0 30px;
-        width: 30px;
-        min-width: 30px;
-        height: 30px;
-        min-height: 30px;
-        padding: 0;
-        gap: 0;
-    }
-
-    .accounts-actions .action-label {
-        display: none;
-    }
-
-    .account-count-pill {
-        flex: 0 0 auto;
-        justify-content: center;
-        height: 30px;
-        min-width: 2rem;
-        padding: 0 0.45rem;
-        margin-left: 0 !important;
-    }
-
     .account-count-word {
         display: none;
-    }
-
-    .metrics-range-controls {
-        justify-content: flex-start;
-        overflow-x: auto;
-    }
-
-    .logs-count-strip {
-        flex-wrap: nowrap;
-        overflow-x: auto;
     }
 
     .app-main {
