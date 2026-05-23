@@ -91,6 +91,13 @@ test('POST /settings/haiku-model is disabled by default', { skip: shouldSkip }, 
   assert.ok(String(json?.error || '').includes('Kilo routing is disabled'));
 });
 
+test('GET /settings/account-strategy reports rotation disabled by default', { skip: shouldSkip }, async () => {
+  const { status, json, text } = await getJson('/settings/account-strategy');
+  assert.equal(status, 200, `Expected 200, got ${status}: ${text}`);
+  assert.equal(json?.success, true);
+  assert.equal(json?.rotationEnabled, false);
+});
+
 test('POST /claude/config/direct validates API key required', { skip: shouldSkip }, async () => {
   const { status, json } = await postJson('/claude/config/direct', {});
   assert.equal(status, 400);

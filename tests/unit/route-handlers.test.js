@@ -29,7 +29,7 @@ function mockReq(body = {}, params = {}, query = {}) {
 
 // ─── settings-route ───────────────────────────────────────────────────────────
 
-import { handleGetHaikuModel, handleSetHaikuModel } from '../../src/routes/settings-route.js';
+import { handleGetHaikuModel, handleSetHaikuModel, handleGetAccountStrategy } from '../../src/routes/settings-route.js';
 
 test('handleGetHaikuModel: returns current haikuKiloModel', () => {
   const req = mockReq();
@@ -62,6 +62,14 @@ test('handleSetHaikuModel: rejects non-string model with 400', async () => {
   await handleSetHaikuModel(req, res);
   assert.equal(res._status, 400);
   assert.equal(res._body.success, false);
+});
+
+test('handleGetAccountStrategy: reports multi-account rotation disabled by default', () => {
+  const req = mockReq();
+  const res = mockRes();
+  handleGetAccountStrategy(req, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.rotationEnabled, false);
 });
 
 // ─── claude-config-route ──────────────────────────────────────────────────────

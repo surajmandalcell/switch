@@ -1,12 +1,12 @@
 import { sendMessageStream, sendMessage } from '../direct-api.js';
 import { sendKiloMessageStream, sendKiloMessage } from '../kilo-api.js';
 import { DEFAULT_OPENAI_MODEL, isKiloEnabled, resolveModelRouting } from '../model-mapper.js';
-import { sendAuthError, getCredentialsForAccount } from '../middleware/credentials.js';
+import { sendAuthError, getCredentialsOrError, getCredentialsForAccount } from '../middleware/credentials.js';
 import { initSSEResponse, pipeSSEStream, handleStreamError } from '../middleware/sse.js';
 import { logger } from '../utils/logger.js';
 import { AccountRotator } from '../account-rotation/index.js';
 import { listAccounts, getActiveAccount, save } from '../account-manager.js';
-import { getServerSettings } from '../server-settings.js';
+import { getServerSettings, isMultiAccountRotationEnabled } from '../server-settings.js';
 
 const MAX_RETRIES = 5;
 const MAX_WAIT_BEFORE_ERROR_MS = 120000;
@@ -54,6 +54,25 @@ export async function handleMessages(req, res) {
         return isStreaming
             ? _streamKilo(res, { ...body, model: upstreamModel }, kiloTarget, requestedModel, startTime)
             : _sendKilo(res, { ...body, model: upstreamModel }, kiloTarget, requestedModel, startTime);
+    }
+
+    if (!isMultiAccountRotationEnabled()) {
+        const creds = await getCredentialsOrError();
+        if (!creds) {
+            return sendAuthError(res);
+        }
+
+        const anthropicRequest = { ...body, model: upstreamModel };
+        try {
+            if (isStreaming) {
+                await _streamDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, null);
+            } else {
+                await _sendDirectWithRotation(res, anthropicRequest, creds, requestedModel, startTime, null);
+            }
+            return;
+        } catch (error) {
+            return handleStreamError(res, error, requestedModel, startTime);
+        }
     }
     
     const rotator = getAccountRotator();

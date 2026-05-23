@@ -56,6 +56,7 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
   for (const needle of [
     "Alpine.data('app'",
     'activeTab',
+    'multiAccountRotationEnabled',
     'refreshAccounts()',
     'checkHealth()',
     'startLogStream()',

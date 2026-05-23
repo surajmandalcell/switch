@@ -14,7 +14,7 @@ startServer({ port: PORT, host: HOST });
 
 console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║                 Codex Claude Proxy v1.0.5                    ║
+║                 Codex Claude Proxy v1.0.6                    ║
 ║                   (Direct API Mode)                          ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server:   http://${HOST}:${PORT}                          ║
@@ -31,7 +31,7 @@ console.log(`
 ╠══════════════════════════════════════════════════════════════╣
 ║  Support:                                                    ║
 ║    ★ Give it a star on GitHub!                               ║
-║    https://github.com/Ayush-Kotlin-Dev/codex-claude-proxy    ║
+║    https://github.com/surajmandalcell/codex-claude-proxy     ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
 

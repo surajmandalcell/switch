@@ -25,7 +25,7 @@
     ```
 
 ## Key Benefits
-- **Multi-Account**: Proxy handles rate limits by switching ChatGPT accounts.
+- **Personal Account Mode**: Proxy uses the active local ChatGPT account by default.
 - **SSE Streaming**: Full real-time response support.
 - **Tool Calling**: Native support for agentic workflows.
 

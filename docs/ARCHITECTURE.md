@@ -120,6 +120,10 @@ Claude model names are automatically mapped:
 
 Kilo routing is explicit and disabled unless `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. The `/settings/haiku-model` endpoints choose the Kilo target used when the requested model is `kilo`.
 
+## Account Selection
+
+The default execution mode is personal local use: `/v1/messages` uses the active account only and does not rotate across configured accounts. Multi-account rotation is disabled unless `CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTATION=true` is set.
+
 ## Data Storage
 
 Account and configuration files are stored under your home directory (platform-specific). See `docs/ACCOUNTS.md` and `docs/CLAUDE_INTEGRATION.md` for details.

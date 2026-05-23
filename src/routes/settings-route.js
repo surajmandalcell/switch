@@ -8,7 +8,7 @@
  *   GET  /settings/kilo-models
  */
 
-import { getServerSettings, setServerSettings } from '../server-settings.js';
+import { getServerSettings, isMultiAccountRotationEnabled, setServerSettings } from '../server-settings.js';
 import { fetchFreeModels } from '../kilo-models.js';
 import { isKiloEnabled } from '../model-mapper.js';
 
@@ -105,7 +105,11 @@ export async function handleGetKiloModels(req, res) {
  */
 export function handleGetAccountStrategy(req, res) {
   const settings = getServerSettings();
-  res.json({ success: true, accountStrategy: settings.accountStrategy });
+  res.json({
+    success: true,
+    accountStrategy: settings.accountStrategy,
+    rotationEnabled: isMultiAccountRotationEnabled()
+  });
 }
 
 /**
@@ -123,7 +127,11 @@ export function handleSetAccountStrategy(req, res) {
   }
 
   const settings = setServerSettings({ accountStrategy });
-  res.json({ success: true, accountStrategy: settings.accountStrategy });
+  res.json({
+    success: true,
+    accountStrategy: settings.accountStrategy,
+    rotationEnabled: isMultiAccountRotationEnabled()
+  });
 }
 
 export default { 

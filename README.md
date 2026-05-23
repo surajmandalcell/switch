@@ -4,10 +4,16 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-blue.svg)](https://nodejs.org/)
-[![GitHub stars](https://img.shields.io/github/stars/Ayush-Kotlin-Dev/codex-claude-proxy?style=social)](https://github.com/Ayush-Kotlin-Dev/codex-claude-proxy)
+[![GitHub stars](https://img.shields.io/github/stars/surajmandalcell/codex-claude-proxy?style=social)](https://github.com/surajmandalcell/codex-claude-proxy)
 
 > **Use Claude Code CLI with the power of ChatGPT Codex models.**
 > A local proxy that translates Anthropic API requests into ChatGPT Codex calls, enabling you to use the `claude` CLI tool with your ChatGPT Free/Plus/Pro subscription.
+
+| Maintainer | Details |
+| --- | --- |
+| Maintainer | Suraj Mandal |
+| GitHub | [surajmandalcell](https://github.com/surajmandalcell) |
+| Contact | [surajmandalcell@gmail.com](mailto:surajmandalcell@gmail.com) |
 
 ---
 
@@ -15,19 +21,20 @@
 
 - **Seamless Translation**: Translates Anthropic Messages API calls to ChatGPT Codex format.
 - **Model Mapping**: maps Claude model aliases to current OpenAI models, with direct GPT model IDs passed through.
-- **Multi-Account Support**: Manage multiple ChatGPT accounts with easy switching and auto-refresh.
+- **Personal Account Mode**: Uses the active ChatGPT account by default for local-only personal use, with account switching and auto-refresh.
 - **Web Dashboard**: Built-in UI (`http://localhost:8081`) for managing accounts, viewing logs, and testing prompts.
 - **Streaming Support**: Full Server-Sent Events (SSE) support for real-time responses.
 - **Native Tool Calling**: Supports Claude's tool use capabilities by translating them to Codex function calls.
 
 ---
 
-## � Security & Privacy
+## Security & Privacy
 
 **Is this a malicious proxy? No.**
 
 - **Local Execution**: This server binds to `127.0.0.1` by default.
 - **Direct Communication by Default**: Claude and GPT model requests connect directly to OpenAI/ChatGPT endpoints.
+- **No Rotation by Default**: Requests use the active account only. Multi-account rotation is disabled unless `CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTATION=true` is set.
 - **Third-Party Opt-In**: The explicit `kilo` model route uses Kilo/OpenRouter-backed free models only when `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. Default routing is OpenAI-only.
 - **Open Source**: The full source code is available here for you to audit.
 - **No Data Collection**: We do not track your prompts, keys, or personal data.
@@ -52,21 +59,17 @@ This tool acts as a "translation layer" between the Claude CLI and ChatGPT's Cod
 
 ---
 
-## �📦 Installation
+## Installation
 
-You don't need to install anything if you just want to run it:
-
-```bash
-# Run directly with npx
-npx codex-claude-proxy@latest start
-```
-
-Or install globally to use the CLI commands anywhere:
+From this checkout, install dependencies and link the local CLI:
 
 ```bash
-npm install -g codex-claude-proxy
-codex-claude-proxy start
+npm install
+npm link
+codex-proxy start
 ```
+
+The legacy `codex-claude-proxy` command remains available after linking or installing this package.
 
 ---
 
@@ -75,7 +78,7 @@ codex-claude-proxy start
 ### 1. Start the Proxy
 
 ```bash
-npx codex-claude-proxy@latest start
+codex-proxy start
 ```
 The server will start at `http://localhost:8081`.
 
@@ -91,10 +94,10 @@ The server will start at `http://localhost:8081`.
 
 ```bash
 # Desktop (opens browser)
-codex-claude-proxy accounts add
+codex-proxy accounts add
 
 # Headless/VM server (manual code input)
-codex-claude-proxy accounts add --no-browser
+codex-proxy accounts add --no-browser
 ```
 
 For **headless/VM servers** without a browser:
@@ -142,6 +145,7 @@ The proxy automatically maps Claude model names to current OpenAI backend models
 ### Web Dashboard
 Visit `http://localhost:8081` to:
 - **Manage Accounts**: Add, remove, or switch active ChatGPT accounts.
+- **Personal Mode**: Requests use the active account only unless multi-account rotation is explicitly enabled by environment variable.
 - **View Logs**: See real-time request/response logs for debugging.
 - **Test Models**: Run quick tests against the configured models.
 
@@ -176,7 +180,7 @@ This project is an independent open-source tool and is not affiliated with, endo
 
 <div align="center">
   <p>If you find this project useful, please give it a star! ⭐️</p>
-  <a href="https://github.com/Ayush-Kotlin-Dev/codex-claude-proxy">
-    <img src="https://img.shields.io/github/stars/Ayush-Kotlin-Dev/codex-claude-proxy?style=social" alt="Star on GitHub">
+  <a href="https://github.com/surajmandalcell/codex-claude-proxy">
+    <img src="https://img.shields.io/github/stars/surajmandalcell/codex-claude-proxy?style=social" alt="Star on GitHub">
   </a>
 </div>

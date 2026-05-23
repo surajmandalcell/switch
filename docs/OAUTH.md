@@ -6,13 +6,15 @@ This proxy uses **OAuth 2.0 with PKCE** for secure authentication with ChatGPT.
 
 ### Desktop (Browser)
 ```bash
-codex-claude-proxy accounts add
+codex-proxy accounts add
 ```
 
 ### Headless/VM (No Browser)
 ```bash
-codex-claude-proxy accounts add --no-browser
+codex-proxy accounts add --no-browser
 ```
+
+The legacy `codex-claude-proxy` command remains supported as an alias.
 
 ## Headless/VM Workflow
 
@@ -20,7 +22,7 @@ When running on a server without a browser (VM, Docker, SSH):
 
 1. Run the command with `--no-browser`:
    ```bash
-   codex-claude-proxy accounts add --no-browser
+   codex-proxy accounts add --no-browser
    ```
 
 2. It prints a URL like:
@@ -52,23 +54,23 @@ When running on a server without a browser (VM, Docker, SSH):
 
 - **PKCE**: Secure code exchange with SHA256 challenge
 - **Auto-Refresh**: Tokens refresh automatically before expiry
-- **Multi-Account**: Uses `prompt=login` to force account selection
+- **Account Selection**: Uses `prompt=login` so you can choose the account to add
 - **Headless Support**: Works on servers without browsers
 
 ## Managing Accounts
 
 ```bash
 # List accounts
-codex-claude-proxy accounts list
+codex-proxy accounts list
 
 # Add account (browser)
-codex-claude-proxy accounts add
+codex-proxy accounts add
 
 # Add account (headless)
-codex-claude-proxy accounts add --no-browser
+codex-proxy accounts add --no-browser
 
 # Clear all accounts
-codex-claude-proxy accounts clear
+codex-proxy accounts clear
 ```
 
 ## Troubleshooting
