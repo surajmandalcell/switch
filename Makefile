@@ -4,13 +4,22 @@ NPM ?= npm
 NODE ?= node
 HOST ?= 127.0.0.1
 PORT ?= 8081
+TEST_HOST ?= 127.0.0.1
+TEST_PORT ?= 28081
+PACK_DIR ?= tmp/release-artifacts
+NPM_ACCESS ?= public
+NPM_TAG ?= latest
 
 PACKAGE_NAME := @smc/codex-proxy
 PRIMARY_BIN := codex-proxy
 LEGACY_BIN := codex-claude-proxy
 NODE_MODULES_STAMP := node_modules/.package-lock.json
+PUBLISH_ARGS := --access $(NPM_ACCESS) --tag $(NPM_TAG)
+ifneq ($(strip $(OTP)),)
+PUBLISH_ARGS += --otp $(OTP)
+endif
 
-.PHONY: dev link start install build test test-all unlink
+.PHONY: dev link start install build test test-all test-all-with-server pack publish-dry-run publish ensure-clean npm-auth unlink
 
 dev: link
 	@echo "Starting $(PACKAGE_NAME) from this git checkout on http://$(HOST):$(PORT)"
@@ -36,6 +45,49 @@ test:
 
 test-all:
 	$(NPM) run test:all
+
+test-all-with-server: $(NODE_MODULES_STAMP)
+	@set -eu; \
+	mkdir -p tmp; \
+	log_file="tmp/test-server.log"; \
+	rm -f "$$log_file"; \
+	HOST=$(TEST_HOST) PORT=$(TEST_PORT) $(NODE) src/index.js > "$$log_file" 2>&1 & \
+	pid=$$!; \
+	trap 'kill $$pid 2>/dev/null || true; wait $$pid 2>/dev/null || true' EXIT INT TERM; \
+	ok=0; \
+	i=0; \
+	while [ $$i -lt 20 ]; do \
+		if curl -fsS "http://$(TEST_HOST):$(TEST_PORT)/health" >/dev/null 2>&1; then ok=1; break; fi; \
+		i=$$((i + 1)); \
+		sleep 0.5; \
+	done; \
+	if [ "$$ok" -ne 1 ]; then \
+		echo "Server did not start on http://$(TEST_HOST):$(TEST_PORT)"; \
+		cat "$$log_file"; \
+		exit 1; \
+	fi; \
+	ROUTING_TEST_BASE_URL="http://$(TEST_HOST):$(TEST_PORT)" UI_TEST_URL="http://$(TEST_HOST):$(TEST_PORT)/" $(NPM) run test:all
+
+ensure-clean:
+	@if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$$(git ls-files --others --exclude-standard)" ]; then \
+		echo "Working tree must be clean before packing or publishing."; \
+		git status --short; \
+		exit 1; \
+	fi
+
+npm-auth:
+	@$(NPM) whoami >/dev/null
+
+pack: ensure-clean build
+	@mkdir -p $(PACK_DIR)
+	@rm -f $(PACK_DIR)/*.tgz
+	$(NPM) pack --pack-destination $(PACK_DIR)
+
+publish-dry-run: ensure-clean build test-all-with-server
+	$(NPM) publish --dry-run $(PUBLISH_ARGS)
+
+publish: ensure-clean npm-auth build test-all-with-server
+	$(NPM) publish $(PUBLISH_ARGS)
 
 unlink:
 	-$(NPM) unlink -g $(PACKAGE_NAME)
