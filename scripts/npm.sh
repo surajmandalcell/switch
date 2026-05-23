@@ -20,7 +20,8 @@ usage() {
 Usage: scripts/npm.sh <command>
 
 Commands:
-  update   Bump package version, verify, and commit the release bump.
+  update [patch|minor|major|VERSION]
+           Bump package version, verify, and commit the release bump.
   publish  Verify, login if needed, and publish to npm.
 
 Environment:
@@ -112,11 +113,50 @@ writeFileSync(file, next);
 NODE
 }
 
+resolve_update_version_arg() {
+  if [ "$#" -gt 1 ]; then
+    echo "update accepts at most one version argument." >&2
+    usage >&2
+    exit 2
+  fi
+
+  local requested="${1:-}"
+  case "$requested" in
+    --*)
+      echo "Unknown update option: $requested" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+
+  if [ -n "${VERSION:-}" ]; then
+    if [ -n "$requested" ] || [ -n "${LEVEL:-}" ]; then
+      echo "Use VERSION by itself, without LEVEL or an update argument." >&2
+      exit 2
+    fi
+    printf '%s\n' "$VERSION"
+    return
+  fi
+
+  if [ -n "$requested" ]; then
+    if [ -n "${LEVEL:-}" ]; then
+      echo "Use either LEVEL or an update argument, not both." >&2
+      exit 2
+    fi
+    printf '%s\n' "$requested"
+    return
+  fi
+
+  printf '%s\n' "${LEVEL:-patch}"
+}
+
 cmd_update() {
+  local version_arg
+  version_arg="$(resolve_update_version_arg "$@")"
+
   ensure_clean
   install_deps
 
-  local version_arg="${VERSION:-${LEVEL:-patch}}"
   "$NPM" version "$version_arg" --no-git-tag-version
 
   local version
@@ -148,7 +188,8 @@ cmd_publish() {
 
 case "${1:-}" in
   update)
-    cmd_update
+    shift
+    cmd_update "$@"
     ;;
   publish)
     cmd_publish
