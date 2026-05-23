@@ -9,17 +9,22 @@ TEST_PORT ?= 28081
 PACK_DIR ?= tmp/release-artifacts
 NPM_ACCESS ?= public
 NPM_TAG ?= latest
+NPM_SCOPE ?= @smc
+NPM_REGISTRY ?= https://registry.npmjs.org/
+NPM_AUTH_TYPE ?= web
 
 PACKAGE_NAME := @smc/codex-proxy
 PRIMARY_BIN := codex-proxy
 LEGACY_BIN := codex-claude-proxy
 NODE_MODULES_STAMP := node_modules/.package-lock.json
+REGISTRY_ARGS := --registry=$(NPM_REGISTRY)
+LOGIN_ARGS := --scope=$(NPM_SCOPE) $(REGISTRY_ARGS) --auth-type=$(NPM_AUTH_TYPE)
 PUBLISH_ARGS := --access $(NPM_ACCESS) --tag $(NPM_TAG)
 ifneq ($(strip $(OTP)),)
 PUBLISH_ARGS += --otp $(OTP)
 endif
 
-.PHONY: dev link start install build test test-all test-all-with-server pack publish-dry-run publish ensure-clean npm-auth unlink
+.PHONY: dev link start install build test test-all test-all-with-server pack publish-dry-run publish ensure-clean npm-login login npm-logout npm-whoami npm-auth unlink
 
 dev: link
 	@echo "Starting $(PACKAGE_NAME) from this git checkout on http://$(HOST):$(PORT)"
@@ -75,8 +80,21 @@ ensure-clean:
 		exit 1; \
 	fi
 
+npm-login login:
+	$(NPM) login $(LOGIN_ARGS)
+
+npm-logout:
+	$(NPM) logout --scope=$(NPM_SCOPE) $(REGISTRY_ARGS)
+
+npm-whoami:
+	$(NPM) whoami $(REGISTRY_ARGS)
+
 npm-auth:
-	@$(NPM) whoami >/dev/null
+	@if ! $(NPM) whoami $(REGISTRY_ARGS) >/dev/null; then \
+		echo "Not logged in to $(NPM_REGISTRY) for publishing $(PACKAGE_NAME)."; \
+		echo "Run: make npm-login"; \
+		exit 1; \
+	fi
 
 pack: ensure-clean build
 	@mkdir -p $(PACK_DIR)
@@ -84,10 +102,10 @@ pack: ensure-clean build
 	$(NPM) pack --pack-destination $(PACK_DIR)
 
 publish-dry-run: ensure-clean build test-all-with-server
-	$(NPM) publish --dry-run $(PUBLISH_ARGS)
+	$(NPM) publish --dry-run $(PUBLISH_ARGS) $(REGISTRY_ARGS)
 
 publish: ensure-clean npm-auth build test-all-with-server
-	$(NPM) publish $(PUBLISH_ARGS)
+	$(NPM) publish $(PUBLISH_ARGS) $(REGISTRY_ARGS)
 
 unlink:
 	-$(NPM) unlink -g $(PACKAGE_NAME)
