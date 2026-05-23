@@ -99,14 +99,14 @@
     <div class="app-shell">
         <main class="app-main flex-1 overflow-auto bg-space-950 relative custom-scrollbar">
             <div x-show="activeTab === 'dashboard'" x-transition class="view-container">
-                <div class="flex items-center justify-between gap-4 mb-6">
-                    <div class="flex flex-wrap items-center gap-4">
+                <div class="section-header flex items-center justify-between gap-4 mb-6">
+                    <div class="section-heading flex flex-wrap items-center gap-4">
                         <h1 class="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
                         <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
                             <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">CHATGPT PROXY SYSTEM</span>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-space-900/60 border border-space-border/40 whitespace-nowrap flex-shrink-0">
+                    <div class="section-actions flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-space-900/60 border border-space-border/40 whitespace-nowrap flex-shrink-0">
                         <div class="relative flex items-center justify-center">
                             <span class="absolute w-1.5 h-1.5 bg-neon-green rounded-full animate-ping opacity-75"></span>
                             <span class="relative w-1.5 h-1.5 bg-neon-green rounded-full"></span>
@@ -266,14 +266,14 @@
             </div>
 
             <div x-show="activeTab === 'metrics'" x-transition class="view-container">
-                <div class="flex items-center justify-between gap-4 mb-6">
-                    <div class="flex flex-wrap items-center gap-4">
+                <div class="section-header flex items-center justify-between gap-4 mb-6">
+                    <div class="section-heading flex flex-wrap items-center gap-4">
                         <h1 class="text-2xl font-bold text-white tracking-tight">Token Usage</h1>
                         <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
                             <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">Request metrics</span>
                         </div>
                     </div>
-                    <div class="metrics-range-controls">
+                    <div class="section-actions metrics-range-controls">
                         <button class="metrics-range-button" :class="{'active': metricsRange === '24h'}" @click="setMetricsRange('24h')">24h</button>
                         <button class="metrics-range-button" :class="{'active': metricsRange === '7d'}" @click="setMetricsRange('7d')">7d</button>
                         <button class="metrics-range-button" :class="{'active': metricsRange === '30d'}" @click="setMetricsRange('30d')">30d</button>
@@ -457,16 +457,16 @@
             </div>
 
             <div x-show="activeTab === 'accounts'" x-transition class="view-container">
-                <div class="flex items-center justify-between gap-4 mb-6">
-                    <div class="flex flex-wrap items-center gap-4">
+                <div class="section-header flex items-center justify-between gap-4 mb-6">
+                    <div class="section-heading flex flex-wrap items-center gap-4">
                         <h1 class="text-2xl font-bold text-white tracking-tight">Accounts</h1>
                         <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
                             <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">ChatGPT accounts</span>
                         </div>
                     </div>
 
-                    <div class="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
-                        <div class="relative" x-show="accounts.length > 0">
+                    <div class="section-actions accounts-actions flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+                        <div class="account-search relative" x-show="accounts.length > 0">
                             <input type="text" x-model="searchQuery" placeholder="Search accounts..."
                                 class="input-search-sm w-48 pl-9 h-8" @keydown.escape="searchQuery = ''">
                             <svg class="w-4 h-4 absolute left-3 top-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -479,11 +479,13 @@
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
                             </svg>
-                            <span>Refresh All</span>
+                            <span class="action-label">Refresh All</span>
                         </button>
 
-                        <div class="flex items-center h-6 px-2 rounded bg-space-800/80 border border-space-border/50 sm:ml-1">
-                            <span class="text-[11px] font-mono text-gray-400" x-text="accounts.length + ' accounts'"></span>
+                        <div class="account-count-pill flex items-center h-6 px-2 rounded bg-space-800/80 border border-space-border/50 sm:ml-1">
+                            <span class="text-[11px] font-mono text-gray-400">
+                                <span x-text="accounts.length"></span><span class="account-count-word" x-text="accounts.length === 1 ? ' account' : ' accounts'"></span>
+                            </span>
                         </div>
 
                         <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white btn-xs gap-2 shadow-lg shadow-neon-purple/20 h-8"
@@ -491,7 +493,7 @@
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
-                            <span>Add Account</span>
+                            <span class="action-label">Add Account</span>
                         </button>
                     </div>
                 </div>
@@ -640,15 +642,15 @@
             </div>
 
             <div x-show="activeTab === 'logs'" x-transition class="view-container logs-view h-full flex flex-col">
-                <div class="flex items-center justify-between gap-4 mb-6">
-                    <div class="flex flex-wrap items-center gap-4">
+                <div class="section-header flex items-center justify-between gap-4 mb-6">
+                    <div class="section-heading flex flex-wrap items-center gap-4">
                         <h1 class="text-2xl font-bold text-white tracking-tight">Server Logs</h1>
                         <div class="log-stream-status" :class="'is-' + logStreamStatus">
                             <span class="log-stream-dot"></span>
                             <span x-text="logStreamStatusText()"></span>
                         </div>
                     </div>
-                    <div class="logs-count-strip">
+                    <div class="section-actions logs-count-strip">
                         <span><strong x-text="filteredLogs.length"></strong> shown</span>
                         <span><strong x-text="logs.length"></strong> total</span>
                     </div>
@@ -720,8 +722,8 @@
             </div>
 
             <div x-show="activeTab === 'settings'" x-transition class="view-container">
-                <div class="flex items-center justify-between gap-4 mb-6">
-                    <div class="flex flex-wrap items-center gap-4">
+                <div class="section-header flex items-center justify-between gap-4 mb-6">
+                    <div class="section-heading flex flex-wrap items-center gap-4">
                         <h1 class="text-2xl font-bold text-white tracking-tight">Settings</h1>
                         <div class="flex items-center h-6 px-3 rounded-full bg-space-800/80 border border-space-border/50 shadow-sm backdrop-blur-sm">
                             <span class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">Server configuration</span>

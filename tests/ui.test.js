@@ -96,6 +96,29 @@ test('Bottom navigation and header use compact non-gradient chrome', async () =>
   }
 });
 
+test('Small-screen action bars use compact non-wrapping controls', async () => {
+  const [htmlRes, cssRes] = await Promise.all([
+    fetch(UI_URL),
+    fetch(new URL('/css/style.css', UI_URL))
+  ]);
+  assert.equal(htmlRes.status, 200);
+  assert.equal(cssRes.status, 200);
+
+  const html = await htmlRes.text();
+  const css = await cssRes.text();
+
+  assert.ok(html.includes('section-header'));
+  assert.ok(html.includes('accounts-actions'));
+  assert.ok(html.includes('account-search'));
+  assert.ok(html.includes('account-count-pill'));
+  assert.ok(html.includes('action-label'));
+  assert.ok(html.includes('account-count-word'));
+  assert.ok(css.includes('.accounts-actions'));
+  assert.ok(css.includes('flex-wrap: nowrap'));
+  assert.ok(css.includes('.accounts-actions .action-label'));
+  assert.ok(css.includes('.account-count-word'));
+});
+
 test('Settings UI includes Claude model mapping controls', async () => {
   const res = await fetch(UI_URL);
   assert.equal(res.status, 200);

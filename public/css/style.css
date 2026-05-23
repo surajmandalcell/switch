@@ -138,6 +138,45 @@ body::before {
     height: 1rem;
 }
 
+.section-header,
+.section-heading,
+.section-actions {
+    min-width: 0;
+}
+
+.section-heading {
+    flex: 1 1 auto;
+}
+
+.section-actions {
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+
+.accounts-actions,
+.logs-count-strip,
+.metrics-range-controls {
+    flex-wrap: nowrap;
+}
+
+.account-search {
+    flex: 0 1 12rem;
+    min-width: 8rem;
+}
+
+.account-search .input-search-sm {
+    width: 100%;
+}
+
+.account-count-pill {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.action-label {
+    white-space: nowrap;
+}
+
 .app-shell {
     height: calc(100vh - var(--app-header-height));
     position: relative;
@@ -2284,6 +2323,10 @@ dialog::backdrop,
         padding: 1.25rem;
     }
 
+    .section-header {
+        gap: 0.75rem;
+    }
+
     .logs-toolbar {
         grid-template-columns: 1fr;
     }
@@ -2370,6 +2413,79 @@ dialog::backdrop,
         padding: 1rem;
     }
 
+    .section-header {
+        align-items: stretch;
+    }
+
+    .section-heading {
+        gap: 0.65rem;
+    }
+
+    .section-heading > .rounded-full {
+        display: none;
+    }
+
+    .section-actions {
+        width: 100%;
+    }
+
+    .accounts-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        gap: 0.4rem;
+        overflow: hidden;
+    }
+
+    .account-search {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .account-search .input-search-sm {
+        width: 100%;
+        min-width: 0;
+        height: 30px;
+        padding-right: 0.5rem;
+    }
+
+    .accounts-actions .btn {
+        flex: 0 0 30px;
+        width: 30px;
+        min-width: 30px;
+        height: 30px;
+        min-height: 30px;
+        padding: 0;
+        gap: 0;
+    }
+
+    .accounts-actions .action-label {
+        display: none;
+    }
+
+    .account-count-pill {
+        flex: 0 0 auto;
+        justify-content: center;
+        height: 30px;
+        min-width: 2rem;
+        padding: 0 0.45rem;
+        margin-left: 0 !important;
+    }
+
+    .account-count-word {
+        display: none;
+    }
+
+    .metrics-range-controls {
+        justify-content: flex-start;
+        overflow-x: auto;
+    }
+
+    .logs-count-strip {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+
     .app-main {
         padding-bottom: 5.25rem;
     }
@@ -2414,10 +2530,6 @@ dialog::backdrop,
     .dashboard-test-grid .btn,
     .view-card > .flex.gap-3 .btn {
         width: 100%;
-    }
-
-    .logs-count-strip {
-        flex-wrap: wrap;
     }
 
     .logs-grid {
