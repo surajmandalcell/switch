@@ -16,6 +16,11 @@ NPM_AUTH_TYPE="${NPM_AUTH_TYPE:-web}"
 NPM_ACCESS="${NPM_ACCESS:-public}"
 NPM_TAG="${NPM_TAG:-latest}"
 
+export GIT_EDITOR="${GIT_EDITOR:-:}"
+export VISUAL="${VISUAL:-:}"
+export EDITOR="${EDITOR:-:}"
+export NPM_CONFIG_EDITOR="${NPM_CONFIG_EDITOR:-:}"
+
 usage() {
   cat <<'EOF'
 Usage: scripts/npm.sh <command>
@@ -185,7 +190,7 @@ cmd_update() {
   test_with_server
   git diff --check
   git add package.json package-lock.json src/index.js
-  git commit -m "Release: bump npm package to v$version"
+  git -c core.editor=: commit -m "Release: bump npm package to v$version"
 }
 
 cmd_publish() {
