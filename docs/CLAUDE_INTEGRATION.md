@@ -82,7 +82,7 @@ Claude Code (Anthropic format)
 
 // Converted to OpenAI Responses API
 {
-  "model": "gpt-5.2-codex",
+  "model": "gpt-5.5",
   "instructions": "You are helpful.",
   "input": [
     {"type": "message", "role": "user", "content": "Hello"},

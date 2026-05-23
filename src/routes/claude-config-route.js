@@ -14,6 +14,7 @@ import {
   setApiEndpoint,
   getClaudeConfigPath
 } from '../claude-config.js';
+import { isAllowedApiEndpoint, redactSensitiveConfig } from '../security.js';
 
 /**
  * GET /claude/config
@@ -23,7 +24,7 @@ export async function handleGetClaudeConfig(req, res) {
   try {
     const config = await readClaudeConfig();
     const configPath = getClaudeConfigPath();
-    res.json({ success: true, configPath, config });
+    res.json({ success: true, configPath, config: redactSensitiveConfig(config) });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -46,7 +47,7 @@ export async function handleSetProxyMode(req, res, { port }) {
     res.json({
       success: true,
       message: `Claude CLI configured to use proxy at ${proxyUrl}`,
-      config
+      config: redactSensitiveConfig(config)
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -67,7 +68,7 @@ export async function handleSetDirectMode(req, res) {
     res.json({
       success: true,
       message: 'Claude CLI configured to use direct Anthropic API',
-      config
+      config: redactSensitiveConfig(config)
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -91,16 +92,21 @@ export async function handleSetClaudeApiEndpoint(req, res) {
     return res.status(400).json({ success: false, error: 'apiUrl must be a valid URL' });
   }
 
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return res.status(400).json({ success: false, error: 'apiUrl must use http or https' });
+  const normalizedApiUrl = parsed.toString().replace(/\/$/, '');
+
+  if (!isAllowedApiEndpoint(normalizedApiUrl)) {
+    return res.status(400).json({
+      success: false,
+      error: 'apiUrl must be a loopback URL unless CODEX_CLAUDE_PROXY_ALLOW_EXTERNAL_ENDPOINTS=true is set'
+    });
   }
 
   try {
-    const config = await setApiEndpoint({ apiUrl: parsed.toString().replace(/\/$/, ''), apiKey });
+    const config = await setApiEndpoint({ apiUrl: normalizedApiUrl, apiKey });
     res.json({
       success: true,
       message: 'Claude CLI API endpoint updated',
-      config
+      config: redactSensitiveConfig(config)
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

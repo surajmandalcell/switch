@@ -14,7 +14,7 @@
 ## 🚀 Features
 
 - **Seamless Translation**: Translates Anthropic Messages API calls to ChatGPT Codex format.
-- **Model Mapping**: automatically maps `claude-sonnet` and `claude-opus` to their Codex equivalents.
+- **Model Mapping**: maps Claude model aliases to current OpenAI models, with direct GPT model IDs passed through.
 - **Multi-Account Support**: Manage multiple ChatGPT accounts with easy switching and auto-refresh.
 - **Web Dashboard**: Built-in UI (`http://localhost:8081`) for managing accounts, viewing logs, and testing prompts.
 - **Streaming Support**: Full Server-Sent Events (SSE) support for real-time responses.
@@ -26,8 +26,9 @@
 
 **Is this a malicious proxy? No.**
 
-- **Local Execution**: This server runs entirely on your local machine (`localhost`).
-- **Direct Communication**: It connects *directly* to OpenAI/ChatGPT endpoints. No data is sent to any third-party server.
+- **Local Execution**: This server binds to `127.0.0.1` by default.
+- **Direct Communication by Default**: Claude and GPT model requests connect directly to OpenAI/ChatGPT endpoints.
+- **Third-Party Opt-In**: The explicit `kilo` model route uses Kilo/OpenRouter-backed free models only when `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. Default routing is OpenAI-only.
 - **Open Source**: The full source code is available here for you to audit.
 - **No Data Collection**: We do not track your prompts, keys, or personal data.
 
@@ -124,14 +125,15 @@ For **headless/VM servers** without a browser:
 
 ## 🧠 Model Mapping
 
-The proxy automatically maps Claude model names to the appropriate Codex backend:
-(You can Change Models from )
+The proxy automatically maps Claude model names to current OpenAI backend models. Direct `gpt-*` model IDs are passed through.
 
-| Claude Model ID | Mapped Codex Model | Auth Required | Description |
+| Requested Model ID | Upstream Model | Auth Required | Description |
 | :--- | :--- | :---: | :--- |
-| `claude-sonnet-4-5` | **GPT-5.2 Codex** | ✅ | Default high-intelligence model |
-| `claude-opus-4-5` | **GPT-5.3 Codex** | ✅ | Maximum reasoning capability |
-| `claude-haiku-4` | Kilo Code (Free) | ❌ | MiniMax M2.5, Qwen3, DeepSeek R1, etc. (No auth needed) |
+| `claude-sonnet-4-5` | `gpt-5.5` | ✅ | Current default high-intelligence model |
+| `claude-opus-4-5` | `gpt-5.5` | ✅ | Current default high-intelligence model |
+| `claude-haiku-4` | `gpt-5.4-mini` | ✅ | OpenAI small-model lane |
+| `codex` | `gpt-5.3-codex` | ✅ | Latest Codex-optimized model |
+| `kilo` | Selected Kilo target | ❌ | Explicit third-party free-model route, disabled unless `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` |
 
 ---
 

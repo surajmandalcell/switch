@@ -10,11 +10,15 @@ import { fetchModels, fetchUsage } from '../model-api.js';
 import { getActiveAccount, loadAccounts } from '../account-manager.js';
 import { logger } from '../utils/logger.js';
 import { getCredentialsOrError } from '../middleware/credentials.js';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_SMALL_OPENAI_MODEL, LATEST_CODEX_MODEL } from '../model-mapper.js';
 
 const FALLBACK_MODELS = [
   // OpenAI upstream models
-  { id: 'gpt-5.3-codex', object: 'model', owned_by: 'openai' },
-  { id: 'gpt-5.2-codex', object: 'model', owned_by: 'openai' },
+  { id: DEFAULT_OPENAI_MODEL, object: 'model', owned_by: 'openai' },
+  { id: 'gpt-5.4', object: 'model', owned_by: 'openai' },
+  { id: DEFAULT_SMALL_OPENAI_MODEL, object: 'model', owned_by: 'openai' },
+  { id: 'gpt-5.4-nano', object: 'model', owned_by: 'openai' },
+  { id: LATEST_CODEX_MODEL, object: 'model', owned_by: 'openai' },
   { id: 'gpt-5.1-codex', object: 'model', owned_by: 'openai' },
   { id: 'gpt-5.2', object: 'model', owned_by: 'openai' },
   // Current Claude 4.6 models

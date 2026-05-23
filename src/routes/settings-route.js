@@ -10,21 +10,26 @@
 
 import { getServerSettings, setServerSettings } from '../server-settings.js';
 import { fetchFreeModels } from '../kilo-models.js';
+import { isKiloEnabled } from '../model-mapper.js';
 
 const VALID_STRATEGIES = ['sticky', 'round-robin'];
 
 /**
  * GET /settings/haiku-model
- * Returns the current Haiku/Kilo model selection.
+ * Returns the current explicit Kilo target selection.
  */
 export function handleGetHaikuModel(req, res) {
   const settings = getServerSettings();
-  res.json({ success: true, haikuKiloModel: settings.haikuKiloModel });
+  res.json({
+    success: true,
+    haikuKiloModel: settings.haikuKiloModel,
+    kiloEnabled: isKiloEnabled()
+  });
 }
 
 /**
  * POST /settings/haiku-model
- * Updates the Haiku/Kilo model selection.
+ * Updates the explicit Kilo target selection.
  * Accepts any model ID string — the UI filters to only show free models.
  */
 export async function handleSetHaikuModel(req, res) {
@@ -34,6 +39,13 @@ export async function handleSetHaikuModel(req, res) {
     return res.status(400).json({
       success: false,
       error: 'haikuKiloModel is required and must be a string'
+    });
+  }
+
+  if (!isKiloEnabled()) {
+    return res.status(403).json({
+      success: false,
+      error: 'Kilo routing is disabled. Set CODEX_CLAUDE_PROXY_ENABLE_KILO=true to enable third-party Kilo model routing.'
     });
   }
 
@@ -53,7 +65,7 @@ export async function handleSetHaikuModel(req, res) {
   }
 
   const settings = setServerSettings({ haikuKiloModel });
-  res.json({ success: true, haikuKiloModel: settings.haikuKiloModel });
+  res.json({ success: true, haikuKiloModel: settings.haikuKiloModel, kiloEnabled: true });
 }
 
 /**
@@ -61,11 +73,21 @@ export async function handleSetHaikuModel(req, res) {
  * Returns the list of free Kilo models from the API.
  */
 export async function handleGetKiloModels(req, res) {
+  const settings = getServerSettings();
+  if (!isKiloEnabled()) {
+    return res.json({
+      success: true,
+      enabled: false,
+      models: [],
+      current: settings.haikuKiloModel
+    });
+  }
+
   try {
     const freeModels = await fetchFreeModels();
-    const settings = getServerSettings();
     res.json({
       success: true,
+      enabled: true,
       models: freeModels,
       current: settings.haikuKiloModel
     });

@@ -12,8 +12,9 @@
         "apiKey": "test",
         "api": "anthropic-messages",
         "models": [
-          { "id": "claude-sonnet-4-5", "name": "GPT-5.2 Codex" },
-          { "id": "claude-opus-4-5", "name": "GPT-5.3 Codex" }
+          { "id": "claude-sonnet-4-5", "name": "GPT-5.5" },
+          { "id": "claude-opus-4-5", "name": "GPT-5.5" },
+          { "id": "gpt-5.3-codex", "name": "GPT-5.3 Codex" }
         ]
       }
     }

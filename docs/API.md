@@ -2,9 +2,9 @@
 
 ## Main Endpoints
 
-### Haiku Routing Settings
+### Kilo Routing Settings
 
-The `claude-haiku-4` (“Haiku”) lane can be configured to route via an alternate provider (e.g. **OpenRouter**) for supported models (e.g. **MiniMax M2.5** / **Kimi K2.5**).
+The explicit `kilo` model route can be configured to use an alternate provider target such as **MiniMax M2.5** or **Kimi K2.5** when `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. Claude Haiku aliases use OpenAI by default.
 
 ```bash
 GET /settings/haiku-model
@@ -12,7 +12,8 @@ GET /settings/haiku-model
 # Response
 {
   "success": true,
-  "haikuKiloModel": "kimi-k2.5"
+  "haikuKiloModel": "minimax/minimax-m2.5:free",
+  "kiloEnabled": false
 }
 ```
 
@@ -27,7 +28,8 @@ Content-Type: application/json
 # Response
 {
   "success": true,
-  "haikuKiloModel": "minimax-2.5"
+  "haikuKiloModel": "minimax-2.5",
+  "kiloEnabled": true
 }
 ```
 
@@ -38,7 +40,7 @@ POST /v1/chat/completions
 Content-Type: application/json
 
 {
-  "model": "gpt-5.2",
+  "model": "gpt-5.5",
   "messages": [{"role": "user", "content": "Hello"}],
   "tools": [...],
   "stream": true

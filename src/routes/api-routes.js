@@ -7,6 +7,7 @@
 import express from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 import { getStatus, ACCOUNTS_FILE } from '../account-manager.js';
 
@@ -34,9 +35,12 @@ import {
 } from './accounts-route.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const alpineDistDir = dirname(require.resolve('alpinejs/dist/cdn.min.js'));
 
 export function registerApiRoutes(app, { port }) {
   // ─── Static Web UI ─────────────────────────────────────────────────────────
+  app.use('/vendor/alpine', express.static(alpineDistDir));
   app.use(express.static(join(__dirname, '..', '..', 'public')));
 
   // ─── Health ────────────────────────────────────────────────────────────────

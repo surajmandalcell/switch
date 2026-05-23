@@ -40,7 +40,7 @@ test('UI Quick Test and Haiku test controls are present', async () => {
 
   // Find the two test panels by their headings.
   assert.ok(html.includes('Quick Test'));
-  assert.ok(html.includes('Haiku (Kilo) Test'));
+  assert.ok(html.includes('Haiku Test'));
 
   // Buttons: labels should remain stable.
   assert.ok(html.includes('>Test<'));

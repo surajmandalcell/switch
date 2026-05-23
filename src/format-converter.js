@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { cleanCacheControl, processAssistantContent, hasUnsignedThinkingBlocks } from './thinking-utils.js';
 import { getCachedSignature, cacheSignature, cacheThinkingSignature, SIGNATURE_CONSTANTS } from './signature-cache.js';
+import { DEFAULT_OPENAI_MODEL } from './model-mapper.js';
 
 const { MIN_SIGNATURE_LENGTH } = SIGNATURE_CONSTANTS;
 
@@ -72,7 +73,7 @@ export function convertAnthropicToResponsesAPI(anthropicRequest) {
     const instructions = extractSystemPrompt(system);
 
     const request = {
-        model: model || 'gpt-5.2-codex',
+        model: model || DEFAULT_OPENAI_MODEL,
         input: convertMessagesToInput(cleanedMessages),
         tools: tools ? convertAnthropicToolsToOpenAI(tools) : [],
         tool_choice: tool_choice || 'auto',

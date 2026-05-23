@@ -306,7 +306,7 @@ function startAutoRefresh() {
         clearInterval(autoRefreshIntervalId);
     }
     
-    setTimeout(async () => {
+    const startupRefreshTimeout = setTimeout(async () => {
         console.log('[AccountManager] Startup: refreshing all account tokens...');
         const data = loadAccounts();
         for (const account of data.accounts) {
@@ -316,6 +316,7 @@ function startAutoRefresh() {
             }
         }
     }, 2000);
+    startupRefreshTimeout.unref?.();
     
     autoRefreshIntervalId = setInterval(async () => {
         const data = loadAccounts();
@@ -327,6 +328,7 @@ function startAutoRefresh() {
             }
         }
     }, TOKEN_REFRESH_INTERVAL_MS);
+    autoRefreshIntervalId.unref?.();
     
     console.log('[AccountManager] Auto-refresh started (every 55 minutes)');
 }

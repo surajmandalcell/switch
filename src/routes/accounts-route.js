@@ -41,7 +41,8 @@ import {
   exchangeCodeForTokens,
   OAUTH_CONFIG,
   extractCodeFromInput,
-  extractAccountInfo
+  extractAccountInfo,
+  getPKCEData
 } from '../oauth.js';
 
 import {
@@ -64,8 +65,8 @@ export function handleAccountStatus(req, res) {
 }
 
 export function handleOAuthCleanup(req, res) {
-  for (const [, server] of activeCallbackServers) {
-    try { server.close(); } catch { /* ignore */ }
+  for (const [, callback] of activeCallbackServers) {
+    try { callback.abort(); } catch { /* ignore */ }
   }
   activeCallbackServers.clear();
   res.json({ success: true, message: 'OAuth servers cleaned up' });
@@ -77,7 +78,6 @@ export async function handleAddAccount(req, res) {
 
   const { verifier } = generatePKCE();
   const state = generateState();
-  const oauthUrl = getAuthorizationUrl(verifier, state, callbackPort);
 
   // Close any existing server on this port
   if (activeCallbackServers.has(callbackPort)) {
@@ -87,8 +87,10 @@ export async function handleAddAccount(req, res) {
   }
 
   let serverResult;
+  let actualPort;
   try {
-    serverResult = startCallbackServer(state, 120000);
+    serverResult = startCallbackServer(state, 120000, { port: callbackPort });
+    actualPort = await serverResult.ready;
   } catch (err) {
     return res.status(500).json({
       error: 'Failed to start OAuth callback server',
@@ -97,47 +99,61 @@ export async function handleAddAccount(req, res) {
     });
   }
 
-  activeCallbackServers.set(callbackPort, serverResult);
+  const oauthUrl = getAuthorizationUrl(verifier, state, actualPort);
+
+  activeCallbackServers.set(actualPort, serverResult);
 
   serverResult.promise
     .then(result => {
-      activeCallbackServers.delete(callbackPort);
+      activeCallbackServers.delete(actualPort);
       if (result?.code) {
-        return exchangeCodeForTokens(result.code, verifier, callbackPort)
+        return exchangeCodeForTokens(result.code, verifier, actualPort)
           .then(async tokens => {
-            const accountInfo = extractAccountInfo(tokens);
+            const accountInfo = _buildAccountInfo(tokens);
             await _upsertAccount(accountInfo);
             logger.info(`Added account: ${accountInfo.email}`);
           });
       }
     })
     .catch(err => {
-      activeCallbackServers.delete(callbackPort);
+      activeCallbackServers.delete(actualPort);
       logger.error(`OAuth token exchange failed: ${err.message}`);
     });
 
   res.json({
     status: 'oauth_url',
     oauth_url: oauthUrl,
-    verifier,
-    state,
-    callback_port: callbackPort
+    callback_port: actualPort
   });
 }
 
 export async function handleAddAccountManual(req, res) {
-  const { code, verifier } = req.body || {};
+  const { code, verifier, port } = req.body || {};
 
   if (!code) {
     return res.status(400).json({ success: false, error: 'Code is required' });
   }
 
   try {
-    const { code: extractedCode } = extractCodeFromInput(code);
-    const tokens = await exchangeCodeForTokens(extractedCode, verifier);
-    const accountInfo = extractAccountInfo(tokens);
+    const { code: extractedCode, state, port: callbackUrlPort } = extractCodeFromInput(code);
+    const pkceData = state ? getPKCEData(state) : null;
+    const codeVerifier = verifier || pkceData?.verifier;
+    const callbackPort = port || callbackUrlPort || pkceData?.port || OAUTH_CONFIG.callbackPort;
+
+    if (!codeVerifier) {
+      return res.status(400).json({
+        success: false,
+        error: 'Verifier is required unless a callback URL with a valid state is provided'
+      });
+    }
+
+    const tokens = await exchangeCodeForTokens(extractedCode, codeVerifier, callbackPort);
+    const accountInfo = _buildAccountInfo(tokens);
 
     await _upsertAccount(accountInfo);
+    const callback = activeCallbackServers.get(callbackPort);
+    if (callback?.abort) callback.abort();
+    activeCallbackServers.delete(callbackPort);
     logger.info(`Added account via manual OAuth: ${accountInfo.email}`);
     res.json({ success: true, message: `Account ${accountInfo.email} added successfully` });
   } catch (err) {
@@ -256,6 +272,10 @@ export async function handleGetAllQuotas(req, res) {
  * @param {object} accountInfo
  */
 async function _upsertAccount(accountInfo) {
+  if (!accountInfo?.email) {
+    throw new Error('OAuth response did not include account email');
+  }
+
   const data = loadAccounts();
   const existingIndex = data.accounts.findIndex(a => a.email === accountInfo.email);
 
@@ -277,6 +297,22 @@ async function _upsertAccount(accountInfo) {
   } catch (err) {
     logger.warn(`Failed to fetch initial quota for ${accountInfo.email}: ${err.message}`);
   }
+}
+
+function _buildAccountInfo(tokens) {
+  const tokenInfo = extractAccountInfo(tokens.accessToken);
+  return {
+    email: tokenInfo?.email || 'unknown',
+    accountId: tokenInfo?.accountId,
+    planType: tokenInfo?.planType || 'free',
+    userId: tokenInfo?.userId,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    idToken: tokens.idToken,
+    expiresAt: tokenInfo?.expiresAt || (Date.now() + tokens.expiresIn * 1000),
+    addedAt: new Date().toISOString(),
+    lastUsed: null
+  };
 }
 
 export default {

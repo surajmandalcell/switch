@@ -16,6 +16,7 @@ document.addEventListener('alpine:init', () => {
         accountStrategy: 'sticky',
         haikuModelSaving: false,
         strategySaving: false,
+        kiloEnabled: false,
         kiloModels: [],
         kiloModelsLoading: false,
 
@@ -27,7 +28,7 @@ document.addEventListener('alpine:init', () => {
         
         oauthManualMode: false,
         oauthManualUrl: '',
-        oauthManualVerifier: '',
+        oauthManualPort: null,
         oauthManualCode: '',
         
         testPrompt: 'Say hello',
@@ -39,6 +40,7 @@ document.addEventListener('alpine:init', () => {
         haikuTesting: false,
 
         haikuModelLabel() {
+            if (!this.kiloEnabled) return 'gpt-5.4-mini';
             const model = this.kiloModels.find(m => m.id === this.haikuKiloModel);
             return model ? model.name : this.haikuKiloModel;
         },
@@ -93,7 +95,6 @@ document.addEventListener('alpine:init', () => {
             this.startLogStream();
             this.loadHaikuModelSetting();
             this.loadAccountStrategySetting();
-            this.loadKiloModels();
 
             window.addEventListener('resize', () => {
                 this.sidebarOpen = window.innerWidth >= 1024;
@@ -305,7 +306,7 @@ document.addEventListener('alpine:init', () => {
             
             if (ok && data.oauth_url) {
                 this.oauthManualUrl = data.oauth_url;
-                this.oauthManualVerifier = data.verifier;
+                this.oauthManualPort = data.callback_port || null;
                 this.oauthManualCode = '';
                 this.oauthManualMode = true;
             } else {
@@ -320,7 +321,7 @@ document.addEventListener('alpine:init', () => {
                 method: 'POST',
                 body: JSON.stringify({
                     code: this.oauthManualCode,
-                    verifier: this.oauthManualVerifier
+                    port: this.oauthManualPort
                 })
             });
             
@@ -416,7 +417,7 @@ document.addEventListener('alpine:init', () => {
             const { ok, data } = await this.api('/v1/chat/completions', {
                 method: 'POST',
                 body: JSON.stringify({
-                    model: 'gpt-5.2',
+                    model: 'gpt-5.5',
                     messages: [{ role: 'user', content: this.testPrompt }]
                 })
             });
@@ -433,12 +434,23 @@ document.addEventListener('alpine:init', () => {
             if (ok && data?.haikuKiloModel) {
                 this.haikuKiloModel = data.haikuKiloModel;
             }
+            this.kiloEnabled = Boolean(data?.kiloEnabled);
+            if (this.kiloEnabled) {
+                await this.loadKiloModels();
+            }
         },
 
         async loadKiloModels() {
+            if (!this.kiloEnabled) {
+                this.kiloModels = [];
+                return;
+            }
             this.kiloModelsLoading = true;
             const { ok, data } = await this.api('/settings/kilo-models');
-            if (ok && data?.models) {
+            if (ok && data?.enabled === false) {
+                this.kiloEnabled = false;
+                this.kiloModels = [];
+            } else if (ok && data?.models) {
                 this.kiloModels = data.models;
                 if (data.current) {
                     this.haikuKiloModel = data.current;
@@ -457,9 +469,9 @@ document.addEventListener('alpine:init', () => {
             this.haikuModelSaving = false;
             if (ok && data?.haikuKiloModel) {
                 this.haikuKiloModel = data.haikuKiloModel;
-                this.showToast(`Haiku routed to ${data.haikuKiloModel.toUpperCase()}`, 'success');
+                this.showToast(`Kilo target set to ${data.haikuKiloModel.toUpperCase()}`, 'success');
             } else {
-                this.showToast(data?.error || 'Failed to update Haiku model', 'error');
+                this.showToast(data?.error || 'Failed to update Kilo model', 'error');
             }
         },
 

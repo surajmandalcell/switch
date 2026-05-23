@@ -40,7 +40,7 @@ async function getJson(path) {
   return { status: response.status, json, text };
 }
 
-test('routes claude-haiku-4 to kilo without auth', { skip: shouldSkip }, async () => {
+test('routes claude-haiku-4 through OpenAI account path by default', { skip: shouldSkip }, async () => {
   const payload = {
     model: 'claude-haiku-4',
     max_tokens: 8,
@@ -49,20 +49,25 @@ test('routes claude-haiku-4 to kilo without auth', { skip: shouldSkip }, async (
   };
 
   const { status, json, text } = await postJson('/v1/messages', payload);
-  assert.equal(status, 200, `Expected 200, got ${status}: ${text}`);
-  assert.equal(json?.type, 'message');
-  assert.equal(json?.model, 'claude-haiku-4');
-  assert.ok(Array.isArray(json?.content));
+  assert.ok([200, 401].includes(status), `Unexpected status ${status}: ${text}`);
+  if (status === 401) {
+    assert.equal(json?.error?.type, 'authentication_error');
+  } else {
+    assert.equal(json?.type, 'message');
+    assert.equal(json?.model, 'claude-haiku-4');
+    assert.ok(Array.isArray(json?.content));
+  }
 });
 
-test('switches haiku kilo model via settings endpoint', { skip: shouldSkip }, async () => {
+test('kilo target settings are disabled by default', { skip: shouldSkip }, async () => {
   const setRes = await postJson('/settings/haiku-model', { haikuKiloModel: 'minimax-2.5' });
-  assert.equal(setRes.status, 200);
-  assert.equal(setRes.json?.haikuKiloModel, 'minimax-2.5');
+  assert.equal(setRes.status, 403);
+  assert.equal(setRes.json?.success, false);
+  assert.equal(setRes.json?.error.includes('Kilo routing is disabled'), true);
 
   const getRes = await getJson('/settings/haiku-model');
   assert.equal(getRes.status, 200);
-  assert.equal(getRes.json?.haikuKiloModel, 'minimax-2.5');
+  assert.equal(getRes.json?.kiloEnabled, false);
 });
 
 function startLogListener() {
@@ -93,7 +98,7 @@ function startLogListener() {
   return { req, logs };
 }
 
-test('logs show kilo and codex routing', { skip: shouldSkip }, async () => {
+test('logs do not show implicit Kilo routing for haiku aliases', { skip: shouldSkip }, async () => {
   const listener = startLogListener();
 
   const haikuPayload = {
@@ -119,13 +124,9 @@ test('logs show kilo and codex routing', { skip: shouldSkip }, async () => {
     .map((entry) => entry?.message)
     .filter(Boolean);
 
-  assert.ok(
-    messages.some((msg) => msg.includes('model=moonshotai/kimi-k2.5:free') || msg.includes('model=minimax/minimax-m2.5:free')),
-    `Expected kilo model log, got: ${messages.join(' | ')}`
-  );
-
-  assert.ok(
-    messages.some((msg) => msg.includes('model=gpt-5.3-codex')),
-    `Expected codex model log, got: ${messages.join(' | ')}`
+  assert.equal(
+    messages.some((msg) => msg.includes('model=moonshotai/') || msg.includes('model=minimax/')),
+    false,
+    `Expected no implicit Kilo model log, got: ${messages.join(' | ')}`
   );
 });

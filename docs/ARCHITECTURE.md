@@ -101,9 +101,11 @@ codex-claude-proxy/
 
 | Model | Description |
 |-------|-------------|
-| `gpt-5.3-codex` | Latest agentic coding model |
-| `gpt-5.2-codex` | Frontier agentic coding model |
-| `gpt-5.2` | General-purpose frontier model |
+| `gpt-5.5` | Current OpenAI flagship model |
+| `gpt-5.4` | Current lower-cost frontier model |
+| `gpt-5.4-mini` | Current small OpenAI model |
+| `gpt-5.3-codex` | Latest Codex-optimized model |
+| `gpt-5.2` | Older general-purpose frontier model |
 
 ## Model Mapping
 
@@ -111,11 +113,12 @@ Claude model names are automatically mapped:
 
 | Claude Model | Codex Model |
 |--------------|-------------|
-| `claude-opus-4-5` | `gpt-5.3-codex` |
-| `claude-sonnet-4-5` | `gpt-5.2` |
-| `claude-haiku-4` | routed by server setting |
+| `claude-opus-4-5` | `gpt-5.5` |
+| `claude-sonnet-4-5` | `gpt-5.5` |
+| `claude-haiku-4` | `gpt-5.4-mini` |
+| `kilo` | selected Kilo target, disabled by default |
 
-Haiku routing is controlled by a server-wide setting (`/settings/haiku-model`).
+Kilo routing is explicit and disabled unless `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. The `/settings/haiku-model` endpoints choose the Kilo target used when the requested model is `kilo`.
 
 ## Data Storage
 

@@ -84,11 +84,11 @@ test('POST /accounts/switch validates email required', { skip: shouldSkip }, asy
   assert.equal(json?.message, 'Email is required');
 });
 
-test('POST /settings/haiku-model rejects invalid model', { skip: shouldSkip }, async () => {
+test('POST /settings/haiku-model is disabled by default', { skip: shouldSkip }, async () => {
   const { status, json } = await postJson('/settings/haiku-model', { haikuKiloModel: 'nope' });
-  assert.equal(status, 400);
+  assert.equal(status, 403);
   assert.equal(json?.success, false);
-  assert.ok(String(json?.error || '').includes('Invalid haikuKiloModel'));
+  assert.ok(String(json?.error || '').includes('Kilo routing is disabled'));
 });
 
 test('POST /claude/config/direct validates API key required', { skip: shouldSkip }, async () => {
@@ -150,7 +150,7 @@ test('POST /v1/messages (non-kilo) returns either 200 (configured) or 401 (no ac
   }
 });
 
-test('POST /v1/messages (kilo) returns 200 and message payload', { skip: shouldSkip }, async () => {
+test('POST /v1/messages (haiku alias) returns either 200 (configured) or 401 (no account)', { skip: shouldSkip }, async () => {
   const payload = {
     model: 'claude-haiku-4',
     max_tokens: 8,
@@ -159,10 +159,14 @@ test('POST /v1/messages (kilo) returns 200 and message payload', { skip: shouldS
   };
 
   const { status, json, text } = await postJson('/v1/messages', payload);
-  assert.equal(status, 200, `Expected 200, got ${status}: ${text}`);
-  assert.equal(json?.type, 'message');
-  assert.equal(json?.model, 'claude-haiku-4');
-  assert.ok(Array.isArray(json?.content));
+  assert.ok([200, 401].includes(status), `Unexpected status ${status}: ${text}`);
+  if (status === 401) {
+    assert.equal(json?.error?.type, 'authentication_error');
+  } else {
+    assert.equal(json?.type, 'message');
+    assert.equal(json?.model, 'claude-haiku-4');
+    assert.ok(Array.isArray(json?.content));
+  }
 });
 
 test('GET /api/logs returns status ok and logs array', { skip: shouldSkip }, async () => {

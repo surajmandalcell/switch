@@ -3,19 +3,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const baseUrl = process.env.ROUTING_TEST_BASE_URL || 'http://localhost:8081';
+const base = new URL(baseUrl);
+const localhostOrigin = `http://localhost:${base.port || '80'}`;
+const loopbackOrigin = `http://127.0.0.1:${base.port || '80'}`;
 
 test('CORS: Allows localhost origin', async () => {
   const res = await fetch(`${baseUrl}/health`, {
     method: 'OPTIONS',
     headers: {
-      'Origin': 'http://localhost:8081',
+      'Origin': localhostOrigin,
       'Access-Control-Request-Method': 'GET'
     }
   });
   
   // CORS middleware should respond with appropriate headers for allowed origin
   assert.equal(res.status, 204);
-  assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:8081');
+  assert.equal(res.headers.get('access-control-allow-origin'), localhostOrigin);
   assert.equal(res.headers.get('access-control-allow-methods'), 'GET,POST,PUT,DELETE,OPTIONS');
 });
 
@@ -23,13 +26,13 @@ test('CORS: Allows 127.0.0.1 origin', async () => {
   const res = await fetch(`${baseUrl}/health`, {
     method: 'OPTIONS',
     headers: {
-      'Origin': 'http://127.0.0.1:8081',
+      'Origin': loopbackOrigin,
       'Access-Control-Request-Method': 'GET'
     }
   });
 
   assert.equal(res.status, 204);
-  assert.equal(res.headers.get('access-control-allow-origin'), 'http://127.0.0.1:8081');
+  assert.equal(res.headers.get('access-control-allow-origin'), loopbackOrigin);
 });
 
 test('CORS: Blocks external origin (malicious-site.com)', async () => {

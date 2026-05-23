@@ -6,7 +6,7 @@
 
 import { sendMessage } from '../direct-api.js';
 import { sendKiloMessage } from '../kilo-api.js';
-import { resolveModelRouting } from '../model-mapper.js';
+import { DEFAULT_OPENAI_MODEL, isKiloEnabled, resolveModelRouting } from '../model-mapper.js';
 import { getCredentialsOrError, sendAuthError } from '../middleware/credentials.js';
 import { handleStreamError } from '../middleware/sse.js';
 import { logger } from '../utils/logger.js';
@@ -19,9 +19,19 @@ import { logger } from '../utils/logger.js';
 export async function handleChatCompletion(req, res) {
   const startTime = Date.now();
   const body = req.body;
-  const requestedModel = body.model || 'gpt-5.2';
+  const requestedModel = body.model || DEFAULT_OPENAI_MODEL;
 
   const { isKilo, kiloTarget, upstreamModel } = resolveModelRouting(requestedModel);
+
+  if (isKilo && !isKiloEnabled()) {
+    return res.status(403).json({
+      error: {
+        message: 'Kilo routing is disabled. Set CODEX_CLAUDE_PROXY_ENABLE_KILO=true to enable third-party Kilo model routing.',
+        type: 'invalid_request_error',
+        code: 'kilo_disabled'
+      }
+    });
+  }
 
   let creds = null;
   if (!isKilo) {

@@ -278,8 +278,7 @@ async function addAccountManual(rl) {
         const { code, state: extractedState } = extractCodeFromInput(input);
 
         if (extractedState && extractedState !== state) {
-            console.log('\n⚠ State mismatch detected. This could indicate a security issue.');
-            console.log('Proceeding anyway as this is manual mode...');
+            throw new Error('OAuth state mismatch. Refusing to exchange the authorization code.');
         }
 
         console.log('\nExchanging authorization code for tokens...');
@@ -293,7 +292,10 @@ async function addAccountManual(rl) {
             email: accountInfo?.email || 'unknown',
             accountId: accountInfo?.accountId,
             planType: accountInfo?.planType || 'free',
+            accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
+            idToken: tokens.idToken,
+            expiresAt: accountInfo?.expiresAt || (Date.now() + tokens.expiresIn * 1000),
             addedAt: new Date().toISOString(),
             lastUsed: null
         };
@@ -337,8 +339,7 @@ async function addAccountBrowser(rl) {
         const { code, state: extractedState } = extractCodeFromInput(input);
 
         if (extractedState && extractedState !== state) {
-            console.log('\n⚠ State mismatch detected. This could indicate a security issue.');
-            console.log('Proceeding anyway...');
+            throw new Error('OAuth state mismatch. Refusing to exchange the authorization code.');
         }
 
         console.log('\nExchanging authorization code for tokens...');
@@ -352,7 +353,10 @@ async function addAccountBrowser(rl) {
             email: accountInfo?.email || 'unknown',
             accountId: accountInfo?.accountId,
             planType: accountInfo?.planType || 'free',
+            accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
+            idToken: tokens.idToken,
+            expiresAt: accountInfo?.expiresAt || (Date.now() + tokens.expiresIn * 1000),
             addedAt: new Date().toISOString(),
             lastUsed: null
         };

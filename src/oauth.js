@@ -124,6 +124,15 @@ function getAuthorizationUrl(verifier, state, port) {
     return url;
 }
 
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 /**
  * Modern Success/Error templates for better UX
  */
@@ -148,7 +157,7 @@ function getSuccessHtml(message) {
             <div class="card">
                 <span class="icon">✅</span>
                 <h1>Success!</h1>
-                <p>\${message}</p>
+                <p>${escapeHtml(message)}</p>
                 <div class="footer">You can close this window and return to the app.</div>
             </div>
             <script>
@@ -184,7 +193,7 @@ function getErrorHtml(error) {
                 <h1>Failed</h1>
                 <p>Authentication could not be completed.</p>
                 <div style="background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 0.5rem; color: #fca5a5; margin-top: 1rem; font-family: monospace; font-size: 0.9rem;">
-                    \${error}
+                    ${escapeHtml(error)}
                 </div>
                 <p style="margin-top: 1.5rem; font-size: 0.9rem;">Please close this window and try again.</p>
             </div>
@@ -229,7 +238,7 @@ function getPKCEData(state) {
  * @param {string} host - Host to bind to
  * @returns {Promise<number>} Resolves with port on success, rejects on error
  */
-function tryBindPort(server, port, host = '0.0.0.0') {
+function tryBindPort(server, port, host = '127.0.0.1') {
     return new Promise((resolve, reject) => {
         const onError = (err) => {
             server.removeListener('listening', onSuccess);
@@ -237,7 +246,7 @@ function tryBindPort(server, port, host = '0.0.0.0') {
         };
         const onSuccess = () => {
             server.removeListener('error', onError);
-            resolve(port);
+            resolve(server.address()?.port || port);
         };
         server.once('error', onError);
         server.once('listening', onSuccess);
@@ -249,17 +258,39 @@ function tryBindPort(server, port, host = '0.0.0.0') {
  * Start local callback server with port fallback and abort support
  * @param {string} expectedState - Expected state for validation
  * @param {number} timeoutMs - Timeout in milliseconds
- * @returns {{promise: Promise<string>, abort: Function, getPort: Function}}
+ * @param {{host?: string, port?: number}} [options]
+ * @returns {{promise: Promise<{code: string, state: string}>, ready: Promise<number>, abort: Function, getPort: Function}}
  */
-function startCallbackServer(expectedState, timeoutMs = 120000) {
+function startCallbackServer(expectedState, timeoutMs = 120000, options = {}) {
     let server = null;
     let timeoutId = null;
     let isAborted = false;
-    let actualPort = OAUTH_CONFIG.callbackPort;
-    const host = process.env.HOST || '0.0.0.0';
+    let isSettled = false;
+    let actualPort = options.port ?? OAUTH_CONFIG.callbackPort;
+    const host = options.host || process.env.OAUTH_CALLBACK_HOST || '127.0.0.1';
+
+    let readyResolve;
+    let readyReject;
+    const ready = new Promise((resolve, reject) => {
+        readyResolve = resolve;
+        readyReject = reject;
+    });
+
+    function settleReject(reject, error) {
+        if (isSettled) return;
+        isSettled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        if (server) {
+            try { server.close(); } catch { /* ignore */ }
+        }
+        reject(error);
+    }
 
     const promise = new Promise(async (resolve, reject) => {
-        const portsToTry = [OAUTH_CONFIG.callbackPort, ...(OAUTH_CONFIG.callbackFallbackPorts || [])];
+        const requestedPort = options.port ?? OAUTH_CONFIG.callbackPort;
+        const portsToTry = requestedPort === OAUTH_CONFIG.callbackPort
+            ? [requestedPort, ...(OAUTH_CONFIG.callbackFallbackPorts || [])]
+            : [requestedPort];
         const errors = [];
 
         server = http.createServer((req, res) => {
@@ -275,26 +306,36 @@ function startCallbackServer(expectedState, timeoutMs = 120000) {
             const code = url.searchParams.get('code');
             const state = url.searchParams.get('state');
             const error = url.searchParams.get('error');
+            const port = Number(url.port);
             const idToken = url.searchParams.get('id_token');
 
             if (error) {
                 console.error(`[OAuth] Error in callback: ${error}`);
                 res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
                 res.end(getErrorHtml(error));
-                server.close();
-                reject(new Error(`OAuth error: ${error}`));
+                settleReject(reject, new Error(`OAuth error: ${error}`));
                 return;
             }
 
             if (code) {
+                if (!state || state !== expectedState) {
+                    console.error('[OAuth] Invalid OAuth state in callback');
+                    res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+                    res.end(getErrorHtml('Invalid OAuth state'));
+                    settleReject(reject, new Error('Invalid OAuth state'));
+                    return;
+                }
+
                 console.log('[OAuth] Got authorization code');
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                 res.end(getSuccessHtml('Authentication Successful! You can close this window.'));
                 
                 setTimeout(() => {
+                    if (isSettled) return;
+                    isSettled = true;
                     server.close();
                     clearTimeout(timeoutId);
-                    resolve(code);
+                    resolve({ code, state });
                 }, 1000);
                 return;
             }
@@ -314,15 +355,17 @@ function startCallbackServer(expectedState, timeoutMs = 120000) {
         let boundSuccessfully = false;
         for (const port of portsToTry) {
             try {
-                await tryBindPort(server, port, host);
-                actualPort = port;
+                actualPort = await tryBindPort(server, port, host);
                 boundSuccessfully = true;
 
-                if (port !== OAUTH_CONFIG.callbackPort) {
-                    console.log(`[OAuth] Primary port ${OAUTH_CONFIG.callbackPort} unavailable, using fallback port ${port}`);
+                if (requestedPort === 0) {
+                    console.log(`[OAuth] Callback server listening on ${host}:${actualPort}`);
+                } else if (port !== OAUTH_CONFIG.callbackPort) {
+                    console.log(`[OAuth] Primary port ${OAUTH_CONFIG.callbackPort} unavailable, using fallback port ${actualPort}`);
                 } else {
                     console.log(`[OAuth] Callback server listening on ${host}:${port}`);
                 }
+                readyResolve(actualPort);
                 break;
             } catch (err) {
                 const errMsg = err.code === 'EACCES'
@@ -357,14 +400,14 @@ Option 3: Check reserved port ranges
                 errorMsg += `\n\nTry setting a custom port via environment variable.`;
             }
 
-            reject(new Error(errorMsg));
+            readyReject(new Error(errorMsg));
+            settleReject(reject, new Error(errorMsg));
             return;
         }
 
         timeoutId = setTimeout(() => {
             if (!isAborted) {
-                server.close();
-                reject(new Error('OAuth callback timeout - no response received'));
+                settleReject(reject, new Error('OAuth callback timeout - no response received'));
             }
         }, timeoutMs);
     });
@@ -383,7 +426,7 @@ Option 3: Check reserved port ranges
 
     const getPort = () => actualPort;
 
-    return { promise, abort, getPort };
+    return { promise, ready, abort, getPort };
 }
 
 /**
@@ -394,7 +437,8 @@ Option 3: Check reserved port ranges
  * @returns {Promise<{accessToken: string, refreshToken: string, idToken: string, expiresIn: number}>}
  */
 async function exchangeCodeForTokens(code, verifier, port) {
-    const redirectUri = `http://localhost:${port}${OAUTH_CONFIG.callbackPath}`;
+    const callbackPort = port || OAUTH_CONFIG.callbackPort;
+    const redirectUri = `http://localhost:${callbackPort}${OAUTH_CONFIG.callbackPath}`;
     
     const response = await fetch(OAUTH_CONFIG.tokenUrl, {
         method: 'POST',
@@ -491,15 +535,14 @@ async function performOAuthFlow(customPort) {
     const port = customPort || OAUTH_CONFIG.callbackPort;
     const { verifier } = generatePKCE();
     const state = generateState();
-    
-    // Get authorization URL
-    const authUrl = getAuthorizationUrl(verifier, state, port);
-    
-    // Start callback server
-    const { promise: callbackPromise, server } = startCallbackServer(port, state);
+
+    const callback = startCallbackServer(state, 120000, { port });
+    const actualPort = await callback.ready;
+
+    const authUrl = getAuthorizationUrl(verifier, state, actualPort);
     
     console.log(`\n[OAuth] Starting authentication flow...`);
-    console.log(`[OAuth] Callback URL: http://localhost:${port}${OAUTH_CONFIG.callbackPath}`);
+    console.log(`[OAuth] Callback URL: http://localhost:${actualPort}${OAUTH_CONFIG.callbackPath}`);
     
     // Open browser
     await openBrowser(authUrl);
@@ -508,12 +551,12 @@ async function performOAuthFlow(customPort) {
     console.log(`[OAuth] If browser didn't open, visit:\n${authUrl}\n`);
     
     // Wait for callback
-    const code = await callbackPromise;
+    const { code } = await callback.promise;
     console.log(`[OAuth] Received authorization code`);
     
     // Exchange code for tokens
     console.log(`[OAuth] Exchanging code for tokens...`);
-    const tokens = await exchangeCodeForTokens(code, verifier, port);
+    const tokens = await exchangeCodeForTokens(code, verifier, actualPort);
     console.log(`[OAuth] Token exchange successful`);
     
     // Extract account info from access token
@@ -581,7 +624,7 @@ export function extractCodeFromInput(input) {
                 throw new Error('No authorization code found in URL');
             }
 
-            return { code, state };
+            return { code, state, port: Number.isInteger(port) && port > 0 ? port : null };
         } catch (e) {
             if (e.message.includes('OAuth error') || e.message.includes('No authorization code')) {
                 throw e;
@@ -594,7 +637,7 @@ export function extractCodeFromInput(input) {
         throw new Error('Input is too short to be a valid authorization code');
     }
 
-    return { code: trimmed, state: null };
+    return { code: trimmed, state: null, port: null };
 }
 
 export {

@@ -1,6 +1,6 @@
 import { sendMessageStream, sendMessage } from '../direct-api.js';
 import { sendKiloMessageStream, sendKiloMessage } from '../kilo-api.js';
-import { resolveModelRouting } from '../model-mapper.js';
+import { DEFAULT_OPENAI_MODEL, isKiloEnabled, resolveModelRouting } from '../model-mapper.js';
 import { sendAuthError, getCredentialsForAccount } from '../middleware/credentials.js';
 import { initSSEResponse, pipeSSEStream, handleStreamError } from '../middleware/sse.js';
 import { logger } from '../utils/logger.js';
@@ -34,22 +34,38 @@ function getAccountRotator() {
 export async function handleMessages(req, res) {
     const startTime = Date.now();
     const body = req.body;
-    const requestedModel = body.model || 'gpt-5.2';
+    const requestedModel = body.model || DEFAULT_OPENAI_MODEL;
     const isStreaming = body.stream !== false;
     
     const { isKilo, kiloTarget, upstreamModel } = resolveModelRouting(requestedModel);
     
     if (isKilo) {
+        if (!isKiloEnabled()) {
+            return res.status(403).json({
+                type: 'error',
+                error: {
+                    type: 'invalid_request_error',
+                    code: 'kilo_disabled',
+                    message: 'Kilo routing is disabled. Set CODEX_CLAUDE_PROXY_ENABLE_KILO=true to enable third-party Kilo model routing.'
+                }
+            });
+        }
+
         return isStreaming
             ? _streamKilo(res, { ...body, model: upstreamModel }, kiloTarget, requestedModel, startTime)
             : _sendKilo(res, { ...body, model: upstreamModel }, kiloTarget, requestedModel, startTime);
     }
     
     const rotator = getAccountRotator();
+    const accountSnapshot = listAccounts();
+
+    if (accountSnapshot.total === 0) {
+        return sendAuthError(res, 'No active account with valid credentials. Add an account via /accounts/add');
+    }
     
     rotator.clearExpiredLimits();
     
-    const maxAttempts = Math.max(MAX_RETRIES, listAccounts().total);
+    const maxAttempts = Math.max(MAX_RETRIES, accountSnapshot.total);
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (rotator.isAllRateLimited(upstreamModel)) {

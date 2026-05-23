@@ -5,40 +5,53 @@
 
 import { getServerSettings } from './server-settings.js';
 
+const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
+const DEFAULT_SMALL_OPENAI_MODEL = 'gpt-5.4-mini';
+const LATEST_CODEX_MODEL = 'gpt-5.3-codex';
+const KILO_ENABLED_ENV = 'CODEX_CLAUDE_PROXY_ENABLE_KILO';
+
 const CLAUDE_MODEL_MAP = {
   // Current Claude 4.6 models (Feb 2026)
-  'claude-opus-4-6': 'gpt-5.3-codex',
-  'claude-opus-4-6-20250219': 'gpt-5.3-codex',
-  'claude-sonnet-4-6': 'gpt-5.2',
-  'claude-sonnet-4-6-20250219': 'gpt-5.2',
-  'claude-haiku-4-5': 'kilo',
-  'claude-haiku-4-5-20250219': 'kilo',
+  'claude-opus-4-6': DEFAULT_OPENAI_MODEL,
+  'claude-opus-4-6-20250219': DEFAULT_OPENAI_MODEL,
+  'claude-sonnet-4-6': DEFAULT_OPENAI_MODEL,
+  'claude-sonnet-4-6-20250219': DEFAULT_OPENAI_MODEL,
+  'claude-haiku-4-5': DEFAULT_SMALL_OPENAI_MODEL,
+  'claude-haiku-4-5-20250219': DEFAULT_SMALL_OPENAI_MODEL,
   
   // 1M context variants
-  'claude-opus-4-6-1m': 'gpt-5.3-codex',
-  'claude-sonnet-4-6-1m': 'gpt-5.2',
+  'claude-opus-4-6-1m': DEFAULT_OPENAI_MODEL,
+  'claude-sonnet-4-6-1m': DEFAULT_OPENAI_MODEL,
   
   // Legacy Claude 4.5 models (deprecated but still supported)
-  'claude-opus-4-5': 'gpt-5.3-codex',
-  'claude-opus-4-5-20250514': 'gpt-5.3-codex',
-  'claude-sonnet-4-5': 'gpt-5.2',
-  'claude-sonnet-4-5-20250514': 'gpt-5.2',
-  'claude-sonnet-4-20250514': 'gpt-5.2',
-  'claude-haiku-4-20250514': 'kilo',
-  'claude-haiku-3-5-20250514': 'kilo',
+  'claude-opus-4-5': DEFAULT_OPENAI_MODEL,
+  'claude-opus-4-5-20250514': DEFAULT_OPENAI_MODEL,
+  'claude-sonnet-4-5': DEFAULT_OPENAI_MODEL,
+  'claude-sonnet-4-5-20250514': DEFAULT_OPENAI_MODEL,
+  'claude-sonnet-4-20250514': DEFAULT_OPENAI_MODEL,
+  'claude-haiku-4-20250514': DEFAULT_SMALL_OPENAI_MODEL,
+  'claude-haiku-3-5-20250514': DEFAULT_SMALL_OPENAI_MODEL,
   
   // Legacy Claude 3.x models
-  'claude-3-5-sonnet-20240620': 'gpt-5.2',
-  'claude-3-opus-20240229': 'gpt-5.3-codex',
-  'claude-3-sonnet-20240229': 'gpt-5.2',
-  'claude-3-haiku-20240307': 'kilo',
+  'claude-3-5-sonnet-20240620': DEFAULT_OPENAI_MODEL,
+  'claude-3-opus-20240229': DEFAULT_OPENAI_MODEL,
+  'claude-3-sonnet-20240229': DEFAULT_OPENAI_MODEL,
+  'claude-3-haiku-20240307': DEFAULT_SMALL_OPENAI_MODEL,
   
   // Short aliases
-  'sonnet': 'gpt-5.2',
-  'opus': 'gpt-5.3-codex',
-  'haiku': 'kilo',
+  'sonnet': DEFAULT_OPENAI_MODEL,
+  'opus': DEFAULT_OPENAI_MODEL,
+  'haiku': DEFAULT_SMALL_OPENAI_MODEL,
+  'codex': LATEST_CODEX_MODEL,
+  'kilo': 'kilo',
   
   // Direct OpenAI models
+  'gpt-5.5': 'gpt-5.5',
+  'gpt-5.5-2026-04-23': 'gpt-5.5-2026-04-23',
+  'gpt-5.4': 'gpt-5.4',
+  'gpt-5.4-2026-03-05': 'gpt-5.4-2026-03-05',
+  'gpt-5.4-mini': 'gpt-5.4-mini',
+  'gpt-5.4-nano': 'gpt-5.4-nano',
   'gpt-5.3-codex': 'gpt-5.3-codex',
   'gpt-5.2-codex': 'gpt-5.2-codex',
   'gpt-5.1-codex-max': 'gpt-5.1-codex-max',
@@ -53,12 +66,12 @@ const CLAUDE_MODEL_MAP = {
 
 /**
  * Maps a Claude/Anthropic model name to the upstream model identifier.
- * Falls back to 'gpt-5.2' for unknown models.
+ * Falls back to the current OpenAI flagship model for unknown models.
  * @param {string} model
  * @returns {string}
  */
 export function mapClaudeModel(model) {
-  if (!model) return 'gpt-5.2';
+  if (!model) return DEFAULT_OPENAI_MODEL;
 
   if (CLAUDE_MODEL_MAP[model]) {
     return CLAUDE_MODEL_MAP[model];
@@ -66,11 +79,15 @@ export function mapClaudeModel(model) {
 
   const modelLower = model.toLowerCase();
 
+  if (modelLower.startsWith('gpt-')) {
+    return modelLower;
+  }
+
   if (modelLower.startsWith('claude-')) {
     const cleanModel = modelLower.replace(/^claude-/, '');
-    if (cleanModel.includes('opus')) return 'gpt-5.3-codex';
-    if (cleanModel.includes('sonnet')) return 'gpt-5.2';
-    if (cleanModel.includes('haiku')) return 'kilo';
+    if (cleanModel.includes('opus')) return DEFAULT_OPENAI_MODEL;
+    if (cleanModel.includes('sonnet')) return DEFAULT_OPENAI_MODEL;
+    if (cleanModel.includes('haiku')) return DEFAULT_SMALL_OPENAI_MODEL;
   }
 
   for (const [key, value] of Object.entries(CLAUDE_MODEL_MAP)) {
@@ -79,7 +96,7 @@ export function mapClaudeModel(model) {
     }
   }
 
-  return 'gpt-5.2';
+  return DEFAULT_OPENAI_MODEL;
 }
 
 /**
@@ -89,6 +106,10 @@ export function mapClaudeModel(model) {
  */
 export function isKiloModel(mappedModel) {
   return mappedModel === 'kilo';
+}
+
+export function isKiloEnabled() {
+  return process.env[KILO_ENABLED_ENV] === 'true';
 }
 
 /**
@@ -107,11 +128,30 @@ export function resolveKiloModel() {
  * @returns {{ mappedModel: string, isKilo: boolean, kiloTarget: string|null, upstreamModel: string }}
  */
 export function resolveModelRouting(requestedModel) {
-  const mappedModel = mapClaudeModel(requestedModel || 'gpt-5.2');
+  const mappedModel = mapClaudeModel(requestedModel || DEFAULT_OPENAI_MODEL);
   const isKilo = isKiloModel(mappedModel);
   const kiloTarget = isKilo ? resolveKiloModel() : null;
   const upstreamModel = isKilo ? kiloTarget : mappedModel;
   return { mappedModel, isKilo, kiloTarget, upstreamModel };
 }
 
-export default { mapClaudeModel, isKiloModel, resolveKiloModel, resolveModelRouting, CLAUDE_MODEL_MAP };
+export {
+  CLAUDE_MODEL_MAP,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_SMALL_OPENAI_MODEL,
+  LATEST_CODEX_MODEL,
+  KILO_ENABLED_ENV
+};
+
+export default {
+  mapClaudeModel,
+  isKiloModel,
+  resolveKiloModel,
+  resolveModelRouting,
+  CLAUDE_MODEL_MAP,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_SMALL_OPENAI_MODEL,
+  LATEST_CODEX_MODEL,
+  KILO_ENABLED_ENV,
+  isKiloEnabled
+};
