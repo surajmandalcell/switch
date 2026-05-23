@@ -5,6 +5,8 @@
  *   POST /settings/haiku-model
  *   GET  /settings/account-strategy
  *   POST /settings/account-strategy
+ *   GET  /settings/claude-proxy
+ *   POST /settings/claude-proxy
  *   GET  /settings/kilo-models
  */
 
@@ -241,6 +243,39 @@ export function handleSetAccountStrategy(req, res) {
   });
 }
 
+/**
+ * GET /settings/claude-proxy
+ * Returns Claude proxy configuration preferences.
+ */
+export function handleGetClaudeProxySetting(req, res) {
+  const settings = getServerSettings();
+  res.json({
+    success: true,
+    configureClaudeOnStartup: settings.configureClaudeOnStartup === true
+  });
+}
+
+/**
+ * POST /settings/claude-proxy
+ * Updates Claude proxy configuration preferences.
+ */
+export function handleSetClaudeProxySetting(req, res) {
+  const { configureClaudeOnStartup } = req.body || {};
+
+  if (typeof configureClaudeOnStartup !== 'boolean') {
+    return res.status(400).json({
+      success: false,
+      error: 'configureClaudeOnStartup is required and must be a boolean'
+    });
+  }
+
+  const settings = setServerSettings({ configureClaudeOnStartup });
+  res.json({
+    success: true,
+    configureClaudeOnStartup: settings.configureClaudeOnStartup === true
+  });
+}
+
 export default { 
   handleGetHaikuModel, 
   handleSetHaikuModel,
@@ -248,5 +283,7 @@ export default {
   handleGetModelMappings,
   handleSetModelMappings,
   handleGetAccountStrategy,
-  handleSetAccountStrategy
+  handleSetAccountStrategy,
+  handleGetClaudeProxySetting,
+  handleSetClaudeProxySetting
 };

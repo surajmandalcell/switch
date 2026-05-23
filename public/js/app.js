@@ -32,6 +32,9 @@ document.addEventListener('alpine:init', () => {
         multiAccountRotationEnabled: false,
         haikuModelSaving: false,
         strategySaving: false,
+        configureClaudeOnStartup: false,
+        claudeProxyConfiguring: false,
+        claudeProxyStartupSaving: false,
         kiloEnabled: false,
         kiloModels: [],
         kiloModelsLoading: false,
@@ -79,6 +82,7 @@ document.addEventListener('alpine:init', () => {
         },
         
         configPath: '~/.codex-claude-proxy/accounts.json',
+        serverUrl: window.location.origin,
         
         logs: [],
         logSearchQuery: '',
@@ -110,6 +114,7 @@ document.addEventListener('alpine:init', () => {
             this.loadModelMappingsSetting();
             this.loadHaikuModelSetting();
             this.loadAccountStrategySetting();
+            this.loadClaudeProxySetting();
 
             window.addEventListener('resize', () => {
                 this.sidebarOpen = window.innerWidth >= 1024;
@@ -605,19 +610,48 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async setClaudeCodeProxyTestConfig() {
-            const { ok, data, error } = await this.api('/claude/config/set', {
-                method: 'POST',
-                body: JSON.stringify({
-                    apiUrl: 'http://localhost:8081',
-                    apiKey: 'test'
-                })
-            });
+        async loadClaudeProxySetting() {
+            const { ok, data } = await this.api('/settings/claude-proxy');
+            if (ok && typeof data?.configureClaudeOnStartup === 'boolean') {
+                this.configureClaudeOnStartup = data.configureClaudeOnStartup;
+            }
+        },
+
+        async configureClaudeProxy() {
+            if (this.claudeProxyConfiguring) return;
+            this.claudeProxyConfiguring = true;
+            const { ok, data, error } = await this.api('/claude/config/proxy', { method: 'POST' });
+            this.claudeProxyConfiguring = false;
 
             if (ok && data?.success) {
-                this.showToast('Updated Claude Code settings.json (API URL + API key).', 'success');
+                this.showToast(data.message || 'Claude Code configured to use this proxy.', 'success');
             } else {
                 this.showToast(data?.error || error || 'Failed to update Claude Code settings.json', 'error');
+            }
+        },
+
+        async setConfigureClaudeOnStartup(enabled) {
+            if (this.claudeProxyStartupSaving) return;
+            const previous = this.configureClaudeOnStartup;
+            this.configureClaudeOnStartup = enabled;
+            this.claudeProxyStartupSaving = true;
+            const { ok, data, error } = await this.api('/settings/claude-proxy', {
+                method: 'POST',
+                body: JSON.stringify({ configureClaudeOnStartup: enabled })
+            });
+            this.claudeProxyStartupSaving = false;
+
+            if (ok && typeof data?.configureClaudeOnStartup === 'boolean') {
+                this.configureClaudeOnStartup = data.configureClaudeOnStartup;
+                this.showToast(
+                    data.configureClaudeOnStartup
+                        ? 'Claude Code will be configured on proxy startup.'
+                        : 'Startup Claude Code configuration disabled.',
+                    'success'
+                );
+            } else {
+                this.configureClaudeOnStartup = previous;
+                this.showToast(data?.error || error || 'Failed to update startup setting', 'error');
             }
         },
 

@@ -8,6 +8,7 @@ const MULTI_ACCOUNT_ROTATION_ENV = 'CODEX_CLAUDE_PROXY_ENABLE_MULTI_ACCOUNT_ROTA
 const DEFAULT_SETTINGS = {
     haikuKiloModel: 'minimax/minimax-m2.5:free',
     accountStrategy: 'sticky',
+    configureClaudeOnStartup: false,
     modelMappings: {
         opus: 'gpt-5.5',
         sonnet: 'gpt-5.5',

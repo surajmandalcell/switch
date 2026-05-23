@@ -22,7 +22,9 @@ import {
   handleGetModelMappings,
   handleSetModelMappings,
   handleGetAccountStrategy,
-  handleSetAccountStrategy
+  handleSetAccountStrategy,
+  handleGetClaudeProxySetting,
+  handleSetClaudeProxySetting
 } from './settings-route.js';
 import { handleGetLogs, handleStreamLogs } from './logs-route.js';
 import { handleGetClaudeConfig, handleSetProxyMode, handleSetDirectMode, handleSetClaudeApiEndpoint } from './claude-config-route.js';
@@ -76,6 +78,8 @@ export function registerApiRoutes(app, { port }) {
   app.post('/settings/model-mappings', handleSetModelMappings);
   app.get('/settings/account-strategy', handleGetAccountStrategy);
   app.post('/settings/account-strategy', handleSetAccountStrategy);
+  app.get('/settings/claude-proxy', handleGetClaudeProxySetting);
+  app.post('/settings/claude-proxy', handleSetClaudeProxySetting);
 
   // ─── Account Management ───────────────────────────────────────────────────
   app.get('/accounts', handleListAccounts);

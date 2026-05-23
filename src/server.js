@@ -9,8 +9,16 @@ import cors from 'cors';
 import { ensureAccountsPersist, startAutoRefresh } from './account-manager.js';
 import { registerApiRoutes } from './routes/api-routes.js';
 import { buildAllowedOrigins, securityMiddleware } from './security.js';
+import { getServerSettings } from './server-settings.js';
+import { setProxyMode } from './claude-config.js';
 
 export const DEFAULT_HOST = '127.0.0.1';
+const CLAUDE_PROXY_MODELS = {
+  default: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
+  sonnet: 'claude-sonnet-4-6',
+  haiku: 'claude-haiku-4-5'
+};
 
 export function createServer({ port, host = DEFAULT_HOST }) {
   ensureAccountsPersist();
@@ -52,7 +60,24 @@ export function createServer({ port, host = DEFAULT_HOST }) {
 
 export function startServer({ port, host = process.env.HOST || DEFAULT_HOST }) {
   const app = createServer({ port, host });
-  return app.listen(port, host);
+  const server = app.listen(port, host);
+  server.once('listening', () => {
+    configureClaudeOnStartup({ port }).catch((error) => {
+      console.error('[ClaudeConfig] Startup proxy configuration failed:', error.message);
+    });
+  });
+  return server;
 }
 
-export default { createServer, startServer };
+export async function configureClaudeOnStartup({ port }) {
+  const settings = getServerSettings();
+  if (settings.configureClaudeOnStartup !== true) {
+    return { configured: false, reason: 'disabled' };
+  }
+
+  const proxyUrl = `http://localhost:${port}`;
+  await setProxyMode(proxyUrl, CLAUDE_PROXY_MODELS);
+  return { configured: true, proxyUrl };
+}
+
+export default { createServer, startServer, configureClaudeOnStartup };

@@ -59,6 +59,17 @@ test('Settings UI includes Claude model mapping controls', async () => {
   assert.ok(html.includes('Reasoning'));
 });
 
+test('Settings UI includes Claude proxy configuration controls', async () => {
+  const res = await fetch(UI_URL);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+
+  assert.ok(html.includes('Configure Claude Code'));
+  assert.ok(html.includes('Configure on startup'));
+  assert.ok(html.includes('@click="configureClaudeProxy()"'));
+  assert.ok(html.includes('@change="setConfigureClaudeOnStartup($event.target.checked)"'));
+});
+
 test('app.js defines expected Alpine state keys (smoke)', async () => {
   const res = await fetch(new URL('/js/app.js', UI_URL));
   assert.equal(res.status, 200);
@@ -71,8 +82,12 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
     'multiAccountRotationEnabled',
     'refreshAccounts()',
     'checkHealth()',
+    'serverUrl',
     'startLogStream()',
     'loadModelMappingsSetting()',
+    'loadClaudeProxySetting()',
+    'configureClaudeProxy()',
+    'setConfigureClaudeOnStartup(enabled)',
     'setModelMapping(alias, model)',
     'setReasoningMapping(alias, reasoning)',
     'setHaikuModel(model)',

@@ -285,16 +285,28 @@
                     </div>
                     <div class="bg-space-800/50 border border-space-border/30 rounded-lg p-4 font-mono text-sm text-gray-300">
                         <div class="text-gray-500 mb-2"># Set environment variables</div>
-                        <div class="text-neon-cyan">export ANTHROPIC_BASE_URL=http://localhost:8081</div>
+                        <div class="text-neon-cyan" x-text="'export ANTHROPIC_BASE_URL=' + serverUrl">export ANTHROPIC_BASE_URL=http://localhost:8081</div>
                         <div class="text-neon-cyan">export ANTHROPIC_API_KEY=any-key</div>
                         <div class="text-gray-500 mt-2 mb-2"># Run Claude</div>
                         <div class="text-neon-green">claude</div>
                     </div>
 
-                    <div class="mt-4 flex justify-end">
+                    <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                        <label class="flex items-center gap-3 rounded-lg border border-space-border/30 bg-space-800/40 px-3 py-2">
+                            <input type="checkbox"
+                                class="checkbox checkbox-sm rounded-[3px]"
+                                x-model="configureClaudeOnStartup"
+                                @change="setConfigureClaudeOnStartup($event.target.checked)"
+                                :disabled="claudeProxyStartupSaving">
+                            <span class="text-sm text-gray-300">Configure on startup</span>
+                        </label>
                         <button class="btn btn-sm bg-neon-purple hover:bg-purple-600 border-none text-white font-sans"
-                            @click="setClaudeCodeProxyTestConfig()">
-                            Update Claude Code settings.json (localhost:8081 + key=test)
+                            @click="configureClaudeProxy()"
+                            :disabled="claudeProxyConfiguring">
+                            <svg class="w-4 h-4" :class="{'animate-spin': claudeProxyConfiguring}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h10M4 17h7m8-4l2 2 4-4"></path>
+                            </svg>
+                            <span x-text="claudeProxyConfiguring ? 'Configuring...' : 'Configure Claude Code'">Configure Claude Code</span>
                         </button>
                     </div>
                 </div>
@@ -596,7 +608,7 @@
                     <div class="space-y-3">
                         <div class="flex items-center justify-between py-2 border-b border-space-border/30">
                             <span class="text-sm text-gray-400">Server URL</span>
-                            <span class="font-mono text-sm text-white">http://localhost:8081</span>
+                            <span class="font-mono text-sm text-white" x-text="serverUrl">http://localhost:8081</span>
                         </div>
                         <div class="flex items-center justify-between py-2 border-b border-space-border/30">
                             <span class="text-sm text-gray-400">Config Path</span>

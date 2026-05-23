@@ -98,6 +98,30 @@ test('GET /settings/account-strategy reports rotation disabled by default', { sk
   assert.equal(json?.rotationEnabled, false);
 });
 
+test('GET/POST /settings/claude-proxy returns and persists startup flag', { skip: shouldSkip }, async () => {
+  const original = await getJson('/settings/claude-proxy');
+  assert.equal(original.status, 200, `Expected 200, got ${original.status}: ${original.text}`);
+  assert.equal(original.json?.success, true);
+  assert.equal(typeof original.json?.configureClaudeOnStartup, 'boolean');
+
+  const nextValue = !original.json.configureClaudeOnStartup;
+
+  try {
+    const updated = await postJson('/settings/claude-proxy', { configureClaudeOnStartup: nextValue });
+    assert.equal(updated.status, 200, `Expected 200, got ${updated.status}: ${updated.text}`);
+    assert.equal(updated.json?.success, true);
+    assert.equal(updated.json?.configureClaudeOnStartup, nextValue);
+
+    const reread = await getJson('/settings/claude-proxy');
+    assert.equal(reread.status, 200, `Expected 200, got ${reread.status}: ${reread.text}`);
+    assert.equal(reread.json?.configureClaudeOnStartup, nextValue);
+  } finally {
+    await postJson('/settings/claude-proxy', {
+      configureClaudeOnStartup: original.json.configureClaudeOnStartup
+    });
+  }
+});
+
 test('GET/POST /settings/model-mappings returns and persists Claude alias mappings', { skip: shouldSkip }, async () => {
   const original = await getJson('/settings/model-mappings');
   assert.equal(original.status, 200, `Expected 200, got ${original.status}: ${original.text}`);

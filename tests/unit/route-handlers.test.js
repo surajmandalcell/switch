@@ -10,6 +10,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+
+import { SETTINGS_FILE } from '../../src/server-settings.js';
 
 // ─── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -27,6 +30,20 @@ function mockReq(body = {}, params = {}, query = {}) {
   return { body, params, query };
 }
 
+function snapshotSettingsFile() {
+  return existsSync(SETTINGS_FILE)
+    ? { exists: true, text: readFileSync(SETTINGS_FILE, 'utf8') }
+    : { exists: false, text: null };
+}
+
+function restoreSettingsFile(snapshot) {
+  if (snapshot.exists) {
+    writeFileSync(SETTINGS_FILE, snapshot.text, { mode: 0o600 });
+  } else if (existsSync(SETTINGS_FILE)) {
+    unlinkSync(SETTINGS_FILE);
+  }
+}
+
 // ─── settings-route ───────────────────────────────────────────────────────────
 
 import {
@@ -34,7 +51,9 @@ import {
   handleSetHaikuModel,
   handleGetModelMappings,
   handleSetModelMappings,
-  handleGetAccountStrategy
+  handleGetAccountStrategy,
+  handleGetClaudeProxySetting,
+  handleSetClaudeProxySetting
 } from '../../src/routes/settings-route.js';
 
 test('handleGetHaikuModel: returns current haikuKiloModel', () => {
@@ -115,6 +134,35 @@ test('handleGetAccountStrategy: reports multi-account rotation disabled by defau
   handleGetAccountStrategy(req, res);
   assert.equal(res._status, 200);
   assert.equal(res._body.rotationEnabled, false);
+});
+
+test('handleGetClaudeProxySetting: returns startup configuration flag', () => {
+  const req = mockReq();
+  const res = mockRes();
+  handleGetClaudeProxySetting(req, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.success, true);
+  assert.equal(typeof res._body.configureClaudeOnStartup, 'boolean');
+});
+
+test('handleSetClaudeProxySetting: persists startup configuration flag', (t) => {
+  const settingsSnapshot = snapshotSettingsFile();
+  t.after(() => restoreSettingsFile(settingsSnapshot));
+
+  const req = mockReq({ configureClaudeOnStartup: true });
+  const res = mockRes();
+  handleSetClaudeProxySetting(req, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.success, true);
+  assert.equal(res._body.configureClaudeOnStartup, true);
+});
+
+test('handleSetClaudeProxySetting: rejects non-boolean startup flag', () => {
+  const req = mockReq({ configureClaudeOnStartup: 'true' });
+  const res = mockRes();
+  handleSetClaudeProxySetting(req, res);
+  assert.equal(res._status, 400);
+  assert.equal(res._body.success, false);
 });
 
 // ─── claude-config-route ──────────────────────────────────────────────────────
