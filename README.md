@@ -17,6 +17,7 @@ _Current README cover: a short, thumbgen-style composite generated from fresh lo
 | GitHub | [surajmandalcell](https://github.com/surajmandalcell) |
 | Contact | [surajmandalcell@gmail.com](mailto:surajmandalcell@gmail.com) |
 | Package | [@pikoloo/codex-proxy](https://www.npmjs.com/package/@pikoloo/codex-proxy) |
+| Changelog | [Changelog](CHANGELOG.md) |
 
 ---
 
