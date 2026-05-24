@@ -4,6 +4,14 @@ All notable changes to this package are documented in this file.
 
 This project uses release entries grouped by package version, with the newest release first.
 
+## [1.2.2] - 2026-05-24
+
+### Fixed
+
+- Made release verification run against an isolated temporary proxy config instead of the user's real local account and settings.
+- Made `test:all` run unit tests and server-backed tests sequentially so mutable settings tests cannot race each other.
+- Made `make update` restore its own version bump if verification fails before the release commit is created.
+
 ## [1.2.1] - 2026-05-24
 
 ### Fixed

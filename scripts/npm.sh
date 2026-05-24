@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -35,6 +35,8 @@ Environment:
   LEVEL=patch          npm version level for update when VERSION is not set.
   OTP=123456           npm two-factor code for publish.
   TEST_PORT=28081      Local test server port.
+  CODEX_CLAUDE_PROXY_TEST_CONFIG_DIR=/tmp/codex-proxy-test
+                       Optional isolated config directory for release tests.
 EOF
 }
 
@@ -59,6 +61,16 @@ test_with_server() {
   local log_file="tmp/test-server.log"
   rm -f "$log_file"
 
+  local test_config_dir
+  local remove_test_config_dir=0
+  if [ -n "${CODEX_CLAUDE_PROXY_TEST_CONFIG_DIR:-}" ]; then
+    test_config_dir="$CODEX_CLAUDE_PROXY_TEST_CONFIG_DIR"
+    mkdir -p "$test_config_dir"
+  else
+    test_config_dir="$(mktemp -d "${TMPDIR:-/tmp}/codex-proxy-release-config.XXXXXX")"
+    remove_test_config_dir=1
+  fi
+
   local explicit_port=0
   if [ -n "$TEST_PORT_WAS_SET" ]; then
     explicit_port=1
@@ -70,14 +82,18 @@ test_with_server() {
     echo "TEST_PORT $TEST_PORT is unavailable on $TEST_HOST; using $test_port for release verification."
   fi
 
-  HOST="$TEST_HOST" PORT="$test_port" "$NODE" src/index.js >"$log_file" 2>&1 &
+  CODEX_CLAUDE_PROXY_CONFIG_DIR="$test_config_dir" \
+    HOST="$TEST_HOST" PORT="$test_port" "$NODE" src/index.js >"$log_file" 2>&1 &
   local server_pid=$!
 
   cleanup() {
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
+    if [ "$remove_test_config_dir" -eq 1 ]; then
+      rm -rf "$test_config_dir"
+    fi
   }
-  trap cleanup EXIT INT TERM
+  trap cleanup EXIT
 
   local ready=0
   for _ in {1..20}; do
@@ -100,12 +116,13 @@ test_with_server() {
     exit 1
   fi
 
-  ROUTING_TEST_BASE_URL="http://$TEST_HOST:$test_port" \
+  CODEX_CLAUDE_PROXY_CONFIG_DIR="$test_config_dir" \
+    ROUTING_TEST_BASE_URL="http://$TEST_HOST:$test_port" \
     UI_TEST_URL="http://$TEST_HOST:$test_port/" \
     "$NPM" run test:all
 
   cleanup
-  trap - EXIT INT TERM
+  trap - EXIT
 }
 
 login_if_needed() {
@@ -197,8 +214,35 @@ cmd_update() {
 
   ensure_clean
   install_deps
+  ensure_clean
+
+  local update_started=0
+  local release_files=(package.json package-lock.json src/index.js public/js/app.js)
+  rollback_update() {
+    if [ "$update_started" -eq 1 ]; then
+      echo "Update failed. Restoring release version files to their pre-update state." >&2
+      git restore --staged --worktree -- "${release_files[@]}" 2>/dev/null || true
+    fi
+  }
+  fail_update() {
+    local status=$?
+    rollback_update
+    exit "$status"
+  }
+  interrupt_update() {
+    rollback_update
+    exit 130
+  }
+  terminate_update() {
+    rollback_update
+    exit 143
+  }
+  trap fail_update ERR
+  trap interrupt_update INT
+  trap terminate_update TERM
 
   "$NPM" version "$version_arg" --no-git-tag-version
+  update_started=1
 
   local version
   version="$("$NODE" -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
@@ -209,6 +253,9 @@ cmd_update() {
   git diff --check
   git add package.json package-lock.json src/index.js public/js/app.js
   git -c core.editor=: commit -m "Release: bump npm package to v$version"
+
+  update_started=0
+  trap - ERR INT TERM
 }
 
 cmd_publish() {

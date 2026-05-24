@@ -1,6 +1,6 @@
 {
   "name": "@pikoloo/codex-proxy",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Local personal proxy for OpenAI Codex models with Claude API compatibility",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",
   "type": "module",
@@ -43,7 +43,7 @@
     "build": "find src bin scripts \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
     "test": "node --test tests/*.test.js",
     "test:unit": "node --test tests/unit/*.test.js",
-    "test:all": "node --test tests/unit/*.test.js tests/*.test.js",
+    "test:all": "npm run test:unit && npm test",
     "test:api": "node --test tests/api.test.js",
     "test:routing": "node --test tests/routing.test.js",
     "test:cors": "node --test tests/cors_security.test.js",

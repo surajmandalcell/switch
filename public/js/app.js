@@ -7,7 +7,7 @@ document.addEventListener('alpine:init', () => {
     };
 
     Alpine.data('app', () => ({
-        version: '1.2.1',
+        version: '1.2.2',
         connectionStatus: 'connecting',
         activeTab: initialTab(),
         loading: false,
