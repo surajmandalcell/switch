@@ -118,21 +118,39 @@ login_if_needed() {
   "$NPM" whoami --registry="$NPM_REGISTRY" >/dev/null
 }
 
-update_version_banner() {
+update_version_surfaces() {
   local version="$1"
   "$NODE" --input-type=module - "$version" <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const version = process.argv[2];
-const file = 'src/index.js';
-const content = readFileSync(file, 'utf8');
-const next = content.replace(/Codex Claude Proxy v\d+\.\d+\.\d+/g, `Codex Claude Proxy v${version}`);
+const replacements = [
+  {
+    file: 'src/index.js',
+    pattern: /Codex Claude Proxy v\d+\.\d+\.\d+/g,
+    replacement: `Codex Claude Proxy v${version}`
+  },
+  {
+    file: 'public/js/app.js',
+    pattern: /version: '\d+\.\d+\.\d+'/g,
+    replacement: `version: '${version}'`
+  }
+];
 
-if (next === content) {
-  throw new Error('Could not update src/index.js version banner');
+for (const { file, pattern, replacement } of replacements) {
+  const content = readFileSync(file, 'utf8');
+  let replaced = false;
+  const next = content.replace(pattern, () => {
+    replaced = true;
+    return replacement;
+  });
+
+  if (!replaced) {
+    throw new Error(`Could not update version in ${file}`);
+  }
+
+  writeFileSync(file, next);
 }
-
-writeFileSync(file, next);
 NODE
 }
 
@@ -184,12 +202,12 @@ cmd_update() {
 
   local version
   version="$("$NODE" -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
-  update_version_banner "$version"
+  update_version_surfaces "$version"
 
   build
   test_with_server
   git diff --check
-  git add package.json package-lock.json src/index.js
+  git add package.json package-lock.json src/index.js public/js/app.js
   git -c core.editor=: commit -m "Release: bump npm package to v$version"
 }
 

@@ -4,6 +4,13 @@ All notable changes to this package are documented in this file.
 
 This project uses release entries grouped by package version, with the newest release first.
 
+## [1.2.1] - 2026-05-24
+
+### Fixed
+
+- Made release metadata tests compare against the active package version so `make update` can bump patch, minor, major, or explicit versions without breaking on stale literals.
+- Updated the release script to refresh the dashboard version along with package metadata, lockfile metadata, and the server banner.
+
 ## [1.2.0] - 2026-05-24
 
 ### Added

@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+
+function packageVersion() {
+  return JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')).version;
+}
 
 function runCli(args, env = {}) {
   return spawnSync(process.execPath, [join(process.cwd(), 'bin/cli.js'), ...args], {
@@ -20,7 +24,7 @@ test('CLI reports the package version', () => {
   const result = runCli(['--version']);
 
   assert.equal(result.status, 0);
-  assert.equal(result.stdout.trim(), '1.2.0');
+  assert.equal(result.stdout.trim(), packageVersion());
 });
 
 test('CLI help exposes singular account commands only', () => {
