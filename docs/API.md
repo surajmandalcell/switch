@@ -147,6 +147,7 @@ GET /auth/callback?code=...&state=...
 | `/claude/config` | GET | View current config |
 | `/claude/config/proxy` | POST | Configure for proxy |
 | `/claude/config/direct` | POST | Configure for direct API |
+| `/claude/config/reset` | POST | Remove Claude env overrides and restore default official config |
 
 ### Configure Proxy Mode
 
@@ -157,6 +158,20 @@ POST /claude/config/proxy
 {
   "success": true,
   "message": "Claude CLI configured to use proxy at http://localhost:8081",
+  "config": {...}
+}
+```
+
+### Reset Claude Code To Default
+
+```bash
+POST /claude/config/reset
+
+# Response
+{
+  "success": true,
+  "message": "Claude Code reset to default official configuration.",
+  "configureClaudeOnStartup": false,
   "config": {...}
 }
 ```

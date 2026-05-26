@@ -8,6 +8,16 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 
+const CLAUDE_OVERRIDE_ENV_KEYS = [
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL'
+];
+
 export function getClaudeConfigPath() {
     const configDir = process.env.CLAUDE_CONFIG_PATH;
     if (configDir) {
@@ -115,6 +125,11 @@ export async function setApiEndpoint({ apiUrl, apiKey }) {
     return await updateClaudeConfig(updates);
 }
 
+export async function resetClaudeConfigToDefault() {
+    const env = Object.fromEntries(CLAUDE_OVERRIDE_ENV_KEYS.map((key) => [key, undefined]));
+    return await updateClaudeConfig({ env });
+}
+
 function deepMerge(target, source) {
     const output = { ...target };
     
@@ -149,5 +164,6 @@ export default {
     updateClaudeConfig,
     setProxyMode,
     setDirectMode,
-    setApiEndpoint
+    setApiEndpoint,
+    resetClaudeConfigToDefault
 };

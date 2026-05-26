@@ -4,6 +4,7 @@
  *   GET  /claude/config
  *   POST /claude/config/proxy
  *   POST /claude/config/direct
+ *   POST /claude/config/reset
  *   POST /claude/config/set
  */
 
@@ -12,9 +13,11 @@ import {
   setProxyMode,
   setDirectMode,
   setApiEndpoint,
+  resetClaudeConfigToDefault,
   getClaudeConfigPath
 } from '../claude-config.js';
 import { isAllowedApiEndpoint, redactSensitiveConfig } from '../security.js';
+import { setServerSettings } from '../server-settings.js';
 
 /**
  * GET /claude/config
@@ -75,6 +78,25 @@ export async function handleSetDirectMode(req, res) {
   }
 }
 
+/**
+ * POST /claude/config/reset
+ * Removes proxy/direct Anthropic env overrides so Claude Code can use its default auth.
+ */
+export async function handleResetClaudeConfig(req, res) {
+  try {
+    const config = await resetClaudeConfigToDefault();
+    const settings = setServerSettings({ configureClaudeOnStartup: false });
+    res.json({
+      success: true,
+      message: 'Claude Code reset to default official configuration.',
+      configureClaudeOnStartup: settings.configureClaudeOnStartup === true,
+      config: redactSensitiveConfig(config)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
 export async function handleSetClaudeApiEndpoint(req, res) {
   const { apiUrl, apiKey } = req.body || {};
 
@@ -117,5 +139,6 @@ export default {
   handleGetClaudeConfig,
   handleSetProxyMode,
   handleSetDirectMode,
+  handleResetClaudeConfig,
   handleSetClaudeApiEndpoint
 };

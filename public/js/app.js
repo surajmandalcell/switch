@@ -50,6 +50,7 @@ document.addEventListener('alpine:init', () => {
         haikuModelSaving: false,
         configureClaudeOnStartup: false,
         claudeProxyConfiguring: false,
+        claudeProxyResetting: false,
         claudeProxyStartupSaving: false,
         kiloEnabled: false,
         kiloModels: [],
@@ -766,6 +767,22 @@ document.addEventListener('alpine:init', () => {
                 this.showToast(data.message || 'Claude Code configured to use this proxy.', 'success');
             } else {
                 this.showToast(data?.error || error || 'Failed to update Claude Code settings.json', 'error');
+            }
+        },
+
+        async resetClaudeConfig() {
+            if (this.claudeProxyResetting) return;
+            this.claudeProxyResetting = true;
+            const { ok, data, error } = await this.api('/claude/config/reset', { method: 'POST' });
+            this.claudeProxyResetting = false;
+
+            if (ok && data?.success) {
+                if (typeof data.configureClaudeOnStartup === 'boolean') {
+                    this.configureClaudeOnStartup = data.configureClaudeOnStartup;
+                }
+                this.showToast(data.message || 'Claude Code reset to default official configuration.', 'success');
+            } else {
+                this.showToast(data?.error || error || 'Failed to reset Claude Code settings.json', 'error');
             }
         },
 

@@ -135,7 +135,7 @@ For **headless/VM servers** without a browser:
 5. Paste it back in the terminal
 
 ### 3. Configure Claude Code
-   In the dashboard, click **Configure Claude Code** to write the proxy settings into Claude Code. Enable **Configure on startup** if you want the proxy to keep Claude Code pointed at the local server whenever it starts.
+   In the dashboard, click **Configure Claude Code** to write the proxy settings into Claude Code. Enable **Configure on startup** if you want the proxy to keep Claude Code pointed at the local server whenever it starts. Click **Reset Claude Code** to remove those overrides and return Claude Code to its default official configuration.
 
    You can also run this command:
    ```bash
@@ -182,7 +182,7 @@ The dashboard uses a clean desktop split-view layout with a compact toolbar, nat
 Visit `http://localhost:8081` to:
 - **Manage Account**: Add, import, refresh, replace, or remove the one local ChatGPT account.
 - **Personal Mode**: Requests use the configured account only.
-- **Configure Claude Code**: Use the dashboard button to set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and Claude model defaults, or enable the startup toggle to do it automatically.
+- **Configure Claude Code**: Use the dashboard button to set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and Claude model defaults, or reset Claude Code back to the official default config.
 - **View Logs**: See real-time request/response logs for debugging.
 - **Test Models**: Run quick tests against the configured models.
 

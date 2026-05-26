@@ -31,6 +31,14 @@ export ANTHROPIC_API_KEY=any-key
 claude
 ```
 
+### Reset To Default Claude Code
+
+Use this when you want Claude Code to stop using the proxy and return to the official default subscription/auth flow:
+
+```bash
+curl -X POST http://localhost:8081/claude/config/reset
+```
+
 ## Using Claude Code
 
 When prompted about API key:
@@ -134,6 +142,12 @@ curl http://localhost:8081/claude/config
 curl -X POST http://localhost:8081/claude/config/direct \
   -H "Content-Type: application/json" \
   -d '{"apiKey":"sk-ant-..."}'
+```
+
+## Reset to Official Default
+
+```bash
+curl -X POST http://localhost:8081/claude/config/reset
 ```
 
 ## Troubleshooting

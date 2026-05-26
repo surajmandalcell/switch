@@ -10,9 +10,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { SETTINGS_FILE } from '../../src/server-settings.js';
+import { getServerSettings, setServerSettings, SETTINGS_FILE } from '../../src/server-settings.js';
 
 // ─── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -164,7 +166,7 @@ test('handleSetClaudeProxySetting: rejects non-boolean startup flag', () => {
 
 // ─── claude-config-route ──────────────────────────────────────────────────────
 
-import { handleSetDirectMode } from '../../src/routes/claude-config-route.js';
+import { handleResetClaudeConfig, handleSetDirectMode } from '../../src/routes/claude-config-route.js';
 
 test('handleSetDirectMode: rejects missing apiKey with 400', async () => {
   const req = mockReq({});
@@ -181,6 +183,63 @@ test('handleSetDirectMode: rejects null body with 400', async () => {
   await handleSetDirectMode(req, res);
   assert.equal(res._status, 400);
   assert.equal(res._body.error, 'API key required');
+});
+
+test('handleResetClaudeConfig: clears Claude overrides and disables startup proxy config', async (t) => {
+  const settingsSnapshot = snapshotSettingsFile();
+  const originalClaudeConfigPath = process.env.CLAUDE_CONFIG_PATH;
+  const claudeConfigDir = mkdtempSync(join(tmpdir(), 'codex-proxy-claude-reset-'));
+  const claudeSettingsPath = join(claudeConfigDir, 'settings.json');
+
+  t.after(() => {
+    if (originalClaudeConfigPath === undefined) {
+      delete process.env.CLAUDE_CONFIG_PATH;
+    } else {
+      process.env.CLAUDE_CONFIG_PATH = originalClaudeConfigPath;
+    }
+    restoreSettingsFile(settingsSnapshot);
+    rmSync(claudeConfigDir, { recursive: true, force: true });
+  });
+
+  process.env.CLAUDE_CONFIG_PATH = claudeConfigDir;
+  mkdirSync(claudeConfigDir, { recursive: true });
+  writeFileSync(claudeSettingsPath, JSON.stringify({
+    env: {
+      ANTHROPIC_BASE_URL: 'http://localhost:8081',
+      ANTHROPIC_API_KEY: 'sk-ant-proxy',
+      ANTHROPIC_AUTH_TOKEN: 'proxy-token',
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-4-6',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-4-6',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-4-5',
+      PATH: '/usr/bin'
+    },
+    theme: 'dark'
+  }, null, 2), { mode: 0o600 });
+  setServerSettings({ ...getServerSettings(), configureClaudeOnStartup: true });
+
+  const req = mockReq();
+  const res = mockRes();
+  await handleResetClaudeConfig(req, res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.success, true);
+  assert.equal(res._body.configureClaudeOnStartup, false);
+
+  const config = JSON.parse(readFileSync(claudeSettingsPath, 'utf8'));
+  for (const key of [
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL'
+  ]) {
+    assert.equal(Object.hasOwn(config.env, key), false, `${key} should be removed`);
+  }
+  assert.equal(config.env.PATH, '/usr/bin');
+  assert.equal(config.theme, 'dark');
 });
 
 // ─── account-route ────────────────────────────────────────────────────────────

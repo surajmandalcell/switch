@@ -253,14 +253,24 @@
                                 :disabled="claudeProxyStartupSaving">
                             <span class="text-sm text-gray-300">Configure on startup</span>
                         </label>
-                        <button class="btn btn-sm bg-neon-purple hover:bg-purple-600 border-none text-white font-sans"
-                            @click="configureClaudeProxy()"
-                            :disabled="claudeProxyConfiguring">
-                            <svg class="w-4 h-4" :class="{'animate-spin': claudeProxyConfiguring}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h10M4 17h7m8-4l2 2 4-4"></path>
-                            </svg>
-                            <span x-text="claudeProxyConfiguring ? 'Configuring...' : 'Configure Claude Code'">Configure Claude Code</span>
-                        </button>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button class="btn btn-sm bg-neon-purple hover:bg-purple-600 border-none text-white font-sans"
+                                @click="configureClaudeProxy()"
+                                :disabled="claudeProxyConfiguring || claudeProxyResetting">
+                                <svg class="w-4 h-4" :class="{'animate-spin': claudeProxyConfiguring}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h10M4 17h7m8-4l2 2 4-4"></path>
+                                </svg>
+                                <span x-text="claudeProxyConfiguring ? 'Configuring...' : 'Configure Claude Code'">Configure Claude Code</span>
+                            </button>
+                            <button class="btn btn-sm border border-space-border/60 bg-space-800/70 hover:bg-space-700 text-gray-200 font-sans"
+                                @click="resetClaudeConfig()"
+                                :disabled="claudeProxyConfiguring || claudeProxyResetting">
+                                <svg class="w-4 h-4" :class="{'animate-spin': claudeProxyResetting}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5.64 18.36A9 9 0 0020 12M18.36 5.64A9 9 0 004 12"></path>
+                                </svg>
+                                <span x-text="claudeProxyResetting ? 'Resetting...' : 'Reset Claude Code'">Reset Claude Code</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -163,8 +163,10 @@ test('Settings UI includes Claude proxy configuration controls', async () => {
   const html = await res.text();
 
   assert.ok(html.includes('Configure Claude Code'));
+  assert.ok(html.includes('Reset Claude Code'));
   assert.ok(html.includes('Configure on startup'));
   assert.ok(html.includes('@click="configureClaudeProxy()"'));
+  assert.ok(html.includes('@click="resetClaudeConfig()"'));
   assert.ok(html.includes('@change="setConfigureClaudeOnStartup($event.target.checked)"'));
 });
 
@@ -235,6 +237,7 @@ test('app.js defines expected Alpine state keys (smoke)', async () => {
     'loadModelMappingsSetting()',
     'loadClaudeProxySetting()',
     'configureClaudeProxy()',
+    'resetClaudeConfig()',
     'setConfigureClaudeOnStartup(enabled)',
     'setModelMapping(alias, model)',
     'setReasoningMapping(alias, reasoning)',
