@@ -1,12 +1,18 @@
 {
+  "id": "./",
   "name": "Subscription Proxy Inator",
   "short_name": "Proxy Inator",
   "description": "A private cross-platform desktop gateway for multi-provider AI routing.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#0b0d12",
   "theme_color": "#0b0d12",
+  "categories": ["utilities", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
     { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

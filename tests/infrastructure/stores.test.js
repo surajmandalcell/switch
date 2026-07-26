@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 import { ConfigStore } from '../../src/infrastructure/config-store.js';
 import { SecretStore } from '../../src/infrastructure/secret-store.js';
 import { MemoryUsageRepository } from '../../src/infrastructure/usage-memory.js';
@@ -34,7 +35,8 @@ test('AES secret store encrypts and survives restart', async () => {
   const dir = await temp(); const options = { vaultPath: path.join(dir, 'vault.json'), keyPath: path.join(dir, 'key') };
   const first = new SecretStore(options); await first.load(); const ref = await first.set('top-secret');
   assert.equal(first.get(ref), 'top-secret'); assert.doesNotMatch(await readFile(options.vaultPath, 'utf8'), /top-secret/);
-  const second = new SecretStore(options); await second.load(); assert.equal(second.get(ref), 'top-secret'); assert.equal((await stat(options.keyPath)).mode & 0o777, 0o600);
+  const second = new SecretStore(options); await second.load(); assert.equal(second.get(ref), 'top-secret');
+  if (process.platform !== 'win32') assert.equal((await stat(options.keyPath)).mode & 0o777, 0o600);
 });
 test('secret store can replace and delete a reference', async () => {
   const dir = await temp(); const store = new SecretStore({ vaultPath: path.join(dir, 'v'), keyPath: path.join(dir, 'k') }); await store.load();

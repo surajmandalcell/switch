@@ -1,8 +1,16 @@
 # Subscription Proxy Inator
 
+[![Desktop CI](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml)
+[![CodeQL](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml)
+[![Documentation](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/pages.yml/badge.svg?branch=master)](https://surajmandalcell.github.io/subscription-proxy-inator/)
+[![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-367cff)](CHANGELOG.md)
+[![MIT License](https://img.shields.io/badge/license-MIT-6c7a89)](LICENSE)
+
 A cross-platform desktop gateway that presents one local OpenAI- and Anthropic-compatible API while routing requests across your own OpenAI, Anthropic, Google Gemini, xAI Grok, compatible HTTP, command-line, and trusted module providers.
 
 The application is designed for one local user. Credentials stay encrypted on the machine, the proxy binds to loopback, and routing decisions are made from explicit account health, local budgets, provider eligibility, pricing, and configured load-balancing policy.
+
+**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Security](SECURITY.md)** · **[Changelog](CHANGELOG.md)**
 
 ## Highlights
 

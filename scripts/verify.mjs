@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 
+import { normalizeRepositoryPath } from './path-utils.mjs';
+
 const root = path.resolve(import.meta.dirname, '..');
 const excludedDirectories = new Set(['node_modules', 'dist', 'release', 'coverage', '.git']);
 const required = [
@@ -53,10 +55,10 @@ async function walk(directory) {
 }
 
 function isExcluded(file) {
-  return relative(file).split(path.sep).some((part) => excludedDirectories.has(part));
+  return relative(file).split('/').some((part) => excludedDirectories.has(part));
 }
 
-function relative(file) { return path.relative(root, file); }
+function relative(file) { return normalizeRepositoryPath(path.relative(root, file)); }
 
 async function validateJsx(files) {
   let typescript;
@@ -75,7 +77,7 @@ async function validateJsx(files) {
 
 function validateArchitecture(files) {
   for (const file of files) {
-    const rel = relative(file).replaceAll(path.sep, '/');
+    const rel = relative(file);
     const source = requireText(file);
     const imports = [
       ...source.matchAll(/(?:from\s+|import\s*\()\s*['"]([^'"]+)['"]/g),
