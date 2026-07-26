@@ -7,40 +7,41 @@
     <meta name="theme-color" content="#161616">
     <meta
       name="description"
-      content="Subscription Proxy Inator is a cross-platform desktop gateway for multiple AI providers, local protocol compatibility, failover, and usage accounting."
+      content="Subscription Proxy Inator is a cross-platform desktop gateway that gives local clients one OpenAI- or Anthropic-compatible API for multiple AI providers, with routing, failover, and local usage accounting."
     >
     <meta name="author" content="Suraj Mandal">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Subscription Proxy Inator">
     <meta
       property="og:description"
-      content="A local desktop gateway for OpenAI, Anthropic, Gemini, Grok, compatible APIs, and command providers."
+      content="One local API for OpenAI, Anthropic, Gemini, Grok, compatible HTTP, command, and module providers."
     >
     <meta property="og:url" content="https://surajmandalcell.github.io/subscription-proxy-inator/">
-    <meta property="og:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.png">
+    <meta property="og:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Subscription Proxy Inator">
     <meta
       name="twitter:description"
-      content="Multi-provider routing, protocol compatibility, failover, and local usage accounting."
+      content="Route local OpenAI- and Anthropic-compatible requests across multiple AI providers and accounts."
     >
-    <meta name="twitter:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.png">
-    <title>Subscription Proxy Inator · Desktop multi-provider AI gateway</title>
+    <meta name="twitter:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
+    <title>Subscription Proxy Inator · One local API for multiple AI providers</title>
     <link rel="canonical" href="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="assets/icon.svg">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/polish.css">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <header class="site-header">
+    <header class="site-header" data-site-header>
       <div class="site-header-inner">
         <a class="site-brand" href="./" aria-label="Subscription Proxy Inator home">
           <span class="site-mark" aria-hidden="true">
-            <span></span><span></span><span></span>
+            <img src="assets/icon.svg" width="32" height="32" alt="">
           </span>
           <span>Subscription Proxy Inator</span>
         </a>
@@ -65,70 +66,86 @@
     </header>
 
     <main id="main">
-      <section class="hero">
+      <section class="hero" aria-labelledby="hero-title">
         <div class="site-grid">
-          <div class="hero-label">Version 2.1.0 · MIT · Windows, macOS, and Linux</div>
-          <div class="hero-copy">
-            <h1>Run multiple AI providers behind one local desktop gateway.</h1>
-            <p>
-              Subscription Proxy Inator exposes OpenAI- and Anthropic-compatible local routes,
-              selects from configured provider accounts, records usage, and keeps credentials in
-              the desktop main process.
+          <div class="hero-label" data-reveal>Version 2.1.0 · MIT · Windows, macOS, and Linux</div>
+          <div class="hero-copy" data-reveal>
+            <p class="hero-kicker">Desktop multi-provider AI gateway</p>
+            <h1 id="hero-title">One local API for all your AI providers.</h1>
+            <p class="hero-description">
+              Add OpenAI, Anthropic, Gemini, Grok, compatible HTTP, command, or module accounts.
+              The desktop app routes each request to an eligible account, fails over before streaming
+              starts, and records usage locally.
             </p>
-            <div class="hero-actions">
-              <a class="button button-primary" href="docs/quick_start/">Quick start</a>
-              <a class="button button-secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest">Downloads</a>
+            <div class="hero-actions" role="group" aria-label="Get started">
+              <a class="button button-primary" href="docs/quick_start/" aria-label="Open the quick start guide">Quick start</a>
+              <a class="button button-secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest" aria-label="Download the latest desktop release">Download latest</a>
             </div>
+            <p class="hero-assurance">Runs on your machine. The server binds to loopback by default. No hosted control plane is required.</p>
           </div>
-          <aside class="hero-facts" aria-label="Project facts">
-            <dl>
-              <div><dt>7</dt><dd>routing strategies</dd></div>
-              <div><dt>6</dt><dd>local HTTP endpoints</dd></div>
-              <div><dt>3</dt><dd>desktop build targets</dd></div>
-              <div><dt>SQLite</dt><dd>local usage ledger</dd></div>
-            </dl>
+
+          <aside class="hero-flow" aria-label="How the local gateway works" data-reveal>
+            <div class="flow-heading">
+              <span>Request path</span>
+              <code>127.0.0.1:8081</code>
+            </div>
+            <ol>
+              <li>
+                <span class="flow-index">01</span>
+                <div><strong>Your client</strong><small>OpenAI- or Anthropic-compatible</small></div>
+              </li>
+              <li>
+                <span class="flow-index">02</span>
+                <div><strong>Local gateway</strong><small>Eligibility, routing, limits, and failover</small></div>
+              </li>
+              <li>
+                <span class="flow-index">03</span>
+                <div><strong>Provider account</strong><small>OpenAI, Anthropic, Gemini, Grok, HTTP, command, or module</small></div>
+              </li>
+            </ol>
+            <p>Provider switching stops once text or a tool call becomes visible to the client.</p>
           </aside>
         </div>
       </section>
 
-      <section id="capabilities" class="section">
+      <section id="capabilities" class="section" data-reveal>
         <div class="site-grid">
           <header class="section-heading">
             <span>01</span>
-            <h2>Implemented capabilities</h2>
-            <p>No hosted control plane is required. Configuration, routing state, credentials, and usage data remain local.</p>
+            <h2>What the desktop app does</h2>
+            <p>Configuration, credentials, routing state, and usage data stay on the local machine.</p>
           </header>
           <div class="capability-grid">
             <article>
               <span class="item-index">01</span>
-              <h3>Providers and accounts</h3>
-              <p>Multiple accounts per provider with independent priority, weight, enabled state, cooldown, and local limits.</p>
+              <h3>Connect providers</h3>
+              <p>Add multiple accounts per provider with independent priority, weight, enabled state, cooldown, and local limits.</p>
             </article>
             <article>
               <span class="item-index">02</span>
-              <h3>Protocol compatibility</h3>
-              <p>OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, model discovery, token estimation, and health routes.</p>
+              <h3>Expose one local API</h3>
+              <p>Use OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, model discovery, token estimation, and health routes.</p>
             </article>
             <article>
               <span class="item-index">03</span>
-              <h3>Failover</h3>
-              <p>Rate limits, overloads, network errors, and timeouts can move to another eligible account before client-visible output starts.</p>
+              <h3>Route and fail over</h3>
+              <p>Select an eligible account by policy and retry rate limits, overloads, network errors, or timeouts before output starts.</p>
             </article>
             <article>
               <span class="item-index">04</span>
-              <h3>Usage accounting</h3>
-              <p>Input, output, cache read, cache write, latency, first-token latency, estimated cost, and route attempts.</p>
+              <h3>Record local usage</h3>
+              <p>Store tokens, cache activity, latency, first-token latency, estimated cost, status, and route attempts in SQLite.</p>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="section section-dark">
+      <section class="section section-dark" data-reveal>
         <div class="site-grid">
           <header class="section-heading">
             <span>02</span>
-            <h2>Provider architecture</h2>
-            <p>Every provider implements the same canonical request, response, streaming, and usage contract.</p>
+            <h2>Supported provider adapters</h2>
+            <p>Every adapter maps to the same canonical request, response, streaming, and usage contract.</p>
           </header>
           <div class="provider-matrix" role="table" aria-label="Supported provider adapters">
             <div class="matrix-row matrix-head" role="row">
@@ -146,12 +163,12 @@
         </div>
       </section>
 
-      <section id="routing" class="section">
+      <section id="routing" class="section" data-reveal>
         <div class="site-grid">
           <header class="section-heading">
             <span>03</span>
             <h2>Routing and failure handling</h2>
-            <p>One global strategy is used by default. Each provider can override it, and one control removes all overrides.</p>
+            <p>Set one global policy, optionally override it per provider, and keep every route inside explicit eligibility rules.</p>
           </header>
           <div class="routing-layout">
             <ol class="strategy-list">
@@ -164,20 +181,20 @@
               <li><span>07</span><strong>Sticky session</strong></li>
             </ol>
             <div class="boundary-list">
-              <article><h3>Eligibility</h3><p>Provider enabled state, account enabled state, model globs, local limits, cooldown, and attention state.</p></article>
+              <article><h3>Eligibility</h3><p>Provider and account state, model globs, local limits, cooldown, and attention state.</p></article>
               <article><h3>Temporary isolation</h3><p>Retry-After and exponential cooldowns exclude routes after rate limits and transient failures.</p></article>
-              <article><h3>Streaming boundary</h3><p>A request never switches providers after text or a tool call becomes visible to the client.</p></article>
+              <article><h3>Streaming boundary</h3><p>A request never switches providers after text or tool activity reaches the client.</p></article>
             </div>
           </div>
         </div>
       </section>
 
-      <section id="api" class="section section-blue">
+      <section id="api" class="section section-blue" data-reveal>
         <div class="site-grid">
           <header class="section-heading">
             <span>04</span>
             <h2>Local compatibility API</h2>
-            <p>The default bind address is <code>127.0.0.1</code>. A local bearer key can be enabled from the desktop settings.</p>
+            <p>The default bind address is <code>127.0.0.1</code>. An encrypted local bearer key can be enabled in Settings.</p>
           </header>
           <div class="api-layout">
             <div class="endpoint-list">
@@ -191,7 +208,7 @@
             <div class="code-block">
               <div class="code-block-header">
                 <span>OpenAI-compatible client</span>
-                <button type="button" data-copy-target="quick-code">Copy</button>
+                <button type="button" data-copy-target="quick-code" aria-label="Copy the local OpenAI environment variables">Copy</button>
               </div>
               <pre id="quick-code"><code>export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
 export OPENAI_API_KEY=local-proxy-key</code></pre>
@@ -200,7 +217,7 @@ export OPENAI_API_KEY=local-proxy-key</code></pre>
         </div>
       </section>
 
-      <section class="section">
+      <section class="section" data-reveal>
         <div class="site-grid">
           <header class="section-heading">
             <span>05</span>
@@ -216,7 +233,7 @@ export OPENAI_API_KEY=local-proxy-key</code></pre>
         </div>
       </section>
 
-      <section class="section project-section">
+      <section class="section project-section" data-reveal>
         <div class="site-grid">
           <header class="section-heading">
             <span>06</span>
@@ -252,10 +269,10 @@ npm run dev</code></pre>
         </div>
         <nav aria-label="Footer navigation">
           <a href="docs/">Documentation</a>
-          <a href="docs/security/">Security</a>
           <a href="https://github.com/surajmandalcell/subscription-proxy-inator/issues">Issues</a>
+          <a href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest">Downloads</a>
         </nav>
-        <p>© <span data-current-year>2026</span> Suraj Mandal</p>
+        <p>© <span data-current-year></span> Suraj Mandal</p>
       </div>
     </footer>
   </body>

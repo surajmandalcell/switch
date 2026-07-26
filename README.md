@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="website/assets/icon.svg" width="112" height="112" alt="Subscription Proxy Inator calendar and refresh icon">
+</p>
+
 # Subscription Proxy Inator
 
 [![Desktop CI](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml)
@@ -27,9 +31,9 @@ The application is designed for one local user. Provider credentials are encrypt
 
 ## Interface
 
-Version 2.1 replaces the earlier translucent card treatment with an IBM Plex and 8 px-grid interface. The desktop renderer and website use the same information hierarchy: square surfaces, visible boundaries, 40 px controls, readable table rows, and responsive grid changes instead of scaled-down text. The system is inspired by IBM's public 2x Grid and Carbon guidance; it is not affiliated with or endorsed by IBM.
+Version 2.1 uses IBM Plex typography, a Carbon-like 4 px token scale with an 8 px major layout rhythm, square information surfaces, explicit boundaries, and consistently sized controls. The desktop renderer and website share the same hierarchy and responsive rules; the system is inspired by IBM's public 2x Grid and Carbon guidance and is not affiliated with or endorsed by IBM.
 
-The desktop renderer is tested at compact, medium, and wide window sizes. At narrower widths, the side navigation becomes an icon rail, multi-column editors collapse, tables retain horizontal scrolling, and actions wrap without changing functionality.
+The desktop renderer is tested at compact, medium, and wide window sizes. At narrower widths, the side navigation becomes an icon rail, multi-column editors collapse, tables retain horizontal scrolling, and action groups wrap with visible spacing instead of merging into one control. Purposeful opacity, color, and short spatial transitions are enabled by default, while application and operating-system reduced-motion preferences remove them.
 
 ## Quick start from source
 

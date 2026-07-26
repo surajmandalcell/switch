@@ -7,6 +7,7 @@ import '@fontsource/ibm-plex-sans/600.css';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import './styles.css';
+import './polish.css';
 import App from './App.jsx';
 import { ensureMockBridge } from './mock.js';
 

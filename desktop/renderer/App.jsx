@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Shell } from './components/Shell.jsx';
 import { Busy } from './components/Common.jsx';
+import { ProductIcon } from './components/ProductIcon.jsx';
 import { Dashboard } from './pages/Dashboard.jsx';
 import { Providers } from './pages/Providers.jsx';
 import { Routing } from './pages/Routing.jsx';
@@ -41,7 +42,12 @@ export default function App() {
       setBusy(false);
     }
   };
-  if (!snapshot) return <div className="boot-screen"><div className="brand-mark large">SP</div><Busy label={error ?? 'Starting local gateway'} /></div>;
+  if (!snapshot) return (
+    <div className="boot-screen">
+      <ProductIcon size={72} className="boot-icon" />
+      <Busy label={error ?? 'Starting local gateway'} />
+    </div>
+  );
   const pages = {
     dashboard: <Dashboard snapshot={snapshot} navigate={setActive} />,
     providers: <Providers snapshot={snapshot} mutate={mutate} />,
@@ -52,8 +58,8 @@ export default function App() {
     settings: <Settings snapshot={snapshot} mutate={mutate} />,
   };
   return <Shell active={active} onNavigate={setActive} snapshot={snapshot}>
-    {error ? <div className="error-banner">{error}<button onClick={() => setError(null)}>Dismiss</button></div> : null}
-    {busy ? <div className="busy-overlay"><Busy /></div> : null}
-    <div className="page-scroll">{pages[active]}</div>
+    {error ? <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div> : null}
+    {busy ? <div className="busy-overlay" aria-live="polite"><Busy /></div> : null}
+    <div className="page-scroll" key={active}>{pages[active]}</div>
   </Shell>;
 }

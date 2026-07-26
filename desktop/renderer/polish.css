@@ -1,0 +1,199 @@
+:root {
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --motion-slow: 240ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.product-icon {
+  display: block;
+  flex: 0 0 auto;
+  border-radius: 22%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.titlebar-product .product-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.product-mark {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border-radius: 8px;
+}
+
+.boot-icon {
+  margin-bottom: var(--spacing-05);
+  filter: drop-shadow(0 10px 28px color-mix(in srgb, var(--interactive) 28%, transparent));
+}
+
+.page-actions,
+.page-action-group {
+  gap: var(--spacing-03);
+}
+
+.primary-button,
+.secondary-button,
+.tertiary-button,
+.icon-button,
+.nav-item,
+.window-controls button,
+input,
+select,
+textarea,
+.strategy-card,
+.provider-card,
+.account-card,
+.metric,
+.panel-note {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease);
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.tertiary-button:hover,
+.icon-button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button:active,
+.secondary-button:active,
+.tertiary-button:active,
+.icon-button:active {
+  transform: translateY(0);
+}
+
+.nav-item::before {
+  transition: background-color var(--motion-fast) var(--motion-ease);
+}
+
+.nav-item:hover svg,
+.nav-item.active svg {
+  transform: translateX(1px);
+}
+
+.nav-item svg {
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+
+.metric:hover,
+.provider-card:hover,
+.account-card:hover {
+  border-color: var(--border-strong);
+}
+
+.page-scroll {
+  animation: page-enter var(--motion-standard) var(--motion-ease) both;
+}
+
+.error-banner {
+  animation: notice-enter var(--motion-standard) var(--motion-ease) both;
+}
+
+.busy-overlay {
+  animation: fade-in var(--motion-fast) linear both;
+}
+
+.status-dot,
+.topbar-status i {
+  transition: background-color var(--motion-standard) var(--motion-ease);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline-width: 3px;
+  outline-offset: 2px;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes notice-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 800px) {
+  .page-actions,
+  .page-action-group {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .page-actions > *,
+  .page-action-group > * {
+    min-width: min(100%, 168px);
+  }
+}
+
+@media (max-width: 620px) {
+  .page-scroll {
+    padding: var(--spacing-05);
+  }
+
+  .page-actions > *,
+  .page-action-group > * {
+    width: 100%;
+  }
+
+  .titlebar-product .product-icon {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.reduce-motion {
+  scroll-behavior: auto !important;
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

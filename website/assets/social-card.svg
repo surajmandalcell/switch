@@ -1,28 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
   <title id="title">Subscription Proxy Inator</title>
-  <desc id="description">Cross-platform desktop gateway for multiple AI providers.</desc>
+  <desc id="description">One local API for multiple AI providers, with routing, failover, and local usage accounting.</desc>
   <rect width="1200" height="630" fill="#161616"/>
   <rect x="0" y="0" width="24" height="630" fill="#0f62fe"/>
   <g stroke="#393939" stroke-width="1">
     <path d="M24 126h1176M24 252h1176M24 378h1176M24 504h1176"/>
     <path d="M220 0v630M416 0v630M612 0v630M808 0v630M1004 0v630"/>
   </g>
-  <g transform="translate(72 72)">
-    <rect width="88" height="88" fill="#0f62fe"/>
-    <path d="M18 25h52M18 44h52M18 63h52" fill="none" stroke="#fff" stroke-width="8"/>
-    <circle cx="33" cy="25" r="7" fill="#fff"/>
-    <circle cx="55" cy="44" r="7" fill="#fff"/>
-    <circle cx="39" cy="63" r="7" fill="#fff"/>
+  <g transform="translate(72 64) scale(1.5)">
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f62fe"/>
+    <g id="calendar">
+      <rect x="11" y="10" width="40" height="40" rx="8" fill="#ffffff"/>
+      <path d="M11 18a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8v5H11z" fill="#d0e2ff"/>
+      <rect x="18" y="7" width="4" height="11" rx="2" fill="#161616"/>
+      <rect x="40" y="7" width="4" height="11" rx="2" fill="#161616"/>
+      <g fill="#0f62fe">
+        <rect x="17" y="28" width="7" height="6" rx="1.5"/>
+        <rect x="28" y="28" width="7" height="6" rx="1.5" opacity="0.76"/>
+        <rect x="39" y="28" width="6" height="6" rx="1.5" opacity="0.48"/>
+        <rect x="17" y="38" width="7" height="6" rx="1.5" opacity="0.48"/>
+        <rect x="28" y="38" width="7" height="6" rx="1.5" opacity="0.76"/>
+      </g>
+    </g>
+    <g id="refresh-badge">
+      <circle cx="47" cy="47" r="13" fill="#161616" stroke="#ffffff" stroke-width="2.5"/>
+      <path d="M52.8 44.4a6.7 6.7 0 1 0 .3 5.9" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
+      <path d="m50.6 40.8 3.3 3.8-4.8 1" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
   </g>
-  <text x="72" y="262" fill="#f4f4f4" font-family="IBM Plex Sans, Arial, sans-serif" font-size="70" font-weight="300" letter-spacing="-2">
+  <text x="72" y="254" fill="#f4f4f4" font-family="IBM Plex Sans, Arial, sans-serif" font-size="70" font-weight="300" letter-spacing="-2">
     Subscription Proxy Inator
   </text>
-  <text x="72" y="342" fill="#c6c6c6" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34" font-weight="400">
-    Desktop gateway for multiple AI providers
+  <text x="72" y="334" fill="#c6c6c6" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34" font-weight="400">
+    One local API for all your AI providers
   </text>
-  <g transform="translate(72 458)" font-family="IBM Plex Sans, Arial, sans-serif" font-size="20" fill="#f4f4f4">
-    <text x="0" y="0">OpenAI + Anthropic compatible</text>
-    <text x="0" y="42">Multi-account routing and failover</text>
+  <g transform="translate(72 450)" font-family="IBM Plex Sans, Arial, sans-serif" font-size="20" fill="#f4f4f4">
+    <text x="0" y="0">OpenAI + Anthropic compatible local routes</text>
+    <text x="0" y="42">Multi-account routing and pre-stream failover</text>
     <text x="0" y="84">Windows · macOS · Linux</text>
   </g>
 </svg>

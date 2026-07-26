@@ -2,6 +2,18 @@
 
 All notable changes to Subscription Proxy Inator are documented here.
 
+## Unreleased
+
+### Interface completion
+
+- Reworked the website hero so the first viewport states the product outcome, supported provider families, local request path, pre-stream failover boundary, and local usage accounting.
+- Separated Quick start and Download actions with responsive spacing, consistent sizing, and visible keyboard focus.
+- Replaced every active product mark with one canonical rounded calendar-and-refresh SVG used by the website, renderer, manifest, README, social preview, and all Electron packaging targets.
+- Added deterministic Apple touch, 192 px, and 512 px PNG fallbacks from the same canonical SVG for package and web-install compatibility.
+- Added purposeful website reveal, hover, navigation, page, notice, and loading transitions with operating-system and in-app reduced-motion fallbacks.
+- Completed mobile menu focus handling, Escape behavior, accessible copy feedback, action wrapping, and narrow-screen alignment contracts.
+- Added repository tests for hero clarity, icon consistency, motion behavior, reduced-motion parity, and stale raster-icon removal.
+
 ## 2.1.0 - 2026-07-26
 
 ### Interface system

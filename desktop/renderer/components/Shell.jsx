@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Activity,
   Cable,
   ChartNoAxesCombined,
   FileText,
@@ -8,11 +7,11 @@ import {
   Minus,
   Network,
   Settings,
-  SlidersHorizontal,
   Square,
   Tags,
   X,
 } from 'lucide-react';
+import { ProductIcon } from './ProductIcon.jsx';
 
 const navigation = [
   ['dashboard', 'Overview', Gauge],
@@ -33,7 +32,7 @@ export function Shell({ active, onNavigate, snapshot, children }) {
         <aside className="side-nav">
           <div className="product-block">
             <div className="product-mark" aria-hidden="true">
-              <SlidersHorizontal size={19} />
+              <ProductIcon size={36} />
             </div>
             <div className="product-copy">
               <strong>Proxy Inator</strong>
@@ -75,7 +74,7 @@ function Titlebar({ snapshot, enabledProviders }) {
   return (
     <header className="titlebar">
       <div className="titlebar-product">
-        <Activity size={17} aria-hidden="true" />
+        <ProductIcon size={24} />
         <span>Subscription Proxy Inator</span>
       </div>
 
