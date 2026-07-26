@@ -58,14 +58,17 @@ test('desktop CI validates and packages all three platforms', async () => {
   assert.match(workflow, /actions\/upload-artifact@v7/);
 });
 
-test('Pages and CodeQL workflows use least-privilege capabilities', async () => {
-  const pages = await text('.github/workflows/pages.yml');
+test('CodeQL is least-privilege and documentation hosting is explicit', async () => {
   const codeql = await text('.github/workflows/codeql.yml');
-  assert.match(pages, /pages:\s*write/);
-  assert.match(pages, /id-token:\s*write/);
-  assert.match(pages, /actions\/deploy-pages@v4/);
+  const readme = await text('README.md');
+  const release = await text('docs/RELEASE.md');
+  assert.equal(await exists('.github/workflows/pages.yml'), false);
   assert.match(codeql, /security-events:\s*write/);
   assert.match(codeql, /github\/codeql-action\/analyze@v4/);
+  assert.match(readme, /https:\/\/surajmandalcell\.github\.io\/subscription-proxy-inator\//);
+  assert.match(readme, /img\.shields\.io\/badge\/docs-online/);
+  assert.match(release, /surajmandalcell\.github\.io/);
+  assert.match(release, /\/subscription-proxy-inator\//);
 });
 
 test('release workflow requires a version tag and uploads checksummed artifacts', async () => {

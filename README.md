@@ -2,7 +2,7 @@
 
 [![Desktop CI](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml)
 [![CodeQL](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml)
-[![Documentation](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/pages.yml/badge.svg?branch=master)](https://surajmandalcell.github.io/subscription-proxy-inator/)
+[![Documentation](https://img.shields.io/badge/docs-online-367cff)](https://surajmandalcell.github.io/subscription-proxy-inator/)
 [![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-367cff)](CHANGELOG.md)
 [![MIT License](https://img.shields.io/badge/license-MIT-6c7a89)](LICENSE)
 

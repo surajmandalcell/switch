@@ -31,7 +31,7 @@ The desktop CI workflow runs:
 6. Production dependency audit.
 7. Unpacked Electron packaging on macOS, Windows, and Linux.
 
-CodeQL analyzes JavaScript. The Pages workflow deploys the generated public website.
+CodeQL analyzes JavaScript. The generated public website is built from this repository and published under `/subscription-proxy-inator/` in the existing `surajmandalcell.github.io` Pages source branch. The project repository keeps website generation and link validation in CI without owning a second Pages configuration.
 
 ## Tagging
 

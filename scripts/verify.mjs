@@ -14,7 +14,7 @@ const required = [
   'desktop/main/index.js', 'desktop/preload/index.cjs', 'desktop/renderer/App.jsx',
   'src/bootstrap.js', 'src/application/routing-service.js', 'src/application/proxy-service.js',
   'src/domain/config.js', 'src/infrastructure/http-server.js', 'website/index.html',
-  '.github/workflows/desktop-ci.yml', '.github/workflows/pages.yml', '.github/workflows/release.yml',
+  '.github/workflows/desktop-ci.yml', '.github/workflows/codeql.yml', '.github/workflows/release.yml',
 ];
 const forbiddenRoots = ['bin', 'public', 'images', '.rework', '.lockgen', '.publish'];
 
@@ -99,7 +99,6 @@ function validateArchitecture(files) {
 }
 
 function requireText(file) {
-  // All architecture-scanned source is UTF-8 and small; synchronous reads keep the validation loop deterministic.
   return spawnSync(process.execPath, ['-e', `process.stdout.write(require('fs').readFileSync(${JSON.stringify(file)}, 'utf8'))`], { encoding: 'utf8' }).stdout;
 }
 
