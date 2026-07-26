@@ -1,71 +1,82 @@
 {
-  "name": "@pikoloo/codex-proxy",
-  "version": "1.2.3",
-  "description": "Local personal proxy for OpenAI Codex models with Claude API compatibility",
+  "name": "subscription-proxy-inator",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Cross-platform desktop AI gateway for multi-provider routing, failover, compatibility translation, and local usage accounting.",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",
+  "license": "MIT",
   "type": "module",
-  "main": "src/index.js",
-  "bin": {
-    "codex-proxy": "bin/cli.js",
-    "codex-claude-proxy": "bin/cli.js"
-  },
-  "files": [
-    "src",
-    "bin",
-    "public",
-    "docs",
-    "images",
-    "CHANGELOG.md",
-    "README.md",
-    "LICENSE",
-    "package.json"
-  ],
+  "main": "desktop/main/index.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=22",
+    "npm": ">=10.9.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/surajmandalcell/codex-proxy.git"
+    "url": "git+https://github.com/surajmandalcell/subscription-proxy-inator.git"
   },
   "bugs": {
-    "url": "https://github.com/surajmandalcell/codex-proxy/issues"
+    "url": "https://github.com/surajmandalcell/subscription-proxy-inator/issues"
   },
-  "homepage": "https://github.com/surajmandalcell/codex-proxy#readme",
+  "homepage": "https://surajmandalcell.github.io/subscription-proxy-inator/",
   "scripts": {
-    "start": "node src/index.js",
-    "account": "node src/cli/account.js",
-    "account:add": "node src/cli/account.js add",
-    "account:add:headless": "node src/cli/account.js add --no-browser",
-    "account:show": "node src/cli/account.js show",
-    "account:remove": "node src/cli/account.js remove",
-    "account:verify": "node src/cli/account.js verify",
-    "account:clear": "node src/cli/account.js clear",
-    "build": "find src bin scripts \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
-    "test": "node --test tests/*.test.js",
-    "test:unit": "node --test tests/unit/*.test.js",
-    "test:all": "npm run test:unit && npm test",
-    "test:api": "node --test tests/api.test.js",
-    "test:routing": "node --test tests/routing.test.js",
-    "test:cors": "node --test tests/cors_security.test.js",
-    "test:ui": "node --test tests/ui.test.js"
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "start": "electron .",
+    "test": "node scripts/run-tests.mjs",
+    "test:watch": "node scripts/run-tests.mjs --watch",
+    "test:coverage": "node scripts/run-tests.mjs --coverage",
+    "verify": "node scripts/verify.mjs",
+    "check:links": "node scripts/check-links.mjs",
+    "build:site": "node scripts/build-site.mjs && node scripts/check-links.mjs --site",
+    "build:renderer": "vite build",
+    "check": "npm run verify && npm run test:coverage && npm run check:links",
+    "build": "npm run check && npm run build:renderer && npm run build:site",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:dir": "npm run build && electron-builder --dir"
   },
   "dependencies": {
-    "@duckdb/node-api": "^1.5.3-r.1",
-    "alpinejs": "3.15.12",
-    "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "@fastify/cors": "10.0.2",
+    "@fontsource/inter": "5.2.6",
+    "@pikoloo/darwin-ui": "2.1.0",
+    "better-sqlite3": "12.2.0",
+    "fastify": "5.10.0",
+    "lucide-react": "0.468.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   },
-  "overrides": {
-    "path-to-regexp": "0.1.13",
-    "qs": "6.15.2"
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.6.0",
+    "concurrently": "9.2.0",
+    "cross-env": "7.0.3",
+    "electron": "37.2.0",
+    "electron-builder": "26.0.12",
+    "typescript": "5.8.3",
+    "vite": "7.0.6",
+    "wait-on": "8.0.4"
   },
-  "keywords": [
-    "codex",
-    "openai",
-    "proxy",
-    "claude",
-    "chatgpt",
-    "oauth"
-  ],
-  "license": "MIT"
+  "build": {
+    "appId": "com.mandalsuraj.subscriptionproxyinator",
+    "productName": "Subscription Proxy Inator",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
+    "directories": {"output": "release", "buildResources": "build"},
+    "files": [
+      "dist/renderer/**/*",
+      "desktop/main/**/*",
+      "desktop/preload/**/*",
+      "src/**/*",
+      "docs/**/*",
+      "README.md",
+      "CHANGELOG.md",
+      "LICENSE",
+      "package.json"
+    ],
+    "mac": {"category": "public.app-category.developer-tools", "icon": "build/icon.png", "target": ["dmg", "zip"]},
+    "win": {"icon": "build/icon.png", "target": ["nsis", "zip"]},
+    "linux": {"category": "Development", "icon": "build/icon.png", "target": ["AppImage", "deb"]},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true},
+    "publish": {"provider": "github", "owner": "surajmandalcell", "repo": "subscription-proxy-inator"}
+  },
+  "packageManager": "npm@10.9.2"
 }

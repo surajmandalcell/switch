@@ -1,223 +1,133 @@
-# Codex Claude Proxy
+# Subscription Proxy Inator
 
-![Codex Claude Proxy README cover](./images/readme-cover.png)
+A cross-platform desktop gateway that presents one local OpenAI- and Anthropic-compatible API while routing requests across your own OpenAI, Anthropic, Google Gemini, xAI Grok, compatible HTTP, command-line, and trusted module providers.
 
-_Current README cover: a short, thumbgen-style composite generated from fresh local dashboard screenshots._
+The application is designed for one local user. Credentials stay encrypted on the machine, the proxy binds to loopback, and routing decisions are made from explicit account health, local budgets, provider eligibility, pricing, and configured load-balancing policy.
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
-[![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-blue.svg)](https://nodejs.org/)
-[![GitHub stars](https://img.shields.io/github/stars/surajmandalcell/codex-proxy?style=social)](https://github.com/surajmandalcell/codex-proxy)
+## Highlights
 
-> **Use Claude Code CLI with the power of ChatGPT Codex models.**
-> A local proxy that translates Anthropic API requests into ChatGPT Codex calls, enabling you to use the `claude` CLI tool with your ChatGPT Free/Plus/Pro subscription.
+- **Multiple accounts per provider** with independent priority, weight, health, cooldown, enablement, and local request/token/cost limits.
+- **Modular provider architecture** for OpenAI, Anthropic, Gemini, Grok, compatible APIs, JSON-lines commands, and trusted local modules.
+- **Safe failover** across accounts and providers for rate limits, overloads, timeouts, and network failures. A streaming request never switches after client-visible text or a tool call.
+- **Seven routing strategies:** priority, round robin, weighted random, least in-flight, lowest latency, lowest estimated cost, and sticky sessions.
+- **Global and per-provider routing policy** with a single action that clears every override and applies the global strategy.
+- **OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages compatibility**, including streaming, images, tools, tool results, usage, and stop reasons.
+- **Native Gemini support**, including `generateContent`, SSE streaming, function calling, thought-signature preservation, and long-running Deep Research interactions.
+- **Detailed local usage accounting** for input, output, cache read, cache write, cost, total latency, first-token latency, request status, and every upstream route attempt.
+- **Editable source-linked pricing catalog** used by cost estimates and lowest-cost routing.
+- **One sandboxed React renderer on macOS, Windows, and Linux**, with a custom titlebar, compact translucent sidebar, Darwin UI components, and platform compositor backdrops.
 
-| Role | Details |
-| --- | --- |
-| Maintainer | Suraj Mandal |
-| GitHub | [surajmandalcell](https://github.com/surajmandalcell) |
-| Contact | [surajmandalcell@gmail.com](mailto:surajmandalcell@gmail.com) |
-| Package | [@pikoloo/codex-proxy](https://www.npmjs.com/package/@pikoloo/codex-proxy) |
-| Changelog | [Changelog](CHANGELOG.md) |
+## Status
 
----
+Version 2.0 is a complete architectural replacement for version 1. The source tree, desktop application, compatibility server, documentation website, tests, packaging workflows, and migration guidance live together in this repository.
 
-## 🚀 Features
+Unsigned development packages are produced by CI for all three desktop platforms. Tagged releases build installable artifacts. Production signing and notarization require maintainer-owned certificates and secrets.
 
-- **Seamless Translation**: Translates Anthropic Messages API calls to ChatGPT Codex format.
-- **Model Mapping**: maps Claude model aliases to current OpenAI models, with direct GPT model IDs passed through.
-- **Personal Account Mode**: Stores and uses one configured ChatGPT account for local-only personal use, with token auto-refresh.
-- **Web Dashboard**: Built-in macOS-style UI (`http://localhost:8081`) for managing the local account, configuring Claude Code, viewing logs, adjusting settings, and testing prompts.
-- **Streaming Support**: Full Server-Sent Events (SSE) support for real-time responses.
-- **Native Tool Calling**: Supports Claude's tool use capabilities by translating them to Codex function calls.
+## Quick start from source
 
----
+Requirements:
 
-## Security & Privacy
-
-**Is this a malicious proxy? No.**
-
-- **Local Execution**: This server binds to `127.0.0.1` by default.
-- **Direct Communication by Default**: Claude and GPT model requests connect directly to OpenAI/ChatGPT endpoints.
-- **Single Account Only**: Requests use one configured ChatGPT account. Adding or importing an account replaces the existing local account.
-- **Third-Party Opt-In**: The explicit `kilo` model route uses Kilo/OpenRouter-backed free models only when `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. Default routing is OpenAI-only.
-- **Open Source**: The full source code is available here for you to audit.
-- **No Data Collection**: We do not track your prompts, keys, or personal data.
-
----
-
-## Responsible Use And Account Boundaries
-
-| Boundary | Commitment |
-| --- | --- |
-| Single user | This tool is intended for local, single-user use with your own ChatGPT/Codex account. |
-| Single account | The proxy stores and uses one configured ChatGPT account at a time. Adding or importing an account replaces the existing local account. |
-| No sharing | Do not expose the proxy to other users or make your ChatGPT credentials, session, or local proxy available to anyone else. |
-| No resale | This package distributes client software only. It does not sell, rent, sublicense, bundle, or provide OpenAI service access. |
-| No rate-limit bypass | The project does not pool accounts, rotate accounts, retry on another account, or attempt to avoid usage limits. |
-| Unofficial tool | This project is independent and is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, or Kilo. |
-| Terms reminder | Users remain responsible for their own compliance with the [OpenAI Terms](https://openai.com/policies/terms-of-use/) and [Anthropic Terms](https://www.anthropic.com/legal/consumer-terms). |
-
-This project uses unofficial ChatGPT/Codex backend behavior and does not claim official approval or guaranteed Terms compliance.
-
----
-
-## ⚙️ How it works
-
-This tool acts as a "translation layer" between the Claude CLI and ChatGPT's Codex backend.
-
-1.  **Intercept**: Claude Code CLI sends a request to `localhost:8081` (thinking it's Anthropic's API).
-2.  **Translate**: The proxy converts the Anthropic-format JSON into the specific payload format required by ChatGPT's internal Codex API.
-3.  **Forward**: The request is sent securely to ChatGPT using your own authenticated session.
-4.  **Stream**: The response from ChatGPT is converted back into Anthropic's Server-Sent Events (SSE) format and streamed to your terminal.
-
-```
-┌──────────────────┐     ┌─────────────────────┐     ┌────────────────────────────┐
-│   Claude Code    │────▶│  This Proxy Server  │────▶│  ChatGPT Codex Backend API  │
-│ (Anthropic API)  │     │ (Anthropic ⇄ OpenAI)│     │ (codex/responses)           │
-└──────────────────┘     └─────────────────────┘     └────────────────────────────┘
-```
-
----
-
-## Installation
-
-Install globally to use the CLI commands anywhere:
+- Node.js 22 or newer
+- npm 10.9 or newer
+- Native build tools supported by Electron and `better-sqlite3`
 
 ```bash
-npm install -g @pikoloo/codex-proxy
-codex-proxy start
+git clone https://github.com/surajmandalcell/subscription-proxy-inator.git
+cd subscription-proxy-inator
+npm ci
+npm run check
+npm run dev
 ```
 
-Or run the published package without a global install:
+The desktop app starts the local gateway at `http://127.0.0.1:8081` by default.
+
+1. Open **Providers** and add a provider preset.
+2. Add one or more accounts. Credentials are encrypted immediately.
+3. Open **Routing** and select a global strategy or provider override.
+4. Optionally configure aliases and verified rates under **Models & pricing**.
+5. Point an OpenAI- or Anthropic-compatible client at the local endpoint.
+
+OpenAI-style environment:
 
 ```bash
-npx @pikoloo/codex-proxy@latest start
+export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
+export OPENAI_API_KEY=local-proxy-key
 ```
 
-For release work from this checkout, use `make update` and `make publish`.
-
-The legacy `codex-claude-proxy` command remains available after installing this package.
-
----
-
-## 🚦 Quick Start
-
-### 1. Start the Proxy
+Anthropic-style environment:
 
 ```bash
-codex-proxy start
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8081
+export ANTHROPIC_API_KEY=local-proxy-key
 ```
-The server will start at `http://localhost:8081`.
 
-### 2. Add Your Account
+The local key is optional until enabled in **Settings**. It is never the upstream provider credential.
 
-#### **Option A: Web Dashboard (Local Desktop)**
+## Compatibility endpoints
 
-1. Open the dashboard at **[http://localhost:8081](http://localhost:8081)**
-2. Go to the **Account** tab
-3. Click **Add Account** and login with your ChatGPT account
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Unauthenticated local health check |
+| `GET` | `/v1/models` | Configured aliases and exact provider model IDs |
+| `POST` | `/v1/chat/completions` | OpenAI Chat Completions JSON and SSE |
+| `POST` | `/v1/responses` | OpenAI Responses JSON and SSE |
+| `POST` | `/v1/messages` | Anthropic Messages JSON and SSE |
+| `POST` | `/v1/messages/count_tokens` | Local input-token estimate |
 
-#### **Option B: CLI (Desktop or Headless/VM)**
+See [API documentation](docs/API.md) for supported fields and compatibility boundaries.
+
+## Architecture
+
+The source follows domain-driven boundaries:
+
+```text
+src/domain          Pure configuration, protocol, routing, and usage rules
+src/application     Use cases and orchestration services
+src/providers       Upstream protocol adapters
+src/infrastructure  Persistence, encrypted vault, HTTP server, and logging
+desktop/main        Electron composition root and validated IPC handlers
+desktop/preload     Finite context-isolated renderer bridge
+desktop/renderer    Shared React desktop interface
+```
+
+The domain layer has no Electron, database, network, or provider dependencies. Application services depend on ports supplied at bootstrap. Infrastructure and presentation stay outside the domain.
+
+Read [Architecture](docs/ARCHITECTURE.md) and the [architecture decisions](docs/adr/0001-domain-boundaries.md).
+
+## Development and quality gates
 
 ```bash
-# Desktop (opens browser)
-codex-proxy account add
-
-# Headless/VM server (manual code input)
-codex-proxy account add --no-browser
+npm test                 # all Node test contracts
+npm run test:coverage    # coverage-gated domain/application suite
+npm run verify           # repository, DDD, security, JSX, and workflow checks
+npm run check:links      # source documentation links
+npm run build:renderer   # production React renderer
+npm run build:site       # public website and generated documentation
+npm run dist:dir         # unpacked Electron application
+npm run build            # complete validation and both web builds
 ```
 
-For **headless/VM servers** without a browser:
-1. Run the command with `--no-browser`
-2. It will print a URL - copy and open it on a device with a browser
-3. Complete login on that device
-4. After redirect, copy the callback URL (or just the code)
-5. Paste it back in the terminal
+The test suite exercises routing strategies, cooldowns, account limits, protocol conversion, provider adapters, Deep Research polling, stream boundaries, cancellation, backpressure helpers, encrypted persistence, usage filters, cost rules, config transactions, and repository architecture.
 
-### 3. Configure Claude Code
-   In the dashboard, click **Configure Claude Code** to write the proxy settings into Claude Code. Enable **Configure on startup** if you want the proxy to keep Claude Code pointed at the local server whenever it starts. Click **Reset Claude Code** to remove those overrides and return Claude Code to its default official configuration.
+## Documentation
 
-   You can also run this command:
-   ```bash
-   curl -X POST http://localhost:8081/claude/config/proxy
-   ```
+Start with the [documentation index](docs/INDEX.md):
 
-   *Alternatively, set the environment variables manually:*
-   ```bash
-   export ANTHROPIC_BASE_URL=http://localhost:8081
-   export ANTHROPIC_API_KEY=dummy-key # The key is ignored but required by the CLI
-   ```
+- [Quick start](docs/QUICK_START.md)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [Providers](docs/PROVIDERS.md)
+- [Routing and failover](docs/ROUTING.md)
+- [Usage and pricing](docs/USAGE.md)
+- [Security model](docs/SECURITY.md)
+- [Version 1 migration](docs/MIGRATION_V1.md)
+- [Contributing](CONTRIBUTING.md)
 
-4. **Run Claude**:
-   ```bash
-   claude
-   ```
+## Security and responsible use
 
----
+Use only accounts and API access you are authorized to use. The project does not acquire credentials, scrape browser sessions, resell subscriptions, or claim to bypass provider limits. Account switching is a reliability and policy mechanism for the local user’s configured accounts; it does not make prohibited use permissible.
 
-## 🧠 Model Mapping
+The server is loopback-only, browser origins are exact allow-list entries, secrets are excluded from renderer snapshots, and logs redact credential-shaped fields. Read [SECURITY.md](SECURITY.md) before exposing any local automation to the gateway.
 
-The proxy automatically maps Claude model names to current OpenAI backend models. Direct `gpt-*` model IDs are passed through.
+## License
 
-| Requested Model ID | Upstream Model | Auth Required | Description |
-| :--- | :--- | :---: | :--- |
-| `claude-sonnet-4-5` | `gpt-5.5` | ✅ | Current default high-intelligence model |
-| `claude-opus-4-5` | `gpt-5.5` | ✅ | Current default high-intelligence model |
-| `claude-haiku-4` | `gpt-5.4-mini` | ✅ | OpenAI small-model lane |
-| `codex` | `gpt-5.3-codex` | ✅ | Latest Codex-optimized model |
-| `kilo` | Selected Kilo target | ❌ | Explicit third-party free-model route, disabled unless `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` |
-
----
-
-## 🛠️ Configuration & API
-
-### Web Dashboard
-
-The dashboard uses a clean desktop split-view layout with a compact toolbar, native-feeling glass surfaces, single-account management, live logs, settings, Claude Code configuration, and prompt test panels. The screenshots below are captured from the actual local app.
-
-| Dashboard | Settings |
-| --- | --- |
-| ![Codex Proxy dashboard screenshot](./images/dashboard-screenshot.png) | ![Codex Proxy settings screenshot](./images/settings-screenshot.png) |
-
-Visit `http://localhost:8081` to:
-- **Manage Account**: Add, import, refresh, replace, or remove the one local ChatGPT account.
-- **Personal Mode**: Requests use the configured account only.
-- **Configure Claude Code**: Use the dashboard button to set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and Claude model defaults, or reset Claude Code back to the official default config.
-- **View Logs**: See real-time request/response logs for debugging.
-- **Test Models**: Run quick tests against the configured models.
-
-### API Endpoints
-- `GET /health`: Check server status.
-- `GET /account`: View the configured account.
-- `POST /v1/messages`: Anthropic-compatible chat completion endpoint.
-
-See [API Documentation](./docs/API.md) for full details.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## ⚠️ Disclaimer
-This project is an independent open-source tool and is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, or Kilo. "Claude" is a trademark of Anthropic PBC. "ChatGPT" and "Codex" are trademarks of OpenAI. Use responsibly and in accordance with applicable Terms of Service.
-
----
-
-<div align="center">
-  <p>If you find this project useful, please give it a star! ⭐️</p>
-  <a href="https://github.com/surajmandalcell/codex-proxy">
-    <img src="https://img.shields.io/github/stars/surajmandalcell/codex-proxy?style=social" alt="Star on GitHub">
-  </a>
-</div>
+MIT. See [LICENSE](LICENSE).

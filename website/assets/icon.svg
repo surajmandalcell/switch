@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Subscription Proxy Inator">
+  <defs><linearGradient id="g" x1="16" y1="8" x2="112" y2="120" gradientUnits="userSpaceOnUse"><stop stop-color="#43a5ff"/><stop offset=".52" stop-color="#1d73ff"/><stop offset="1" stop-color="#7b5cff"/></linearGradient><filter id="s"><feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#145fff" flood-opacity=".35"/></filter></defs>
+  <rect x="10" y="10" width="108" height="108" rx="31" fill="url(#g)" filter="url(#s)"/>
+  <path d="M39 42h50M39 64h50M39 86h50" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" opacity=".95"/>
+  <circle cx="52" cy="42" r="9" fill="#fff"/><circle cx="77" cy="64" r="9" fill="#fff"/><circle cx="58" cy="86" r="9" fill="#fff"/>
+</svg>

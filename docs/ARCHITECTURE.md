@@ -1,129 +1,108 @@
 # Architecture
 
-## Overview
+## Goals
 
-```
-┌──────────────────┐     ┌─────────────────────┐     ┌────────────────────────────┐
-│   Claude Code    │────▶│  This Proxy Server  │────▶│  ChatGPT Codex backend      │
-│   (Anthropic     │     │  (Anthropic format) │     │  (internal API)             │
-│    API format)   │     │                     │     │                             │
-└──────────────────┘     └─────────────────────┘     └────────────────────────────┘
-                                   │
-                                   ▼
-                         ┌─────────────────────┐
-                         │  Account Manager    │
-                         │  (local storage)    │
-                         │                     │
-                         └─────────────────────┘
-```
+The architecture isolates business rules from Electron, HTTP frameworks, databases, and provider wire formats. It supports many accounts per provider, deterministic routing, protocol compatibility, and safe desktop configuration without coupling those concerns together.
 
-## Key Discovery
+## Layers
 
-This proxy forwards requests from Anthropic-compatible clients (like Claude Code) to the ChatGPT Codex backend, handling authentication, format conversion, and streaming.
-
-## Project Structure
-
-```
-codex-proxy/
-├── package.json
-├── README.md
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── API.md
-│   ├── OAUTH.md
-│   ├── ACCOUNT.md
-│   └── CLAUDE_INTEGRATION.md
-├── public/
-│   ├── index.html
-│   ├── css/style.css
-│   └── js/app.js              # Web UI logic
-└── src/
-    ├── index.js               # App entrypoint
-    ├── server.js              # Express server setup
-    ├── routes/api-routes.js   # API route registrations
-    └── ...                    # OAuth, account storage, converters, upstream clients
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ Desktop presentation                                         │
+│ Electron main · finite preload bridge · React renderer       │
+├──────────────────────────────────────────────────────────────┤
+│ Infrastructure                                               │
+│ Fastify · SQLite · encrypted vault · config files · logging  │
+├──────────────────────────────────────────────────────────────┤
+│ Provider adapters                                            │
+│ OpenAI · Anthropic · Gemini · Grok · command · modules       │
+├──────────────────────────────────────────────────────────────┤
+│ Application services                                         │
+│ Proxy · routing orchestration · usage · settings · mutations │
+├──────────────────────────────────────────────────────────────┤
+│ Domain                                                       │
+│ Config invariants · canonical protocols · routing · pricing  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-(See the `src/` directory for the full implementation; this doc focuses on the high-level shape.)
+### Domain
 
-## Module Responsibilities
+`src/domain` contains pure policy:
+
+- Configuration normalization and validation.
+- Canonical request, response, content, tool, and stream events.
+- OpenAI, Anthropic, and Gemini protocol transformations.
+- Account eligibility and local limit calculations.
+- Strategy ordering and sticky-session state.
+- Error classification and cooldown duration.
+- Pricing specificity, cost calculation, filtering, summaries, and CSV shape.
+
+It does not import application, provider, infrastructure, Electron, or renderer code.
+
+### Application
+
+`src/application` implements use cases against ports:
+
+- `RoutingService` executes a route plan and owns failover boundaries.
+- `ProxyService` translates client protocols, invokes routing, serializes output, and records usage.
+- `UsageService` selects pricing and delegates storage.
+- `SettingsService` coordinates configuration, local API credentials, server restarts, and login effects.
+- `ProviderConfigurationService` coordinates provider/account configuration and encrypted secret lifecycle.
+- `RuntimeState` tracks in-flight work, latency EWMA, failures, cooldown, and attention state.
+
+### Providers
+
+Each adapter accepts a canonical request and context. It provides:
+
+```js
+{
+  type: 'provider-type',
+  execute(request, context) => canonicalResponse,
+  stream(request, context) => AsyncIterable<canonicalEvent>
+}
+```
+
+Provider adapters do not select accounts or decide failover. They translate one upstream protocol and propagate cancellation, timeout, status, and usage.
+
+### Infrastructure
+
+Infrastructure implements persistence and process boundaries:
+
+- Atomic JSON configuration store.
+- Encrypted secret vault.
+- SQLite request and route-attempt ledgers.
+- Loopback Fastify compatibility server.
+- Bounded structured logger with redaction.
+
+### Desktop
+
+The Electron main process is the composition root. The renderer receives public configuration and finite actions through a context-isolated preload bridge. The renderer never receives `secretRef`, `apiKeySecretRef`, provider credentials, Node APIs, or raw IPC.
+
+## Request flow
+
+1. The HTTP server authenticates the local request and selects a client protocol.
+2. `ProxyService` converts the body to a canonical request.
+3. `UsageService` estimates provider costs for lowest-cost routing.
+4. `RoutingEngine` filters and orders eligible provider/account candidates.
+5. `RoutingService` invokes an adapter and records attempt lifecycle events.
+6. On retryable failure before visible streaming output, the next candidate is attempted.
+7. The successful canonical response/events are serialized to the original client protocol.
+8. Usage and route attempts are persisted independently.
+
+## Persistence
+
+Application data lives under Electron’s platform-specific user-data directory:
 
 | File | Purpose |
-|------|---------|
-| `index.js` | Entry point (starts server) |
-| `server.js` | Express server, routes, request handling (CORS restricted) |
-| `routes/api-routes.js` | API route registrations (mounted by server) |
-| `oauth.js` | OAuth 2.0 PKCE flow, token exchange |
-| `account-manager.js` | Single-account persistence, one-time migration, token refresh |
-| `format-converter.js` | Convert between Anthropic and OpenAI Responses API formats |
-| `response-streamer.js` | Parse SSE events, convert to Anthropic streaming format |
-| `direct-api.js` | HTTP client for ChatGPT backend |
-| `kilo-api.js` | Alternate upstream client |
-| `kilo-format-converter.js` | Anthropic ↔ OpenAI Chat conversion |
-| `kilo-streamer.js` | Streaming adapter |
-| `server-settings.js` | Server-wide settings persistence |
-| `model-api.js` | Fetch models, usage, quota |
-| `claude-config.js` | Read/write Claude Code settings |
+| --- | --- |
+| `config.json` | Non-secret schema-versioned configuration |
+| `secrets.json` | Encrypted credential records |
+| `secret.key` | AES fallback key when platform storage is unavailable |
+| `usage.sqlite` | Request and route-attempt ledgers |
+| `providers/` | Trusted external provider modules |
 
-## Data Flow
+## Failure model
 
-### Request Flow
+The router distinguishes rate limits, quota exhaustion, authentication failures, overloads, timeouts, network errors, client cancellation, and non-retryable request errors. Runtime state is updated per account. Client cancellation does not penalize an account.
 
-1. Claude Code sends Anthropic-format request to `/v1/messages`
-2. The proxy maps the requested model to an upstream target
-3. If the mapped path requires ChatGPT auth, the account manager loads/refreshes credentials
-4. Request is converted and sent upstream
-5. Response is streamed back as Anthropic SSE events
-
-### Web UI Account/Quota Flow
-
-1. Web UI loads the configured account from `/account`
-2. Web UI fetches the quota snapshot from `/account/quota`
-3. Quota values are merged into the account card and modal views
-4. Remaining quota is rendered from normalized usage percentages
-5. On mobile/tablet, sidebar navigation auto-closes after tab change and account controls stay compact
-
-### Format Conversion
-
-**Anthropic → OpenAI Responses API:**
-- `messages` → `input` array with `type: 'message'`
-- `system` → `instructions`
-- `tools` → OpenAI function format
-- `tool_use` → `function_call` input item
-- `tool_result` → `function_call_output` input item
-
-**OpenAI → Anthropic:**
-- `output_text` → `{ type: 'text', text: ... }`
-- `function_call` → `{ type: 'tool_use', id, name, input }`
-- SSE events converted to Anthropic streaming format
-
-## Available Models
-
-| Model | Description |
-|-------|-------------|
-| `gpt-5.5` | Current OpenAI flagship model |
-| `gpt-5.4` | Current lower-cost frontier model |
-| `gpt-5.4-mini` | Current small OpenAI model |
-| `gpt-5.3-codex` | Latest Codex-optimized model |
-| `gpt-5.2` | Older general-purpose frontier model |
-
-## Model Mapping
-
-Claude model names are automatically mapped:
-
-| Claude Model | Codex Model |
-|--------------|-------------|
-| `claude-opus-4-5` | `gpt-5.5` |
-| `claude-sonnet-4-5` | `gpt-5.5` |
-| `claude-haiku-4` | `gpt-5.4-mini` |
-| `kilo` | selected Kilo target, disabled by default |
-
-Kilo routing is explicit and disabled unless `CODEX_CLAUDE_PROXY_ENABLE_KILO=true` is set. The `/settings/haiku-model` endpoints choose the Kilo target used when the requested model is `kilo`.
-
-## Account Selection
-
-The default execution mode is personal local use: `/v1/messages` uses the single configured account. Adding, importing, or completing OAuth for another account replaces the prior local account. The request path does not pool accounts, retry on another account, or attempt to avoid usage limits.
-
-## Data Storage
-
-Account and configuration files are stored under your home directory (platform-specific). See `docs/ACCOUNT.md` and `docs/CLAUDE_INTEGRATION.md` for details.
+See [Routing](ROUTING.md), [Security](SECURITY.md), and [ADR 0002](adr/0002-streaming-failover.md).

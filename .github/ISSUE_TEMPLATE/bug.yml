@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible defect in the desktop app, proxy, routing, or compatibility layer.
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API keys, OAuth tokens, account cookies, prompts, or unredacted logs.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [macOS, Windows, Linux]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Application version
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Reproduction and observed behavior
+      description: Include minimal steps, requested protocol, provider type, and redacted error output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Remove credentials, prompts, account identifiers, and personal data.

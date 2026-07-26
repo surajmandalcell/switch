@@ -1,19 +1,16 @@
 node_modules/
-tmp/
-.claude/settings.local.json
+dist/
+release/
+coverage/
+*.log
 .DS_Store
-telemetry-id
-# Ignore external reference projects
-antigravity-claude-proxy-main/
-# Ignore credentials
-accounts.json
-auth.json
-.codex-claude-proxy/
-.internal/
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+Thumbs.db
 .env
-pentagi
-apps/portfolio/dist/
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.publish/
+.lockgen/
+.rework/

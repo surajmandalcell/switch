@@ -1,0 +1,67 @@
+name: Desktop CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Use the repository npm version
+        run: npm install --global npm@10.9.2 --no-audit --no-fund
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify, test, and build
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  package:
+    needs: validate
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Use the repository npm version
+        run: npm install --global npm@10.9.2 --no-audit --no-fund
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build unpacked desktop application
+        run: npm run dist:dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Upload unpacked application
+        uses: actions/upload-artifact@v7
+        with:
+          name: unpacked-${{ runner.os }}
+          path: release/**
+          if-no-files-found: error
+          retention-days: 7
