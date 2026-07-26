@@ -1,27 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
   <title id="title">Subscription Proxy Inator</title>
-  <desc id="description">Private multi-provider AI routing for your desktop.</desc>
-  <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#090b10"/><stop offset=".58" stop-color="#101727"/><stop offset="1" stop-color="#15112b"/></linearGradient>
-    <radialGradient id="blue" cx="0" cy="0" r="1" gradientTransform="translate(885 108) rotate(132) scale(490 360)"><stop stop-color="#286dff" stop-opacity=".46"/><stop offset="1" stop-color="#286dff" stop-opacity="0"/></radialGradient>
-    <radialGradient id="purple" cx="0" cy="0" r="1" gradientTransform="translate(1040 590) rotate(-145) scale(430 280)"><stop stop-color="#7959ff" stop-opacity=".35"/><stop offset="1" stop-color="#7959ff" stop-opacity="0"/></radialGradient>
-    <linearGradient id="icon" x1="42" y1="22" x2="164" y2="184" gradientUnits="userSpaceOnUse"><stop stop-color="#43a5ff"/><stop offset=".52" stop-color="#1d73ff"/><stop offset="1" stop-color="#7b5cff"/></linearGradient>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="22" stdDeviation="23" flood-color="#071126" flood-opacity=".7"/></filter>
-  </defs>
-  <rect width="1200" height="630" fill="url(#background)"/>
-  <rect width="1200" height="630" fill="url(#blue)"/>
-  <rect width="1200" height="630" fill="url(#purple)"/>
-  <g opacity=".08" stroke="#fff"><path d="M0 110H1200M0 220H1200M0 330H1200M0 440H1200M0 550H1200"/><path d="M120 0V630M240 0V630M360 0V630M480 0V630M600 0V630M720 0V630M840 0V630M960 0V630M1080 0V630"/></g>
-  <g transform="translate(76 74)" filter="url(#shadow)">
-    <rect width="176" height="176" rx="49" fill="url(#icon)"/>
-    <path d="M46 58h84M46 88h84M46 118h84" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" opacity=".96"/>
-    <circle cx="66" cy="58" r="14" fill="#fff"/><circle cx="107" cy="88" r="14" fill="#fff"/><circle cx="77" cy="118" r="14" fill="#fff"/>
+  <desc id="description">Cross-platform desktop gateway for multiple AI providers.</desc>
+  <rect width="1200" height="630" fill="#161616"/>
+  <rect x="0" y="0" width="24" height="630" fill="#0f62fe"/>
+  <g stroke="#393939" stroke-width="1">
+    <path d="M24 126h1176M24 252h1176M24 378h1176M24 504h1176"/>
+    <path d="M220 0v630M416 0v630M612 0v630M808 0v630M1004 0v630"/>
   </g>
-  <text x="77" y="337" fill="#fff" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="68" font-weight="760" letter-spacing="-2.8">Subscription Proxy Inator</text>
-  <text x="80" y="402" fill="#b8c4dc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="31" font-weight="450">Private multi-provider AI routing for your desktop.</text>
-  <g transform="translate(80 474)" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600">
-    <rect width="188" height="52" rx="26" fill="#ffffff" fill-opacity=".08" stroke="#ffffff" stroke-opacity=".13"/><circle cx="28" cy="26" r="6" fill="#58d59e"/><text x="45" y="33" fill="#dce5f6">Local-first</text>
-    <g transform="translate(204)"><rect width="214" height="52" rx="26" fill="#ffffff" fill-opacity=".08" stroke="#ffffff" stroke-opacity=".13"/><circle cx="28" cy="26" r="6" fill="#55a5ff"/><text x="45" y="33" fill="#dce5f6">Cross-platform</text></g>
-    <g transform="translate(434)"><rect width="258" height="52" rx="26" fill="#ffffff" fill-opacity=".08" stroke="#ffffff" stroke-opacity=".13"/><circle cx="28" cy="26" r="6" fill="#9a7cff"/><text x="45" y="33" fill="#dce5f6">Open source · MIT</text></g>
+  <g transform="translate(72 72)">
+    <rect width="88" height="88" fill="#0f62fe"/>
+    <path d="M18 25h52M18 44h52M18 63h52" fill="none" stroke="#fff" stroke-width="8"/>
+    <circle cx="33" cy="25" r="7" fill="#fff"/>
+    <circle cx="55" cy="44" r="7" fill="#fff"/>
+    <circle cx="39" cy="63" r="7" fill="#fff"/>
+  </g>
+  <text x="72" y="262" fill="#f4f4f4" font-family="IBM Plex Sans, Arial, sans-serif" font-size="70" font-weight="300" letter-spacing="-2">
+    Subscription Proxy Inator
+  </text>
+  <text x="72" y="342" fill="#c6c6c6" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34" font-weight="400">
+    Desktop gateway for multiple AI providers
+  </text>
+  <g transform="translate(72 458)" font-family="IBM Plex Sans, Arial, sans-serif" font-size="20" fill="#f4f4f4">
+    <text x="0" y="0">OpenAI + Anthropic compatible</text>
+    <text x="0" y="42">Multi-account routing and failover</text>
+    <text x="0" y="84">Windows · macOS · Linux</text>
   </g>
 </svg>

@@ -7,13 +7,16 @@ const root = path.resolve(import.meta.dirname, '../..');
 const text = (relative) => readFile(path.join(root, relative), 'utf8');
 const exists = (relative) => stat(path.join(root, relative)).then(() => true, () => false);
 
-test('package metadata identifies the version 2 desktop application', async () => {
+test('package metadata identifies the current desktop application', async () => {
   const pkg = JSON.parse(await text('package.json'));
   assert.equal(pkg.name, 'subscription-proxy-inator');
-  assert.equal(pkg.version, '2.0.0');
+  assert.equal(pkg.version, '2.1.0');
   assert.equal(pkg.private, true);
   assert.equal(pkg.main, 'desktop/main/index.js');
-  assert.deepEqual(Object.keys(pkg.build).filter((key) => ['mac', 'win', 'linux'].includes(key)).sort(), ['linux', 'mac', 'win']);
+  assert.deepEqual(
+    Object.keys(pkg.build).filter((key) => ['mac', 'win', 'linux'].includes(key)).sort(),
+    ['linux', 'mac', 'win'],
+  );
 });
 
 test('legacy and temporary repository roots are absent', async () => {
@@ -43,7 +46,7 @@ test('Electron window is sandboxed and context isolated', async () => {
 
 test('public documentation covers every supported operating concern', async () => {
   for (const relative of [
-    'docs/QUICK_START.md', 'docs/ARCHITECTURE.md', 'docs/CONFIGURATION.md',
+    'docs/QUICK_START.md', 'docs/ARCHITECTURE.md', 'docs/DESIGN_SYSTEM.md', 'docs/CONFIGURATION.md',
     'docs/PROVIDERS.md', 'docs/API.md', 'docs/ROUTING.md', 'docs/USAGE.md',
     'docs/SECURITY.md', 'docs/TROUBLESHOOTING.md', 'docs/DEVELOPMENT.md',
     'docs/RELEASE.md', 'docs/MIGRATION_V1.md',

@@ -1,0 +1,98 @@
+name: Responsive UI audit
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - desktop/renderer/**
+      - website/**
+      - index.html
+      - scripts/audit-ui.mjs
+      - scripts/build-site.mjs
+      - package.json
+      - package-lock.json
+      - .github/workflows/ui-audit.yml
+  pull_request:
+    branches: [master]
+    paths:
+      - desktop/renderer/**
+      - website/**
+      - index.html
+      - scripts/audit-ui.mjs
+      - scripts/build-site.mjs
+      - package.json
+      - package-lock.json
+      - .github/workflows/ui-audit.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Use repository npm version
+        run: npm install --global npm@10.9.2 --no-audit --no-fund
+
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify, test, and build production interfaces
+        run: npm run build
+
+      - name: Serve production interfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python3 -m http.server 4173 --directory dist/site > "$RUNNER_TEMP/site-server.log" 2>&1 &
+          nohup python3 -m http.server 4174 --directory dist/renderer > "$RUNNER_TEMP/app-server.log" 2>&1 &
+          for url in http://127.0.0.1:4173/ http://127.0.0.1:4174/; do
+            for attempt in $(seq 1 30); do
+              curl --fail --silent "$url" >/dev/null && break
+              sleep 1
+            done
+            curl --fail --silent "$url" >/dev/null
+          done
+
+      - name: Audit every section and responsive viewport
+        id: browser
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          test -x "$browser"
+          mkdir -p "$RUNNER_TEMP/ui-audit"
+          BROWSER="$browser" \
+          APP_URL=http://127.0.0.1:4174/ \
+          SITE_URL=http://127.0.0.1:4173/ \
+          OUTPUT_DIR="$RUNNER_TEMP/ui-audit" \
+            node scripts/audit-ui.mjs 2>&1 | tee "$RUNNER_TEMP/ui-audit/run.log"
+
+      - name: Upload responsive screenshots and audit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: responsive-ui-audit-${{ runner.os }}
+          path: ${{ runner.temp }}/ui-audit
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce browser audit result
+        if: steps.browser.outcome != 'success'
+        shell: bash
+        run: exit 1

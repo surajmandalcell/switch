@@ -2,14 +2,14 @@
 
 ## Goals
 
-The architecture isolates business rules from Electron, HTTP frameworks, databases, and provider wire formats. It supports many accounts per provider, deterministic routing, protocol compatibility, and safe desktop configuration without coupling those concerns together.
+The architecture isolates business rules from Electron, HTTP frameworks, databases, provider wire formats, and presentation. It supports many accounts per provider, deterministic routing, protocol compatibility, local metering, and safe desktop configuration without coupling those concerns together.
 
 ## Layers
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Desktop presentation                                         │
-│ Electron main · finite preload bridge · React renderer       │
+│ Presentation                                                  │
+│ Electron shell · React renderer · website · generated docs   │
 ├──────────────────────────────────────────────────────────────┤
 │ Infrastructure                                               │
 │ Fastify · SQLite · encrypted vault · config files · logging  │
@@ -37,7 +37,7 @@ The architecture isolates business rules from Electron, HTTP frameworks, databas
 - Error classification and cooldown duration.
 - Pricing specificity, cost calculation, filtering, summaries, and CSV shape.
 
-It does not import application, provider, infrastructure, Electron, or renderer code.
+It does not import application, provider, infrastructure, Electron, website, or renderer code.
 
 ### Application
 
@@ -74,9 +74,11 @@ Infrastructure implements persistence and process boundaries:
 - Loopback Fastify compatibility server.
 - Bounded structured logger with redaction.
 
-### Desktop
+### Presentation
 
-The Electron main process is the composition root. The renderer receives public configuration and finite actions through a context-isolated preload bridge. The renderer never receives `secretRef`, `apiKeySecretRef`, provider credentials, Node APIs, or raw IPC.
+The Electron main process is the desktop composition root. The renderer receives public configuration and finite actions through a context-isolated preload bridge. The renderer never receives `secretRef`, `apiKeySecretRef`, provider credentials, Node APIs, or raw IPC.
+
+The desktop renderer, product website, and generated documentation share an IBM Plex and 8 px-grid presentation contract. The website is generated from `website/` and Markdown in `docs/`; it does not share application state or privileged desktop capabilities. See [Interface design system](DESIGN_SYSTEM.md).
 
 ## Request flow
 
@@ -91,7 +93,7 @@ The Electron main process is the composition root. The renderer receives public 
 
 ## Persistence
 
-Application data lives under Electron’s platform-specific user-data directory:
+Application data lives under Electron's platform-specific user-data directory:
 
 | File | Purpose |
 | --- | --- |
@@ -105,4 +107,4 @@ Application data lives under Electron’s platform-specific user-data directory:
 
 The router distinguishes rate limits, quota exhaustion, authentication failures, overloads, timeouts, network errors, client cancellation, and non-retryable request errors. Runtime state is updated per account. Client cancellation does not penalize an account.
 
-See [Routing](ROUTING.md), [Security](SECURITY.md), and [ADR 0002](adr/0002-streaming-failover.md).
+See [Routing](ROUTING.md), [Security](SECURITY.md), [Interface design system](DESIGN_SYSTEM.md), and [ADR 0002](adr/0002-streaming-failover.md).

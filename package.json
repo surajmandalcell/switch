@@ -1,6 +1,6 @@
 {
   "name": "subscription-proxy-inator",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Cross-platform desktop AI gateway for multi-provider routing, failover, compatibility translation, and local usage accounting.",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",
@@ -36,8 +36,8 @@
   },
   "dependencies": {
     "@fastify/cors": "10.0.2",
-    "@fontsource/inter": "5.2.6",
-    "@pikoloo/darwin-ui": "2.1.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
     "better-sqlite3": "12.2.0",
     "fastify": "5.10.0",
     "lucide-react": "0.468.0",
@@ -59,8 +59,13 @@
     "productName": "Subscription Proxy Inator",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "asar": true,
-    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
-    "directories": {"output": "release", "buildResources": "build"},
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
     "files": [
       "dist/renderer/**/*",
       "desktop/main/**/*",
@@ -72,11 +77,40 @@
       "LICENSE",
       "package.json"
     ],
-    "mac": {"category": "public.app-category.developer-tools", "icon": "build/icon.png", "target": ["dmg", "zip"]},
-    "win": {"icon": "build/icon.png", "target": ["nsis", "zip"]},
-    "linux": {"category": "Development", "icon": "build/icon.png", "target": ["AppImage", "deb"]},
-    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true},
-    "publish": {"provider": "github", "owner": "surajmandalcell", "repo": "subscription-proxy-inator"}
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "surajmandalcell",
+      "repo": "subscription-proxy-inator"
+    }
   },
   "packageManager": "npm@10.9.2"
 }

@@ -2,34 +2,34 @@
 
 [![Desktop CI](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml)
 [![CodeQL](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml)
-[![Documentation](https://img.shields.io/badge/docs-online-367cff)](https://surajmandalcell.github.io/subscription-proxy-inator/)
-[![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-367cff)](CHANGELOG.md)
-[![MIT License](https://img.shields.io/badge/license-MIT-6c7a89)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-online-0f62fe)](https://surajmandalcell.github.io/subscription-proxy-inator/)
+[![Version 2.1.0](https://img.shields.io/badge/version-2.1.0-0f62fe)](CHANGELOG.md)
+[![MIT License](https://img.shields.io/badge/license-MIT-525252)](LICENSE)
 
-A cross-platform desktop gateway that presents one local OpenAI- and Anthropic-compatible API while routing requests across your own OpenAI, Anthropic, Google Gemini, xAI Grok, compatible HTTP, command-line, and trusted module providers.
+A cross-platform desktop gateway that exposes local OpenAI- and Anthropic-compatible routes while routing requests across configured OpenAI, Anthropic, Google Gemini, xAI Grok, compatible HTTP, command-line, and trusted module providers.
 
-The application is designed for one local user. Credentials stay encrypted on the machine, the proxy binds to loopback, and routing decisions are made from explicit account health, local budgets, provider eligibility, pricing, and configured load-balancing policy.
+The application is designed for one local user. Provider credentials are encrypted in the desktop main process, the HTTP server binds to loopback, and routing uses configured account health, limits, model eligibility, pricing, and load-balancing policy.
 
-**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Security](SECURITY.md)** · **[Changelog](CHANGELOG.md)**
+**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Design system](docs/DESIGN_SYSTEM.md)** · **[Security](SECURITY.md)** · **[Changelog](CHANGELOG.md)**
 
-## Highlights
+## Implemented capabilities
 
-- **Multiple accounts per provider** with independent priority, weight, health, cooldown, enablement, and local request/token/cost limits.
-- **Modular provider architecture** for OpenAI, Anthropic, Gemini, Grok, compatible APIs, JSON-lines commands, and trusted local modules.
-- **Safe failover** across accounts and providers for rate limits, overloads, timeouts, and network failures. A streaming request never switches after client-visible text or a tool call.
-- **Seven routing strategies:** priority, round robin, weighted random, least in-flight, lowest latency, lowest estimated cost, and sticky sessions.
-- **Global and per-provider routing policy** with a single action that clears every override and applies the global strategy.
-- **OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages compatibility**, including streaming, images, tools, tool results, usage, and stop reasons.
-- **Native Gemini support**, including `generateContent`, SSE streaming, function calling, thought-signature preservation, and long-running Deep Research interactions.
-- **Detailed local usage accounting** for input, output, cache read, cache write, cost, total latency, first-token latency, request status, and every upstream route attempt.
-- **Editable source-linked pricing catalog** used by cost estimates and lowest-cost routing.
-- **One sandboxed React renderer on macOS, Windows, and Linux**, with a custom titlebar, compact translucent sidebar, Darwin UI components, and platform compositor backdrops.
+- Multiple accounts per provider with independent priority, weight, enabled state, runtime health, cooldown, and local request/token/cost limits.
+- Provider adapters for OpenAI, Anthropic, Gemini, Grok, OpenAI-compatible HTTP, Anthropic-compatible HTTP, JSON-lines commands, and trusted local modules.
+- Priority, round robin, weighted random, least in-flight, lowest recent latency, lowest estimated cost, and sticky-session routing.
+- One global routing strategy, optional provider overrides, and one action that removes every override.
+- Failover for eligible rate-limit, overload, timeout, and network failures before client-visible streaming output begins.
+- OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, model discovery, token estimation, and health endpoints.
+- Native Gemini `generateContent`, streaming, function calling, thought signatures, and Deep Research polling.
+- Request and route-attempt accounting for input, output, cache read, cache write, latency, first-token latency, status, and estimated or reported cost.
+- Editable model aliases and source-linked pricing rules.
+- One sandboxed React renderer shared by macOS, Windows, and Linux.
 
-## Status
+## Interface
 
-Version 2.0 is a complete architectural replacement for version 1. The source tree, desktop application, compatibility server, documentation website, tests, packaging workflows, and migration guidance live together in this repository.
+Version 2.1 replaces the earlier translucent card treatment with an IBM Plex and 8 px-grid interface. The desktop renderer and website use the same information hierarchy: square surfaces, visible boundaries, 40 px controls, readable table rows, and responsive grid changes instead of scaled-down text. The system is inspired by IBM's public 2x Grid and Carbon guidance; it is not affiliated with or endorsed by IBM.
 
-Unsigned development packages are produced by CI for all three desktop platforms. Tagged releases build installable artifacts. Production signing and notarization require maintainer-owned certificates and secrets.
+The desktop renderer is tested at compact, medium, and wide window sizes. At narrower widths, the side navigation becomes an icon rail, multi-column editors collapse, tables retain horizontal scrolling, and actions wrap without changing functionality.
 
 ## Quick start from source
 
@@ -47,31 +47,31 @@ npm run check
 npm run dev
 ```
 
-The desktop app starts the local gateway at `http://127.0.0.1:8081` by default.
+The local gateway starts at `http://127.0.0.1:8081` by default.
 
-1. Open **Providers** and add a provider preset.
-2. Add one or more accounts. Credentials are encrypted immediately.
-3. Open **Routing** and select a global strategy or provider override.
-4. Optionally configure aliases and verified rates under **Models & pricing**.
+1. Open **Providers** and add a provider adapter.
+2. Add one or more accounts. Credentials are encrypted when saved.
+3. Open **Routing** and select the global strategy or provider overrides.
+4. Configure aliases and verified rates under **Models & pricing** when needed.
 5. Point an OpenAI- or Anthropic-compatible client at the local endpoint.
 
-OpenAI-style environment:
+OpenAI-compatible environment:
 
 ```bash
 export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
 export OPENAI_API_KEY=local-proxy-key
 ```
 
-Anthropic-style environment:
+Anthropic-compatible environment:
 
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8081
 export ANTHROPIC_API_KEY=local-proxy-key
 ```
 
-The local key is optional until enabled in **Settings**. It is never the upstream provider credential.
+The local key is optional until enabled in **Settings**. It is not an upstream provider credential.
 
-## Compatibility endpoints
+## Local endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -86,8 +86,6 @@ See [API documentation](docs/API.md) for supported fields and compatibility boun
 
 ## Architecture
 
-The source follows domain-driven boundaries:
-
 ```text
 src/domain          Pure configuration, protocol, routing, and usage rules
 src/application     Use cases and orchestration services
@@ -95,12 +93,11 @@ src/providers       Upstream protocol adapters
 src/infrastructure  Persistence, encrypted vault, HTTP server, and logging
 desktop/main        Electron composition root and validated IPC handlers
 desktop/preload     Finite context-isolated renderer bridge
-desktop/renderer    Shared React desktop interface
+desktop/renderer    Shared responsive desktop interface
+website             Source for the public product and documentation site
 ```
 
-The domain layer has no Electron, database, network, or provider dependencies. Application services depend on ports supplied at bootstrap. Infrastructure and presentation stay outside the domain.
-
-Read [Architecture](docs/ARCHITECTURE.md) and the [architecture decisions](docs/adr/0001-domain-boundaries.md).
+The domain layer has no Electron, database, network, provider, or renderer dependencies. Application services depend on ports supplied at bootstrap. Infrastructure and presentation remain outside the domain.
 
 ## Development and quality gates
 
@@ -115,13 +112,13 @@ npm run dist:dir         # unpacked Electron application
 npm run build            # complete validation and both web builds
 ```
 
-The test suite exercises routing strategies, cooldowns, account limits, protocol conversion, provider adapters, Deep Research polling, stream boundaries, cancellation, backpressure helpers, encrypted persistence, usage filters, cost rules, config transactions, and repository architecture.
+The contracts cover routing strategies, cooldowns, account limits, protocol conversion, provider adapters, Deep Research polling, streaming boundaries, cancellation, encrypted persistence, usage filters, cost rules, configuration transactions, repository architecture, and the interface design system.
 
 ## Documentation
 
-Start with the [documentation index](docs/INDEX.md):
-
 - [Quick start](docs/QUICK_START.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Design system](docs/DESIGN_SYSTEM.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Providers](docs/PROVIDERS.md)
 - [Routing and failover](docs/ROUTING.md)
@@ -132,9 +129,9 @@ Start with the [documentation index](docs/INDEX.md):
 
 ## Security and responsible use
 
-Use only accounts and API access you are authorized to use. The project does not acquire credentials, scrape browser sessions, resell subscriptions, or claim to bypass provider limits. Account switching is a reliability and policy mechanism for the local user’s configured accounts; it does not make prohibited use permissible.
+Use only accounts and API access you are authorized to use. The project does not acquire credentials, scrape browser sessions, resell subscriptions, or claim to bypass provider limits. Account switching is a local reliability and policy mechanism; it does not make prohibited use permissible.
 
-The server is loopback-only, browser origins are exact allow-list entries, secrets are excluded from renderer snapshots, and logs redact credential-shaped fields. Read [SECURITY.md](SECURITY.md) before exposing any local automation to the gateway.
+The server is loopback-only, browser origins are exact allow-list entries, secrets are excluded from renderer snapshots, and logs redact credential-shaped fields. Read [SECURITY.md](SECURITY.md) before connecting local automation.
 
 ## License
 

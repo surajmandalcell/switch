@@ -1,46 +1,103 @@
 import React from 'react';
-import { Activity, Cable, ChartNoAxesCombined, FileText, Gauge, Network, Settings, SlidersHorizontal, Tags } from 'lucide-react';
+import {
+  Activity,
+  Cable,
+  ChartNoAxesCombined,
+  FileText,
+  Gauge,
+  Minus,
+  Network,
+  Settings,
+  SlidersHorizontal,
+  Square,
+  Tags,
+  X,
+} from 'lucide-react';
 
 const navigation = [
   ['dashboard', 'Overview', Gauge],
   ['providers', 'Providers', Cable],
   ['routing', 'Routing', Network],
-  ['catalog', 'Models & pricing', Tags],
+  ['catalog', 'Models and pricing', Tags],
   ['usage', 'Usage', ChartNoAxesCombined],
   ['logs', 'Logs', FileText],
   ['settings', 'Settings', Settings],
 ];
 
 export function Shell({ active, onNavigate, snapshot, children }) {
-  return <div className="app-window">
-    <Titlebar snapshot={snapshot} />
-    <div className="app-body">
-      <aside className="sidebar">
-        <div className="brand-block">
-          <div className="brand-mark"><SlidersHorizontal size={17} /></div>
-          <div><strong>Proxy Inator</strong><span>Local AI gateway</span></div>
-        </div>
-        <nav className="nav-list" aria-label="Application">
-          {navigation.map(([id, label, Icon]) => <button key={id} className={`nav-item ${active === id ? 'active' : ''}`} onClick={() => onNavigate(id)}><Icon size={16} /><span>{label}</span></button>)}
-        </nav>
-        <div className="sidebar-footer">
-          <div className={`status-dot ${snapshot ? 'online' : ''}`} />
-          <div><strong>{snapshot ? 'Proxy ready' : 'Connecting'}</strong><span>{snapshot?.serverUrl ?? 'Loading local service'}</span></div>
-        </div>
-      </aside>
-      <main className="content-frame">{children}</main>
+  const enabledProviders = snapshot?.config?.providers?.filter((provider) => provider.enabled).length ?? 0;
+  return (
+    <div className="app-shell">
+      <Titlebar snapshot={snapshot} enabledProviders={enabledProviders} />
+      <div className="workspace">
+        <aside className="side-nav">
+          <div className="product-block">
+            <div className="product-mark" aria-hidden="true">
+              <SlidersHorizontal size={19} />
+            </div>
+            <div className="product-copy">
+              <strong>Proxy Inator</strong>
+              <span>Local AI gateway</span>
+            </div>
+          </div>
+
+          <nav className="nav-list" aria-label="Application">
+            {navigation.map(([id, label, Icon]) => (
+              <button
+                key={id}
+                className={`nav-item ${active === id ? 'active' : ''}`}
+                type="button"
+                aria-current={active === id ? 'page' : undefined}
+                title={label}
+                onClick={() => onNavigate(id)}
+              >
+                <Icon size={18} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="side-nav-status">
+            <span className={`status-dot ${snapshot ? 'online' : ''}`} aria-hidden="true" />
+            <div>
+              <strong>{snapshot ? 'Gateway available' : 'Connecting'}</strong>
+              <span>{snapshot?.serverUrl ?? 'Starting local service'}</span>
+            </div>
+          </div>
+        </aside>
+        <main className="main-view">{children}</main>
+      </div>
     </div>
-  </div>;
+  );
 }
 
-function Titlebar({ snapshot }) {
-  return <header className="titlebar">
-    <div className="traffic-lights" aria-label="Window controls">
-      <button className="traffic close" aria-label="Close" onClick={() => window.spi.close()} />
-      <button className="traffic minimize" aria-label="Minimize" onClick={() => window.spi.minimize()} />
-      <button className="traffic maximize" aria-label="Maximize" onClick={() => window.spi.maximize()} />
-    </div>
-    <div className="titlebar-center"><Activity size={13} /><span>Subscription Proxy Inator</span></div>
-    <div className="titlebar-status"><span className="status-pill"><i />{snapshot?.config?.providers?.filter((provider) => provider.enabled).length ?? 0} providers</span></div>
-  </header>;
+function Titlebar({ snapshot, enabledProviders }) {
+  return (
+    <header className="titlebar">
+      <div className="titlebar-product">
+        <Activity size={17} aria-hidden="true" />
+        <span>Subscription Proxy Inator</span>
+      </div>
+
+      <div className="titlebar-meta" aria-label="Gateway status">
+        <span className="topbar-status">
+          <i aria-hidden="true" />
+          {snapshot ? 'Online' : 'Starting'}
+        </span>
+        <span className="topbar-count">{enabledProviders} enabled provider{enabledProviders === 1 ? '' : 's'}</span>
+      </div>
+
+      <div className="window-controls" aria-label="Window controls">
+        <button type="button" aria-label="Minimize" onClick={() => window.spi.minimize()}>
+          <Minus size={16} />
+        </button>
+        <button type="button" aria-label="Maximize" onClick={() => window.spi.maximize()}>
+          <Square size={13} />
+        </button>
+        <button className="window-close" type="button" aria-label="Close" onClick={() => window.spi.close()}>
+          <X size={16} />
+        </button>
+      </div>
+    </header>
+  );
 }

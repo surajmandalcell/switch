@@ -1,6 +1,6 @@
 # Documentation
 
-Subscription Proxy Inator is a local desktop gateway with explicit domains for configuration, routing, protocol translation, provider integration, credential storage, and metering.
+Subscription Proxy Inator is a local desktop gateway with explicit domains for configuration, routing, protocol translation, provider integration, credential storage, metering, and presentation.
 
 ## Start here
 
@@ -11,6 +11,7 @@ Subscription Proxy Inator is a local desktop gateway with explicit domains for c
 - [Routing](ROUTING.md) — eligibility, strategies, limits, cooldowns, and failover boundaries.
 - [Usage](USAGE.md) — request records, route attempts, filters, pricing, and CSV export.
 - [Security](SECURITY.md) — trust boundaries, credential lifecycle, IPC, and local HTTP policy.
+- [Interface design system](DESIGN_SYSTEM.md) — typography, spacing, geometry, responsive behavior, and factual-content rules.
 
 ## Maintainers and contributors
 

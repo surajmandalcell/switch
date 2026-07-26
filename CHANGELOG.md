@@ -2,6 +2,28 @@
 
 All notable changes to Subscription Proxy Inator are documented here.
 
+## 2.1.0 - 2026-07-26
+
+### Interface system
+
+- Rebuilt the desktop renderer around IBM Plex typography, an 8 px spacing grid, square information surfaces, explicit borders, and Carbon-inspired interaction sizing.
+- Reorganized navigation, page headers, metrics, provider editors, routing controls, usage filters, settings, and logs around consistent 40 px controls and readable table rows.
+- Added responsive layouts for wide, medium, compact, and narrow windows without shrinking primary text or removing configuration capabilities.
+- Added a documented interface contract and repository tests for typography, spacing, breakpoints, responsive structure, and prohibited decorative regressions.
+
+### Website
+
+- Replaced the promotional mock dashboard with a factual product site containing only implemented provider, routing, API, metering, security, build, and release information.
+- Removed fabricated traffic, cost, success-rate, and latency values from the product presentation.
+- Rebuilt the public site and generated documentation with the same IBM Plex and grid-based system.
+- Self-hosted IBM Plex Sans and IBM Plex Mono from pinned Fontsource packages.
+
+### Engineering
+
+- Removed the unused Darwin UI and Inter dependencies.
+- Added cross-platform path and interface contracts to the existing TDD suite.
+- Kept all provider, routing, compatibility, storage, security, and metering behavior unchanged.
+
 ## 2.0.0 - 2026-07-26
 
 ### Rebuilt
@@ -43,14 +65,14 @@ All notable changes to Subscription Proxy Inator are documented here.
 
 ### Desktop and website
 
-- Added a frameless titlebar, translucent compact sidebar, Darwin UI component styling, theme selection, density controls, and reduced-motion support.
+- Added a frameless titlebar, compact navigation, theme selection, density controls, and reduced-motion support.
 - Added detailed provider, account, routing, model-alias, pricing, usage, logs, local API, and application settings screens.
-- Added a public product site and generated documentation website deployed through GitHub Pages.
+- Added a public product site and generated documentation website.
 
 ### Engineering
 
 - Added test-driven contracts across domain, application, provider, infrastructure, repository, and security behavior.
-- Added cross-platform CI and Electron packaging, CodeQL, Dependabot, Pages deployment, and tagged release workflows.
+- Added cross-platform CI and Electron packaging, CodeQL, Dependabot, documentation hosting, and tagged release workflows.
 - Replaced stale package metadata, screenshots, workflows, and documentation from version 1.
 
 ## 1.x

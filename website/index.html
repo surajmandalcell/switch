@@ -1,265 +1,261 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark light">
-    <meta name="theme-color" content="#0b0d12">
-    <meta name="description" content="Subscription Proxy Inator is a cross-platform desktop gateway for routing OpenAI, Anthropic, Gemini, Grok, compatible APIs, and local command providers through one private local API.">
-    <meta name="keywords" content="AI gateway, OpenAI compatible, Anthropic compatible, Gemini, Grok, Electron, local proxy, load balancing">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#161616">
+    <meta
+      name="description"
+      content="Subscription Proxy Inator is a cross-platform desktop gateway for multiple AI providers, local protocol compatibility, failover, and usage accounting."
+    >
     <meta name="author" content="Suraj Mandal">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Subscription Proxy Inator">
-    <meta property="og:description" content="One private desktop gateway for every AI provider you operate.">
+    <meta
+      property="og:description"
+      content="A local desktop gateway for OpenAI, Anthropic, Gemini, Grok, compatible APIs, and command providers."
+    >
     <meta property="og:url" content="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <meta property="og:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Subscription Proxy Inator">
-    <meta name="twitter:description" content="Multi-provider routing, compatibility translation, failover, and local usage accounting in one desktop app.">
+    <meta
+      name="twitter:description"
+      content="Multi-provider routing, protocol compatibility, failover, and local usage accounting."
+    >
     <meta name="twitter:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
-    <title>Subscription Proxy Inator · Private multi-provider AI gateway</title>
+    <title>Subscription Proxy Inator · Desktop multi-provider AI gateway</title>
     <link rel="canonical" href="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="assets/icon-512.png">
+    <link rel="apple-touch-icon" href="assets/icon.svg">
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="stylesheet" href="assets/site.css">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
-    <div class="ambient ambient-one" aria-hidden="true"></div>
-    <div class="ambient ambient-two" aria-hidden="true"></div>
 
-    <header class="site-header" data-site-header>
-      <a class="site-brand" href="./" aria-label="Subscription Proxy Inator home">
-        <img src="assets/icon.svg" alt="">
-        <span>Subscription Proxy Inator</span>
-      </a>
-      <button class="menu-toggle" type="button" aria-label="Open navigation" aria-controls="site-navigation" aria-expanded="false" data-menu-toggle>
-        <span></span><span></span><span></span>
-      </button>
-      <nav id="site-navigation" class="site-navigation" aria-label="Primary navigation" data-menu>
-        <a href="#features">Features</a>
-        <a href="#routing">Routing</a>
-        <a href="#compatibility">Compatibility</a>
-        <a href="docs/">Documentation</a>
-        <a href="https://github.com/surajmandalcell/subscription-proxy-inator">GitHub</a>
-      </nav>
-      <button class="theme-toggle" type="button" aria-label="Use light theme" title="Change theme" data-theme-toggle>
-        <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path></svg>
-        <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z"></path></svg>
-      </button>
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="site-brand" href="./" aria-label="Subscription Proxy Inator home">
+          <span class="site-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span>Subscription Proxy Inator</span>
+        </a>
+        <button
+          class="menu-toggle"
+          type="button"
+          aria-label="Open navigation"
+          aria-controls="site-navigation"
+          aria-expanded="false"
+          data-menu-toggle
+        >
+          <span></span><span></span><span></span>
+        </button>
+        <nav id="site-navigation" class="site-navigation" aria-label="Primary navigation" data-menu>
+          <a href="#capabilities">Capabilities</a>
+          <a href="#routing">Routing</a>
+          <a href="#api">Local API</a>
+          <a href="docs/">Documentation</a>
+          <a href="https://github.com/surajmandalcell/subscription-proxy-inator">GitHub</a>
+        </nav>
+      </div>
     </header>
 
     <main id="main">
-      <section class="hero section-shell">
-        <div class="hero-copy reveal">
-          <div class="eyebrow"><span class="status-dot"></span> Local-first desktop AI gateway</div>
-          <h1>One private gateway.<br><span>Every provider you operate.</span></h1>
-          <p class="hero-lead">Route OpenAI, Anthropic, Gemini, Grok, compatible APIs, command-line tools, and trusted local adapters through one OpenAI- and Anthropic-compatible endpoint.</p>
-          <div class="hero-actions">
-            <a class="button primary" href="docs/quick_start/">Read the quick start</a>
-            <a class="button secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator">View source</a>
-          </div>
-          <dl class="hero-facts" aria-label="Project qualities">
-            <div><dt>7</dt><dd>routing strategies</dd></div>
-            <div><dt>3</dt><dd>desktop platforms</dd></div>
-            <div><dt>100%</dt><dd>local control plane</dd></div>
-          </dl>
-        </div>
-
-        <div class="app-stage reveal" aria-label="Application interface preview">
-          <div class="app-window">
-            <div class="window-titlebar">
-              <div class="traffic-lights" aria-hidden="true"><span></span><span></span><span></span></div>
-              <div class="window-title">Subscription Proxy Inator</div>
-              <div class="window-status"><span></span> Gateway online</div>
+      <section class="hero">
+        <div class="site-grid">
+          <div class="hero-label">Version 2.1.0 · MIT · Windows, macOS, and Linux</div>
+          <div class="hero-copy">
+            <h1>Run multiple AI providers behind one local desktop gateway.</h1>
+            <p>
+              Subscription Proxy Inator exposes OpenAI- and Anthropic-compatible local routes,
+              selects from configured provider accounts, records usage, and keeps credentials in
+              the desktop main process.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="docs/quick_start/">Quick start</a>
+              <a class="button button-secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest">Downloads</a>
             </div>
-            <div class="window-body">
-              <aside class="app-sidebar">
-                <div class="app-mark"><img src="assets/icon.svg" alt=""><span>Proxy Inator</span></div>
-                <div class="sidebar-nav" aria-hidden="true">
-                  <div class="active"><i></i><span>Overview</span></div>
-                  <div><i></i><span>Providers</span><b>6</b></div>
-                  <div><i></i><span>Routing</span></div>
-                  <div><i></i><span>Usage</span></div>
-                  <div><i></i><span>Models</span></div>
-                  <div><i></i><span>Logs</span></div>
-                </div>
-                <div class="sidebar-account"><span>SM</span><div><strong>Local workspace</strong><small>Encrypted</small></div></div>
-              </aside>
-              <div class="app-content">
-                <div class="content-heading"><div><small>OVERVIEW</small><h2>Good afternoon</h2></div><button aria-hidden="true">Start gateway</button></div>
-                <div class="metric-grid">
-                  <article><span>Requests today</span><strong>1,284</strong><em>+12.8%</em></article>
-                  <article><span>Success rate</span><strong>99.4%</strong><em>Healthy</em></article>
-                  <article><span>Estimated cost</span><strong>$18.42</strong><em>-8.1%</em></article>
-                </div>
-                <div class="workspace-grid">
-                  <article class="provider-card">
-                    <div class="card-heading"><div><span>Provider health</span><small>Live</small></div><button aria-hidden="true">•••</button></div>
-                    <div class="provider-row"><span class="provider-icon openai">O</span><div><strong>OpenAI</strong><small>3 accounts</small></div><b class="healthy">Healthy</b></div>
-                    <div class="provider-row"><span class="provider-icon anthropic">A</span><div><strong>Anthropic</strong><small>2 accounts</small></div><b class="healthy">Healthy</b></div>
-                    <div class="provider-row"><span class="provider-icon gemini">G</span><div><strong>Gemini</strong><small>2 accounts</small></div><b class="cooldown">Cooldown</b></div>
-                    <div class="provider-row"><span class="provider-icon grok">X</span><div><strong>xAI Grok</strong><small>1 account</small></div><b class="healthy">Healthy</b></div>
-                  </article>
-                  <article class="routing-card">
-                    <div class="card-heading"><div><span>Traffic routing</span><small>Last 60 min</small></div></div>
-                    <div class="chart" aria-hidden="true">
-                      <svg viewBox="0 0 420 180" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3487ff" stop-opacity=".45"/><stop offset="1" stop-color="#3487ff" stop-opacity="0"/></linearGradient></defs><path class="gridline" d="M0 35H420M0 85H420M0 135H420"/><path class="area" d="M0 148C35 140 48 104 78 112S126 70 160 88s42-38 78-18 52-18 82 2 58-12 100-35V180H0Z"/><path class="line" d="M0 148C35 140 48 104 78 112S126 70 160 88s42-38 78-18 52-18 82 2 58-12 100-35"/></svg>
-                    </div>
-                    <div class="routing-legend"><span><i></i> OpenAI 42%</span><span><i></i> Anthropic 31%</span><span><i></i> Gemini 19%</span><span><i></i> Other 8%</span></div>
-                  </article>
-                </div>
+          </div>
+          <aside class="hero-facts" aria-label="Project facts">
+            <dl>
+              <div><dt>7</dt><dd>routing strategies</dd></div>
+              <div><dt>6</dt><dd>local HTTP endpoints</dd></div>
+              <div><dt>3</dt><dd>desktop build targets</dd></div>
+              <div><dt>SQLite</dt><dd>local usage ledger</dd></div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+
+      <section id="capabilities" class="section">
+        <div class="site-grid">
+          <header class="section-heading">
+            <span>01</span>
+            <h2>Implemented capabilities</h2>
+            <p>No hosted control plane is required. Configuration, routing state, credentials, and usage data remain local.</p>
+          </header>
+          <div class="capability-grid">
+            <article>
+              <span class="item-index">01</span>
+              <h3>Providers and accounts</h3>
+              <p>Multiple accounts per provider with independent priority, weight, enabled state, cooldown, and local limits.</p>
+            </article>
+            <article>
+              <span class="item-index">02</span>
+              <h3>Protocol compatibility</h3>
+              <p>OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, model discovery, token estimation, and health routes.</p>
+            </article>
+            <article>
+              <span class="item-index">03</span>
+              <h3>Failover</h3>
+              <p>Rate limits, overloads, network errors, and timeouts can move to another eligible account before client-visible output starts.</p>
+            </article>
+            <article>
+              <span class="item-index">04</span>
+              <h3>Usage accounting</h3>
+              <p>Input, output, cache read, cache write, latency, first-token latency, estimated cost, and route attempts.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-dark">
+        <div class="site-grid">
+          <header class="section-heading">
+            <span>02</span>
+            <h2>Provider architecture</h2>
+            <p>Every provider implements the same canonical request, response, streaming, and usage contract.</p>
+          </header>
+          <div class="provider-matrix" role="table" aria-label="Supported provider adapters">
+            <div class="matrix-row matrix-head" role="row">
+              <span role="columnheader">Adapter</span>
+              <span role="columnheader">Upstream protocol</span>
+              <span role="columnheader">Account model</span>
+            </div>
+            <div class="matrix-row" role="row"><strong role="cell">OpenAI</strong><span role="cell">OpenAI API</span><span role="cell">Multiple API credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">Anthropic</strong><span role="cell">Anthropic Messages</span><span role="cell">Multiple API credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">Google Gemini</strong><span role="cell">generateContent and streaming</span><span role="cell">Multiple API credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">xAI Grok</strong><span role="cell">OpenAI-compatible xAI API</span><span role="cell">Multiple API credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">Compatible HTTP</strong><span role="cell">OpenAI or Anthropic compatible</span><span role="cell">Multiple endpoint credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">Command and module</strong><span role="cell">JSON-lines process or trusted .mjs adapter</span><span role="cell">Local explicit configuration</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="routing" class="section">
+        <div class="site-grid">
+          <header class="section-heading">
+            <span>03</span>
+            <h2>Routing and failure handling</h2>
+            <p>One global strategy is used by default. Each provider can override it, and one control removes all overrides.</p>
+          </header>
+          <div class="routing-layout">
+            <ol class="strategy-list">
+              <li><span>01</span><strong>Priority</strong></li>
+              <li><span>02</span><strong>Round robin</strong></li>
+              <li><span>03</span><strong>Weighted random</strong></li>
+              <li><span>04</span><strong>Least in-flight</strong></li>
+              <li><span>05</span><strong>Lowest recent latency</strong></li>
+              <li><span>06</span><strong>Lowest estimated cost</strong></li>
+              <li><span>07</span><strong>Sticky session</strong></li>
+            </ol>
+            <div class="boundary-list">
+              <article><h3>Eligibility</h3><p>Provider enabled state, account enabled state, model globs, local limits, cooldown, and attention state.</p></article>
+              <article><h3>Temporary isolation</h3><p>Retry-After and exponential cooldowns exclude routes after rate limits and transient failures.</p></article>
+              <article><h3>Streaming boundary</h3><p>A request never switches providers after text or a tool call becomes visible to the client.</p></article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="api" class="section section-blue">
+        <div class="site-grid">
+          <header class="section-heading">
+            <span>04</span>
+            <h2>Local compatibility API</h2>
+            <p>The default bind address is <code>127.0.0.1</code>. A local bearer key can be enabled from the desktop settings.</p>
+          </header>
+          <div class="api-layout">
+            <div class="endpoint-list">
+              <div><span>POST</span><code>/v1/chat/completions</code><p>OpenAI Chat Completions JSON and SSE</p></div>
+              <div><span>POST</span><code>/v1/responses</code><p>OpenAI Responses JSON and SSE</p></div>
+              <div><span>POST</span><code>/v1/messages</code><p>Anthropic Messages JSON and SSE</p></div>
+              <div><span>POST</span><code>/v1/messages/count_tokens</code><p>Local input-token estimate</p></div>
+              <div><span>GET</span><code>/v1/models</code><p>Configured aliases and exact model IDs</p></div>
+              <div><span>GET</span><code>/health</code><p>Local health status</p></div>
+            </div>
+            <div class="code-block">
+              <div class="code-block-header">
+                <span>OpenAI-compatible client</span>
+                <button type="button" data-copy-target="quick-code">Copy</button>
               </div>
+              <pre id="quick-code"><code>export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
+export OPENAI_API_KEY=local-proxy-key</code></pre>
             </div>
           </div>
-          <div class="floating-pill pill-one"><span>↻</span><div><strong>Automatic failover</strong><small>Rate limit routed in 84 ms</small></div></div>
-          <div class="floating-pill pill-two"><span>✓</span><div><strong>Credentials protected</strong><small>OS-backed encryption</small></div></div>
         </div>
       </section>
 
-      <section class="provider-strip" aria-label="Supported provider families">
-        <div class="section-shell provider-strip-inner reveal">
-          <span>Works with the providers and protocols you already use</span>
-          <div class="provider-logos" aria-hidden="true">
-            <b>OpenAI</b><b>Anthropic</b><b>Gemini</b><b>xAI</b><b>OpenAI-compatible</b><b>Anthropic-compatible</b>
+      <section class="section">
+        <div class="site-grid">
+          <header class="section-heading">
+            <span>05</span>
+            <h2>Security boundaries</h2>
+            <p>Security controls are enforced in the Electron main process and local HTTP server.</p>
+          </header>
+          <div class="fact-list">
+            <article><h3>Credential storage</h3><p>Electron safeStorage is used when available, with AES-256-GCM fallback encryption.</p></article>
+            <article><h3>Renderer isolation</h3><p>Context isolation and sandboxing are enabled; Node integration is disabled.</p></article>
+            <article><h3>Network scope</h3><p>The server rejects non-loopback bind addresses and uses exact-origin CORS.</p></article>
+            <article><h3>Logging</h3><p>Credential-shaped fields and bearer values are redacted before logs are stored or shown.</p></article>
           </div>
         </div>
       </section>
 
-      <section id="features" class="section section-shell">
-        <div class="section-heading centered reveal">
-          <div class="eyebrow">Built for real workloads</div>
-          <h2>Reliability without surrendering control</h2>
-          <p>Every routing decision is explicit, inspectable, and grounded in account health, local policy, model eligibility, and measured cost.</p>
-        </div>
-        <div class="feature-grid">
-          <article class="feature-card feature-large reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 4v6M17 4v6M4 17h16M9 14v6M15 14v6"></path></svg></div>
-            <h3>Multiple accounts, one provider</h3>
-            <p>Give every account its own priority, weight, health state, cooldown, enablement, request limits, token budgets, and cost ceiling.</p>
-            <div class="account-stack" aria-hidden="true">
-              <div><span class="provider-icon openai">O</span><p><strong>OpenAI · Primary</strong><small>Priority 1 · Weight 5</small></p><b>Active</b></div>
-              <div><span class="provider-icon openai">O</span><p><strong>OpenAI · Backup</strong><small>Priority 2 · Weight 2</small></p><b>Ready</b></div>
-              <div><span class="provider-icon openai">O</span><p><strong>OpenAI · Research</strong><small>Daily budget 72%</small></p><b>Ready</b></div>
+      <section class="section project-section">
+        <div class="site-grid">
+          <header class="section-heading">
+            <span>06</span>
+            <h2>Build from source</h2>
+            <p>Node.js 22 and npm 10.9 or newer are required.</p>
+          </header>
+          <div class="project-layout">
+            <div class="code-block">
+              <div class="code-block-header"><span>Shell</span></div>
+              <pre><code>git clone https://github.com/surajmandalcell/subscription-proxy-inator.git
+cd subscription-proxy-inator
+npm ci
+npm run check
+npm run dev</code></pre>
             </div>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path><path d="M21 12a9 9 0 1 1-5.3-8.2"></path></svg></div>
-            <h3>Safe streaming failover</h3>
-            <p>Retry rate limits, overloads, timeouts, and network failures before output begins. Never switch after visible text or a tool call.</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 8h14M5 16h14"></path><circle cx="12" cy="8" r="3"></circle><circle cx="12" cy="16" r="3"></circle></svg></div>
-            <h3>Protocol translation</h3>
-            <p>Normalize messages, images, tools, tool results, usage, stop reasons, and streaming events across OpenAI, Anthropic, and Gemini.</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg></div>
-            <h3>Usage you can audit</h3>
-            <p>Track input, output, cache reads, cache writes, estimated cost, first-token latency, total latency, and every attempted route.</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path></svg></div>
-            <h3>Local security boundary</h3>
-            <p>Loopback-only networking, exact-origin CORS, optional local access key, renderer isolation, redacted logs, and encrypted secrets.</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="routing" class="section section-alt">
-        <div class="section-shell split-section">
-          <div class="split-copy reveal">
-            <div class="eyebrow">Routing that matches your workload</div>
-            <h2>Choose globally.<br>Override precisely.</h2>
-            <p>Set one default strategy for the gateway, then override only the providers that need different behavior. A compact reset action returns every provider to the global policy.</p>
-            <ul class="check-list">
-              <li>Priority and weighted random</li>
-              <li>Round robin and least in-flight</li>
-              <li>Lowest recent latency or estimated cost</li>
-              <li>Sticky sessions with deterministic affinity</li>
-            </ul>
-            <a class="text-link" href="docs/routing/">Explore routing and failover <span>→</span></a>
-          </div>
-          <div class="policy-panel reveal" aria-label="Routing configuration illustration">
-            <div class="policy-title"><div><small>GLOBAL STRATEGY</small><strong>Least in-flight</strong></div><button aria-hidden="true">Replace overrides ↻</button></div>
-            <div class="policy-row"><span class="provider-icon openai">O</span><div><strong>OpenAI</strong><small>Uses global strategy</small></div><b>Global</b></div>
-            <div class="policy-row selected"><span class="provider-icon anthropic">A</span><div><strong>Anthropic</strong><small>Prefer the lowest recent latency</small></div><b>Override</b></div>
-            <div class="policy-row"><span class="provider-icon gemini">G</span><div><strong>Gemini</strong><small>Uses global strategy</small></div><b>Global</b></div>
-            <div class="policy-row selected"><span class="provider-icon grok">X</span><div><strong>xAI Grok</strong><small>Weighted random · 3 accounts</small></div><b>Override</b></div>
-            <div class="cooldown-banner"><span>⏱</span><div><strong>Temporary cooldowns are automatic</strong><small><code>Retry-After</code> and exponential backoff keep unhealthy routes out of selection.</small></div></div>
+            <nav class="project-links" aria-label="Project links">
+              <a href="docs/">Documentation <span>↗</span></a>
+              <a href="docs/architecture/">Architecture <span>↗</span></a>
+              <a href="docs/security/">Security <span>↗</span></a>
+              <a href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest">Releases <span>↗</span></a>
+              <a href="https://github.com/surajmandalcell/subscription-proxy-inator">Source <span>↗</span></a>
+            </nav>
           </div>
         </div>
-      </section>
-
-      <section id="compatibility" class="section section-shell">
-        <div class="section-heading reveal">
-          <div class="eyebrow">Drop-in local compatibility</div>
-          <h2>Keep the client. Change the endpoint.</h2>
-          <p>Expose one predictable local surface to coding agents, desktop tools, scripts, and your own applications.</p>
-        </div>
-        <div class="compatibility-grid">
-          <div class="endpoint-list reveal">
-            <article><code>POST /v1/chat/completions</code><span>OpenAI Chat Completions · JSON + SSE</span></article>
-            <article><code>POST /v1/responses</code><span>OpenAI Responses · JSON + SSE</span></article>
-            <article><code>POST /v1/messages</code><span>Anthropic Messages · JSON + SSE</span></article>
-            <article><code>POST /v1/messages/count_tokens</code><span>Local input-token estimate</span></article>
-            <article><code>GET /v1/models</code><span>Configured aliases and exact model IDs</span></article>
-          </div>
-          <div class="code-window reveal">
-            <div class="code-tabs"><span class="active">OpenAI</span><span>Anthropic</span><button type="button" data-copy-target="quick-code">Copy</button></div>
-            <pre id="quick-code"><code><span class="code-muted"># Keep your existing OpenAI-compatible client</span>
-<span class="code-key">export</span> OPENAI_BASE_URL=<span class="code-string">http://127.0.0.1:8081/v1</span>
-<span class="code-key">export</span> OPENAI_API_KEY=<span class="code-string">local-proxy-key</span>
-
-<span class="code-muted"># Requests now use your configured routing policy</span>
-curl <span class="code-string">$OPENAI_BASE_URL/chat/completions</span> \
-  -H <span class="code-string">"Authorization: Bearer $OPENAI_API_KEY"</span> \
-  -H <span class="code-string">"Content-Type: application/json"</span> \
-  -d <span class="code-string">'{"model":"fast","messages":[...]}'</span></code></pre>
-          </div>
-        </div>
-      </section>
-
-      <section class="section section-alt">
-        <div class="section-shell security-grid">
-          <div class="security-visual reveal" aria-hidden="true">
-            <div class="shield"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6l-7-3Z"></path><path d="m9 12 2 2 4-4"></path></svg></div>
-            <div class="security-ring ring-one"></div><div class="security-ring ring-two"></div>
-            <span class="security-chip chip-a">127.0.0.1 only</span>
-            <span class="security-chip chip-b">Secrets encrypted</span>
-            <span class="security-chip chip-c">Renderer sandboxed</span>
-          </div>
-          <div class="split-copy reveal">
-            <div class="eyebrow">Security by architecture</div>
-            <h2>Your keys stay behind the desktop boundary.</h2>
-            <p>The renderer receives redacted snapshots, not credentials. Secrets are encrypted through the operating system when available, IPC senders are validated, and the server binds to loopback by default.</p>
-            <div class="security-points">
-              <div><strong>Exact-origin CORS</strong><span>No permissive wildcard browser access.</span></div>
-              <div><strong>Redacted logging</strong><span>Credential-shaped fields never enter request logs.</span></div>
-              <div><strong>Explicit trust</strong><span>External modules and commands are local, opt-in capabilities.</span></div>
-            </div>
-            <a class="text-link" href="docs/security/">Read the security model <span>→</span></a>
-          </div>
-        </div>
-      </section>
-
-      <section class="section section-shell cta-section reveal">
-        <div>
-          <div class="eyebrow">Open source and local-first</div>
-          <h2>Build a gateway that reflects your policy.</h2>
-          <p>Start from source, inspect every routing boundary, and extend providers without coupling them to the domain model.</p>
-        </div>
-        <div class="cta-actions"><a class="button primary" href="docs/">Open documentation</a><a class="button secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator">Browse GitHub</a></div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <div class="section-shell footer-inner">
-        <div class="footer-brand"><img src="assets/icon.svg" alt=""><div><strong>Subscription Proxy Inator</strong><span>Private multi-provider AI routing for your desktop.</span></div></div>
-        <nav aria-label="Footer navigation"><a href="docs/">Documentation</a><a href="docs/security/">Security</a><a href="https://github.com/surajmandalcell/subscription-proxy-inator">Source</a><a href="https://github.com/surajmandalcell/subscription-proxy-inator/issues">Issues</a></nav>
-        <p>© <span data-current-year>2026</span> Suraj Mandal. MIT licensed.</p>
+      <div class="site-grid">
+        <div class="footer-product">
+          <strong>Subscription Proxy Inator</strong>
+          <span>MIT licensed</span>
+        </div>
+        <nav aria-label="Footer navigation">
+          <a href="docs/">Documentation</a>
+          <a href="docs/security/">Security</a>
+          <a href="https://github.com/surajmandalcell/subscription-proxy-inator/issues">Issues</a>
+        </nav>
+        <p>© <span data-current-year>2026</span> Suraj Mandal</p>
       </div>
     </footer>
   </body>

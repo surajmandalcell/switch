@@ -32,7 +32,7 @@ tests/domain          Pure invariants, protocol conversion, routing, pricing
 tests/application     Use-case orchestration and transaction behavior
 tests/providers       Upstream adapter wire behavior
 tests/infrastructure  Persistence, vault, HTTP helpers, logging
-tests/repository      Public tree, architecture, workflows, documentation
+tests/repository      Public tree, architecture, workflows, documentation, interface contracts
 ```
 
 Run all contracts:
@@ -59,14 +59,24 @@ npm run dist:dir
 ## Domain changes
 
 1. Write a pure failing contract.
-2. Add or change a domain invariant/value transformation.
+2. Add or change a domain invariant or value transformation.
 3. Integrate it in an application service.
-4. Add infrastructure/provider behavior only at outer layers.
-5. Update docs and architecture decisions when the contract changes materially.
+4. Add infrastructure or provider behavior only at outer layers.
+5. Update documentation and architecture decisions when the contract changes materially.
 
-## Desktop changes
+## Desktop and website changes
 
 The renderer must remain process-agnostic. Add privileged behavior as a narrowly named preload capability and validated main-process handler. Never expose a generic IPC send/invoke function.
+
+Presentation changes must follow [Interface design system](DESIGN_SYSTEM.md):
+
+1. Add or change a repository contract for the intended spacing, typography, responsive, accessibility, or factual-content behavior.
+2. Use the existing IBM Plex, color, spacing, and breakpoint tokens before adding values.
+3. Build both the renderer and generated site.
+4. Inspect the renderer at wide, medium, and narrow sizes and the site at desktop, tablet, and mobile sizes.
+5. Check horizontal overflow, keyboard focus, wrapped actions, table scrolling, and navigation state.
+
+Do not add fabricated product metrics, mock usage values, unsupported provider claims, external font/CDN imports, or decorative content that can be mistaken for application behavior.
 
 ## Data migrations
 
