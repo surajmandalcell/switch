@@ -29,9 +29,17 @@ export default function App() {
   }, [snapshot]);
   const mutate = async (operation) => {
     setBusy(true);
-    try { await operation(); await refresh(); setError(null); }
-    catch (cause) { setError(cause.message); }
-    finally { setBusy(false); }
+    try {
+      await operation();
+      await refresh();
+      setError(null);
+      return true;
+    } catch (cause) {
+      setError(cause.message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
   };
   if (!snapshot) return <div className="boot-screen"><div className="brand-mark large">SP</div><Busy label={error ?? 'Starting local gateway'} /></div>;
   const pages = {

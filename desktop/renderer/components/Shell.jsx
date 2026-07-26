@@ -79,8 +79,8 @@ function Titlebar({ snapshot, enabledProviders }) {
         <span>Subscription Proxy Inator</span>
       </div>
 
-      <div className="titlebar-meta" aria-label="Gateway status">
-        <span className="topbar-status">
+      <div className="titlebar-meta" role="group" aria-label="Gateway status">
+        <span className={`topbar-status ${snapshot ? 'online' : 'starting'}`}>
           <i aria-hidden="true" />
           {snapshot ? 'Online' : 'Starting'}
         </span>

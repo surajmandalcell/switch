@@ -286,6 +286,7 @@ function inline(value, sourcePath, outputDirectory) {
 
 function rewriteHref(href, sourcePath, outputDirectory) {
   if (/^(?:https?:|mailto:|tel:|#)/i.test(href)) return href;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return '#';
   const [pathname, hash = ''] = href.split('#');
   if (!pathname.endsWith('.md')) return href;
   const targetSource = path.resolve(path.dirname(sourcePath), pathname);
@@ -303,7 +304,6 @@ function tableCells(line) {
 function slug(value) {
   return value
     .toLowerCase()
-    .replace(/<[^>]+>/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 }

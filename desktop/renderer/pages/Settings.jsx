@@ -1,20 +1,35 @@
 import React, { useState } from 'react';
 import { Check, ExternalLink, KeyRound, LockKeyhole, MonitorCog, Trash2 } from 'lucide-react';
 import { Field, PageHeader, Panel } from '../components/Common.jsx';
+import { useSyncedDraft } from '../hooks/useSyncedDraft.js';
 
 export function Settings({ snapshot, mutate }) {
-  const [server, setServer] = useState(snapshot.config.server);
-  const [appearance, setAppearance] = useState(snapshot.config.appearance);
-  const [retentionDays, setRetentionDays] = useState(snapshot.config.retentionDays);
+  const {
+    draft: settings,
+    setDraft: setSettings,
+    markClean,
+  } = useSyncedDraft({
+    server: snapshot.config.server,
+    appearance: snapshot.config.appearance,
+    retentionDays: snapshot.config.retentionDays,
+  });
+  const { server, appearance, retentionDays } = settings;
   const [apiKey, setApiKey] = useState('');
+  const updateServer = (next) => setSettings((current) => ({
+    ...current,
+    server: typeof next === 'function' ? next(current.server) : next,
+  }));
+  const updateAppearance = (next) => setSettings((current) => ({
+    ...current,
+    appearance: typeof next === 'function' ? next(current.appearance) : next,
+  }));
+  const updateRetentionDays = (next) => setSettings((current) => ({
+    ...current,
+    retentionDays: typeof next === 'function' ? next(current.retentionDays) : next,
+  }));
 
-  React.useEffect(() => {
-    setServer(snapshot.config.server);
-    setAppearance(snapshot.config.appearance);
-    setRetentionDays(snapshot.config.retentionDays);
-  }, [snapshot]);
-
-  const save = () => mutate(() => window.spi.updateConfig({
+  const save = async () => {
+    const succeeded = await mutate(() => window.spi.updateConfig({
     server: {
       ...server,
       corsOrigins: typeof server.corsOrigins === 'string'
@@ -23,11 +38,13 @@ export function Settings({ snapshot, mutate }) {
     },
     appearance,
     retentionDays: Number(retentionDays),
-  }));
+    }));
+    if (succeeded) markClean();
+  };
 
   const saveApiKey = async () => {
-    await mutate(() => window.spi.setApiKey(apiKey));
-    setApiKey('');
+    const succeeded = await mutate(() => window.spi.setApiKey(apiKey));
+    if (succeeded) setApiKey('');
   };
 
   const clearApiKey = () => mutate(() => window.spi.clearApiKey());
@@ -52,30 +69,30 @@ export function Settings({ snapshot, mutate }) {
               <input value={server.host} disabled />
             </Field>
             <Field label="Port">
-              <input type="number" min="1024" max="65535" value={server.port} onChange={(event) => setServer({ ...server, port: Number(event.target.value) })} />
+              <input type="number" min="1024" max="65535" value={server.port} onChange={(event) => updateServer({ ...server, port: Number(event.target.value) })} />
             </Field>
             <Field label="Request timeout">
               <div className="unit-input">
-                <input type="number" min="1000" value={server.requestTimeoutMs} onChange={(event) => setServer({ ...server, requestTimeoutMs: Number(event.target.value) })} />
+                <input type="number" min="1000" value={server.requestTimeoutMs} onChange={(event) => updateServer({ ...server, requestTimeoutMs: Number(event.target.value) })} />
                 <span>ms</span>
               </div>
             </Field>
             <Field label="Allowed browser origins" hint="Exact comma-separated origins. Empty denies cross-origin browser requests.">
               <input
                 value={Array.isArray(server.corsOrigins) ? server.corsOrigins.join(', ') : server.corsOrigins}
-                onChange={(event) => setServer({ ...server, corsOrigins: event.target.value })}
+                onChange={(event) => updateServer({ ...server, corsOrigins: event.target.value })}
                 placeholder="http://127.0.0.1:3000"
               />
             </Field>
             <Field label="Usage retention">
               <div className="unit-input">
-                <input type="number" min="1" max="3650" value={retentionDays} onChange={(event) => setRetentionDays(Number(event.target.value))} />
+                <input type="number" min="1" max="3650" value={retentionDays} onChange={(event) => updateRetentionDays(Number(event.target.value))} />
                 <span>days</span>
               </div>
             </Field>
             <Field label="Start on login">
               <label className="switch-row">
-                <input type="checkbox" checked={server.startOnLogin} onChange={(event) => setServer({ ...server, startOnLogin: event.target.checked })} />
+                <input type="checkbox" checked={server.startOnLogin} onChange={(event) => updateServer({ ...server, startOnLogin: event.target.checked })} />
                 <span>Launch after the operating-system sign-in</span>
               </label>
             </Field>
@@ -85,7 +102,7 @@ export function Settings({ snapshot, mutate }) {
         <Panel title="Appearance" description="One renderer and one layout system are used on every supported platform.">
           <div className="form-grid single-column">
             <Field label="Theme">
-              <select value={appearance.theme} onChange={(event) => setAppearance({ ...appearance, theme: event.target.value })}>
+              <select value={appearance.theme} onChange={(event) => updateAppearance({ ...appearance, theme: event.target.value })}>
                 <option value="system">System</option>
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
@@ -93,13 +110,13 @@ export function Settings({ snapshot, mutate }) {
             </Field>
             <Field label="Compact density">
               <label className="switch-row">
-                <input type="checkbox" checked={appearance.compact} onChange={(event) => setAppearance({ ...appearance, compact: event.target.checked })} />
+                <input type="checkbox" checked={appearance.compact} onChange={(event) => updateAppearance({ ...appearance, compact: event.target.checked })} />
                 <span>Reduce control and row height</span>
               </label>
             </Field>
             <Field label="Reduce motion">
               <label className="switch-row">
-                <input type="checkbox" checked={appearance.reduceMotion} onChange={(event) => setAppearance({ ...appearance, reduceMotion: event.target.checked })} />
+                <input type="checkbox" checked={appearance.reduceMotion} onChange={(event) => updateAppearance({ ...appearance, reduceMotion: event.target.checked })} />
                 <span>Disable nonessential transitions</span>
               </label>
             </Field>

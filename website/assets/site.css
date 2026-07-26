@@ -67,6 +67,7 @@
   --red-60: #da1e28;
   --page-max: 1584px;
   --header-height: 64px;
+
   font-family: "IBM Plex Sans", Arial, sans-serif;
   font-synthesis: none;
 }
@@ -87,7 +88,7 @@ body {
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  text-rendering: optimizelegibility;
 }
 
 button,
@@ -103,7 +104,7 @@ a {
 
 code,
 pre {
-  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .skip-link {
@@ -196,7 +197,11 @@ pre {
 .site-navigation a:focus-visible {
   background: var(--gray-80);
   color: var(--white);
-  outline: none;
+}
+
+.site-navigation a:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: -2px;
 }
 
 .menu-toggle {
@@ -345,9 +350,12 @@ pre {
   font-size: 14px;
 }
 
-.section-dark .section-heading > span,
-.section-blue .section-heading > span {
+.section-dark .section-heading > span {
   color: var(--gray-30);
+}
+
+.section-blue .section-heading > span {
+  color: var(--white);
 }
 
 .section-heading h2 {
@@ -365,9 +373,12 @@ pre {
   line-height: 1.45;
 }
 
-.section-dark .section-heading p,
-.section-blue .section-heading p {
+.section-dark .section-heading p {
   color: var(--gray-20);
+}
+
+.section-blue .section-heading p {
+  color: var(--white);
 }
 
 .section-heading code {

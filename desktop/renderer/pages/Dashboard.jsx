@@ -70,7 +70,7 @@ export function Dashboard({ snapshot, navigate }) {
                   <div className="route-copy">
                     <strong>{provider.name}</strong>
                     <span>
-                      {provider.accounts.length} account{provider.accounts.length === 1 ? '' : 's'} ·{' '}
+                      {(provider.accounts ?? []).length} account{(provider.accounts ?? []).length === 1 ? '' : 's'} ·{' '}
                       {provider.strategyOverride ?? snapshot.config.routing.strategy}
                     </span>
                   </div>

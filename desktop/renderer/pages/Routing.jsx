@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, RotateCcw, Shuffle, Waypoints } from 'lucide-react';
 import { Field, PageHeader, Panel } from '../components/Common.jsx';
+import { useSyncedDraft } from '../hooks/useSyncedDraft.js';
 
 const strategies = [
   ['priority', 'Priority', 'Use the lowest numeric account priority first.'],
@@ -13,10 +14,12 @@ const strategies = [
 ];
 
 export function Routing({ snapshot, mutate }) {
-  const [routing, setRouting] = useState(snapshot.config.routing);
-  React.useEffect(() => setRouting(snapshot.config.routing), [snapshot.config.routing]);
+  const { draft: routing, setDraft: setRouting, markClean } = useSyncedDraft(snapshot.config.routing);
 
-  const save = () => mutate(() => window.spi.updateConfig({ routing }));
+  const save = async () => {
+    const succeeded = await mutate(() => window.spi.updateConfig({ routing }));
+    if (succeeded) markClean();
+  };
 
   return (
     <>
@@ -29,10 +32,10 @@ export function Routing({ snapshot, mutate }) {
             <button
               className="secondary-button"
               type="button"
-              title="Clear every provider override"
+              title="Replace all provider overrides with the current default strategy"
               onClick={() => mutate(() => window.spi.resetRoutingOverrides(routing.strategy))}
             >
-              <RotateCcw size={16} /> Replace overrides
+              <RotateCcw size={16} /> Replace all overrides
             </button>
             <button className="primary-button" type="button" onClick={save}>
               <Check size={16} /> Save routing

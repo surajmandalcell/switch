@@ -137,6 +137,7 @@ textarea:focus-visible,
   margin: -1px !important;
   overflow: hidden !important;
   clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
   white-space: nowrap !important;
   border: 0 !important;
 }
@@ -207,7 +208,11 @@ textarea:focus-visible,
 .topbar-status i {
   width: 8px;
   height: 8px;
-  background: #42be65;
+  background: var(--support-success);
+}
+
+.topbar-status.starting i {
+  background: var(--support-warning);
 }
 
 .topbar-count {
@@ -1660,9 +1665,21 @@ tbody tr.selected-row {
 }
 
 .compact select {
-  background-position:
-    calc(100% - 18px) 13px,
-    calc(100% - 13px) 13px;
+  background-position: right 12px center;
+}
+
+
+.inline-error {
+  margin-bottom: var(--spacing-05);
+  padding: var(--spacing-04) var(--spacing-05);
+  border-left: 4px solid var(--support-error);
+  background: color-mix(in srgb, var(--support-error) 10%, var(--layer-01));
+  color: var(--text-primary);
+}
+
+tbody tr[role="button"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 /* Responsive layout */
@@ -1686,11 +1703,7 @@ tbody tr.selected-row {
   }
 
   .api-key-row {
-    grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr) auto;
-  }
-
-  .api-key-row .icon-button {
-    grid-column: 3;
+    grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr) auto auto;
   }
 }
 

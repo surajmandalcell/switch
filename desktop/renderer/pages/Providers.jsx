@@ -9,6 +9,7 @@ import {
   UserRoundPlus,
 } from 'lucide-react';
 import { Empty, Field, PageHeader, Panel } from '../components/Common.jsx';
+import { useSyncedDraft } from '../hooks/useSyncedDraft.js';
 
 const strategies = ['priority', 'round-robin', 'weighted-random', 'least-inflight', 'lowest-latency', 'lowest-cost', 'sticky'];
 const emptyLimits = {
@@ -87,22 +88,27 @@ export function Providers({ snapshot, mutate }) {
 }
 
 function ProviderEditor({ provider, open, toggle, mutate, globalStrategy }) {
-  const [draft, setDraft] = useState(provider);
-  const [headersText, setHeadersText] = useState(pretty(provider.headers));
-  const [adapterText, setAdapterText] = useState(pretty(provider.adapter));
-
-  React.useEffect(() => {
-    setDraft(provider);
-    setHeadersText(pretty(provider.headers));
-    setAdapterText(pretty(provider.adapter));
-  }, [provider]);
-
-  const patch = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
-  const save = () => mutate(() => window.spi.updateProvider(provider.id, {
-    ...draft,
-    headers: parseObject(headersText, 'Custom headers'),
-    adapter: parseObject(adapterText, 'Adapter options'),
+  const source = useMemo(() => ({
+    draft: provider,
+    headersText: pretty(provider.headers),
+    adapterText: pretty(provider.adapter),
+  }), [provider]);
+  const { draft: editor, setDraft: setEditor, markClean, reset } = useSyncedDraft(source);
+  const { draft, headersText, adapterText } = editor;
+  const setHeadersText = (value) => setEditor((current) => ({ ...current, headersText: value }));
+  const setAdapterText = (value) => setEditor((current) => ({ ...current, adapterText: value }));
+  const patch = (key, value) => setEditor((current) => ({
+    ...current,
+    draft: { ...current.draft, [key]: value },
   }));
+  const save = async () => {
+    const succeeded = await mutate(() => window.spi.updateProvider(provider.id, {
+      ...draft,
+      headers: parseObject(headersText, 'Custom headers'),
+      adapter: parseObject(adapterText, 'Adapter options'),
+    }));
+    if (succeeded) markClean();
+  };
 
   return (
     <section className={`provider-card ${open ? 'open' : ''}`}>
@@ -226,11 +232,7 @@ function ProviderEditor({ provider, open, toggle, mutate, globalStrategy }) {
             <button
               className="secondary-button"
               type="button"
-              onClick={() => {
-                setDraft(provider);
-                setHeadersText(pretty(provider.headers));
-                setAdapterText(pretty(provider.adapter));
-              }}
+              onClick={reset}
             >
               Discard
             </button>
@@ -271,7 +273,8 @@ function Accounts({ provider, mutate }) {
     limits: emptyLimits,
   });
   const submit = async () => {
-    await mutate(() => window.spi.addAccount(provider.id, account));
+    const succeeded = await mutate(() => window.spi.addAccount(provider.id, account));
+    if (!succeeded) return;
     reset();
     setShowAdd(false);
   };
@@ -348,19 +351,12 @@ function Accounts({ provider, mutate }) {
 }
 
 function AccountEditor({ providerId, account, mutate }) {
-  const [draft, setDraft] = useState({
+  const accountSource = useMemo(() => ({
     ...account,
     secret: '',
     limits: { ...emptyLimits, ...account.limits },
-  });
-
-  React.useEffect(() => {
-    setDraft({
-      ...account,
-      secret: '',
-      limits: { ...emptyLimits, ...account.limits },
-    });
-  }, [account]);
+  }), [account]);
+  const { draft, setDraft, markClean } = useSyncedDraft(accountSource);
 
   const update = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
   const updateLimit = (key, value) => update('limits', {
@@ -379,7 +375,10 @@ function AccountEditor({ providerId, account, mutate }) {
           </div>
         </div>
         <div className="account-actions">
-          <button className="icon-button" type="button" title="Save account" onClick={() => mutate(() => window.spi.updateAccount(providerId, account.id, draft))}>
+          <button className="icon-button" type="button" title="Save account" onClick={async () => {
+  const succeeded = await mutate(() => window.spi.updateAccount(providerId, account.id, draft));
+  if (succeeded) markClean();
+}}>
             <Save size={16} />
           </button>
           <button className="icon-button danger" type="button" title="Remove account" onClick={() => mutate(() => window.spi.removeAccount(providerId, account.id))}>

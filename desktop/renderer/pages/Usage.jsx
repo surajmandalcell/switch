@@ -24,6 +24,7 @@ export function Usage({ snapshot }) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [attempts, setAttempts] = useState([]);
+  const [error, setError] = useState('');
 
   const accounts = useMemo(
     () => snapshot.config.providers.flatMap((provider) => provider.accounts.map((account) => ({
@@ -38,6 +39,7 @@ export function Usage({ snapshot }) {
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setError('');
     Promise.all([
       window.spi.listUsage(query, { limit: 1000 }),
       window.spi.summarizeUsage(query),
@@ -46,6 +48,13 @@ export function Usage({ snapshot }) {
         if (active) {
           setRows(records);
           setSummary(nextSummary);
+        }
+      })
+      .catch((cause) => {
+        if (active) {
+          setRows([]);
+          setSummary({});
+          setError(cause?.message ?? 'Unable to load usage data.');
         }
       })
       .finally(() => {
@@ -58,11 +67,24 @@ export function Usage({ snapshot }) {
 
   const selectRequest = async (record) => {
     setSelected(record);
-    setAttempts(await window.spi.listAttempts(record.id));
+    setError('');
+    try {
+      setAttempts(await window.spi.listAttempts(record.id));
+    } catch (cause) {
+      setAttempts([]);
+      setError(cause?.message ?? 'Unable to load route attempts.');
+    }
   };
 
   const exportCsv = async () => {
-    const csv = await window.spi.exportUsageCsv(query);
+    setError('');
+    let csv;
+    try {
+      csv = await window.spi.exportUsageCsv(query);
+    } catch (cause) {
+      setError(cause?.message ?? 'Unable to export usage data.');
+      return;
+    }
     const blob = new Blob([csv], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -88,6 +110,8 @@ export function Usage({ snapshot }) {
           </button>
         )}
       />
+
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
       <div className="metric-grid">
         <Metric
@@ -215,7 +239,16 @@ export function Usage({ snapshot }) {
                   <tr
                     key={record.id}
                     className={selected?.id === record.id ? 'selected-row' : ''}
+                    role="button"
+                    tabIndex={0}
+                    aria-selected={selected?.id === record.id}
                     onClick={() => selectRequest(record)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        selectRequest(record);
+                      }
+                    }}
                   >
                     <td>{record.startedAt ? new Date(record.startedAt).toLocaleString() : '—'}</td>
                     <td>

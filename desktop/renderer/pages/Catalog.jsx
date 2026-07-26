@@ -1,19 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { CirclePlus, Save, Tags, Trash2 } from 'lucide-react';
 import { Empty, Field, PageHeader, Panel } from '../components/Common.jsx';
+import { useSyncedDraft } from '../hooks/useSyncedDraft.js';
 
 const newId = (prefix) => `${prefix}_${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
 
 export function Catalog({ snapshot, mutate }) {
-  const [aliases, setAliases] = useState(snapshot.config.modelAliases ?? []);
-  const [pricing, setPricing] = useState(snapshot.config.pricing ?? []);
+  const { draft: catalog, setDraft: setCatalog, markClean } = useSyncedDraft({
+    aliases: snapshot.config.modelAliases ?? [],
+    pricing: snapshot.config.pricing ?? [],
+  });
+  const { aliases, pricing } = catalog;
+  const setAliases = (next) => setCatalog((current) => ({
+    ...current,
+    aliases: resolveUpdate(next, current.aliases),
+  }));
+  const setPricing = (next) => setCatalog((current) => ({
+    ...current,
+    pricing: resolveUpdate(next, current.pricing),
+  }));
 
-  useEffect(() => {
-    setAliases(snapshot.config.modelAliases ?? []);
-    setPricing(snapshot.config.pricing ?? []);
-  }, [snapshot.config.modelAliases, snapshot.config.pricing]);
-
-  const save = () => mutate(() => window.spi.updateConfig({ modelAliases: aliases, pricing }));
+  const save = async () => {
+    const succeeded = await mutate(() => window.spi.updateConfig({ modelAliases: aliases, pricing }));
+    if (succeeded) markClean();
+  };
   const addAlias = () => setAliases((items) => [
     ...items,
     { id: newId('alias'), requested: '', providerId: null, target: '' },
@@ -192,4 +202,8 @@ export function Catalog({ snapshot, mutate }) {
 
 function updateAt(items, index, patch) {
   return items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item));
+}
+
+function resolveUpdate(next, current) {
+  return typeof next === 'function' ? next(current) : next;
 }
