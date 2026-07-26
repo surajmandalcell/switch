@@ -3,100 +3,65 @@ name: Desktop CI
 on:
   push:
     branches: [master]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  release-metadata:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - name: Check out current master
+      - name: Check out source
         uses: actions/checkout@v6
-        with:
-          ref: master
-          fetch-depth: 0
-
       - name: Use Node.js 22
         uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+      - name: Use the repository npm version
+        run: npm install --global npm@10.9.2 --no-audit --no-fund
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify, test, and build
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
-      - name: Apply version 2.1.1
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --global npm@10.9.2 --no-audit --no-fund
-          test -f .release-v2.1.1/TRIGGER
-          current="$(node -p "require('./package.json').version")"
-          if [[ "$current" == 2.1.0 ]]; then
-            npm version 2.1.1 --no-git-tag-version
-          elif [[ "$current" != 2.1.1 ]]; then
-            echo "Unexpected package version: $current" >&2
-            exit 1
-          fi
-
-          python3 <<'PY'
-          from pathlib import Path
-
-          readme = Path('README.md')
-          text = readme.read_text(encoding='utf-8')
-          text = text.replace('img.shields.io/badge/version-2.1.0-0f62fe', 'img.shields.io/badge/version-2.1.1-0f62fe')
-          if 'img.shields.io/badge/version-2.1.1-0f62fe' not in text:
-              raise SystemExit('README 2.1.1 badge missing')
-          readme.write_text(text, encoding='utf-8')
-
-          for relative in ['scripts/verify.mjs', 'tests/repository/repository.test.js']:
-              path = Path(relative)
-              source = path.read_text(encoding='utf-8').replace('2.1.0', '2.1.1')
-              if '2.1.1' not in source:
-                  raise SystemExit(f'2.1.1 contract missing in {relative}')
-              path.write_text(source, encoding='utf-8')
-
-          changelog = Path('CHANGELOG.md')
-          text = changelog.read_text(encoding='utf-8')
-          marker = '## 2.1.0 - 2026-07-26\n'
-          entry = '''## 2.1.1 - 2026-07-26
-
-### Interface correctness
-
-- Preserved unsaved provider, account, routing, catalog, and settings edits while the desktop snapshot refreshes.
-- Kept API keys and account forms intact after failed mutations instead of clearing user input.
-- Added keyboard-selectable usage rows and visible usage, attempt, and export errors.
-- Completed titlebar state, focus, contrast, compact-control, responsive API-key, mobile-menu, and clipboard behavior.
-- Rejected unsupported schemes in generated documentation links and removed the redundant slug expression flagged by CodeQL.
-- Added a raster social preview and regression contracts that prevent temporary completion machinery from entering the public tree.
-
-### Validation
-
-- Passed the complete build and coverage suite, production dependency audit, Responsive UI Audit, CodeQL, and unpacked Electron packaging on Linux, macOS, and Windows.
-- Rebuilt and production-verified the public website and generated documentation from the corrected application master.
-
-'''
-          if '## 2.1.1 - 2026-07-26' not in text:
-              if marker not in text:
-                  raise SystemExit('2.1.0 changelog marker missing')
-              text = text.replace(marker, entry + marker, 1)
-          changelog.write_text(text, encoding='utf-8')
-          PY
-
-          test "$(node -p "require('./package.json').version")" = 2.1.1
-          test "$(node -p "require('./package-lock.json').version")" = 2.1.1
-          test "$(node -p "require('./package-lock.json').packages[''].version")" = 2.1.1
-          grep -q "pkg.version !== '2.1.1'" scripts/verify.mjs
-          grep -q "assert.equal(pkg.version, '2.1.1')" tests/repository/repository.test.js
-
-      - name: Commit clean master state
-        shell: bash
-        run: |
-          set -euo pipefail
-          git show HEAD^:.github/workflows/desktop-ci.yml > .github/workflows/desktop-ci.yml
-          rm -f .github/workflows/apply-v2.1.1.yml
-          rm -rf .release-v2.1.1
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "Release version 2.1.1 metadata"
-          git push origin HEAD:master
+  package:
+    needs: validate
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Use the repository npm version
+        run: npm install --global npm@10.9.2 --no-audit --no-fund
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build unpacked desktop application
+        run: npm run dist:dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Upload unpacked application
+        uses: actions/upload-artifact@v7
+        with:
+          name: unpacked-${{ runner.os }}
+          path: release/**
+          if-no-files-found: error
+          retention-days: 7
