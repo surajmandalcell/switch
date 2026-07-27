@@ -12,17 +12,6 @@ on:
       - package.json
       - package-lock.json
       - .github/workflows/ui-audit.yml
-  pull_request:
-    branches: [master]
-    paths:
-      - desktop/renderer/**
-      - website/**
-      - index.html
-      - scripts/audit-ui.mjs
-      - scripts/build-site.mjs
-      - package.json
-      - package-lock.json
-      - .github/workflows/ui-audit.yml
 
 permissions:
   contents: read
