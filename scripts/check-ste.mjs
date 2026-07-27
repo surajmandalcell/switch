@@ -1,34 +1,16 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '..');
+const excludedDirectories = new Set(['node_modules', 'dist', 'release', 'coverage', '.git']);
 const fixedFiles = [
-  'README.md',
-  'CHANGELOG.md',
-  'CODE_OF_CONDUCT.md',
-  'CONTRIBUTING.md',
-  'SECURITY.md',
-  'SUPPORT.md',
-  '.github/pull_request_template.md',
-  '.github/ISSUE_TEMPLATE/bug.yml',
-  '.github/ISSUE_TEMPLATE/feature.yml',
-  '.github/ISSUE_TEMPLATE/config.yml',
   'website/index.html',
   'website/404.html',
   'website/manifest.webmanifest',
   'package.json',
 ];
-
-async function walkMarkdown(directory) {
-  const output = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) output.push(...await walkMarkdown(absolute));
-    if (entry.isFile() && entry.name.endsWith('.md')) output.push(path.relative(root, absolute));
-  }
-  return output;
-}
 
 const prohibited = [
   'and/or',
@@ -49,7 +31,6 @@ const prohibited = [
 
 const contractions = /\b(?:aren't|can't|couldn't|didn't|doesn't|don't|hasn't|haven't|isn't|it's|shouldn't|that's|they're|wasn't|weren't|won't|wouldn't|you're)\b/i;
 const wordPattern = /[A-Za-z0-9]+(?:[.'_-][A-Za-z0-9]+)*/g;
-
 const namedEntities = new Map([
   ['&amp;', '&'],
   ['&lt;', '<'],
@@ -57,6 +38,17 @@ const namedEntities = new Map([
   ['&quot;', '"'],
   ['&#39;', "'"],
 ]);
+
+async function walk(directory, predicate) {
+  const output = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && excludedDirectories.has(entry.name)) continue;
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) output.push(...await walk(absolute, predicate));
+    else if (predicate(absolute)) output.push(path.relative(root, absolute));
+  }
+  return output;
+}
 
 function decodeEntities(value) {
   return value.replace(/&(?:amp|lt|gt|quot|#39|#\d+);/g, (entity) => {
@@ -129,7 +121,7 @@ function markdownSegments(source) {
       flush();
       continue;
     }
-    if (/^#{1,6}\s/.test(line) || /^\|/.test(line) || /^[-:| ]+$/.test(line)) {
+    if (/^#{1,6}\s/.test(line) || /^\|/.test(line) || /^[-:| ]+$/.test(line) || /^<\/?[a-z]/i.test(line)) {
       flush();
       continue;
     }
@@ -159,16 +151,17 @@ function htmlSegments(source) {
     ['svg', ' '],
     ['pre', ' '],
     ['code', ' TECHNICAL_TERM '],
-  ]) {
-    clean = stripHtmlElement(clean, tag, replacement);
-  }
+  ]) clean = stripHtmlElement(clean, tag, replacement);
+  return markupSegments(clean);
+}
 
+function markupSegments(source) {
   const output = [];
-  for (const match of clean.matchAll(/>([^<>]+)</g)) {
+  for (const match of source.matchAll(/>([^<>]+)</g)) {
     const text = decodeEntities(match[1]).trim();
     if (text) output.push({ text, instruction: false });
   }
-  for (const match of clean.matchAll(/\b(?:content|aria-label|alt|title)="([^"]+)"/g)) {
+  for (const match of source.matchAll(/\b(?:content|aria-label|alt|title)="([^"]+)"/g)) {
     const text = decodeEntities(match[1]).trim();
     if (text) output.push({ text, instruction: false });
   }
@@ -203,17 +196,44 @@ function jsonSegments(source) {
   return output;
 }
 
+function javascriptSegments(source, file) {
+  const output = [];
+  const kind = file.endsWith('.jsx') ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
+
+  const add = (text) => {
+    const value = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (value) output.push({ text: value, instruction: false });
+  };
+
+  const visit = (node) => {
+    if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) add(node.text);
+    if (ts.isTemplateExpression(node)) {
+      add([node.head.text, ...node.templateSpans.map((span) => `TECHNICAL_TERM ${span.literal.text}`)].join(' '));
+    }
+    if (ts.isJsxText(node)) add(node.text);
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return output;
+}
+
 function splitSentences(text) {
   const normalized = removeInlineCode(text).replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
   return normalized.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).map((item) => item.trim()).filter(Boolean);
 }
 
+function containsPhrase(text, phrase) {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, 'i').test(text);
+}
+
 function checkSegment(file, segment, errors) {
   const prose = removeInlineCode(segment.text);
-  const lower = prose.toLowerCase();
   for (const phrase of prohibited) {
-    if (lower.includes(phrase)) errors.push(`${file}: prohibited phrase ${JSON.stringify(phrase)} in: ${segment.text}`);
+    if (containsPhrase(prose, phrase)) errors.push(`${file}: prohibited phrase ${JSON.stringify(phrase)} in: ${segment.text}`);
   }
   if (contractions.test(prose)) errors.push(`${file}: contraction in: ${segment.text}`);
   if (prose.includes(';')) errors.push(`${file}: semicolon in prose: ${segment.text}`);
@@ -225,8 +245,12 @@ function checkSegment(file, segment, errors) {
   }
 }
 
-const docs = await walkMarkdown(path.join(root, 'docs'));
-const files = [...new Set([...fixedFiles, ...docs])].sort();
+const markdownFiles = await walk(root, (file) => file.endsWith('.md'));
+const yamlFiles = await walk(path.join(root, '.github'), (file) => /\.ya?ml$/.test(file));
+const svgFiles = await walk(root, (file) => file.endsWith('.svg'));
+const rendererFiles = await walk(path.join(root, 'desktop/renderer'), (file) => /\.(?:js|jsx)$/.test(file));
+const javascriptFiles = [...rendererFiles, 'website/assets/site.js'];
+const files = [...new Set([...fixedFiles, ...markdownFiles, ...yamlFiles, ...svgFiles, ...javascriptFiles])].sort();
 const errors = [];
 let segmentCount = 0;
 
@@ -234,8 +258,10 @@ for (const file of files) {
   const source = await readFile(path.join(root, file), 'utf8');
   let segments;
   if (file.endsWith('.html')) segments = htmlSegments(source);
+  else if (file.endsWith('.svg')) segments = markupSegments(source);
   else if (file.endsWith('.yml') || file.endsWith('.yaml')) segments = yamlSegments(source);
   else if (file.endsWith('.json') || file.endsWith('.webmanifest')) segments = jsonSegments(source);
+  else if (file.endsWith('.js') || file.endsWith('.jsx')) segments = javascriptSegments(source, file);
   else segments = markdownSegments(source);
   segmentCount += segments.length;
   for (const segment of segments) checkSegment(file, segment, errors);
