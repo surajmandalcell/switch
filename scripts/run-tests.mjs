@@ -22,11 +22,10 @@ const args = ['--test'];
 if (watch) args.push('--watch');
 if (coverage) args.push(
   '--experimental-test-coverage',
-  '--test-coverage-include=src/domain/**',
-  '--test-coverage-include=src/application/**',
-  '--test-coverage-lines=92',
-  '--test-coverage-functions=92',
-  '--test-coverage-branches=85',
+  '--test-coverage-include=src/**',
+  '--test-coverage-lines=99',
+  '--test-coverage-functions=96',
+  '--test-coverage-branches=90',
 );
 args.push(...files);
 const child = spawn(process.execPath, args, { cwd: root, stdio: 'inherit' });
