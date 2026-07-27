@@ -12,6 +12,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  cleanup-branches:
+    name: Remove completed work branches
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete every non-default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
+          mapfile -t branches < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name'
+          )
+          for branch in "${branches[@]}"; do
+            [[ "$branch" == "$default_branch" ]] && continue
+            printf 'Deleting %s\n' "$branch"
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          done
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -64,27 +87,27 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  cleanup-branches:
-    name: Remove completed work branches
+  verify-branch-cleanup:
+    name: Verify one persistent branch
     needs: [validate, package]
     if: ${{ always() && needs.validate.result == 'success' && needs.package.result == 'success' }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Delete every non-default branch
+      - name: Confirm only the default branch remains
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
-          mapfile -t branches < <(
-            gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name'
+          mapfile -t remaining < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" \
+              --jq ".[].name | select(. != \"$default_branch\")"
           )
-          for branch in "${branches[@]}"; do
-            [[ "$branch" == "$default_branch" ]] && continue
-            printf 'Deleting %s\n' "$branch"
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
-          done
+          if ((${#remaining[@]})); then
+            printf 'Non-default branches remain:\n%s\n' "${remaining[*]}" >&2
+            exit 1
+          fi
