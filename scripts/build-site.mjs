@@ -49,6 +49,7 @@ for (const sourcePath of markdownFiles) {
     <meta name="description" content="Subscription Proxy Inator documentation">
     <link rel="icon" href="${rootPrefix}/assets/icon.svg">
     <link rel="stylesheet" href="${rootPrefix}/assets/site.css">
+    <link rel="stylesheet" href="${rootPrefix}/assets/docs.css">
     <script src="${rootPrefix}/assets/site.js" defer></script>
   </head>
   <body class="docs-page">
@@ -56,7 +57,7 @@ for (const sourcePath of markdownFiles) {
     <header class="site-header">
       <div class="site-header-inner">
         <a class="site-brand" href="${rootPrefix}/">
-          <span class="site-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="site-mark" aria-hidden="true"><img src="${rootPrefix}/assets/icon.svg" width="32" height="32" alt=""></span>
           <span>Subscription Proxy Inator</span>
         </a>
         <button class="menu-toggle" type="button" aria-label="Open navigation" aria-controls="site-navigation" aria-expanded="false" data-menu-toggle>
@@ -142,7 +143,6 @@ function order(relative) {
     'TROUBLESHOOTING.md',
     'DEVELOPMENT.md',
     'RELEASE.md',
-    'MIGRATION_V1.md',
   ];
   const index = names.indexOf(relative);
   return index === -1 ? 100 : index;
