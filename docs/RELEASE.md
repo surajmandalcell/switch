@@ -23,6 +23,8 @@ Inspect the unpacked app. Test startup, provider edits, account edits, server re
 
 ## CI gate
 
+Routine project workflows start only after a push to `master`. Pull requests and manual dispatches do not start these workflows.
+
 Desktop CI does these tasks:
 
 1. Install exact dependencies.
@@ -34,13 +36,17 @@ Desktop CI does these tasks:
 7. Audit production dependencies.
 8. Build unpacked packages on all supported systems.
 
-CodeQL checks JavaScript. The website is published in `surajmandalcell.github.io`. Its path is `/subscription-proxy-inator/`.
+CodeQL checks JavaScript after each `master` update.
+
+The responsive UI audit checks the production website and renderer after relevant `master` changes.
+
+The website source is built from this repository. The published path is `/subscription-proxy-inator/`.
 
 ## Create a tag
 
 Create an annotated `vMAJOR.MINOR.PATCH` tag after the default-branch checks pass.
 
-The release workflow builds platform packages and checksum files.
+The tag-only release workflow builds platform packages and checksum files. It does not run for pull requests.
 
 Unsigned packages are for development and test use. Public end-user packages should use platform signing.
 
