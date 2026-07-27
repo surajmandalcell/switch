@@ -1,0 +1,39 @@
+.hero-system {
+  border: 0;
+}
+
+.hero-system figcaption {
+  padding: 0 0 24px;
+  border-bottom: 0;
+}
+
+.diagram-lines .path-a,
+.diagram-lines .path-c,
+.diagram-lines .path-d,
+.diagram-lines .path-f {
+  display: none;
+}
+
+.diagram-node {
+  border: 0;
+  background: var(--gray-90);
+}
+
+.diagram-node:hover {
+  border-color: transparent;
+  box-shadow: inset 0 -2px 0 #78a9ff;
+}
+
+.diagram-hub {
+  border: 0;
+}
+
+.system-diagram {
+  min-height: 320px;
+}
+
+@media (max-width: 1040px) {
+  .system-diagram {
+    min-height: 320px;
+  }
+}
