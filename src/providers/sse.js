@@ -3,7 +3,12 @@ export async function* parseSse(body, signal) {
   const decoder = new TextDecoder();
   let buffer = '';
   for await (const chunk of body) {
-    if (signal?.aborted) throw Object.assign(new DOMException('Aborted', 'AbortError'), { code: 'CLIENT_ABORTED' });
+    if (signal?.aborted) {
+      const error = new Error('Aborted');
+      error.name = 'AbortError';
+      error.code = 'CLIENT_ABORTED';
+      throw error;
+    }
     buffer += (typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })).replace(/\r\n/g, '\n');
     let boundary;
     while ((boundary = buffer.indexOf('\n\n')) >= 0) {
