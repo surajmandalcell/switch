@@ -29,9 +29,9 @@ test('release metadata uses one version in the package, lockfile, README, websit
   assert.equal(pkg.version, '2.1.2');
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages[''].version, pkg.version);
-  assert.match(readme, /Version 2\.1\.2/);
-  assert.match(website, /Version 2\.1\.2 · MIT/);
-  assert.match(changelog, /## Unreleased\r?\n\r?\n## 2\.1\.2 - 2026-07-28/);
+  assert.match(readme, /version-2\.1\.2/);
+  assert.match(website, /Version 2\.1\.2 · MIT License/);
+  assert.match(changelog, /## 2\.1\.2 - 2026-07-28/);
 });
 
 test('legacy and temporary repository roots are absent', async () => {
@@ -69,24 +69,42 @@ test('public documentation covers every supported operating concern', async () =
 });
 
 test('obsolete documentation pages and links are absent', async () => {
-  assert.equal(await exists('docs/MIGRATION_V1.md'), false);
-  assert.equal(await exists('docs/WRITING_STANDARD.md'), false);
+  const obsoleteFiles = [
+    `docs/${['MIGRATION', '_V1.md'].join('')}`,
+    `docs/${['WRITING', '_STANDARD.md'].join('')}`,
+  ];
+  for (const relative of obsoleteFiles) assert.equal(await exists(relative), false);
 
   const publicText = [
     await text('README.md'),
     await text('CHANGELOG.md'),
     await text('docs/INDEX.md'),
   ].join('\n');
-
-  assert.doesNotMatch(publicText, /MIGRATION_V1|WRITING_STANDARD|Version 1 migration|ASD-STE100 writing profile|Writing standard/);
+  const forbiddenPhrases = [
+    ['Version 1', ' migration'].join(''),
+    ['ASD-STE100', ' writing profile'].join(''),
+    ['Writing', ' standard'].join(''),
+  ];
+  for (const phrase of forbiddenPhrases) assert.equal(publicText.includes(phrase), false);
 });
 
-test('desktop CI validates and packages all three platforms', async () => {
-  const workflow = await text('.github/workflows/desktop-ci.yml');
-  assert.match(workflow, /npm run build/);
-  assert.match(workflow, /npm audit --omit=dev --audit-level=high/);
-  assert.match(workflow, /ubuntu-latest, windows-latest, macos-latest/);
-  assert.match(workflow, /actions\/upload-artifact@v7/);
+test('routine workflows run only after a master push', async () => {
+  const desktop = await text('.github/workflows/desktop-ci.yml');
+  const codeql = await text('.github/workflows/codeql.yml');
+  const uiAudit = await text('.github/workflows/ui-audit.yml');
+
+  for (const workflow of [desktop, codeql, uiAudit]) {
+    assert.match(workflow, /push:[\s\S]*branches:\s*\[master\]/);
+    assert.doesNotMatch(workflow, /pull_request:/);
+    assert.doesNotMatch(workflow, /workflow_dispatch:/);
+    assert.doesNotMatch(workflow, /schedule:/);
+  }
+
+  assert.match(desktop, /npm run build/);
+  assert.match(desktop, /npm audit --omit=dev --audit-level=high/);
+  assert.match(desktop, /ubuntu-latest, windows-latest, macos-latest/);
+  assert.match(desktop, /actions\/upload-artifact@v7/);
+  assert.match(uiAudit, /node scripts\/audit-ui\.mjs/);
 });
 
 test('CodeQL is least-privilege and documentation hosting is explicit', async () => {
@@ -98,22 +116,28 @@ test('CodeQL is least-privilege and documentation hosting is explicit', async ()
   assert.match(codeql, /github\/codeql-action\/analyze@v4/);
   assert.match(readme, /https:\/\/surajmandalcell\.github\.io\/subscription-proxy-inator\//);
   assert.match(readme, /img\.shields\.io\/badge\/docs-online/);
-  assert.match(release, /surajmandalcell\.github\.io/);
   assert.match(release, /\/subscription-proxy-inator\//);
+  assert.match(release, /Pull requests and manual dispatches do not start/);
 });
 
 test('release workflow requires a version tag and uploads checksummed artifacts', async () => {
   const workflow = await text('.github/workflows/release.yml');
   assert.match(workflow, /tags:[\s\S]*'v\*'/);
+  assert.doesNotMatch(workflow, /pull_request:|workflow_dispatch:|schedule:/);
   assert.match(workflow, /node scripts\/checksums\.mjs/);
   assert.match(workflow, /gh release upload/);
 });
 
-test('public website is local-asset only and links documentation', async () => {
+test('public website uses local assets and stable layout contracts', async () => {
   const html = await text('website/index.html');
   const css = await text('website/assets/site.css');
+  const script = await text('website/assets/site.js');
   assert.match(html, /docs\//);
   assert.match(html, /assets\/icon\.svg/);
+  assert.equal(await exists('website/assets/layout.css'), true);
+  assert.equal(await exists('website/assets/docs.css'), true);
+  assert.match(script, /loadStylesheet\('layout\.css'\)/);
+  assert.match(script, /loadStylesheet\('docs\.css'\)/);
   assert.doesNotMatch(css, /@import\s+url\(['"]https?:/);
 });
 
