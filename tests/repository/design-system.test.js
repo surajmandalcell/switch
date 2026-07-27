@@ -47,6 +47,19 @@ test('the website presents implemented facts instead of fabricated product telem
   assert.doesNotMatch(css, /@import\s+url\(['"]https?:|backdrop-filter|radial-gradient/i);
 });
 
+test('the README uses IBM-style system diagrams and an honest release table', async () => {
+  const readme = await text('README.md');
+  assert.equal((readme.match(/```mermaid/g) ?? []).length, 4);
+  assert.match(readme, /#0f62fe/);
+  assert.match(readme, /System flow/);
+  assert.match(readme, /Request boundary/);
+  assert.match(readme, /Architecture/);
+  assert.match(readme, /Security boundaries/);
+  assert.match(readme, /Apple signing and notarization/);
+  assert.match(readme, /Windows Authenticode signing/);
+  assert.match(readme, /Pull requests do not start project workflows/);
+});
+
 test('the interface contract is documented and linked from the public documentation index', async () => {
   assert.equal(await exists('docs/DESIGN_SYSTEM.md'), true);
   const design = await text('docs/DESIGN_SYSTEM.md');
@@ -54,5 +67,6 @@ test('the interface contract is documented and linked from the public documentat
   assert.match(design, /8 px/);
   assert.match(design, /40 px/);
   assert.match(design, /not affiliated with or endorsed by IBM/i);
+  assert.match(design, /Documentation layout/);
   assert.match(index, /DESIGN_SYSTEM\.md/);
 });
