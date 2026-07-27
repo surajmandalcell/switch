@@ -28,33 +28,30 @@ jobs:
         run: npm install --global npm@10.9.2 --no-audit --no-fund
       - name: Install exact dependencies
         run: npm ci --no-audit --no-fund
-      - name: Remove the request-boundary diagram
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('README.md')
-          source = path.read_text()
-          start = source.index('## Request boundary\n')
-          end = source.index('## Main functions\n')
-          path.write_text(source[:start] + source[end:])
-          PY
       - name: Run full source coverage
+        id: coverage
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mapfile -d '' tests < <(find tests -type f -name '*.test.js' -print0 | sort -z)
           node --test \
             --experimental-test-coverage \
             --test-coverage-include='src/**' \
-            "${tests[@]}" 2>&1 | tee coverage-audit.txt
-      - name: Record audit result
+            "${tests[@]}" 2>&1 | tee "$RUNNER_TEMP/coverage-audit.txt"
+          status=${PIPESTATUS[0]}
+          printf '\nexit_status=%s\n' "$status" >> "$RUNNER_TEMP/coverage-audit.txt"
+          exit "$status"
+      - name: Publish audit branch
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add README.md coverage-audit.txt
-          git diff --cached --quiet && exit 0
+          git switch --orphan coverage-audit-result
+          git rm -rf .
+          cp "$RUNNER_TEMP/coverage-audit.txt" coverage-audit.txt
+          git add coverage-audit.txt
           git commit -m 'Record complete source coverage audit'
-          git push origin HEAD:master
+          git push --force origin HEAD:coverage-audit-result
