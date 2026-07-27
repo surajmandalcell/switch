@@ -4,6 +4,38 @@ This file lists important changes to Subscription Proxy Inator.
 
 ## Unreleased
 
+### Public interface
+
+- Reduced the hero diagram to two visible connector lines.
+- Removed extra diagram borders from the hero.
+- Kept one headline, one sentence, and two actions in the hero copy.
+- Added IBM-style request, architecture, and security diagrams to the README.
+- Added an explicit release-status table to the README.
+
+### Documentation
+
+- Added a fixed navigation-row contract to generated documentation.
+- Kept active and inactive sidebar labels at the same font weight.
+- Reserved scrollbar space to prevent horizontal page movement.
+- Loaded documentation layout rules before first paint.
+- Used the canonical product icon in generated documentation.
+
+### Technical writing
+
+- Expanded the ASD-STE100 project gate to all repository Markdown.
+- Added desktop renderer strings, website SVG text, and issue forms to the gate.
+- Changed prohibited-phrase checks to use word boundaries.
+- Kept sentence, contraction, semicolon, and controlled-phrase checks active.
+- Standardized the Proxy-Inator product term in the desktop interface.
+
+### Automation
+
+- Limited Desktop CI to pushes on `master`.
+- Limited CodeQL to pushes on `master`.
+- Limited the responsive UI audit to pushes on `master`.
+- Kept the release workflow tag-only.
+- Added repository checks for workflow triggers and stable documentation geometry.
+
 ## 2.1.2 - 2026-07-28
 
 ### Documentation cleanup
