@@ -1,12 +1,17 @@
 const scriptUrl = document.currentScript?.src;
 if (scriptUrl) {
-  const polishHref = new URL('polish.css', scriptUrl).href;
-  if (!document.querySelector('link[href$="polish.css"]')) {
-    const polish = document.createElement('link');
-    polish.rel = 'stylesheet';
-    polish.href = polishHref;
-    document.head.append(polish);
-  }
+  const loadStylesheet = (name) => {
+    const href = new URL(name, scriptUrl).href;
+    if (document.querySelector(`link[href="${href}"]`) || document.querySelector(`link[href$="${name}"]`)) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = href;
+    document.head.append(stylesheet);
+  };
+
+  loadStylesheet('polish.css');
+  loadStylesheet('layout.css');
+  if (document.body.classList.contains('docs-page')) loadStylesheet('docs.css');
 
   const iconHref = new URL('icon.svg', scriptUrl).href;
   for (const mark of document.querySelectorAll('.site-mark')) {
