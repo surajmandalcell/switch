@@ -4,6 +4,8 @@ This file lists important changes to Subscription Proxy Inator.
 
 ## Unreleased
 
+## 2.1.2 - 2026-07-28
+
 ### Documentation cleanup
 
 - Removed two obsolete documentation pages.

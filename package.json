@@ -1,6 +1,6 @@
 {
   "name": "subscription-proxy-inator",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "Local desktop AI gateway for provider routing, failover, protocol conversion, and usage records.",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",

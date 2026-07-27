@@ -141,8 +141,8 @@ async function validateStaleReferences(files) {
 
 async function validatePackage() {
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  if (pkg.name !== 'subscription-proxy-inator' || pkg.version !== '2.1.1') {
-    throw new Error('Package identity must be subscription-proxy-inator@2.1.1.');
+  if (pkg.name !== 'subscription-proxy-inator' || pkg.version !== '2.1.2') {
+    throw new Error('Package identity must be subscription-proxy-inator@2.1.2.');
   }
   if (pkg.private !== true) throw new Error('The desktop application package must remain private.');
   if (pkg.main !== 'desktop/main/index.js') throw new Error('Electron main entry is incorrect.');

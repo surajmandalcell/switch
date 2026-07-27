@@ -10,7 +10,7 @@ const exists = (relative) => stat(path.join(root, relative)).then(() => true, ()
 test('package metadata identifies the current desktop application', async () => {
   const pkg = JSON.parse(await text('package.json'));
   assert.equal(pkg.name, 'subscription-proxy-inator');
-  assert.equal(pkg.version, '2.1.1');
+  assert.equal(pkg.version, '2.1.2');
   assert.equal(pkg.private, true);
   assert.equal(pkg.main, 'desktop/main/index.js');
   assert.deepEqual(
@@ -19,17 +19,19 @@ test('package metadata identifies the current desktop application', async () => 
   );
 });
 
-test('release metadata uses one version in the package, lockfile, README, and website', async () => {
+test('release metadata uses one version in the package, lockfile, README, website, and changelog', async () => {
   const pkg = JSON.parse(await text('package.json'));
   const lock = JSON.parse(await text('package-lock.json'));
   const readme = await text('README.md');
   const website = await text('website/index.html');
+  const changelog = await text('CHANGELOG.md');
 
-  assert.equal(pkg.version, '2.1.1');
+  assert.equal(pkg.version, '2.1.2');
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages[''].version, pkg.version);
-  assert.match(readme, /Version 2\.1\.1/);
-  assert.match(website, /Version 2\.1\.1 · MIT/);
+  assert.match(readme, /Version 2\.1\.2/);
+  assert.match(website, /Version 2\.1\.2 · MIT/);
+  assert.match(changelog, /## Unreleased\r?\n\r?\n## 2\.1\.2 - 2026-07-28/);
 });
 
 test('legacy and temporary repository roots are absent', async () => {
