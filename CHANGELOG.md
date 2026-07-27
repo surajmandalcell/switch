@@ -4,6 +4,12 @@ This file lists important changes to Subscription Proxy Inator.
 
 ## Unreleased
 
+### Documentation cleanup
+
+- Removed two obsolete documentation pages.
+- Kept the automated ASD-STE100 gate active.
+- Reduced the hero to one headline, one sentence, two actions, and the routing diagram.
+
 ### Technical writing
 
 - Rewrote the website, README, and documentation with the project ASD-STE100 profile.

@@ -40,7 +40,8 @@ test('the website presents implemented facts instead of fabricated product telem
     assert.doesNotMatch(html, new RegExp(fake.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
   }
   assert.match(html, /Version 2\.1\.1/);
-  assert.match(html, /Windows, macOS, and Linux/);
+  assert.match(html, /One local API for Claude, Codex, and Z\.ai\./);
+  assert.doesNotMatch(html, /hero-label|hero-assurance/);
   assert.match(css, /font-family:\s*"IBM Plex Sans"/);
   assert.match(css, /grid-template-columns:\s*repeat\(16,/);
   assert.doesNotMatch(css, /@import\s+url\(['"]https?:|backdrop-filter|radial-gradient/i);

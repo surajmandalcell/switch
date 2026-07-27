@@ -63,7 +63,8 @@
 .project-links a,
 .site-footer a,
 .code-block-header button,
-.menu-toggle {
+.menu-toggle,
+.diagram-node {
   transition:
     background-color var(--motion-fast) var(--motion-ease),
     color var(--motion-fast) var(--motion-ease),
@@ -72,16 +73,14 @@
 }
 
 .hero .site-grid {
-  min-height: 560px;
-  grid-template-rows: auto 1fr;
-  row-gap: 0;
+  min-height: 640px;
+  align-items: center;
 }
 
 .hero-copy {
-  grid-column: 1 / 14;
+  grid-column: 1 / 9;
   align-self: center;
-  max-width: 1080px;
-  padding-right: 0;
+  padding-right: 48px;
 }
 
 .hero-kicker {
@@ -95,14 +94,14 @@
 }
 
 .hero-copy h1 {
-  max-width: 980px;
-  font-size: clamp(50px, 6vw, 88px);
-  line-height: 0.98;
+  max-width: 780px;
+  font-size: clamp(48px, 5.2vw, 78px);
+  line-height: 1;
 }
 
 .hero-description {
-  max-width: 700px !important;
-  margin-top: 28px !important;
+  max-width: 600px !important;
+  margin-top: 24px !important;
 }
 
 .hero-actions {
@@ -110,7 +109,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 16px;
-  margin-top: 40px;
+  margin-top: 32px;
 }
 
 .hero-actions .button {
@@ -130,6 +129,152 @@
 
 .hero-actions .button:active {
   transform: translateY(0);
+}
+
+.hero-system {
+  grid-column: 9 / 17;
+  align-self: center;
+  min-width: 0;
+  margin: 0;
+  border-top: 1px solid var(--gray-60);
+  border-bottom: 1px solid var(--gray-60);
+}
+
+.hero-system figcaption {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 20px 0 18px;
+  border-bottom: 1px solid var(--gray-60);
+}
+
+.diagram-eyebrow,
+.diagram-column-label {
+  color: #78a9ff;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-system figcaption strong {
+  color: var(--white);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.hero-system figcaption p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--gray-30);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.system-diagram {
+  position: relative;
+  min-height: 360px;
+  display: grid;
+  grid-template-columns: minmax(132px, 1fr) 148px minmax(132px, 1fr);
+  align-items: center;
+  gap: 48px;
+  padding: 16px 0;
+  isolation: isolate;
+}
+
+.diagram-lines {
+  position: absolute;
+  inset: 18px 0 20px;
+  z-index: -1;
+  width: 100%;
+  height: calc(100% - 38px);
+  overflow: visible;
+}
+
+.diagram-lines marker path {
+  fill: #78a9ff;
+}
+
+.diagram-path {
+  fill: none;
+  stroke: #78a9ff;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  marker-end: url("#diagram-arrow");
+  stroke-dasharray: 5 7;
+  animation: diagram-flow 5s linear infinite;
+}
+
+.path-b,
+.path-e {
+  animation-delay: -1.6s;
+}
+
+.path-c,
+.path-f {
+  animation-delay: -3.2s;
+}
+
+.diagram-column {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.diagram-node {
+  min-height: 64px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border: 1px solid var(--gray-60);
+  background: var(--gray-100);
+  text-align: center;
+}
+
+.diagram-node:hover {
+  border-color: #78a9ff;
+  transform: translateY(-2px);
+}
+
+.diagram-node strong {
+  color: var(--white);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.diagram-hub {
+  min-height: 208px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px 16px;
+  border: 1px solid #78a9ff;
+  background: var(--blue-80);
+  text-align: center;
+}
+
+.diagram-hub img {
+  display: block;
+  margin-bottom: 8px;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.24);
+}
+
+.diagram-hub strong {
+  color: var(--white);
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.diagram-hub small {
+  color: #d0e2ff;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .section-heading {
@@ -264,10 +409,46 @@
   min-height: 48px;
 }
 
-@media (max-width: 1040px) {
+@keyframes diagram-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+@media (max-width: 1260px) {
   .hero-copy {
+    grid-column: 1 / 8;
+    padding-right: 32px;
+  }
+
+  .hero-system {
+    grid-column: 8 / 17;
+  }
+
+  .system-diagram {
+    gap: 28px;
+  }
+}
+
+@media (max-width: 1040px) {
+  .hero-copy,
+  .hero-system {
     grid-column: 1 / 17;
+  }
+
+  .hero-copy {
     max-width: 920px;
+    padding-right: 0;
+  }
+
+  .hero-system {
+    margin-top: 56px;
+  }
+
+  .system-diagram {
+    min-height: 340px;
+    grid-template-columns: minmax(140px, 1fr) 160px minmax(140px, 1fr);
+    gap: 36px;
   }
 
   .routing-layout,
@@ -284,8 +465,12 @@
 
 @media (max-width: 840px) {
   .hero .site-grid {
-    min-height: 520px;
+    row-gap: 0;
     padding-bottom: 56px;
+  }
+
+  .hero-system {
+    margin-top: 48px;
   }
 
   .site-navigation a {
@@ -297,17 +482,67 @@
     grid-template-columns: 1fr;
   }
 
-  .capability-grid,
+  .capability-grid {
+    grid-template-columns: 1fr;
+  }
+
   .api-side {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 560px) {
-  .hero .site-grid {
-    min-height: 480px;
+@media (max-width: 700px) {
+  .system-diagram {
+    min-height: 0;
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 
+  .diagram-lines {
+    display: none;
+  }
+
+  .diagram-column {
+    gap: 8px;
+  }
+
+  .diagram-column-label {
+    margin-top: 4px;
+  }
+
+  .diagram-node,
+  .diagram-hub {
+    min-height: 0;
+  }
+
+  .diagram-node {
+    padding: 14px 16px;
+  }
+
+  .diagram-hub {
+    padding: 24px;
+  }
+
+  .diagram-hub::before,
+  .diagram-hub::after {
+    content: "↓";
+    color: #78a9ff;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .diagram-hub::before {
+    order: -1;
+    margin-bottom: 8px;
+  }
+
+  .diagram-hub::after {
+    margin-top: 8px;
+  }
+}
+
+@media (max-width: 560px) {
   .hero-copy h1 {
     font-size: clamp(42px, 13vw, 56px);
   }
@@ -321,6 +556,10 @@
   .hero-actions .button {
     width: 100%;
     min-inline-size: 0;
+  }
+
+  .hero-system figcaption strong {
+    font-size: 21px;
   }
 
   .project-links a {
@@ -345,5 +584,9 @@
   .reveal {
     opacity: 1;
     transform: none;
+  }
+
+  .diagram-path {
+    stroke-dasharray: none;
   }
 }

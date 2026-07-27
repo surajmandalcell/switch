@@ -59,16 +59,62 @@
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
         <div class="site-grid">
-          <div class="hero-label" data-reveal>Version 2.1.1 · MIT · Windows, macOS, and Linux</div>
           <div class="hero-copy" data-reveal>
-            <p class="hero-kicker">Desktop AI gateway</p>
-            <h1 id="hero-title">Use one local API for your AI providers.</h1>
-            <p class="hero-description">Connect supported providers, route each request, and record usage on your computer.</p>
-            <div class="hero-actions" role="group" aria-label="Start or download">
+            <p class="hero-kicker">Local AI gateway</p>
+            <h1 id="hero-title">One local API for Claude, Codex, and Z.ai.</h1>
+            <p class="hero-description">Proxy-Inator routes requests from your tools to configured provider accounts.</p>
+            <div class="hero-actions" role="group" aria-label="Get started">
               <a class="button button-primary" href="docs/quick_start/" aria-label="Open the quick start guide">Quick start</a>
               <a class="button button-secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest" aria-label="Download the latest desktop release">Download latest</a>
             </div>
           </div>
+
+          <figure class="hero-system" aria-labelledby="hero-system-title" data-reveal>
+            <figcaption>
+              <span class="diagram-eyebrow">Request flow</span>
+              <strong id="hero-system-title">Subscriptions in. Local clients out.</strong>
+            </figcaption>
+
+            <div
+              class="system-diagram"
+              role="img"
+              aria-label="Claude, Codex, and Z.ai connect to Proxy-Inator. Harness, Automation, and App use its local API."
+            >
+              <svg class="diagram-lines" viewBox="0 0 720 420" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <marker id="diagram-arrow" viewBox="0 0 10 10" refX="8.2" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"/>
+                  </marker>
+                </defs>
+                <path class="diagram-path path-a" d="M174 72 C248 72 252 210 310 210"/>
+                <path class="diagram-path path-b" d="M174 210 H310"/>
+                <path class="diagram-path path-c" d="M174 348 C248 348 252 210 310 210"/>
+                <path class="diagram-path path-d" d="M410 210 C468 210 472 72 546 72"/>
+                <path class="diagram-path path-e" d="M410 210 H546"/>
+                <path class="diagram-path path-f" d="M410 210 C468 210 472 348 546 348"/>
+              </svg>
+
+              <div class="diagram-column diagram-sources" aria-label="Configured provider sources">
+                <span class="diagram-column-label">Sources</span>
+                <div class="diagram-node"><strong>Claude</strong></div>
+                <div class="diagram-node"><strong>Codex</strong></div>
+                <div class="diagram-node"><strong>Z.ai</strong></div>
+              </div>
+
+              <div class="diagram-hub">
+                <img src="assets/icon.svg" width="72" height="72" alt="" aria-hidden="true">
+                <strong>Proxy-Inator</strong>
+                <small>Local API</small>
+              </div>
+
+              <div class="diagram-column diagram-clients" aria-label="Example local clients">
+                <span class="diagram-column-label">Clients</span>
+                <div class="diagram-node"><strong>Harness</strong></div>
+                <div class="diagram-node"><strong>Automation</strong></div>
+                <div class="diagram-node"><strong>App</strong></div>
+              </div>
+            </div>
+          </figure>
         </div>
       </section>
 
@@ -146,7 +192,7 @@
             </ol>
             <div class="boundary-list">
               <article><h3>Eligibility</h3><p>Check provider state, account state, model globs, local limits, cooldown, and attention state.</p></article>
-              <article><h3>Temporary isolation</h3><p>Use <code>Retry-After</code> or an increasing cooldown after a temporary failure.</p></article>
+              <article><h3>Temporary isolation</h3><p>Use `Retry-After` or an increasing cooldown after a temporary failure.</p></article>
               <article><h3>Visible-output boundary</h3><p>Do not change providers after text or tool output reaches the client.</p></article>
             </div>
           </div>
@@ -235,7 +281,7 @@ npm run dev</code></pre>
       <div class="site-grid">
         <div class="footer-product">
           <strong>Subscription Proxy Inator</strong>
-          <span>MIT License</span>
+          <span>Version 2.1.1 · MIT License</span>
         </div>
         <nav aria-label="Footer navigation">
           <a href="docs/">Documentation</a>
