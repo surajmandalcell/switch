@@ -2,7 +2,12 @@ node_modules/
 dist/
 release/
 coverage/
+test-results/
+.cache/
 *.log
+*.tmp
+*.swp
+coverage-audit.txt
 .DS_Store
 Thumbs.db
 .env

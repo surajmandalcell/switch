@@ -47,14 +47,14 @@ test('the website presents implemented facts instead of fabricated product telem
   assert.doesNotMatch(css, /@import\s+url\(['"]https?:|backdrop-filter|radial-gradient/i);
 });
 
-test('the README uses IBM-style system diagrams and an honest release table', async () => {
+test('the README uses three IBM-style diagrams and an honest release table', async () => {
   const readme = await text('README.md');
-  assert.equal((readme.match(/```mermaid/g) ?? []).length, 4);
+  assert.equal((readme.match(/```mermaid/g) ?? []).length, 3);
   assert.match(readme, /#0f62fe/);
   assert.match(readme, /System flow/);
-  assert.match(readme, /Request boundary/);
   assert.match(readme, /Architecture/);
   assert.match(readme, /Security boundaries/);
+  assert.doesNotMatch(readme, /Request boundary|sequenceDiagram/);
   assert.match(readme, /Apple signing and notarization/);
   assert.match(readme, /Windows Authenticode signing/);
   assert.match(readme, /Pull requests do not start project workflows/);

@@ -63,3 +63,28 @@ jobs:
           path: release/**
           if-no-files-found: error
           retention-days: 7
+
+  cleanup-branches:
+    name: Remove completed work branches
+    needs: [validate, package]
+    if: ${{ always() && needs.validate.result == 'success' && needs.package.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete every non-default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
+          mapfile -t branches < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name'
+          )
+          for branch in "${branches[@]}"; do
+            [[ "$branch" == "$default_branch" ]] && continue
+            printf 'Deleting %s\n' "$branch"
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          done

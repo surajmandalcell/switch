@@ -34,8 +34,12 @@ test('release metadata uses one version in the package, lockfile, README, websit
   assert.match(changelog, /## 2\.1\.2 - 2026-07-28/);
 });
 
-test('legacy and temporary repository roots are absent', async () => {
-  for (const relative of ['bin', 'public', 'images', '.rework', '.lockgen', '.publish']) {
+test('legacy, generated, and temporary repository paths are absent', async () => {
+  for (const relative of [
+    'bin', 'public', 'images', 'coverage', 'test-results', '.cache',
+    '.rework', '.lockgen', '.publish', 'coverage-audit.txt',
+    '.github/workflows/coverage-audit.yml',
+  ]) {
     assert.equal(await exists(relative), false, `${relative} must not exist`);
   }
 });
@@ -88,6 +92,32 @@ test('obsolete documentation pages and links are absent', async () => {
   for (const phrase of forbiddenPhrases) assert.equal(publicText.includes(phrase), false);
 });
 
+test('README omits the request-boundary sequence diagram', async () => {
+  const readme = await text('README.md');
+  assert.doesNotMatch(readme, /## Request boundary|sequenceDiagram|participant RouteA|participant RouteB/);
+  assert.match(readme, /## System flow/);
+  assert.match(readme, /## Architecture/);
+  assert.match(readme, /## Security boundaries/);
+});
+
+test('coverage gate measures every source layer at near-complete thresholds', async () => {
+  const runner = await text('scripts/run-tests.mjs');
+  for (const rule of [
+    /--test-coverage-include=src\/\*\*/,
+    /--test-coverage-lines=99/,
+    /--test-coverage-functions=96/,
+    /--test-coverage-branches=90/,
+  ]) assert.match(runner, rule);
+  assert.doesNotMatch(runner, /--test-coverage-include=src\/domain|--test-coverage-include=src\/application/);
+  for (const relative of [
+    'tests/application/coverage-completion.test.js',
+    'tests/application/bootstrap-coverage.test.js',
+    'tests/domain/coverage-completion.test.js',
+    'tests/infrastructure/coverage-completion.test.js',
+    'tests/providers/coverage-completion.test.js',
+  ]) assert.equal(await exists(relative), true, `${relative} is required`);
+});
+
 test('routine workflows run only after a master push', async () => {
   const desktop = await text('.github/workflows/desktop-ci.yml');
   const codeql = await text('.github/workflows/codeql.yml');
@@ -105,6 +135,18 @@ test('routine workflows run only after a master push', async () => {
   assert.match(desktop, /ubuntu-latest, windows-latest, macos-latest/);
   assert.match(desktop, /actions\/upload-artifact@v7/);
   assert.match(uiAudit, /node scripts\/audit-ui\.mjs/);
+});
+
+test('Desktop CI removes every non-default branch after successful packages', async () => {
+  const workflow = await text('.github/workflows/desktop-ci.yml');
+  assert.match(workflow, /cleanup-branches:/);
+  assert.match(workflow, /needs:\s*\[validate, package\]/);
+  assert.match(workflow, /needs\.validate\.result == 'success'/);
+  assert.match(workflow, /needs\.package\.result == 'success'/);
+  assert.match(workflow, /permissions:[\s\S]*contents:\s*write/);
+  assert.match(workflow, /default_branch=.*gh api/);
+  assert.match(workflow, /branches\?per_page=100/);
+  assert.match(workflow, /git\/refs\/heads\/\$branch/);
 });
 
 test('CodeQL is least-privilege and documentation hosting is explicit', async () => {

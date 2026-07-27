@@ -9,7 +9,8 @@ This file lists important changes to Subscription Proxy Inator.
 - Reduced the hero diagram to two visible connector lines.
 - Removed extra diagram borders from the hero.
 - Kept one headline, one sentence, and two actions in the hero copy.
-- Added IBM-style request, architecture, and security diagrams to the README.
+- Removed the request-boundary sequence diagram from the README.
+- Kept the system, architecture, and security diagrams in the README.
 - Added an explicit release-status table to the README.
 
 ### Documentation
@@ -19,6 +20,15 @@ This file lists important changes to Subscription Proxy Inator.
 - Reserved scrollbar space to prevent horizontal page movement.
 - Loaded documentation layout rules before first paint.
 - Used the canonical product icon in generated documentation.
+- Documented whole-source coverage and automatic branch cleanup.
+
+### Testing
+
+- Expanded coverage from two layers to every file in `src`.
+- Set minimum coverage to 99 percent lines, 96 percent functions, and 90 percent branches.
+- Added application, bootstrap, domain, provider, HTTP, SQLite, vault, and logger completion tests.
+- Reached 99.62 percent lines, 96.66 percent functions, and 90.31 percent branches in the local completion run.
+- Fixed SSE cancellation to use a mutable coded `AbortError`.
 
 ### Technical writing
 
@@ -34,7 +44,9 @@ This file lists important changes to Subscription Proxy Inator.
 - Limited CodeQL to pushes on `master`.
 - Limited the responsive UI audit to pushes on `master`.
 - Kept the release workflow tag-only.
-- Added repository checks for workflow triggers and stable documentation geometry.
+- Added a post-package job that deletes every non-default branch.
+- Added repository checks for workflow triggers, branch cleanup, coverage, and stable documentation geometry.
+- Removed the temporary coverage-audit workflow and ignored transient audit and test files.
 
 ## 2.1.2 - 2026-07-28
 

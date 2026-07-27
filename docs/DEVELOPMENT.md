@@ -31,9 +31,9 @@ Tests use these groups:
 
 ```text
 tests/domain          Domain rules and protocol conversion
-tests/application     Use cases and transactions
-tests/providers       Provider protocol behavior
-tests/infrastructure  Storage, vault, HTTP helpers, and logs
+tests/application     Use cases, composition, and transactions
+tests/providers       Provider protocols, streams, and cancellation
+tests/infrastructure  Storage, vault, HTTP, SQLite, and logs
 tests/repository      Repository, architecture, docs, and interface rules
 ```
 
@@ -44,7 +44,11 @@ npm test
 npm run test:coverage
 ```
 
-Coverage gates apply to domain and application code.
+Coverage applies to every file in `src`.
+
+The gate requires at least 99 percent line coverage. It requires 96 percent function coverage and 90 percent branch coverage.
+
+Add tests for new branches before you change a threshold. Do not exclude a source layer to make the gate pass.
 
 ## Quality gates
 
@@ -58,6 +62,16 @@ npm run dist:dir
 ```
 
 `npm run build` runs all checks and both web builds.
+
+## Branch lifecycle
+
+Use `master` as the only persistent branch.
+
+A temporary work branch can exist while a change is under review. Do not keep agent, automation, release, audit, or experiment branches after completion.
+
+Desktop CI deletes every non-default branch after validation and all platform package builds pass.
+
+Do not disable this cleanup job. Do not protect a temporary work branch.
 
 ## Change domain code
 

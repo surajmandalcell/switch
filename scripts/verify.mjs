@@ -16,16 +16,23 @@ const required = [
   'src/bootstrap.js', 'src/application/routing-service.js', 'src/application/proxy-service.js',
   'src/domain/config.js', 'src/infrastructure/http-server.js', 'website/index.html',
   'website/assets/layout.css', 'website/assets/docs.css',
+  'tests/application/coverage-completion.test.js', 'tests/application/bootstrap-coverage.test.js',
+  'tests/domain/coverage-completion.test.js', 'tests/infrastructure/coverage-completion.test.js',
+  'tests/providers/coverage-completion.test.js',
   '.github/workflows/desktop-ci.yml', '.github/workflows/codeql.yml',
   '.github/workflows/ui-audit.yml', '.github/workflows/release.yml',
 ];
-const forbiddenRoots = ['bin', 'public', 'images', '.rework', '.lockgen', '.publish'];
+const forbiddenRoots = [
+  'bin', 'public', 'images', 'coverage', 'test-results', '.cache',
+  '.rework', '.lockgen', '.publish',
+];
+const forbiddenFiles = ['coverage-audit.txt', '.github/workflows/coverage-audit.yml'];
 
 for (const relativePath of required) {
   if (!(await stat(path.join(root, relativePath)).catch(() => null))) throw new Error(`Missing required public file: ${relativePath}`);
 }
-for (const relativePath of forbiddenRoots) {
-  if (await stat(path.join(root, relativePath)).catch(() => null)) throw new Error(`Legacy or staging root must not be published: ${relativePath}`);
+for (const relativePath of [...forbiddenRoots, ...forbiddenFiles]) {
+  if (await stat(path.join(root, relativePath)).catch(() => null)) throw new Error(`Temporary or legacy path must not be published: ${relativePath}`);
 }
 
 const files = await walk(root);
@@ -41,10 +48,11 @@ await validateJsx(sourceFiles.filter((file) => file.endsWith('.jsx')));
 validateArchitecture(sourceFiles);
 await validateStaleReferences(publicFiles);
 await validatePackage();
+await validateCoverageGate();
 await validateRendererBoundary();
 await validateWorkflowActions(publicFiles);
 
-console.log(`Verified ${publicFiles.length} canonical public files, ${sourceFiles.length} source files, package metadata, architecture boundaries, workflow triggers, and repository cleanliness.`);
+console.log(`Verified ${publicFiles.length} canonical public files, ${sourceFiles.length} source files, package metadata, architecture boundaries, coverage gates, workflow triggers, and repository cleanliness.`);
 
 async function walk(directory) {
   const output = [];
@@ -157,6 +165,18 @@ async function validatePackage() {
   }
 }
 
+async function validateCoverageGate() {
+  const runner = await readFile(path.join(root, 'scripts/run-tests.mjs'), 'utf8');
+  for (const pattern of [
+    /--test-coverage-include=src\/\*\*/,
+    /--test-coverage-lines=99/,
+    /--test-coverage-functions=96/,
+    /--test-coverage-branches=90/,
+  ]) {
+    if (!pattern.test(runner)) throw new Error(`Coverage runner is missing required rule: ${pattern}`);
+  }
+}
+
 async function validateRendererBoundary() {
   const preload = await readFile(path.join(root, 'desktop/preload/index.cjs'), 'utf8');
   const exposed = [...preload.matchAll(/^\s{2}([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]);
@@ -189,6 +209,17 @@ async function validateWorkflowActions(files) {
     if (masterOnly.has(rel)) {
       if (!/push:[\s\S]*branches:\s*\[master\]/.test(source)) throw new Error(`${rel} must run after a master push.`);
       if (/pull_request:|workflow_dispatch:|schedule:/.test(source)) throw new Error(`${rel} must not run for pull requests, manual dispatches, or schedules.`);
+    }
+    if (rel === '.github/workflows/desktop-ci.yml') {
+      for (const pattern of [
+        /cleanup-branches:/,
+        /needs:\s*\[validate, package\]/,
+        /contents:\s*write/,
+        /branches\?per_page=100/,
+        /git\/refs\/heads\/\$branch/,
+      ]) {
+        if (!pattern.test(source)) throw new Error(`Desktop CI is missing branch cleanup rule: ${pattern}`);
+      }
     }
     if (rel === '.github/workflows/release.yml' && /pull_request:|workflow_dispatch:|schedule:/.test(source)) {
       throw new Error('The release workflow must remain tag-only.');
