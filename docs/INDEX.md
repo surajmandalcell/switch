@@ -12,7 +12,6 @@ Subscription Proxy Inator is a local desktop AI gateway. It separates configurat
 - [Usage](USAGE.md): Read request data, attempt data, prices, and exports.
 - [Security](SECURITY.md): Read the trust boundaries and credential process.
 - [Interface design](DESIGN_SYSTEM.md): Use the interface rules.
-- [Writing standard](WRITING_STANDARD.md): Use the project ASD-STE100 profile.
 
 ## Maintainer information
 
@@ -21,7 +20,6 @@ Subscription Proxy Inator is a local desktop AI gateway. It separates configurat
 - [Development workflow](DEVELOPMENT.md)
 - [Release process](RELEASE.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
-- [Version 1 migration](MIGRATION_V1.md)
 
 ## Architecture decisions
 

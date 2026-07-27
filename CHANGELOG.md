@@ -7,7 +7,7 @@ This file lists important changes to Subscription Proxy Inator.
 ### Technical writing
 
 - Rewrote the website, README, and documentation with the project ASD-STE100 profile.
-- Added a writing profile for approved technical terms and sentence rules.
+- Added controlled terms and sentence rules to the writing checker.
 - Added an automated check for sentence length, contractions, semicolons, and prohibited phrases.
 - Added the writing check to the standard project gate.
 
@@ -116,5 +116,3 @@ This file lists important changes to Subscription Proxy Inator.
 ## 1.x
 
 Version 1 used a local Node.js proxy and a browser dashboard. Version 2 replaces that design.
-
-Read [Version 1 migration](docs/MIGRATION_V1.md).

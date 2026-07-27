@@ -16,7 +16,7 @@ The gateway connects to configured providers and accounts. It selects an eligibl
 
 The application is for one local user. It encrypts provider credentials in the Electron main process. The HTTP server listens on loopback by default.
 
-**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Writing standard](docs/WRITING_STANDARD.md)** · **[Security](SECURITY.md)**
+**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Security](SECURITY.md)**
 
 ## Main functions
 
@@ -147,8 +147,6 @@ The tests cover routing, limits, protocols, adapters, streaming, cancellation, e
 - [Usage and pricing](docs/USAGE.md)
 - [Security model](docs/SECURITY.md)
 - [Interface design system](docs/DESIGN_SYSTEM.md)
-- [ASD-STE100 writing profile](docs/WRITING_STANDARD.md)
-- [Version 1 migration](docs/MIGRATION_V1.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Responsible use

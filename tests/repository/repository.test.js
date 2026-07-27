@@ -62,8 +62,21 @@ test('public documentation covers every supported operating concern', async () =
     'docs/QUICK_START.md', 'docs/ARCHITECTURE.md', 'docs/DESIGN_SYSTEM.md', 'docs/CONFIGURATION.md',
     'docs/PROVIDERS.md', 'docs/API.md', 'docs/ROUTING.md', 'docs/USAGE.md',
     'docs/SECURITY.md', 'docs/TROUBLESHOOTING.md', 'docs/DEVELOPMENT.md',
-    'docs/RELEASE.md', 'docs/MIGRATION_V1.md',
+    'docs/RELEASE.md',
   ]) assert.equal(await exists(relative), true, `${relative} is required`);
+});
+
+test('obsolete documentation pages and links are absent', async () => {
+  assert.equal(await exists('docs/MIGRATION_V1.md'), false);
+  assert.equal(await exists('docs/WRITING_STANDARD.md'), false);
+
+  const publicText = [
+    await text('README.md'),
+    await text('CHANGELOG.md'),
+    await text('docs/INDEX.md'),
+  ].join('\n');
+
+  assert.doesNotMatch(publicText, /MIGRATION_V1|WRITING_STANDARD|Version 1 migration|ASD-STE100 writing profile|Writing standard/);
 });
 
 test('desktop CI validates and packages all three platforms', async () => {
