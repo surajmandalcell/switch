@@ -11,24 +11,22 @@ function normalizedSvg(source) {
   return source.replace(/\s+/g, ' ').trim();
 }
 
-test('the hero explains the subscription-to-client product flow before the calls to action', async () => {
+test('the hero gives one product statement and two actions', async () => {
   const html = await text('website/index.html');
   const styles = await text('website/assets/polish.css');
 
-  assert.match(html, /Use your AI providers through one local gateway\./);
-  assert.match(html, /Claude, Codex, Z\.ai/);
-  assert.match(html, /Proxy-Inator gives local clients OpenAI-compatible and Anthropic-compatible routes/);
-  assert.match(html, /changes routes before output starts, and records usage/);
-  assert.match(html, /class="hero-system"/);
-  assert.match(html, /class="system-diagram"/);
-  assert.match(html, /Claude[\s\S]*Codex[\s\S]*Z\.ai[\s\S]*Proxy-Inator[\s\S]*Harness[\s\S]*Automation[\s\S]*App/);
-  assert.match(html, /aria-label="Claude, Codex, and Z\.ai connect to Proxy-Inator/);
+  assert.match(html, /Use one local API for your AI providers\./);
+  assert.match(html, /Connect supported providers, route each request, and record usage on your computer\./);
+  assert.equal((html.match(/class="hero-description"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /hero-system|system-diagram|hero-assurance|diagram-node|diagram-hub/);
   assert.match(html, /class="hero-actions" role="group" aria-label="Start or download"/);
+  assert.match(styles, /\.hero \.site-grid\s*\{[\s\S]*min-height:\s*560px/);
+  assert.match(styles, /\.hero-copy\s*\{[\s\S]*grid-column:\s*1 \/ 14/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*align-items:\s*center/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*gap:\s*16px/);
-  assert.match(styles, /\.hero-actions\s*\{[\s\S]*margin-top:\s*40px/);
   assert.match(styles, /\.hero-actions \.button[\s\S]*min-inline-size:\s*168px/);
   assert.match(styles, /\.button:focus-visible[\s\S]*outline:\s*3px solid/);
+  assert.doesNotMatch(styles, /diagram-flow|diagram-path|diagram-node|diagram-hub|system-diagram/);
 });
 
 test('one white calendar-refresh glyph on a blue rounded square is used everywhere', async () => {
@@ -107,8 +105,6 @@ test('website and desktop motion are purposeful and respect reduced-motion prefe
   assert.match(websiteScript, /prefers-reduced-motion: reduce/);
   assert.match(websiteScript, /firstLink\?\.focus/);
   assert.match(websiteScript, /transitionDelay = `\$\{Math\.min\(index \* 40, 200\)\}ms`/);
-  assert.match(websiteStyles, /@keyframes diagram-flow/);
-  assert.match(websiteStyles, /\.diagram-path[\s\S]*animation:\s*diagram-flow/);
   assert.match(websiteStyles, /\.reveal\s*\{[\s\S]*opacity:\s*0/);
   assert.match(websiteStyles, /\.reveal\.is-visible\s*\{[\s\S]*opacity:\s*1/);
   assert.match(websiteStyles, /@media \(prefers-reduced-motion: reduce\)/);
@@ -118,20 +114,19 @@ test('website and desktop motion are purposeful and respect reduced-motion prefe
   assert.match(desktopStyles, /\.reduce-motion/);
 });
 
-test('the social preview and documentation contract use the finished diagram, icon, and motion rules', async () => {
+test('the social preview and documentation contract use the finished icon and layout rules', async () => {
   const html = await text('website/index.html');
   const social = await text('website/assets/social-card.svg');
   const docs = await text('docs/DESIGN_SYSTEM.md');
 
   assert.match(html, /social-card\.svg/);
-  assert.match(social, /Claude[\s\S]*Codex[\s\S]*Z\.ai/);
-  assert.match(social, /Harness[\s\S]*Automation[\s\S]*App/);
   assert.match(social, /id="calendar"/);
   assert.match(social, /id="refresh-badge"/);
   assert.doesNotMatch(social, /fill="#161616" stroke="#ffffff"/);
   assert.match(docs, /Use at least 16 px between adjacent calls to action/);
-  assert.match(docs, /system diagram shows sources, Proxy-Inator, and clients/);
+  assert.match(docs, /Use one short product statement in the hero/);
   assert.match(docs, /Use equal columns for wide split sections/);
   assert.match(docs, /white calendar and refresh glyph/);
   assert.match(docs, /Use motion only to show a state or direction/);
+  assert.doesNotMatch(docs, /system diagram shows sources/);
 });
