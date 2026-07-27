@@ -121,8 +121,22 @@ function markdownSegments(source) {
       flush();
       continue;
     }
-    if (/^#{1,6}\s/.test(line) || /^\|/.test(line) || /^[-:| ]+$/.test(line) || /^<\/?[a-z]/i.test(line)) {
+    if (/^#{1,6}\s/.test(line) || /^[-: ]+$/.test(line)) {
       flush();
+      continue;
+    }
+    if (/^\|/.test(line)) {
+      flush();
+      if (/^\|?\s*:?-+/.test(line)) continue;
+      for (const cell of line.replace(/^\||\|$/g, '').split('|')) {
+        const text = cell.trim();
+        if (text) segments.push({ text, instruction: false });
+      }
+      continue;
+    }
+    if (/^<\/?[a-z]/i.test(line)) {
+      flush();
+      segments.push(...markupSegments(line));
       continue;
     }
     const numbered = line.match(/^\d+[.)]\s+(.*)$/);
@@ -196,20 +210,39 @@ function jsonSegments(source) {
   return output;
 }
 
+function isLikelyPublicText(value) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text || !/[A-Za-z]/.test(text)) return false;
+  if (/^(?:https?:|mailto:|tel:|data:|file:|\.{0,2}\/|\/)/i.test(text)) return false;
+  const digitCount = (text.match(/\d/g) ?? []).length;
+  if (/^[Mm]\s*[-+0-9.,\sA-Za-z]+$/.test(text) && digitCount > 8) return false;
+  if (/^[a-z0-9_./:@*${}\\-]+(?:\s+[a-z0-9_./:@*${}\\-]+)*$/.test(text)) return false;
+  if (digitCount / text.length > 0.35) return false;
+  return true;
+}
+
 function javascriptSegments(source, file) {
   const output = [];
   const kind = file.endsWith('.jsx') ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
+  const visibleAttributes = new Set(['alt', 'aria-label', 'placeholder', 'title']);
 
   const add = (text) => {
     const value = String(text ?? '').replace(/\s+/g, ' ').trim();
-    if (value) output.push({ text: value, instruction: false });
+    if (isLikelyPublicText(value)) output.push({ text: value, instruction: false });
   };
 
   const visit = (node) => {
-    if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) add(node.text);
+    if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      if (ts.isJsxAttribute(node.parent)) {
+        const name = node.parent.name.getText(sourceFile);
+        if (visibleAttributes.has(name)) add(node.text);
+      } else {
+        add(node.text);
+      }
+    }
     if (ts.isTemplateExpression(node)) {
-      add([node.head.text, ...node.templateSpans.map((span) => `TECHNICAL_TERM ${span.literal.text}`)].join(' '));
+      add([node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(' '));
     }
     if (ts.isJsxText(node)) add(node.text);
     ts.forEachChild(node, visit);
