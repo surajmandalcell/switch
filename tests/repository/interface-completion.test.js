@@ -23,7 +23,9 @@ test('the hero explains the product before presenting calls to action', async ()
   assert.match(html, /class="hero-flow"/);
   assert.match(html, /aria-label="How the local gateway works"/);
   assert.match(html, /class="hero-actions" role="group" aria-label="Get started"/);
+  assert.match(styles, /\.hero-actions\s*\{[\s\S]*align-items:\s*center/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*gap:\s*16px/);
+  assert.match(styles, /\.hero-actions\s*\{[\s\S]*margin-top:\s*40px/);
   assert.match(styles, /\.hero-actions \.button[\s\S]*min-inline-size:\s*168px/);
   assert.match(styles, /\.button:focus-visible[\s\S]*outline:\s*3px solid/);
 });
