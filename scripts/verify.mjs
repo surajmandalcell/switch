@@ -9,12 +9,15 @@ const root = path.resolve(import.meta.dirname, '..');
 const excludedDirectories = new Set(['node_modules', 'dist', 'release', 'coverage', '.git']);
 const required = [
   'package.json', 'README.md', 'CHANGELOG.md', 'LICENSE', 'CONTRIBUTING.md', 'SECURITY.md', 'SUPPORT.md',
-  'docs/INDEX.md', 'docs/ARCHITECTURE.md', 'docs/DESIGN_SYSTEM.md', 'docs/CONFIGURATION.md', 'docs/PROVIDERS.md',
-  'docs/API.md', 'docs/ROUTING.md', 'docs/USAGE.md', 'docs/SECURITY.md', 'docs/DEVELOPMENT.md',
+  'docs/INDEX.md', 'docs/QUICK_START.md', 'docs/ARCHITECTURE.md', 'docs/DESIGN_SYSTEM.md',
+  'docs/CONFIGURATION.md', 'docs/PROVIDERS.md', 'docs/API.md', 'docs/ROUTING.md', 'docs/USAGE.md',
+  'docs/SECURITY.md', 'docs/TROUBLESHOOTING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE.md',
   'desktop/main/index.js', 'desktop/preload/index.cjs', 'desktop/renderer/App.jsx',
   'src/bootstrap.js', 'src/application/routing-service.js', 'src/application/proxy-service.js',
   'src/domain/config.js', 'src/infrastructure/http-server.js', 'website/index.html',
-  '.github/workflows/desktop-ci.yml', '.github/workflows/codeql.yml', '.github/workflows/release.yml',
+  'website/assets/layout.css', 'website/assets/docs.css',
+  '.github/workflows/desktop-ci.yml', '.github/workflows/codeql.yml',
+  '.github/workflows/ui-audit.yml', '.github/workflows/release.yml',
 ];
 const forbiddenRoots = ['bin', 'public', 'images', '.rework', '.lockgen', '.publish'];
 
@@ -41,7 +44,7 @@ await validatePackage();
 await validateRendererBoundary();
 await validateWorkflowActions(publicFiles);
 
-console.log(`Verified ${publicFiles.length} canonical public files, ${sourceFiles.length} source files, package metadata, architecture boundaries, and repository cleanliness.`);
+console.log(`Verified ${publicFiles.length} canonical public files, ${sourceFiles.length} source files, package metadata, architecture boundaries, workflow triggers, and repository cleanliness.`);
 
 async function walk(directory) {
   const output = [];
@@ -127,6 +130,8 @@ async function validateStaleReferences(files) {
     ['.re', 'work/root'].join(''),
     ['automation/', 'desktop-rework'].join(''),
     ['@pikoloo/', 'codex-proxy'].join(''),
+    ['MIGRATION', '_V1'].join(''),
+    ['WRITING', '_STANDARD'].join(''),
   ];
   for (const file of files.filter((item) => /\.(?:md|json|js|mjs|cjs|jsx|html|css|yml|yaml)$/.test(item))) {
     if (relative(file) === 'scripts/verify.mjs') continue;
@@ -147,7 +152,7 @@ async function validatePackage() {
   if (pkg.private !== true) throw new Error('The desktop application package must remain private.');
   if (pkg.main !== 'desktop/main/index.js') throw new Error('Electron main entry is incorrect.');
   if (!pkg.build?.mac || !pkg.build?.win || !pkg.build?.linux) throw new Error('Electron Builder must cover macOS, Windows, and Linux.');
-  for (const command of ['test', 'test:coverage', 'verify', 'check:links', 'build:site', 'build:renderer', 'check', 'build', 'dist:dir']) {
+  for (const command of ['test', 'test:coverage', 'verify', 'check:ste', 'check:links', 'build:site', 'build:renderer', 'check', 'build', 'dist:dir']) {
     if (!pkg.scripts?.[command]) throw new Error(`Missing package script: ${command}`);
   }
 }
@@ -170,10 +175,23 @@ async function validateRendererBoundary() {
 
 async function validateWorkflowActions(files) {
   const workflows = files.filter((file) => /\.github[\\/]workflows[\\/].+\.ya?ml$/.test(file));
+  const masterOnly = new Set([
+    '.github/workflows/desktop-ci.yml',
+    '.github/workflows/codeql.yml',
+    '.github/workflows/ui-audit.yml',
+  ]);
   for (const file of workflows) {
     const source = await readFile(file, 'utf8');
+    const rel = relative(file);
     if (/actions\/checkout@v[1-5]\b/.test(source) || /actions\/setup-node@v[1-5]\b/.test(source)) {
-      throw new Error(`${relative(file)} uses an obsolete Node-action generation.`);
+      throw new Error(`${rel} uses an obsolete Node-action generation.`);
+    }
+    if (masterOnly.has(rel)) {
+      if (!/push:[\s\S]*branches:\s*\[master\]/.test(source)) throw new Error(`${rel} must run after a master push.`);
+      if (/pull_request:|workflow_dispatch:|schedule:/.test(source)) throw new Error(`${rel} must not run for pull requests, manual dispatches, or schedules.`);
+    }
+    if (rel === '.github/workflows/release.yml' && /pull_request:|workflow_dispatch:|schedule:/.test(source)) {
+      throw new Error('The release workflow must remain tag-only.');
     }
   }
 }
