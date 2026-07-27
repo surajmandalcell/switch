@@ -64,24 +64,6 @@ flowchart LR
   class Harness,Automation,App client
 ```
 
-## Request boundary
-
-```mermaid
-sequenceDiagram
-  participant Client as Local client
-  participant Gateway as Proxy-Inator
-  participant RouteA as First route
-  participant RouteB as Next route
-
-  Client->>Gateway: Compatible request
-  Gateway->>RouteA: Normalized request
-  RouteA-->>Gateway: Temporary failure
-  Gateway->>RouteB: Retry before output
-  RouteB-->>Gateway: Stream starts
-  Gateway-->>Client: Visible output
-  Note over Gateway,Client: The route is fixed after visible output starts.
-```
-
 ## Main functions
 
 | Area | Function |
