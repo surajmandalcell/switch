@@ -11,9 +11,10 @@ function normalizedSvg(source) {
   return source.replace(/\s+/g, ' ').trim();
 }
 
-test('the hero uses one concise message and one routing diagram', async () => {
+test('the hero uses one concise message and two visible connector lines', async () => {
   const html = await text('website/index.html');
   const styles = await text('website/assets/polish.css');
+  const layout = await text('website/assets/layout.css');
 
   assert.match(html, /One local API for Claude, Codex, and Z\.ai\./);
   assert.match(html, /Proxy-Inator routes requests from your tools to configured provider accounts\./);
@@ -29,7 +30,9 @@ test('the hero uses one concise message and one routing diagram', async () => {
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*gap:\s*16px/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*margin-top:\s*32px/);
   assert.match(styles, /\.hero-actions \.button[\s\S]*min-inline-size:\s*168px/);
-  assert.match(styles, /\.diagram-node\s*\{[\s\S]*min-height:\s*64px/);
+  assert.match(layout, /\.path-a,[\s\S]*\.path-c,[\s\S]*\.path-d,[\s\S]*\.path-f[\s\S]*display:\s*none/);
+  assert.match(layout, /\.hero-system\s*\{[\s\S]*border:\s*0/);
+  assert.match(layout, /\.hero-system figcaption\s*\{[\s\S]*border-bottom:\s*0/);
   assert.match(styles, /\.button:focus-visible[\s\S]*outline:\s*3px solid/);
 });
 
@@ -96,6 +99,20 @@ test('homepage sections use balanced IBM grid proportions at wide sizes', async 
   assert.match(html, /class="api-side"[\s\S]*class="api-note"/);
 });
 
+test('generated documentation keeps sidebar geometry stable', async () => {
+  const styles = await text('website/assets/docs.css');
+  const script = await text('website/assets/site.js');
+
+  assert.match(script, /loadStylesheet\('docs\.css'\)/);
+  assert.match(styles, /scrollbar-gutter:\s*stable/);
+  assert.match(styles, /\.docs-nav a\s*\{[\s\S]*min-height:\s*44px/);
+  assert.match(styles, /white-space:\s*nowrap/);
+  assert.match(styles, /text-overflow:\s*ellipsis/);
+  assert.match(styles, /border-left:\s*4px solid transparent/);
+  assert.match(styles, /\.docs-nav a\[aria-current="page"\][\s\S]*font-weight:\s*400/);
+  assert.match(styles, /@media \(max-width:\s*840px\)[\s\S]*min-height:\s*48px/);
+});
+
 test('website and desktop motion are purposeful and respect reduced-motion preferences', async () => {
   const websiteHtml = await text('website/index.html');
   const websiteStyles = await text('website/assets/polish.css');
@@ -132,7 +149,8 @@ test('the social preview and documentation contract use the finished diagram, ic
   assert.match(social, /id="refresh-badge"/);
   assert.doesNotMatch(social, /fill="#161616" stroke="#ffffff"/);
   assert.match(docs, /Use at least 16 px between adjacent calls to action/);
-  assert.match(docs, /diagram shows Claude, Codex, and Z\.ai as example sources/);
+  assert.match(docs, /diagram renders only two connector lines/);
+  assert.match(docs, /Keep active and inactive labels at the same font weight/);
   assert.match(docs, /Use equal columns for wide split sections/);
   assert.match(docs, /white calendar and refresh glyph/);
   assert.match(docs, /Use motion only to show a state or direction/);
