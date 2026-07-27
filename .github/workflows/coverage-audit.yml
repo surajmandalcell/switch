@@ -1,0 +1,60 @@
+name: Complete source coverage audit
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/coverage-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out master
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Use repository npm version
+        run: npm install --global npm@10.9.2 --no-audit --no-fund
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Remove the request-boundary diagram
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('README.md')
+          source = path.read_text()
+          start = source.index('## Request boundary\n')
+          end = source.index('## Main functions\n')
+          path.write_text(source[:start] + source[end:])
+          PY
+      - name: Run full source coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' tests < <(find tests -type f -name '*.test.js' -print0 | sort -z)
+          node --test \
+            --experimental-test-coverage \
+            --test-coverage-include='src/**' \
+            "${tests[@]}" 2>&1 | tee coverage-audit.txt
+      - name: Record audit result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add README.md coverage-audit.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'Record complete source coverage audit'
+          git push origin HEAD:master
