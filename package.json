@@ -2,7 +2,7 @@
   "name": "subscription-proxy-inator",
   "version": "2.1.0",
   "private": true,
-  "description": "Cross-platform desktop AI gateway for multi-provider routing, failover, compatibility translation, and local usage accounting.",
+  "description": "Local desktop AI gateway for provider routing, failover, protocol conversion, and usage records.",
   "author": "Suraj Mandal <surajmandalcell@gmail.com>",
   "license": "MIT",
   "type": "module",
@@ -29,10 +29,11 @@
     "check:links": "node scripts/check-links.mjs",
     "build:site": "node scripts/build-site.mjs && node scripts/check-links.mjs --site",
     "build:renderer": "vite build",
-    "check": "npm run verify && npm run test:coverage && npm run check:links",
+    "check": "npm run verify && npm run check:ste && npm run test:coverage && npm run check:links",
     "build": "npm run check && npm run build:renderer && npm run build:site",
     "dist": "npm run build && electron-builder --publish never",
-    "dist:dir": "npm run build && electron-builder --dir"
+    "dist:dir": "npm run build && electron-builder --dir",
+    "check:ste": "node scripts/check-ste.mjs"
   },
   "dependencies": {
     "@fastify/cors": "10.0.2",

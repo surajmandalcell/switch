@@ -1,5 +1,9 @@
-# Code of Conduct
+# Code of conduct
 
-Be respectful, specific, and technically constructive. Harassment, discrimination, threats, disclosure of private information, and intentionally disruptive behavior are not accepted.
+Use respectful and technical language. Give specific information about the work.
 
-Project maintainers may edit, hide, or remove contributions and participation that violate these expectations. Report conduct concerns privately to the maintainer through the repository’s private contact channels.
+Do not harass or threaten another person. Do not discriminate against another person. Do not publish private information.
+
+Do not intentionally interrupt project work. Maintainers can edit, hide, or remove content that breaks these rules.
+
+Report a conduct problem through a private repository contact channel.

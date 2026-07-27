@@ -1,48 +1,58 @@
 # Providers
 
-## Provider/account model
+## Provider and account model
 
-A provider describes one upstream protocol and endpoint. Accounts hold encrypted credentials and routing properties. Multiple accounts can belong to the same provider, and multiple providers can be eligible for the same requested model.
+A provider defines one provider protocol and one base URL. An account stores an encrypted credential and routing settings.
 
-The router does not inspect credential content. It selects an eligible account, resolves its encrypted secret in the main process, and passes the secret only to the chosen adapter.
+A provider can contain multiple accounts. Multiple providers can match the same requested model.
+
+The router does not read credential content. It selects an account and asks the main process for the secret.
+
+The main process sends the secret only to the selected adapter.
 
 ## OpenAI
 
 - Type: `openai`
-- Default base URL: `https://api.openai.com/v1`
-- Wire API: Chat Completions
-- Supports JSON, SSE, tools, tool results, images accepted from compatible clients, and usage.
+- Default URL: `https://api.openai.com/v1`
+- Provider API: Chat Completions
+- Data: JSON and SSE
+- Content: text, tools, tool results, and images
+- Usage: provider usage fields
 
-Client-facing OpenAI Responses requests are normalized and can be routed through this adapter, then serialized back to Responses format.
+The gateway can convert a client Responses request to this adapter. It converts the result back to Responses format.
 
 ## Anthropic
 
 - Type: `anthropic`
-- Default base URL: `https://api.anthropic.com/v1`
-- Wire API: Messages
-- Sends `x-api-key` and an Anthropic version header.
-- Supports JSON, SSE, tools, tool results, images, cache-token usage, and stop reasons.
+- Default URL: `https://api.anthropic.com/v1`
+- Provider API: Messages
+- Authentication: `x-api-key`
+- Data: JSON and SSE
+- Content: text, images, tools, and tool results
+- Usage: token and cache-token fields
 
 ## Google Gemini
 
 - Type: `gemini`
-- Default base URL: `https://generativelanguage.googleapis.com/v1beta`
-- Standard models use native `generateContent` and `streamGenerateContent`.
-- Supports system instructions, text, inline/URL images, functions, function calls, function responses, generation settings, usage metadata, and Gemini thought signatures.
+- Default URL: `https://generativelanguage.googleapis.com/v1beta`
+- Standard APIs: `generateContent` and `streamGenerateContent`
+- Content: system instructions, text, images, functions, and function results
+- Settings: generation options and usage metadata
+- State: Gemini thought signatures
 
 ### Deep Research
 
-Model IDs beginning with `deep-research-` use Google’s Interactions API rather than `generateContent`.
+A model ID that starts with `deep-research-` uses the Gemini Interactions API.
 
-The adapter:
+The adapter does these tasks:
 
-1. Creates a background interaction.
-2. Polls the interaction until completed, failed, cancelled, or timed out.
-3. Emits SSE keep-alive comments while waiting.
-4. Returns the final cited report and generated images as canonical content.
-5. Cancels the interaction when the local client disconnects.
+1. Create a background interaction.
+2. Poll the interaction.
+3. Send SSE heartbeat comments while it waits.
+4. Return the final report and images.
+5. Cancel the interaction after a client disconnect.
 
-Options live under `provider.adapter.deepResearch`; see [Configuration](CONFIGURATION.md).
+Deep Research settings are in `provider.adapter.deepResearch`.
 
 Official references:
 
@@ -52,42 +62,45 @@ Official references:
 ## xAI Grok
 
 - Type: `grok`
-- Default base URL: `https://api.x.ai/v1`
-- Uses xAI’s OpenAI-compatible Chat Completions interface.
-- Supports JSON, SSE, tools, and normalized usage.
-- For sticky requests, the canonical session ID is forwarded as `x-grok-conv-id`.
-- `provider.adapter.serviceTier` is forwarded as `service_tier`.
-- `cost_in_usd_ticks` is converted to an upstream-reported USD value and takes precedence over local estimates.
+- Default URL: `https://api.x.ai/v1`
+- Provider API: xAI Chat Completions
+- Data: JSON and SSE
+- Content: text and tools
+- Session header: `x-grok-conv-id`
+- Service tier field: `service_tier`
+
+The adapter converts `cost_in_usd_ticks` to a reported USD value. A reported value has priority over a local estimate.
 
 Official references:
 
 - [xAI Chat Completions](https://docs.x.ai/developers/api-reference#chat-completions)
 - [xAI cost tracking](https://docs.x.ai/docs/key-information/monitoring-usage)
 
-## OpenAI-compatible
+## OpenAI-compatible provider
 
 - Type: `openai-compatible`
-- Configure an HTTPS URL or a loopback HTTP URL.
-- Uses the same Chat Completions adapter as OpenAI.
-- Suitable for gateways and local servers that implement the expected OpenAI request, response, and SSE shapes.
+- URL: HTTPS or loopback HTTP
+- Protocol: OpenAI Chat Completions
 
-Compatibility is behavioral, not brand-based. Verify tool, image, stream, and usage fields for the target endpoint.
+Use this type for a local server or gateway that has the required OpenAI behavior.
 
-## Anthropic-compatible
+Test tool, image, stream, and usage fields for the selected server.
+
+## Anthropic-compatible provider
 
 - Type: `anthropic-compatible`
-- Configure an HTTPS URL or a loopback HTTP URL.
-- Uses Anthropic Messages wire shapes and headers.
+- URL: HTTPS or loopback HTTP
+- Protocol: Anthropic Messages
 
-## Command / CLI
+## Command provider
 
 - Type: `command`
-- Executes an explicit binary without a shell.
-- Sends one canonical request as JSON followed by a newline on standard input.
+- Starts one explicit program without a shell.
+- Writes one canonical JSON request to standard input.
 - Sets `SPI_ACCOUNT_SECRET` for the selected account.
-- Reads one canonical stream event as JSON per line from standard output.
-- Captures standard error and returns a provider failure for non-zero exit codes.
-- Terminates the child on client cancellation.
+- Reads one canonical JSON event from each output line.
+- Reads diagnostics from standard error.
+- Stops the program after client cancellation.
 
 Example output:
 
@@ -98,15 +111,15 @@ Example output:
 {"type":"finish","stopReason":"end_turn"}
 ```
 
-Only configure commands you trust. A command provider executes with the desktop process user’s permissions.
+Configure only programs that you trust. The program uses the permissions of the desktop process user.
 
-## Trusted external modules
+## Trusted external module
 
 - Type: `external-module`
-- Module files must live below the application user-data `providers` directory.
-- The module must export `createAdapter(options)`.
-- `reloadToken` changes the import cache key.
+- Location: Application user-data `providers` directory
+- Export: `createAdapter(options)`
+- Cache key: `reloadToken`
 
-External modules are path-restricted but not sandboxed. They execute in the main process and must be treated as installed trusted code.
+The path is restricted, but the module is not sandboxed. It runs in the main process.
 
-See [Provider development](PROVIDER_DEVELOPMENT.md).
+Treat the module as installed code. Read [Provider development](PROVIDER_DEVELOPMENT.md).

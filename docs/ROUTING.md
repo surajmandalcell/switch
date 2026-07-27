@@ -1,46 +1,52 @@
 # Routing and failover
 
-## Candidate eligibility
+## Route eligibility
 
-A provider/account route is eligible only when:
+A provider and account route is eligible only when all these conditions are true:
 
-- The provider and account are enabled.
+- The provider is enabled.
+- The account is enabled.
 - The provider model globs match the requested model.
-- The account has an encrypted credential reference.
-- The account is not in cooldown or attention-only state.
-- The account is below all configured local limits.
-- The provider and global attempt budgets have not been exhausted.
+- The account has an encrypted secret reference.
+- The account has no active cooldown.
+- The account does not need attention.
+- The account is below all local limits.
+- Attempt limits are not complete.
 
-Model eligibility is evaluated using the client-requested model. The provider-specific alias is applied immediately before invoking the adapter.
+The router checks the client model before it applies an alias. It applies the provider alias immediately before the adapter call.
 
 ## Strategies
 
-| Strategy | Ordering |
+| Strategy | Selection rule |
 | --- | --- |
-| `priority` | Lowest account priority, then stable IDs |
-| `round-robin` | Rotating eligible candidate index |
-| `weighted-random` | Random selection proportional to positive account weight |
-| `least-inflight` | Lowest active request count |
-| `lowest-latency` | Lowest exponentially weighted recent latency |
-| `lowest-cost` | Lowest estimated cost for aliased upstream model |
-| `sticky` | Existing healthy session route, otherwise priority selection and pin |
+| `priority` | Select the lowest account priority |
+| `round-robin` | Rotate through eligible routes |
+| `weighted-random` | Use each positive account weight |
+| `least-inflight` | Select the lowest active request count |
+| `lowest-latency` | Select the lowest recent weighted latency |
+| `lowest-cost` | Select the lowest estimated model cost |
+| `sticky` | Reuse a healthy session route |
 
-One global strategy applies to every provider without an override. Provider overrides change ordering only for candidates belonging to that provider. The desktop reset action clears every override and replaces the global strategy.
+The global strategy applies when a provider has no override. A provider override changes only that provider's route order.
 
-## Limits
+The reset action removes all provider overrides. It also sets the selected global strategy.
 
-Local account limits use recorded gateway usage:
+## Local limits
 
-- Requests in the trailing 60 seconds.
-- Tokens since UTC day start.
-- Tokens since UTC month start.
-- Cost since UTC month start.
+Local account limits use recorded gateway data:
 
-A value equal to or above the configured limit makes the account ineligible. These limits are local safeguards and do not represent the upstream provider’s authoritative quota.
+- Requests during the last 60 seconds
+- Tokens since the UTC day start
+- Tokens since the UTC month start
+- Cost since the UTC month start
 
-## Failure classification
+An account becomes ineligible when a value reaches its limit.
 
-The router classifies failures into machine codes such as:
+These values are local safeguards. They are not provider quota values.
+
+## Failure classes
+
+The router uses machine codes such as:
 
 - `rate_limited`
 - `quota_exhausted`
@@ -53,35 +59,42 @@ The router classifies failures into machine codes such as:
 - `invalid_request`
 - `upstream_error`
 
-`Retry-After` controls cooldown when present. Otherwise transient failure cooldown grows exponentially from `baseCooldownMs` and is clamped by `maxCooldownMs`.
+A `Retry-After` value sets the cooldown when it is available. Otherwise, the cooldown grows from `baseCooldownMs` to `maxCooldownMs`.
 
-Authentication and permission failures mark the account for attention. They may be followed by another account only when `failoverOnAuthError` is enabled.
+An authentication or permission error marks the account for attention.
 
-Client cancellation decrements in-flight state without marking the account failed or placing it in cooldown.
+The router can try another account after an authentication error only when `failoverOnAuthError` is true.
 
-## Streaming safety
+Client cancellation reduces the active request count. It does not mark the account as failed.
 
-Before visible output, metadata events are buffered. Heartbeats are sent immediately as SSE comments but do not count as semantic output.
+## Streaming boundary
 
-The first non-empty text delta or tool call establishes the visible boundary. After that boundary:
+The gateway buffers metadata before visible output. SSE heartbeat comments can pass through immediately.
 
-- The selected route cannot change.
-- A failure is returned to the client on the same stream.
-- No second provider is invoked.
+The first text delta or tool call starts visible output.
 
-This rule prevents duplicated text, repeated tool execution, and hidden cross-provider continuation.
+After visible output starts:
 
-See [ADR 0002](adr/0002-streaming-failover.md).
+- The route cannot change.
+- The same stream returns the error.
+- The gateway does not call another provider.
+
+This rule prevents duplicate text and repeated tool effects.
+
+Read [ADR 0002](adr/0002-streaming-failover.md).
 
 ## Route attempts
 
-Every attempt records:
+Each route attempt stores these fields:
 
-- Request ID and attempt ID.
-- Start time.
-- Provider and account.
-- Aliased upstream model.
-- Success, error, or cancellation status.
-- Latency and error code.
+- Request ID
+- Attempt ID
+- Start time
+- Provider ID
+- Account ID
+- Upstream model
+- Final status
+- Latency
+- Error code
 
-The **Usage** screen exposes attempts for a selected request.
+Select a request in **Usage** to see its attempts.

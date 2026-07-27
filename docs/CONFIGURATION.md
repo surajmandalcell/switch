@@ -1,32 +1,36 @@
 # Configuration reference
 
-Configuration is stored in `config.json`, validated on every load and write, and assigned schema version 2. The renderer receives a public copy without secret references.
+The application stores non-secret settings in `config.json`. It checks the file during each read and write.
 
-## Server
+The current schema version is 2. The renderer receives a public copy without secret references.
 
-| Field | Type | Default | Meaning |
+## Server settings
+
+| Field | Type | Default | Function |
 | --- | --- | --- | --- |
-| `host` | string | `127.0.0.1` | Must be `127.0.0.1` or `localhost` |
-| `port` | integer | `8081` | Local port from 1024 through 65535 |
-| `corsOrigins` | string array | `[]` | Exact browser origins; wildcards are rejected |
-| `apiKeySecretRef` | internal string | `null` | Encrypted local bearer-key reference; never rendered |
-| `requestTimeoutMs` | integer | `120000` | Standard upstream request timeout |
-| `startOnLogin` | boolean | `false` | Electron login-item behavior |
+| `host` | string | `127.0.0.1` | Set the loopback host |
+| `port` | integer | `8081` | Set a local port from 1024 through 65535 |
+| `corsOrigins` | string array | `[]` | Set exact browser origins |
+| `apiKeySecretRef` | internal string | `null` | Refer to the encrypted local key |
+| `requestTimeoutMs` | integer | `120000` | Set the provider request timeout |
+| `startOnLogin` | boolean | `false` | Start the app after user login |
 
-The server restarts only when host or port changes. A failed restart rolls configuration and login effects back.
+The renderer never receives `apiKeySecretRef`.
 
-## Routing
+The server restarts when the host or port changes. A failed restart restores the old configuration and login state.
 
-| Field | Meaning |
+## Routing settings
+
+| Field | Function |
 | --- | --- |
-| `strategy` | Global strategy identifier |
-| `maxAttempts` | Maximum candidate attempts per request, 1–20 |
-| `stickyTtlMs` | Sticky-session route lifetime |
-| `baseCooldownMs` | Initial transient-failure cooldown |
-| `maxCooldownMs` | Maximum exponential cooldown |
-| `failoverOnAuthError` | Whether another account may be tried after an auth failure |
+| `strategy` | Set the global strategy |
+| `maxAttempts` | Set 1 through 20 candidate attempts |
+| `stickyTtlMs` | Set the sticky route lifetime |
+| `baseCooldownMs` | Set the first temporary-failure cooldown |
+| `maxCooldownMs` | Set the maximum cooldown |
+| `failoverOnAuthError` | Permit another account after an authentication error |
 
-## Provider
+## Provider object
 
 ```json
 {
@@ -44,13 +48,17 @@ The server restarts only when host or port changes. A failed restart rolls confi
 }
 ```
 
-Remote provider URLs require HTTPS. Plain HTTP is accepted only for loopback-compatible endpoints. URLs cannot contain usernames or passwords.
+A remote provider URL must use HTTPS. A loopback provider URL can use HTTP.
 
-Custom headers are non-secret only. Header names resembling authorization, API keys, cookies, or tokens are discarded. Store credentials as accounts instead.
+A provider URL cannot contain a user name or password.
 
-### Adapter options
+Custom headers must not contain credentials. The application removes header names that look like authorization, keys, cookies, or tokens.
 
-Adapter options are provider-specific JSON. Examples:
+Store a credential in an account.
+
+### Adapter settings
+
+Adapter settings use provider-specific JSON.
 
 Grok service tier:
 
@@ -97,25 +105,27 @@ External module:
 }
 ```
 
-## Account
+## Account object
 
-| Field | Meaning |
+| Field | Function |
 | --- | --- |
-| `id` | Stable global account ID |
-| `label` | Human-readable account name |
-| `enabled` | Whether the account is eligible |
-| `secretRef` | Internal encrypted reference; not rendered |
-| `priority` | Lower numeric value is preferred by priority routing |
-| `weight` | Positive relative weight for weighted random routing |
-| `limits.requestsPerMinute` | Local rolling request limit |
-| `limits.tokensPerDay` | Local input + output token limit since UTC day start |
-| `limits.tokensPerMonth` | Local input + output token limit since UTC month start |
-| `limits.costPerMonthUsd` | Local estimated/reported cost limit since UTC month start |
-| `metadata` | Non-secret adapter/account metadata |
+| `id` | Set the global account ID |
+| `label` | Set the account name |
+| `enabled` | Permit route selection |
+| `secretRef` | Refer to the encrypted credential |
+| `priority` | Set the priority order |
+| `weight` | Set the weighted-random share |
+| `limits.requestsPerMinute` | Set the local request limit |
+| `limits.tokensPerDay` | Set the local daily token limit |
+| `limits.tokensPerMonth` | Set the local monthly token limit |
+| `limits.costPerMonthUsd` | Set the local monthly cost limit |
+| `metadata` | Store non-secret adapter data |
 
-A `null` limit means unlimited. Local limits are safeguards based on recorded gateway usage; they do not query or alter upstream quotas.
+The renderer does not receive `secretRef`.
 
-## Model aliases
+A `null` limit means that the local limit is off. Local limits use gateway records and do not change provider quotas.
+
+## Model alias
 
 ```json
 {
@@ -126,9 +136,9 @@ A `null` limit means unlimited. Local limits are safeguards based on recorded ga
 }
 ```
 
-Provider-specific aliases outrank global aliases. Duplicate requested/scope pairs are rejected.
+A provider alias has priority over a global alias. The application rejects two aliases with the same request and scope.
 
-## Pricing
+## Price rule
 
 ```json
 {
@@ -145,11 +155,13 @@ Provider-specific aliases outrank global aliases. Duplicate requested/scope pair
 }
 ```
 
-Rules may target a provider ID, provider type, or every provider. Exact provider and model rules are more specific than broad type/glob rules. Rates must be non-negative. Source URLs must use HTTPS.
+A rule can match one provider ID, one provider type, or all providers. An exact provider and model rule has the highest priority.
+
+A rate cannot be negative. A source URL must use HTTPS.
 
 ## Appearance and retention
 
-- `appearance.theme`: `system`, `dark`, or `light`.
-- `appearance.compact`: compact desktop density.
-- `appearance.reduceMotion`: disable nonessential transitions.
-- `retentionDays`: 1–3650 days of local usage history.
+- `appearance.theme`: Use `system`, `dark`, or `light`.
+- `appearance.compact`: Use compact desktop spacing.
+- `appearance.reduceMotion`: Remove nonessential motion.
+- `retentionDays`: Keep 1 through 3650 days of usage data.

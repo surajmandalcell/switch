@@ -10,27 +10,31 @@ npm run check
 npm run dev
 ```
 
-The desktop window and local server start together. The default endpoint is `http://127.0.0.1:8081`.
+The desktop window and local server start together. The default address is `http://127.0.0.1:8081`.
 
 ## Add a provider
 
 1. Open **Providers**.
-2. Choose a preset: OpenAI, Anthropic, Google Gemini, xAI Grok, a compatible endpoint, or a command adapter.
-3. Enter the base URL when the preset does not supply one.
-4. Add one or more accounts and their credentials.
-5. Save account priority, weight, enablement, and optional local budgets.
+2. Select a provider preset.
+3. Enter a base URL when the preset has no URL.
+4. Add one or more accounts.
+5. Enter the account credentials.
+6. Set priority, weight, and local limits.
+7. Save the provider.
 
-Credentials are encrypted by the main process and are never returned to the renderer.
+The main process encrypts credentials. The renderer does not receive the credential values.
 
-## Choose routing
+## Select a routing strategy
 
-Open **Routing** and choose a global strategy. A provider can inherit that strategy or define an override. **Replace overrides** clears every override and applies the selected global policy.
+1. Open **Routing**.
+2. Select the global strategy.
+3. Add a provider override when necessary.
 
-For predictable initial setup, use `priority`. For concurrent workloads, `least-inflight` is a good general default. `lowest-cost` is meaningful only after the pricing catalog contains verified rules.
+Use `priority` for a predictable first configuration. Use `least-inflight` for concurrent work.
 
-## Connect a client
+Use `lowest-cost` only when the pricing catalog has current rules.
 
-OpenAI Chat Completions:
+## Connect an OpenAI-compatible client
 
 ```bash
 curl http://127.0.0.1:8081/v1/chat/completions \
@@ -42,7 +46,7 @@ curl http://127.0.0.1:8081/v1/chat/completions \
   }'
 ```
 
-Anthropic Messages:
+## Connect an Anthropic-compatible client
 
 ```bash
 curl http://127.0.0.1:8081/v1/messages \
@@ -55,21 +59,21 @@ curl http://127.0.0.1:8081/v1/messages \
   }'
 ```
 
-The local key is required only after it is enabled under **Settings**.
+The local key is necessary only after you enable it in **Settings**.
 
-## Add aliases and prices
+## Add model aliases and prices
 
-Open **Models & pricing** to:
+Open **Models & pricing**. Then do these tasks:
 
-- Map one client-facing model ID to an upstream model globally or for a specific provider.
-- Enter provider/model rates for input, output, cache read, and cache write tokens.
-- Record a pricing source URL and verification date.
+- Map a client model ID to an upstream model.
+- Add rates for input, output, cache read, and cache write tokens.
+- Add the source URL and verification date.
 
-## Validate a production checkout
+## Validate the checkout
 
 ```bash
 npm run build
 npm run dist:dir
 ```
 
-The first command runs repository verification, the full coverage suite, source links, renderer build, and documentation website build. The second creates an unpacked desktop application for the current platform.
+The first command runs all source checks and web builds. The second command builds an unpacked desktop application.

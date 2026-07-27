@@ -5,27 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#161616">
-    <meta
-      name="description"
-      content="Proxy-Inator connects Claude, Codex, Z.ai, and other supported AI providers to one local OpenAI- or Anthropic-compatible API for tools, automations, and applications."
-    >
+    <meta name="description" content="Proxy-Inator connects configured AI providers to one local compatible API.">
     <meta name="author" content="Suraj Mandal">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Subscription Proxy Inator">
-    <meta
-      property="og:description"
-      content="Route Claude, Codex, Z.ai, and other supported providers through one local gateway for tools, automations, and apps."
-    >
+    <meta property="og:description" content="Route configured AI providers through one local gateway.">
     <meta property="og:url" content="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <meta property="og:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Subscription Proxy Inator">
-    <meta
-      name="twitter:description"
-      content="One local compatible API between your AI subscriptions and the tools that use them."
-    >
+    <meta name="twitter:description" content="Use one local API for configured AI providers.">
     <meta name="twitter:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
-    <title>Subscription Proxy Inator · AI subscriptions into one local gateway</title>
+    <title>Subscription Proxy Inator · One local AI gateway</title>
     <link rel="canonical" href="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -39,7 +30,7 @@
 
     <header class="site-header" data-site-header>
       <div class="site-header-inner">
-        <a class="site-brand" href="./" aria-label="Subscription Proxy Inator home">
+        <a class="site-brand" href="./" aria-label="Subscription Proxy Inator home page">
           <span class="site-mark" aria-hidden="true">
             <img src="assets/icon.svg" width="32" height="32" alt="">
           </span>
@@ -55,8 +46,8 @@
         >
           <span></span><span></span><span></span>
         </button>
-        <nav id="site-navigation" class="site-navigation" aria-label="Primary navigation" data-menu>
-          <a href="#capabilities">Capabilities</a>
+        <nav id="site-navigation" class="site-navigation" aria-label="Main navigation" data-menu>
+          <a href="#capabilities">Functions</a>
           <a href="#routing">Routing</a>
           <a href="#api">Local API</a>
           <a href="docs/">Documentation</a>
@@ -71,30 +62,31 @@
           <div class="hero-label" data-reveal>Version 2.1.0 · MIT · Windows, macOS, and Linux</div>
           <div class="hero-copy" data-reveal>
             <p class="hero-kicker">Desktop multi-provider AI gateway</p>
-            <h1 id="hero-title">Use every AI subscription through one local gateway.</h1>
+            <h1 id="hero-title">Use your AI providers through one local gateway.</h1>
             <p class="hero-description">
-              Connect Claude, Codex, Z.ai, and other supported providers once. Proxy-Inator exposes
-              local OpenAI- and Anthropic-compatible endpoints for developer tools, automations, and
-              your own apps, with routing, pre-stream failover, and local usage records.
+              Connect Claude, Codex, Z.ai, and other supported providers. Proxy-Inator gives local clients OpenAI-compatible and Anthropic-compatible routes.
             </p>
-            <div class="hero-actions" role="group" aria-label="Get started">
+            <p class="hero-description">
+              It selects routes, changes routes before output starts, and records usage on your computer.
+            </p>
+            <div class="hero-actions" role="group" aria-label="Start or download">
               <a class="button button-primary" href="docs/quick_start/" aria-label="Open the quick start guide">Quick start</a>
               <a class="button button-secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest" aria-label="Download the latest desktop release">Download latest</a>
             </div>
-            <p class="hero-assurance">Runs on your machine, binds to loopback by default, and requires no hosted control plane.</p>
+            <p class="hero-assurance">The server listens on loopback by default. The app does not need a hosted control plane.</p>
           </div>
 
           <figure class="hero-system" aria-labelledby="hero-system-title hero-system-caption" data-reveal>
             <figcaption>
               <span class="diagram-eyebrow">Subscription routing</span>
-              <strong id="hero-system-title">Connect once. Reuse everywhere.</strong>
-              <p id="hero-system-caption">Three configured sources enter Proxy-Inator; three local clients use the same compatible gateway.</p>
+              <strong id="hero-system-title">Connect providers once. Use them in many clients.</strong>
+              <p id="hero-system-caption">Configured subscriptions enter Proxy-Inator. Local clients use one compatible API.</p>
             </figcaption>
 
             <div
               class="system-diagram"
               role="img"
-              aria-label="Claude, Codex, and Z.ai subscriptions connect to Proxy-Inator, which provides local API access to Harness, Automation, and App clients."
+              aria-label="Claude, Codex, and Z.ai connect to Proxy-Inator. Harness, Automation, and App use its local API."
             >
               <svg class="diagram-lines" viewBox="0 0 720 420" preserveAspectRatio="none" aria-hidden="true">
                 <defs>
@@ -110,7 +102,7 @@
                 <path class="diagram-path path-f" d="M410 210 C468 210 472 348 546 348"/>
               </svg>
 
-              <div class="diagram-column diagram-sources" aria-label="Configured sources">
+              <div class="diagram-column diagram-sources" aria-label="Configured provider sources">
                 <span class="diagram-column-label">Sources</span>
                 <div class="diagram-node">
                   <span>Subscription</span>
@@ -125,7 +117,7 @@
                 <div class="diagram-node">
                   <span>Subscription</span>
                   <strong>Z.ai</strong>
-                  <small>Compatible HTTP</small>
+                  <small>Compatible HTTP adapter</small>
                 </div>
               </div>
 
@@ -133,10 +125,10 @@
                 <img src="assets/icon.svg" width="72" height="72" alt="" aria-hidden="true">
                 <span>Local gateway</span>
                 <strong>Proxy-Inator</strong>
-                <small>Routes, fails over, and records usage</small>
+                <small>Routes requests and records usage</small>
               </div>
 
-              <div class="diagram-column diagram-clients" aria-label="Local clients">
+              <div class="diagram-column diagram-clients" aria-label="Example local clients">
                 <span class="diagram-column-label">Clients</span>
                 <div class="diagram-node">
                   <span>Developer tool</span>
@@ -163,29 +155,29 @@
         <div class="site-grid">
           <header class="section-heading">
             <span>01</span>
-            <h2>What the desktop app does</h2>
-            <p>Configuration, credentials, routing state, and usage data remain on the local machine.</p>
+            <h2>Desktop functions</h2>
+            <p>The app keeps configuration, credentials, route state, and usage data on the local computer.</p>
           </header>
           <div class="capability-grid">
             <article>
               <span class="item-index">01</span>
               <h3>Connect providers</h3>
-              <p>Add multiple accounts per provider with independent priority, weight, enabled state, cooldown, and local limits.</p>
+              <p>Add multiple accounts to each provider. Set priority, weight, enabled state, cooldown, and local limits.</p>
             </article>
             <article>
               <span class="item-index">02</span>
-              <h3>Expose one local API</h3>
-              <p>Use OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, model discovery, token estimation, and health routes.</p>
+              <h3>Serve one local API</h3>
+              <p>Use Chat Completions, Responses, Messages, model, token-estimate, and health routes.</p>
             </article>
             <article>
               <span class="item-index">03</span>
               <h3>Route and fail over</h3>
-              <p>Select an eligible account by policy and retry rate limits, overloads, network errors, or timeouts before output starts.</p>
+              <p>Select an eligible account. Try another route after a temporary failure and before visible output.</p>
             </article>
             <article>
               <span class="item-index">04</span>
               <h3>Record local usage</h3>
-              <p>Store tokens, cache activity, latency, first-token latency, estimated cost, status, and route attempts in SQLite.</p>
+              <p>Store token, cache, latency, cost, status, and route-attempt data in SQLite.</p>
             </article>
           </div>
         </div>
@@ -195,21 +187,21 @@
         <div class="site-grid">
           <header class="section-heading">
             <span>02</span>
-            <h2>Supported provider adapters</h2>
-            <p>Every adapter maps to the same canonical request, response, streaming, and usage contract.</p>
+            <h2>Provider adapters</h2>
+            <p>Each adapter uses the same canonical request, response, stream, and usage data.</p>
           </header>
           <div class="provider-matrix" role="table" aria-label="Supported provider adapters">
             <div class="matrix-row matrix-head" role="row">
               <span role="columnheader">Adapter</span>
-              <span role="columnheader">Upstream protocol</span>
-              <span role="columnheader">Account model</span>
+              <span role="columnheader">Provider protocol</span>
+              <span role="columnheader">Account type</span>
             </div>
             <div class="matrix-row" role="row"><strong role="cell">OpenAI</strong><span role="cell">OpenAI API</span><span role="cell">Multiple API credentials</span></div>
             <div class="matrix-row" role="row"><strong role="cell">Anthropic</strong><span role="cell">Anthropic Messages</span><span role="cell">Multiple API credentials</span></div>
-            <div class="matrix-row" role="row"><strong role="cell">Google Gemini</strong><span role="cell">generateContent and streaming</span><span role="cell">Multiple API credentials</span></div>
-            <div class="matrix-row" role="row"><strong role="cell">xAI Grok</strong><span role="cell">OpenAI-compatible xAI API</span><span role="cell">Multiple API credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">Google Gemini</strong><span role="cell">Gemini native APIs</span><span role="cell">Multiple API credentials</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">xAI Grok</strong><span role="cell">xAI Chat Completions</span><span role="cell">Multiple API credentials</span></div>
             <div class="matrix-row" role="row"><strong role="cell">Compatible HTTP</strong><span role="cell">OpenAI or Anthropic compatible</span><span role="cell">Multiple endpoint credentials</span></div>
-            <div class="matrix-row" role="row"><strong role="cell">Command and module</strong><span role="cell">JSON-lines process or trusted .mjs adapter</span><span role="cell">Local explicit configuration</span></div>
+            <div class="matrix-row" role="row"><strong role="cell">Command or module</strong><span role="cell">JSON-lines or trusted module</span><span role="cell">Local configuration</span></div>
           </div>
         </div>
       </section>
@@ -218,8 +210,8 @@
         <div class="site-grid">
           <header class="section-heading">
             <span>03</span>
-            <h2>Routing and failure handling</h2>
-            <p>Set one global policy, optionally override it per provider, and keep every route inside explicit eligibility rules.</p>
+            <h2>Routing and failure control</h2>
+            <p>Set one global strategy. Add a provider strategy only when it is necessary.</p>
           </header>
           <div class="routing-layout">
             <ol class="strategy-list">
@@ -232,9 +224,9 @@
               <li><span>07</span><strong>Sticky session</strong></li>
             </ol>
             <div class="boundary-list">
-              <article><h3>Eligibility</h3><p>Provider and account state, model globs, local limits, cooldown, and attention state.</p></article>
-              <article><h3>Temporary isolation</h3><p>Retry-After and exponential cooldowns exclude routes after rate limits and transient failures.</p></article>
-              <article><h3>Streaming boundary</h3><p>A request never switches providers after text or tool activity reaches the client.</p></article>
+              <article><h3>Eligibility</h3><p>Check provider state, account state, model globs, local limits, cooldown, and attention state.</p></article>
+              <article><h3>Temporary isolation</h3><p>Use `Retry-After` or an increasing cooldown after a temporary failure.</p></article>
+              <article><h3>Visible-output boundary</h3><p>Do not change providers after text or tool output reaches the client.</p></article>
             </div>
           </div>
         </div>
@@ -245,29 +237,29 @@
           <header class="section-heading">
             <span>04</span>
             <h2>Local compatibility API</h2>
-            <p>The default bind address is <code>127.0.0.1</code>. An encrypted local bearer key can be enabled in Settings.</p>
+            <p>The default host is <code>127.0.0.1</code>. You can enable an encrypted local key in Settings.</p>
           </header>
           <div class="api-layout">
             <div class="endpoint-list">
-              <div><span>POST</span><code>/v1/chat/completions</code><p>OpenAI Chat Completions JSON and SSE</p></div>
-              <div><span>POST</span><code>/v1/responses</code><p>OpenAI Responses JSON and SSE</p></div>
-              <div><span>POST</span><code>/v1/messages</code><p>Anthropic Messages JSON and SSE</p></div>
-              <div><span>POST</span><code>/v1/messages/count_tokens</code><p>Local input-token estimate</p></div>
-              <div><span>GET</span><code>/v1/models</code><p>Configured aliases and exact model IDs</p></div>
-              <div><span>GET</span><code>/health</code><p>Local health status</p></div>
+              <div><span>POST</span><code>/v1/chat/completions</code><p>OpenAI Chat Completions</p></div>
+              <div><span>POST</span><code>/v1/responses</code><p>OpenAI Responses</p></div>
+              <div><span>POST</span><code>/v1/messages</code><p>Anthropic Messages</p></div>
+              <div><span>POST</span><code>/v1/messages/count_tokens</code><p>Local token estimate</p></div>
+              <div><span>GET</span><code>/v1/models</code><p>Aliases and exact model IDs</p></div>
+              <div><span>GET</span><code>/health</code><p>Local process health</p></div>
             </div>
             <div class="api-side">
               <div class="code-block">
                 <div class="code-block-header">
                   <span>OpenAI-compatible client</span>
-                  <button type="button" data-copy-target="quick-code" aria-label="Copy the local OpenAI environment variables">Copy</button>
+                  <button type="button" data-copy-target="quick-code" aria-label="Copy the OpenAI environment settings">Copy</button>
                 </div>
                 <pre id="quick-code"><code>export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
 export OPENAI_API_KEY=local-proxy-key</code></pre>
               </div>
               <div class="api-note">
-                <span>Same gateway, different clients</span>
-                <p>OpenAI-compatible clients use the base URL above. Anthropic-compatible clients call the local <code>/v1/messages</code> route.</p>
+                <span>One gateway for different clients</span>
+                <p>OpenAI-compatible clients use the base URL above. Anthropic-compatible clients use <code>/v1/messages</code>.</p>
               </div>
             </div>
           </div>
@@ -279,13 +271,13 @@ export OPENAI_API_KEY=local-proxy-key</code></pre>
           <header class="section-heading">
             <span>05</span>
             <h2>Security boundaries</h2>
-            <p>Security controls are enforced in the Electron main process and local HTTP server.</p>
+            <p>The Electron main process and local HTTP server apply the security controls.</p>
           </header>
           <div class="fact-list">
-            <article><h3>Credential storage</h3><p>Electron safeStorage is used when available, with AES-256-GCM fallback encryption.</p></article>
-            <article><h3>Renderer isolation</h3><p>Context isolation and sandboxing are enabled; Node integration is disabled.</p></article>
-            <article><h3>Network scope</h3><p>The server rejects non-loopback bind addresses and uses exact-origin CORS.</p></article>
-            <article><h3>Logging</h3><p>Credential-shaped fields and bearer values are redacted before logs are stored or shown.</p></article>
+            <article><h3>Credential storage</h3><p>Use Electron safeStorage when it is available. Otherwise, use AES-256-GCM.</p></article>
+            <article><h3>Renderer isolation</h3><p>Use context isolation and sandboxing. Do not enable Node.js integration.</p></article>
+            <article><h3>Network scope</h3><p>Reject non-loopback hosts. Use exact CORS origins.</p></article>
+            <article><h3>Logs</h3><p>Remove credential fields and bearer values before you store or show logs.</p></article>
           </div>
         </div>
       </section>
@@ -295,7 +287,7 @@ export OPENAI_API_KEY=local-proxy-key</code></pre>
           <header class="section-heading">
             <span>06</span>
             <h2>Build from source</h2>
-            <p>Node.js 22 and npm 10.9 or newer are required.</p>
+            <p>Use Node.js 22 or later. Use npm 10.9 or later.</p>
           </header>
           <div class="project-layout">
             <div class="code-block">
@@ -322,7 +314,7 @@ npm run dev</code></pre>
       <div class="site-grid">
         <div class="footer-product">
           <strong>Subscription Proxy Inator</strong>
-          <span>MIT licensed</span>
+          <span>MIT License</span>
         </div>
         <nav aria-label="Footer navigation">
           <a href="docs/">Documentation</a>

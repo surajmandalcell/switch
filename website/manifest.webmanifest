@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Subscription Proxy Inator",
   "short_name": "Proxy Inator",
-  "description": "A private cross-platform desktop gateway for multi-provider AI routing.",
+  "description": "A local desktop gateway that routes compatible AI requests to configured providers.",
   "lang": "en",
   "dir": "ltr",
   "start_url": "./",

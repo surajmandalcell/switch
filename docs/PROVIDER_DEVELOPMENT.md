@@ -1,8 +1,8 @@
 # Provider development
 
-## Canonical adapter contract
+## Adapter contract
 
-A provider adapter is registered by unique `type` and implements:
+Register each adapter with one unique `type`.
 
 ```js
 export function createAdapter(options) {
@@ -27,44 +27,56 @@ export function createAdapter(options) {
 }
 ```
 
-## Context
+## Execution context
 
-| Property | Meaning |
+| Property | Function |
 | --- | --- |
-| `provider` | Validated provider configuration |
-| `account` | Selected account without decrypted data in persisted config |
-| `secret` | Decrypted selected credential for this attempt |
-| `signal` | Abort signal for client disconnect and cancellation |
-| `timeoutMs` | Standard request timeout |
-| `logger` | Redacting structured logger |
+| `provider` | Give the validated provider settings |
+| `account` | Give the selected public account data |
+| `secret` | Give the decrypted credential for this attempt |
+| `signal` | Stop work after cancellation |
+| `timeoutMs` | Set the provider timeout |
+| `logger` | Write redacted structured logs |
 
 ## Canonical content
 
-Supported blocks:
+Supported content blocks:
 
 - `text`
-- `image` with data or URL
-- `tool-call` with ID, name, input, and optional thought signature
-- `tool-result` with call ID, optional name, content, and error flag
+- `image`
+- `tool-call`
+- `tool-result`
 
-Stream events include `start`, `text-delta`, `tool-call`, `usage`, `finish`, `image`, and `heartbeat`.
+A `tool-call` contains an ID, name, input, and optional thought signature.
 
-A heartbeat is transport progress only. It must never be treated as visible semantic output and should not prevent pre-output failover.
+A `tool-result` contains a call ID, optional name, content, and error state.
 
-## Error behavior
+Supported stream events:
 
-Adapters should preserve:
+- `start`
+- `text-delta`
+- `tool-call`
+- `usage`
+- `finish`
+- `image`
+- `heartbeat`
 
-- HTTP status in `error.status`.
-- Machine code in `error.code` when available.
-- `Retry-After` in `error.details.retryAfter` or `error.retryAfter`.
-- Abort identity using `AbortError` or `CLIENT_ABORTED`.
+A heartbeat shows transport activity. It is not visible model output and does not stop pre-output failover.
 
-Do not implement retries in an adapter. Routing owns cross-account/provider retries and the no-retry-after-visible-output rule.
+## Error data
 
-## Usage
+Preserve these values when the provider supplies them:
 
-Return normalized fields whenever the upstream exposes them:
+- HTTP status in `error.status`
+- Machine code in `error.code`
+- Retry delay in `error.details.retryAfter` or `error.retryAfter`
+- Cancellation as `AbortError` or `CLIENT_ABORTED`
+
+Do not retry in an adapter. Routing controls retries and the visible-output boundary.
+
+## Usage data
+
+Return these normalized fields when they are available:
 
 ```js
 {
@@ -76,17 +88,17 @@ Return normalized fields whenever the upstream exposes them:
 }
 ```
 
-If an upstream provides a billed cost, preserve it. The usage service prefers reported cost over local pricing estimates.
+Keep a provider-reported billed cost. The usage service gives it priority over a local estimate.
 
 ## Tests
 
-Every adapter should test:
+Test these conditions for each adapter:
 
-- Non-streaming request body and response conversion.
-- Streaming event ordering.
-- Tool calls and tool results.
-- Images where supported.
-- Usage and cache fields.
-- Non-success status and retry metadata.
-- Timeout and client cancellation.
-- Provider-specific headers/options.
+- Non-streaming request and response conversion
+- Stream event order
+- Tool calls and tool results
+- Images when supported
+- Token and cache fields
+- Error status and retry data
+- Timeout and client cancellation
+- Provider headers and options

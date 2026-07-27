@@ -1,26 +1,28 @@
 # Security model
 
-## Assets
+## Protected data
 
-The application protects:
+The application protects these assets:
 
-- Upstream provider credentials.
-- The optional local API key.
-- Non-secret routing and provider configuration integrity.
-- Local usage records.
-- The boundary between unprivileged renderer content and the Electron main process.
+- Provider credentials
+- Optional local API key
+- Configuration integrity
+- Local usage data
+- Electron main-process boundary
 
 ## Local HTTP boundary
 
-The configured host must be `127.0.0.1` or `localhost`. The server repeats this check when listening, so an invalid persisted value cannot silently expose the proxy.
+The host must be `127.0.0.1` or `localhost`. The server checks the value again when it starts.
 
-CORS origins are exact URLs. Wildcards, malformed URLs, credentials, and path-bearing origin values are rejected. Requests without a browser `Origin` header remain available to local native and CLI clients.
+CORS accepts exact origin URLs. It rejects wildcards, malformed URLs, credentials, and origin paths.
 
-When enabled, the local API key protects every route except `/health`. Comparison uses equal-length timing-safe byte comparison.
+A native local client can omit the browser `Origin` header.
+
+The local API key protects all routes except `/health`. The comparison uses equal-length, timing-safe bytes.
 
 ## Renderer boundary
 
-`BrowserWindow` uses:
+`BrowserWindow` uses these settings:
 
 ```text
 contextIsolation: true
@@ -29,49 +31,57 @@ nodeIntegration: false
 webSecurity: true
 ```
 
-The preload bridge exposes a finite list of typed actions. IPC handlers validate the sender URL. External navigation is denied in the renderer and opened through the operating system only for HTTPS URLs.
+The preload bridge exposes a fixed list of actions. IPC handlers check the sender URL.
 
-Public snapshots remove account secret references and the local API secret reference. The renderer sees only `hasSecret` and `hasApiKey` booleans.
+The renderer cannot open an external page directly. The main process opens only HTTPS external URLs.
 
-## Vault
+Public snapshots do not contain account secret references or the local API secret reference.
 
-Platform `safeStorage` is preferred. The fallback uses:
+The renderer sees only `hasSecret` and `hasApiKey` states.
 
-- Random 256-bit key.
-- AES-256-GCM.
-- Random 96-bit IV per secret.
-- Authentication tag per ciphertext.
-- Mode-0600 key and vault files where the platform supports permissions.
-- Atomic temporary-file rename for vault persistence.
+## Secret vault
 
-The fallback key resides beside application data. It protects against accidental plaintext disclosure, not an attacker who controls the same operating-system user.
+The app uses platform `safeStorage` when it is available.
 
-## Configuration transactions
+The fallback uses these controls:
 
-Credential creation and config persistence cannot be one filesystem transaction, so ordering is deliberate:
+- Random 256-bit key
+- AES-256-GCM
+- Random 96-bit initialization value for each secret
+- Authentication tag for each encrypted value
+- Mode-0600 key and vault files when supported
+- Atomic temporary-file rename
 
-- Add: encrypt new secret → commit config → delete new secret on commit failure.
-- Replace: encrypt under a new reference → commit config → delete old reference.
-- Remove: commit config removal → delete old secret.
+The fallback key is in the application data directory. It does not protect data from the same operating-system user.
 
-Removal prefers a harmless encrypted orphan over a live config reference to missing material.
+## Configuration and secret order
 
-## Provider input validation
+Configuration and secrets use separate files. Use this order:
 
-- Remote base URLs require HTTPS.
-- Embedded URL credentials are rejected.
-- Custom credential-like headers are discarded.
-- External modules are restricted to the trusted provider directory.
-- Command adapters spawn an explicit executable with `shell: false`.
+- Add: Create a secret. Commit configuration. Remove the secret after a failed commit.
+- Replace: Create a new secret. Commit configuration. Remove the old secret.
+- Remove: Commit configuration removal. Remove the old secret.
 
-## Logging and usage
+An encrypted orphan is safer than a live reference to missing secret data.
 
-Structured logs recursively redact credential-shaped keys and bearer strings. Logs are bounded in memory. Usage storage contains routing metadata and token/cost measurements, not prompt or response bodies.
+## Provider input checks
 
-## Operational guidance
+- A remote base URL must use HTTPS.
+- A URL cannot contain credentials.
+- Custom credential-like headers are removed.
+- An external module must be in the trusted provider directory.
+- A command adapter starts a program with `shell: false`.
 
-- Enable a local API key when other local software is not fully trusted.
-- Do not bind through a port forward, reverse proxy, container publish rule, or public tunnel.
-- Review command and external-module code before configuration.
-- Keep the operating system and Electron runtime updated.
-- Use only accounts and API access you are authorized to use.
+## Logs and usage
+
+Structured logs remove credential-like keys and bearer strings. The app keeps a bounded number of log entries.
+
+Usage data contains route and token measurements. It does not contain prompts or response bodies.
+
+## Operation rules
+
+- Enable a local API key when local software is not trusted.
+- Do not expose the server through a tunnel or port forward.
+- Review each command and external module.
+- Keep the operating system and Electron current.
+- Use only accounts and APIs that you have permission to use.

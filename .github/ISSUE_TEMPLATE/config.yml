@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/surajmandalcell/subscription-proxy-inator/security/advisories/new
-    about: Report security issues privately through GitHub Security Advisories.
+    about: Report a security problem privately with GitHub Security Advisories.
   - name: Support and troubleshooting
     url: https://github.com/surajmandalcell/subscription-proxy-inator/blob/master/SUPPORT.md
-    about: Ask configuration and usage questions in Discussions.
+    about: Read the support guide before you ask a configuration question.

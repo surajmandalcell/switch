@@ -1,94 +1,106 @@
 # Changelog
 
-All notable changes to Subscription Proxy Inator are documented here.
+This file lists important changes to Subscription Proxy Inator.
 
 ## Unreleased
 
+### Technical writing
+
+- Rewrote the website, README, and documentation with the project ASD-STE100 profile.
+- Added a writing profile for approved technical terms and sentence rules.
+- Added an automated check for sentence length, contractions, semicolons, and prohibited phrases.
+- Added the writing check to the standard project gate.
+
 ### Interface completion
 
-- Replaced the hero's text-only request-path panel with an accessible IBM-style system diagram showing Claude, Codex, and Z.ai flowing into Proxy-Inator and out to Harness, Automation, and App clients.
-- Rebalanced wide homepage sections into equal content columns, converted capability cards to a 2×2 grid, and matched routing, API, and build-side visual weight.
-- Simplified the canonical product mark to a white calendar-and-refresh glyph on a single blue rounded-square background and regenerated every web and packaging raster from that source.
-- Reworked the website hero so the first viewport states the product outcome, supported provider examples, local compatible endpoints, pre-stream failover boundary, and local usage accounting.
-- Separated Quick start and Download actions with responsive spacing, consistent sizing, and visible keyboard focus.
-- Added deterministic Apple touch, 192 px, and 512 px PNG fallbacks from the same canonical SVG for package and web-install compatibility.
-- Added purposeful website reveal, diagram-flow, hover, navigation, page, notice, and loading transitions with operating-system and in-app reduced-motion fallbacks.
-- Completed mobile menu focus handling, Escape behavior, accessible copy feedback, action wrapping, narrow-screen diagram stacking, and alignment contracts.
-- Added repository tests for hero clarity, diagram semantics, balanced grids, icon consistency, motion behavior, reduced-motion parity, and stale raster-icon removal.
+- Replaced the text panel in the hero with an accessible system diagram.
+- The diagram shows Claude, Codex, and Z.ai as example sources.
+- The diagram shows Proxy-Inator as the local gateway.
+- The diagram shows Harness, Automation, and App as example clients.
+- Balanced the wide website sections with equal columns.
+- Changed the product mark to a white calendar and refresh glyph on blue.
+- Generated all website and package icons from one SVG source.
+- Added short interface transitions and reduced-motion rules.
+- Improved mobile focus, action wrapping, and diagram stacking.
+- Added repository tests for the interface rules.
 
 ## 2.1.0 - 2026-07-26
 
 ### Interface system
 
-- Rebuilt the desktop renderer around IBM Plex typography, an 8 px spacing grid, square information surfaces, explicit borders, and Carbon-inspired interaction sizing.
-- Reorganized navigation, page headers, metrics, provider editors, routing controls, usage filters, settings, and logs around consistent 40 px controls and readable table rows.
-- Added responsive layouts for wide, medium, compact, and narrow windows without shrinking primary text or removing configuration capabilities.
-- Added a documented interface contract and repository tests for typography, spacing, breakpoints, responsive structure, and prohibited decorative regressions.
+- Changed the desktop renderer to IBM Plex typefaces.
+- Added a fixed spacing system and clear borders.
+- Set a minimum height of 40 px for primary desktop controls.
+- Added responsive layouts for wide and narrow windows.
+- Added repository tests for type, spacing, breakpoints, and factual content.
 
 ### Website
 
-- Replaced the promotional mock dashboard with a factual product site containing only implemented provider, routing, API, metering, security, build, and release information.
-- Removed fabricated traffic, cost, success-rate, and latency values from the product presentation.
-- Rebuilt the public site and generated documentation with the same IBM Plex and grid-based system.
-- Self-hosted IBM Plex Sans and IBM Plex Mono from pinned Fontsource packages.
+- Replaced the old mock dashboard with a factual product website.
+- Removed false traffic, cost, success-rate, and latency values.
+- Used the same type and grid system for the website and generated docs.
+- Added local IBM Plex font files from pinned packages.
 
 ### Engineering
 
-- Removed the unused Darwin UI and Inter dependencies.
-- Added cross-platform path and interface contracts to the existing TDD suite.
-- Kept all provider, routing, compatibility, storage, security, and metering behavior unchanged.
+- Removed unused Darwin UI and Inter packages.
+- Added cross-platform path and interface tests.
+- Kept provider, routing, storage, security, and usage behavior unchanged.
 
 ## 2.0.0 - 2026-07-26
 
-### Rebuilt
+### Architecture
 
-- Replaced the version 1 browser dashboard and single-provider assumptions with a cross-platform Electron desktop application.
-- Introduced explicit domain, application, provider, infrastructure, and presentation boundaries.
-- Added a single sandboxed React renderer shared by macOS, Windows, and Linux.
+- Replaced the version 1 browser dashboard with an Electron desktop app.
+- Added separate domain, application, provider, infrastructure, and presentation layers.
+- Added one sandboxed React renderer for Windows, macOS, and Linux.
 
 ### Providers and accounts
 
-- Added native OpenAI, Anthropic, Google Gemini, and xAI Grok adapters.
-- Added generic OpenAI-compatible, Anthropic-compatible, command/CLI, and trusted external-module adapters.
-- Added any number of encrypted accounts per provider with enablement, priority, weight, metadata, health, cooldown, and local budgets.
-- Added atomic account/configuration mutations so failed config writes cannot orphan newly encrypted credentials or erase existing references.
-- Added native Gemini function calling, image content, thought-signature preservation, SSE, and Deep Research Interactions API polling.
-- Added Grok sticky-conversation headers, configurable service tiers, and upstream-reported cost normalization.
+- Added OpenAI, Anthropic, Gemini, and Grok adapters.
+- Added compatible HTTP, command, and trusted module adapters.
+- Added multiple encrypted accounts for each provider.
+- Added account priority, weight, health, cooldown, and local limits.
+- Added transaction rules for configuration and secret changes.
+- Added Gemini tools, images, thought signatures, streams, and Deep Research polling.
+- Added Grok session headers, service tiers, and reported cost data.
 
-### Routing and reliability
+### Routing
 
-- Added priority, round robin, weighted random, least in-flight, lowest latency, lowest cost, and sticky strategies.
-- Added a global strategy, per-provider overrides, and one-click override replacement.
-- Added model eligibility globs, provider-specific aliases, per-provider attempt caps, exponential cooldowns, `Retry-After`, attention state, and local account limits.
-- Added account and provider failover before client-visible output.
-- Prohibited route switching after text or tool activity reaches the client.
-- Added client cancellation, timeout classification, streaming heartbeats, backpressure handling, and protocol-native stream errors.
+- Added seven routing strategies.
+- Added one global strategy and optional provider overrides.
+- Added model globs, aliases, attempt limits, cooldowns, and local account limits.
+- Added provider and account failover before visible output.
+- Stopped route changes after visible output.
+- Added cancellation, timeout classes, heartbeats, backpressure, and stream errors.
 
-### Compatibility API
+### Local API
 
-- Added OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, token estimation, model discovery, and health endpoints.
-- Added JSON and SSE translation for text, images, tools, tool results, usage, cache tokens, and stop reasons.
-- Added optional encrypted local bearer authentication and exact-origin CORS.
+- Added Chat Completions, Responses, Messages, token estimates, models, and health routes.
+- Added JSON and SSE conversion for text, images, tools, usage, and stop reasons.
+- Added optional local bearer authentication and exact-origin CORS.
 
-### Metering
+### Usage
 
-- Added SQLite request and route-attempt ledgers.
-- Added input, output, cache-read, cache-write, cost, total latency, and first-token latency tracking.
-- Added composable status, provider, account, protocol, and date filters.
-- Added stable filtered CSV export and source-linked pricing rules.
+- Added SQLite request and route-attempt records.
+- Added token, cache, cost, latency, status, and error data.
+- Added status, provider, account, protocol, and date filters.
+- Added stable CSV export and price rules.
 
 ### Desktop and website
 
-- Added a frameless titlebar, compact navigation, theme selection, density controls, and reduced-motion support.
-- Added detailed provider, account, routing, model-alias, pricing, usage, logs, local API, and application settings screens.
-- Added a public product site and generated documentation website.
+- Added the custom titlebar, navigation, themes, density, and reduced motion.
+- Added provider, routing, price, usage, log, API, and settings pages.
+- Added a public website and generated documentation.
 
 ### Engineering
 
-- Added test-driven contracts across domain, application, provider, infrastructure, repository, and security behavior.
-- Added cross-platform CI and Electron packaging, CodeQL, Dependabot, documentation hosting, and tagged release workflows.
-- Replaced stale package metadata, screenshots, workflows, and documentation from version 1.
+- Added tests for all architecture layers.
+- Added CI, package builds, CodeQL, Dependabot, Pages, and release workflows.
+- Removed version 1 metadata, workflows, and images.
 
 ## 1.x
 
-Version 1 was a local Node.js proxy and browser dashboard focused on a narrower single-account workflow. Version 2 supersedes that architecture. See [Version 1 migration](docs/MIGRATION_V1.md).
+Version 1 used a local Node.js proxy and a browser dashboard. Version 2 replaces that design.
+
+Read [Version 1 migration](docs/MIGRATION_V1.md).

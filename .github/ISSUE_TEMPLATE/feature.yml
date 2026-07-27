@@ -1,30 +1,30 @@
-name: Feature request
-description: Propose a focused provider, routing, compatibility, metering, or desktop capability.
-title: "[Feature]: "
+name: Function request
+description: Request one provider, routing, protocol, usage, security, or desktop function.
+title: "[Function]: "
 labels: [enhancement, needs-triage]
 body:
   - type: textarea
     id: problem
     attributes:
       label: Problem
-      description: Describe the user or maintainer problem rather than only the desired implementation.
+      description: Describe the user problem. Do not describe only one implementation.
     validations:
       required: true
   - type: textarea
     id: outcome
     attributes:
-      label: Desired outcome
+      label: Required result
     validations:
       required: true
   - type: dropdown
     id: area
     attributes:
-      label: Primary area
+      label: Main area
       options: [Providers, Accounts, Routing, Compatibility API, Usage and pricing, Desktop interface, Security, Documentation, Build and release]
     validations:
       required: true
   - type: textarea
     id: constraints
     attributes:
-      label: Constraints and alternatives
-      description: Note protocol, platform, security, or backward-compatibility constraints.
+      label: Limits and alternatives
+      description: List protocol, platform, security, and compatibility limits.

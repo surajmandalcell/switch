@@ -1,28 +1,30 @@
 # Version 1 migration
 
-Version 2 is an architectural replacement, not an in-place extension of the previous runtime.
+Version 2 replaces the version 1 architecture. It is not an in-place extension.
 
-## What changed
+## Main changes
 
-| Version 1 concept | Version 2 replacement |
+| Version 1 | Version 2 |
 | --- | --- |
-| Browser dashboard | Cross-platform Electron desktop application |
-| Narrow account workflow | Multiple encrypted accounts per provider |
-| Provider-specific request path | Canonical protocols and modular adapters |
-| One routing behavior | Seven global/per-provider strategies |
-| Basic request logs | Request and route-attempt SQLite ledgers |
-| Limited endpoint compatibility | Chat Completions, Responses, and Messages |
-| Embedded UI/backend assumptions | Explicit domain/application/infrastructure boundaries |
+| Browser dashboard | Electron desktop application |
+| Small account workflow | Multiple encrypted accounts per provider |
+| Provider-specific request path | Canonical protocols and adapters |
+| One routing behavior | Seven routing strategies |
+| Basic request logs | SQLite request and attempt records |
+| Limited compatibility | Chat Completions, Responses, and Messages |
+| Mixed UI and server assumptions | Separate domain and outer layers |
 
-## Configuration
+## Recreate configuration
 
-Do not copy the old configuration file over the version 2 file. Start the new application and recreate providers/accounts through the desktop UI so credentials enter the encrypted vault and all schema-2 invariants are applied.
+Do not copy the old configuration file. Start version 2 and create the providers again.
 
-Model mappings should be recreated under **Models & pricing** as explicit aliases. Add current verified pricing separately.
+Use the desktop app to add accounts. This process puts credentials in the encrypted vault.
 
-## Client migration
+Recreate model mappings in **Models & pricing**. Add current pricing rules separately.
 
-The default local port remains configurable. Update clients to one of:
+## Update clients
+
+Use one of these local routes:
 
 ```text
 http://127.0.0.1:8081/v1/chat/completions
@@ -30,12 +32,16 @@ http://127.0.0.1:8081/v1/responses
 http://127.0.0.1:8081/v1/messages
 ```
 
-Enable a new local proxy key under **Settings** and update client environment variables accordingly.
+Enable a new local proxy key in **Settings**. Then update the client environment variables.
 
-## Data
+## Usage data
 
-Version 1 request logs are not imported. Version 2 starts a new SQLite usage ledger with normalized token, cost, latency, status, and route-attempt fields.
+Version 2 does not import version 1 request logs. It starts a new SQLite usage database.
 
-## Cleanup
+The new database stores token, cost, latency, status, and route-attempt fields.
 
-After validating version 2, remove obsolete startup scripts, browser shortcuts, environment overrides, and version 1 application-data backups that contain stale credentials. Keep backups only when encrypted and necessary.
+## Remove old files
+
+Validate version 2 first. Then remove old startup scripts, browser shortcuts, environment overrides, and old application data.
+
+Keep a backup only when it is necessary and encrypted.

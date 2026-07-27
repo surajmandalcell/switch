@@ -15,15 +15,15 @@ test('the hero explains the subscription-to-client product flow before the calls
   const html = await text('website/index.html');
   const styles = await text('website/assets/polish.css');
 
-  assert.match(html, /Use every AI subscription through one local gateway\./);
+  assert.match(html, /Use your AI providers through one local gateway\./);
   assert.match(html, /Claude, Codex, Z\.ai/);
-  assert.match(html, /Proxy-Inator exposes\s+local OpenAI- and Anthropic-compatible endpoints/);
-  assert.match(html, /routing, pre-stream failover, and local usage records/);
+  assert.match(html, /Proxy-Inator gives local clients OpenAI-compatible and Anthropic-compatible routes/);
+  assert.match(html, /changes routes before output starts, and records usage/);
   assert.match(html, /class="hero-system"/);
   assert.match(html, /class="system-diagram"/);
   assert.match(html, /Claude[\s\S]*Codex[\s\S]*Z\.ai[\s\S]*Proxy-Inator[\s\S]*Harness[\s\S]*Automation[\s\S]*App/);
-  assert.match(html, /aria-label="Claude, Codex, and Z\.ai subscriptions connect to Proxy-Inator/);
-  assert.match(html, /class="hero-actions" role="group" aria-label="Get started"/);
+  assert.match(html, /aria-label="Claude, Codex, and Z\.ai connect to Proxy-Inator/);
+  assert.match(html, /class="hero-actions" role="group" aria-label="Start or download"/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*align-items:\s*center/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*gap:\s*16px/);
   assert.match(styles, /\.hero-actions\s*\{[\s\S]*margin-top:\s*40px/);
@@ -129,9 +129,9 @@ test('the social preview and documentation contract use the finished diagram, ic
   assert.match(social, /id="calendar"/);
   assert.match(social, /id="refresh-badge"/);
   assert.doesNotMatch(social, /fill="#161616" stroke="#ffffff"/);
-  assert.match(docs, /CTA groups use at least 16 px between adjacent actions/);
-  assert.match(docs, /three configured sources → Proxy-Inator → three local clients/);
-  assert.match(docs, /Wide split sections use equal content columns/);
-  assert.match(docs, /white calendar-and-refresh glyph on the blue product tile/);
-  assert.match(docs, /Motion is limited to opacity, color, and short spatial transitions/);
+  assert.match(docs, /Use at least 16 px between adjacent calls to action/);
+  assert.match(docs, /system diagram shows sources, Proxy-Inator, and clients/);
+  assert.match(docs, /Use equal columns for wide split sections/);
+  assert.match(docs, /white calendar and refresh glyph/);
+  assert.match(docs, /Use motion only to show a state or direction/);
 });

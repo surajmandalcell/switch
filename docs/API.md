@@ -1,10 +1,15 @@
 # Local compatibility API
 
-The server listens on loopback only. All endpoints except `/health` require the configured local key when local authentication is enabled. Supply it as `Authorization: Bearer …` or `x-api-key`.
+The server listens on loopback. Local authentication can protect all routes except `/health`.
+
+Send the local key in one of these headers:
+
+- `Authorization: Bearer LOCAL_KEY`
+- `x-api-key: LOCAL_KEY`
 
 ## `GET /health`
 
-Returns local process health without authentication:
+This route returns local process health without authentication.
 
 ```json
 {
@@ -16,7 +21,7 @@ Returns local process health without authentication:
 
 ## `GET /v1/models`
 
-Returns configured model aliases and provider model entries that do not contain wildcard characters.
+This route returns aliases and exact provider model IDs. It does not return model entries that contain wildcards.
 
 ```json
 {
@@ -29,82 +34,112 @@ Returns configured model aliases and provider model entries that do not contain 
 
 ## `POST /v1/chat/completions`
 
-Accepts OpenAI Chat Completions fields:
+Supported OpenAI Chat Completions fields:
 
 - `model`
 - `messages`
-- system, developer, user, assistant, and tool roles
-- string and structured text/image content
-- `tools` and `tool_choice`
-- `temperature`, `top_p`, `max_completion_tokens`, `max_tokens`, and `stop`
+- System, developer, user, assistant, and tool roles
+- Text and image content
+- `tools`
+- `tool_choice`
+- `temperature`
+- `top_p`
+- `max_completion_tokens`
+- `max_tokens`
+- `stop`
 - `stream`
 - `metadata`
 
-Streaming returns `chat.completion.chunk` SSE data frames and a final `[DONE]` frame. Errors before stream completion use an OpenAI-style error data frame.
+A stream returns `chat.completion.chunk` SSE frames. The final frame is `[DONE]`.
+
+A pre-completion error uses an OpenAI error frame.
 
 ## `POST /v1/responses`
 
-Accepts the implemented subset of OpenAI Responses:
+Supported Responses fields:
 
 - `model`
-- string or item-array `input`
+- String or item-array `input`
 - `instructions`
-- function tools and tool choice
-- `temperature`, `top_p`, and `max_output_tokens`
+- Function tools
+- Tool choice
+- `temperature`
+- `top_p`
+- `max_output_tokens`
 - `stream`
 - `metadata`
 
-Non-streaming output contains message and function-call items. Streaming emits `response.created`, output text/tool deltas, `response.completed`, or `response.failed`.
+A non-stream response contains message items and function-call items.
+
+A stream can return `response.created`, text deltas, tool deltas, `response.completed`, or `response.failed`.
 
 ## `POST /v1/messages`
 
-Accepts Anthropic Messages fields:
+Supported Anthropic Messages fields:
 
 - `model`
 - `system`
 - `messages`
-- text, image, tool-use, and tool-result blocks
-- `tools` and `tool_choice`
-- `temperature`, `top_p`, `max_tokens`, and `stop_sequences`
+- Text blocks
+- Image blocks
+- Tool-use blocks
+- Tool-result blocks
+- `tools`
+- `tool_choice`
+- `temperature`
+- `top_p`
+- `max_tokens`
+- `stop_sequences`
 - `stream`
 - `metadata`
 
-Streaming emits Anthropic event names and maintains stable content-block indexes. Streaming errors use the Anthropic `error` event envelope.
+A stream uses Anthropic event names. Content-block indexes remain stable.
+
+A stream error uses the Anthropic `error` event.
 
 ## `POST /v1/messages/count_tokens`
 
-Returns a deterministic local estimate based on serialized input size:
+This route returns a local estimate from serialized input size.
 
 ```json
 { "input_tokens": 42 }
 ```
 
-This endpoint does not call an upstream tokenizer and should be treated as an estimate.
+The route does not call a provider tokenizer. Treat the value as an estimate.
 
-## Session routing
+## Sticky session headers
 
-The gateway recognizes:
+The gateway recognizes these headers:
 
 - `x-session-id`
-- `x-sticky-session` for Chat Completions
-- `anthropic-session-id` for Anthropic Messages
+- `x-sticky-session`
+- `anthropic-session-id`
 
-The value becomes the canonical sticky key. With sticky routing, a healthy selected account remains pinned until the configured TTL expires. Grok routes also forward the value as the xAI conversation ID.
+The header value becomes the sticky route key. A healthy account stays selected until the configured lifetime ends.
 
-## Content and tools
+A Grok route also sends the value as the xAI conversation ID.
 
-Protocol conversion normalizes:
+## Content conversion
 
-- Text blocks.
-- URL and inline-data images.
-- Function/tool declarations.
-- Tool invocations with incremental arguments.
-- Tool results and error results.
-- Usage and cache usage.
-- End-turn, token-limit, tool-use, and stop-sequence reasons.
+Protocol conversion supports these data types:
 
-Provider capabilities still apply. A compatible endpoint may ignore or reject fields it does not implement.
+- Text
+- URL images
+- Inline images
+- Tool declarations
+- Tool calls
+- Incremental tool arguments
+- Tool results
+- Error results
+- Token and cache usage
+- Stop reasons
 
-## Failure responses
+Provider support can differ. A compatible server can reject a field that it does not implement.
 
-Before streaming starts, failures use the client protocol’s JSON error shape. The OpenAI error includes sanitized route failure summaries containing provider ID, account ID, and machine code; it does not include credentials, prompts, or upstream secret headers.
+## Error responses
+
+A failure before streaming uses the client protocol JSON error shape.
+
+An OpenAI error can contain sanitized route summaries. The summary can include provider ID, account ID, and machine code.
+
+The summary does not contain credentials, prompts, or provider secret headers.

@@ -1,18 +1,19 @@
 ## Summary
 
-Describe the behavior changed and the user or maintainer impact.
+Describe the changed behavior. Describe the effect on users or maintainers.
 
 ## Validation
 
-- [ ] Added or updated automated tests first for changed behavior
+- [ ] Added or changed tests before the implementation
 - [ ] `npm run check`
 - [ ] `npm run build`
-- [ ] Cross-platform implications reviewed
-- [ ] Documentation and changelog updated when behavior changed
-- [ ] No credentials, local databases, generated builds, or temporary publication files included
+- [ ] Reviewed effects on all supported platforms
+- [ ] Updated public text and changelog
+- [ ] Checked the ASD-STE100 project profile
+- [ ] Removed credentials, local data, build output, and temporary files
 
 ## Architecture
 
-- [ ] Domain rules remain independent of Electron, HTTP, storage, and provider SDK details
-- [ ] Application services coordinate use cases without importing infrastructure
-- [ ] Renderer remains sandboxed and uses only the preload capability bridge
+- [ ] Domain rules do not import an outer layer
+- [ ] Application services do not import infrastructure
+- [ ] The renderer uses only the preload bridge

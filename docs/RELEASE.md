@@ -2,11 +2,13 @@
 
 ## Preconditions
 
-- The default branch contains only the canonical source tree.
-- No staging, transfer, generated package, legacy dashboard, or local data directories are tracked.
-- The package version and changelog agree.
+- The default branch contains only the product source.
+- The repository contains no staging or transfer files.
+- The repository contains no generated package output.
+- The package version agrees with the changelog.
 - The lockfile is current.
-- All documentation describes implemented behavior.
+- The public text describes implemented behavior.
+- The ASD-STE100 project check passes.
 
 ## Local release gate
 
@@ -17,31 +19,37 @@ npm audit --omit=dev --audit-level=high
 npm run dist:dir
 ```
 
-Inspect the unpacked application, startup, provider/account editing, server restart, local authentication, protocol requests, usage ledger, and website.
+Inspect the unpacked app. Test startup, provider edits, account edits, server restart, authentication, API routes, usage data, and the website.
 
-## CI
+## CI gate
 
-The desktop CI workflow runs:
+Desktop CI does these tasks:
 
-1. Deterministic npm installation.
-2. Repository verification.
-3. Full test/coverage suite.
-4. Documentation link checks.
-5. Renderer and website builds.
-6. Production dependency audit.
-7. Unpacked Electron packaging on macOS, Windows, and Linux.
+1. Install exact dependencies.
+2. Check the repository.
+3. Check the ASD-STE100 project profile.
+4. Run tests and coverage gates.
+5. Check documentation links.
+6. Build the renderer and website.
+7. Audit production dependencies.
+8. Build unpacked packages on all supported systems.
 
-CodeQL analyzes JavaScript. The generated public website is built from this repository and published under `/subscription-proxy-inator/` in the existing `surajmandalcell.github.io` Pages source branch. The project repository keeps website generation and link validation in CI without owning a second Pages configuration.
+CodeQL checks JavaScript. The website is published in `surajmandalcell.github.io`. Its path is `/subscription-proxy-inator/`.
 
-## Tagging
+## Create a tag
 
-Create an annotated `vMAJOR.MINOR.PATCH` tag only after default-branch CI succeeds. The release workflow builds platform artifacts and checksums.
+Create an annotated `vMAJOR.MINOR.PATCH` tag after the default-branch checks pass.
 
-Unsigned packages are suitable for development and testing. Public end-user distribution should add:
+The release workflow builds platform packages and checksum files.
 
-- Apple Developer ID signing and notarization.
-- Windows Authenticode signing.
-- Maintainer-controlled release secrets.
-- Platform installation testing.
+Unsigned packages are for development and test use. Public end-user packages should use platform signing.
 
-Do not weaken security settings or CI checks to make packaging pass.
+Required signing work:
+
+- Apple Developer ID signing
+- Apple notarization
+- Windows Authenticode signing
+- Maintainer-controlled release secrets
+- Installation tests on each platform
+
+Do not reduce security settings or CI checks to complete packaging.

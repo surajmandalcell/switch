@@ -10,38 +10,46 @@
 [![Version 2.1.0](https://img.shields.io/badge/version-2.1.0-0f62fe)](CHANGELOG.md)
 [![MIT License](https://img.shields.io/badge/license-MIT-525252)](LICENSE)
 
-A cross-platform desktop gateway that exposes local OpenAI- and Anthropic-compatible routes while routing requests across configured OpenAI, Anthropic, Google Gemini, xAI Grok, compatible HTTP, command-line, and trusted module providers.
+Subscription Proxy Inator is a desktop AI gateway. It gives local clients one OpenAI-compatible or Anthropic-compatible API.
 
-The application is designed for one local user. Provider credentials are encrypted in the desktop main process, the HTTP server binds to loopback, and routing uses configured account health, limits, model eligibility, pricing, and load-balancing policy.
+The gateway connects to configured providers and accounts. It selects an eligible account for each request. It can try another route before output starts.
 
-**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Design system](docs/DESIGN_SYSTEM.md)** · **[Security](SECURITY.md)** · **[Changelog](CHANGELOG.md)**
+The application is for one local user. It encrypts provider credentials in the Electron main process. The HTTP server listens on loopback by default.
 
-## Implemented capabilities
+**[Documentation](https://surajmandalcell.github.io/subscription-proxy-inator/)** · **[Quick start](docs/QUICK_START.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Writing standard](docs/WRITING_STANDARD.md)** · **[Security](SECURITY.md)**
 
-- Multiple accounts per provider with independent priority, weight, enabled state, runtime health, cooldown, and local request/token/cost limits.
-- Provider adapters for OpenAI, Anthropic, Gemini, Grok, OpenAI-compatible HTTP, Anthropic-compatible HTTP, JSON-lines commands, and trusted local modules.
-- Priority, round robin, weighted random, least in-flight, lowest recent latency, lowest estimated cost, and sticky-session routing.
-- One global routing strategy, optional provider overrides, and one action that removes every override.
-- Failover for eligible rate-limit, overload, timeout, and network failures before client-visible streaming output begins.
-- OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, model discovery, token estimation, and health endpoints.
-- Native Gemini `generateContent`, streaming, function calling, thought signatures, and Deep Research polling.
-- Request and route-attempt accounting for input, output, cache read, cache write, latency, first-token latency, status, and estimated or reported cost.
-- Editable model aliases and source-linked pricing rules.
-- One sandboxed React renderer shared by macOS, Windows, and Linux.
+## Main functions
+
+- Add multiple accounts to each provider.
+- Set priority, weight, health, cooldown, and local limits for each account.
+- Use OpenAI, Anthropic, Gemini, Grok, compatible HTTP, command, or trusted module adapters.
+- Select priority, round-robin, weighted-random, least-inflight, lowest-latency, lowest-cost, or sticky routing.
+- Set one global routing strategy.
+- Set an optional strategy for each provider.
+- Try another eligible route after a temporary failure.
+- Stop route changes after visible text or tool output starts.
+- Serve Chat Completions, Responses, Messages, model, token-estimate, and health routes.
+- Record request data and route-attempt data in SQLite.
+- Edit model aliases and pricing rules.
+- Use one sandboxed React renderer on Windows, macOS, and Linux.
 
 ## Interface
 
-Version 2.1 uses IBM Plex typography, a Carbon-like 4 px token scale with an 8 px major layout rhythm, square information surfaces, explicit boundaries, and consistently sized controls. The desktop renderer and website share the same hierarchy and responsive rules; the system is inspired by IBM's public 2x Grid and Carbon guidance and is not affiliated with or endorsed by IBM.
+Version 2.1 uses IBM Plex typefaces and a fixed spacing system. The desktop app and website use the same information hierarchy.
 
-The desktop renderer is tested at compact, medium, and wide window sizes. At narrower widths, the side navigation becomes an icon rail, multi-column editors collapse, tables retain horizontal scrolling, and action groups wrap with visible spacing instead of merging into one control. Purposeful opacity, color, and short spatial transitions are enabled by default, while application and operating-system reduced-motion preferences remove them.
+The interface changes its layout at defined widths. It does not reduce important text to fit a small window. Tables can scroll when the available width is small.
 
-## Quick start from source
+The interface uses short transitions to show state changes. The Reduce motion setting removes nonessential motion.
+
+The design takes guidance from IBM 2x Grid and Carbon. This project is not an IBM product.
+
+## Install from source
 
 Requirements:
 
-- Node.js 22 or newer
-- npm 10.9 or newer
-- Native build tools supported by Electron and `better-sqlite3`
+- Node.js 22 or later
+- npm 10.9 or later
+- Build tools for Electron and `better-sqlite3`
 
 ```bash
 git clone https://github.com/surajmandalcell/subscription-proxy-inator.git
@@ -51,13 +59,22 @@ npm run check
 npm run dev
 ```
 
-The local gateway starts at `http://127.0.0.1:8081` by default.
+The default local address is `http://127.0.0.1:8081`.
 
-1. Open **Providers** and add a provider adapter.
-2. Add one or more accounts. Credentials are encrypted when saved.
-3. Open **Routing** and select the global strategy or provider overrides.
-4. Configure aliases and verified rates under **Models & pricing** when needed.
-5. Point an OpenAI- or Anthropic-compatible client at the local endpoint.
+## Configure the gateway
+
+1. Open **Providers**.
+2. Add a provider adapter.
+3. Add one or more accounts.
+4. Save the account credentials.
+5. Open **Routing**.
+6. Select a global strategy.
+7. Add provider overrides when necessary.
+8. Open **Models & pricing**.
+9. Add aliases or verified prices when necessary.
+10. Connect a compatible client.
+
+The main process encrypts credentials when it saves them.
 
 OpenAI-compatible environment:
 
@@ -73,70 +90,75 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8081
 export ANTHROPIC_API_KEY=local-proxy-key
 ```
 
-The local key is optional until enabled in **Settings**. It is not an upstream provider credential.
+The local key is optional until you enable it in **Settings**. It is not a provider credential.
 
-## Local endpoints
+## Local routes
 
-| Method | Path | Purpose |
+| Method | Path | Function |
 | --- | --- | --- |
-| `GET` | `/health` | Unauthenticated local health check |
-| `GET` | `/v1/models` | Configured aliases and exact provider model IDs |
-| `POST` | `/v1/chat/completions` | OpenAI Chat Completions JSON and SSE |
-| `POST` | `/v1/responses` | OpenAI Responses JSON and SSE |
-| `POST` | `/v1/messages` | Anthropic Messages JSON and SSE |
-| `POST` | `/v1/messages/count_tokens` | Local input-token estimate |
+| `GET` | `/health` | Show local process health |
+| `GET` | `/v1/models` | List aliases and exact model IDs |
+| `POST` | `/v1/chat/completions` | Serve OpenAI Chat Completions |
+| `POST` | `/v1/responses` | Serve OpenAI Responses |
+| `POST` | `/v1/messages` | Serve Anthropic Messages |
+| `POST` | `/v1/messages/count_tokens` | Estimate local input tokens |
 
-See [API documentation](docs/API.md) for supported fields and compatibility boundaries.
+Read [Local compatibility API](docs/API.md) for field support and limits.
 
-## Architecture
+## Source structure
 
 ```text
-src/domain          Pure configuration, protocol, routing, and usage rules
-src/application     Use cases and orchestration services
-src/providers       Upstream protocol adapters
-src/infrastructure  Persistence, encrypted vault, HTTP server, and logging
-desktop/main        Electron composition root and validated IPC handlers
-desktop/preload     Finite context-isolated renderer bridge
-desktop/renderer    Shared responsive desktop interface
-website             Source for the public product and documentation site
+src/domain          Configuration, protocol, routing, and usage rules
+src/application     Use cases and coordination services
+src/providers       Provider protocol adapters
+src/infrastructure  Storage, vault, HTTP server, and logs
+desktop/main        Electron composition and validated IPC handlers
+desktop/preload     Context-isolated renderer bridge
+desktop/renderer    Responsive desktop interface
+website             Public website source
 ```
 
-The domain layer has no Electron, database, network, provider, or renderer dependencies. Application services depend on ports supplied at bootstrap. Infrastructure and presentation remain outside the domain.
+The domain layer has no Electron, database, network, provider, or renderer imports. Application services use ports that the bootstrap layer supplies.
 
-## Development and quality gates
+## Quality gates
 
 ```bash
-npm test                 # all Node test contracts
-npm run test:coverage    # coverage-gated domain/application suite
-npm run verify           # repository, DDD, security, JSX, and workflow checks
-npm run check:links      # source documentation links
-npm run build:renderer   # production React renderer
-npm run build:site       # public website and generated documentation
-npm run dist:dir         # unpacked Electron application
-npm run build            # complete validation and both web builds
+npm test                 # Run all Node.js tests
+npm run test:coverage    # Run coverage gates
+npm run verify           # Check the repository and architecture
+npm run check:ste        # Check the project STE writing profile
+npm run check:links      # Check source documentation links
+npm run build:renderer   # Build the React renderer
+npm run build:site       # Build the website and documentation
+npm run dist:dir         # Build an unpacked desktop application
+npm run build            # Run all checks and web builds
 ```
 
-The contracts cover routing strategies, cooldowns, account limits, protocol conversion, provider adapters, Deep Research polling, streaming boundaries, cancellation, encrypted persistence, usage filters, cost rules, configuration transactions, repository architecture, and the interface design system.
+The tests cover routing, limits, protocols, adapters, streaming, cancellation, encrypted storage, usage, prices, and configuration transactions.
 
 ## Documentation
 
+- [Documentation index](docs/INDEX.md)
 - [Quick start](docs/QUICK_START.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Design system](docs/DESIGN_SYSTEM.md)
-- [Configuration reference](docs/CONFIGURATION.md)
+- [Configuration](docs/CONFIGURATION.md)
 - [Providers](docs/PROVIDERS.md)
 - [Routing and failover](docs/ROUTING.md)
 - [Usage and pricing](docs/USAGE.md)
 - [Security model](docs/SECURITY.md)
+- [Interface design system](docs/DESIGN_SYSTEM.md)
+- [ASD-STE100 writing profile](docs/WRITING_STANDARD.md)
 - [Version 1 migration](docs/MIGRATION_V1.md)
 - [Contributing](CONTRIBUTING.md)
 
-## Security and responsible use
+## Responsible use
 
-Use only accounts and API access you are authorized to use. The project does not acquire credentials, scrape browser sessions, resell subscriptions, or claim to bypass provider limits. Account switching is a local reliability and policy mechanism; it does not make prohibited use permissible.
+Use only accounts and APIs that you have permission to use. The project does not get credentials or browser sessions.
 
-The server is loopback-only, browser origins are exact allow-list entries, secrets are excluded from renderer snapshots, and logs redact credential-shaped fields. Read [SECURITY.md](SECURITY.md) before connecting local automation.
+The project does not resell subscriptions. It does not bypass provider limits. Local account switching does not change provider terms.
+
+Read [Security policy](SECURITY.md) before you connect local automation.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+The project uses the MIT License. Read [LICENSE](LICENSE).

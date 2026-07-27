@@ -1,50 +1,60 @@
 # Usage and pricing
 
-## Request ledger
+## Request records
 
-Each completed, failed, or cancelled request stores:
+Each completed, failed, or cancelled request stores these fields:
 
-- Start time and status.
-- Client protocol.
-- Requested and upstream model.
-- Selected provider and account.
-- Input and output tokens.
-- Cache-read and cache-write tokens.
-- Estimated or upstream-reported USD cost.
-- Total latency and first-token latency.
-- Terminal error code.
+- Start time
+- Status
+- Client protocol
+- Requested model
+- Upstream model
+- Provider and account IDs
+- Input and output tokens
+- Cache-read and cache-write tokens
+- Estimated or reported USD cost
+- Total latency
+- First-token latency
+- Final error code
 
-Prompts, response text, tools, and credentials are not stored in the usage ledger.
+The usage database does not store prompts, response text, tools, or credentials.
 
-## Route-attempt ledger
+## Route-attempt records
 
-A request can have several upstream attempts before success. Attempts are stored separately so the final request record remains one row while diagnostics retain each provider/account failure and latency.
+One request can have multiple provider attempts. The request remains one row.
+
+Each attempt has a separate row for provider, account, status, latency, and error data.
 
 ## Filters
 
-The UI and repository support composable filters:
+The user interface and repository use the same filter object.
 
-- Status.
-- Provider.
-- Account.
-- Client protocol.
-- Inclusive start and end timestamps.
+Available filters:
 
-The same filter object is used by the ledger, summary, and CSV export.
+- Status
+- Provider
+- Account
+- Client protocol
+- Start time
+- End time
 
-## Pricing specificity
+The same filters apply to lists, summaries, and CSV export.
 
-A pricing rule matches by:
+## Price rule priority
 
-1. Provider ID, provider type, or every provider.
-2. Model glob.
-3. Verification date as a tiebreaker.
+The application selects a price rule by these values:
 
-Provider-ID rules are more specific than provider-type rules. Exact model names are more specific than wildcard globs. The most specific matching rule wins.
+1. Provider ID, provider type, or all providers
+2. Model glob
+3. Verification date
+
+A provider-ID rule has priority over a provider-type rule. An exact model has priority over a wildcard model.
+
+The application uses the most specific rule.
 
 ## Cost calculation
 
-Rates are USD per million tokens:
+Rates use USD per million tokens:
 
 ```text
 cost = (
@@ -55,17 +65,21 @@ cost = (
 ) / 1,000,000
 ```
 
-When an upstream reports billed cost, that value takes precedence. xAI cost ticks are normalized to USD. If no rule or reported cost exists, the ledger stores zero and the pricing status is unknown internally.
+A provider-reported cost has priority over a local calculation. The Grok adapter converts xAI cost ticks to USD.
+
+When no price is available, the stored cost is zero. The internal price state is unknown.
 
 ## Lowest-cost routing
 
-Before routing, the application estimates canonical input tokens from the system, messages, and tools. Expected output uses the request maximum or a conservative default. Each provider’s alias and pricing rule produce a comparable estimated route cost.
+The application estimates input tokens from system text, messages, and tools.
 
-Accurate lowest-cost routing requires current pricing rules and reasonable output limits. It is an estimate, not a billing guarantee.
+The output estimate uses the request maximum or a conservative default. The application applies provider aliases before it compares prices.
+
+Lowest-cost routing needs current price rules and reasonable output limits. The result is an estimate and not a bill.
 
 ## Retention and export
 
-Retention is configurable from 1 to 3650 days. Pruning deletes old request and route-attempt rows.
+Set retention from 1 through 3650 days. Pruning removes old request rows and attempt rows.
 
 CSV columns are stable:
 

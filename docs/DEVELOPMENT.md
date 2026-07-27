@@ -1,83 +1,94 @@
 # Development workflow
 
-## Prerequisites
+## Requirements
 
-- Node.js 22+
-- npm 10.9+
+- Node.js 22 or later
+- npm 10.9 or later
 - Git
-- Platform build tools for native Electron dependencies
+- Platform build tools for Electron native dependencies
 
-## Install
+## Install dependencies
 
 ```bash
 npm ci
 ```
 
-The lockfile is authoritative. Do not replace exact package versions with ranges without reviewing compatibility and regenerating the lockfile.
+The lockfile is authoritative. Review compatibility before you change an exact package version.
 
-## Run
+## Start development mode
 
 ```bash
 npm run dev
 ```
 
-Vite serves the renderer on loopback and Electron loads it after the server becomes ready. Production Electron loads `dist/renderer/index.html` from the packaged application.
+Vite serves the renderer on loopback. Electron loads the renderer after Vite is ready.
+
+A production package loads `dist/renderer/index.html`.
 
 ## Test-driven development
 
-Tests are grouped by responsibility:
+Tests use these groups:
 
 ```text
-tests/domain          Pure invariants, protocol conversion, routing, pricing
-tests/application     Use-case orchestration and transaction behavior
-tests/providers       Upstream adapter wire behavior
-tests/infrastructure  Persistence, vault, HTTP helpers, logging
-tests/repository      Public tree, architecture, workflows, documentation, interface contracts
+tests/domain          Domain rules and protocol conversion
+tests/application     Use cases and transactions
+tests/providers       Provider protocol behavior
+tests/infrastructure  Storage, vault, HTTP helpers, and logs
+tests/repository      Repository, architecture, docs, and interface rules
 ```
 
-Run all contracts:
+Run the tests:
 
 ```bash
 npm test
 npm run test:coverage
 ```
 
-The coverage command applies thresholds to domain and application logic rather than inflating results with generated UI or framework composition.
+Coverage gates apply to domain and application code.
 
 ## Quality gates
 
 ```bash
 npm run verify
+npm run check:ste
 npm run check:links
 npm run build:renderer
 npm run build:site
 npm run dist:dir
 ```
 
-`npm run build` combines repository verification, coverage, source links, renderer build, and site build.
+`npm run build` runs all checks and both web builds.
 
-## Domain changes
+## Change domain code
 
-1. Write a pure failing contract.
-2. Add or change a domain invariant or value transformation.
-3. Integrate it in an application service.
-4. Add infrastructure or provider behavior only at outer layers.
-5. Update documentation and architecture decisions when the contract changes materially.
+1. Add a failing domain test.
+2. Change one domain rule or value conversion.
+3. Connect the change to an application service.
+4. Add outer-layer code only when necessary.
+5. Update an architecture decision when the rule changes.
+6. Update public documentation.
 
-## Desktop and website changes
+## Change the desktop app or website
 
-The renderer must remain process-agnostic. Add privileged behavior as a narrowly named preload capability and validated main-process handler. Never expose a generic IPC send/invoke function.
+The renderer must not use process APIs. Add a named preload action for privileged work.
 
-Presentation changes must follow [Interface design system](DESIGN_SYSTEM.md):
+Do not expose a general IPC function.
 
-1. Add or change a repository contract for the intended spacing, typography, responsive, accessibility, or factual-content behavior.
-2. Use the existing IBM Plex, color, spacing, and breakpoint tokens before adding values.
-3. Build both the renderer and generated site.
-4. Inspect the renderer at wide, medium, and narrow sizes and the site at desktop, tablet, and mobile sizes.
-5. Check horizontal overflow, keyboard focus, wrapped actions, table scrolling, and navigation state.
+For a presentation change:
 
-Do not add fabricated product metrics, mock usage values, unsupported provider claims, external font/CDN imports, or decorative content that can be mistaken for application behavior.
+1. Add a repository contract.
+2. Use the existing type, color, spacing, and breakpoint tokens.
+3. Build the renderer and the website.
+4. Inspect wide, medium, and narrow layouts.
+5. Check keyboard focus and horizontal overflow.
+6. Check wrapped actions and table scrolling.
+
+Do not add false product data. Do not add unsupported provider claims.
+
+Do not load fonts or scripts from an external CDN.
 
 ## Data migrations
 
-SQLite migrations must be additive and safe on an existing local database. Configuration normalization should supply defaults for omitted fields and reject unsupported schema versions.
+SQLite migrations must be additive. A migration must be safe for an existing local database.
+
+Configuration normalization must add defaults for missing fields. It must reject an unsupported schema version.

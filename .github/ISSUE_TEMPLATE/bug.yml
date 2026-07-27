@@ -1,11 +1,11 @@
-name: Bug report
-description: Report a reproducible defect in the desktop app, proxy, routing, or compatibility layer.
-title: "[Bug]: "
+name: Defect report
+description: Report a defect in the desktop app, gateway, routing, or protocol conversion.
+title: "[Defect]: "
 labels: [bug, needs-triage]
 body:
   - type: markdown
     attributes:
-      value: Do not include API keys, OAuth tokens, account cookies, prompts, or unredacted logs.
+      value: Do not include keys, tokens, cookies, prompts, or logs that contain private data.
   - type: dropdown
     id: platform
     attributes:
@@ -17,24 +17,24 @@ body:
     id: version
     attributes:
       label: Application version
-      placeholder: 2.0.0
+      placeholder: 2.1.0
     validations:
       required: true
   - type: textarea
     id: behavior
     attributes:
-      label: Reproduction and observed behavior
-      description: Include minimal steps, requested protocol, provider type, and redacted error output.
+      label: Steps and observed result
+      description: Give the smallest steps. Include the protocol, provider type, and redacted error.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
+      label: Expected result
     validations:
       required: true
   - type: textarea
     id: diagnostics
     attributes:
       label: Redacted diagnostics
-      description: Remove credentials, prompts, account identifiers, and personal data.
+      description: Remove credentials, prompts, account IDs, and personal data.
