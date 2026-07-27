@@ -35,7 +35,7 @@ export function Shell({ active, onNavigate, snapshot, children }) {
               <ProductIcon size={36} />
             </div>
             <div className="product-copy">
-              <strong>Proxy Inator</strong>
+              <strong>Proxy-Inator</strong>
               <span>Local AI gateway</span>
             </div>
           </div>
