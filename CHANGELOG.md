@@ -6,13 +6,15 @@ All notable changes to Subscription Proxy Inator are documented here.
 
 ### Interface completion
 
-- Reworked the website hero so the first viewport states the product outcome, supported provider families, local request path, pre-stream failover boundary, and local usage accounting.
+- Replaced the hero's text-only request-path panel with an accessible IBM-style system diagram showing Claude, Codex, and Z.ai flowing into Proxy-Inator and out to Harness, Automation, and App clients.
+- Rebalanced wide homepage sections into equal content columns, converted capability cards to a 2×2 grid, and matched routing, API, and build-side visual weight.
+- Simplified the canonical product mark to a white calendar-and-refresh glyph on a single blue rounded-square background and regenerated every web and packaging raster from that source.
+- Reworked the website hero so the first viewport states the product outcome, supported provider examples, local compatible endpoints, pre-stream failover boundary, and local usage accounting.
 - Separated Quick start and Download actions with responsive spacing, consistent sizing, and visible keyboard focus.
-- Replaced every active product mark with one canonical rounded calendar-and-refresh SVG used by the website, renderer, manifest, README, social preview, and all Electron packaging targets.
 - Added deterministic Apple touch, 192 px, and 512 px PNG fallbacks from the same canonical SVG for package and web-install compatibility.
-- Added purposeful website reveal, hover, navigation, page, notice, and loading transitions with operating-system and in-app reduced-motion fallbacks.
-- Completed mobile menu focus handling, Escape behavior, accessible copy feedback, action wrapping, and narrow-screen alignment contracts.
-- Added repository tests for hero clarity, icon consistency, motion behavior, reduced-motion parity, and stale raster-icon removal.
+- Added purposeful website reveal, diagram-flow, hover, navigation, page, notice, and loading transitions with operating-system and in-app reduced-motion fallbacks.
+- Completed mobile menu focus handling, Escape behavior, accessible copy feedback, action wrapping, narrow-screen diagram stacking, and alignment contracts.
+- Added repository tests for hero clarity, diagram semantics, balanced grids, icon consistency, motion behavior, reduced-motion parity, and stale raster-icon removal.
 
 ## 2.1.0 - 2026-07-26
 

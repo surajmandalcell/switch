@@ -7,14 +7,14 @@
     <meta name="theme-color" content="#161616">
     <meta
       name="description"
-      content="Subscription Proxy Inator is a cross-platform desktop gateway that gives local clients one OpenAI- or Anthropic-compatible API for multiple AI providers, with routing, failover, and local usage accounting."
+      content="Proxy-Inator connects Claude, Codex, Z.ai, and other supported AI providers to one local OpenAI- or Anthropic-compatible API for tools, automations, and applications."
     >
     <meta name="author" content="Suraj Mandal">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Subscription Proxy Inator">
     <meta
       property="og:description"
-      content="One local API for OpenAI, Anthropic, Gemini, Grok, compatible HTTP, command, and module providers."
+      content="Route Claude, Codex, Z.ai, and other supported providers through one local gateway for tools, automations, and apps."
     >
     <meta property="og:url" content="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <meta property="og:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
@@ -22,10 +22,10 @@
     <meta name="twitter:title" content="Subscription Proxy Inator">
     <meta
       name="twitter:description"
-      content="Route local OpenAI- and Anthropic-compatible requests across multiple AI providers and accounts."
+      content="One local compatible API between your AI subscriptions and the tools that use them."
     >
     <meta name="twitter:image" content="https://surajmandalcell.github.io/subscription-proxy-inator/assets/social-card.svg">
-    <title>Subscription Proxy Inator · One local API for multiple AI providers</title>
+    <title>Subscription Proxy Inator · AI subscriptions into one local gateway</title>
     <link rel="canonical" href="https://surajmandalcell.github.io/subscription-proxy-inator/">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -71,40 +71,91 @@
           <div class="hero-label" data-reveal>Version 2.1.0 · MIT · Windows, macOS, and Linux</div>
           <div class="hero-copy" data-reveal>
             <p class="hero-kicker">Desktop multi-provider AI gateway</p>
-            <h1 id="hero-title">One local API for all your AI providers.</h1>
+            <h1 id="hero-title">Use every AI subscription through one local gateway.</h1>
             <p class="hero-description">
-              Add OpenAI, Anthropic, Gemini, Grok, compatible HTTP, command, or module accounts.
-              The desktop app routes each request to an eligible account, fails over before streaming
-              starts, and records usage locally.
+              Connect Claude, Codex, Z.ai, and other supported providers once. Proxy-Inator exposes
+              local OpenAI- and Anthropic-compatible endpoints for developer tools, automations, and
+              your own apps, with routing, pre-stream failover, and local usage records.
             </p>
             <div class="hero-actions" role="group" aria-label="Get started">
               <a class="button button-primary" href="docs/quick_start/" aria-label="Open the quick start guide">Quick start</a>
               <a class="button button-secondary" href="https://github.com/surajmandalcell/subscription-proxy-inator/releases/latest" aria-label="Download the latest desktop release">Download latest</a>
             </div>
-            <p class="hero-assurance">Runs on your machine. The server binds to loopback by default. No hosted control plane is required.</p>
+            <p class="hero-assurance">Runs on your machine, binds to loopback by default, and requires no hosted control plane.</p>
           </div>
 
-          <aside class="hero-flow" aria-label="How the local gateway works" data-reveal>
-            <div class="flow-heading">
-              <span>Request path</span>
-              <code>127.0.0.1:8081</code>
+          <figure class="hero-system" aria-labelledby="hero-system-title hero-system-caption" data-reveal>
+            <figcaption>
+              <span class="diagram-eyebrow">Subscription routing</span>
+              <strong id="hero-system-title">Connect once. Reuse everywhere.</strong>
+              <p id="hero-system-caption">Three configured sources enter Proxy-Inator; three local clients use the same compatible gateway.</p>
+            </figcaption>
+
+            <div
+              class="system-diagram"
+              role="img"
+              aria-label="Claude, Codex, and Z.ai subscriptions connect to Proxy-Inator, which provides local API access to Harness, Automation, and App clients."
+            >
+              <svg class="diagram-lines" viewBox="0 0 720 420" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <marker id="diagram-arrow" viewBox="0 0 10 10" refX="8.2" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"/>
+                  </marker>
+                </defs>
+                <path class="diagram-path path-a" d="M174 72 C248 72 252 210 310 210"/>
+                <path class="diagram-path path-b" d="M174 210 H310"/>
+                <path class="diagram-path path-c" d="M174 348 C248 348 252 210 310 210"/>
+                <path class="diagram-path path-d" d="M410 210 C468 210 472 72 546 72"/>
+                <path class="diagram-path path-e" d="M410 210 H546"/>
+                <path class="diagram-path path-f" d="M410 210 C468 210 472 348 546 348"/>
+              </svg>
+
+              <div class="diagram-column diagram-sources" aria-label="Configured sources">
+                <span class="diagram-column-label">Sources</span>
+                <div class="diagram-node">
+                  <span>Subscription</span>
+                  <strong>Claude</strong>
+                  <small>Anthropic adapter</small>
+                </div>
+                <div class="diagram-node">
+                  <span>Subscription</span>
+                  <strong>Codex</strong>
+                  <small>Command adapter</small>
+                </div>
+                <div class="diagram-node">
+                  <span>Subscription</span>
+                  <strong>Z.ai</strong>
+                  <small>Compatible HTTP</small>
+                </div>
+              </div>
+
+              <div class="diagram-hub">
+                <img src="assets/icon.svg" width="72" height="72" alt="" aria-hidden="true">
+                <span>Local gateway</span>
+                <strong>Proxy-Inator</strong>
+                <small>Routes, fails over, and records usage</small>
+              </div>
+
+              <div class="diagram-column diagram-clients" aria-label="Local clients">
+                <span class="diagram-column-label">Clients</span>
+                <div class="diagram-node">
+                  <span>Developer tool</span>
+                  <strong>Harness</strong>
+                  <small>Compatible client</small>
+                </div>
+                <div class="diagram-node">
+                  <span>Workflow</span>
+                  <strong>Automation</strong>
+                  <small>Scheduled or event-driven</small>
+                </div>
+                <div class="diagram-node">
+                  <span>Product</span>
+                  <strong>App</strong>
+                  <small>Your local integration</small>
+                </div>
+              </div>
             </div>
-            <ol>
-              <li>
-                <span class="flow-index">01</span>
-                <div><strong>Your client</strong><small>OpenAI- or Anthropic-compatible</small></div>
-              </li>
-              <li>
-                <span class="flow-index">02</span>
-                <div><strong>Local gateway</strong><small>Eligibility, routing, limits, and failover</small></div>
-              </li>
-              <li>
-                <span class="flow-index">03</span>
-                <div><strong>Provider account</strong><small>OpenAI, Anthropic, Gemini, Grok, HTTP, command, or module</small></div>
-              </li>
-            </ol>
-            <p>Provider switching stops once text or a tool call becomes visible to the client.</p>
-          </aside>
+          </figure>
         </div>
       </section>
 
@@ -113,7 +164,7 @@
           <header class="section-heading">
             <span>01</span>
             <h2>What the desktop app does</h2>
-            <p>Configuration, credentials, routing state, and usage data stay on the local machine.</p>
+            <p>Configuration, credentials, routing state, and usage data remain on the local machine.</p>
           </header>
           <div class="capability-grid">
             <article>
@@ -205,13 +256,19 @@
               <div><span>GET</span><code>/v1/models</code><p>Configured aliases and exact model IDs</p></div>
               <div><span>GET</span><code>/health</code><p>Local health status</p></div>
             </div>
-            <div class="code-block">
-              <div class="code-block-header">
-                <span>OpenAI-compatible client</span>
-                <button type="button" data-copy-target="quick-code" aria-label="Copy the local OpenAI environment variables">Copy</button>
-              </div>
-              <pre id="quick-code"><code>export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
+            <div class="api-side">
+              <div class="code-block">
+                <div class="code-block-header">
+                  <span>OpenAI-compatible client</span>
+                  <button type="button" data-copy-target="quick-code" aria-label="Copy the local OpenAI environment variables">Copy</button>
+                </div>
+                <pre id="quick-code"><code>export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
 export OPENAI_API_KEY=local-proxy-key</code></pre>
+              </div>
+              <div class="api-note">
+                <span>Same gateway, different clients</span>
+                <p>OpenAI-compatible clients use the base URL above. Anthropic-compatible clients call the local <code>/v1/messages</code> route.</p>
+              </div>
             </div>
           </div>
         </div>

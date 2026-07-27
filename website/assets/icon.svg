@@ -1,23 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64" role="img" aria-labelledby="title description">
   <title id="title">Subscription Proxy Inator</title>
-  <desc id="description">Rounded blue app icon with a calendar and refresh badge.</desc>
+  <desc id="description">Blue rounded-square app icon with a white calendar and refresh glyph.</desc>
   <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f62fe"/>
-  <g id="calendar">
-    <rect x="11" y="10" width="40" height="40" rx="8" fill="#ffffff"/>
-    <path d="M11 18a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8v5H11z" fill="#d0e2ff"/>
-    <rect x="18" y="7" width="4" height="11" rx="2" fill="#161616"/>
-    <rect x="40" y="7" width="4" height="11" rx="2" fill="#161616"/>
-    <g fill="#0f62fe">
-      <rect x="17" y="28" width="7" height="6" rx="1.5"/>
-      <rect x="28" y="28" width="7" height="6" rx="1.5" opacity="0.76"/>
-      <rect x="39" y="28" width="6" height="6" rx="1.5" opacity="0.48"/>
-      <rect x="17" y="38" width="7" height="6" rx="1.5" opacity="0.48"/>
-      <rect x="28" y="38" width="7" height="6" rx="1.5" opacity="0.76"/>
-    </g>
+  <g id="calendar" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="12.5" y="14" width="36" height="34.5" rx="7"/>
+    <path d="M12.5 23.5h36"/>
+    <path d="M20.5 10v8M40.5 10v8"/>
+  </g>
+  <g fill="#ffffff">
+    <rect x="18" y="29" width="6" height="5.5" rx="1.5"/>
+    <rect x="28" y="29" width="6" height="5.5" rx="1.5" opacity="0.78"/>
+    <rect x="38" y="29" width="5" height="5.5" rx="1.5" opacity="0.56"/>
+    <rect x="18" y="38" width="6" height="5.5" rx="1.5" opacity="0.56"/>
+    <rect x="28" y="38" width="6" height="5.5" rx="1.5" opacity="0.78"/>
   </g>
   <g id="refresh-badge">
-    <circle cx="47" cy="47" r="13" fill="#161616" stroke="#ffffff" stroke-width="2.5"/>
-    <path d="M52.8 44.4a6.7 6.7 0 1 0 .3 5.9" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
-    <path d="m50.6 40.8 3.3 3.8-4.8 1" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="47" cy="47" r="12.5" fill="#0f62fe" stroke="#ffffff" stroke-width="2.5"/>
+    <path d="M52.8 44.3a6.8 6.8 0 1 0 .4 6" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
+    <path d="m50.7 40.8 3.2 3.9-4.8.9" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>

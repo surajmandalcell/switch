@@ -1,42 +1,67 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
   <title id="title">Subscription Proxy Inator</title>
-  <desc id="description">One local API for multiple AI providers, with routing, failover, and local usage accounting.</desc>
+  <desc id="description">Claude, Codex, and Z.ai connect through Proxy-Inator to Harness, Automation, and App clients.</desc>
   <rect width="1200" height="630" fill="#161616"/>
   <rect x="0" y="0" width="24" height="630" fill="#0f62fe"/>
   <g stroke="#393939" stroke-width="1">
     <path d="M24 126h1176M24 252h1176M24 378h1176M24 504h1176"/>
     <path d="M220 0v630M416 0v630M612 0v630M808 0v630M1004 0v630"/>
   </g>
-  <g transform="translate(72 64) scale(1.5)">
-    <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f62fe"/>
-    <g id="calendar">
-      <rect x="11" y="10" width="40" height="40" rx="8" fill="#ffffff"/>
-      <path d="M11 18a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8v5H11z" fill="#d0e2ff"/>
-      <rect x="18" y="7" width="4" height="11" rx="2" fill="#161616"/>
-      <rect x="40" y="7" width="4" height="11" rx="2" fill="#161616"/>
-      <g fill="#0f62fe">
-        <rect x="17" y="28" width="7" height="6" rx="1.5"/>
-        <rect x="28" y="28" width="7" height="6" rx="1.5" opacity="0.76"/>
-        <rect x="39" y="28" width="6" height="6" rx="1.5" opacity="0.48"/>
-        <rect x="17" y="38" width="7" height="6" rx="1.5" opacity="0.48"/>
-        <rect x="28" y="38" width="7" height="6" rx="1.5" opacity="0.76"/>
+
+  <g transform="translate(68 54)">
+    <rect x="0" y="0" width="88" height="88" rx="20" fill="#0f62fe"/>
+    <g transform="translate(12 12)">
+      <g id="calendar" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="8.5" y="10" width="36" height="34.5" rx="7"/>
+        <path d="M8.5 19.5h36"/>
+        <path d="M16.5 6v8M36.5 6v8"/>
+      </g>
+      <g fill="#ffffff">
+        <rect x="14" y="25" width="6" height="5.5" rx="1.5"/>
+        <rect x="24" y="25" width="6" height="5.5" rx="1.5" opacity="0.78"/>
+        <rect x="34" y="25" width="5" height="5.5" rx="1.5" opacity="0.56"/>
+        <rect x="14" y="34" width="6" height="5.5" rx="1.5" opacity="0.56"/>
+        <rect x="24" y="34" width="6" height="5.5" rx="1.5" opacity="0.78"/>
+      </g>
+      <g id="refresh-badge">
+        <circle cx="43" cy="43" r="12.5" fill="#0f62fe" stroke="#ffffff" stroke-width="2.5"/>
+        <path d="M48.8 40.3a6.8 6.8 0 1 0 .4 6" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
+        <path d="m46.7 36.8 3.2 3.9-4.8.9" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
     </g>
-    <g id="refresh-badge">
-      <circle cx="47" cy="47" r="13" fill="#161616" stroke="#ffffff" stroke-width="2.5"/>
-      <path d="M52.8 44.4a6.7 6.7 0 1 0 .3 5.9" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
-      <path d="m50.6 40.8 3.3 3.8-4.8 1" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
-    </g>
   </g>
-  <text x="72" y="254" fill="#f4f4f4" font-family="IBM Plex Sans, Arial, sans-serif" font-size="70" font-weight="300" letter-spacing="-2">
-    Subscription Proxy Inator
-  </text>
-  <text x="72" y="334" fill="#c6c6c6" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34" font-weight="400">
-    One local API for all your AI providers
-  </text>
-  <g transform="translate(72 450)" font-family="IBM Plex Sans, Arial, sans-serif" font-size="20" fill="#f4f4f4">
-    <text x="0" y="0">OpenAI + Anthropic compatible local routes</text>
-    <text x="0" y="42">Multi-account routing and pre-stream failover</text>
-    <text x="0" y="84">Windows · macOS · Linux</text>
+
+  <text x="184" y="105" fill="#f4f4f4" font-family="IBM Plex Sans, Arial, sans-serif" font-size="46" font-weight="400">Subscription Proxy Inator</text>
+  <text x="68" y="224" fill="#f4f4f4" font-family="IBM Plex Sans, Arial, sans-serif" font-size="62" font-weight="300" letter-spacing="-1.5">AI subscriptions into one local gateway</text>
+  <text x="68" y="276" fill="#c6c6c6" font-family="IBM Plex Sans, Arial, sans-serif" font-size="26">Route configured providers to developer tools, automations, and apps.</text>
+
+  <g font-family="IBM Plex Sans, Arial, sans-serif">
+    <g fill="#262626" stroke="#6f6f6f">
+      <rect x="68" y="352" width="190" height="64"/>
+      <rect x="68" y="432" width="190" height="64"/>
+      <rect x="68" y="512" width="190" height="64"/>
+      <rect x="505" y="389" width="190" height="150" stroke="#78a9ff" fill="#002d9c"/>
+      <rect x="942" y="352" width="190" height="64"/>
+      <rect x="942" y="432" width="190" height="64"/>
+      <rect x="942" y="512" width="190" height="64"/>
+    </g>
+    <g fill="#f4f4f4" font-size="22">
+      <text x="92" y="392">Claude</text>
+      <text x="92" y="472">Codex</text>
+      <text x="92" y="552">Z.ai</text>
+      <text x="966" y="392">Harness</text>
+      <text x="966" y="472">Automation</text>
+      <text x="966" y="552">App</text>
+      <text x="544" y="458" font-size="27" font-weight="500">Proxy-Inator</text>
+      <text x="550" y="491" fill="#d0e2ff" font-size="17">Local compatible API</text>
+    </g>
+    <g fill="none" stroke="#78a9ff" stroke-width="2">
+      <path d="M258 384 C360 384 376 464 505 464"/>
+      <path d="M258 464 H505"/>
+      <path d="M258 544 C360 544 376 464 505 464"/>
+      <path d="M695 464 C824 464 840 384 942 384"/>
+      <path d="M695 464 H942"/>
+      <path d="M695 464 C824 464 840 544 942 544"/>
+    </g>
   </g>
 </svg>
