@@ -10,7 +10,7 @@ const exists = (relative) => stat(path.join(root, relative)).then(() => true, ()
 test('the renderer uses pinned IBM Plex packages without the retired presentation dependencies', async () => {
   const pkg = JSON.parse(await text('package.json'));
   const entry = await text('desktop/renderer/main.jsx');
-  assert.equal(pkg.version, '2.1.0');
+  assert.equal(pkg.version, '2.1.1');
   assert.equal(pkg.dependencies['@fontsource/ibm-plex-sans'], '5.3.0');
   assert.equal(pkg.dependencies['@fontsource/ibm-plex-mono'], '5.3.0');
   assert.equal(pkg.dependencies['@fontsource/inter'], undefined);
@@ -39,7 +39,7 @@ test('the website presents implemented facts instead of fabricated product telem
   for (const fake of ['1,284', '99.4%', '$18.42', 'Good afternoon', 'floating-pill', 'ambient-one', 'Local workspace']) {
     assert.doesNotMatch(html, new RegExp(fake.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
   }
-  assert.match(html, /Version 2\.1\.0/);
+  assert.match(html, /Version 2\.1\.1/);
   assert.match(html, /Windows, macOS, and Linux/);
   assert.match(css, /font-family:\s*"IBM Plex Sans"/);
   assert.match(css, /grid-template-columns:\s*repeat\(16,/);

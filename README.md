@@ -7,7 +7,7 @@
 [![Desktop CI](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml)
 [![CodeQL](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml)
 [![Documentation](https://img.shields.io/badge/docs-online-0f62fe)](https://surajmandalcell.github.io/subscription-proxy-inator/)
-[![Version 2.1.0](https://img.shields.io/badge/version-2.1.0-0f62fe)](CHANGELOG.md)
+[![Version 2.1.1](https://img.shields.io/badge/version-2.1.1-0f62fe)](CHANGELOG.md)
 [![MIT License](https://img.shields.io/badge/license-MIT-525252)](LICENSE)
 
 Subscription Proxy Inator is a desktop AI gateway. It gives local clients one OpenAI-compatible or Anthropic-compatible API.

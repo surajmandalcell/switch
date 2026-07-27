@@ -10,13 +10,26 @@ const exists = (relative) => stat(path.join(root, relative)).then(() => true, ()
 test('package metadata identifies the current desktop application', async () => {
   const pkg = JSON.parse(await text('package.json'));
   assert.equal(pkg.name, 'subscription-proxy-inator');
-  assert.equal(pkg.version, '2.1.0');
+  assert.equal(pkg.version, '2.1.1');
   assert.equal(pkg.private, true);
   assert.equal(pkg.main, 'desktop/main/index.js');
   assert.deepEqual(
     Object.keys(pkg.build).filter((key) => ['mac', 'win', 'linux'].includes(key)).sort(),
     ['linux', 'mac', 'win'],
   );
+});
+
+test('release metadata uses one version in the package, lockfile, README, and website', async () => {
+  const pkg = JSON.parse(await text('package.json'));
+  const lock = JSON.parse(await text('package-lock.json'));
+  const readme = await text('README.md');
+  const website = await text('website/index.html');
+
+  assert.equal(pkg.version, '2.1.1');
+  assert.equal(lock.version, pkg.version);
+  assert.equal(lock.packages[''].version, pkg.version);
+  assert.match(readme, /Version 2\.1\.1/);
+  assert.match(website, /Version 2\.1\.1 · MIT/);
 });
 
 test('legacy and temporary repository roots are absent', async () => {

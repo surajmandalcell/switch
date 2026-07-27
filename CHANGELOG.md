@@ -24,6 +24,20 @@ This file lists important changes to Subscription Proxy Inator.
 - Improved mobile focus, action wrapping, and diagram stacking.
 - Added repository tests for the interface rules.
 
+## 2.1.1 - 2026-07-27
+
+### Documentation
+
+- Rewrites public project text with the ASD-STE100 Issue 9 project profile.
+- Adds an automated check for sentence length, contractions, semicolons, and prohibited phrases.
+- Adds the controlled technical-term list and writing maintenance rules.
+- Fixes HTML text extraction for encoded entities and raw-text elements.
+
+### Validation
+
+- Passes 195 tests, coverage limits, documentation links, CodeQL, and the responsive browser audit.
+- Passes unpacked Electron package builds on Linux, macOS, and Windows.
+
 ## 2.1.0 - 2026-07-26
 
 ### Interface system
