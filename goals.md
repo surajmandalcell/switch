@@ -4,6 +4,26 @@ Status: implementation and native GUI acceptance in progress. Core and CLI valid
 pass; Computer access, Git writes, and an existing development signing identity are now
 available. The full G1–G6 completion gates remain unmet.
 Decision date: 2026-09-11.
+Design revision: 2026-09-12.
+
+### Current design-review build
+
+Copy the current Recap Pro v2 Producer UI from
+`/Volumes/External1TB/dev/organization/keypath.india/recap-pro` as the visual
+source of truth: its 48px rail, 56px titlebar, Geist typography, 2px component
+corners, panel/list structure, exact light/dark tokens, and interaction styling.
+This supersedes earlier conflicting requests for 3px corners, no shared header,
+and no panel borders. Preserve native custom close/minimize controls and safe
+resizable window lifecycle. Adapt the reference to account-management content.
+
+For design review, both the normal GUI and preview run entirely on in-memory
+mock accounts, discovery, import/review/results, settings, verification, launch,
+switching, and recovery. No real account manager, credential discovery, filesystem
+mutation, Terminal/Finder launch, clipboard mutation, or network request is
+allowed through GUI account actions. Keep all pages and states reachable with
+sample data. Core and CLI production functionality remains unchanged. This
+temporary demo requirement supersedes the shared-core GUI requirement below
+until the user approves restoring real operations.
 Repository baseline: `e7bb55bf2dea7c05072d85481aa5652ab4cdfe16` on `master`.
 
 ## 1. The outcome

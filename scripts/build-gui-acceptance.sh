@@ -68,6 +68,7 @@ swiftc \
   -o "$app_path/Contents/MacOS/AIManagerGUIAcceptance"
 
 install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app_path/Contents/Info.plist"
+ditto "$repo_root/packages/gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
 /usr/bin/plutil -replace CFBundleDisplayName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleExecutable -string 'AIManagerGUIAcceptance' "$app_path/Contents/Info.plist"

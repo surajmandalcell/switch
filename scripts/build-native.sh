@@ -71,6 +71,7 @@ install -m 0755 "$bin_path/AIManager" "$app_path/Contents/MacOS/AIManager"
 install -m 0644 \
   "$repo_root/packaging/macos/Info.plist" \
   "$app_path/Contents/Info.plist"
+ditto "$repo_root/packages/gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
 
 source_revision="unknown"
 if source_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD 2>/dev/null)"; then
