@@ -4,14 +4,11 @@ AI Manager is a native macOS app for managing Codex accounts. It imports
 Codex homes, keeps credentials separate, shares approved settings, preserves
 chat history, and opens Codex with a selected account.
 
-Development status: native targets, synthetic contracts, and protected-copy
-preservation checks pass. The custom borderless GUI passes isolated auth-only
-and full import, switching, local fake verification, and keyboard-focus checks.
-Protected-copy history discovery and resume checks pass; unsupported database-only
-histories remain in backup and are reported as unresolved. The signed installed app
-launches successfully. The compact translucent two-pane UI passes layout and keyboard
-checks; hover handlers are source-audited, with pointer-hover automation unavailable.
-See [goals.md](goals.md) for recorded limits.
+The GUI is currently a design-review demo using Recap Pro v2's visual system.
+All account actions use in-memory sample data. Import, switching, verification,
+launch, shared settings, and recovery do not touch real accounts or launch Codex.
+The CLI retains its real account operations. See [goals.md](goals.md) for
+production verification gates and design-review progress.
 
 The repository contains one Swift package with three products:
 
@@ -21,8 +18,8 @@ The repository contains one Swift package with three products:
 | `AIManager` | `packages/gui` | Native SwiftUI account window |
 | `ai-manager` | `packages/tui` | CLI and interactive terminal interface |
 
-The GUI and CLI call the same core operations. The core test target covers
-their shared contracts.
+The CLI uses the core operations. The GUI temporarily uses mock responses with
+the same account contracts while the design is reviewed.
 
 ## Requirements
 
@@ -66,11 +63,12 @@ AI_MANAGER_GUI_PREVIEW=1 scripts/build-gui-acceptance.sh
 open "/private/tmp/ai-manager-build/gui-acceptance/AI Manager Preview.app"
 ```
 
-The preview starts with two sample accounts. Select an account, expand Account
-details, or use Import Account to explore source selection, both import modes,
-conflict review, and results. Switching and local verification use isolated
-sample homes and a fake Codex executable. Your production accounts stay separate.
-Each launch starts a fresh preview.
+Both the normal app and preview start with sample accounts. Use Import Account
+to explore source selection, both import modes, conflict review, and results.
+The demo includes shared settings, chats, activity, errors, and recovery states.
+All changes stay in memory and reset on the next launch. No sample credentials
+or Codex homes are created. The preview additionally records nonfatal native
+window checks under `/private/tmp/ai-manager-build/gui-acceptance/artifacts`.
 
 ## Safety boundaries
 

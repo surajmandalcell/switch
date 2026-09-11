@@ -3,13 +3,14 @@ import AIManagerCore
 
 @MainActor
 private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
-    private let model = AccountViewModel(paths: .environment())
+    private let model = AccountViewModel()
     private var windowController: AIManagerWindowController<AccountWindow>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DemoFonts.register()
         let controller = AIManagerWindowController(
             title: "AI Manager",
-            initialSize: NSSize(width: 920, height: 620),
+            initialSize: NSSize(width: 1120, height: 740),
             rootView: AccountWindow(model: model)
         )
         windowController = controller
@@ -35,7 +36,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     @objc private func closeWindow() { NSApp.keyWindow?.close() }
-    @objc private func minimizeWindow() { NSApp.keyWindow?.miniaturize(nil) }
+    @objc private func minimizeWindow() { windowController?.window?.miniaturize(nil) }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem.action == #selector(importAccount) ? !model.isBusy : true
