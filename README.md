@@ -59,6 +59,19 @@ open "/private/tmp/ai-manager-build/package/AI Manager.app"
 The package does not need Node.js, Electron, a local HTTP server, or provider
 configuration.
 
+## Try the sample accounts
+
+```bash
+AI_MANAGER_GUI_PREVIEW=1 scripts/build-gui-acceptance.sh
+open "/private/tmp/ai-manager-build/gui-acceptance/AI Manager Preview.app"
+```
+
+The preview starts with two sample accounts. Select an account, expand Account
+details, or use Import Account to explore source selection, both import modes,
+conflict review, and results. Switching and local verification use isolated
+sample homes and a fake Codex executable. Your production accounts stay separate.
+Each launch starts a fresh preview.
+
 ## Safety boundaries
 
 Use temporary homes and synthetic credentials for automated tests. For
