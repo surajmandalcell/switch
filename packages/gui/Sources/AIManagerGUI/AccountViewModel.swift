@@ -55,7 +55,8 @@ final class AccountViewModel: ObservableObject {
         await perform {
             discoveries = await manager.discover(explicit: explicit)
             let normalizedExplicit = explicit.map { $0.lastPathComponent == "auth.json" ? $0.deletingLastPathComponent() : $0 }
-            if let normalizedExplicit, let source = discoveries.first(where: { $0.path.standardizedFileURL == normalizedExplicit.standardizedFileURL }) {
+            if let normalizedExplicit,
+               let source = discoveries.first(where: { $0.path.standardizedFileURL.path == normalizedExplicit.standardizedFileURL.path }) {
                 selectedSourceID = source.id
             } else if selectedSourceID == nil {
                 selectedSourceID = discoveries.first(where: { $0.support == .supportedChatGPT })?.id
