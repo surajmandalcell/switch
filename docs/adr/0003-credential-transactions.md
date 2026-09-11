@@ -1,24 +1,41 @@
 # ADR 0003: Credential transaction order
 
 - Status: Accepted
-- Date: 2026-07-26
+- Date: 2026-09-11
 
 ## Context
 
-Configuration and encrypted secrets use separate files. One file rename cannot commit both files.
+Codex credentials, account metadata, settings, and history use separate
+files. One file rename cannot commit them as one operation. A crash must not
+leave a visible account that points to missing credentials.
 
 ## Decision
 
-Use this order for each operation:
+Use this order for each native account operation:
 
-- Add: Create the secret. Commit the configuration. Remove the new secret if the commit fails.
-- Replace: Create the new secret. Commit the configuration. Remove the old secret.
-- Remove: Commit the configuration change. Remove the old secret.
+1. Inspect the source and destination without mutation.
+2. Create a private backup of every file that may change.
+3. Stage the credential and selected durable data on the destination volume.
+4. Validate the staged files, permissions, links, and recognized metadata.
+5. Publish the account home.
+6. Commit the non-secret registry record.
+7. Verify the published identity and record the operation result.
 
-Provider edits ignore public account arrays from the renderer. They keep internal secret references.
+For credential replacement:
+
+- Capture the current credential before replacing it.
+- Recheck the destination identity and file contents before commit.
+- Publish the incoming credential with private permissions.
+- Retain the outgoing credential in the protected backup until recovery is
+  no longer needed.
+
+For a failed operation, preserve the old usable state. Restore only files
+whose state still matches the failed operation's expected output. If a user
+changed a file after the failure, preserve both versions and report a
+conflict.
 
 ## Results
 
-A failed cleanup can leave an encrypted orphan. This result is safer than a live reference to missing secret data.
-
-Tests cover configuration failure and internal credential preservation.
+The registry never points to an unpublished account home. A failed cleanup
+may leave a protected backup or staging directory. This is safer than
+removing the only known-good credential or history copy.

@@ -1,30 +1,29 @@
 name: Defect report
-description: Report a defect in the desktop app, gateway, routing, or protocol conversion.
+description: Report a defect in the native macOS Codex account manager.
 title: "[Defect]: "
 labels: [bug, needs-triage]
 body:
   - type: markdown
     attributes:
-      value: Do not include keys, tokens, cookies, prompts, or logs that contain private data.
-  - type: dropdown
-    id: platform
-    attributes:
-      label: Platform
-      options: [macOS, Windows, Linux]
-    validations:
-      required: true
+      value: Do not include keys, tokens, cookies, transcripts, prompts, or private paths.
   - type: input
     id: version
     attributes:
-      label: Application version
-      placeholder: 2.1.2
+      label: Application version or commit
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and architecture
+      placeholder: macOS 14, Apple Silicon
     validations:
       required: true
   - type: textarea
     id: behavior
     attributes:
       label: Steps and observed result
-      description: Give the smallest steps. Include the protocol, provider type, and redacted error.
+      description: Give the smallest steps and include the failed action or phase.
     validations:
       required: true
   - type: textarea
@@ -37,4 +36,4 @@ body:
     id: diagnostics
     attributes:
       label: Redacted diagnostics
-      description: Remove credentials, prompts, account IDs, and personal data.
+      description: Remove credentials, account identity, transcript content, and private paths.

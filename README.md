@@ -1,272 +1,92 @@
-> **Current direction:** AI Manager is being narrowed to a native macOS Codex account switcher and importer.
-> Read [goals.md](goals.md) for the implementation plan and acceptance gates.
-> Native implementation is pending. The gateway documentation below describes the legacy application.
+# AI Manager
 
-<p align="center">
-  <img src="website/assets/icon.svg" width="112" height="112" alt="Subscription Proxy Inator calendar and refresh icon">
-</p>
+AI Manager is a native macOS app for managing Codex accounts. It imports
+Codex homes, keeps credentials separate, shares approved settings, preserves
+chat history, and opens Codex with a selected account.
 
-<h1 align="center">Subscription Proxy Inator</h1>
+Development status: the native targets build, synthetic contracts pass, and
+protected-copy migration and native history checks pass. GUI interaction and
+installed-app acceptance remain pending. See [goals.md](goals.md) for the
+remaining gates and recorded test limits.
 
-<p align="center">
-  A desktop gateway that gives local AI clients one compatible API.
-</p>
+The repository contains one Swift package with three products:
 
-<p align="center">
-  <a href="https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml"><img src="https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/desktop-ci.yml/badge.svg?branch=master" alt="Desktop CI status"></a>
-  <a href="https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml"><img src="https://github.com/surajmandalcell/subscription-proxy-inator/actions/workflows/codeql.yml/badge.svg?branch=master" alt="CodeQL status"></a>
-  <a href="https://surajmandalcell.github.io/subscription-proxy-inator/"><img src="https://img.shields.io/badge/docs-online-0f62fe" alt="Documentation status"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2.1.2-0f62fe" alt="Version 2.1.2"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-525252" alt="MIT License"></a>
-</p>
-
-<p align="center">
-  <strong><a href="https://surajmandalcell.github.io/subscription-proxy-inator/">Documentation</a></strong>
-  · <strong><a href="docs/QUICK_START.md">Quick start</a></strong>
-  · <strong><a href="docs/ARCHITECTURE.md">Architecture</a></strong>
-  · <strong><a href="docs/SECURITY.md">Security</a></strong>
-</p>
-
-Subscription Proxy Inator connects configured providers and accounts. It selects an eligible route for each request.
-
-The gateway can try another route before visible output starts. It stores usage and route-attempt records in local SQLite.
-
-The application is for one local user. The HTTP server listens on loopback by default.
-
-## System flow
-
-```mermaid
-flowchart LR
-  subgraph Sources[Configured sources]
-    Claude[Claude]
-    Codex[Codex]
-    ZAI[Z.ai]
-    Other[Other adapters]
-  end
-
-  Gateway[Proxy-Inator\nLocal compatibility API]
-
-  subgraph Clients[Local clients]
-    Harness[Developer tools]
-    Automation[Automation]
-    App[Applications]
-  end
-
-  Claude --> Gateway
-  Codex --> Gateway
-  ZAI --> Gateway
-  Other --> Gateway
-  Gateway --> Harness
-  Gateway --> Automation
-  Gateway --> App
-
-  classDef source fill:#262626,color:#ffffff,stroke:#6f6f6f
-  classDef gateway fill:#0f62fe,color:#ffffff,stroke:#78a9ff,stroke-width:2px
-  classDef client fill:#f4f4f4,color:#161616,stroke:#8d8d8d
-  class Claude,Codex,ZAI,Other source
-  class Gateway gateway
-  class Harness,Automation,App client
-```
-
-## Main functions
-
-| Area | Function |
-| --- | --- |
-| Providers | Add multiple accounts to each provider. |
-| Routing | Use seven selection strategies and provider overrides. |
-| Failover | Try another eligible route before visible output. |
-| Protocols | Serve OpenAI-compatible and Anthropic-compatible routes. |
-| Usage | Store token, cache, latency, cost, status, and attempt data. |
-| Security | Encrypt credentials outside the sandboxed renderer. |
-| Platforms | Use one renderer on Windows, macOS, and Linux. |
-
-## Architecture
-
-```mermaid
-flowchart TB
-  Renderer[Sandboxed React renderer]
-  Preload[Finite preload bridge]
-  Main[Electron main process]
-  Application[Application services]
-  Domain[Domain rules]
-  Providers[Provider adapters]
-  Infrastructure[Vault, SQLite, HTTP, and logs]
-
-  Renderer --> Preload
-  Preload --> Main
-  Main --> Application
-  Application --> Domain
-  Application --> Providers
-  Application --> Infrastructure
-  Providers --> Domain
-  Infrastructure --> Domain
-
-  classDef ui fill:#f4f4f4,color:#161616,stroke:#8d8d8d
-  classDef boundary fill:#0f62fe,color:#ffffff,stroke:#78a9ff
-  classDef core fill:#262626,color:#ffffff,stroke:#6f6f6f
-  class Renderer ui
-  class Preload,Main boundary
-  class Application,Domain,Providers,Infrastructure core
-```
-
-The domain layer has no Electron, database, network, provider, or renderer imports. Application services use ports supplied by the bootstrap layer.
-
-## Install from source
-
-Requirements:
-
-- Node.js 22 or later
-- npm 10.9 or later
-- Build tools for Electron and `better-sqlite3`
-
-```bash
-git clone https://github.com/surajmandalcell/subscription-proxy-inator.git
-cd subscription-proxy-inator
-npm ci
-npm run check
-npm run dev
-```
-
-The default local address is `http://127.0.0.1:8081`.
-
-## Configure the gateway
-
-1. Open **Providers**.
-2. Add a provider adapter.
-3. Add one or more accounts.
-4. Save the account credentials.
-5. Open **Routing**.
-6. Select a global strategy.
-7. Add provider overrides when necessary.
-8. Open **Models and pricing**.
-9. Add aliases or verified prices when necessary.
-10. Connect a compatible client.
-
-The main process encrypts credentials when it saves them.
-
-OpenAI-compatible environment:
-
-```bash
-export OPENAI_BASE_URL=http://127.0.0.1:8081/v1
-export OPENAI_API_KEY=local-proxy-key
-```
-
-Anthropic-compatible environment:
-
-```bash
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8081
-export ANTHROPIC_API_KEY=local-proxy-key
-```
-
-The local key is optional until you enable it in **Settings**. It is not a provider credential.
-
-## Local routes
-
-| Method | Path | Function |
+| Product | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Show local process health. |
-| `GET` | `/v1/models` | List aliases and exact model IDs. |
-| `POST` | `/v1/chat/completions` | Serve OpenAI Chat Completions. |
-| `POST` | `/v1/responses` | Serve OpenAI Responses. |
-| `POST` | `/v1/messages` | Serve Anthropic Messages. |
-| `POST` | `/v1/messages/count_tokens` | Estimate local input tokens. |
+| `AIManagerCore` | `packages/core` | Shared contracts and account operations |
+| `AIManager` | `packages/gui` | Native SwiftUI account window |
+| `ai-manager` | `packages/tui` | CLI and interactive terminal interface |
 
-Read [Local compatibility API](docs/API.md) for field support and limits.
+The GUI and CLI call the same core operations. The core test target covers
+their shared contracts.
 
-## Security boundaries
+## Requirements
 
-```mermaid
-flowchart LR
-  UI[Renderer] -->|Redacted data| Bridge[Preload bridge]
-  Bridge --> Main[Main process]
-  Main --> Vault[Encrypted vault]
-  Main --> Server[Loopback HTTP server]
-  Main --> Records[Local SQLite records]
+- macOS 14 or later
+- Xcode with the Swift toolchain
+- Codex is optional for discovery and offline tests
 
-  classDef untrusted fill:#f4f4f4,color:#161616,stroke:#8d8d8d
-  classDef boundary fill:#0f62fe,color:#ffffff,stroke:#78a9ff
-  classDef protected fill:#262626,color:#ffffff,stroke:#6f6f6f
-  class UI untrusted
-  class Bridge,Main boundary
-  class Vault,Server,Records protected
-```
+The first verified build target is Apple Silicon. Intel support needs a
+separate verified build before it is claimed.
 
-- The renderer uses context isolation and sandboxing.
-- The renderer has no Node.js integration.
-- The preload bridge exposes a finite capability set.
-- The server rejects non-loopback hosts.
-- CORS uses exact configured origins.
-- Logs remove credential fields and bearer values.
+## Build and test
 
-Read [Security model](docs/SECURITY.md) before you connect local automation.
-
-## Quality gates
+Run these commands from the repository root:
 
 ```bash
-npm test                 # Run all Node.js tests
-npm run test:coverage    # Run coverage gates
-npm run verify           # Check the repository and architecture
-npm run check:ste        # Check the ASD-STE100 project profile
-npm run check:links      # Check source documentation links
-npm run build:renderer   # Build the React renderer
-npm run build:site       # Build the website and documentation
-npm run dist:dir         # Build an unpacked desktop application
-npm run build            # Run all checks and web builds
+scripts/check-native.sh
+scripts/build-native.sh
 ```
 
-Routine GitHub checks start only after a push to `master`. Pull requests do not start project workflows.
+The build uses `/private/tmp/ai-manager-build` as its canonical cache. Set
+`AI_MANAGER_BUILD_PATH` to another private path when the host requires it. The
+script produces:
 
-Desktop CI validates the source and builds unpacked applications on Windows, macOS, and Linux. CodeQL analyzes JavaScript after each `master` update.
+- `/private/tmp/ai-manager-build/package/AI Manager.app`
+- `/private/tmp/ai-manager-build/artifacts/ai-manager`
 
-## Release status
+Run the built products directly when needed:
 
-| Area | Status |
-| --- | --- |
-| Source validation | Automated |
-| Test and coverage gates | Automated |
-| Production dependency audit | Automated |
-| Windows, macOS, and Linux package builds | Automated |
-| Checksums for tagged releases | Automated |
-| Apple signing and notarization | Maintainer credentials required |
-| Windows Authenticode signing | Maintainer credentials required |
-
-The source is ready for validated release candidates. Public end-user packages still require platform signing and installation tests.
-
-## Project map
-
-```text
-src/domain          Configuration, protocol, routing, and usage rules
-src/application     Use cases and coordination services
-src/providers       Provider protocol adapters
-src/infrastructure  Storage, vault, HTTP server, and logs
-desktop/main        Electron composition and validated IPC handlers
-desktop/preload     Context-isolated renderer bridge
-desktop/renderer    Responsive desktop interface
-website             Public website source
-docs                Product and maintainer documentation
+```bash
+open "/private/tmp/ai-manager-build/package/AI Manager.app"
+"/private/tmp/ai-manager-build/artifacts/ai-manager" help
 ```
 
-## Documentation
+The package does not need Node.js, Electron, a local HTTP server, or provider
+configuration.
 
-- [Documentation index](docs/INDEX.md)
-- [Quick start](docs/QUICK_START.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Configuration](docs/CONFIGURATION.md)
-- [Providers](docs/PROVIDERS.md)
-- [Routing and failover](docs/ROUTING.md)
-- [Usage and pricing](docs/USAGE.md)
-- [Security model](docs/SECURITY.md)
-- [Interface design system](docs/DESIGN_SYSTEM.md)
-- [Development workflow](docs/DEVELOPMENT.md)
-- [Release process](docs/RELEASE.md)
-- [Contributing](CONTRIBUTING.md)
+## Safety boundaries
 
-## Responsible use
+Use temporary homes and synthetic credentials for automated tests. For
+real-format checks, use a protected copy of `~/.codex` outside this repository.
+Never mutate the original home, follow copied links back to it, or commit
+authentication files, transcripts, settings, or backups.
 
-Use only accounts and APIs that you have permission to use. The project does not get credentials or browser sessions.
+AI Manager does not access the login Keychain. It does not execute imported
+hooks, commands, or plugins during discovery or import. It does not send a
+model request during offline verification.
 
-The project does not resell subscriptions. It does not bypass provider limits. Local account switching does not change provider terms.
+Import is a reviewed transaction. The app inspects a source, creates a
+backup, stages changes, validates the staged result, publishes the account,
+and verifies the result. A failed operation keeps the prior usable state and
+shows a recovery action.
 
-## License
+Existing Codex processes keep their current credentials. **Use by default**
+changes future launches that use the default home. **Open with this account**
+launches Codex with an explicit `CODEX_HOME`.
 
-The project uses the MIT License. Read [LICENSE](LICENSE).
+## Native package
+
+The app bundle uses `packaging/macos/Info.plist` and an empty entitlements
+file. It does not request Full Disk Access, Accessibility, Automation, or
+network access. User-selected paths use native macOS file APIs.
+
+Local builds use an ad hoc signature. To sign with a maintainer-provided
+identity, set `AI_MANAGER_SIGNING_IDENTITY` for the build command. The app
+records its source revision and dirty-source state in
+`AIManagerSourceRevision` and `AIManagerSourceDirty`.
+
+See [macOS package notes](packaging/macos/README.md) for the file-access
+boundary. See [goals.md](goals.md) for the product scope and acceptance
+matrix. See [ADR 0003](docs/adr/0003-credential-transactions.md) for the
+credential transaction order retained from the gateway implementation.
