@@ -254,7 +254,7 @@ public actor AccountManager {
                 throw AIManagerError.operationFailed("The repaired settings link could not be published (errno \(errno)).")
             }
             try faultInjector(.afterHomePublication)
-            guard lexicalLinkTarget(issue.localPath) == issue.intendedTarget.standardizedFileURL else {
+            guard link(issue.localPath, pointsTo: issue.intendedTarget) else {
                 throw AIManagerError.operationFailed("The repaired settings link could not be verified.")
             }
             operation.phase = .published
@@ -923,6 +923,11 @@ extension AccountManager {
         return link.deletingLastPathComponent().appending(path: raw).standardizedFileURL
     }
 
+    private func link(_ link: URL, pointsTo intendedTarget: URL) -> Bool {
+        guard let target = lexicalLinkTarget(link) else { return false }
+        return CoreSupport.canonical(target).pathComponents == CoreSupport.canonical(intendedTarget).pathComponents
+    }
+
     private func inspectLinkedSettings(accounts: [AccountRecord]) throws -> [LinkedSettingsDivergence] {
         var result: [LinkedSettingsDivergence] = []
         let backupRoot = paths.applicationSupport.appending(path: "backups/settings-link-repair", directoryHint: .isDirectory)
@@ -931,7 +936,7 @@ extension AccountManager {
                 let intendedTarget = paths.sharedRoot.appending(path: relativePath).standardizedFileURL
                 guard CoreSupport.entryExists(intendedTarget) else { continue }
                 let localPath = account.home.appending(path: relativePath)
-                if lexicalLinkTarget(localPath) == intendedTarget { continue }
+                if link(localPath, pointsTo: intendedTarget) { continue }
                 result.append(.init(
                     accountID: account.id,
                     relativePath: relativePath,
