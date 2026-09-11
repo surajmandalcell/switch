@@ -1022,32 +1022,54 @@ request now governs the remaining UI work and acceptance.
   `291CC533-30C6-333E-BE0C-768D5454BB55`; its strict signature check passes. Screenshots
   are retained under `/private/tmp/ai-manager-build/gui-acceptance/artifacts/`.
 - Accessibility-tree inspection and keyboard navigation were exercised; actual VoiceOver
-  speech/navigation remains untested. The native file picker and Terminal handoff were
-  not driven during this pass. The CLI exact launch contract passes separately.
+  speech/navigation remains untested. Terminal handoff was not driven because it may
+  foreground Terminal, which the focus-preservation rule disallows. The CLI exact launch
+  contract passes separately.
+- A subsequent native file-picker check reproduced a directory-hint URL mismatch. Fix
+  `a0f13c7` compares standardized source paths. Choosing the second source folder selected
+  its account; choosing the first source's `auth.json` selected the first account. Both
+  corrected selections were verified through fresh native accessibility states.
 - No original Codex home, login Keychain, imported hook, or online model request was
   touched. Ponytail inventory: zero markers and zero missing triggers.
 
 ### Native history diagnosis
 
-- The earlier `610/1,603` listing result used the wrong expected subset. The current
-  interactive source-kind listing returns 341 conversations; the remaining 993 are
-  paginated histories. Most of those are background (981), subagent (9), automation (3),
-  or user (the remainder) records, so the old count is retained only as historical audit
-  evidence.
-- Three database-only paginated histories still fail native reads. The core verifier has
-  a working metadata-only anchor proof for these rows, but that proof has not passed the
-  native read/resume gate. Ordinary imported transcript native read and resume pass without
-  a turn, and a later faithful fixture containing `session_meta` plus an
+- The earlier `610/1,603` listing result used the wrong expected subset. Listing all
+  source kinds returns 610; its 993 omitted paginated rows comprise 981 subagent,
+  nine automation, and three user/CLI records. The native interactive-only listing
+  returns 341 conversations. These distinct filters must not share one expected count.
+- Three database-only paginated histories fail native reads from unchanged product
+  snapshots. A metadata-only anchor probe made them readable but still could not resume
+  them. The importer must preserve their original databases in backup and report them as
+  unresolved; it must not fabricate transcript turns. Ordinary imported transcript
+  native read and resume pass without a turn, and a later faithful fixture containing `session_meta` plus an
   `event_msg.user_message` was independently discovered and indexed from two blank homes
   without SQL insertion.
 
-Current gates remain explicit: native history verification is still open for the 993
-paginated rows and three database-only native reads. Isolated custom GUI acceptance passes
-within the limits above. Signed installation acceptance remains pending.
+- Correction `ac18d29` excludes unsupported database-only rows from the active index,
+  preserves the source state and projection snapshots in backup, and reports their count
+  and backup path as unresolved. The regression verifies intact source/backup rows and
+  usable active transcript-backed rows. The combined suite passes: 48 total tests,
+  46 executed and two protected-copy opt-ins skipped.
+- The corrected native verifier passes synthetic listing, reading, and resuming in both
+  homes plus later shared discovery, without SQL insertion or an online model request.
+  It rejects the previous protected-copy import for exactly three dangling active rows.
+  A fresh protected-copy import remains pending to verify the corrected 1,600-row output.
+- Current Ponytail inventory: one marker, zero missing triggers. The conservative writer
+  check blocks mutation when any Codex process is present because home ownership is
+  unknown. Replace it with home-specific detection when Codex provides a reliable lock
+  or probe; do not weaken the safety check to bypass this limit.
+
+Current gates remain explicit: a corrected protected-copy import and signed installation
+acceptance remain pending. Isolated custom GUI acceptance passes within the limits above.
+
+Remote native CI was dispatched as run `34588863904`, but repository Actions are
+disabled (`enabled: false`) and no job started. Repository permissions were not changed.
+Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-Create reviewed native UI and acceptance-harness checkpoints, resolve the native history
-findings, and verify the signed installed artifact. The core migration and history
+The native UI and acceptance harness are committed and pushed. Verify the corrected
+protected-copy import and signed installed artifact. The core migration and history
 evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.
