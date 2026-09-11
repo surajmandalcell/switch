@@ -1156,6 +1156,12 @@ Local native tests and packaging remain the executed verification evidence.
   AI Manager apps after recovery attempts. AppKit confirms the acceptance window exists.
   Fresh screenshots, close/minimize clicks, and drag interactions remain unverified;
   no app was activated or moved to bypass the focus rule.
+- The custom-control build was signed and installed from clean revision `221a60b0b595`.
+  The installed bundle reports that revision and dirty-source false; strict signature
+  and empty-entitlement checks pass. Native Computer's exact-path launch started the
+  installed executable, which stayed running despite the bridge's window-targeting error.
+  The installed CLI hash is unchanged. The final documentation checkpoint requires only
+  the normal signed rebuild/install to refresh source-revision metadata.
 - Ponytail inventory remains one marker with zero missing triggers:
   `packages/core/Sources/AIManagerCore/AccountManager.swift:398` blocks mutations when
   any Codex process is present. Replace that conservative check when Codex exposes
@@ -1163,9 +1169,9 @@ Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-The prior translucent UI is installed; the custom window-control update requires a clean
-signed build and installation after its acceptance check. Live VoiceOver verification is
-no longer a gate. Native Terminal handoff remains unexercised under the
+The custom window-control update is installed and its window contract passes. Repeat
+visual and click acceptance when native Computer can target app windows again. Live
+VoiceOver verification is no longer a gate. Native Terminal handoff remains unexercised under the
 focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
 production app retains conservative writer checks. These limits must not be represented
 as completed production mutation or Terminal checks. The core migration and history evidence
