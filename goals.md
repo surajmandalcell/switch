@@ -1201,14 +1201,21 @@ Local native tests and packaging remain the executed verification evidence.
   receipts pass after seeding, account changes, and import-state changes. Screenshots
   remain under `/private/tmp/ai-manager-build/gui-acceptance/artifacts/` with the
   `preview-` prefix. No new crash occurred in these final builds.
+- Both `/Applications/AI Manager.app` and `/Applications/AI Manager Preview.app` were
+  installed from clean revision `10b1c9c50e78`. Embedded revisions, dirty-source false,
+  strict development signatures, empty entitlements, and executable hashes match their
+  build artifacts. Native Computer launched both exact installed paths. The production
+  empty window closed through its custom control; the seeded preview remains open and
+  its installed window contract passes. The CLI hash is unchanged. The final documentation
+  checkpoint requires only a normal rebuild/install to refresh revision metadata.
 - Ponytail inventory is unchanged: one conservative writer-check marker at
   `packages/core/Sources/AIManagerCore/AccountManager.swift:398`, with the reliable
   home-specific lock/probe upgrade trigger and zero missing triggers.
 
 ### Next action
 
-The sample flow checks pass. Sign and install the square-window app and preview from
-clean source. Native Computer is available again for these checks. Live
+The square-window app and sample preview are installed, and the recorded sample flow
+and window checks pass. Live
 VoiceOver verification is no longer a gate. Native Terminal handoff remains unexercised under the
 focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
 production app retains conservative writer checks. These limits must not be represented
