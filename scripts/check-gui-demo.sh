@@ -15,7 +15,7 @@ products_path="$(swift build --disable-sandbox --build-path "$build_path" --conf
 
 swiftc \
   -parse-as-library \
-  -target arm64-apple-macos14.0 \
+  -target "$(uname -m)-apple-macos14.0" \
   -I "$products_path" \
   -L "$products_path" \
   -lAIManagerCore \

@@ -1,1203 +1,1046 @@
+import AIManagerCore
 import AppKit
 import SwiftUI
-import AIManagerCore
 
-private enum UI {
-    static let surface = Color(nsColor: .controlBackgroundColor).opacity(0.72)
-    static let canvasFallback = Color(nsColor: .windowBackgroundColor)
-    static let sidebarFallback = Color(nsColor: .underPageBackgroundColor)
-    static let muted = Color(nsColor: .secondaryLabelColor)
-    static let blue = Color(nsColor: .systemBlue)
-    static let teal = Color(nsColor: .systemTeal)
-    static let orange = Color(nsColor: .systemOrange)
-    static let red = Color(nsColor: .systemRed)
-    static let radius: CGFloat = 3
-    static let hoverDuration = 0.15
-}
-
-private struct MaterialPane: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
-    }
-}
-
-@MainActor
-final class AIManagerWindow: NSWindow {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+@MainActor final class AIManagerWindow: NSWindow {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { true }
 }
 
 @MainActor
 final class AIManagerWindowController<Content: View>: NSWindowController, NSWindowDelegate {
-    init(title: String, initialSize: NSSize, rootView: Content) {
-        let window = AIManagerWindow(
-            contentRect: NSRect(origin: .zero, size: initialSize),
-            styleMask: [.closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = title
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = true
-        window.isMovableByWindowBackground = false
-        window.collectionBehavior = [.fullScreenNone]
-        let hostingView = NSHostingView(rootView: rootView.frame(
-            minWidth: 720,
-            maxWidth: 1840,
-            minHeight: 500,
-            maxHeight: 1240
-        ))
-        window.contentView = hostingView
-        window.isReleasedWhenClosed = false
-        window.center()
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    func present() {
-        guard let window else { return }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
-    }
+  init(title: String, initialSize: NSSize, rootView: Content) {
+    let window = AIManagerWindow(
+      contentRect: NSRect(origin: .zero, size: initialSize),
+      styleMask: [.closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+    window.title = title
+    window.isOpaque = true
+    window.backgroundColor = NSColor(AIMTheme.canvas)
+    window.hasShadow = true
+    window.collectionBehavior = [.fullScreenNone]
+    let host = NSHostingView(
+      rootView: rootView.frame(minWidth: 720, maxWidth: 1840, minHeight: 500, maxHeight: 1240))
+    host.frame = NSRect(origin: .zero, size: initialSize)
+    host.autoresizingMask = [.width, .height]
+    window.contentView = host
+    window.isReleasedWhenClosed = false
+    window.center()
+    super.init(window: window)
+    window.delegate = self
+  }
+  @available(*, unavailable) required init?(coder: NSCoder) { nil }
+  func present() {
+    guard let window else { return }
+    if window.isMiniaturized { window.deminiaturize(nil) }
+    showWindow(nil)
+    window.makeKeyAndOrderFront(nil)
+  }
 }
 
-private final class WindowResolverView: NSView {
-    var onWindow: ((NSWindow) -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        onWindow?(window)
-    }
+private final class WindowTarget: ObservableObject { weak var window: NSWindow? }
+private final class WindowResolver: NSView {
+  var resolve: ((NSWindow) -> Void)?
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    if let window { resolve?(window) }
+  }
 }
-
-private struct WindowChrome: NSViewRepresentable {
-    let onResolve: (NSWindow) -> Void
-
-    final class Coordinator {
-        weak var configuredWindow: NSWindow?
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> WindowResolverView {
-        let view = WindowResolverView()
-        view.onWindow = { resolve($0, coordinator: context.coordinator) }
-        return view
-    }
-
-    func updateNSView(_ view: WindowResolverView, context: Context) {
-        view.onWindow = { resolve($0, coordinator: context.coordinator) }
-        guard let window = view.window else { return }
-        resolve(window, coordinator: context.coordinator)
-    }
-
-    private func resolve(_ window: NSWindow?, coordinator: Coordinator) {
-        guard let window else { return }
-        guard coordinator.configuredWindow !== window else { return }
-        coordinator.configuredWindow = window
-        onResolve(window)
-    }
+private struct WindowReader: NSViewRepresentable {
+  let resolve: (NSWindow) -> Void
+  func makeNSView(context: Context) -> WindowResolver {
+    let view = WindowResolver()
+    view.resolve = resolve
+    return view
+  }
+  func updateNSView(_ view: WindowResolver, context: Context) {
+    view.resolve = resolve
+    if let window = view.window { resolve(window) }
+  }
 }
-
-private final class WindowDragView: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        guard event.clickCount == 1 else { return }
-        window?.performDrag(with: event)
-    }
+private final class DragView: NSView {
+  override var mouseDownCanMoveWindow: Bool { true }
+  override func mouseDown(with event: NSEvent) {
+    if event.clickCount == 1 { window?.performDrag(with: event) }
+  }
 }
-
 private struct WindowDragRegion: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { WindowDragView() }
-    func updateNSView(_ view: NSView, context: Context) {}
+  func makeNSView(context: Context) -> NSView { DragView() }
+  func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-private final class WindowTarget: ObservableObject {
-    weak var window: NSWindow?
-}
-
-private struct WindowControlButton: View {
-    enum Kind { case close, minimize }
-
-    let kind: Kind
-    let action: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var focused: Bool
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: kind == .close ? "xmark" : "minus")
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 26, height: 24)
-                .foregroundStyle(kind == .close && hovering ? UI.red : Color.primary)
-                .background(focused || hovering ? UI.muted.opacity(0.18) : Color.clear)
-                .overlay(alignment: .leading) {
-                    if focused {
-                        RoundedRectangle(cornerRadius: UI.radius)
-                            .fill(UI.blue)
-                            .frame(width: 3)
-                    }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focused($focused)
-        .focusEffectDisabled()
-        .keyboardShortcut(kind == .close ? "w" : "m", modifiers: [.command])
-        .accessibilityLabel(kind == .close ? "Close window" : "Minimize window")
-        .help(kind == .close ? "Close window" : "Minimize window")
-        .onHover { value in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
-        }
+private enum Page: String, CaseIterable {
+  case accounts = "Accounts"
+  case settings = "Shared Settings"
+  case history = "Chat History"
+  case recovery = "Recovery"
+  var icon: AIMIcon.Name {
+    switch self {
+    case .accounts: .account
+    case .settings: .settings
+    case .history: .history
+    case .recovery: .recovery
     }
-}
-
-private struct ProductiveButtonBody<Label: View>: View {
-    let label: Label
-    let kind: ProductiveButton.Kind
-    let pressed: Bool
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-
-    var body: some View {
-        label
-            .font(.system(.body, weight: .medium))
-            .foregroundStyle(kind == .secondary ? Color.primary : Color.white)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 34)
-            .background(fill.opacity(pressed ? 0.76 : (hovering ? 0.88 : 1)), in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-            .opacity(isEnabled ? 1 : 0.42)
-            .onHover { value in
-                withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
-            }
+  }
+  var subtitle: String {
+    switch self {
+    case .accounts: "Codex profiles and launch state"
+    case .settings: "One configuration across every account"
+    case .history: "The merged resume library"
+    case .recovery: "Backups and interrupted operations"
     }
-
-    private var fill: Color {
-        switch kind {
-        case .primary: UI.blue
-        case .secondary: hovering ? UI.blue.opacity(0.18) : UI.muted.opacity(0.12)
-        case .danger: UI.red
-        }
-    }
-}
-
-private struct ProductiveButton: ButtonStyle {
-    enum Kind { case primary, secondary, danger }
-    let kind: Kind
-
-    func makeBody(configuration: Configuration) -> some View {
-        ProductiveButtonBody(label: configuration.label, kind: kind, pressed: configuration.isPressed)
-    }
-}
-
-private struct ProductiveFocus: ViewModifier {
-    let kind: ProductiveButton.Kind
-    @FocusState private var focused: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .focused($focused)
-            .focusEffectDisabled()
-            .overlay {
-                if focused {
-                    ZStack(alignment: .leading) {
-                        if kind == .secondary { UI.blue.opacity(0.18) }
-                        RoundedRectangle(cornerRadius: UI.radius)
-                            .fill(kind == .secondary ? UI.blue : Color.white)
-                            .frame(width: 3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .allowsHitTesting(false)
-                    .clipShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-                }
-            }
-    }
-}
-
-private extension View {
-    func productiveFocus(_ kind: ProductiveButton.Kind) -> some View {
-        modifier(ProductiveFocus(kind: kind))
-    }
-}
-
-private struct ChoiceButton: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-    @FocusState private var focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                ZStack {
-                    if selected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .bold))
-                    }
-                }
-                .frame(width: 13, height: 13)
-                Text(title).lineLimit(1)
-            }
-            .font(.system(.caption, weight: .medium))
-            .foregroundStyle(selected ? Color.white : Color.primary)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 34)
-            .background(
-                selected ? UI.blue : ((focused || hovering) ? UI.blue.opacity(0.18) : UI.muted.opacity(0.10)),
-                in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .focused($focused)
-        .focusEffectDisabled()
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .onHover { value in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
-        }
-    }
-}
-
-private struct Eyebrow: View {
-    let text: String
-
-    var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 11, weight: .semibold))
-            .tracking(1.1)
-            .foregroundStyle(UI.muted)
-    }
-}
-
-private struct SectionHeading: View {
-    let title: String
-    var detail: String?
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title).font(.system(.title3, weight: .semibold))
-            Spacer(minLength: 12)
-            if let detail {
-                Text(detail).font(.caption).foregroundStyle(UI.muted).monospacedDigit()
-            }
-        }
-        .padding(.bottom, 4)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct DefinitionRow: View {
-    let label: String
-    let value: String
-    var monospaced = false
-
-    var body: some View {
-        GridRow(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(UI.muted)
-                .frame(width: 104, alignment: .leading)
-            Text(value)
-                .font(monospaced ? .system(.caption, design: .monospaced) : .body)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
+  }
 }
 
 struct AccountWindow: View {
-    @ObservedObject var model: AccountViewModel
-    @Environment(\.scenePhase) private var scenePhase
-    @FocusState private var focusedAccountID: UUID?
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @StateObject private var windowTarget = WindowTarget()
-
-    var body: some View {
-        ZStack {
-            if reduceTransparency { UI.canvasFallback } else { MaterialPane(material: .underWindowBackground) }
-            HStack(spacing: 0) {
-                sidebar.frame(width: 244)
-                ZStack(alignment: .top) {
-                    Group {
-                        if let account = model.selectedAccount {
-                            AccountDetail(account: account, model: model)
-                                .id(account.id)
-                        } else {
-                            EmptyAccountView(
-                                hasAccounts: !(model.status?.accounts.isEmpty ?? true)
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if let error = model.errorMessage, !model.showImport {
-                        ErrorBanner(message: error) { model.errorMessage = nil }
-                            .padding(.top, 12)
-                            .padding(.horizontal, 18)
-                    }
-                }
-            }
-        }
-        .background(WindowChrome { windowTarget.window = $0 })
-        .ignoresSafeArea(.container, edges: .top)
-        .sheet(isPresented: $model.showImport) { ImportSheet(model: model) }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.load() } }
-        }
-    }
-
-    private var sidebar: some View {
-        ZStack {
-            if reduceTransparency { UI.sidebarFallback } else { UI.surface.opacity(0.34) }
-            VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 0) {
-                    HStack(spacing: 0) {
-                        WindowControlButton(kind: .close) { windowTarget.window?.close() }
-                        WindowControlButton(kind: .minimize) { windowTarget.window?.miniaturize(nil) }
-                    }
-                    .background(UI.muted.opacity(0.09))
-                    .clipShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-                    .zIndex(1)
-
-                    HStack {
-                        Text("AI Manager")
-                            .font(.system(.headline, weight: .semibold))
-                        Spacer()
-                    }
-                    .padding(.leading, 20)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .background(WindowDragRegion())
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 48)
-
-                ScrollView {
-                    LazyVStack(spacing: 3) {
-                        ForEach(model.status?.accounts ?? []) { account in
-                            Button {
-                                model.selectedAccountID = account.id
-                            } label: {
-                                AccountRow(
-                                    account: account,
-                                    isDefault: account.id == model.status?.defaultAccountID,
-                                    isSelected: account.id == model.selectedAccountID,
-                                    isFocused: account.id == focusedAccountID
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .focused($focusedAccountID, equals: account.id)
-                            .focusEffectDisabled()
-                            .accessibilityLabel(account.identity.displayName)
-                            .accessibilityValue(
-                                "\(account.id == model.selectedAccountID ? "Selected, " : "")\(account.id == model.status?.defaultAccountID ? "Default, " : "")\(account.verification.state.label)"
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                }
-                .onMoveCommand(perform: moveSelection)
-
-                VStack(spacing: 8) {
-                    if model.isBusy {
-                        HStack(spacing: 7) {
-                            ProgressView().controlSize(.small)
-                            Text("Working…").font(.caption).foregroundStyle(UI.muted)
-                            Spacer()
-                        }
-                    }
-                    if let pending = model.status?.pendingRecovery, !pending.isEmpty {
-                        Button("Recover \(pending.count) Operation\(pending.count == 1 ? "" : "s")") {
-                            Task { await model.recover() }
-                        }
-                        .buttonStyle(ProductiveButton(kind: .danger))
-                        .productiveFocus(.danger)
-                        .disabled(model.isBusy)
-                    }
-                    Button {
-                        Task { await model.beginImport() }
-                    } label: {
-                        Label("Import Account", systemImage: "plus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(ProductiveButton(kind: .primary))
-                    .productiveFocus(.primary)
-                    .disabled(model.isBusy)
-                }
-                .padding(10)
-            }
-        }
-    }
-
-    private func moveSelection(_ direction: MoveCommandDirection) {
-        guard direction == .up || direction == .down else { return }
-        let accounts = model.status?.accounts ?? []
-        guard !accounts.isEmpty else { return }
-        let current = accounts.firstIndex { $0.id == model.selectedAccountID }
-        let next: Int
-        if direction == .up {
-            next = max(0, (current ?? 1) - 1)
-        } else {
-            next = min(accounts.count - 1, (current ?? -1) + 1)
-        }
-        model.selectedAccountID = accounts[next].id
-        focusedAccountID = accounts[next].id
-    }
-}
-
-private struct ErrorBanner: View {
-    let message: String
-    let dismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.octagon.fill")
-                .foregroundStyle(UI.red)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Action could not finish").font(.system(.body, weight: .semibold))
-                Text(message).font(.caption).textSelection(.enabled)
-            }
-            Spacer(minLength: 12)
-            Button(action: dismiss) {
-                Image(systemName: "xmark").frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(UI.red.opacity(0.12), in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-        .accessibilityElement(children: .contain)
-    }
-}
-
-private struct AccountRow: View {
-    let account: AccountRecord
-    let isDefault: Bool
-    let isSelected: Bool
-    let isFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-
-    var body: some View {
+  @ObservedObject var model: AccountViewModel
+  @StateObject private var target = WindowTarget()
+  @State private var page: Page = .accounts
+  @State private var themeOverride: ColorScheme?
+  @Environment(\.colorScheme) private var systemScheme
+  @Environment(\.scenePhase) private var scenePhase
+  private var dark: Bool { (themeOverride ?? systemScheme) == .dark }
+  var body: some View {
+    GeometryReader { geometry in
+      ZStack {
         HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: UI.radius)
-                .fill(isSelected || isFocused ? UI.blue : .clear)
-                .frame(width: isFocused ? 5 : 3)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 7) {
-                Text(account.identity.displayName).font(.system(.body, weight: .medium)).lineLimit(2)
-                HStack(spacing: 8) {
-                    if isDefault {
-                        Label("Default", systemImage: "checkmark.circle.fill").foregroundStyle(UI.blue)
-                    }
-                    Label(account.verification.state.label, systemImage: account.verification.state.icon)
-                        .foregroundStyle(account.verification.state.tint)
-                }
-                .font(.caption)
+          rail.zIndex(10)
+          VStack(spacing: 0) {
+            topbar
+            Group {
+              switch page {
+              case .accounts: AccountsPage(model: model)
+              case .settings: SharedSettingsPage(model: model)
+              case .history: HistoryPage(model: model)
+              case .recovery: RecoveryPage(model: model)
+              }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+              if let error = model.errorMessage, !model.showImport {
+                ErrorBar(message: error) { model.errorMessage = nil }.padding(12)
+              }
+            }
+          }
         }
-        .background(
-            isSelected ? UI.blue.opacity(0.16) : ((isFocused || hovering) ? UI.blue.opacity(0.09) : Color.clear),
-            in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .onHover { value in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
+        .disabled(model.showImport)
+        .accessibilityHidden(model.showImport)
+
+        if model.showImport {
+          Color.black.opacity(0.34).ignoresSafeArea()
+          ImportFlow(model: model)
+            .frame(
+              width: min(820, geometry.size.width - 32),
+              height: min(660, geometry.size.height - 32)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+            .overlay {
+              RoundedRectangle(cornerRadius: AIMTheme.radius).stroke(AIMTheme.line, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(dark ? 0.22 : 0.1), radius: 34, y: 14)
+            .transition(.opacity.combined(with: .offset(y: 4)))
+            .accessibilityElement(children: .contain)
         }
+      }
     }
+    .font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.canvas)
+    .preferredColorScheme(themeOverride)
+    .background(
+      WindowReader { window in
+        target.window = window
+        applyAppearance(to: window)
+      }
+    ).ignoresSafeArea(.container, edges: .top)
+    .onChange(of: dark) { _, _ in
+      if let window = target.window { applyAppearance(to: window) }
+    }
+    .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.load() } } }
+  }
+
+  private func applyAppearance(to window: NSWindow) {
+    let name: NSAppearance.Name = dark ? .darkAqua : .aqua
+    if window.appearance?.name != name { window.appearance = NSAppearance(named: name) }
+  }
+
+  private var rail: some View {
+    VStack(spacing: 0) {
+      RailTop(close: { target.window?.close() }, minimize: { target.window?.miniaturize(nil) })
+      ForEach(Array(Page.allCases.enumerated()), id: \.element) { index, item in
+        if index == 3 { Divider().overlay(AIMTheme.lineSoft).padding(.vertical, 4) }
+        RailButton(icon: item.icon, label: item.rawValue, active: page == item) { page = item }
+      }
+      Spacer()
+      RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false)
+      {
+        withAnimation(.easeOut(duration: 0.28)) {
+          themeOverride = dark ? .light : .dark
+        }
+      }
+      RailButton(icon: .plus, label: "Import account", active: false) {
+        Task { await model.beginImport() }
+      }
+    }.frame(width: AIMTheme.railWidth).background(AIMTheme.rail).overlay(alignment: .trailing) {
+      Rectangle().fill(AIMTheme.lineSoft.opacity(0.7)).frame(width: 1)
+    }
+  }
+  private var topbar: some View {
+    HStack(spacing: 10) {
+      Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).lineLimit(1)
+      Text(page.subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+      Spacer(minLength: 12)
+      Button {
+        Task { await model.load() }
+      } label: {
+        AIMIcon(name: .refresh, size: 15).frame(width: 38, height: 38)
+      }.buttonStyle(AIMToolbarButtonStyle()).help("Refresh").accessibilityLabel("Refresh")
+      Menu {
+        Button("Sample accounts") { model.reset(to: .demo) }
+        Button("Empty state") { model.reset(to: .empty) }
+        Button("Issues and recovery") { model.reset(to: .allStates) }
+        Divider()
+        Button("Show demo error") { model.showDemoError() }
+      } label: {
+        HStack(spacing: 8) {
+          VStack(alignment: .leading, spacing: 1) {
+            Text("DEMO").font(AIMTheme.sans(9, weight: .semibold)).tracking(0.6)
+            Text("Sample states").font(AIMTheme.sans(11, weight: .medium))
+          }
+          AIMIcon(name: .chevron, size: 11).rotationEffect(.degrees(90))
+        }
+        .padding(.horizontal, 12).frame(height: 30).background(AIMTheme.control)
+      }
+      .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Demo states")
+    }.padding(.horizontal, 24).frame(height: AIMTheme.topbarHeight).background(AIMTheme.canvas)
+      .background(WindowDragRegion())
+  }
 }
 
-private struct EmptyAccountView: View {
-    let hasAccounts: Bool
-
-    var body: some View {
-        VStack(alignment: .leading) {
-            Spacer()
-            HStack(alignment: .top, spacing: 24) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: UI.radius).fill(UI.blue)
-                    Image(systemName: hasAccounts ? "person.crop.circle" : "person.crop.circle.badge.plus")
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 72, height: 72)
-                .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(hasAccounts ? "Select an account" : "Import your first account")
-                        .font(.system(size: 26, weight: .semibold))
-                        .tracking(-0.4)
-                    Text(hasAccounts
-                         ? "Choose an account in the sidebar to review its profile, verification, and launch options."
-                         : "Choose a Codex home to bring in credentials, shared settings, and chat history with a reviewable backup.")
-                        .font(.body)
-                        .foregroundStyle(UI.muted)
-                        .lineSpacing(3)
-                        .frame(maxWidth: 520, alignment: .leading)
-                }
-            }
-            Spacer()
-        }
-        .padding(32)
-        .frame(maxWidth: 820, maxHeight: .infinity, alignment: .leading)
+private struct RailTop: View {
+  let close: () -> Void, minimize: () -> Void
+  @State private var hover = false
+  @State private var minimizeHover = false
+  @State private var pendingHide: Task<Void, Never>?
+  var body: some View {
+    ZStack(alignment: .leading) {
+      Button(action: close) {
+        ZStack {
+          LogoField().opacity(hover ? 0.18 : 0.44)
+          AIMIcon(name: .mark, size: 26).opacity(hover ? 0 : 1)
+          AIMIcon(name: .close, size: 17).foregroundStyle(Color(nsColor: .systemRed)).opacity(
+            hover ? 1 : 0)
+        }.frame(width: 48, height: 48).background(
+          hover ? Color(nsColor: .systemRed).opacity(0.14) : Color.clear)
+      }.buttonStyle(.plain).accessibilityLabel("Close window")
+      if hover {
+        Button(action: minimize) {
+          AIMIcon(name: .minimize, size: 17).foregroundStyle(
+            minimizeHover ? AIMTheme.ink : AIMTheme.muted
+          )
+          .frame(width: 48, height: 48).background(
+            AIMTheme.amber.opacity(minimizeHover ? 0.34 : 0.22)
+          )
+          .background(AIMTheme.panel2)
+        }.buttonStyle(.plain).offset(x: 48).accessibilityLabel("Minimize window").transition(
+          .opacity
+        )
+        .onHover { minimizeHover = $0 }
+      }
     }
+    .frame(width: 96, height: 48, alignment: .leading)
+    .contentShape(Rectangle())
+    .onHover { value in
+      pendingHide?.cancel()
+      if value {
+        withAnimation(.easeOut(duration: 0.12)) { hover = true }
+      } else {
+        pendingHide = Task {
+          try? await Task.sleep(for: .milliseconds(220))
+          guard !Task.isCancelled else { return }
+          withAnimation(.easeOut(duration: 0.22)) { hover = false }
+        }
+      }
+    }
+    .frame(width: 48, height: 48, alignment: .leading)
+    .zIndex(20)
+  }
+}
+
+private struct LogoField: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion)) { timeline in
+      let angle = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate * 9
+      ZStack {
+        AIMTheme.rail
+        AngularGradient(
+          colors: [AIMTheme.blue, AIMTheme.green, AIMTheme.rail, AIMTheme.blue],
+          center: .center,
+          angle: .degrees(angle)
+        )
+        LinearGradient(
+          colors: [.clear, AIMTheme.ink.opacity(0.2), .clear],
+          startPoint: .topLeading,
+          endPoint: .bottomTrailing
+        )
+      }
+    }
+    .allowsHitTesting(false)
+  }
+}
+
+private struct RailButton: View {
+  let icon: AIMIcon.Name, label: String, active: Bool, action: () -> Void
+  @State private var hover = false
+  var body: some View {
+    Button(action: action) {
+      AIMIcon(name: icon).frame(width: 48, height: 48).foregroundStyle(
+        active ? AIMTheme.activeInk : AIMTheme.railIdle
+      ).background(active ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear))
+    }.buttonStyle(.plain).help(label).accessibilityLabel(label).accessibilityAddTraits(
+      active ? .isSelected : []
+    ).onHover { hover = $0 }
+  }
+}
+private struct AIMToolbarButtonStyle: ButtonStyle {
+  @State private var hover = false
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label.background(hover ? AIMTheme.controlHover : AIMTheme.control).opacity(
+      configuration.isPressed ? 0.7 : 1
+    ).onHover { hover = $0 }
+  }
+}
+
+private enum ButtonTone { case normal, primary, danger }
+private struct AIMButton: View {
+  let title: String
+  var icon: AIMIcon.Name?
+  var tone: ButtonTone = .normal
+  var disabled = false
+  let action: () -> Void
+  @State private var hover = false
+  @FocusState private var focused: Bool
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 6) {
+        if let icon { AIMIcon(name: icon, size: 13) }
+        Text(title).lineLimit(1)
+      }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 13).frame(height: 30)
+        .foregroundStyle(
+          tone == .primary
+            ? AIMTheme.canvas : (tone == .danger && hover ? AIMTheme.red : AIMTheme.ink)
+        ).background(
+          tone == .primary ? AIMTheme.ink : (hover ? AIMTheme.controlHover : AIMTheme.control)
+        ).overlay {
+          if focused { RoundedRectangle(cornerRadius: 2).stroke(AIMTheme.blue, lineWidth: 2) }
+        }.clipShape(RoundedRectangle(cornerRadius: 2))
+    }
+    .buttonStyle(.plain).focused($focused).focusEffectDisabled().disabled(disabled).opacity(
+      disabled ? 0.45 : 1
+    ).onHover { hover = $0 }
+  }
+}
+private struct Badge: View {
+  let text: String, color: Color
+  var body: some View {
+    Text(text.uppercased()).font(AIMTheme.sans(10, weight: .semibold)).padding(.horizontal, 6)
+      .frame(height: 18).foregroundStyle(AIMTheme.statusInk).background(color).clipShape(
+        RoundedRectangle(cornerRadius: 2))
+  }
+}
+
+private struct AccountsPage: View {
+  @ObservedObject var model: AccountViewModel
+  var body: some View {
+    HStack(spacing: 8) {
+      AIMPanel(title: "Accounts") {
+        VStack(spacing: 0) {
+          ForEach(model.status?.accounts ?? []) { account in
+            Button {
+              model.selectedAccountID = account.id
+            } label: {
+              AccountListRow(
+                account: account, selected: account.id == model.selectedAccountID,
+                isDefault: account.id == model.status?.defaultAccountID)
+            }.buttonStyle(.plain)
+          }
+          if model.status?.accounts.isEmpty != false {
+            Text("No accounts yet.").font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
+              .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+          }
+          Spacer(minLength: 0)
+          Button {
+            Task { await model.beginImport() }
+          } label: {
+            HStack {
+              AIMIcon(name: .plus, size: 13)
+              Text("Import account")
+              Spacer()
+            }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
+              .background(AIMTheme.panel2)
+          }.buttonStyle(.plain).keyboardShortcut("i", modifiers: [.command])
+        }
+      }.frame(width: AIMTheme.listWidth)
+      if let account = model.selectedAccount {
+        AccountDetail(account: account, model: model)
+      } else {
+        EmptyAccountView(model: model)
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
+private struct AccountListRow: View {
+  let account: AccountRecord, selected: Bool, isDefault: Bool
+  @State private var hover = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack(spacing: 5) {
+        Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium)).lineLimit(1)
+        Spacer()
+        if isDefault { AIMIcon(name: .check, size: 11) }
+      }
+      Text(account.identity.workspaceID ?? account.verification.state.label).font(AIMTheme.mono(10))
+        .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
+    }.padding(.horizontal, 12).padding(.vertical, 6).frame(
+      maxWidth: .infinity, minHeight: 44, alignment: .leading
+    ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background(
+      selected ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear)
+    ).overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
+      .contentShape(Rectangle()).onHover { hover = $0 }.accessibilityElement(children: .combine)
+      .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+}
+private struct EmptyAccountView: View {
+  @ObservedObject var model: AccountViewModel
+  var body: some View {
+    AIMPanel(title: "Account") {
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Import your first Codex account").font(AIMTheme.sans(18, weight: .semibold))
+        Text(
+          "Choose a Codex home to review credentials, shared settings, chat history, and its backup plan."
+        ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
+        AIMButton(title: "Import account", icon: .plus, tone: .primary) {
+          Task { await model.beginImport() }
+        }
+      }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }.frame(maxWidth: .infinity)
+  }
 }
 
 private struct AccountDetail: View {
-    let account: AccountRecord
-    @ObservedObject var model: AccountViewModel
-    @State private var detailsExpanded = false
-
-    private var linkIssues: [LinkedSettingsDivergence] {
-        model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                if !linkIssues.isEmpty { repairs }
-                actions
-                profile
-                if let notice = model.notice {
-                    Label(notice, systemImage: "info.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(UI.blue)
-                        .textSelection(.enabled)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(UI.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
-                        .accessibilityLabel("Status: \(notice)")
-                }
+  let account: AccountRecord
+  @ObservedObject var model: AccountViewModel
+  private var issues: [LinkedSettingsDivergence] {
+    model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
+  }
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        AIMPanel(title: "Identity") {
+          VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+              VStack(alignment: .leading, spacing: 4) {
+                Text(account.identity.heroName).font(AIMTheme.sans(22, weight: .semibold))
+                  .lineLimit(1).textSelection(.enabled)
+                Text(account.identity.workspaceID ?? "Personal workspace").font(AIMTheme.mono(10))
+                  .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
+              }
+              Spacer()
+              if account.id == model.status?.defaultAccountID {
+                Badge(text: "Default", color: AIMTheme.green)
+              }
+              Badge(text: account.verification.state.label, color: account.verification.state.color)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 22)
-            .padding(.bottom, 28)
-            .frame(maxWidth: 900, alignment: .leading)
+            Text(account.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
+              AIMTheme.muted
+            ).textSelection(.enabled)
+            ViewThatFits(in: .horizontal) {
+              HStack(spacing: 4) { actions }
+              VStack(alignment: .leading, spacing: 4) { actions }
+            }
+          }.padding(16)
         }
-        .navigationTitle(account.identity.displayName)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(account.identity.heroName)
-                .font(.system(size: 26, weight: .semibold))
-                .tracking(-0.4)
-                .lineLimit(2)
-                .textSelection(.enabled)
-            HStack(spacing: 10) {
-                if account.id == model.status?.defaultAccountID {
-                    Label("Default", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(UI.blue)
-                }
-                if let workspace = account.identity.workspaceID {
-                    Text(workspace).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(UI.muted)
-            Text(account.verification.detail)
-                .font(.caption)
-                .foregroundStyle(UI.muted)
-                .textSelection(.enabled)
-                .frame(maxWidth: 660, alignment: .leading)
-        }
-    }
-
-    private var profile: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button {
-                detailsExpanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: detailsExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Account details")
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(ProductiveButton(kind: .secondary))
-            .productiveFocus(.secondary)
-            .accessibilityValue(detailsExpanded ? "Expanded" : "Collapsed")
-
-            if detailsExpanded {
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-                    DefinitionRow(label: "Profile", value: account.home.path, monospaced: true)
-                    DefinitionRow(label: "Source", value: account.source.path, monospaced: true)
-                    DefinitionRow(label: "Settings", value: model.paths.sharedRoot.path, monospaced: true)
-                    DefinitionRow(label: "Imported", value: account.importedAt.formatted(date: .abbreviated, time: .shortened))
-                }
-                Button("Show Shared Settings in Finder") { model.showSharedRoot() }
-                    .buttonStyle(ProductiveButton(kind: .secondary))
-                    .productiveFocus(.secondary)
-            }
-        }
-    }
-
-    private var repairs: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeading(title: "Shared Settings Need Repair", detail: "\(linkIssues.count) found")
-            Label(
-                "A local editor replaced shared links. Review each path before you back up the local entry and restore its intended link.",
-                systemImage: "exclamationmark.triangle.fill"
+        AIMPanel(title: "Account details") {
+          VStack(spacing: 0) {
+            DetailRow(label: "Profile", value: account.home.path)
+            DetailRow(label: "Source", value: account.source.path, zebra: true)
+            DetailRow(label: "Shared settings", value: model.paths.sharedRoot.path)
+            DetailRow(
+              label: "Imported",
+              value: account.importedAt.formatted(date: .abbreviated, time: .shortened), zebra: true
             )
-            .foregroundStyle(UI.orange)
-            ForEach(linkIssues) { issue in
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(issue.relativePath).font(.system(.headline, design: .monospaced)).textSelection(.enabled)
-                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                        DefinitionRow(label: "Local entry", value: issue.localPath.path, monospaced: true)
-                        DefinitionRow(label: "Target", value: issue.intendedTarget.path, monospaced: true)
-                        DefinitionRow(label: "Fingerprint", value: issue.localFingerprint, monospaced: true)
-                        DefinitionRow(label: "Backup root", value: issue.backupRoot.path, monospaced: true)
-                    }
-                    Button("Back Up Local Entry and Repair Link") {
-                        Task { await model.repairLinkedSetting(issue) }
-                    }
-                    .buttonStyle(ProductiveButton(kind: .danger))
-                    .productiveFocus(.danger)
-                    .disabled(model.isBusy)
-                }
-                .padding(16)
-                .background(UI.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: UI.radius))
-            }
+            DetailRow(
+              label: "Last used",
+              value: account.lastUsedAt?.formatted(date: .abbreviated, time: .shortened)
+                ?? "Not launched yet")
+          }
         }
-    }
-
-    private var actions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                useDefaultButton
-                openAccountButton
-                verifyButton
-                copyPathButton
-            }
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
-                GridRow {
-                    useDefaultButton
-                    openAccountButton
-                }
-                GridRow {
-                    verifyButton
-                    copyPathButton
-                }
-            }
-        }
-    }
-
-    private var useDefaultButton: some View {
-        Button("Use by Default") { Task { await model.switchDefault() } }
-            .buttonStyle(ProductiveButton(kind: .primary))
-            .productiveFocus(.primary)
-            .keyboardShortcut("d", modifiers: [.command])
-            .help("Use this account for future default-home sessions")
-            .accessibilityHint("Changes future default-home Codex sessions. Existing sessions keep their current account.")
-            .disabled(account.id == model.status?.defaultAccountID || model.isBusy)
-    }
-
-    private var openAccountButton: some View {
-        Button("Open with This Account") { Task { await model.openAccount() } }
-            .buttonStyle(ProductiveButton(kind: .secondary))
-            .productiveFocus(.secondary)
-            .keyboardShortcut(.return, modifiers: [.command])
-            .help("Open a new session with this account")
-            .disabled(model.isBusy || !linkIssues.isEmpty)
-    }
-
-    private var verifyButton: some View {
-        Button("Verify Locally") { Task { await model.verify() } }
-            .buttonStyle(ProductiveButton(kind: .secondary))
-            .productiveFocus(.secondary)
-            .keyboardShortcut("v", modifiers: [.command, .shift])
-            .disabled(model.isBusy)
-    }
-
-    private var copyPathButton: some View {
-        Button("Copy Profile Path") { model.copyProfilePath() }
-            .buttonStyle(ProductiveButton(kind: .secondary))
-            .productiveFocus(.secondary)
-    }
-}
-
-private struct ImportSheet: View {
-    @ObservedObject var model: AccountViewModel
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    var body: some View {
-        ZStack {
-            if reduceTransparency { UI.canvasFallback } else { MaterialPane(material: .contentBackground) }
+        if !issues.isEmpty {
+          AIMPanel(title: "Shared settings need repair") {
             VStack(spacing: 0) {
-                HStack(spacing: 16) {
-                    Text(importTitle).font(.system(.title2, weight: .semibold))
-                    Spacer()
-                    ImportStepRail(step: importStep)
-                    Button("Close") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                        .buttonStyle(ProductiveButton(kind: .secondary))
-                        .productiveFocus(.secondary)
+              ForEach(issues) { issue in
+                HStack(spacing: 12) {
+                  AIMIcon(name: .warning, size: 15).foregroundStyle(AIMTheme.amber)
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(issue.relativePath).font(AIMTheme.mono(11, weight: .semibold))
+                    Text(issue.localPath.path).font(AIMTheme.mono(9)).foregroundStyle(
+                      AIMTheme.muted
+                    ).lineLimit(1)
+                  }
+                  Spacer()
+                  AIMButton(title: "Back up and repair", tone: .danger, disabled: model.isBusy) {
+                    Task { await model.repairLinkedSetting(issue) }
+                  }
+                }.padding(12).overlay(alignment: .bottom) {
+                  Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
-
-                if let error = model.errorMessage {
-                    ErrorBanner(message: error) { model.errorMessage = nil }
-                        .padding(.horizontal, 24)
-                }
-
-                Group {
-                    if let result = model.importResult {
-                        ImportResultView(result: result)
-                    } else if let plan = model.importPlan {
-                        ImportReview(plan: plan, model: model)
-                    } else {
-                        SourceChooser(model: model)
-                    }
-                }
-                .padding(24)
-                .disabled(model.isBusy)
-
-                if model.isBusy {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Working…").font(.caption).foregroundStyle(UI.muted)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Working")
-                    .padding(.bottom, 12)
-                }
+              }
             }
+          }
         }
-        .frame(minWidth: 720, idealWidth: 820, minHeight: 520, idealHeight: 660)
+        if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
+      }.frame(maxWidth: .infinity)
+    }.frame(maxWidth: .infinity)
+  }
+  @ViewBuilder private var actions: some View {
+    AIMButton(
+      title: "Use by default", tone: .primary,
+      disabled: account.id == model.status?.defaultAccountID || model.isBusy
+    ) { Task { await model.switchDefault() } }
+    AIMButton(title: "Open account", icon: .play, disabled: model.isBusy || !issues.isEmpty) {
+      Task { await model.openAccount() }
     }
-
-    private var importStep: Int { model.importResult != nil ? 3 : (model.importPlan != nil ? 2 : 1) }
-    private var importTitle: String {
-        guard let result = model.importResult else { return model.importPlan == nil ? "Import Account" : "Review Import" }
-        return result.unresolved.isEmpty ? "Import Complete" : "Import Needs Attention"
+    AIMButton(title: "Verify locally", icon: .check, disabled: model.isBusy) {
+      Task { await model.verify() }
     }
+    AIMButton(title: "Copy path", icon: .copy) { model.copyProfilePath() }
+  }
+}
+private struct DetailRow: View {
+  let label: String, value: String
+  var zebra = false
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 16) {
+      Text(label).font(AIMTheme.sans(11, weight: .medium)).frame(width: 118, alignment: .leading)
+      Text(value).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+        .truncationMode(.middle).textSelection(.enabled)
+      Spacer()
+    }.padding(.horizontal, 16).frame(minHeight: 40).background(
+      zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
+  }
 }
 
-private struct ImportStepRail: View {
-    let step: Int
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(1...3, id: \.self) { item in
-                HStack(spacing: 6) {
-                    Text("\(item)")
-                        .font(.system(.caption2, design: .monospaced, weight: .semibold))
-                        .foregroundStyle(item <= step ? Color.white : UI.muted)
-                        .frame(width: 22, height: 22)
-                        .background(item <= step ? UI.blue : UI.muted.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
-                    if item < 3 {
-                        RoundedRectangle(cornerRadius: UI.radius).fill(item < step ? UI.blue : UI.muted.opacity(0.18)).frame(width: 18, height: 2)
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Import step \(step) of 3")
-    }
-}
-
-private struct SourceChooser: View {
-    @ObservedObject var model: AccountViewModel
-    @FocusState private var focusedSourceID: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SectionHeading(title: "Choose a Source", detail: "\(model.discoveries.count) detected")
-            Text("Choose a detected Codex home, or select a folder or auth.json file.").foregroundStyle(UI.muted)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.discoveries) { source in
-                        Button {
-                            model.selectedSourceID = source.id
-                        } label: {
-                            SourceRow(
-                                source: source,
-                                selected: source.id == model.selectedSourceID,
-                                focused: source.id == focusedSourceID
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .focused($focusedSourceID, equals: source.id)
-                        .focusEffectDisabled()
-                        .accessibilityLabel(source.identity?.displayName ?? source.support.label)
-                        .accessibilityValue("\(source.id == model.selectedSourceID ? "Selected, " : "")\(source.support.label)")
-                        .accessibilityHint(source.path.path)
-                    }
-                }
-            }
-            .background(UI.muted.opacity(0.05), in: RoundedRectangle(cornerRadius: UI.radius))
-            .onMoveCommand(perform: moveSelection)
-
-            VStack(alignment: .leading, spacing: 10) {
-                Eyebrow(text: "Import scope")
-                HStack(spacing: 8) {
-                    ChoiceButton(title: "Auth only", selected: model.importMode == .authOnly) {
-                        model.importMode = .authOnly
-                    }
-                    ChoiceButton(title: "Auth, settings, and chats", selected: model.importMode == .full) {
-                        model.importMode = .full
-                    }
-                }
-                Text(model.importMode == .authOnly
-                     ? "Imports credentials and links existing shared settings and chats. The source stays unchanged."
-                     : "Reviews settings conflicts and adds source chats to the shared library. Changes are backed up first.")
-                    .font(.caption)
-                    .foregroundStyle(UI.muted)
-            }
-            HStack(spacing: 12) {
-                Button("Choose Other...") { Task { await model.chooseSource() } }
-                    .buttonStyle(ProductiveButton(kind: .secondary))
-                    .productiveFocus(.secondary)
-                    .keyboardShortcut("o", modifiers: [.command])
-                Button("Refresh") { Task { await model.discover() } }
-                    .buttonStyle(ProductiveButton(kind: .secondary))
-                    .productiveFocus(.secondary)
-                    .keyboardShortcut("r", modifiers: [.command])
-                Spacer()
-                Button("Review Import") { Task { await model.reviewImport() } }
-                    .buttonStyle(ProductiveButton(kind: .primary))
-                    .productiveFocus(.primary)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.selectedSourceID == nil || model.isBusy || model.discoveries.first(where: { $0.id == model.selectedSourceID })?.support != .supportedChatGPT)
-            }
-        }
-    }
-
-    private func moveSelection(_ direction: MoveCommandDirection) {
-        guard direction == .up || direction == .down, !model.discoveries.isEmpty else { return }
-        let current = model.discoveries.firstIndex { $0.id == model.selectedSourceID }
-        let next: Int
-        if direction == .up {
-            next = max(0, (current ?? 1) - 1)
-        } else {
-            next = min(model.discoveries.count - 1, (current ?? -1) + 1)
-        }
-        model.selectedSourceID = model.discoveries[next].id
-        focusedSourceID = model.discoveries[next].id
-    }
-}
-
-private struct SourceRow: View {
-    let source: DiscoveredSource
-    let selected: Bool
-    let focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: UI.radius)
-                .fill(selected || focused ? UI.blue : .clear)
-                .frame(width: focused ? 5 : 4)
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(source.identity?.displayName ?? source.support.label).font(.system(.body, weight: .medium))
-                    Spacer()
-                    Label(source.support.label, systemImage: source.support == .supportedChatGPT ? "checkmark.circle" : "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(source.support == .supportedChatGPT ? UI.teal : UI.orange)
-                }
-                Text(source.path.path)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-                Text("\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived chats")
-                    .font(.caption)
-                    .foregroundStyle(UI.muted)
-                    .monospacedDigit()
-                if let error = source.inspectionError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(UI.orange)
-                }
-            }
-            .padding(14)
-        }
-        .background(
-            selected ? UI.blue.opacity(0.16) : ((focused || hovering) ? UI.blue.opacity(0.09) : UI.surface),
-            in: RoundedRectangle(cornerRadius: UI.radius)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: UI.radius))
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .onHover { value in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
-        }
-    }
-}
-
-private struct ImportReview: View {
-    let plan: ImportPlan
-    @ObservedObject var model: AccountViewModel
-
-    private var choicesComplete: Bool { plan.conflicts.allSatisfy { model.conflictChoices[$0.relativePath] != nil } }
-    private var externalReviewsComplete: Bool {
-        plan.conflicts.allSatisfy {
-            model.conflictChoices[$0.relativePath] != .useImported || $0.externalTarget == nil || $0.externalTargetBytes != nil
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    summary
-                    if !plan.warnings.isEmpty { warnings }
-                    if !plan.conflicts.isEmpty { conflicts }
-                    manifest
-                }
-            }
+private struct SharedSettingsPage: View {
+  @ObservedObject var model: AccountViewModel
+  private let shared = [
+    "config.toml", "AGENTS.md", "agents", "rules", "context", "skills", "plugins", "hooks.json",
+    "sessions", "archived_sessions",
+  ]
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        AIMPanel(title: "Shared root") {
+          VStack(spacing: 0) {
+            DetailRow(label: "Location", value: model.paths.sharedRoot.path)
             HStack {
-                Button("Back") { model.resetImport() }
-                    .buttonStyle(ProductiveButton(kind: .secondary))
-                    .productiveFocus(.secondary)
-                    .keyboardShortcut("[", modifiers: [.command])
+              Text("Every managed account uses this configuration and merged chat library.").font(
+                AIMTheme.sans(11)
+              ).foregroundStyle(AIMTheme.muted)
+              Spacer()
+              AIMButton(title: "Show in Finder", icon: .folder) { model.showSharedRoot() }
+            }.padding(16).background(AIMTheme.panel2.opacity(0.55))
+          }
+        }
+        AIMPanel(title: "Linked entries") {
+          VStack(spacing: 0) {
+            ForEach(Array(shared.enumerated()), id: \.element) { index, item in
+              HStack {
+                Text(item).font(AIMTheme.mono(11))
                 Spacer()
-                Button("Import Account") { Task { await model.commitImport() } }
-                    .buttonStyle(ProductiveButton(kind: .primary))
-                    .productiveFocus(.primary)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!choicesComplete || !externalReviewsComplete || model.isBusy)
+                Text(item.contains("session") ? "Merged history" : "Shared").font(AIMTheme.sans(10))
+                  .foregroundStyle(AIMTheme.muted)
+                AIMIcon(name: .check, size: 12).foregroundStyle(AIMTheme.green)
+              }.padding(.horizontal, 16).frame(height: 40).background(
+                index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
             }
+          }
         }
-    }
-
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeading(title: "Review the Plan", detail: "\(plan.manifest.filter(\.selected).count) selected")
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-                DefinitionRow(label: "Account", value: plan.identity.displayName)
-                DefinitionRow(label: "Destination", value: plan.destination.path, monospaced: true)
-                DefinitionRow(label: "Backup", value: plan.backup.path, monospaced: true)
-                DefinitionRow(label: "Space needed", value: ByteCountFormatter.string(fromByteCount: plan.requiredBytes, countStyle: .file))
-            }
+        if let issues = model.status?.linkedSettingsDivergences, !issues.isEmpty {
+          Notice(
+            text:
+              "\(issues.count) linked setting\(issues.count == 1 ? "" : "s") need review on the Accounts page.",
+            tone: AIMTheme.amber)
         }
-    }
+        if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
 
-    private var warnings: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Eyebrow(text: "Warnings")
-            ForEach(plan.warnings, id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(UI.orange)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(UI.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
-            }
+private struct HistoryPage: View {
+  @ObservedObject var model: AccountViewModel
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        HStack(spacing: 8) {
+          Metric(
+            label: "Accounts", value: "\(model.status?.accounts.count ?? 0)",
+            detail: "share one library")
+          Metric(label: "Library", value: "Merged", detail: "active + archived")
+          Metric(label: "Indexes", value: "Per profile", detail: "kept independent")
         }
-    }
-
-    private var conflicts: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Eyebrow(text: "Conflicts · \(plan.conflicts.count)")
-            ForEach(plan.conflicts) { conflict in
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(conflict.relativePath).font(.system(.headline, design: .monospaced)).textSelection(.enabled)
-                    Text(conflict.affectsAllAccounts
-                         ? "This settings choice affects every linked account."
-                         : "The managed credential differs from this source. Choose which credential to keep.")
-                        .font(.caption)
-                        .foregroundStyle(UI.muted)
-                    if let target = conflict.externalTarget {
-                        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                            DefinitionRow(label: "Linked target", value: target.path, monospaced: true)
-                            if let bytes = conflict.externalTargetBytes {
-                                DefinitionRow(label: "Reviewed size", value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
-                                DefinitionRow(label: "Fingerprint", value: conflict.importedDigest, monospaced: true)
-                            }
-                        }
-                        if model.conflictChoices[conflict.relativePath] == .useImported && conflict.externalTargetBytes == nil {
-                            Label("Review this linked target before importing it.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(UI.orange)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 8) {
-                            ChoiceButton(
-                                title: "Choose...",
-                                selected: model.conflictChoices[conflict.relativePath] == nil
-                            ) { model.conflictChoices[conflict.relativePath] = nil }
-                            ChoiceButton(
-                                title: conflict.affectsAllAccounts ? "Keep shared" : "Keep managed",
-                                selected: model.conflictChoices[conflict.relativePath] == .keepShared
-                            ) { model.conflictChoices[conflict.relativePath] = .keepShared }
-                            ChoiceButton(
-                                title: "Use imported",
-                                selected: model.conflictChoices[conflict.relativePath] == .useImported
-                            ) { model.conflictChoices[conflict.relativePath] = .useImported }
-                        }
-                        if conflict.externalTarget != nil,
-                           model.conflictChoices[conflict.relativePath] == .useImported,
-                           conflict.externalTargetBytes == nil {
-                            Button("Review Linked Data") { Task { await model.reviewExternalSetting(conflict.relativePath) } }
-                                .buttonStyle(ProductiveButton(kind: .secondary))
-                                .productiveFocus(.secondary)
-                                .disabled(model.isBusy)
-                        }
-                    }
+        AIMPanel(title: "Resume availability") {
+          VStack(spacing: 0) {
+            HStack {
+              Header("Account")
+              Spacer()
+              Header("Active")
+              Header("Archived")
+              Header("Index")
+            }.padding(.horizontal, 16).frame(height: 30).background(AIMTheme.panel2)
+            ForEach(Array((model.status?.accounts ?? []).enumerated()), id: \.element.id) {
+              index, account in
+              HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium))
+                  Text(account.home.lastPathComponent).font(AIMTheme.mono(9)).foregroundStyle(
+                    AIMTheme.muted)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(UI.muted.opacity(0.08), in: RoundedRectangle(cornerRadius: UI.radius))
+                Spacer()
+                Text("475").font(AIMTheme.mono(11)).frame(width: 70, alignment: .trailing)
+                Text("92").font(AIMTheme.mono(11)).frame(width: 70, alignment: .trailing)
+                AIMIcon(name: .check, size: 12).foregroundStyle(AIMTheme.green).frame(
+                  width: 70, alignment: .trailing)
+              }.padding(.horizontal, 16).frame(minHeight: 44).background(
+                index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
             }
+          }
         }
-    }
+        Notice(
+          text:
+            "New Codex sessions opened from either account can resume the same merged history. Existing processes keep the account they started with.",
+          tone: AIMTheme.blue)
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
+private struct Metric: View {
+  let label: String, value: String, detail: String
+  var body: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(label.uppercased()).font(AIMTheme.sans(9, weight: .semibold)).tracking(0.7)
+        .foregroundStyle(AIMTheme.muted)
+      Text(value).font(AIMTheme.mono(20, weight: .medium))
+      Text(detail).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+    }.padding(12).frame(maxWidth: .infinity, minHeight: 72, alignment: .leading).background(
+      AIMTheme.panel
+    ).clipShape(RoundedRectangle(cornerRadius: 2))
+  }
+}
+private struct Header: View {
+  let text: String
+  init(_ text: String) { self.text = text }
+  var body: some View {
+    Text(text.uppercased()).font(AIMTheme.sans(10, weight: .semibold)).foregroundStyle(
+      AIMTheme.muted
+    ).frame(width: text == "Account" ? nil : 70, alignment: .trailing)
+  }
+}
 
-    private var manifest: some View {
-        DisclosureGroup {
-            LazyVStack(spacing: 0) {
-                ForEach(plan.manifest) { entry in
-                    HStack(spacing: 10) {
-                        Image(systemName: entry.selected ? "checkmark.circle.fill" : "minus.circle")
-                            .foregroundStyle(entry.selected ? UI.teal : UI.muted)
-                        Text(entry.relativePath).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        Spacer()
-                        Text(entry.disposition).font(.caption).foregroundStyle(UI.muted)
-                    }
-                    .padding(.vertical, 8)
-                }
+private struct RecoveryPage: View {
+  @ObservedObject var model: AccountViewModel
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        AIMPanel(title: "Pending operations") {
+          VStack(spacing: 0) {
+            if let operations = model.status?.pendingRecovery, !operations.isEmpty {
+              ForEach(Array(operations.enumerated()), id: \.element.id) { index, item in
+                HStack(spacing: 12) {
+                  AIMIcon(name: .warning, size: 15).foregroundStyle(AIMTheme.amber)
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(item.kind.capitalized).font(AIMTheme.sans(12, weight: .semibold))
+                    Text(item.destination.path).font(AIMTheme.mono(9)).foregroundStyle(
+                      AIMTheme.muted
+                    ).lineLimit(1)
+                  }
+                  Spacer()
+                  Badge(text: item.phase.rawValue, color: AIMTheme.amber)
+                }.padding(.horizontal, 16).frame(minHeight: 48).background(
+                  index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
+              }
+            } else {
+              Text("No interrupted operations need recovery.").font(AIMTheme.sans(12))
+                .foregroundStyle(AIMTheme.muted).padding(16).frame(
+                  maxWidth: .infinity, alignment: .leading)
             }
+          }
+        }
+        AIMPanel(title: "Recovery policy") {
+          VStack(spacing: 0) {
+            DetailRow(
+              label: "Before import", value: "Review destination, conflicts, and required space")
+            DetailRow(
+              label: "During import", value: "Back up, stage, verify, then publish", zebra: true)
+            DetailRow(
+              label: "On failure", value: "Keep prior credentials and preserve a recovery journal")
+          }
+        }
+        HStack {
+          Text("Recovery never deletes source data.").font(AIMTheme.sans(11)).foregroundStyle(
+            AIMTheme.muted)
+          Spacer()
+          AIMButton(
+            title: "Recover operations", icon: .recovery, tone: .primary,
+            disabled: model.status?.pendingRecovery.isEmpty != false || model.isBusy
+          ) { Task { await model.recover() } }
+        }.padding(12).background(AIMTheme.panel)
+        if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
+private struct Notice: View {
+  let text: String, tone: Color
+  var body: some View {
+    HStack(alignment: .top, spacing: 10) {
+      AIMIcon(name: .warning, size: 14).foregroundStyle(tone)
+      Text(text).font(AIMTheme.sans(11)).textSelection(.enabled)
+      Spacer()
+    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AIMTheme.panel)
+  }
+}
+private struct ErrorBar: View {
+  let message: String, dismiss: () -> Void
+  var body: some View {
+    HStack(spacing: 10) {
+      AIMIcon(name: .warning, size: 14).foregroundStyle(AIMTheme.red)
+      Text(message).font(AIMTheme.sans(11)).lineLimit(2).textSelection(.enabled)
+      Spacer()
+      Button("Dismiss", action: dismiss).buttonStyle(.plain).font(
+        AIMTheme.sans(11, weight: .semibold))
+    }.padding(12).background(AIMTheme.panel).overlay {
+      RoundedRectangle(cornerRadius: 2).stroke(AIMTheme.red, lineWidth: 1)
+    }
+  }
+}
+
+private struct ImportFlow: View {
+  @ObservedObject var model: AccountViewModel
+  @FocusState private var closeFocused: Bool
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack {
+        Text(title).font(AIMTheme.sans(22, weight: .semibold))
+        Spacer()
+        ImportSteps(step: step)
+        Button {
+          model.showImport = false
         } label: {
-            Text("Files in this import (\(plan.manifest.count))").font(.system(.body, weight: .medium))
+          AIMIcon(name: .close, size: 14).frame(width: 40, height: 40).background(AIMTheme.control)
+        }.buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close import")
+          .focused($closeFocused)
+      }.padding(.leading, 24).frame(height: 56).background(AIMTheme.panel2)
+      if let error = model.errorMessage {
+        ErrorBar(message: error) { model.errorMessage = nil }.padding(.horizontal, 24).padding(
+          .top, 12)
+      }
+      Group {
+        if let result = model.importResult {
+          ImportResultPage(result: result)
+        } else if let plan = model.importPlan {
+          ImportReviewPage(plan: plan, model: model)
+        } else {
+          SourcePage(model: model)
         }
-    }
+      }.disabled(model.isBusy)
+      if model.isBusy {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Working…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+        }.padding(10)
+      }
+    }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel).frame(
+      maxWidth: .infinity, maxHeight: .infinity
+    )
+    .onAppear { closeFocused = true }
+  }
+  private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
+  private var title: String {
+    step == 1 ? "Import Account" : step == 2 ? "Review Import" : "Import Result"
+  }
+}
+private struct ImportSteps: View {
+  let step: Int
+  var body: some View {
+    HStack(spacing: 2) {
+      ForEach(1...3, id: \.self) { n in
+        Text("\(n)").font(AIMTheme.mono(10, weight: .semibold)).foregroundStyle(
+          n <= step ? AIMTheme.activeInk : AIMTheme.muted
+        ).frame(width: 28, height: 22).background(n <= step ? AIMTheme.active : AIMTheme.control)
+      }
+    }.clipShape(RoundedRectangle(cornerRadius: 2)).accessibilityElement(children: .ignore)
+      .accessibilityLabel("Step \(step) of 3")
+  }
 }
 
-private struct ImportResultView: View {
-    let result: ImportResult
-    private var complete: Bool { result.unresolved.isEmpty }
-
-    var body: some View {
+private struct SourcePage: View {
+  @ObservedObject var model: AccountViewModel
+  var body: some View {
+    VStack(spacing: 8) {
+      AIMPanel(title: "Source") {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                HStack(alignment: .top, spacing: 18) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: UI.radius).fill(complete ? UI.teal : UI.orange)
-                        Image(systemName: complete ? "checkmark" : "exclamationmark")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                    .frame(width: 60, height: 60)
-                    .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Eyebrow(text: complete ? "Import complete" : "Review required")
-                        Text(complete ? "Account imported" : "Imported with unresolved items")
-                            .font(.system(size: 26, weight: .semibold))
-                        Text(result.verification.detail).foregroundStyle(UI.muted)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 14) {
-                    SectionHeading(title: "Import Result", detail: "\(result.importedChats) chats")
-                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-                        DefinitionRow(label: "Profile", value: result.account.home.path, monospaced: true)
-                        DefinitionRow(label: "Backup", value: result.backup.path, monospaced: true)
-                        DefinitionRow(label: "Imported", value: "\(result.importedFiles) files and \(result.importedChats) chats")
-                    }
-                }
-                if !result.unresolved.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Eyebrow(text: "Unresolved items · \(result.unresolved.count)")
-                        ForEach(result.unresolved, id: \.self) { item in
-                            Label(item, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(UI.orange)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                                .background(UI.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
-                        }
-                    }
-                }
-                Text("The imported account is not the default until you choose Use by Default.")
-                    .foregroundStyle(UI.muted)
+          LazyVStack(spacing: 0) {
+            ForEach(Array(model.discoveries.enumerated()), id: \.element.id) { index, source in
+              Button {
+                model.selectedSourceID = source.id
+              } label: {
+                HStack(spacing: 12) {
+                  ZStack {
+                    Rectangle().stroke(AIMTheme.ink.opacity(0.35), lineWidth: 1)
+                    if source.id == model.selectedSourceID { AIMIcon(name: .check, size: 11) }
+                  }.frame(width: 14, height: 14)
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(source.identity?.displayName ?? source.support.label).font(
+                      AIMTheme.sans(12, weight: .medium))
+                    Text(source.path.path).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+                      .lineLimit(1)
+                    Text(
+                      "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
+                    ).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+                  }
+                  Spacer()
+                  Badge(
+                    text: source.support.label,
+                    color: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber)
+                }.padding(.horizontal, 16).frame(minHeight: 54).background(
+                  index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55)
+                ).contentShape(Rectangle())
+              }.buttonStyle(.plain)
             }
-            .frame(maxWidth: 760, alignment: .leading)
-        }
-    }
+          }
+        }.frame(minHeight: 190)
+      }
+      AIMPanel(title: "Import scope") {
+        HStack(spacing: 4) {
+          Choice(title: "Auth only", selected: model.importMode == .authOnly) {
+            model.importMode = .authOnly
+          }
+          Choice(title: "Auth, settings, and chats", selected: model.importMode == .full) {
+            model.importMode = .full
+          }
+          Spacer()
+        }.padding(8)
+      }
+      Text(
+        model.importMode == .authOnly
+          ? "Imports credentials and links the existing shared settings and history. The source stays unchanged."
+          : "Reviews shared settings conflicts and adds source chats to the merged library. Everything affected is backed up first."
+      ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
+        maxWidth: .infinity, alignment: .leading)
+      HStack(spacing: 4) {
+        AIMButton(title: "Choose other…", icon: .folder) { Task { await model.chooseSource() } }
+        AIMButton(title: "Refresh", icon: .refresh) { Task { await model.discover() } }
+        Spacer()
+        AIMButton(
+          title: "Review import", tone: .primary,
+          disabled: model.selectedSourceID == nil
+            || model.discoveries.first(where: { $0.id == model.selectedSourceID })?.support
+              != .supportedChatGPT
+        ) { Task { await model.reviewImport() } }
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
+private struct Choice: View {
+  let title: String, selected: Bool, action: () -> Void
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 7) {
+        ZStack {
+          Rectangle().stroke(selected ? AIMTheme.activeInk : AIMTheme.ink.opacity(0.35))
+          if selected { AIMIcon(name: .check, size: 10) }
+        }.frame(width: 14, height: 14)
+        Text(title)
+      }.font(AIMTheme.sans(11, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
+        .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background(
+          selected ? AIMTheme.active : AIMTheme.control)
+    }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+  }
 }
 
-private extension AccountIdentity {
-    var heroName: String { email ?? accountID ?? "Unresolved account" }
-
-    var displayName: String {
-        if let email, let workspaceID { return "\(email) · \(workspaceID)" }
-        return email ?? accountID ?? "Unresolved account"
+private struct ImportReviewPage: View {
+  let plan: ImportPlan
+  @ObservedObject var model: AccountViewModel
+  private var complete: Bool {
+    plan.conflicts.allSatisfy {
+      model.conflictChoices[$0.relativePath] != nil
+        && (model.conflictChoices[$0.relativePath] != .useImported || $0.externalTarget == nil
+          || $0.externalTargetBytes != nil)
     }
+  }
+  var body: some View {
+    VStack(spacing: 8) {
+      ScrollView {
+        VStack(spacing: 8) {
+          AIMPanel(title: "Plan") {
+            VStack(spacing: 0) {
+              DetailRow(label: "Account", value: plan.identity.displayName)
+              DetailRow(label: "Destination", value: plan.destination.path, zebra: true)
+              DetailRow(label: "Backup", value: plan.backup.path)
+              DetailRow(
+                label: "Space needed",
+                value: ByteCountFormatter.string(
+                  fromByteCount: plan.requiredBytes, countStyle: .file), zebra: true)
+            }
+          }
+          if !plan.warnings.isEmpty {
+            AIMPanel(title: "Warnings") {
+              VStack(spacing: 0) {
+                ForEach(plan.warnings, id: \.self) { Notice(text: $0, tone: AIMTheme.amber) }
+              }
+            }
+          }
+          if !plan.conflicts.isEmpty {
+            AIMPanel(title: "Conflicts") {
+              VStack(spacing: 0) {
+                ForEach(plan.conflicts) { conflict in
+                  VStack(alignment: .leading, spacing: 8) {
+                    Text(conflict.relativePath).font(AIMTheme.mono(11, weight: .semibold))
+                    Text(
+                      conflict.affectsAllAccounts
+                        ? "This settings choice affects every linked account."
+                        : "The managed credential differs from this source."
+                    ).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+                    HStack(spacing: 4) {
+                      Choice(
+                        title: conflict.affectsAllAccounts ? "Keep shared" : "Keep managed",
+                        selected: model.conflictChoices[conflict.relativePath] == .keepShared
+                      ) { model.conflictChoices[conflict.relativePath] = .keepShared }
+                      Choice(
+                        title: "Use imported",
+                        selected: model.conflictChoices[conflict.relativePath] == .useImported
+                      ) { model.conflictChoices[conflict.relativePath] = .useImported }
+                      if conflict.externalTarget != nil
+                        && model.conflictChoices[conflict.relativePath] == .useImported
+                        && conflict.externalTargetBytes == nil
+                      {
+                        AIMButton(title: "Review linked data", disabled: model.isBusy) {
+                          Task { await model.reviewExternalSetting(conflict.relativePath) }
+                        }
+                      }
+                    }
+                  }.padding(12).overlay(alignment: .bottom) {
+                    Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
+                  }
+                }
+              }
+            }
+          }
+          AIMPanel(title: "Manifest · \(plan.manifest.filter(\.selected).count) selected") {
+            VStack(spacing: 0) {
+              ForEach(plan.manifest) { entry in
+                HStack {
+                  AIMIcon(name: entry.selected ? .check : .minimize, size: 12).foregroundStyle(
+                    entry.selected ? AIMTheme.green : AIMTheme.faint)
+                  Text(entry.relativePath).font(AIMTheme.mono(10))
+                  Spacer()
+                  Text(entry.disposition).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+                }.padding(.horizontal, 16).frame(height: 36)
+              }
+            }
+          }
+        }
+      }
+      HStack {
+        AIMButton(title: "Back") { model.resetImport() }
+        Spacer()
+        AIMButton(title: "Import account", tone: .primary, disabled: !complete || model.isBusy) {
+          Task { await model.commitImport() }
+        }
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
+private struct ImportResultPage: View {
+  let result: ImportResult
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        AIMPanel(title: result.unresolved.isEmpty ? "Import complete" : "Review required") {
+          HStack(spacing: 14) {
+            ZStack {
+              AIMTheme.green
+              AIMIcon(name: result.unresolved.isEmpty ? .check : .warning, size: 24)
+                .foregroundStyle(AIMTheme.activeInk)
+            }.frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 3) {
+              Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
+              Text(result.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
+                AIMTheme.muted)
+            }
+            Spacer()
+          }.padding(16)
+        }
+        AIMPanel(title: "Result") {
+          VStack(spacing: 0) {
+            DetailRow(label: "Profile", value: result.account.home.path)
+            DetailRow(label: "Backup", value: result.backup.path, zebra: true)
+            DetailRow(
+              label: "Imported",
+              value: "\(result.importedFiles) files and \(result.importedChats) chats")
+          }
+        }
+        if !result.unresolved.isEmpty {
+          AIMPanel(title: "Unresolved items") {
+            VStack(spacing: 0) {
+              ForEach(result.unresolved, id: \.self) { Notice(text: $0, tone: AIMTheme.amber) }
+            }
+          }
+        }
+        Notice(
+          text:
+            "The imported account is ready. It becomes the default only after you choose Use by default.",
+          tone: AIMTheme.blue)
+      }
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
 }
 
-private extension VerificationState {
-    var label: String {
-        switch self {
-        case .imported: "Imported"
-        case .needsSignIn: "Needs sign-in"
-        case .verifiedLocally: "Verified locally"
-        case .verifiedWithCodex: "Verified with Codex"
-        case .unsupported: "Unsupported"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .verifiedLocally, .verifiedWithCodex: "checkmark.circle"
-        case .needsSignIn: "person.crop.circle.badge.exclamationmark"
-        case .unsupported: "xmark.circle"
-        case .imported: "tray.and.arrow.down"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .verifiedLocally, .verifiedWithCodex: UI.teal
-        case .needsSignIn: UI.orange
-        case .unsupported: UI.red
-        case .imported: UI.blue
-        }
-    }
+extension AccountIdentity {
+  fileprivate var heroName: String { email ?? accountID ?? "Unresolved account" }
+  fileprivate var displayName: String {
+    if let email, let workspaceID { return "\(email) · \(workspaceID)" }
+    return email ?? accountID ?? "Unresolved account"
+  }
 }
-
-private extension SourceSupport {
-    var label: String {
-        switch self {
-        case .supportedChatGPT: "ChatGPT account"
-        case .apiKey: "API key is outside v1"
-        case .missingAuth: "Missing auth.json"
-        case .malformedAuth: "Malformed auth.json"
-        case .keychainOnly: "Keychain-only auth is unsupported"
-        case .unknown: "Unknown auth format"
-        }
+extension VerificationState {
+  fileprivate var label: String {
+    switch self {
+    case .imported: "Imported"
+    case .needsSignIn: "Needs sign-in"
+    case .verifiedLocally: "Verified locally"
+    case .verifiedWithCodex: "Verified with Codex"
+    case .unsupported: "Unsupported"
     }
+  }
+  fileprivate var color: Color {
+    switch self {
+    case .verifiedLocally, .verifiedWithCodex: AIMTheme.green
+    case .needsSignIn: AIMTheme.amber
+    case .unsupported: AIMTheme.red
+    case .imported: AIMTheme.blue
+    }
+  }
+}
+extension SourceSupport {
+  fileprivate var label: String {
+    switch self {
+    case .supportedChatGPT: "ChatGPT account"
+    case .apiKey: "API key"
+    case .missingAuth: "Missing auth"
+    case .malformedAuth: "Malformed auth"
+    case .keychainOnly: "Keychain only"
+    case .unknown: "Unknown format"
+    }
+  }
 }

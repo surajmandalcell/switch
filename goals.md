@@ -1235,13 +1235,52 @@ Local native tests and packaging remain the executed verification evidence.
   `packages/core/Sources/AIManagerCore/AccountManager.swift:398`, with the reliable
   home-specific lock/probe upgrade trigger and zero missing triggers.
 
-### Next action
+### Recap Pro design-review revision (2026-09-12)
+
+The GUI now uses the current Producer shell and component styling: a 48px
+navigation rail, 56px titlebar, bundled Geist and Geist Mono, 2px component
+corners, exact light/dark palette, compact panels, and offset-arc title cells.
+Accounts, shared settings, history, recovery, and import source/review/result
+pages use the same design. A Demo menu exposes sample, empty, and issue states.
+The small animated logo field is rendered natively; it approximates the
+reference WebGPU effect rather than sharing that renderer.
+
+Both GUI entry points now construct only the in-memory demo model. Source
+discovery, imports, conflict decisions, verification, switching, launch, copy,
+Finder, repair, and recovery actions have no real account side effects. Separate
+imports retain distinct identities; reimport updates the matching demo account.
+Pending mock actions are cancelled by a demo reset. The preview writes only
+nonfatal window acceptance receipts in the canonical build artifacts directory.
+The CLI and core retain their real behavior and conservative writer protection.
+
+Validation: the native suite ran 48 tests with two existing gated skips and no
+failures. The new `scripts/check-gui-demo.sh` passes its multi-source import,
+conflict, switching, verification, recovery, stale-action, and no-file-write
+checks, and runs in the normal native check command. The preview's live window
+contract passes bounds, native style, key/main capability, menu, and Geist font
+checks. Native Computer exercised both import modes through results (full: three
+files/248 chats; auth-only: one file/zero chats), account selection, verification,
+default switching, empty/issues states, settings, history, and recovery. Screenshot
+inspection confirms mock Open/Copy notices, and both reference light/dark palettes
+after fixing AppKit appearance propagation. The import panel is now a custom 2px
+overlay; full import and Escape dismissal also pass at 720x500. Native close and
+minimize event receipts pass. Pointer-hover automation remains unavailable; its
+shared hover region and delayed minimize dismissal are source-reviewed. CLI
+acceptance passes. Final installed-build verification follows the clean commit.
+
+Ponytail inventory: one unchanged marker in
+`packages/core/Sources/AIManagerCore/AccountManager.swift:398`; all Codex
+processes block real mutations until Codex exposes a reliable home-scoped lock
+or probe. Zero missing triggers, no new marker from this redesign.
+
+### Next action (production functionality, deferred during design review)
 
 The square-window app and sample preview are installed, and the recorded sample flow
 and window checks pass. Live
 VoiceOver verification is no longer a gate. Native Terminal handoff remains unexercised under the
 focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
-production app retains conservative writer checks. These limits must not be represented
+CLI retains conservative writer checks; the installed GUI is now the mock design build.
+These limits must not be represented
 as completed production mutation or Terminal checks. The core migration and history evidence
 is recorded above; do not mark the full G1–G6 goal complete before remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.

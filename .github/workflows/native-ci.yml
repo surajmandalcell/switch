@@ -10,6 +10,8 @@ on:
       - packaging/**
       - scripts/build-native.sh
       - scripts/check-native.sh
+      - scripts/check-gui-demo.sh
+      - scripts/build-gui-acceptance.sh
       - scripts/verify-codex-history.py
       - .github/workflows/native-ci.yml
       - .gitignore
