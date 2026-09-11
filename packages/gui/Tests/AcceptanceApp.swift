@@ -7,78 +7,39 @@ import AIManagerCore
 private struct WindowContractReceipt: Codable {
     let passed: Bool
     let failures: [String]
+    let window: WindowContractObservation?
 }
 
-@MainActor
-private final class AcceptanceStartup: ObservableObject {
-    let fixture: AcceptanceFixture?
-    let model: AccountViewModel?
-    let errorMessage: String?
-    private var modelObserver: AnyCancellable?
+private struct WindowContractObservation: Codable {
+    let stage: String
+    let windowClass: String
+    let windowNumber: Int
+    let minWidth: Double
+    let minHeight: Double
+    let maxWidth: Double
+    let maxHeight: Double
+    let contentMinWidth: Double
+    let contentMinHeight: Double
+    let contentMaxWidth: Double
+    let contentMaxHeight: Double
 
-    init() {
-        do {
-            let fixture = try AcceptanceFixture()
-            let model = AccountViewModel(paths: fixture.paths, manager: fixture.manager)
-            self.fixture = fixture
-            self.model = model
-            errorMessage = nil
-            modelObserver = model.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
-        } catch {
-            fixture = nil
-            model = nil
-            errorMessage = "The isolated preview data could not be created. Rebuild the preview and try again."
-        }
+    init(stage: String, window: NSWindow) {
+        self.stage = stage
+        windowClass = NSStringFromClass(type(of: window))
+        windowNumber = window.windowNumber
+        minWidth = window.minSize.width
+        minHeight = window.minSize.height
+        maxWidth = window.maxSize.width
+        maxHeight = window.maxSize.height
+        contentMinWidth = window.contentMinSize.width
+        contentMinHeight = window.contentMinSize.height
+        contentMaxWidth = window.contentMaxSize.width
+        contentMaxHeight = window.contentMaxSize.height
     }
 }
 
-@main
-struct AIManagerGUIAcceptanceApp: App {
-    @StateObject private var startup = AcceptanceStartup()
-
-    var body: some Scene {
-        WindowGroup("AI Manager GUI Acceptance", id: Self.isEnabled(argument: "--narrow", infoKey: "AIManagerGUINarrow") ? "narrow" : "standard") {
-            Group {
-                if let model = startup.model, let fixture = startup.fixture {
-                    AccountWindow(model: model)
-                        .task {
-                            fixture.observeWindowEvents()
-                            if Self.isEnabled(argument: "--seeded", infoKey: "AIManagerGUISeeded") {
-                                await fixture.seed(model: model)
-                            }
-                            await model.load()
-                            try? await Task.sleep(for: .milliseconds(300))
-                            Self.checkWindowContract(fixture: fixture)
-                        }
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Preview could not start").font(.title2.weight(.semibold))
-                        Text(startup.errorMessage ?? "The isolated preview data is unavailable.")
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(32)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
-            }
-                .frame(minWidth: 720, maxWidth: 1840, minHeight: 500, maxHeight: 1240)
-                .preferredColorScheme(Self.appearance)
-        }
-        .defaultSize(width: Self.initialSize.width, height: Self.initialSize.height)
-        .windowResizability(.contentSize)
-        .windowStyle(.hiddenTitleBar)
-        .commands {
-            CommandGroup(after: .newItem) {
-                Button("Import Account...") {
-                    guard let model = startup.model else { return }
-                    Task { await model.beginImport() }
-                }
-                    .keyboardShortcut("i", modifiers: [.command])
-                    .disabled(startup.model?.isBusy != false)
-            }
-        }
-    }
-
-    private static var appearance: ColorScheme? {
+private enum AcceptanceConfiguration {
+    static var appearance: ColorScheme? {
         if CommandLine.arguments.contains("--dark") { return .dark }
         if CommandLine.arguments.contains("--light") { return .light }
         switch Bundle.main.object(forInfoDictionaryKey: "AIManagerGUIAppearance") as? String {
@@ -88,44 +49,149 @@ struct AIManagerGUIAcceptanceApp: App {
         }
     }
 
-    private static var initialSize: CGSize {
+    static var initialSize: NSSize {
         isEnabled(argument: "--narrow", infoKey: "AIManagerGUINarrow")
-            ? CGSize(width: 720, height: 500)
-            : CGSize(width: 920, height: 620)
+            ? NSSize(width: 720, height: 500)
+            : NSSize(width: 920, height: 620)
     }
 
-    private static func isEnabled(argument: String, infoKey: String) -> Bool {
+    static func isEnabled(argument: String, infoKey: String) -> Bool {
         CommandLine.arguments.contains(argument) || (Bundle.main.object(forInfoDictionaryKey: infoKey) as? Bool == true)
     }
+}
 
-    private static func checkWindowContract(fixture: AcceptanceFixture) {
-        var failures: [String] = []
-        func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
-            if !condition() { failures.append(message) }
+@MainActor
+private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
+    let fixture: AcceptanceFixture?
+    let model: AccountViewModel?
+    let errorMessage: String?
+    private var windowController: AIManagerWindowController<AnyView>?
+    private var modelObservers = Set<AnyCancellable>()
+
+    override init() {
+        do {
+            let fixture = try AcceptanceFixture()
+            let model = AccountViewModel(paths: fixture.paths, manager: fixture.manager)
+            self.fixture = fixture
+            self.model = model
+            errorMessage = nil
+        } catch {
+            fixture = nil
+            model = nil
+            errorMessage = "The isolated preview data could not be created. Rebuild the preview and try again."
         }
-        guard let window = NSApp.windows.first(where: { !($0 is NSPanel) }) else {
-            fixture.writeWindowContract(WindowContractReceipt(passed: false, failures: ["Acceptance window did not resolve"]))
-            return
-        }
-        expect(window.canBecomeKey, "Acceptance window cannot become key")
-        expect(!window.styleMask.contains(.titled), "Acceptance window is still titled")
-        expect(window.styleMask.contains(.resizable), "Acceptance window is not resizable")
-        expect(window.styleMask.contains(.closable), "Acceptance window is not closable")
-        expect(window.styleMask.contains(.miniaturizable), "Acceptance window is not miniaturizable")
-        expect(window.styleMask.contains(.fullSizeContentView), "Acceptance content is not full size")
-        expect(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
-        expect(window.minSize == NSSize(width: 720, height: 500), "Acceptance window minimum changed")
-        expect(window.maxSize == NSSize(width: 1840, height: 1240), "Acceptance window size cap changed")
-        expect(window.titlebarSeparatorStyle == .none, "Native titlebar separator is visible")
-        expect(window.standardWindowButton(.closeButton)?.isHidden != false, "Native close button is visible")
-        expect(window.standardWindowButton(.miniaturizeButton)?.isHidden != false, "Native minimize button is visible")
-        expect(window.standardWindowButton(.zoomButton)?.isHidden != false, "Native zoom button is visible")
-        expect(window.standardWindowButton(.zoomButton)?.isEnabled != true, "Native zoom remains enabled")
-        let receipt = WindowContractReceipt(passed: failures.isEmpty, failures: failures)
-        fixture.writeWindowContract(receipt)
-        let status = failures.isEmpty ? "WINDOW_CONTRACT_PASS\n" : "WINDOW_CONTRACT_FAIL: \(failures.joined(separator: "; "))\n"
-        FileHandle.standardError.write(Data(status.utf8))
+        super.init()
     }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let content: AnyView
+        if let model, let fixture {
+            model.$selectedAccountID
+                .dropFirst()
+                .sink { _ in checkWindowContract(fixture: fixture, stage: "after-account-change") }
+                .store(in: &modelObservers)
+            model.$showImport
+                .dropFirst()
+                .sink { _ in checkWindowContract(fixture: fixture, stage: "after-import-state-change") }
+                .store(in: &modelObservers)
+            content = AnyView(
+                AccountWindow(model: model)
+                    .preferredColorScheme(AcceptanceConfiguration.appearance)
+                    .task {
+                        fixture.observeWindowEvents()
+                        if AcceptanceConfiguration.isEnabled(argument: "--seeded", infoKey: "AIManagerGUISeeded") {
+                            await fixture.seed(model: model)
+                        }
+                        await model.load()
+                        try? await Task.sleep(for: .milliseconds(300))
+                        checkWindowContract(fixture: fixture, stage: "after-seed")
+                    }
+            )
+        } else {
+            content = AnyView(
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Preview could not start").font(.title2.weight(.semibold))
+                    Text(errorMessage ?? "The isolated preview data is unavailable.")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .preferredColorScheme(AcceptanceConfiguration.appearance)
+            )
+        }
+
+        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "AI Manager GUI Acceptance"
+        let controller = AIManagerWindowController(
+            title: title,
+            initialSize: AcceptanceConfiguration.initialSize,
+            rootView: content
+        )
+        windowController = controller
+        controller.present()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { windowController?.present() }
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+@main
+enum AIManagerGUIAcceptanceApp {
+    @MainActor
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = AcceptanceAppDelegate()
+        application.setActivationPolicy(.regular)
+        application.delegate = delegate
+        withExtendedLifetime(delegate) {
+            application.run()
+        }
+    }
+}
+
+@MainActor
+private func checkWindowContract(fixture: AcceptanceFixture, stage: String) {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+        if !condition() { failures.append(message) }
+    }
+    guard let window = NSApp.windows.first(where: { $0 is AIManagerWindow }) else {
+        fixture.writeWindowContract(WindowContractReceipt(
+            passed: false,
+            failures: ["Acceptance AIManagerWindow did not resolve"],
+            window: nil
+        ))
+        return
+    }
+    expect(window.canBecomeKey, "Acceptance window cannot become key")
+    expect(window.canBecomeMain, "Acceptance window cannot become main")
+    expect(!window.styleMask.contains(.titled), "Acceptance window is still titled")
+    expect(window.styleMask.contains(.resizable), "Acceptance window is not resizable")
+    expect(window.styleMask.contains(.closable), "Acceptance window is not closable")
+    expect(window.styleMask.contains(.miniaturizable), "Acceptance window is not miniaturizable")
+    expect(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
+    expect(
+        window.minSize == NSSize(width: 720, height: 500),
+        "Acceptance window minimum changed to \(NSStringFromSize(window.minSize))"
+    )
+    expect(
+        window.maxSize == NSSize(width: 1840, height: 1240),
+        "Acceptance window size cap changed to \(NSStringFromSize(window.maxSize))"
+    )
+    expect(window.standardWindowButton(.closeButton) == nil, "Native close button exists")
+    expect(window.standardWindowButton(.miniaturizeButton) == nil, "Native minimize button exists")
+    expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
+    let receipt = WindowContractReceipt(
+        passed: failures.isEmpty,
+        failures: failures,
+        window: WindowContractObservation(stage: stage, window: window)
+    )
+    fixture.writeWindowContract(receipt)
+    let status = failures.isEmpty ? "WINDOW_CONTRACT_PASS\n" : "WINDOW_CONTRACT_FAIL: \(failures.joined(separator: "; "))\n"
+    FileHandle.standardError.write(Data(status.utf8))
 }
 
 @MainActor
