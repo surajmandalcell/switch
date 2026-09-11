@@ -7,9 +7,10 @@ chat history, and opens Codex with a selected account.
 Development status: native targets, synthetic contracts, and protected-copy
 preservation checks pass. The custom borderless GUI passes isolated auth-only
 and full import, switching, local fake verification, and keyboard-focus checks.
-Native history discovery has open findings, and signed installed-app acceptance
-remains pending. See [goals.md](goals.md) for the
-remaining gates and recorded test limits.
+Protected-copy history discovery and resume checks pass; unsupported database-only
+histories remain in backup and are reported as unresolved. The signed installed app
+launches successfully. VoiceOver and native Terminal handoff checks remain pending.
+See [goals.md](goals.md) for recorded limits.
 
 The repository contains one Swift package with three products:
 

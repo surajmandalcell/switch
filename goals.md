@@ -704,7 +704,7 @@ Saving files without a working discovery and resume path is not sufficient.
 - [x] Test denied paths, disconnected volumes, insufficient space, and corrupt sources.
 - [x] Build the final signed app with the permitted existing signing identity.
 - [x] Inspect the final artifact's entitlements and embedded source revision.
-- [ ] Install and verify the exact app only when implementation scope includes local installation.
+- [x] Install and verify the exact app only when implementation scope includes local installation.
 - [x] Replace legacy user docs with the actual native workflow and its supported limits.
 - [x] Run the Ponytail debt inventory and report every remaining marker.
 
@@ -1080,9 +1080,25 @@ request now governs the remaining UI work and acceptance.
   release at `c08af240a7d7` has dirty-source false, an Apple Development signature, empty
   entitlements, and native arm64 app and CLI executables. Strict signature validation passes.
 
-Current gates remain explicit: installed-app launch, actual VoiceOver navigation, and
-the native Terminal handoff remain pending. Isolated custom GUI acceptance and protected-copy
-history acceptance pass within the limits above.
+### Installed application acceptance
+
+- `/Applications/AI Manager.app` was installed from clean revision `613600e47739`.
+  Its embedded revision and dirty-source false value match the build; strict signature
+  and empty-entitlement checks pass. The running process identifies that exact installed
+  executable. Native Computer confirms a successful launch and custom dark empty state.
+- The installed app created only its private `manager.lock`; no production import or
+  switch ran and no original Codex home was changed. Positive import/switch GUI evidence
+  comes from the isolated acceptance harness. Production mutations retain the conservative
+  live-Codex writer check described in the Ponytail inventory.
+- `/Users/surajmandal/.local/bin/ai-manager` resolves in the shell and matches the verified
+  packaged CLI. Help and status against a fresh isolated empty root pass.
+- Documentation-only checkpoints require regenerating the installed bundle's revision
+  metadata through the normal signed build before handoff. Functional checks above remain
+  evidence for the unchanged implementation.
+
+Current gates remain explicit: actual VoiceOver navigation and the native Terminal
+handoff remain pending under the focus-preservation rule. Isolated custom GUI acceptance,
+protected-copy history acceptance, and installed read-only launch pass within the limits above.
 
 Remote native CI was dispatched as run `34588863904`, but repository Actions are
 disabled (`enabled: false`) and no job started. Repository permissions were not changed.
@@ -1090,7 +1106,7 @@ Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-The native UI, CLI, and history checks pass. Install and verify the exact signed artifact,
-then finish the remaining focus-dependent checks. The core migration and history
+The native UI, CLI, history, and signed installed launch checks pass. Finish the remaining
+focus-dependent checks. The core migration and history
 evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.
