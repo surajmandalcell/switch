@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://surajmandalcell.github.io/subscription-proxy-inator/sitemap.xml

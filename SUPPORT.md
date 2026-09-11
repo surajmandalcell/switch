@@ -1,29 +1,28 @@
 # Support
 
-## Read the documentation
+Read [goals.md](goals.md) for supported workflows and limits.
 
-Read the [documentation index](docs/INDEX.md). Then read the [troubleshooting guide](docs/TROUBLESHOOTING.md).
+## Local checks
+
+```bash
+scripts/check-native.sh
+scripts/build-native.sh
+```
+
+AI Manager supports macOS 14 or later. The first verified build target is
+Apple Silicon. Codex is optional for offline discovery and contract tests.
 
 ## Report a defect
 
-Use the repository defect form. Include these items:
+Use the repository issue form. Include the app version or commit, macOS
+version, architecture, exact action, and redacted error text. Remove tokens,
+auth files, transcript content, private paths, and personal identity fields.
 
-- Application version and commit
-- Operating system and architecture
-- Provider type without credentials
-- Client protocol and route
-- Small request example without private content
-- Applicable redacted logs
-- Streaming, tool, image, alias, or failover state
+For import failures, include the source kind and failure phase. Do not attach
+real Codex homes or backups. Reproduce with a temporary home when possible.
 
-## Request a function
+## Outside support
 
-Describe the user problem. Describe the compatibility rule and expected configuration.
-
-Describe security effects. For a provider request, include a link to official API documentation.
-
-## Unsupported requests
-
-The project does not provide credentials. It does not extract browser sessions or resell subscriptions.
-
-The project does not provide public multi-user hosting. It does not help a user bypass usage limits or provider terms.
+The project does not recover credentials, access the login Keychain, execute
+imported hooks, or bypass account limits. Sign-in and online verification
+remain user-controlled Codex actions.

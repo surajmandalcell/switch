@@ -1,19 +1,17 @@
 ## Summary
 
-Describe the changed behavior. Describe the effect on users or maintainers.
+Describe the user-visible native macOS account-manager behavior.
 
 ## Validation
 
-- [ ] Added or changed tests before the implementation
-- [ ] `npm run check`
-- [ ] `npm run build`
-- [ ] Reviewed effects on all supported platforms
-- [ ] Updated public text and changelog
-- [ ] Checked the ASD-STE100 project profile
-- [ ] Removed credentials, local data, build output, and temporary files
+- [ ] `scripts/check-native.sh`
+- [ ] `scripts/build-native.sh`
+- [ ] `git diff --check`
+- [ ] No credentials, transcripts, private config, backups, or build output
 
-## Architecture
+## Safety
 
-- [ ] Domain rules do not import an outer layer
-- [ ] Application services do not import infrastructure
-- [ ] The renderer uses only the preload bridge
+- [ ] Source Codex homes remain unchanged by tests.
+- [ ] Credential bytes stay out of logs, errors, process arguments, and docs.
+- [ ] Recovery behavior is preserved for every mutation.
+- [ ] GUI and CLI use the same core operation and contract.

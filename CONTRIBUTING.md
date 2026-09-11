@@ -1,64 +1,33 @@
 # Contributing
 
-Keep the domain boundaries and the local security model. Keep deterministic behavior and protocol compatibility.
+Read [goals.md](goals.md) before implementation. It defines the native macOS
+Codex account-manager scope and its acceptance gates.
 
-## Before you change code
-
-1. Read [Architecture](docs/ARCHITECTURE.md).
-2. Read [Development workflow](docs/DEVELOPMENT.md).
-3. Read the applicable architecture decisions.
-4. Add a failing test at the lowest applicable layer.
-5. Keep provider wire code in `src/providers` or protocol modules.
-6. Do not put provider wire code in routing policy.
-7. Do not send credentials to the renderer.
-
-## Development gate
+## Build and test
 
 ```bash
-npm ci
-npm run check
-npm run build
-npm run dist:dir
+scripts/check-native.sh
+scripts/build-native.sh
 ```
 
-Use test-driven development:
+Use `/private/tmp/ai-manager-build` for SwiftPM output. Set
+`AI_MANAGER_BUILD_PATH` when the host requires another private path. Do not
+create timestamped build copies.
 
-- Add one failing contract.
-- Make the smallest complete change.
-- Test failure paths and branch paths.
-- Update public text when behavior changes.
-- Run the complete gate before publication.
+Use temporary homes and synthetic credentials for tests. Keep real auth,
+transcripts, private settings, backups, and copied links outside the
+repository.
 
-## Architecture rules
+## Code boundaries
 
-- `src/domain` must not import outer layers.
-- `src/application` must not import infrastructure or desktop code.
-- Provider adapters translate one upstream protocol.
-- Infrastructure owns storage, local HTTP, vaults, and logs.
-- The renderer uses only the preload bridge.
-- Secret changes must have clear commit and rollback order.
+- `packages/core` owns shared contracts and account operations.
+- `packages/gui` owns the SwiftUI app and macOS file panels.
+- `packages/tui` owns CLI argument and terminal presentation code.
+- GUI and CLI call core operations. They do not duplicate file mutation logic.
+- Core code does not access the login Keychain or execute imported commands.
 
-## Provider adapters
+Preserve the transaction and recovery rules in [ADR 0003](docs/adr/0003-credential-transactions.md).
+Keep credential bytes out of logs, process arguments, fixtures, and docs.
 
-Read [Provider development](docs/PROVIDER_DEVELOPMENT.md). A new adapter must have:
-
-- A stable provider type
-- JSON behavior
-- Streaming behavior
-- Cancellation and timeout support
-- Usage normalization
-- Tool tests when tools are supported
-- Image tests when images are supported
-- Authentication and option documentation
-
-## Pull requests
-
-Keep each commit focused. Explain these items:
-
-- User-visible behavior
-- Domain or compatibility rule
-- Tests
-- Security effects
-- Documentation changes
-
-Do not commit credentials, local databases, release output, package caches, or editor state.
+Keep commits focused. Inspect the complete diff and run `git diff --check`
+before handoff.

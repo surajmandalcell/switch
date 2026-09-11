@@ -1,66 +1,28 @@
 # Security policy
 
-## Supported version
-
-Security fixes apply to the current 2.x release.
+AI Manager is a local macOS account manager for Codex. It does not provide a
+proxy, provider router, hosted service, or OAuth implementation.
 
 ## Report a vulnerability
 
-Do not open a public issue for a vulnerability. Do not include credentials or sensitive logs in a public message.
+Do not open a public issue for a vulnerability. Do not include credentials,
+tokens, transcripts, private settings, or unredacted logs in a report. Use
+GitHub private vulnerability reporting and include the affected commit,
+macOS version, reproduction steps, and security effect.
 
-Use GitHub private vulnerability reporting. Include these items:
+## Security boundaries
 
-- Affected version
-- Operating system
-- Reproduction steps
-- Security effect
-- Proposed correction, if available
+- Credentials stay in Codex-compatible private files.
+- App metadata contains no raw credential bytes.
+- The app does not access the login Keychain.
+- Discovery does not make network calls or execute imported hooks.
+- Imported commands and plugins are preserved only as data.
+- User-selected paths are inspected with bounded file operations.
+- Staging, backups, and account homes use private permissions.
+- Source data remains unchanged after a successful import.
+- Failed mutations retain a usable prior state and a recovery record.
 
-## Trust boundary
+The app does not request Full Disk Access, Accessibility, Automation, or
+network access merely to inspect a selected Codex home.
 
-Subscription Proxy Inator is a local, single-user desktop application.
-
-Default controls:
-
-- The HTTP server accepts only `127.0.0.1` or `localhost`.
-- Remote provider URLs must use HTTPS.
-- Loopback endpoints can use HTTP.
-- CORS uses exact origins.
-- Provider credentials stay outside `config.json`.
-- The renderer uses a sandbox and context isolation.
-- The renderer has no Node.js integration.
-- The preload bridge exposes a small set of actions.
-- Renderer snapshots do not contain secret references.
-- Logs remove credential fields and bearer values.
-- Local bearer authentication protects all routes except `/health`.
-
-These controls cannot protect a compromised operating system account.
-
-## Credential storage
-
-The application uses Electron `safeStorage` when it is available.
-
-The fallback uses AES-256-GCM. It stores a mode-0600 local key when the platform supports file permissions.
-
-The fallback protects backups from accidental disclosure. It is not a hardware security module.
-
-Credential replacement uses this order:
-
-1. Create a new encrypted secret.
-2. Commit the configuration.
-3. Remove the old secret.
-
-A failed configuration commit removes the new secret. A removal commits the configuration change before it removes the old secret.
-
-## Provider and module risks
-
-- A command provider receives `SPI_ACCOUNT_SECRET`.
-- A command provider starts an explicit program without a shell.
-- Configure only programs that you trust.
-- External modules run with main-process permissions.
-- Treat an external module as installed code.
-- Custom headers cannot use credential-like names.
-- Store credentials in account storage.
-- Use only services that you have permission to use.
-
-Read [Security model](docs/SECURITY.md) for more information.
+See [goals.md](goals.md) for the full data ownership and recovery model.
