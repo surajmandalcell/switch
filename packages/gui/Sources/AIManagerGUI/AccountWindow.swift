@@ -31,24 +31,113 @@ private struct MaterialPane: NSViewRepresentable {
     }
 }
 
+private final class WindowResolverView: NSView {
+    var onWindow: ((NSWindow) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        onWindow?(window)
+    }
+}
+
 private struct WindowChrome: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { configure(view.window) }
+    let onResolve: (NSWindow) -> Void
+
+    final class Coordinator {
+        weak var configuredWindow: NSWindow?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WindowResolverView {
+        let view = WindowResolverView()
+        view.onWindow = { resolve($0, coordinator: context.coordinator) }
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { configure(view.window) }
+    func updateNSView(_ view: WindowResolverView, context: Context) {
+        view.onWindow = { resolve($0, coordinator: context.coordinator) }
+        guard let window = view.window else { return }
+        resolve(window, coordinator: context.coordinator)
     }
 
-    private func configure(_ window: NSWindow?) {
-        window?.isOpaque = false
-        window?.backgroundColor = .clear
-        window?.styleMask.insert(.fullSizeContentView)
-        window?.titlebarAppearsTransparent = true
-        window?.titleVisibility = .hidden
-        window?.isMovableByWindowBackground = true
+    private func resolve(_ window: NSWindow?, coordinator: Coordinator) {
+        guard let window else { return }
+        if coordinator.configuredWindow !== window {
+            coordinator.configuredWindow = window
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.styleMask.insert(.fullSizeContentView)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = false
+            window.collectionBehavior.remove(.fullScreenPrimary)
+            window.collectionBehavior.insert(.fullScreenNone)
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(kind)?.isHidden = true
+            }
+            window.standardWindowButton(.zoomButton)?.isEnabled = false
+            onResolve(window)
+        }
+    }
+}
+
+private final class WindowDragView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 1 else { return }
+        window?.performDrag(with: event)
+    }
+}
+
+private struct WindowDragRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { WindowDragView() }
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+private final class WindowTarget: ObservableObject {
+    weak var window: NSWindow?
+}
+
+private struct WindowControlButton: View {
+    enum Kind { case close, minimize }
+
+    let kind: Kind
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focused: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: kind == .close ? "xmark" : "minus")
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 26, height: 24)
+                .foregroundStyle(kind == .close && hovering ? UI.red : Color.primary)
+                .background(
+                    (focused || hovering ? UI.muted.opacity(0.18) : UI.muted.opacity(0.09)),
+                    in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous)
+                )
+                .overlay(alignment: .leading) {
+                    if focused {
+                        RoundedRectangle(cornerRadius: UI.radius)
+                            .fill(UI.blue)
+                            .frame(width: 3)
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+        .focusEffectDisabled()
+        .keyboardShortcut(kind == .close ? "w" : "m", modifiers: [.command])
+        .accessibilityLabel(kind == .close ? "Close window" : "Minimize window")
+        .help(kind == .close ? "Close window" : "Minimize window")
+        .onHover { value in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
+        }
     }
 }
 
@@ -214,31 +303,34 @@ struct AccountWindow: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedAccountID: UUID?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @StateObject private var windowTarget = WindowTarget()
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar.frame(width: 244)
-            ZStack(alignment: .top) {
-                if reduceTransparency { UI.canvasFallback } else { MaterialPane(material: .contentBackground) }
-                Group {
-                    if let account = model.selectedAccount {
-                        AccountDetail(account: account, model: model)
-                            .id(account.id)
-                    } else {
-                        EmptyAccountView(
-                            hasAccounts: !(model.status?.accounts.isEmpty ?? true)
-                        )
+        ZStack {
+            if reduceTransparency { UI.canvasFallback } else { MaterialPane(material: .underWindowBackground) }
+            HStack(spacing: 0) {
+                sidebar.frame(width: 244)
+                ZStack(alignment: .top) {
+                    Group {
+                        if let account = model.selectedAccount {
+                            AccountDetail(account: account, model: model)
+                                .id(account.id)
+                        } else {
+                            EmptyAccountView(
+                                hasAccounts: !(model.status?.accounts.isEmpty ?? true)
+                            )
+                        }
                     }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if let error = model.errorMessage, !model.showImport {
-                    ErrorBanner(message: error) { model.errorMessage = nil }
-                        .padding(.top, 12)
-                        .padding(.horizontal, 18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if let error = model.errorMessage, !model.showImport {
+                        ErrorBanner(message: error) { model.errorMessage = nil }
+                            .padding(.top, 12)
+                            .padding(.horizontal, 18)
+                    }
                 }
             }
         }
-        .background(WindowChrome())
+        .background(WindowChrome { windowTarget.window = $0 })
         .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $model.showImport) { ImportSheet(model: model) }
         .onChange(of: scenePhase) { _, phase in
@@ -248,22 +340,19 @@ struct AccountWindow: View {
 
     private var sidebar: some View {
         ZStack {
-            if reduceTransparency { UI.sidebarFallback } else { MaterialPane(material: .sidebar) }
+            if reduceTransparency { UI.sidebarFallback } else { UI.surface.opacity(0.34) }
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 8) {
+                    WindowControlButton(kind: .close) { windowTarget.window?.performClose(nil) }
+                    WindowControlButton(kind: .minimize) { windowTarget.window?.miniaturize(nil) }
                     Text("AI Manager")
                         .font(.system(.headline, weight: .semibold))
                     Spacer()
-                    Text("\(model.status?.accounts.count ?? 0)")
-                        .font(.system(.caption, design: .monospaced, weight: .medium))
-                        .foregroundStyle(UI.muted)
-                        .monospacedDigit()
-                        .accessibilityLabel("\(model.status?.accounts.count ?? 0) accounts")
                 }
-                .padding(.leading, 78)
-                .padding(.trailing, 14)
+                .padding(.horizontal, 10)
                 .frame(height: 48)
                 .contentShape(Rectangle())
+                .background(WindowDragRegion())
 
                 ScrollView {
                     LazyVStack(spacing: 3) {
