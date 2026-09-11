@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import AIManagerCore
@@ -20,16 +21,20 @@ struct AIManagerGUIAcceptanceApp: App {
     var body: some Scene {
         WindowGroup("AI Manager GUI Acceptance", id: Self.isEnabled(argument: "--narrow", infoKey: "AIManagerGUINarrow") ? "narrow" : "standard") {
             AccountWindow(model: model)
-                .frame(minWidth: 720, minHeight: 500)
+                // Keep this in step with the production 1840 by 1240 outer-window limit.
+                .frame(minWidth: 720, maxWidth: 1840, minHeight: 500, maxHeight: 1208)
                 .preferredColorScheme(Self.appearance)
                 .task {
                     if Self.isEnabled(argument: "--seeded", infoKey: "AIManagerGUISeeded") {
                         await fixture.seed(model: model)
                     }
                     await model.load()
+                    try? await Task.sleep(for: .milliseconds(300))
+                    Self.checkWindowContract()
                 }
         }
         .defaultSize(width: Self.initialSize.width, height: Self.initialSize.height)
+        .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .newItem) {
@@ -58,6 +63,20 @@ struct AIManagerGUIAcceptanceApp: App {
 
     private static func isEnabled(argument: String, infoKey: String) -> Bool {
         CommandLine.arguments.contains(argument) || (Bundle.main.object(forInfoDictionaryKey: infoKey) as? Bool == true)
+    }
+
+    private static func checkWindowContract() {
+        guard let window = NSApp.windows.first(where: { !($0 is NSPanel) }) else {
+            preconditionFailure("Acceptance window did not resolve")
+        }
+        precondition(window.styleMask.contains(.resizable), "Acceptance window is not resizable")
+        precondition(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
+        precondition(window.maxSize == NSSize(width: 1840, height: 1240), "Acceptance window size cap changed")
+        precondition(window.standardWindowButton(.closeButton)?.isHidden == true, "Native close button is visible")
+        precondition(window.standardWindowButton(.miniaturizeButton)?.isHidden == true, "Native minimize button is visible")
+        precondition(window.standardWindowButton(.zoomButton)?.isHidden == true, "Native zoom button is visible")
+        precondition(window.standardWindowButton(.zoomButton)?.isEnabled == false, "Native zoom remains enabled")
+        FileHandle.standardError.write(Data("WINDOW_CONTRACT_PASS\n".utf8))
     }
 }
 

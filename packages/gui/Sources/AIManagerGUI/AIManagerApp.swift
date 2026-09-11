@@ -8,10 +8,12 @@ struct AIManagerApp: App {
     var body: some Scene {
         WindowGroup("AI Manager") {
             AccountWindow(model: model)
-                .frame(minWidth: 720, minHeight: 500)
+                // The hidden titlebar adds 32 points to the outer frame, keeping its cap at 1240.
+                .frame(minWidth: 720, maxWidth: 1840, minHeight: 500, maxHeight: 1208)
                 .task { await model.load() }
         }
         .defaultSize(width: 920, height: 620)
+        .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .newItem) {
