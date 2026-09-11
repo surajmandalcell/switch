@@ -66,11 +66,9 @@ final class SQLiteImportContractTests: XCTestCase {
         )
 
         XCTAssertEqual(summary.excludedThreadCount, 3)
-        XCTAssertEqual(summary.retainedDatabaseOnlyThreadCount, 2)
+        XCTAssertEqual(summary.unresolvedDatabaseOnlyThreadCount, 2)
         XCTAssertFalse(summary.preservedProjection)
         XCTAssertEqual(try threadPaths(snapshot), [
-            "database-only": destinationHome.appending(path: "sessions/missing-paginated.jsonl").path,
-            "null-database-only": "<null>",
             "valid": destinationHome.appending(path: "sessions/retained/renamed.jsonl").path,
         ])
         XCTAssertEqual(try threadPaths(source).keys.sorted(), ["collision", "database-only", "null-database-only", "orphan", "partial", "valid"])
@@ -96,6 +94,63 @@ final class SQLiteImportContractTests: XCTestCase {
 
         XCTAssertTrue(summary.preservedProjection)
         XCTAssertEqual(try scalarText(snapshot, "SELECT item_json FROM thread_items"), "{\"payload\":\"kept\"}")
+    }
+
+    func testFullImportReportsAndBacksUpDatabaseOnlyHistory() async throws {
+        let sourceHome = root.appending(path: "source-import")
+        try FileManager.default.createDirectory(at: sourceHome, withIntermediateDirectories: true)
+        try syntheticAuth().write(to: sourceHome.appending(path: "auth.json"))
+
+        let validID = "018f1f1e-7b8c-7000-8000-000000000001"
+        let databaseOnlyID = "018f1f1e-7b8c-7000-8000-000000000002"
+        let transcript = sourceHome.appending(path: "sessions/2026/01/01/rollout-\(validID).jsonl")
+        try FileManager.default.createDirectory(at: transcript.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let meta = try JSONSerialization.data(withJSONObject: ["type": "session_meta", "payload": ["id": validID]])
+        try (meta + Data([0x0A])).write(to: transcript)
+
+        let state = sourceHome.appending(path: "state_5.sqlite")
+        var stateDB: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(state.path, &stateDB), SQLITE_OK)
+        try execute(stateDB, """
+            CREATE TABLE threads(id TEXT PRIMARY KEY, rollout_path TEXT, history_mode TEXT);
+            INSERT INTO threads VALUES
+                ('\(validID)', '\(transcript.path)', 'legacy'),
+                ('\(databaseOnlyID)', NULL, 'paginated');
+            """)
+        sqlite3_close(stateDB)
+
+        let projection = sourceHome.appending(path: "thread_history_1.sqlite")
+        try createProjectionDatabase(projection)
+        var projectionDB: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(projection.path, &projectionDB), SQLITE_OK)
+        try execute(projectionDB, """
+            INSERT INTO thread_items(thread_id, item_json) VALUES ('\(databaseOnlyID)', '{"payload":"preserved"}');
+            INSERT INTO thread_turns(thread_id) VALUES ('\(databaseOnlyID)');
+            """)
+        sqlite3_close(projectionDB)
+
+        let paths = ManagerPaths(
+            applicationSupport: root.appending(path: "manager-support"),
+            defaultHome: root.appending(path: "default-home"),
+            sharedRoot: root.appending(path: "shared-root"),
+            orcaAccountsRoot: root.appending(path: "orca-accounts"),
+            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            isolationRoot: root
+        )
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: sourceHome, mode: .full)
+        let result = try await manager.importAccount(plan: plan)
+
+        let activeState = result.account.home.appending(path: "state_5.sqlite")
+        let backupState = result.backup.appending(path: "databases/state_5.sqlite")
+        let backupProjection = result.backup.appending(path: "databases/thread_history_1.sqlite")
+        XCTAssertEqual(Set(try threadPaths(activeState).keys), [validID])
+        XCTAssertEqual(Set(try threadPaths(backupState).keys), [validID, databaseOnlyID])
+        XCTAssertEqual(try scalarText(backupProjection, "SELECT item_json FROM thread_items WHERE thread_id = '\(databaseOnlyID)'"), "{\"payload\":\"preserved\"}")
+        XCTAssertEqual(Set(try threadPaths(state).keys), [validID, databaseOnlyID])
+        XCTAssertTrue(result.unresolved.contains {
+            $0.contains("1 database-only paginated histories") && $0.contains(backupState.path)
+        })
     }
 
     private func execute(_ db: OpaquePointer?, _ sql: String) throws {
@@ -141,5 +196,24 @@ final class SQLiteImportContractTests: XCTestCase {
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
         return sqlite3_column_text(statement, 0).map { String(cString: $0) }
+    }
+
+    private func syntheticAuth() throws -> Data {
+        let claims = try JSONSerialization.data(withJSONObject: [
+            "email": "history@example.test",
+            "chatgpt_account_id": "history-account",
+            "workspace_id": "history-workspace",
+        ])
+        let payload = claims.base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+        return try JSONSerialization.data(withJSONObject: [
+            "tokens": [
+                "access_token": "synthetic.\(payload).signature",
+                "account_id": "history-account",
+                "refresh_token": "synthetic",
+            ],
+        ])
     }
 }
