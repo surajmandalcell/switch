@@ -3,41 +3,92 @@ import SwiftUI
 import AIManagerCore
 
 private enum UI {
-    static let canvas = Color(nsColor: .windowBackgroundColor)
-    static let surface = Color(nsColor: .controlBackgroundColor)
-    static let sidebar = Color(nsColor: .underPageBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor).opacity(0.72)
+    static let canvasFallback = Color(nsColor: .windowBackgroundColor)
+    static let sidebarFallback = Color(nsColor: .underPageBackgroundColor)
     static let muted = Color(nsColor: .secondaryLabelColor)
     static let blue = Color(nsColor: .systemBlue)
     static let teal = Color(nsColor: .systemTeal)
     static let orange = Color(nsColor: .systemOrange)
     static let red = Color(nsColor: .systemRed)
+    static let radius: CGFloat = 3
+    static let hoverDuration = 0.15
 }
 
-private struct ProductiveButton: ButtonStyle {
-    enum Kind { case primary, secondary, danger }
-    let kind: Kind
-    @Environment(\.isEnabled) private var isEnabled
+private struct MaterialPane: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+    }
+}
+
+private struct WindowChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { configure(view.window) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { configure(view.window) }
+    }
+
+    private func configure(_ window: NSWindow?) {
+        window?.isOpaque = false
+        window?.backgroundColor = .clear
+        window?.styleMask.insert(.fullSizeContentView)
+        window?.titlebarAppearsTransparent = true
+        window?.titleVisibility = .hidden
+        window?.isMovableByWindowBackground = true
+    }
+}
+
+private struct ProductiveButtonBody<Label: View>: View {
+    let label: Label
+    let kind: ProductiveButton.Kind
+    let pressed: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
+    var body: some View {
+        label
             .font(.system(.body, weight: .medium))
             .foregroundStyle(kind == .secondary ? Color.primary : Color.white)
-            .padding(.horizontal, 16)
-            .frame(minHeight: 36)
-            .background(
-                fill.opacity(configuration.isPressed ? 0.78 : 1),
-                ignoresSafeAreaEdges: []
-            )
-            .contentShape(Rectangle())
+            .padding(.horizontal, 14)
+            .frame(minHeight: 34)
+            .background(fill.opacity(pressed ? 0.76 : (hovering ? 0.88 : 1)), in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
             .opacity(isEnabled ? 1 : 0.42)
+            .onHover { value in
+                withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
+            }
     }
 
     private var fill: Color {
         switch kind {
         case .primary: UI.blue
-        case .secondary: UI.muted.opacity(0.12)
+        case .secondary: hovering ? UI.blue.opacity(0.18) : UI.muted.opacity(0.12)
         case .danger: UI.red
         }
+    }
+}
+
+private struct ProductiveButton: ButtonStyle {
+    enum Kind { case primary, secondary, danger }
+    let kind: Kind
+
+    func makeBody(configuration: Configuration) -> some View {
+        ProductiveButtonBody(label: configuration.label, kind: kind, pressed: configuration.isPressed)
     }
 }
 
@@ -53,12 +104,13 @@ private struct ProductiveFocus: ViewModifier {
                 if focused {
                     ZStack(alignment: .leading) {
                         if kind == .secondary { UI.blue.opacity(0.18) }
-                        Rectangle()
+                        RoundedRectangle(cornerRadius: UI.radius)
                             .fill(kind == .secondary ? UI.blue : Color.white)
                             .frame(width: 3)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .allowsHitTesting(false)
+                    .clipShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
                 }
             }
     }
@@ -75,6 +127,8 @@ private struct ChoiceButton: View {
     let selected: Bool
     let action: () -> Void
     @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -92,13 +146,19 @@ private struct ChoiceButton: View {
             .foregroundStyle(selected ? Color.white : Color.primary)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 34)
-            .background(selected ? UI.blue : (focused ? UI.blue.opacity(0.18) : UI.muted.opacity(0.10)))
-            .contentShape(Rectangle())
+            .background(
+                selected ? UI.blue : ((focused || hovering) ? UI.blue.opacity(0.18) : UI.muted.opacity(0.10)),
+                in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
         }
         .buttonStyle(.plain)
         .focused($focused)
         .focusEffectDisabled()
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .onHover { value in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
+        }
     }
 }
 
@@ -114,16 +174,11 @@ private struct Eyebrow: View {
 }
 
 private struct SectionHeading: View {
-    let index: String
     let title: String
     var detail: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(index)
-                .font(.system(.caption, design: .monospaced, weight: .semibold))
-                .foregroundStyle(UI.blue)
-                .frame(width: 24, alignment: .leading)
             Text(title).font(.system(.title3, weight: .semibold))
             Spacer(minLength: 12)
             if let detail {
@@ -158,34 +213,33 @@ struct AccountWindow: View {
     @ObservedObject var model: AccountViewModel
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedAccountID: UUID?
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        VStack(spacing: 0) {
-            WindowHeader(model: model)
-            if let error = model.errorMessage, !model.showImport {
-                ErrorBanner(message: error) { model.errorMessage = nil }
-            }
-            HStack(spacing: 0) {
-                sidebar.frame(width: 232)
+        HStack(spacing: 0) {
+            sidebar.frame(width: 244)
+            ZStack(alignment: .top) {
+                if reduceTransparency { UI.canvasFallback } else { MaterialPane(material: .contentBackground) }
                 Group {
                     if let account = model.selectedAccount {
                         AccountDetail(account: account, model: model)
                             .id(account.id)
                     } else {
                         EmptyAccountView(
-                            hasAccounts: !(model.status?.accounts.isEmpty ?? true),
-                            isBusy: model.isBusy
-                        ) {
-                            Task { await model.beginImport() }
-                        }
+                            hasAccounts: !(model.status?.accounts.isEmpty ?? true)
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(UI.canvas)
+                if let error = model.errorMessage, !model.showImport {
+                    ErrorBanner(message: error) { model.errorMessage = nil }
+                        .padding(.top, 12)
+                        .padding(.horizontal, 18)
+                }
             }
-            StatusBar(model: model)
         }
-        .background(UI.canvas)
+        .background(WindowChrome())
+        .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $model.showImport) { ImportSheet(model: model) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await model.load() } }
@@ -193,60 +247,77 @@ struct AccountWindow: View {
     }
 
     private var sidebar: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Eyebrow(text: "AI Manager")
-                Spacer()
-                Text("\(model.status?.accounts.count ?? 0)")
-                    .font(.system(.caption, design: .monospaced, weight: .medium))
-                    .foregroundStyle(UI.muted)
-                    .monospacedDigit()
-                    .accessibilityLabel("\(model.status?.accounts.count ?? 0) accounts")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(UI.sidebar)
+        ZStack {
+            if reduceTransparency { UI.sidebarFallback } else { MaterialPane(material: .sidebar) }
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("AI Manager")
+                        .font(.system(.headline, weight: .semibold))
+                    Spacer()
+                    Text("\(model.status?.accounts.count ?? 0)")
+                        .font(.system(.caption, design: .monospaced, weight: .medium))
+                        .foregroundStyle(UI.muted)
+                        .monospacedDigit()
+                        .accessibilityLabel("\(model.status?.accounts.count ?? 0) accounts")
+                }
+                .padding(.leading, 78)
+                .padding(.trailing, 14)
+                .frame(height: 48)
+                .contentShape(Rectangle())
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.status?.accounts ?? []) { account in
-                        Button {
-                            model.selectedAccountID = account.id
-                        } label: {
-                            AccountRow(
-                                account: account,
-                                isDefault: account.id == model.status?.defaultAccountID,
-                                isSelected: account.id == model.selectedAccountID,
-                                isFocused: account.id == focusedAccountID
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(model.status?.accounts ?? []) { account in
+                            Button {
+                                model.selectedAccountID = account.id
+                            } label: {
+                                AccountRow(
+                                    account: account,
+                                    isDefault: account.id == model.status?.defaultAccountID,
+                                    isSelected: account.id == model.selectedAccountID,
+                                    isFocused: account.id == focusedAccountID
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .focused($focusedAccountID, equals: account.id)
+                            .focusEffectDisabled()
+                            .accessibilityLabel(account.identity.displayName)
+                            .accessibilityValue(
+                                "\(account.id == model.selectedAccountID ? "Selected, " : "")\(account.id == model.status?.defaultAccountID ? "Default, " : "")\(account.verification.state.label)"
                             )
                         }
-                        .buttonStyle(.plain)
-                        .focused($focusedAccountID, equals: account.id)
-                        .focusEffectDisabled()
-                        .accessibilityLabel(account.identity.displayName)
-                        .accessibilityValue(
-                            "\(account.id == model.selectedAccountID ? "Selected, " : "")\(account.id == model.status?.defaultAccountID ? "Default, " : "")\(account.verification.state.label)"
-                        )
                     }
+                    .padding(.horizontal, 8)
                 }
-            }
-            .background(UI.sidebar)
-            .onMoveCommand(perform: moveSelection)
-            .overlay {
-                if model.status?.accounts.isEmpty == true {
-                    VStack(spacing: 10) {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.system(size: 24, weight: .light))
-                            .foregroundStyle(UI.blue)
-                        Text("No accounts yet").font(.system(.body, weight: .medium))
-                        Text("Import a Codex home to start.")
-                            .font(.caption)
-                            .foregroundStyle(UI.muted)
-                            .multilineTextAlignment(.center)
+                .onMoveCommand(perform: moveSelection)
+
+                VStack(spacing: 8) {
+                    if model.isBusy {
+                        HStack(spacing: 7) {
+                            ProgressView().controlSize(.small)
+                            Text("Working…").font(.caption).foregroundStyle(UI.muted)
+                            Spacer()
+                        }
                     }
-                    .padding(20)
-                    .accessibilityElement(children: .combine)
+                    if let pending = model.status?.pendingRecovery, !pending.isEmpty {
+                        Button("Recover \(pending.count) Operation\(pending.count == 1 ? "" : "s")") {
+                            Task { await model.recover() }
+                        }
+                        .buttonStyle(ProductiveButton(kind: .danger))
+                        .productiveFocus(.danger)
+                        .disabled(model.isBusy)
+                    }
+                    Button {
+                        Task { await model.beginImport() }
+                    } label: {
+                        Label("Import Account", systemImage: "plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ProductiveButton(kind: .primary))
+                    .productiveFocus(.primary)
+                    .disabled(model.isBusy)
                 }
+                .padding(10)
             }
         }
     }
@@ -289,40 +360,8 @@ private struct ErrorBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(UI.red.opacity(0.10))
+        .background(UI.red.opacity(0.12), in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
         .accessibilityElement(children: .contain)
-    }
-}
-
-private struct WindowHeader: View {
-    @ObservedObject var model: AccountViewModel
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Color.clear.frame(width: 62, height: 1).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("AI Manager").font(.system(.headline, weight: .semibold))
-                Text("Codex accounts").font(.caption).foregroundStyle(UI.muted)
-            }
-            Spacer()
-            if let selected = model.selectedAccount {
-                Text(selected.identity.displayName)
-                    .font(.caption)
-                    .foregroundStyle(UI.muted)
-                    .lineLimit(1)
-            }
-            Button {
-                Task { await model.beginImport() }
-            } label: {
-                Label("Import Account", systemImage: "plus")
-            }
-            .buttonStyle(ProductiveButton(kind: .primary))
-            .productiveFocus(.primary)
-            .help("Import a Codex account")
-            .disabled(model.isBusy)
-        }
-        .padding(.horizontal, 16)
-        .background(UI.surface)
     }
 }
 
@@ -331,10 +370,12 @@ private struct AccountRow: View {
     let isDefault: Bool
     let isSelected: Bool
     let isFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 0) {
-            Rectangle()
+            RoundedRectangle(cornerRadius: UI.radius)
                 .fill(isSelected || isFocused ? UI.blue : .clear)
                 .frame(width: isFocused ? 5 : 3)
                 .accessibilityHidden(true)
@@ -353,24 +394,28 @@ private struct AccountRow: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
         }
-        .background(isSelected ? UI.blue.opacity(0.14) : (isFocused ? UI.blue.opacity(0.08) : Color.clear))
-        .contentShape(Rectangle())
+        .background(
+            isSelected ? UI.blue.opacity(0.16) : ((isFocused || hovering) ? UI.blue.opacity(0.09) : Color.clear),
+            in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .onHover { value in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
+        }
     }
 }
 
 private struct EmptyAccountView: View {
     let hasAccounts: Bool
-    let isBusy: Bool
-    let importAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading) {
             Spacer()
             HStack(alignment: .top, spacing: 24) {
                 ZStack {
-                    Rectangle().fill(UI.blue)
+                    RoundedRectangle(cornerRadius: UI.radius).fill(UI.blue)
                     Image(systemName: hasAccounts ? "person.crop.circle" : "person.crop.circle.badge.plus")
                         .font(.system(size: 32, weight: .light))
                         .foregroundStyle(.white)
@@ -378,29 +423,21 @@ private struct EmptyAccountView: View {
                 .frame(width: 72, height: 72)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 14) {
-                    Eyebrow(text: hasAccounts ? "Account library" : "Get started")
-                    Text(hasAccounts ? "Select an account" : "Bring your Codex accounts together.")
-                        .font(.system(size: 28, weight: .semibold))
-                        .tracking(-0.5)
+                    Text(hasAccounts ? "Select an account" : "Import your first account")
+                        .font(.system(size: 26, weight: .semibold))
+                        .tracking(-0.4)
                     Text(hasAccounts
                          ? "Choose an account in the sidebar to review its profile, verification, and launch options."
-                         : "Import credentials, share settings, and preserve chat history with a reviewable backup before each change.")
+                         : "Choose a Codex home to bring in credentials, shared settings, and chat history with a reviewable backup.")
                         .font(.body)
                         .foregroundStyle(UI.muted)
                         .lineSpacing(3)
                         .frame(maxWidth: 520, alignment: .leading)
-                    if !hasAccounts {
-                        Button("Import Account", action: importAction)
-                            .buttonStyle(ProductiveButton(kind: .primary))
-                            .productiveFocus(.primary)
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(isBusy)
-                    }
                 }
             }
             Spacer()
         }
-        .padding(40)
+        .padding(32)
         .frame(maxWidth: 820, maxHeight: .infinity, alignment: .leading)
     }
 }
@@ -408,6 +445,7 @@ private struct EmptyAccountView: View {
 private struct AccountDetail: View {
     let account: AccountRecord
     @ObservedObject var model: AccountViewModel
+    @State private var detailsExpanded = false
 
     private var linkIssues: [LinkedSettingsDivergence] {
         model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
@@ -415,48 +453,50 @@ private struct AccountDetail: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
                 header
                 if !linkIssues.isEmpty { repairs }
                 actions
                 profile
+                if let notice = model.notice {
+                    Label(notice, systemImage: "info.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(UI.blue)
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(UI.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
+                        .accessibilityLabel("Status: \(notice)")
+                }
             }
-            .padding(.horizontal, 36)
-            .padding(.vertical, 32)
+            .padding(.horizontal, 28)
+            .padding(.top, 22)
+            .padding(.bottom, 28)
             .frame(maxWidth: 900, alignment: .leading)
         }
         .navigationTitle(account.identity.displayName)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Rectangle().fill(UI.blue).frame(width: 8, height: 64).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .center, spacing: 10) {
-                        Eyebrow(text: account.id == model.status?.defaultAccountID ? "Default account" : "Managed account")
-                        Spacer(minLength: 0)
-                        Label(account.verification.state.label, systemImage: account.verification.state.icon)
-                            .font(.system(.caption, weight: .semibold))
-                            .foregroundStyle(account.verification.state.tint)
-                            .padding(.horizontal, 10)
-                            .frame(minHeight: 28)
-                            .background(account.verification.state.tint.opacity(0.12))
-                    }
-                    Text(account.identity.heroName)
-                        .font(.system(size: 30, weight: .semibold))
-                        .tracking(-0.6)
-                        .textSelection(.enabled)
-                    if let workspace = account.identity.workspaceID {
-                        Text("Workspace \(workspace)")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(UI.muted)
-                            .textSelection(.enabled)
-                    }
+        VStack(alignment: .leading, spacing: 10) {
+            Text(account.identity.heroName)
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.4)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            HStack(spacing: 10) {
+                if account.id == model.status?.defaultAccountID {
+                    Label("Default", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(UI.blue)
                 }
-                .layoutPriority(1)
+                if let workspace = account.identity.workspaceID {
+                    Text(workspace).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                }
             }
+            .font(.caption)
+            .foregroundStyle(UI.muted)
             Text(account.verification.detail)
+                .font(.caption)
                 .foregroundStyle(UI.muted)
                 .textSelection(.enabled)
                 .frame(maxWidth: 660, alignment: .leading)
@@ -464,19 +504,39 @@ private struct AccountDetail: View {
     }
 
     private var profile: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeading(index: linkIssues.isEmpty ? "02" : "03", title: "Profile", detail: account.importedAt.formatted(date: .abbreviated, time: .shortened))
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-                DefinitionRow(label: "Profile", value: account.home.path, monospaced: true)
-                DefinitionRow(label: "Source", value: account.source.path, monospaced: true)
-                DefinitionRow(label: "Settings", value: "Shared with \(model.paths.sharedRoot.path)", monospaced: true)
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                detailsExpanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: detailsExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Account details")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(ProductiveButton(kind: .secondary))
+            .productiveFocus(.secondary)
+            .accessibilityValue(detailsExpanded ? "Expanded" : "Collapsed")
+
+            if detailsExpanded {
+                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
+                    DefinitionRow(label: "Profile", value: account.home.path, monospaced: true)
+                    DefinitionRow(label: "Source", value: account.source.path, monospaced: true)
+                    DefinitionRow(label: "Settings", value: model.paths.sharedRoot.path, monospaced: true)
+                    DefinitionRow(label: "Imported", value: account.importedAt.formatted(date: .abbreviated, time: .shortened))
+                }
+                Button("Show Shared Settings in Finder") { model.showSharedRoot() }
+                    .buttonStyle(ProductiveButton(kind: .secondary))
+                    .productiveFocus(.secondary)
             }
         }
     }
 
     private var repairs: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionHeading(index: "01", title: "Shared Settings Need Repair", detail: "\(linkIssues.count) found")
+            SectionHeading(title: "Shared Settings Need Repair", detail: "\(linkIssues.count) found")
             Label(
                 "A local editor replaced shared links. Review each path before you back up the local entry and restore its intended link.",
                 systemImage: "exclamationmark.triangle.fill"
@@ -499,33 +559,27 @@ private struct AccountDetail: View {
                     .disabled(model.isBusy)
                 }
                 .padding(16)
-                .background(UI.orange.opacity(0.07))
+                .background(UI.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: UI.radius))
             }
         }
     }
 
     private var actions: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeading(index: linkIssues.isEmpty ? "01" : "02", title: "Account Actions")
-            Text("Changing the default affects future sessions that use the default Codex home. Existing sessions keep their current account.")
-                .foregroundStyle(UI.muted)
-                .frame(maxWidth: 650, alignment: .leading)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                useDefaultButton
+                openAccountButton
+                verifyButton
+                copyPathButton
+            }
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                GridRow {
                     useDefaultButton
                     openAccountButton
+                }
+                GridRow {
                     verifyButton
                     copyPathButton
-                }
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
-                    GridRow {
-                        useDefaultButton
-                        openAccountButton
-                    }
-                    GridRow {
-                        verifyButton
-                        copyPathButton
-                    }
                 }
             }
         }
@@ -537,6 +591,7 @@ private struct AccountDetail: View {
             .productiveFocus(.primary)
             .keyboardShortcut("d", modifiers: [.command])
             .help("Use this account for future default-home sessions")
+            .accessibilityHint("Changes future default-home Codex sessions. Existing sessions keep their current account.")
             .disabled(account.id == model.status?.defaultAccountID || model.isBusy)
     }
 
@@ -564,100 +619,55 @@ private struct AccountDetail: View {
     }
 }
 
-private struct StatusBar: View {
-    @ObservedObject var model: AccountViewModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Circle().fill(model.isBusy ? UI.orange : UI.teal).frame(width: 7, height: 7).accessibilityHidden(true)
-                if model.isBusy { ProgressView().controlSize(.small).accessibilityLabel("Working") }
-                if let status = model.status {
-                    Text("SHARED").font(.system(size: 10, weight: .semibold)).tracking(0.8).foregroundStyle(UI.muted)
-                    Text(status.sharedRoot.path)
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                    Spacer()
-                    Button("Show in Finder") { model.showSharedRoot() }.buttonStyle(.plain)
-                    if !status.pendingRecovery.isEmpty {
-                        Button("Recover \(status.pendingRecovery.count)") { Task { await model.recover() } }
-                            .buttonStyle(ProductiveButton(kind: .danger))
-                            .productiveFocus(.danger)
-                            .disabled(model.isBusy)
-                    }
-                } else {
-                    Text("Loading accounts...").font(.caption)
-                    Spacer()
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 34)
-            .accessibilityElement(children: .contain)
-            if let notice = model.notice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(UI.muted)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Status: \(notice)")
-            }
-        }
-        .background(UI.surface)
-    }
-}
-
 private struct ImportSheet: View {
     @ObservedObject var model: AccountViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Eyebrow(text: "Codex account")
+        ZStack {
+            if reduceTransparency { UI.canvasFallback } else { MaterialPane(material: .contentBackground) }
+            VStack(spacing: 0) {
+                HStack(spacing: 16) {
                     Text(importTitle).font(.system(.title2, weight: .semibold))
+                    Spacer()
+                    ImportStepRail(step: importStep)
+                    Button("Close") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                        .buttonStyle(ProductiveButton(kind: .secondary))
+                        .productiveFocus(.secondary)
                 }
-                Spacer()
-                ImportStepRail(step: importStep)
-                Button("Close") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .buttonStyle(ProductiveButton(kind: .secondary))
-                    .productiveFocus(.secondary)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 18)
-            .background(UI.surface)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
 
-            if let error = model.errorMessage {
-                ErrorBanner(message: error) { model.errorMessage = nil }
-            }
-
-            Group {
-                if let result = model.importResult {
-                    ImportResultView(result: result)
-                } else if let plan = model.importPlan {
-                    ImportReview(plan: plan, model: model)
-                } else {
-                    SourceChooser(model: model)
+                if let error = model.errorMessage {
+                    ErrorBanner(message: error) { model.errorMessage = nil }
+                        .padding(.horizontal, 24)
                 }
-            }
-            .padding(24)
-            .disabled(model.isBusy)
 
-            if model.isBusy {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Working...").font(.caption).foregroundStyle(UI.muted)
+                Group {
+                    if let result = model.importResult {
+                        ImportResultView(result: result)
+                    } else if let plan = model.importPlan {
+                        ImportReview(plan: plan, model: model)
+                    } else {
+                        SourceChooser(model: model)
+                    }
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Working")
-                .padding(.bottom, 12)
+                .padding(24)
+                .disabled(model.isBusy)
+
+                if model.isBusy {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Working…").font(.caption).foregroundStyle(UI.muted)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Working")
+                    .padding(.bottom, 12)
+                }
             }
         }
-        .background(UI.canvas)
         .frame(minWidth: 720, idealWidth: 820, minHeight: 520, idealHeight: 660)
     }
 
@@ -679,9 +689,9 @@ private struct ImportStepRail: View {
                         .font(.system(.caption2, design: .monospaced, weight: .semibold))
                         .foregroundStyle(item <= step ? Color.white : UI.muted)
                         .frame(width: 22, height: 22)
-                        .background(item <= step ? UI.blue : UI.muted.opacity(0.10))
+                        .background(item <= step ? UI.blue : UI.muted.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
                     if item < 3 {
-                        Rectangle().fill(item < step ? UI.blue : UI.muted.opacity(0.18)).frame(width: 18, height: 2)
+                        RoundedRectangle(cornerRadius: UI.radius).fill(item < step ? UI.blue : UI.muted.opacity(0.18)).frame(width: 18, height: 2)
                     }
                 }
             }
@@ -697,7 +707,7 @@ private struct SourceChooser: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SectionHeading(index: "01", title: "Choose a Source", detail: "\(model.discoveries.count) detected")
+            SectionHeading(title: "Choose a Source", detail: "\(model.discoveries.count) detected")
             Text("Choose a detected Codex home, or select a folder or auth.json file.").foregroundStyle(UI.muted)
             ScrollView {
                 LazyVStack(spacing: 0) {
@@ -720,7 +730,7 @@ private struct SourceChooser: View {
                     }
                 }
             }
-            .background(UI.muted.opacity(0.04))
+            .background(UI.muted.opacity(0.05), in: RoundedRectangle(cornerRadius: UI.radius))
             .onMoveCommand(perform: moveSelection)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -776,10 +786,12 @@ private struct SourceRow: View {
     let source: DiscoveredSource
     let selected: Bool
     let focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 0) {
-            Rectangle()
+            RoundedRectangle(cornerRadius: UI.radius)
                 .fill(selected || focused ? UI.blue : .clear)
                 .frame(width: focused ? 5 : 4)
             VStack(alignment: .leading, spacing: 7) {
@@ -806,10 +818,16 @@ private struct SourceRow: View {
             }
             .padding(14)
         }
-        .background(selected ? UI.blue.opacity(0.14) : (focused ? UI.blue.opacity(0.08) : UI.surface))
-        .contentShape(Rectangle())
+        .background(
+            selected ? UI.blue.opacity(0.16) : ((focused || hovering) ? UI.blue.opacity(0.09) : UI.surface),
+            in: RoundedRectangle(cornerRadius: UI.radius)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: UI.radius))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .onHover { value in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: UI.hoverDuration)) { hovering = value }
+        }
     }
 }
 
@@ -851,7 +869,7 @@ private struct ImportReview: View {
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionHeading(index: "02", title: "Review the Plan", detail: "\(plan.manifest.filter(\.selected).count) selected")
+            SectionHeading(title: "Review the Plan", detail: "\(plan.manifest.filter(\.selected).count) selected")
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                 DefinitionRow(label: "Account", value: plan.identity.displayName)
                 DefinitionRow(label: "Destination", value: plan.destination.path, monospaced: true)
@@ -870,7 +888,7 @@ private struct ImportReview: View {
                     .foregroundStyle(UI.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(UI.orange.opacity(0.08))
+                    .background(UI.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
             }
         }
     }
@@ -927,7 +945,7 @@ private struct ImportReview: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(UI.muted.opacity(0.06))
+                .background(UI.muted.opacity(0.08), in: RoundedRectangle(cornerRadius: UI.radius))
             }
         }
     }
@@ -961,7 +979,7 @@ private struct ImportResultView: View {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(alignment: .top, spacing: 18) {
                     ZStack {
-                        Rectangle().fill(complete ? UI.teal : UI.orange)
+                        RoundedRectangle(cornerRadius: UI.radius).fill(complete ? UI.teal : UI.orange)
                         Image(systemName: complete ? "checkmark" : "exclamationmark")
                             .font(.system(size: 28, weight: .semibold))
                             .foregroundStyle(.white)
@@ -976,7 +994,7 @@ private struct ImportResultView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    SectionHeading(index: "03", title: "Import Result", detail: "\(result.importedChats) chats")
+                    SectionHeading(title: "Import Result", detail: "\(result.importedChats) chats")
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                         DefinitionRow(label: "Profile", value: result.account.home.path, monospaced: true)
                         DefinitionRow(label: "Backup", value: result.backup.path, monospaced: true)
@@ -992,7 +1010,7 @@ private struct ImportResultView: View {
                                 .foregroundStyle(UI.orange)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(10)
-                                .background(UI.orange.opacity(0.08))
+                                .background(UI.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: UI.radius))
                         }
                     }
                 }
