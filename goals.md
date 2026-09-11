@@ -1266,7 +1266,13 @@ after fixing AppKit appearance propagation. The import panel is now a custom 2px
 overlay; full import and Escape dismissal also pass at 720x500. Native close and
 minimize event receipts pass. Pointer-hover automation remains unavailable; its
 shared hover region and delayed minimize dismissal are source-reviewed. CLI
-acceptance passes. Final installed-build verification follows the clean commit.
+acceptance passes. Both `/Applications/AI Manager.app` and
+`/Applications/AI Manager Preview.app` were installed from clean `dc93a2be6c40`,
+with strict development signatures, empty entitlements, and matching build/
+installed executable hashes. Native Computer verified the exact installed normal
+app's custom import panel, modal keyboard focus, and Escape dismissal; the exact
+installed preview's window/font receipt also passes. This documentation checkpoint
+requires only the normal rebuild/install to refresh embedded revision metadata.
 
 Ponytail inventory: one unchanged marker in
 `packages/core/Sources/AIManagerCore/AccountManager.swift:398`; all Codex
