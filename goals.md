@@ -1122,6 +1122,13 @@ three-point corners, custom titlebar, light/dark appearance, and installed artif
   with the `redesign-` prefix. The final affected debug build passes. Harness files and
   core behavior are unchanged. Ponytail inventory remains one marker with a defined
   upgrade trigger and zero missing triggers.
+- The signed redesign was installed from clean revision `086ea3ef4da5`. The installed
+  bundle reports that revision and dirty-source false; strict signature and empty
+  entitlement checks pass. Native Computer launched the exact `/Applications/AI Manager.app`
+  executable and confirmed the full-height translucent composition without header/footer.
+  The installed CLI hash still matches the unchanged verified package. The app remains
+  open for the user. The normal signed build refreshes revision metadata after this
+  documentation-only checkpoint; no functional test rerun is needed for that metadata.
 
 Remote native CI was dispatched as run `34588863904`, but repository Actions are
 disabled (`enabled: false`) and no job started. Repository permissions were not changed.
@@ -1129,7 +1136,10 @@ Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-The revised UI, CLI, and history checks pass within their recorded scope. Build and install
-the signed redesign from clean HEAD. Live VoiceOver verification is no longer a gate. The core migration and history
-evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
+The revised UI is signed, installed, and verified within the recorded scope. Live VoiceOver
+verification is no longer a gate. Native Terminal handoff remains unexercised under the
+focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
+production app retains conservative writer checks. These limits must not be represented
+as completed production mutation or Terminal checks. The core migration and history evidence
+is recorded above; do not mark the full G1–G6 goal complete before remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.
