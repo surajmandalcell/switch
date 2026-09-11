@@ -72,6 +72,9 @@ install -m 0644 \
   "$repo_root/packaging/macos/Info.plist" \
   "$app_path/Contents/Info.plist"
 ditto "$repo_root/packages/gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
+ditto "$repo_root/packages/gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
+install -m 0644 "$repo_root/packages/gui/Resources/Icons/AppIcon.icns" \
+  "$app_path/Contents/Resources/AppIcon.icns"
 
 source_revision="unknown"
 if source_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD 2>/dev/null)"; then

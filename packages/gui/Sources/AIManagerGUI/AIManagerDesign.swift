@@ -102,12 +102,21 @@ struct AIMIcon: View {
   let name: Name
   var size: CGFloat = 17
 
+  @ViewBuilder
   var body: some View {
-    Image(systemName: name.symbol)
-      .font(.system(size: size, weight: .regular))
-      .symbolRenderingMode(.monochrome)
-      .frame(width: size, height: size)
-      .accessibilityHidden(true)
+    if name == .mark, let mark = AIManagerBrand.railMark() {
+      Image(nsImage: mark)
+        .resizable()
+        .scaledToFit()
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    } else {
+      Image(systemName: name.symbol)
+        .font(.system(size: size, weight: .regular))
+        .symbolRenderingMode(.monochrome)
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
   }
 }
 

@@ -36,6 +36,13 @@ allowed through GUI account actions. Keep all pages and states reachable with
 sample data. Core and CLI production functionality remains unchanged. This
 temporary demo requirement supersedes the shared-core GUI requirement below
 until the user approves restoring real operations.
+
+App identity refinement (2026-09-12): add coordinated Dock and menu-bar icons
+using Recap Pro Producer's charcoal tile and off-white mark treatment. Build a
+simple robot/manager mark from established licensed glyphs, with no hand-drawn
+SVG paths. Keep the menu-bar version monochrome and legible at native size.
+Use the same mark in the app rail, and package it in both GUI builds. Menu-bar
+actions only show the demo window or quit; account operations remain mocked.
 Repository baseline: `e7bb55bf2dea7c05072d85481aa5652ab4cdfe16` on `master`.
 
 ## 1. The outcome
@@ -1336,6 +1343,27 @@ Ponytail inventory is unchanged: one marker at
 `packages/core/Sources/AIManagerCore/AccountManager.swift:398`, zero missing
 triggers. Real mutations remain blocked by any live Codex process until Codex
 provides a reliable home-specific writer lock or probe. GUI actions remain mocked.
+
+### App identity refinement (2026-09-12)
+
+The Dock tile follows Recap Pro Producer's charcoal and warm-white treatment.
+The mark combines Lucide's existing robot and slider geometry, with a filled
+head and eye cutouts. Its license and reproducible PNG/ICNS generator are included.
+Both GUI bundles use the same Dock icon, monochrome menu-bar template at 1x/2x,
+and rail mark. The menu offers Show AI Manager and Quit; account actions remain
+in-memory mocks.
+
+The native build and hidden-window scrolling check pass. The launched preview's
+nonfatal contract passes asset loading, template flags, 22-point tray size,
+22/44-pixel representations, and the retained menu-bar item, alongside existing
+window checks. Dock and native-size tray exports were visually inspected.
+Live Dock/menu interaction remains pending while macOS is locked; native Computer
+returns `cgWindowNotFound`. The existing pointer checks above remain pending too.
+
+Debt audit: one unchanged marker at
+`packages/core/Sources/AIManagerCore/AccountManager.swift:398`; any Codex process
+blocks real mutations until reliable home-scoped writer detection is available.
+One marker, zero missing triggers; no icon-related shortcuts were added.
 
 ### Next action (production functionality, deferred during design review)
 

@@ -5,14 +5,20 @@ import AIManagerCore
 private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let model = AccountViewModel()
     private var windowController: AIManagerWindowController<AccountWindow>?
+    private var statusItemController: AIManagerStatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DemoFonts.register()
+        AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
             title: "AI Manager",
             rootView: AccountWindow(model: model)
         )
         windowController = controller
+        statusItemController = AIManagerStatusItemController {
+            controller.present()
+            NSApp.activate(ignoringOtherApps: true)
+        }
         installMainMenu()
         controller.present()
         Task { await model.load() }
