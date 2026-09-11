@@ -7,12 +7,20 @@ private struct WindowContractReceipt: Codable {
     let passed: Bool
     let failures: [String]
     let window: WindowContractObservation?
+    var hierarchy: [AIManagerNativeViewSnapshot] = []
+    var titleHitPath: [String] = []
 }
 
 private struct WindowContractObservation: Codable {
     let stage: String
     let windowClass: String
     let windowNumber: Int
+    let frameX: Double
+    let frameY: Double
+    let frameWidth: Double
+    let frameHeight: Double
+    let appearance: String?
+    let configuredScrollViews: Int
     let minWidth: Double
     let minHeight: Double
     let maxWidth: Double
@@ -22,10 +30,16 @@ private struct WindowContractObservation: Codable {
     let contentMaxWidth: Double
     let contentMaxHeight: Double
 
-    init(stage: String, window: NSWindow) {
+    @MainActor init(stage: String, window: NSWindow) {
         self.stage = stage
         windowClass = NSStringFromClass(type(of: window))
         windowNumber = window.windowNumber
+        frameX = window.frame.origin.x
+        frameY = window.frame.origin.y
+        frameWidth = window.frame.size.width
+        frameHeight = window.frame.size.height
+        appearance = window.appearance?.name.rawValue
+        configuredScrollViews = window.contentView.map { AIManagerNativeContract.configuredScrollViewCount(in: $0) } ?? 0
         minWidth = window.minSize.width
         minHeight = window.minSize.height
         maxWidth = window.maxSize.width
@@ -34,6 +48,10 @@ private struct WindowContractObservation: Codable {
         contentMinHeight = window.contentMinSize.height
         contentMaxWidth = window.contentMaxSize.width
         contentMaxHeight = window.contentMaxSize.height
+    }
+
+    @MainActor static func signature(for window: NSWindow) -> String {
+        "\(NSStringFromRect(window.frame))|\(window.appearance?.name.rawValue ?? "none")"
     }
 }
 
@@ -48,15 +66,7 @@ private enum AcceptanceConfiguration {
         }
     }
 
-    static var initialSize: NSSize {
-        isEnabled(argument: "--narrow", infoKey: "AIManagerGUINarrow")
-            ? NSSize(width: 720, height: 500)
-            : NSSize(width: 1120, height: 740)
-    }
-
-    static func isEnabled(argument: String, infoKey: String) -> Bool {
-        CommandLine.arguments.contains(argument) || (Bundle.main.object(forInfoDictionaryKey: infoKey) as? Bool == true)
-    }
+    static let initialSize = NSSize(width: 1120, height: 740)
 }
 
 @MainActor
@@ -68,6 +78,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DemoFonts.register()
+        receipts.model = model
         model.$selectedAccountID
             .dropFirst()
             .sink { [receipts] _ in checkWindowContract(receipts: receipts, stage: "after-account-change") }
@@ -90,7 +101,6 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
         let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "AI Manager GUI Acceptance"
         let controller = AIManagerWindowController(
             title: title,
-            initialSize: AcceptanceConfiguration.initialSize,
             rootView: content
         )
         windowController = controller
@@ -174,44 +184,111 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(window.canBecomeKey, "Acceptance window cannot become key")
     expect(window.canBecomeMain, "Acceptance window cannot become main")
     expect(!window.styleMask.contains(.titled), "Acceptance window is still titled")
-    expect(window.styleMask.contains(.resizable), "Acceptance window is not resizable")
+    expect(!window.styleMask.contains(.resizable), "Acceptance window is resizable")
     expect(window.styleMask.contains(.closable), "Acceptance window is not closable")
     expect(window.styleMask.contains(.miniaturizable), "Acceptance window is not miniaturizable")
     expect(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
     expect(
-        window.minSize == NSSize(width: 720, height: 500),
+        window.frame.size == AcceptanceConfiguration.initialSize,
+        "Acceptance window frame changed to \(NSStringFromSize(window.frame.size))"
+    )
+    expect(
+        window.minSize == AcceptanceConfiguration.initialSize,
         "Acceptance window minimum changed to \(NSStringFromSize(window.minSize))"
     )
     expect(
-        window.maxSize == NSSize(width: 1840, height: 1240),
-        "Acceptance window size cap changed to \(NSStringFromSize(window.maxSize))"
+        window.maxSize == AcceptanceConfiguration.initialSize,
+        "Acceptance window maximum changed to \(NSStringFromSize(window.maxSize))"
+    )
+    expect(
+        window.contentMinSize == AcceptanceConfiguration.initialSize
+            && window.contentMaxSize == AcceptanceConfiguration.initialSize,
+        "Acceptance content size bounds are not fixed"
     )
     expect(window.standardWindowButton(.closeButton) == nil, "Native close button exists")
     expect(window.standardWindowButton(.miniaturizeButton) == nil, "Native minimize button exists")
     expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
+    for icon in AIMIcon.Name.allCases {
+        expect(
+            NSImage(systemSymbolName: icon.symbol, accessibilityDescription: nil) != nil,
+            "AIM icon \(String(describing: icon)) is unavailable"
+        )
+    }
+    if let contentView = window.contentView {
+        expect(contentView.bounds.size == AcceptanceConfiguration.initialSize, "Acceptance content size changed")
+        if stage == "after-load" {
+            expect(
+                AIManagerNativeContract.focusPolicyMatches(in: contentView, indicatorsEnabled: false),
+                "Acceptance host focus policy is not disabled at startup"
+            )
+        }
+        expect(
+            AIManagerNativeContract.scrollBehaviorIsInstalled(in: contentView),
+            "Acceptance scroll behavior is not installed after layout"
+        )
+        // The shared helper converts top-origin coordinates to AppKit hit-test coordinates.
+        let titlePoint = NSPoint(x: 400, y: 28)
+        if receipts.model?.showImport != true {
+            expect(
+                AIManagerNativeContract.titleDragTarget(in: window, at: titlePoint),
+                "Title drag hit-test did not resolve AIMTitleDragView at (400, top 28)"
+            )
+        }
+        let themeY = contentView.isFlipped ? contentView.bounds.maxY - 72 : 72
+        let themePoint = NSPoint(x: 24, y: themeY)
+        expect(
+            !windowHelperResolves(at: themePoint, in: contentView),
+            "Theme control hit-test resolves a window drag helper"
+        )
+    } else {
+        failures.append("Acceptance window content view did not resolve")
+    }
     let commands = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
     expect(commands.contains {
         $0.keyEquivalent == "q" && $0.action == #selector(NSApplication.terminate(_:))
     }, "Preview Quit command is missing")
-    let receipt = WindowContractReceipt(
+    var receipt = WindowContractReceipt(
         passed: failures.isEmpty,
         failures: failures,
         window: WindowContractObservation(stage: stage, window: window)
     )
+    if !failures.isEmpty, let root = window.contentView {
+        receipt.hierarchy = AIManagerNativeContract.hierarchySnapshot(in: root)
+        receipt.titleHitPath = AIManagerNativeContract.hitTestPath(in: window, atTopOriginPoint: NSPoint(x: 400, y: 28))
+    }
     receipts.writeWindowContract(receipt)
     receipts.report(failures: failures)
 }
 
+private func windowHelperResolves(at point: NSPoint, in contentView: NSView) -> Bool {
+    var view = contentView.hitTest(contentView.convert(point, to: contentView.superview))
+    while let current = view {
+        if current is AIMTitleDragView {
+            return true
+        }
+        let className = NSStringFromClass(type(of: current))
+        if className.contains("WindowResolver") || className.contains("DragView") {
+            return true
+        }
+        view = current.superview
+    }
+    return false
+}
+
 @MainActor
 private final class AcceptanceReceipts {
+    weak var model: AccountViewModel?
     private static let stableDirectory = URL(
         fileURLWithPath: "/private/tmp/ai-manager-build/gui-acceptance/artifacts",
         isDirectory: true
     )
     private let directory: URL?
     private var windowObservers: [NSObjectProtocol] = []
+    private var pendingMoveReceipt: DispatchWorkItem?
+    private var lastEventSignatures: [String: String] = [:]
+    private var didUpdateReceiptScheduled = false
 
     init() {
         directory = Self.prepareDirectory(Self.stableDirectory)
@@ -231,6 +308,56 @@ private final class AcceptanceReceipts {
             }
             windowObservers.append(observer)
         }
+        for (name, stage) in [
+            (NSWindow.didMoveNotification, "after-window-move"),
+            (NSWindow.didBecomeKeyNotification, "after-window-key"),
+            (NSWindow.didUpdateNotification, "after-window-update")
+        ] {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard let self,
+                      let window = notification.object as? NSWindow,
+                      window is AIManagerWindow else { return }
+                Task { @MainActor in self.scheduleWindowContract(for: window, stage: stage) }
+            }
+            windowObservers.append(observer)
+        }
+    }
+
+    private func scheduleWindowContract(for window: NSWindow, stage: String) {
+        if stage == "after-window-update" {
+            guard !didUpdateReceiptScheduled else { return }
+            didUpdateReceiptScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(300)) { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.didUpdateReceiptScheduled = false
+                self.recordWindowContract(for: window, stage: stage)
+            }
+            return
+        }
+
+        if stage == "after-window-move" {
+            pendingMoveReceipt?.cancel()
+            let work = DispatchWorkItem { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.recordWindowContract(for: window, stage: stage)
+            }
+            pendingMoveReceipt = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120), execute: work)
+            return
+        }
+
+        recordWindowContract(for: window, stage: stage)
+    }
+
+    private func recordWindowContract(for window: NSWindow, stage: String) {
+        guard let contentView = window.contentView else { return }
+        let signature = WindowContractObservation.signature(for: window)
+            + "|\(AIManagerNativeContract.scrollIdentity(in: contentView))"
+            + "|\(AIManagerNativeContract.configuredScrollViewCount(in: contentView))"
+            + "|\(model?.showImport ?? false)|\(window.contentView?.focusRingType.rawValue ?? 0)"
+        guard lastEventSignatures[stage] != signature else { return }
+        lastEventSignatures[stage] = signature
+        checkWindowContract(receipts: self, stage: stage)
     }
 
     func writeWindowContract(_ receipt: WindowContractReceipt) {
