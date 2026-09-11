@@ -18,4 +18,5 @@ swift package --disable-sandbox dump-package >/dev/null
 swift test \
   --disable-sandbox \
   --build-path "$build_path"
+bash "$repo_root/scripts/check-gui-demo.sh"
 git -C "$repo_root" diff --check
