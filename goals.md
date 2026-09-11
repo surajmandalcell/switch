@@ -9,6 +9,7 @@ Repository baseline: `e7bb55bf2dea7c05072d85481aa5652ab4cdfe16` on `master`.
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
 Ship it as a native macOS app. Support Codex only.
 Use the same settings across accounts by default.
+Use a merged chat library so the resume picker can find history from either account.
 Offer two import modes: **Auth only** and **Auth, settings, and chats**.
 Protect existing credentials, skills, rules, settings, and conversations before any replacement.
 
@@ -124,6 +125,7 @@ Do not report that Orca, Super, or every terminal has switched automatically.
 - Import authentication with settings and chat data.
 - Identify duplicate accounts and preserve separate workspaces.
 - Reuse shared settings across imported accounts.
+- Merge chat libraries and make the merged history discoverable from both account homes.
 - Switch the account used by future default-home Codex sessions.
 - Provide a usable path to launch an account-specific Codex session.
 - Back up, verify, report conflicts, and recover failed mutations.
@@ -199,6 +201,7 @@ Do not hardcode these paths or account identities into the product.
 
 The shared entries are `config.toml`, `AGENTS.md`, `agents`, `rules`, `context`, `skills`, `plugins`, and `hooks.json`.
 The original Orca home and main home were not edited.
+That statement describes the initial copy. The shared-history follow-up below supersedes the separate-history layout.
 The global `codex` executable still resolves into the original Orca installation.
 The copied CLI under `~/.codex2/packages/standalone/current/bin/codex` reports version `0.154.0`.
 
@@ -206,6 +209,42 @@ The private backup is `~/.codex-profile-backups/20260911-081725`.
 Its README explains preserved link targets and restoration boundaries.
 Its `verify-codex2.sh` checks local auth separation, links, database integrity, and indexed transcript paths.
 Never copy that backup, real auth, real settings, or real transcripts into this repository.
+
+### Shared-history follow-up
+
+The user clarified that both accounts must expose the merged history through `/resume`.
+Settings alone were not enough. This is now part of the product requirement.
+
+The follow-up backed up both homes under `~/.codex-profile-backups/20260911-085649-merge` before changing history or indexes.
+It compared 2,555 transcript files by thread identity and replay content.
+The comparison found 559 byte-identical duplicates and 401 equivalent histories with different serialization.
+Four archived continuation segments belong to their original threads and remain intact.
+Four cross-home divergent histories were preserved through native Codex forks, labeled `[Gmail alternate]`.
+
+The main library gained 248 previously missing histories and four alternate forks.
+Its existing transcript files were preserved.
+Both homes now share transcript directories and lightweight history files through symbolic links.
+Their SQLite files remain separate, initialized from consistent snapshots of the merged indexes.
+Auth and shared configuration were not changed by this follow-up.
+The shared config gained three Super project entries during the operation. Those concurrent updates were preserved.
+
+```text
+~/.codex  -> account one auth ----+
+                               +-> shared sessions and archived sessions
+~/.codex2 -> account two auth ---+
+
+Each home -> its own SQLite indexes
+Codex     -> scans shared files and repairs local discovery metadata
+```
+
+The shared history entries are `sessions`, `archived_sessions`, `history.jsonl`, and `session_index.jsonl`.
+Archived conversations stay archived. Empty sessions and background threads retain Codex's normal visibility rules.
+Use `codex resume --all` to search across working directories.
+The private merge directory contains comparison manifests, original versions, fork lineage, and verification tools.
+Hash checks verified all 1,343 original main-home transcripts and all 248 added transcripts against their source bytes.
+Native Codex listings matched across both homes: 475 active entries and 92 archived entries at verification time.
+Nine native metadata reads passed from each home, and one alternate's full turn history was read successfully.
+The actual `codex resume --all` picker opened under `~/.codex2` and was exited without starting a model turn.
 
 ## 7. Native implementation shape
 
@@ -251,8 +290,9 @@ Proposed app-owned layout:
     auth.json                     account credential
     config.toml -> shared root
     AGENTS.md, rules, skills ... -> shared root
-    sessions/                     account history
-    state_*.sqlite                account indexes
+    sessions/ -> shared root      merged user history
+    archived_sessions/ -> shared root
+    state_*.sqlite                independent indexes of shared history
   backups/<operation-id>/          data needed for rollback
   transactions/<operation-id>.json non-secret recovery journal
   staging/<operation-id>/          unpublished destination
@@ -260,7 +300,8 @@ Proposed app-owned layout:
 ~/.codex/                         default Codex home
   config.toml, rules, skills ...   default shared settings root
   auth.json                       credential for default launches
-  sessions/, state_*.sqlite        default-home history
+  sessions/, archived_sessions/   shared transcript library
+  state_*.sqlite                  default-home indexes
 ```
 
 The user can select a different shared root during setup.
@@ -458,10 +499,12 @@ Test referenced attachments, image paths, archived sessions, history index entri
 Report source paths that still matter before the user retires the source installation.
 A missing working directory is a resume problem, not a reason to delete a transcript.
 
-History can be preserved per account while settings are shared.
-Shared live databases across accounts are outside v1.
-Default-home auth switching preserves default-home chats, but does not automatically copy all account-home chats into that home.
-Use an account-specific launch to resume history imported into that account's home.
+History must be merged into a shared transcript library while credentials remain separate.
+Shared live SQLite files remain outside v1. Keep local indexes and verify Codex can repair discovery from the shared transcripts.
+Auth-only import links the existing shared library without importing that source's conversations.
+Full import adds the selected source history to that library after duplicate and conflict handling.
+Default-home switching then preserves the same chat library for both accounts.
+Verify both an existing merged chat and a newly added chat can be discovered from either home.
 
 ## 13. Account switching contract
 
@@ -627,6 +670,8 @@ The old account remains recoverable. Running external sessions are not reported 
 - [ ] Resolve settings conflicts before mutation.
 - [ ] Snapshot supported databases and validate transcript consistency.
 - [ ] Preserve chat identity, archive state, references, and divergent copies.
+- [ ] Share merged transcripts across account homes while keeping SQLite files independent.
+- [ ] Verify both homes discover imported chats and later additions through Codex's resume behavior.
 - [ ] Rebase recognized copied index paths without rewriting historical content.
 - [ ] Show all excluded or unsupported categories in the result.
 - [ ] Verify a supported imported conversation can resume through Codex.
@@ -658,6 +703,8 @@ Do not mirror every method with a test or retain obsolete gateway coverage targe
 | First launch without Codex | Useful empty state and CLI setup guidance |
 | Valid auth-only import | Separate private auth, shared settings, source unchanged |
 | Full import | Selected settings and history preserved, conflicts accounted for |
+| Shared chat library | Both accounts discover the same merged user conversations |
+| Later chat addition | Each home discovers it through native scanning without copying a live SQLite database |
 | Duplicate account | Existing identity reused, credentials not overwritten blindly |
 | Same email, different workspace | Two distinct account records |
 | Broken auth or malformed token | No crash, no token output, activation unavailable |
