@@ -1,3 +1,7 @@
+> **Current direction:** AI Manager is being narrowed to a native macOS Codex account switcher and importer.
+> Read [goals.md](goals.md) for the implementation plan and acceptance gates.
+> Native implementation is pending. The gateway documentation below describes the legacy application.
+
 <p align="center">
   <img src="website/assets/icon.svg" width="112" height="112" alt="Subscription Proxy Inator calendar and refresh icon">
 </p>
