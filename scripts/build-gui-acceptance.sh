@@ -10,10 +10,19 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 output_path="$build_path/gui-acceptance"
-app_path="$output_path/AI Manager GUI Acceptance.app"
+preview="${AI_MANAGER_GUI_PREVIEW:-0}"
+app_name='AI Manager GUI Acceptance'
+bundle_id='com.mandalsuraj.ai-manager.gui-acceptance'
+case "$preview" in
+  0) ;;
+  1) app_name='AI Manager Preview'; bundle_id='com.mandalsuraj.ai-manager.preview' ;;
+  *) printf '%s\n' 'AI_MANAGER_GUI_PREVIEW must be 0 or 1.' >&2; exit 2 ;;
+esac
+app_path="$output_path/$app_name.app"
 appearance="${AI_MANAGER_GUI_APPEARANCE:-system}"
 narrow="${AI_MANAGER_GUI_NARROW:-0}"
 seeded="${AI_MANAGER_GUI_SEEDED:-0}"
+if [[ "$preview" == "1" ]]; then seeded=1; fi
 gui_sources=()
 
 case "$appearance" in
@@ -59,12 +68,16 @@ swiftc \
   -o "$app_path/Contents/MacOS/AIManagerGUIAcceptance"
 
 install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app_path/Contents/Info.plist"
-/usr/bin/plutil -replace CFBundleDisplayName -string 'AI Manager GUI Acceptance' "$app_path/Contents/Info.plist"
-/usr/bin/plutil -replace CFBundleName -string 'AI Manager GUI Acceptance' "$app_path/Contents/Info.plist"
+/usr/bin/plutil -replace CFBundleDisplayName -string "$app_name" "$app_path/Contents/Info.plist"
+/usr/bin/plutil -replace CFBundleName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleExecutable -string 'AIManagerGUIAcceptance' "$app_path/Contents/Info.plist"
-/usr/bin/plutil -replace CFBundleIdentifier -string 'com.mandalsuraj.ai-manager.gui-acceptance' "$app_path/Contents/Info.plist"
+/usr/bin/plutil -replace CFBundleIdentifier -string "$bundle_id" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace AIManagerBuildConfiguration -string 'gui-acceptance' "$app_path/Contents/Info.plist"
-/usr/bin/plutil -replace AIManagerSourceDirty -bool true "$app_path/Contents/Info.plist"
+source_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD)"
+source_dirty=false
+if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; then source_dirty=true; fi
+/usr/bin/plutil -replace AIManagerSourceRevision -string "$source_revision" "$app_path/Contents/Info.plist"
+/usr/bin/plutil -replace AIManagerSourceDirty -bool "$source_dirty" "$app_path/Contents/Info.plist"
 if [[ "$appearance" != "system" ]]; then
   /usr/bin/plutil -insert AIManagerGUIAppearance -string "$appearance" "$app_path/Contents/Info.plist"
 fi
