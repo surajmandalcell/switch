@@ -31,6 +31,51 @@ private struct MaterialPane: NSViewRepresentable {
     }
 }
 
+@MainActor
+final class AIManagerWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+@MainActor
+final class AIManagerWindowController<Content: View>: NSWindowController, NSWindowDelegate {
+    init(title: String, initialSize: NSSize, rootView: Content) {
+        let window = AIManagerWindow(
+            contentRect: NSRect(origin: .zero, size: initialSize),
+            styleMask: [.closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.isMovableByWindowBackground = false
+        window.collectionBehavior = [.fullScreenNone]
+        let hostingView = NSHostingView(rootView: rootView.frame(
+            minWidth: 720,
+            maxWidth: 1840,
+            minHeight: 500,
+            maxHeight: 1240
+        ))
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.center()
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    func present() {
+        guard let window else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
 private final class WindowResolverView: NSView {
     var onWindow: ((NSWindow) -> Void)?
 
@@ -64,22 +109,9 @@ private struct WindowChrome: NSViewRepresentable {
 
     private func resolve(_ window: NSWindow?, coordinator: Coordinator) {
         guard let window else { return }
-        if coordinator.configuredWindow !== window {
-            coordinator.configuredWindow = window
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.isMovableByWindowBackground = false
-            window.collectionBehavior.remove(.fullScreenPrimary)
-            window.collectionBehavior.insert(.fullScreenNone)
-            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window.standardWindowButton(kind)?.isHidden = true
-            }
-            window.standardWindowButton(.zoomButton)?.isEnabled = false
-            onResolve(window)
-        }
+        guard coordinator.configuredWindow !== window else { return }
+        coordinator.configuredWindow = window
+        onResolve(window)
     }
 }
 
@@ -116,10 +148,7 @@ private struct WindowControlButton: View {
                 .font(.system(size: 10, weight: .semibold))
                 .frame(width: 26, height: 24)
                 .foregroundStyle(kind == .close && hovering ? UI.red : Color.primary)
-                .background(
-                    (focused || hovering ? UI.muted.opacity(0.18) : UI.muted.opacity(0.09)),
-                    in: RoundedRectangle(cornerRadius: UI.radius, style: .continuous)
-                )
+                .background(focused || hovering ? UI.muted.opacity(0.18) : Color.clear)
                 .overlay(alignment: .leading) {
                     if focused {
                         RoundedRectangle(cornerRadius: UI.radius)
@@ -127,7 +156,7 @@ private struct WindowControlButton: View {
                             .frame(width: 3)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focused($focused)
@@ -342,17 +371,27 @@ struct AccountWindow: View {
         ZStack {
             if reduceTransparency { UI.sidebarFallback } else { UI.surface.opacity(0.34) }
             VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 8) {
-                    WindowControlButton(kind: .close) { windowTarget.window?.performClose(nil) }
-                    WindowControlButton(kind: .minimize) { windowTarget.window?.miniaturize(nil) }
-                    Text("AI Manager")
-                        .font(.system(.headline, weight: .semibold))
-                    Spacer()
+                HStack(alignment: .center, spacing: 0) {
+                    HStack(spacing: 0) {
+                        WindowControlButton(kind: .close) { windowTarget.window?.close() }
+                        WindowControlButton(kind: .minimize) { windowTarget.window?.miniaturize(nil) }
+                    }
+                    .background(UI.muted.opacity(0.09))
+                    .clipShape(RoundedRectangle(cornerRadius: UI.radius, style: .continuous))
+                    .zIndex(1)
+
+                    HStack {
+                        Text("AI Manager")
+                            .font(.system(.headline, weight: .semibold))
+                        Spacer()
+                    }
+                    .padding(.leading, 20)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .background(WindowDragRegion())
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 48)
-                .contentShape(Rectangle())
-                .background(WindowDragRegion())
 
                 ScrollView {
                     LazyVStack(spacing: 3) {
