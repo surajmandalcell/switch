@@ -1,0 +1,84 @@
+import Foundation
+
+let fileManager = FileManager.default
+let arguments = CommandLine.arguments
+guard arguments.count == 2 else {
+    FileHandle.standardError.write(Data("Usage: swift FixtureGenerator.swift <destination>\n".utf8))
+    exit(64)
+}
+
+let root = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+let temporaryRoots = ["/private/tmp/ai-manager-", fileManager.temporaryDirectory.standardizedFileURL.path + "ai-manager-"]
+guard temporaryRoots.contains(where: root.path.hasPrefix) else {
+    FileHandle.standardError.write(Data("Destination must be an ai-manager-* directory under the system temporary directory.\n".utf8))
+    exit(64)
+}
+guard !fileManager.fileExists(atPath: root.path) else {
+    FileHandle.standardError.write(Data("Destination already exists. Choose a new temporary directory.\n".utf8))
+    exit(73)
+}
+try fileManager.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+
+func write(_ text: String, to relativePath: String, permissions: Int = 0o600) throws {
+    let url = root.appending(path: relativePath)
+    try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    try Data(text.utf8).write(to: url, options: .atomic)
+    try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
+}
+
+func auth(account: String, workspace: String, email: String) throws -> String {
+    let claims = try JSONSerialization.data(withJSONObject: [
+        "email": email,
+        "chatgpt_account_id": account,
+        "workspace_id": workspace,
+    ])
+    let payload = claims.base64EncodedString()
+        .replacingOccurrences(of: "=", with: "")
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+    let value: [String: Any] = [
+        "last_refresh": "2026-01-01T00:00:00Z",
+        "tokens": [
+            "access_token": "synthetic.\(payload).signature",
+            "account_id": account,
+            "refresh_token": "synthetic",
+        ],
+    ]
+    return String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)
+}
+
+func transcript(id: String, events: [String]) throws -> String {
+    let records: [[String: Any]] = [["type": "session_meta", "payload": ["id": id]]]
+        + events.map { ["type": "event", "payload": ["marker": $0]] }
+    return try records.map { String(decoding: try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]), as: UTF8.self) }
+        .joined(separator: "\n") + "\n"
+}
+
+try write(try auth(account: "account-one", workspace: "workspace-a", email: "one@example.test"), to: "source-one/auth.json")
+try write(try auth(account: "account-two", workspace: "workspace-b", email: "two@example.test"), to: "source-two/auth.json")
+try write("model = \"imported\"\n", to: "source-one/config.toml")
+try write("model = \"second\"\n", to: "source-two/config.toml")
+try write("model = \"shared\"\n", to: "shared-root/config.toml")
+try write("allow = [\"synthetic\"]\n", to: "external-rules/example.toml")
+try fileManager.createSymbolicLink(
+    at: root.appending(path: "source-one/rules"),
+    withDestinationURL: root.appending(path: "external-rules")
+)
+try write(try transcript(id: "thread-divergent", events: ["imported branch"]), to: "source-one/sessions/2026/01/01/thread-divergent.jsonl")
+try write(try transcript(id: "thread-new", events: ["new chat"]), to: "source-one/sessions/2026/01/01/thread-new.jsonl")
+try write(try transcript(id: "thread-divergent", events: ["shared branch"]), to: "shared-root/sessions/2026/01/01/thread-divergent.jsonl")
+try write(try transcript(id: "thread-extended", events: ["first", "second"]), to: "source-two/sessions/2026/01/01/thread-extended.jsonl")
+try write(try transcript(id: "thread-extended", events: ["first"]), to: "shared-root/sessions/2026/01/01/thread-extended.jsonl")
+
+let log = root.appending(path: "launch.log").path.replacingOccurrences(of: "'", with: "'\\''")
+let fakeCodex = """
+#!/bin/sh
+if [ "$3 $4" = "login status" ] || [ "$4 $5" = "login status" ]; then
+  printf '%s\n' 'Logged in using ChatGPT'
+  exit 0
+fi
+printf '%s\\t%s\n' "$CODEX_HOME" "$*" >> '\(log)'
+"""
+try write(fakeCodex, to: "fake-codex", permissions: 0o700)
+
+print(root.path)
