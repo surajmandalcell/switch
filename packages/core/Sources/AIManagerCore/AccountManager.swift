@@ -395,6 +395,7 @@ extension AccountManager {
             process.waitUntilExit()
             // pgrep establishes only that a Codex process exists somewhere on the
             // machine; it cannot attribute that process to this home.
+            // ponytail: any Codex process blocks mutations because home ownership is unknown; use verified home-scoped writer detection when Codex exposes a reliable lock or probe.
             return process.terminationStatus == 0 ? .unknown : (process.terminationStatus == 1 ? .inactive : .unknown)
         } catch {
             return .unknown
@@ -748,8 +749,12 @@ extension AccountManager {
                     if summary.excludedThreadCount > 0 {
                         unresolved.append("\(database.relativePath): excluded \(summary.excludedThreadCount) index rows without a retained transcript or complete projection")
                     }
-                    if summary.retainedDatabaseOnlyThreadCount > 0 {
-                        unresolved.append("\(database.relativePath): preserved \(summary.retainedDatabaseOnlyThreadCount) paginated threads from database projection only")
+                    if summary.unresolvedDatabaseOnlyThreadCount > 0 {
+                        let backup = operation.backup.appending(path: "databases/\(database.relativePath)")
+                        unresolved.append(
+                            "\(database.relativePath): \(summary.unresolvedDatabaseOnlyThreadCount) database-only paginated histories "
+                            + "were preserved at \(backup.path) but omitted from the active index because Codex requires rollout files"
+                        )
                     }
                     importedFiles += 1
                 } catch {

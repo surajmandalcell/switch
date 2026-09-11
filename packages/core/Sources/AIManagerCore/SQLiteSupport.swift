@@ -3,7 +3,7 @@ import Foundation
 
 struct SQLiteImportSummary {
     var excludedThreadCount: Int
-    var retainedDatabaseOnlyThreadCount: Int
+    var unresolvedDatabaseOnlyThreadCount: Int
     var preservedProjection: Bool
 }
 
@@ -71,7 +71,7 @@ enum SQLiteSupport {
             // This database stores a rebuildable projection keyed by thread IDs and
             // byte offsets. It has no filesystem paths that can safely be rewritten.
             guard quickCheck(db) else { throw AIManagerError.operationFailed("Preserved database failed its integrity check.") }
-            return .init(excludedThreadCount: 0, retainedDatabaseOnlyThreadCount: 0, preservedProjection: true)
+            return .init(excludedThreadCount: 0, unresolvedDatabaseOnlyThreadCount: 0, preservedProjection: true)
         } else {
             throw AIManagerError.unsupportedSource("unrecognized Codex database schema")
         }
@@ -114,7 +114,7 @@ enum SQLiteSupport {
         }
         var replacements: [(Int64, String)] = []
         var deletions: [Int64] = []
-        var retainedDatabaseOnly = 0
+        var unresolvedDatabaseOnly = 0
         while sqlite3_step(select) == SQLITE_ROW {
             let rowID = sqlite3_column_int64(select, 0)
             guard let idValue = sqlite3_column_text(select, 1) else { throw AIManagerError.unsupportedSource("unreadable thread identity") }
@@ -128,10 +128,11 @@ enum SQLiteSupport {
             } else if mode == "paginated", hasCompleteProjection(projection, threadID: threadID),
                       let oldPath, let relative = recognizedTranscriptRelativePath(oldPath, sourceHome: sourceHome),
                       !sourceTranscriptExists(relative, sourceHome: sourceHome) {
-                replacements.append((rowID, destinationHome.appending(path: relative).standardizedFileURL.path))
-                retainedDatabaseOnly += 1
+                deletions.append(rowID)
+                unresolvedDatabaseOnly += 1
             } else if mode == "paginated", hasCompleteProjection(projection, threadID: threadID), oldPath == nil || oldPath?.isEmpty == true {
-                retainedDatabaseOnly += 1
+                deletions.append(rowID)
+                unresolvedDatabaseOnly += 1
             } else {
                 deletions.append(rowID)
             }
@@ -172,7 +173,11 @@ enum SQLiteSupport {
             sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
             throw error
         }
-        return .init(excludedThreadCount: deletions.count, retainedDatabaseOnlyThreadCount: retainedDatabaseOnly, preservedProjection: false)
+        return .init(
+            excludedThreadCount: deletions.count - unresolvedDatabaseOnly,
+            unresolvedDatabaseOnlyThreadCount: unresolvedDatabaseOnly,
+            preservedProjection: false
+        )
     }
 
     private static func recognizedTranscriptRelativePath(_ oldPath: String, sourceHome: URL) -> String? {
