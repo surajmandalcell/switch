@@ -10,6 +10,7 @@ final class AccountViewModel: ObservableObject {
     @Published var selectedAccountID: UUID?
     @Published var discoveries: [DiscoveredSource] = []
     @Published var isBusy = false
+    @Published var refreshedAt: Date?
     @Published var errorMessage: String?
     @Published var notice: String?
     @Published var showImport = false
@@ -40,6 +41,13 @@ final class AccountViewModel: ObservableObject {
         if status == nil { reset(to: scenario) }
     }
 
+    func refresh() async {
+        await perform {
+            refreshedAt = Date()
+            notice = "Demo data refreshed. Accounts and selections are unchanged."
+        }
+    }
+
     func reset(to scenario: Scenario = .demo) {
         actionGeneration += 1
         self.scenario = scenario
@@ -55,6 +63,7 @@ final class AccountViewModel: ObservableObject {
         discoveries = scenario == .empty ? [] : DemoData.discoveries
         selectedSourceID = discoveries.first(where: { $0.support == .supportedChatGPT })?.id
         isBusy = false
+        refreshedAt = nil
         errorMessage = scenario == .allStates ? "Demo: Codex could not verify one account." : nil
         notice = scenario == .allStates ? "Demo recovery and settings issues are ready to review." : nil
         showImport = false

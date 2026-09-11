@@ -57,6 +57,15 @@ struct MockAccountViewModelCheck {
         precondition(model.status?.accounts.count == 5)
         await model.switchDefault()
         precondition(model.status?.defaultAccountID == model.selectedAccountID)
+        let accountCountBeforeRefresh = model.status?.accounts.count
+        let defaultBeforeRefresh = model.status?.defaultAccountID
+        let selectionBeforeRefresh = model.selectedAccountID
+        await model.refresh()
+        precondition(model.status?.accounts.count == accountCountBeforeRefresh)
+        precondition(model.status?.defaultAccountID == defaultBeforeRefresh)
+        precondition(model.selectedAccountID == selectionBeforeRefresh)
+        precondition(model.refreshedAt != nil)
+        precondition(model.notice?.contains("refreshed") == true)
         await model.verify()
         precondition(model.selectedAccount?.verification.state == .verifiedWithCodex)
         model.copyProfilePath()
