@@ -585,21 +585,19 @@ The latest refinement prioritizes UI completion first: fully custom window compo
 and controls, with no decorative outlines or bordered panels. Use spacing, typography,
 and tonal surfaces for hierarchy. Keyboard focus must remain visibly identifiable.
 
-```text
-AI Manager                                      [Import account]
+Latest user correction: use a compact, seamless two-pane layout. The translucent sidebar
+and the content pane each extend from the top to the bottom of the window. Remove the
+shared application header and bottom status bar, and remove repeated account/status copy.
+Integrate a custom draggable titlebar into the panes with macOS window controls. Use
+consistent three-point corner radii on custom controls and surfaces, visible restrained
+hover feedback, and native translucency with a readable reduced-transparency fallback.
+Keep essential actions close to the selected account; shared paths belong in account
+details rather than permanent window chrome.
 
-Default for new Codex sessions: Primary account
-Shared settings: ~/.codex                        [Show in Finder]
-
-Primary account      Default       Verified locally
-Secondary account    Imported      Last checked: not yet
-
-Selected account
-  Identity / workspace / source / home
-  Settings: Shared with ~/.codex
-  Chats: imported count and unresolved items
-  [Use by default]  [Open with this account]  [Copy profile path]
-```
+The sidebar contains the window controls, a compact import action, and account rows.
+The content pane contains the selected identity, launch/default actions, and concise
+account details. Put verification, paths, shared settings, and recovery information
+where they apply; do not repeat them in global header/footer chrome.
 
 Import sheet sequence:
 
@@ -615,7 +613,9 @@ Make the final import button the confirmation for the concrete reviewed operatio
 Do not stack generic confirmation dialogs after every reversible step.
 Keep explicit choices for replacing shared data, changing credentials, and resolving divergent history.
 
-Native controls must support keyboard navigation and VoiceOver labels.
+Native controls must support keyboard navigation and meaningful accessibility labels.
+The user rejected live VoiceOver verification as a delivery gate; do not start VoiceOver
+or block this UI work on it. Preserve basic accessibility semantics in the implementation.
 Use text as well as color for default account, warnings, and verification state.
 Check light and dark appearance, larger text, reduced motion, and a narrow window.
 Long paths and identity labels must remain readable and copyable without hiding primary actions.
@@ -700,7 +700,7 @@ Saving files without a working discovery and resume path is not sufficient.
 ### G6. Recovery, accessibility, and installed app
 
 - [x] Exercise rollback and restart recovery from interrupted operations.
-- [ ] Verify the native flow with keyboard and VoiceOver.
+- [ ] Verify the redesigned native flow with keyboard navigation and accessibility labels.
 - [x] Test denied paths, disconnected volumes, insufficient space, and corrupt sources.
 - [x] Build the final signed app with the permitted existing signing identity.
 - [x] Inspect the final artifact's entitlements and embedded source revision.
@@ -747,7 +747,7 @@ Do not mirror every method with a test or retain obsolete gateway coverage targe
 | Disk full or volume disconnect | No half-published account, recoverable error |
 | Restore after later user edit | New edit preserved, no unconditional rollback overwrite |
 | CLI verification | Correct explicit home, bounded timeout, no hidden model request |
-| Keyboard and VoiceOver | All actions reachable and states named without relying on color |
+| Keyboard and accessibility labels | All actions reachable and states named without relying on color; live VoiceOver testing is outside the user-requested gate |
 | Final package | Native macOS binary, intended revision, no gateway process |
 
 At least one deliberate failure must prove each transaction recovery test can detect the original failure mode.
@@ -1096,9 +1096,10 @@ request now governs the remaining UI work and acceptance.
   metadata through the normal signed build before handoff. Functional checks above remain
   evidence for the unchanged implementation.
 
-Current gates remain explicit: actual VoiceOver navigation and the native Terminal
-handoff remain pending under the focus-preservation rule. Isolated custom GUI acceptance,
-protected-copy history acceptance, and installed read-only launch pass within the limits above.
+The user subsequently rejected the shared header/footer composition and the live VoiceOver
+gate. The new compact translucent two-pane design in section 14 supersedes the old visual
+acceptance. Preserve the passing core/history evidence; verify the new UI's hover, keyboard,
+three-point corners, custom titlebar, light/dark appearance, and installed artifact.
 
 Remote native CI was dispatched as run `34588863904`, but repository Actions are
 disabled (`enabled: false`) and no job started. Repository permissions were not changed.
@@ -1106,7 +1107,7 @@ Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-The native UI, CLI, history, and signed installed launch checks pass. Finish the remaining
-focus-dependent checks. The core migration and history
+The CLI and history checks pass. Complete and install the revised compact translucent UI.
+Live VoiceOver verification is no longer a gate. The core migration and history
 evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.
