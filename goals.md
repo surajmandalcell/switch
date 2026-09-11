@@ -14,7 +14,19 @@ source of truth: its 48px rail, 56px titlebar, Geist typography, 2px component
 corners, panel/list structure, exact light/dark tokens, and interaction styling.
 This supersedes earlier conflicting requests for 3px corners, no shared header,
 and no panel borders. Preserve native custom close/minimize controls and safe
-resizable window lifecycle. Adapt the reference to account-management content.
+window lifecycle. Adapt the reference to account-management content.
+
+Latest refinement (2026-09-12): the window is fixed at 1120x740, without resize
+or maximize. Its custom title region must drag reliably. Light/dark switching
+must work repeatedly. Default mouse/keyboard focus shows no outlines; an explicit
+accessibility focus-indicator preference may enable them. Use established SF
+Symbols instead of hand-drawn icons. Align the page title and subtitle on their
+text baseline, increase title-cell horizontal padding, simplify the title
+decoration, and make the top-right refresh icon background-free. Disabled primary
+buttons must remain legible. Refine the entire import wizard and close/minimize
+hover behavior. All scrolling regions use very thin overlay scrollbars, visible
+only while their region is hovered or scrolling. These refinements supersede
+conflicting reference geometry or earlier resize/focus-outline requirements.
 
 For design review, both the normal GUI and preview run entirely on in-memory
 mock accounts, discovery, import/review/results, settings, verification, launch,
@@ -1278,6 +1290,52 @@ Ponytail inventory: one unchanged marker in
 `packages/core/Sources/AIManagerCore/AccountManager.swift:398`; all Codex
 processes block real mutations until Codex exposes a reliable home-scoped lock
 or probe. Zero missing triggers, no new marker from this redesign.
+
+### Fixed-window interaction refinement (2026-09-12)
+
+The design-review window is fixed at 1120x740. The custom title drag region is
+separate from buttons, and the close/minimize group has a full hit area without
+covering the title. Refresh and theme controls have explicit rectangular hit
+areas. Theme selection updates the owning window appearance. Focus effects are
+off by default, with a Keyboard focus indicators option in the Demo menu.
+
+SF Symbols replace hand-drawn icons. The page title and subtitle share a text
+baseline, title cells have wider padding and quieter decoration, refresh has no
+background, and disabled primary buttons retain readable text. The import panel
+uses labeled steps, a compact fixed layout, scrolling content, and a Done action.
+Closing it invalidates pending mock import work. Refresh preserves account and
+default selections and reports its last refresh time.
+
+All eight scrolling regions, including the account list, use an owned native
+scroll view with a three-point overlay thumb. It responds to section hover,
+trackpad scrolling, and mouse wheels, then hides after leaving the section.
+It keeps the SwiftUI environment across the native host boundary. This replaced
+an unsuccessful attempt to customize SwiftUI's internal scroll view, which
+overrode the requested overlay style on the verified host.
+
+The native suite passes 48 tests with two existing gated skips and no failures;
+the mock model check passes. The live preview contract passes fixed frame and
+content bounds, key/main eligibility, fonts, SF Symbols, default focus policy,
+actual title hit testing, scroll configuration, nonempty document layout, and
+absence of a scrollbar gutter. Failed checks remain nonfatal and include view
+hierarchy diagnostics. Contract helpers are compiled only into the preview.
+`scripts/check-gui-scroll.sh` also passes: an 80-row hidden-window fixture checks
+overflow, the three-point native thumb, no gutter, reachable bottom, and scroll
+position retained after layout. It never presents a window or takes focus, and
+reports failures with an exit code rather than a crash. It runs in the standard
+native check command.
+
+New pointer/visual acceptance remains pending: macOS became locked during this
+verification session (`IOConsoleLocked=Yes`), and native Computer returns
+`cgWindowNotFound` for both the preview and Chrome. No alternate GUI driver or
+unlock attempt was used. Repeated pointer theme toggles, dragging, control hover,
+scrollbar fade, and the revised wizard must be exercised after unlocking; the
+runtime contracts do not substitute for those checks.
+
+Ponytail inventory is unchanged: one marker at
+`packages/core/Sources/AIManagerCore/AccountManager.swift:398`, zero missing
+triggers. Real mutations remain blocked by any live Codex process until Codex
+provides a reliable home-specific writer lock or probe. GUI actions remain mocked.
 
 ### Next action (production functionality, deferred during design review)
 
