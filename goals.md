@@ -1,6 +1,8 @@
 # AI Manager: native macOS Codex account manager
 
-Status: planning handoff. Native app implementation has not started.
+Status: implementation and native GUI acceptance in progress. Core and CLI validation
+pass; Computer access, Git writes, and an existing development signing identity are now
+available. The full G1–G6 completion gates remain unmet.
 Decision date: 2026-09-11.
 Repository baseline: `e7bb55bf2dea7c05072d85481aa5652ab4cdfe16` on `master`.
 
@@ -27,8 +29,16 @@ Existing Codex home or auth.json
   -> launch Codex with that account
 ```
 
-The current request authorizes repository preparation and this plan.
-The user will continue implementation in a separate agent session.
+The current request authorizes implementation through G6, including GUI and CLI workflows.
+Use `packages/core` for shared Swift contracts and account operations, `packages/gui`
+for the native SwiftUI app, and `packages/tui` for the command-line and interactive terminal interface.
+Both interfaces must use the same core operations and contract tests.
+Use isolated temporary homes with synthetic credentials for automated mutation tests.
+The user also authorizes a protected copy of `~/.codex` outside the repository for
+real-format validation; never mutate the original or follow copied links back into it.
+Do not execute imported hooks or commands, access the login Keychain, or spend model
+usage during offline verification. Preserve private test data outside version control.
+Implementation delegation uses Sol at normal (medium) effort and Luna for routine tasks.
 Do not present the existing Electron gateway as the completed native app.
 
 ## 2. Start here in the implementation session
@@ -567,6 +577,14 @@ Stop at those interactions and preserve the current working account.
 Start with one window, an account list, and an import sheet.
 Keep provider selectors and unrelated settings pages out of the product.
 
+Design refinement, 2026-09-11: use a sleek, custom native interface inspired by IBM
+Carbon's precise grid, typography, and restrained geometry, with macOS semantic colors
+and dynamic light/dark surfaces. Apply this consistently to account, import, review,
+progress, and result screens. Preserve native keyboard behavior and accessibility.
+The latest refinement prioritizes UI completion first: fully custom window composition
+and controls, with no decorative outlines or bordered panels. Use spacing, typography,
+and tonal surfaces for hierarchy. Keyboard focus must remain visibly identifiable.
+
 ```text
 AI Manager                                      [Import account]
 
@@ -617,12 +635,12 @@ Errors should name the failed action and the next useful action without dumping 
 
 ### G1. Replace the product entry point
 
-- [ ] Remove inherited remote branch deletion before any implementation push.
-- [ ] Add the native macOS project with one app and one focused test target.
-- [ ] Choose deployment target, app identity, and one canonical build directory.
-- [ ] Replace active Electron packaging and multi-platform CI with macOS validation.
-- [ ] Retire gateway navigation, server startup, and conflicting product instructions.
-- [ ] Update app identity and repository URLs to AI Manager and this repository.
+- [x] Remove inherited remote branch deletion before any implementation push.
+- [x] Add the native macOS project with one app and one focused test target.
+- [x] Choose deployment target, app identity, and one canonical build directory.
+- [x] Replace active Electron packaging and multi-platform CI with macOS validation.
+- [x] Retire gateway navigation, server startup, and conflicting product instructions.
+- [x] Update app identity and repository URLs to AI Manager and this repository.
 
 Done when a fresh checkout builds and opens the native account window without starting the old gateway.
 The window must not require Node, Electron, a local HTTP server, or provider setup.
@@ -630,64 +648,64 @@ Do not publish a release during this milestone.
 
 ### G2. Read-only discovery
 
-- [ ] Inspect approved home locations without mutation or network access.
-- [ ] Parse supported auth metadata with bounded input handling.
-- [ ] Group exact duplicate sources and distinguish account workspaces.
-- [ ] Show missing auth, denied access, and unsupported formats.
-- [ ] Prove discovery makes no Keychain calls and writes no source files.
+- [x] Inspect approved home locations without mutation or network access.
+- [x] Parse supported auth metadata with bounded input handling.
+- [x] Group exact duplicate sources and distinguish account workspaces.
+- [x] Show missing auth, denied access, and unsupported formats.
+- [x] Prove discovery makes no Keychain calls and writes no source files.
 
 Done when temporary fixtures produce correct account rows and every failure has a usable state.
 Use synthetic identity data. Keep real credentials out of fixtures.
 
 ### G3. Auth-only import and account-specific launch
 
-- [ ] Implement private staging, account publication, and registry recovery.
-- [ ] Link approved shared settings without replacing their content.
-- [ ] Preserve the original source and verify permissions.
-- [ ] Handle duplicate-account auth updates without losing refreshed credentials.
-- [ ] Launch or provide a working native launch path for the imported home.
-- [ ] Show honest local verification and sign-in states.
+- [x] Implement private staging, account publication, and registry recovery.
+- [x] Link approved shared settings without replacing their content.
+- [x] Preserve the original source and verify permissions.
+- [x] Handle duplicate-account auth updates without losing refreshed credentials.
+- [x] Launch or provide a working native launch path for the imported home.
+- [x] Show honest local verification and sign-in states.
 
 Done when the native flow imports a fixture and launches Codex against exactly that destination.
 A real-account smoke check requires explicit user participation and must not mutate unrelated auth.
 
 ### G4. Default-account switching
 
-- [ ] Preserve and reconcile the outgoing default credential.
-- [ ] Enforce writer checks and the documented quiescence requirement.
-- [ ] Commit incoming auth atomically and verify the selected identity.
-- [ ] Recover interruption before and after each transaction boundary.
-- [ ] Preserve config, rules, skills, and chat data byte-for-byte.
-- [ ] Handle auth symlinks, external changes, and token refresh conflicts.
+- [x] Preserve and reconcile the outgoing default credential.
+- [x] Enforce writer checks and the documented quiescence requirement.
+- [x] Commit incoming auth atomically and verify the selected identity.
+- [x] Recover interruption before and after each transaction boundary.
+- [x] Preserve config, rules, skills, and chat data byte-for-byte.
+- [x] Handle auth symlinks, external changes, and token refresh conflicts.
 
 Done when switching between two synthetic accounts changes only authorized auth and app metadata.
 The old account remains recoverable. Running external sessions are not reported as switched.
 
 ### G5. Full import
 
-- [ ] Implement the reviewed file classification from section 10.
-- [ ] Back up source-linked skill and rule content before changing shared settings.
-- [ ] Resolve settings conflicts before mutation.
-- [ ] Snapshot supported databases and validate transcript consistency.
-- [ ] Preserve chat identity, archive state, references, and divergent copies.
-- [ ] Share merged transcripts across account homes while keeping SQLite files independent.
+- [x] Implement the reviewed file classification from section 10.
+- [x] Back up source-linked skill and rule content before changing shared settings.
+- [x] Resolve settings conflicts before mutation.
+- [x] Snapshot supported databases and validate transcript consistency.
+- [x] Preserve chat identity, archive state, references, and divergent copies.
+- [x] Share merged transcripts across account homes while keeping SQLite files independent.
 - [ ] Verify both homes discover imported chats and later additions through Codex's resume behavior.
-- [ ] Rebase recognized copied index paths without rewriting historical content.
-- [ ] Show all excluded or unsupported categories in the result.
-- [ ] Verify a supported imported conversation can resume through Codex.
+- [x] Rebase recognized copied index paths without rewriting historical content.
+- [x] Show all excluded or unsupported categories in the result.
+- [x] Verify a supported imported conversation can resume through Codex.
 
 Done when the full import flow preserves selected durable data and passes the migration acceptance matrix.
 Saving files without a working discovery and resume path is not sufficient.
 
 ### G6. Recovery, accessibility, and installed app
 
-- [ ] Exercise rollback and restart recovery from interrupted operations.
+- [x] Exercise rollback and restart recovery from interrupted operations.
 - [ ] Verify the native flow with keyboard and VoiceOver.
-- [ ] Test denied paths, disconnected volumes, insufficient space, and corrupt sources.
+- [x] Test denied paths, disconnected volumes, insufficient space, and corrupt sources.
 - [ ] Build the final signed app with the permitted existing signing identity.
 - [ ] Inspect the final artifact's entitlements and embedded source revision.
 - [ ] Install and verify the exact app only when implementation scope includes local installation.
-- [ ] Replace legacy user docs with the actual native workflow and its supported limits.
+- [x] Replace legacy user docs with the actual native workflow and its supported limits.
 - [ ] Run the Ponytail debt inventory and report every remaining marker.
 
 Done when an installed native app completes both import modes and switching with recorded recovery evidence.
@@ -738,7 +756,9 @@ The real login Keychain and other apps' credential stores are outside the test e
 
 ## 17. Delivery and maintenance rules
 
-Keep one canonical build directory, such as an ignored `.build/` or the documented Xcode output path.
+Keep `/private/tmp/ai-manager-build` as the canonical build directory, or set
+`AI_MANAGER_BUILD_PATH` when the host requires another private path. Do not produce
+timestamped build copies for each attempt.
 Do not produce timestamped build copies for each attempt.
 Backups are user recovery data, not build caches. Do not remove them during normal build cleanup.
 
@@ -795,8 +815,239 @@ Verify selected SwiftUI and AppKit APIs against the deployment target during G1.
 
 Append later milestone evidence here as work lands.
 
+### Implementation evidence (in progress, 2026-09-11)
+
+- Native Swift package now has `packages/core`, `packages/gui`, and `packages/tui`.
+  The GUI and CLI compile; obsolete Electron/gateway entry points and destructive
+  branch-deletion CI have been retired. macOS 14 is the deployment baseline.
+- Thirteen initial core contracts passed, covering private auth-only import,
+  bounded discovery and workspace identity, reviewed full import, divergent and
+  colliding transcripts, archived attachments, SQLite WAL snapshots and exact-prefix
+  rebasing, safe switching, root isolation, corrupt journals, and injected publication
+  failures. Further edge-case and native resume verification remains in progress.
+- A private APFS copy of the user's Codex home was made outside this repository.
+  Runtime sockets were omitted. All six copied SQLite databases passed `quick_check`.
+  The copied main index contained 9,497 threads. No original home mutation was used.
+- The real copied auth imported into a separate isolated manager root, retained
+  identical bytes, and produced a `0700` home with `0600` auth and no unresolved items.
+  The installed Codex CLI recognized its file-based credentials in a neutral temporary
+  verification home. This proves local presence only, not online authentication.
+- Real-format full-import testing exposed an external skills-link keep-choice defect;
+  correction and further full-import validation remain required.
+- Debug app packaging passed Mach-O, plist, and signature checks. GUI runtime
+  acceptance is pending: the shell-launched bundle encounters Launch Services
+  registration failures in this restricted session. Native launch is being checked.
+- Git checkpoint creation is blocked: creating `.git/index.lock` returns
+  `Operation not permitted`. No commit or push was made. Builds identify dirty source;
+  the clean-commit installation gate remains unmet. Process inspection is also denied,
+  so live default-home switching must fail closed in this session.
+- No online model request, real login Keychain access, or production publication was used.
+- Subsequent synthetic coverage reached 24 passing contracts and the canonical release
+  CLI acceptance script passed. GUI and CLI compile in release mode with the installed
+  toolchain's debug-symbol output disabled; normal build defaults are retained.
+- Native Computer approval explicitly rejected AI Manager access. Keyboard/VoiceOver
+  verification cannot proceed through that tool in this session. No bypass was attempted.
+  No valid code-signing identity is exposed; development packaging uses ad-hoc signing.
+- The first large-data import was terminated with exit 137 after 6.9 GB. Recovery removed
+  its published files and staging, but an old unjournaled partial copy remained. That
+  exact private test file was preserved separately; new transactions now journal temporary
+  sibling files and an injected interruption test verifies their recovery.
+- A release-mode real-copy test later stopped without an XCTest completion result after
+  copying 17 GB. This is a failed acceptance run, not a completed import. Periodic memory
+  telemetry and further diagnosis are required before large-data acceptance can pass.
+- Real source inspection found 1,583 paginated and 7,914 legacy index records. Paginated
+  database preservation, valid relocated index paths, and native read verification are
+  explicit remaining gates; preserving transcript bytes alone does not satisfy them.
+- Synthetic coverage subsequently reached 28 passing contracts, with the protected-copy
+  integration test disabled unless its explicit private paths are supplied. Incremental
+  journal records now avoid rewriting the full touched-file inventory for every file.
+- The measured full-copy rerun still ended without XCTest completion. Its first sample
+  reported 9,613,344,768 bytes peak resident memory. Large-data acceptance remains failed;
+  parsing and recovery memory are under investigation before another attempt.
+- The copied source has 7,894 legacy index rows whose rollout files are already missing;
+  none have projected items or turns. Three paginated rows have missing rollouts but valid
+  projected items and turns. Import must retain these database-only histories and report
+  the pre-existing orphan metadata separately.
+- A native Codex app-server baseline listed and read a short paginated history in two
+  credential-free neutral homes, then discovered a later synthetic history in both.
+  This validates the installed CLI behavior, not the unfinished product import.
+- G2 core discovery acceptance passed through temporary-fixture contracts and CLI
+  discovery checks. Source inspection is bounded, credentials are not displayed, and
+  workspace identities remain distinct. Native GUI runtime acceptance remains in G6.
+- The subsequent baseline passed 30 synthetic contracts, including the bounded metadata
+  parser and directory settings merge that retains shared-only and source-only files.
+  Refreshed-credential, linked-setting repair, and orphan-index changes are a later batch
+  and require their own validation before these results can cover the final source.
+- Five linked-settings contracts passed: review-bound repair preserves the displaced
+  local entry, launch refuses divergence, active writers prevent repair, broken relative
+  links remain backed up, and interrupted publication restores the original local edit.
+  GUI and CLI builds and CLI acceptance passed; native GUI interaction remains unverified.
+- The protected-copy planning-only release test passed in 11.609 seconds over 11,936
+  manifest entries, with peak resident memory of 146,997,248 bytes. It performed no import
+  or recovery. Full-import memory still needs a completed measured run.
+- Three focused switching contracts passed. Selecting the current account preserves its
+  refreshed default credential; independently changed credential copies cause a conflict;
+  the incoming identity is checked again before publication.
+- The combined synthetic suite passed 39 tests, with two explicitly opt-in private-copy
+  checks skipped. Separate-database SQLite tests cover WAL snapshots, orphan exclusion,
+  retained-path mapping, complete paginated projections, and unchanged source databases.
+- The protected full-import preservation run passed in 249.526 seconds: all 1,604 source
+  transcripts were accounted for and source auth was unchanged. Its shared library already
+  contained the transcripts, so this proves the merge/reimport case. A fresh empty-root run
+  and native product-index validation remain separate gates. Peak RSS was 1,716,879,360
+  bytes; the last pre-oracle sample was 865,501,184 bytes.
+- The fresh empty-destination release run then passed in 181.242 seconds. It imported
+  1,600 transcripts, accounted for all 1,604 source files, preserved four divergent copies
+  in backup, and left source auth unchanged. Peak resident memory was 894,844,928 bytes
+  through import and the completed accounting check.
+- Actual product index preflight passed: 1,603 state rows, 1,600 valid rollout paths,
+  three valid database-only paginated histories, zero missing legacy references, and
+  zero escaping references. The original orphan metadata remains in database backups.
+- Final canonical release packaging passed with `scripts/build-native.sh` and the
+  `AI_MANAGER_DEBUG_INFO_FORMAT=none` environment override. Both products are native
+  arm64 Mach-O binaries. The app's
+  signature verifies, entitlements are empty, deployment target is macOS 14, and no test
+  environment is embedded. Source revision is `a75c4f4d7638` with dirty-source state true.
+  `bash packages/tui/Tests/acceptance.sh /private/tmp/ai-manager-build/artifacts/ai-manager`
+  passed against the packaged CLI.
+- An explicit-index native history check passed with the installed Codex app-server.
+  After neutral index preparation, both credential-free homes listed identical sets of
+  1,603 conversation IDs, read one ordinary history and all three database-only histories
+  with turns, and discovered a later synthetic addition. This proves RPC readability after
+  preparation, not unchanged product-index compatibility or natural discovery. Preflight
+  ran before neutral index preparation. The verifier supports bounded `--read-id` checks
+  while retaining complete listings.
+- Real-copy unresolved items remain visible: four divergent transcripts in protected
+  backup; 14 external setting links kept shared without following their targets; a missing
+  shared skills target under that choice; and one retained transcript with original-path
+  context. Unknown, runtime, installation, and unsupported auxiliary files are reported
+  as exclusions. SQLite sidecars are included by snapshots, and lightweight indexes are
+  left for native discovery to rebuild. Valid database-only histories are retained.
+- Final Ponytail inventory: zero markers and zero missing triggers. Whitespace checks
+  pass. Obsolete task build caches were removed; the canonical cache and private recovery
+  data remain separate. Git checkpoint and installed GUI gates are still unmet.
+- Two final registry-commit interruption contracts passed. Recovery completes the already
+  registered import or switch instead of rolling back a committed identity. These checks
+  changed tests only; the packaged production binaries remain current.
+- Final combined suite: 43 tests total, 41 executed, two opt-in private-copy tests skipped,
+  zero failures. Both opt-in checks passed separately as recorded above. The temporary
+  final test cache was removed after verification; the canonical release artifacts remain.
+- Continuation audit added the packaged CLI acceptance command to native CI and release
+  validation. Release creation now follows passing core tests, packaging, and CLI checks.
+  Changes to the native check and history verifier scripts trigger PR validation.
+  Both workflow files pass YAML parsing; remote CI and publication were not executed.
+- Three additional filesystem-failure contracts passed in the canonical cache. Native
+  `chmod(000)` and `open` verified denied access (`EACCES`); removal of a reviewed temporary
+  source simulated volume loss; injected `ENOSPC` after a journaled settings publication
+  verified disk-full recovery. Prior account/default bytes remain intact, no partial
+  account is published, and recovery removes partial shared changes. Disconnection and
+  disk-full checks are simulations, not physical volume removal or filesystem exhaustion.
+  No production code changed; the packaged app and CLI remain current.
+
+Status before access recovery: fresh import and large-copy preservation passed.
+The neutral native history checks passed, subject to the verification limitations below.
+GUI launch and local installation acceptance were pending; packaging used ad-hoc signing.
+
+The restricted-session audit reported no valid signing identity and denied Git,
+installation, and Computer access. Those restrictions blocked the goal at that time;
+the later access recovery below supersedes that status. Core tests alone do not complete
+the GUI, accessibility, signed installation, or checkpoint gates.
+
+### Reported launch crash follow-up
+
+The user reported a launch crash and requested Computer control. A renewed native
+Computer request for the exact packaged app was rejected with `Computer Use was not
+approved to use AI Manager`. App discovery works; it lists no running AI Manager or
+crash-report app. No alternative GUI driver or indirect launch was used to bypass this.
+
+The four available AIManager crash reports are from 10:04–10:06 and identify binary UUID
+`6FE2E615-34C0-3692-9571-38C007AC80D9`. They abort in Launch Services `_RegisterApplication`
+during AppKit initialization, with Codex as parent and Super as responsible process,
+before account-manager initialization. The final 11:32 artifact has a different UUID,
+`64BED7ED-D2D9-32B5-8C6B-73101B6FE79B`, and passes executable, plist, and signature checks.
+No newer matching crash report was found. These reports establish the old launch-context
+failure, not a reproduced crash of the final artifact. A source fix is not yet justified;
+native approval is required to reproduce the reported failure on the current app.
+
+### Access recovery and UI refinement
+
+The user requested another Computer attempt after session permissions changed. Native
+Computer successfully opened and inspected the current release bundle without a crash.
+The earlier GUI rejection and filesystem restrictions no longer block this session.
+Git and `/Applications` writes are available, and an existing personal Apple Development
+identity is available for local signing. No new permission or credential was created.
+The initial window exposed a narrow sidebar and hidden import action; its layout was
+corrected and compiled. The user's subsequent Carbon-inspired custom macOS design
+request now governs the remaining UI work and acceptance.
+
+### Final verification audit
+
+- The combined synthetic suite passed 46 tests total: 44 executed, two opt-in private-copy
+  checks skipped, zero failures. The private-copy checks retain their separately recorded
+  passing evidence.
+- Retirement is committed and pushed as `7acd0a6`; core storage and contracts are committed
+  as `451fca8`, and CLI/TUI workflows as `0a3e27f`. No release tag was created.
+- The earlier native history verifier rebuilt both neutral indexes and inserted the later
+  history into both. That evidence proves local RPC readability after explicit index
+  preparation; it does not prove unchanged product-index compatibility or natural later
+  discovery. Its path preflight also remapped prefixes. These G5 gates remain open until
+  strict account-home path validation, unchanged snapshot reads, and native discovery
+  without SQL insertion pass. The preservation and transaction contract results remain valid.
+- A separate non-shipped GUI acceptance app will inject an inactive writer check only for
+  newly generated synthetic temporary homes. Production retains its conservative writer
+  check. Successful harness workflows and the production refusal path are distinct evidence.
+- The corrected strict preflight passes for all 1,603 product rows, but unchanged native
+  listing returns 610 and omits 993 paginated rows. A blank-index scanner did not discover
+  a later synthetic transcript. These are open G5 findings requiring classification and
+  diagnosis, not passing acceptance. No online model turn or production data mutation ran.
+  Read-only history diagnosis resumed after the isolated GUI workflows passed.
+
+### Custom UI acceptance
+
+- The native window now uses custom flat account rows, actions, import choices, and
+  status surfaces with macOS colors. There are no decorative outlines. Keyboard focus
+  uses a tonal fill and a three-point leading bar; the native rectangular ring is suppressed.
+- Native Computer verified the dark empty window at 920 pixels and the light populated
+  window at exactly 720 pixels. The common account email stays on one line, actions use
+  two columns at the narrow size, and account selection remains synchronized with focus.
+- A separate non-shipped acceptance app uses fresh synthetic private homes and an injected
+  inactive writer check. Auth-only import, full import with reviewed settings conflicts
+  and a divergent transcript backup, default switching, and local fake verification pass.
+  Production retains its conservative active/unknown-writer refusal.
+- A directory-link alias regression found through the GUI is fixed in `3f3e9cb`.
+  Canonical path components accept equivalent `/tmp` and `/private/tmp` directory links
+  while rejecting wrong and dangling links. All six focused settings tests pass, and the
+  repeated full-import GUI flow no longer offers a false repair action.
+- Final targeted header and keyboard-focus QA passes for acceptance binary UUID
+  `291CC533-30C6-333E-BE0C-768D5454BB55`; its strict signature check passes. Screenshots
+  are retained under `/private/tmp/ai-manager-build/gui-acceptance/artifacts/`.
+- Accessibility-tree inspection and keyboard navigation were exercised; actual VoiceOver
+  speech/navigation remains untested. The native file picker and Terminal handoff were
+  not driven during this pass. The CLI exact launch contract passes separately.
+- No original Codex home, login Keychain, imported hook, or online model request was
+  touched. Ponytail inventory: zero markers and zero missing triggers.
+
+### Native history diagnosis
+
+- The earlier `610/1,603` listing result used the wrong expected subset. The current
+  interactive source-kind listing returns 341 conversations; the remaining 993 are
+  paginated histories. Most of those are background (981), subagent (9), automation (3),
+  or user (the remainder) records, so the old count is retained only as historical audit
+  evidence.
+- Three database-only paginated histories still fail native reads. The core verifier has
+  a working metadata-only anchor proof for these rows, but that proof has not passed the
+  native read/resume gate. Ordinary imported transcript native read and resume pass without
+  a turn, and a later faithful fixture containing `session_meta` plus an
+  `event_msg.user_message` was independently discovered and indexed from two blank homes
+  without SQL insertion.
+
+Current gates remain explicit: native history verification is still open for the 993
+paginated rows and three database-only native reads. Isolated custom GUI acceptance passes
+within the limits above. Signed installation acceptance remains pending.
+
 ### Next action
 
-Start G1. Remove the inherited branch-deletion automation before an implementation push.
-Create the smallest native shell that can show bounded read-only account discovery.
-Keep the user's prepared homes unchanged until they deliberately use an import or switch action.
+Create reviewed native UI and acceptance-harness checkpoints, resolve the native history
+findings, and verify the signed installed artifact. The core migration and history
+evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
+Keep the user's prepared homes unchanged; validation uses only the protected test copy.
