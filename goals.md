@@ -588,11 +588,18 @@ and tonal surfaces for hierarchy. Keyboard focus must remain visibly identifiabl
 Latest user correction: use a compact, seamless two-pane layout. The translucent sidebar
 and the content pane each extend from the top to the bottom of the window. Remove the
 shared application header and bottom status bar, and remove repeated account/status copy.
-Integrate a custom draggable titlebar into the panes with macOS window controls. Use
+Integrate a custom draggable titlebar into the panes. Use
 consistent three-point corner radii on custom controls and surfaces, visible restrained
 hover feedback, and native translucency with a readable reduced-transparency fallback.
 Keep essential actions close to the selected account; shared paths belong in account
 details rather than permanent window chrome.
+
+Titlebar correction: replace the native traffic lights with custom close and minimize
+buttons. Do not show a maximize or fullscreen control. Align both buttons and the app
+title on one centerline, remove the sidebar account count, and remove the visible right
+border at the sidebar edge. Keep all custom control corners at three points. The window
+remains resizable, with a default size of 920 by 620 and an upper bound of twice those
+dimensions, 1840 by 1240. Preserve the existing minimum size and the translucent panes.
 
 The sidebar contains the window controls, a compact import action, and account rows.
 The content pane contains the selected identity, launch/default actions, and concise
