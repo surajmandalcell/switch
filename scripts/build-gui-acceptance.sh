@@ -87,7 +87,8 @@ if [[ "$narrow" == "1" ]]; then narrow_bool=true; fi
 if [[ "$seeded" == "1" ]]; then seeded_bool=true; fi
 /usr/bin/plutil -insert AIManagerGUINarrow -bool "$narrow_bool" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -insert AIManagerGUISeeded -bool "$seeded_bool" "$app_path/Contents/Info.plist"
-/usr/bin/codesign --force --sign - "$app_path"
+/usr/bin/codesign --force --entitlements "$repo_root/packaging/macos/AIManager.entitlements" \
+  --sign "${AI_MANAGER_SIGNING_IDENTITY:--}" "$app_path"
 
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist"
 /usr/bin/codesign --verify --deep --strict "$app_path"
