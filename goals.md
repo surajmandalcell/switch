@@ -1178,10 +1178,37 @@ Local native tests and packaging remain the executed verification evidence.
   any Codex process is present. Replace that conservative check when Codex exposes
   a reliable home-specific lock or probe. This UI change adds no marker.
 
+### Square window and sample preview
+
+- Close and minimize now touch within one control group, with a 20-point gap before
+  the title. The outer window is square; ordinary custom controls retain three-point
+  corners. Native Computer confirms the resulting light layout at 720 by 500.
+- A shared AppKit window controller hosts the SwiftUI interface in production and the
+  preview. Its borderless window explicitly supports key and main status. The hosted
+  layout owns the 720 by 500 minimum and 1840 by 1240 maximum, replacing the earlier
+  hidden-titlebar height adjustment. The default remains 920 by 620.
+- The preview crash was a test assertion after a borderless window lost key-window
+  eligibility. Window checks now write nonfatal pass/failure receipts, and fixture
+  startup errors show a failure view. A failed check is still a test failure.
+  The corrected window passes the key and size contract; native close and minimize
+  notification receipts confirm both custom actions.
+- `AI_MANAGER_GUI_PREVIEW=1 scripts/build-gui-acceptance.sh` produces a distinct
+  AI Manager Preview app with two sample accounts. Each launch uses fresh private
+  synthetic homes. The production account registry and original Codex homes stay separate.
+  The preview uses the same account, import, review, and result views as production.
+- Native Computer passes light/narrow and dark/default layouts, account selection,
+  source selection, full import review with Keep shared, and the import result. Window
+  receipts pass after seeding, account changes, and import-state changes. Screenshots
+  remain under `/private/tmp/ai-manager-build/gui-acceptance/artifacts/` with the
+  `preview-` prefix. No new crash occurred in these final builds.
+- Ponytail inventory is unchanged: one conservative writer-check marker at
+  `packages/core/Sources/AIManagerCore/AccountManager.swift:398`, with the reliable
+  home-specific lock/probe upgrade trigger and zero missing triggers.
+
 ### Next action
 
-The custom window-control update is installed and its window contract passes. Repeat
-visual and click acceptance when native Computer can target app windows again. Live
+The sample flow checks pass. Sign and install the square-window app and preview from
+clean source. Native Computer is available again for these checks. Live
 VoiceOver verification is no longer a gate. Native Terminal handoff remains unexercised under the
 focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
 production app retains conservative writer checks. These limits must not be represented
