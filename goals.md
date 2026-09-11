@@ -1208,6 +1208,9 @@ Local native tests and packaging remain the executed verification evidence.
   empty window closed through its custom control; the seeded preview remains open and
   its installed window contract passes. The CLI hash is unchanged. The final documentation
   checkpoint requires only a normal rebuild/install to refresh revision metadata.
+- The preview now has native Quit, Import, Close, and Minimize menu commands. Native
+  Computer confirms Command-I opens import, Escape dismisses it, and Command-Q exits
+  the preview process. Its nonfatal contract also checks that the Quit command exists.
 - Ponytail inventory is unchanged: one conservative writer-check marker at
   `packages/core/Sources/AIManagerCore/AccountManager.swift:398`, with the reliable
   home-specific lock/probe upgrade trigger and zero missing triggers.
