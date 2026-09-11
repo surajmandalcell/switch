@@ -608,6 +608,9 @@ controls. Keep the two-pane layout; no new navigation tabs are required.
 Provide an explicitly named preview app with sample accounts and the complete existing
 import/review/result flow. Reuse the isolated synthetic acceptance fixture so preview
 imports, switching, and verification cannot change the user's production accounts.
+The user-facing preview must never terminate on a test assertion. Report window-contract
+failures as nonfatal diagnostics and keep failed checks visible to the test runner.
+Do not relaunch a preview with a known crash while developing window changes.
 
 The sidebar contains the window controls, a compact import action, and account rows.
 The content pane contains the selected identity, launch/default actions, and concise
