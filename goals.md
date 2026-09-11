@@ -601,6 +601,14 @@ border at the sidebar edge. Keep all custom control corners at three points. The
 remains resizable, with a default size of 920 by 620 and an upper bound of twice those
 dimensions, 1840 by 1240. Preserve the existing minimum size and the translucent panes.
 
+Control-spacing refinement: join close and minimize edge-to-edge in one compact group,
+with a larger gap before the title. Verify both buttons operate the owning window.
+Use square outer window corners while retaining three-point corners on ordinary custom
+controls. Keep the two-pane layout; no new navigation tabs are required.
+Provide an explicitly named preview app with sample accounts and the complete existing
+import/review/result flow. Reuse the isolated synthetic acceptance fixture so preview
+imports, switching, and verification cannot change the user's production accounts.
+
 The sidebar contains the window controls, a compact import action, and account rows.
 The content pane contains the selected identity, launch/default actions, and concise
 account details. Put verification, paths, shared settings, and recovery information
