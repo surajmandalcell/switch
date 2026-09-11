@@ -9,7 +9,8 @@ preservation checks pass. The custom borderless GUI passes isolated auth-only
 and full import, switching, local fake verification, and keyboard-focus checks.
 Protected-copy history discovery and resume checks pass; unsupported database-only
 histories remain in backup and are reported as unresolved. The signed installed app
-launches successfully. A compact translucent two-pane UI refinement is in progress.
+launches successfully. The compact translucent two-pane UI passes layout and keyboard
+checks; hover handlers are source-audited, with pointer-hover automation unavailable.
 See [goals.md](goals.md) for recorded limits.
 
 The repository contains one Swift package with three products:

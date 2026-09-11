@@ -700,7 +700,7 @@ Saving files without a working discovery and resume path is not sufficient.
 ### G6. Recovery, accessibility, and installed app
 
 - [x] Exercise rollback and restart recovery from interrupted operations.
-- [ ] Verify the redesigned native flow with keyboard navigation and accessibility labels.
+- [x] Verify the redesigned native flow with keyboard navigation and accessibility labels.
 - [x] Test denied paths, disconnected volumes, insufficient space, and corrupt sources.
 - [x] Build the final signed app with the permitted existing signing identity.
 - [x] Inspect the final artifact's entitlements and embedded source revision.
@@ -1101,13 +1101,35 @@ gate. The new compact translucent two-pane design in section 14 supersedes the o
 acceptance. Preserve the passing core/history evidence; verify the new UI's hover, keyboard,
 three-point corners, custom titlebar, light/dark appearance, and installed artifact.
 
+### Compact translucent UI acceptance
+
+- The revised native window uses full-height material panes, integrated window controls,
+  and a draggable custom composition. It has no shared header, status bar, decorative
+  outlines, numbered headings, duplicate empty-state copy, or repeated imported badge.
+- Identity and primary actions stay at the top. Long paths and settings metadata are
+  collapsed under Account details; warnings and recovery actions remain available.
+  Custom rectangular surfaces share a three-point radius. Hover handlers provide 150 ms
+  tonal feedback, with reduced-motion support and a reduced-transparency fallback.
+- Native Computer verifies light appearance at 720 by 532 outer pixels and dark appearance
+  at 920 by 620. The narrow height reflects the production 500-point content minimum.
+  Both panes reach the top and bottom; account details expand/collapse; arrow navigation
+  updates both selection and accessibility identity; keyboard focus uses a tone and bar.
+  Source selection, import review, and result screens pass the visual/interaction matrix.
+- Hover is source-audited, not exercised by native automation: the documented driver has
+  no pointer-move operation, and dragging the window background is not an acceptable
+  substitute. No undocumented driver, focus change, or VoiceOver launch was used.
+- Screenshots are retained in `/private/tmp/ai-manager-build/gui-acceptance/artifacts/`
+  with the `redesign-` prefix. The final affected debug build passes. Harness files and
+  core behavior are unchanged. Ponytail inventory remains one marker with a defined
+  upgrade trigger and zero missing triggers.
+
 Remote native CI was dispatched as run `34588863904`, but repository Actions are
 disabled (`enabled: false`) and no job started. Repository permissions were not changed.
 Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-The CLI and history checks pass. Complete and install the revised compact translucent UI.
-Live VoiceOver verification is no longer a gate. The core migration and history
+The revised UI, CLI, and history checks pass within their recorded scope. Build and install
+the signed redesign from clean HEAD. Live VoiceOver verification is no longer a gate. The core migration and history
 evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.
