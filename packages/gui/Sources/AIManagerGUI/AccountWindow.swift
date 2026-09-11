@@ -3,26 +3,32 @@ import AppKit
 import SwiftUI
 
 @MainActor final class AIManagerWindow: NSWindow {
+  static let fixedSize = NSSize(width: 1120, height: 740)
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
 }
 
 @MainActor
 final class AIManagerWindowController<Content: View>: NSWindowController, NSWindowDelegate {
-  init(title: String, initialSize: NSSize, rootView: Content) {
+  init(title: String, rootView: Content) {
+    let fixedSize = AIManagerWindow.fixedSize
     let window = AIManagerWindow(
-      contentRect: NSRect(origin: .zero, size: initialSize),
-      styleMask: [.closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+      contentRect: NSRect(origin: .zero, size: fixedSize),
+      styleMask: [.closable, .miniaturizable], backing: .buffered, defer: false)
     window.title = title
     window.isOpaque = true
     window.backgroundColor = NSColor(AIMTheme.canvas)
     window.hasShadow = true
     window.collectionBehavior = [.fullScreenNone]
     let host = NSHostingView(
-      rootView: rootView.frame(minWidth: 720, maxWidth: 1840, minHeight: 500, maxHeight: 1240))
-    host.frame = NSRect(origin: .zero, size: initialSize)
-    host.autoresizingMask = [.width, .height]
+      rootView: rootView.frame(width: fixedSize.width, height: fixedSize.height))
+    host.frame = NSRect(origin: .zero, size: fixedSize)
+    host.focusRingType = .none
     window.contentView = host
+    window.contentMinSize = fixedSize
+    window.contentMaxSize = fixedSize
+    window.minSize = fixedSize
+    window.maxSize = fixedSize
     window.isReleasedWhenClosed = false
     window.center()
     super.init(window: window)
@@ -40,6 +46,7 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
 private final class WindowTarget: ObservableObject { weak var window: NSWindow? }
 private final class WindowResolver: NSView {
   var resolve: ((NSWindow) -> Void)?
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     if let window { resolve?(window) }
@@ -57,14 +64,14 @@ private struct WindowReader: NSViewRepresentable {
     if let window = view.window { resolve(window) }
   }
 }
-private final class DragView: NSView {
+final class AIMTitleDragView: NSView {
   override var mouseDownCanMoveWindow: Bool { true }
   override func mouseDown(with event: NSEvent) {
     if event.clickCount == 1 { window?.performDrag(with: event) }
   }
 }
 private struct WindowDragRegion: NSViewRepresentable {
-  func makeNSView(context: Context) -> NSView { DragView() }
+  func makeNSView(context: Context) -> NSView { AIMTitleDragView() }
   func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
@@ -96,6 +103,7 @@ struct AccountWindow: View {
   @StateObject private var target = WindowTarget()
   @State private var page: Page = .accounts
   @State private var themeOverride: ColorScheme?
+  @State private var showFocusIndicators = false
   @Environment(\.colorScheme) private var systemScheme
   @Environment(\.scenePhase) private var scenePhase
   private var dark: Bool { (themeOverride ?? systemScheme) == .dark }
@@ -125,12 +133,18 @@ struct AccountWindow: View {
         .disabled(model.showImport)
         .accessibilityHidden(model.showImport)
 
+        RailTop(close: { target.window?.close() }, minimize: { target.window?.miniaturize(nil) })
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+          .allowsHitTesting(!model.showImport)
+          .accessibilityHidden(model.showImport)
+          .zIndex(20)
+
         if model.showImport {
           Color.black.opacity(0.34).ignoresSafeArea()
           ImportFlow(model: model)
             .frame(
-              width: min(820, geometry.size.width - 32),
-              height: min(660, geometry.size.height - 32)
+              width: min(780, geometry.size.width - 48),
+              height: min(600, geometry.size.height - 48)
             )
             .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
             .overlay {
@@ -143,15 +157,21 @@ struct AccountWindow: View {
       }
     }
     .font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.canvas)
+    .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
+    .focusEffectDisabled(!showFocusIndicators)
     .preferredColorScheme(themeOverride)
     .background(
       WindowReader { window in
         target.window = window
         applyAppearance(to: window)
+        applyFocusPolicy(to: window)
       }
     ).ignoresSafeArea(.container, edges: .top)
     .onChange(of: dark) { _, _ in
       if let window = target.window { applyAppearance(to: window) }
+    }
+    .onChange(of: showFocusIndicators) { _, _ in
+      if let window = target.window { applyFocusPolicy(to: window) }
     }
     .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.load() } } }
   }
@@ -161,9 +181,14 @@ struct AccountWindow: View {
     if window.appearance?.name != name { window.appearance = NSAppearance(named: name) }
   }
 
+  private func applyFocusPolicy(to window: NSWindow) {
+    window.contentView?.focusRingType = showFocusIndicators ? .default : .none
+  }
+
   private var rail: some View {
     VStack(spacing: 0) {
-      RailTop(close: { target.window?.close() }, minimize: { target.window?.miniaturize(nil) })
+      Color.clear.frame(width: AIMTheme.railWidth, height: AIMTheme.railWidth)
+        .accessibilityHidden(true)
       ForEach(Array(Page.allCases.enumerated()), id: \.element) { index, item in
         if index == 3 { Divider().overlay(AIMTheme.lineSoft).padding(.vertical, 4) }
         RailButton(icon: item.icon, label: item.rawValue, active: page == item) { page = item }
@@ -183,21 +208,30 @@ struct AccountWindow: View {
     }
   }
   private var topbar: some View {
-    HStack(spacing: 10) {
-      Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).lineLimit(1)
-      Text(page.subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).lineLimit(1)
-      Spacer(minLength: 12)
+    HStack(spacing: 0) {
+      ZStack {
+        WindowDragRegion()
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+          Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).lineLimit(1)
+          Text(page.subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+          Spacer(minLength: 12)
+        }
+        .allowsHitTesting(false)
+      }
       Button {
-        Task { await model.load() }
+        Task { await model.refresh() }
       } label: {
         AIMIcon(name: .refresh, size: 15).frame(width: 38, height: 38)
-      }.buttonStyle(AIMToolbarButtonStyle()).help("Refresh").accessibilityLabel("Refresh")
+          .contentShape(Rectangle())
+      }.buttonStyle(.plain).disabled(model.isBusy).opacity(model.isBusy ? 0.45 : 1)
+        .help(refreshHelp).accessibilityLabel("Refresh demo data").accessibilityHint(refreshHelp)
       Menu {
         Button("Sample accounts") { model.reset(to: .demo) }
         Button("Empty state") { model.reset(to: .empty) }
         Button("Issues and recovery") { model.reset(to: .allStates) }
         Divider()
         Button("Show demo error") { model.showDemoError() }
+        Toggle("Keyboard focus indicators", isOn: $showFocusIndicators)
       } label: {
         HStack(spacing: 8) {
           VStack(alignment: .leading, spacing: 1) {
@@ -208,9 +242,15 @@ struct AccountWindow: View {
         }
         .padding(.horizontal, 12).frame(height: 30).background(AIMTheme.control)
       }
-      .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Demo states")
-    }.padding(.horizontal, 24).frame(height: AIMTheme.topbarHeight).background(AIMTheme.canvas)
-      .background(WindowDragRegion())
+      .menuStyle(.borderlessButton).fixedSize().accessibilityLabel(
+        "Demo states")
+    }.padding(.leading, 64).padding(.trailing, 24)
+      .frame(height: AIMTheme.topbarHeight).background(AIMTheme.canvas)
+  }
+
+  private var refreshHelp: String {
+    guard let refreshedAt = model.refreshedAt else { return "Refresh demo data" }
+    return "Last refreshed \(refreshedAt.formatted(date: .omitted, time: .shortened))"
   }
 }
 
@@ -259,8 +299,6 @@ private struct RailTop: View {
         }
       }
     }
-    .frame(width: 48, height: 48, alignment: .leading)
-    .zIndex(20)
   }
 }
 
@@ -296,20 +334,12 @@ private struct RailButton: View {
       AIMIcon(name: icon).frame(width: 48, height: 48).foregroundStyle(
         active ? AIMTheme.activeInk : AIMTheme.railIdle
       ).background(active ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear))
+        .contentShape(Rectangle())
     }.buttonStyle(.plain).help(label).accessibilityLabel(label).accessibilityAddTraits(
       active ? .isSelected : []
     ).onHover { hover = $0 }
   }
 }
-private struct AIMToolbarButtonStyle: ButtonStyle {
-  @State private var hover = false
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label.background(hover ? AIMTheme.controlHover : AIMTheme.control).opacity(
-      configuration.isPressed ? 0.7 : 1
-    ).onHover { hover = $0 }
-  }
-}
-
 private enum ButtonTone { case normal, primary, danger }
 private struct AIMButton: View {
   let title: String
@@ -319,6 +349,7 @@ private struct AIMButton: View {
   let action: () -> Void
   @State private var hover = false
   @FocusState private var focused: Bool
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
   var body: some View {
     Button(action: action) {
       HStack(spacing: 6) {
@@ -326,17 +357,21 @@ private struct AIMButton: View {
         Text(title).lineLimit(1)
       }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 13).frame(height: 30)
         .foregroundStyle(
-          tone == .primary
-            ? AIMTheme.canvas : (tone == .danger && hover ? AIMTheme.red : AIMTheme.ink)
+          disabled
+            ? AIMTheme.muted
+            : (tone == .primary
+              ? AIMTheme.canvas : (tone == .danger && hover ? AIMTheme.red : AIMTheme.ink))
         ).background(
-          tone == .primary ? AIMTheme.ink : (hover ? AIMTheme.controlHover : AIMTheme.control)
+          disabled
+            ? AIMTheme.control
+            : (tone == .primary ? AIMTheme.ink : (hover ? AIMTheme.controlHover : AIMTheme.control))
         ).overlay {
-          if focused { RoundedRectangle(cornerRadius: 2).stroke(AIMTheme.blue, lineWidth: 2) }
+          if focused, focusIndicatorsEnabled {
+            RoundedRectangle(cornerRadius: 2).stroke(AIMTheme.blue, lineWidth: 2)
+          }
         }.clipShape(RoundedRectangle(cornerRadius: 2))
     }
-    .buttonStyle(.plain).focused($focused).focusEffectDisabled().disabled(disabled).opacity(
-      disabled ? 0.45 : 1
-    ).onHover { hover = $0 }
+    .buttonStyle(.plain).focused($focused).disabled(disabled).onHover { hover = $0 }
   }
 }
 private struct Badge: View {
@@ -354,20 +389,23 @@ private struct AccountsPage: View {
     HStack(spacing: 8) {
       AIMPanel(title: "Accounts") {
         VStack(spacing: 0) {
-          ForEach(model.status?.accounts ?? []) { account in
-            Button {
-              model.selectedAccountID = account.id
-            } label: {
-              AccountListRow(
-                account: account, selected: account.id == model.selectedAccountID,
-                isDefault: account.id == model.status?.defaultAccountID)
-            }.buttonStyle(.plain)
+          AIMScrollView {
+            LazyVStack(spacing: 0) {
+              ForEach(model.status?.accounts ?? []) { account in
+                Button {
+                  model.selectedAccountID = account.id
+                } label: {
+                  AccountListRow(
+                    account: account, selected: account.id == model.selectedAccountID,
+                    isDefault: account.id == model.status?.defaultAccountID)
+                }.buttonStyle(.plain)
+              }
+              if model.status?.accounts.isEmpty != false {
+                Text("No accounts yet.").font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
+                  .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
           }
-          if model.status?.accounts.isEmpty != false {
-            Text("No accounts yet.").font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-              .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-          }
-          Spacer(minLength: 0)
           Button {
             Task { await model.beginImport() }
           } label: {
@@ -433,7 +471,7 @@ private struct AccountDetail: View {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
   }
   var body: some View {
-    ScrollView {
+    AIMScrollView {
       VStack(spacing: 8) {
         AIMPanel(title: "Identity") {
           VStack(alignment: .leading, spacing: 12) {
@@ -536,7 +574,7 @@ private struct SharedSettingsPage: View {
     "sessions", "archived_sessions",
   ]
   var body: some View {
-    ScrollView {
+    AIMScrollView {
       VStack(spacing: 8) {
         AIMPanel(title: "Shared root") {
           VStack(spacing: 0) {
@@ -579,7 +617,7 @@ private struct SharedSettingsPage: View {
 private struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    ScrollView {
+    AIMScrollView {
       VStack(spacing: 8) {
         HStack(spacing: 8) {
           Metric(
@@ -649,7 +687,7 @@ private struct Header: View {
 private struct RecoveryPage: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    ScrollView {
+    AIMScrollView {
       VStack(spacing: 8) {
         AIMPanel(title: "Pending operations") {
           VStack(spacing: 0) {
@@ -726,7 +764,6 @@ private struct ErrorBar: View {
 
 private struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
-  @FocusState private var closeFocused: Bool
   var body: some View {
     VStack(spacing: 0) {
       HStack {
@@ -734,11 +771,12 @@ private struct ImportFlow: View {
         Spacer()
         ImportSteps(step: step)
         Button {
+          model.resetImport()
           model.showImport = false
         } label: {
           AIMIcon(name: .close, size: 14).frame(width: 40, height: 40).background(AIMTheme.control)
-        }.buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close import")
-          .focused($closeFocused)
+        }.buttonStyle(.plain).keyboardShortcut(.cancelAction)
+          .accessibilityLabel("Close import")
       }.padding(.leading, 24).frame(height: 56).background(AIMTheme.panel2)
       if let error = model.errorMessage {
         ErrorBar(message: error) { model.errorMessage = nil }.padding(.horizontal, 24).padding(
@@ -746,7 +784,7 @@ private struct ImportFlow: View {
       }
       Group {
         if let result = model.importResult {
-          ImportResultPage(result: result)
+          ImportResultPage(result: result, model: model)
         } else if let plan = model.importPlan {
           ImportReviewPage(plan: plan, model: model)
         } else {
@@ -762,7 +800,6 @@ private struct ImportFlow: View {
     }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel).frame(
       maxWidth: .infinity, maxHeight: .infinity
     )
-    .onAppear { closeFocused = true }
   }
   private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
   private var title: String {
@@ -771,12 +808,18 @@ private struct ImportFlow: View {
 }
 private struct ImportSteps: View {
   let step: Int
+  private let labels = ["Source", "Review", "Done"]
   var body: some View {
     HStack(spacing: 2) {
-      ForEach(1...3, id: \.self) { n in
-        Text("\(n)").font(AIMTheme.mono(10, weight: .semibold)).foregroundStyle(
-          n <= step ? AIMTheme.activeInk : AIMTheme.muted
-        ).frame(width: 28, height: 22).background(n <= step ? AIMTheme.active : AIMTheme.control)
+      ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+        HStack(spacing: 5) {
+          Text("\(index + 1)").font(AIMTheme.mono(9, weight: .semibold))
+          Text(label).font(AIMTheme.sans(10, weight: .medium))
+        }
+        .foregroundStyle(index < step ? AIMTheme.activeInk : AIMTheme.muted)
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .background(index < step ? AIMTheme.active : AIMTheme.control)
       }
     }.clipShape(RoundedRectangle(cornerRadius: 2)).accessibilityElement(children: .ignore)
       .accessibilityLabel("Step \(step) of 3")
@@ -788,7 +831,7 @@ private struct SourcePage: View {
   var body: some View {
     VStack(spacing: 8) {
       AIMPanel(title: "Source") {
-        ScrollView {
+        AIMScrollView {
           LazyVStack(spacing: 0) {
             ForEach(Array(model.discoveries.enumerated()), id: \.element.id) { index, source in
               Button {
@@ -818,8 +861,8 @@ private struct SourcePage: View {
               }.buttonStyle(.plain)
             }
           }
-        }.frame(minHeight: 190)
-      }
+        }
+      }.frame(maxHeight: .infinity)
       AIMPanel(title: "Import scope") {
         HStack(spacing: 4) {
           Choice(title: "Auth only", selected: model.importMode == .authOnly) {
@@ -848,7 +891,8 @@ private struct SourcePage: View {
               != .supportedChatGPT
         ) { Task { await model.reviewImport() } }
       }
-    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24).frame(
+      maxHeight: .infinity, alignment: .top)
   }
 }
 private struct Choice: View {
@@ -880,7 +924,7 @@ private struct ImportReviewPage: View {
   }
   var body: some View {
     VStack(spacing: 8) {
-      ScrollView {
+      AIMScrollView {
         VStack(spacing: 8) {
           AIMPanel(title: "Plan") {
             VStack(spacing: 0) {
@@ -963,44 +1007,54 @@ private struct ImportReviewPage: View {
 }
 private struct ImportResultPage: View {
   let result: ImportResult
+  @ObservedObject var model: AccountViewModel
   var body: some View {
-    ScrollView {
-      VStack(spacing: 8) {
-        AIMPanel(title: result.unresolved.isEmpty ? "Import complete" : "Review required") {
-          HStack(spacing: 14) {
-            ZStack {
-              AIMTheme.green
-              AIMIcon(name: result.unresolved.isEmpty ? .check : .warning, size: 24)
-                .foregroundStyle(AIMTheme.activeInk)
-            }.frame(width: 48, height: 48)
-            VStack(alignment: .leading, spacing: 3) {
-              Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
-              Text(result.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
-                AIMTheme.muted)
-            }
-            Spacer()
-          }.padding(16)
-        }
-        AIMPanel(title: "Result") {
-          VStack(spacing: 0) {
-            DetailRow(label: "Profile", value: result.account.home.path)
-            DetailRow(label: "Backup", value: result.backup.path, zebra: true)
-            DetailRow(
-              label: "Imported",
-              value: "\(result.importedFiles) files and \(result.importedChats) chats")
+    VStack(spacing: 8) {
+      AIMScrollView {
+        VStack(spacing: 8) {
+          AIMPanel(title: result.unresolved.isEmpty ? "Import complete" : "Review required") {
+            HStack(spacing: 14) {
+              ZStack {
+                AIMTheme.green
+                AIMIcon(name: result.unresolved.isEmpty ? .check : .warning, size: 24)
+                  .foregroundStyle(AIMTheme.activeInk)
+              }.frame(width: 48, height: 48)
+              VStack(alignment: .leading, spacing: 3) {
+                Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
+                Text(result.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
+                  AIMTheme.muted)
+              }
+              Spacer()
+            }.padding(16)
           }
-        }
-        if !result.unresolved.isEmpty {
-          AIMPanel(title: "Unresolved items") {
+          AIMPanel(title: "Result") {
             VStack(spacing: 0) {
-              ForEach(result.unresolved, id: \.self) { Notice(text: $0, tone: AIMTheme.amber) }
+              DetailRow(label: "Profile", value: result.account.home.path)
+              DetailRow(label: "Backup", value: result.backup.path, zebra: true)
+              DetailRow(
+                label: "Imported",
+                value: "\(result.importedFiles) files and \(result.importedChats) chats")
             }
           }
+          if !result.unresolved.isEmpty {
+            AIMPanel(title: "Unresolved items") {
+              VStack(spacing: 0) {
+                ForEach(result.unresolved, id: \.self) { Notice(text: $0, tone: AIMTheme.amber) }
+              }
+            }
+          }
+          Notice(
+            text:
+              "The imported account is ready. It becomes the default only after you choose Use by default.",
+            tone: AIMTheme.blue)
         }
-        Notice(
-          text:
-            "The imported account is ready. It becomes the default only after you choose Use by default.",
-          tone: AIMTheme.blue)
+      }
+      HStack {
+        Spacer()
+        AIMButton(title: "Done", tone: .primary) {
+          model.resetImport()
+          model.showImport = false
+        }
       }
     }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
   }
