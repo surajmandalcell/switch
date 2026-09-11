@@ -1141,10 +1141,31 @@ Remote native CI was dispatched as run `34588863904`, but repository Actions are
 disabled (`enabled: false`) and no job started. Repository permissions were not changed.
 Local native tests and packaging remain the executed verification evidence.
 
+### Custom window controls
+
+- Custom close and minimize buttons replace the native traffic lights. Both controls
+  and the title share a centered row. The account count and separate sidebar material
+  edge are removed. The window uses one translucent background with a sidebar tint.
+- SwiftUI owns the resize bounds in both production and acceptance scenes. A live
+  AppKit read confirms the outer maximum is 1840 by 1240, all native window buttons
+  are hidden, zoom is disabled, and fullscreen is disabled. The hidden titlebar adds
+  32 points to the content height on the verified host.
+- The rebuilt acceptance app passes its retained window contract after native launch.
+  It checks the resize cap, resizable/fullscreen flags, and hidden native controls.
+- Native Computer lists apps but reports `cgWindowNotFound` for Chrome and both
+  AI Manager apps after recovery attempts. AppKit confirms the acceptance window exists.
+  Fresh screenshots, close/minimize clicks, and drag interactions remain unverified;
+  no app was activated or moved to bypass the focus rule.
+- Ponytail inventory remains one marker with zero missing triggers:
+  `packages/core/Sources/AIManagerCore/AccountManager.swift:398` blocks mutations when
+  any Codex process is present. Replace that conservative check when Codex exposes
+  a reliable home-specific lock or probe. This UI change adds no marker.
+
 ### Next action
 
-The revised UI is signed, installed, and verified within the recorded scope. Live VoiceOver
-verification is no longer a gate. Native Terminal handoff remains unexercised under the
+The prior translucent UI is installed; the custom window-control update requires a clean
+signed build and installation after its acceptance check. Live VoiceOver verification is
+no longer a gate. Native Terminal handoff remains unexercised under the
 focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
 production app retains conservative writer checks. These limits must not be represented
 as completed production mutation or Terminal checks. The core migration and history evidence
