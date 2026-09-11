@@ -10,7 +10,6 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
         DemoFonts.register()
         let controller = AIManagerWindowController(
             title: "AI Manager",
-            initialSize: NSSize(width: 1120, height: 740),
             rootView: AccountWindow(model: model)
         )
         windowController = controller

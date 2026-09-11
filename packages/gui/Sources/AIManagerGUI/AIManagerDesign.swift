@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+private struct AIMFocusIndicatorsKey: EnvironmentKey {
+  static let defaultValue = false
+}
+
+extension EnvironmentValues {
+  var aimFocusIndicatorsEnabled: Bool {
+    get { self[AIMFocusIndicatorsKey.self] }
+    set { self[AIMFocusIndicatorsKey.self] = newValue }
+  }
+}
+
 enum AIMTheme {
   static let radius: CGFloat = 2
   static let railWidth: CGFloat = 48
@@ -22,7 +33,6 @@ enum AIMTheme {
   static let amber = dynamic(light: 0x856F43, dark: 0xB39A68)
   static let red = dynamic(light: 0x8D5A60, dark: 0xAD7379)
   static let titleArt = dynamic(light: 0x657B98, dark: 0x92A7C3)
-  static let titleTeal = dynamic(light: 0x638F8A, dark: 0x8DB8B0)
   static let active = Color(hex: 0x3C4A61)
   static let activeInk = Color(hex: 0xF2F1ED)
   static let railIdle = Color(hex: 0x91A0B2)
@@ -62,175 +72,63 @@ extension Color {
 }
 
 struct AIMIcon: View {
-  enum Name {
-    case mark, account, settings, history, recovery, plus, refresh, moon, sun, close, minimize,
-      chevron, check, folder, play, copy, warning
+  enum Name: CaseIterable {
+    case mark, account, settings, history, recovery, plus, refresh, moon, sun, close, minimize
+    case chevron, check, folder, play, copy, warning
+
+    var symbol: String {
+      switch self {
+      case .mark: "play.rectangle"
+      case .account: "person.crop.circle"
+      case .settings: "gearshape"
+      case .history: "clock.arrow.circlepath"
+      case .recovery: "arrow.counterclockwise"
+      case .plus: "plus"
+      case .refresh: "arrow.clockwise"
+      case .moon: "moon"
+      case .sun: "sun.max"
+      case .close: "xmark"
+      case .minimize: "minus"
+      case .chevron: "chevron.right"
+      case .check: "checkmark"
+      case .folder: "folder"
+      case .play: "play"
+      case .copy: "doc.on.doc"
+      case .warning: "exclamationmark.triangle"
+      }
+    }
   }
+
   let name: Name
   var size: CGFloat = 17
 
   var body: some View {
-    AIMIconShape(name: name)
-      .stroke(style: StrokeStyle(lineWidth: 1.65, lineCap: .round, lineJoin: .round))
+    Image(systemName: name.symbol)
+      .font(.system(size: size, weight: .regular))
+      .symbolRenderingMode(.monochrome)
       .frame(width: size, height: size)
       .accessibilityHidden(true)
-  }
-}
-
-private struct AIMIconShape: Shape {
-  let name: AIMIcon.Name
-  func path(in rect: CGRect) -> Path {
-    let sx = rect.width / 24
-    let sy = rect.height / 24
-    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * sx, y: y * sy) }
-    var path = Path()
-    switch name {
-    case .account:
-      path.addEllipse(in: CGRect(x: 8 * sx, y: 4 * sy, width: 8 * sx, height: 8 * sy))
-      path.move(to: p(4, 21))
-      path.addCurve(to: p(20, 21), control1: p(4.6, 10.5), control2: p(19.4, 10.5))
-    case .settings:
-      path.addEllipse(in: CGRect(x: 9 * sx, y: 9 * sy, width: 6 * sx, height: 6 * sy))
-      path.move(to: p(19, 12))
-      path.addCurve(to: p(18.9, 11), control1: p(19, 11.7), control2: p(19, 11.3))
-      path.addLine(to: p(21, 9.5))
-      path.addLine(to: p(19, 6.1))
-      path.addLine(to: p(16.6, 7))
-      path.addCurve(to: p(14.9, 6), control1: p(16.1, 6.6), control2: p(15.5, 6.3))
-      path.addLine(to: p(14.5, 3))
-      path.addLine(to: p(9.5, 3))
-      path.addLine(to: p(9.1, 5.5))
-      path.addCurve(to: p(7.4, 6.5), control1: p(8.5, 5.7), control2: p(7.9, 6))
-      path.addLine(to: p(5.1, 5.6))
-      path.addLine(to: p(3.1, 9))
-      path.addLine(to: p(5.1, 10.5))
-      path.addCurve(to: p(5.1, 12.5), control1: p(5, 11.2), control2: p(5, 11.8))
-      path.addLine(to: p(3.1, 14))
-      path.addLine(to: p(5.1, 17.4))
-      path.addLine(to: p(7.4, 16.5))
-      path.addCurve(to: p(9.1, 17.5), control1: p(7.9, 17), control2: p(8.5, 17.3))
-      path.addLine(to: p(9.5, 20))
-      path.addLine(to: p(14.5, 20))
-      path.addLine(to: p(14.9, 17))
-      path.addCurve(to: p(16.6, 16), control1: p(15.5, 16), control2: p(16.1, 15.7))
-      path.addLine(to: p(18.9, 16.9))
-      path.addLine(to: p(20.9, 13.5))
-      path.addLine(to: p(18.9, 12))
-    case .history:
-      path.move(to: p(4, 12))
-      path.addCurve(to: p(20, 12), control1: p(4, 1.3), control2: p(20, 1.3))
-      path.addCurve(to: p(4, 12), control1: p(20, 22.7), control2: p(4, 22.7))
-      path.move(to: p(4, 7))
-      path.addLine(to: p(4, 12))
-      path.addLine(to: p(9, 12))
-      path.move(to: p(12, 8))
-      path.addLine(to: p(12, 12))
-      path.addLine(to: p(15, 14))
-    case .recovery, .refresh:
-      path.move(to: p(20, 12))
-      path.addCurve(to: p(4, 12), control1: p(20, 1.5), control2: p(4, 1.5))
-      path.addCurve(to: p(17.7, 6.3), control1: p(4, 22.5), control2: p(16.2, 22.5))
-      path.move(to: p(20, 4))
-      path.addLine(to: p(20, 9))
-      path.addLine(to: p(15, 9))
-    case .plus:
-      path.move(to: p(12, 5))
-      path.addLine(to: p(12, 19))
-      path.move(to: p(5, 12))
-      path.addLine(to: p(19, 12))
-    case .moon:
-      path.move(to: p(20, 14.5))
-      path.addCurve(to: p(9.5, 4), control1: p(14, 16), control2: p(8, 10))
-      path.addCurve(to: p(20, 14.5), control1: p(4, 12), control2: p(12, 22))
-    case .sun:
-      path.addEllipse(in: CGRect(x: 8 * sx, y: 8 * sy, width: 8 * sx, height: 8 * sy))
-      for (a, b, c, d) in [
-        (12, 2, 12, 4), (12, 20, 12, 22), (2, 12, 4, 12), (20, 12, 22, 12), (4.9, 4.9, 6.3, 6.3),
-        (17.7, 17.7, 19.1, 19.1), (4.9, 19.1, 6.3, 17.7), (17.7, 6.3, 19.1, 4.9),
-      ] {
-        path.move(to: p(CGFloat(a), CGFloat(b)))
-        path.addLine(to: p(CGFloat(c), CGFloat(d)))
-      }
-    case .close:
-      path.move(to: p(6, 6))
-      path.addLine(to: p(18, 18))
-      path.move(to: p(18, 6))
-      path.addLine(to: p(6, 18))
-    case .minimize:
-      path.move(to: p(5, 12))
-      path.addLine(to: p(19, 12))
-    case .chevron:
-      path.move(to: p(9, 6))
-      path.addLine(to: p(15, 12))
-      path.addLine(to: p(9, 18))
-    case .check:
-      path.move(to: p(5, 12))
-      path.addLine(to: p(10, 17))
-      path.addLine(to: p(19, 7))
-    case .folder:
-      path.move(to: p(3, 7))
-      path.addCurve(to: p(5, 5), control1: p(3, 6), control2: p(4, 5))
-      path.addLine(to: p(9, 5))
-      path.addLine(to: p(11, 7))
-      path.addLine(to: p(19, 7))
-      path.addCurve(to: p(21, 9), control1: p(20, 7), control2: p(21, 8))
-      path.addLine(to: p(21, 18))
-      path.addCurve(to: p(19, 20), control1: p(21, 19), control2: p(20, 20))
-      path.addLine(to: p(5, 20))
-      path.addCurve(to: p(3, 18), control1: p(4, 20), control2: p(3, 19))
-      path.closeSubpath()
-    case .play:
-      path.move(to: p(7, 4))
-      path.addLine(to: p(7, 20))
-      path.addLine(to: p(20, 12))
-      path.closeSubpath()
-    case .copy:
-      path.addRect(CGRect(x: 8 * sx, y: 8 * sy, width: 12 * sx, height: 12 * sy))
-      path.move(to: p(16, 8))
-      path.addLine(to: p(16, 4))
-      path.addLine(to: p(4, 4))
-      path.addLine(to: p(4, 16))
-      path.addLine(to: p(8, 16))
-    case .warning:
-      path.move(to: p(12, 3))
-      path.addLine(to: p(2, 20))
-      path.addLine(to: p(22, 20))
-      path.closeSubpath()
-      path.move(to: p(12, 10))
-      path.addLine(to: p(12, 14))
-      path.move(to: p(12, 17))
-      path.addLine(to: p(12.01, 17))
-    case .mark:
-      path.addRect(CGRect(x: 5 * sx, y: 5 * sy, width: 14 * sx, height: 14 * sy))
-      path.move(to: p(5, 10))
-      path.addLine(to: p(19, 10))
-      path.move(to: p(10, 5))
-      path.addLine(to: p(11, 10))
-      path.move(to: p(10.5, 13))
-      path.addLine(to: p(10.5, 17))
-      path.addLine(to: p(15.5, 15))
-      path.closeSubpath()
-    }
-    return path
   }
 }
 
 struct AIMPanel<Content: View>: View {
   let title: String
   @ViewBuilder var content: Content
+
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 0) {
         Text(title)
           .font(AIMTheme.sans(12, weight: .semibold))
-          .padding(.horizontal, 16)
+          .padding(.horizontal, 28)
           .frame(height: 40)
-          .background(alignment: .trailing) { AIMPanelArcs().frame(width: 200, height: 40) }
+          .background(alignment: .trailing) { AIMPanelTitleArt() }
           .background(AIMTheme.panel2)
           .clipped()
         Spacer(minLength: 0)
       }
-      .frame(height: 40).background(AIMTheme.panel2)
+      .frame(height: 40)
+      .background(AIMTheme.panel2)
       content
     }
     .background(AIMTheme.panel)
@@ -238,41 +136,178 @@ struct AIMPanel<Content: View>: View {
   }
 }
 
-private struct AIMPanelArcs: View {
-  @Environment(\.colorScheme) private var scheme
+private struct AIMPanelTitleArt: View {
   var body: some View {
-    HStack(spacing: 0) {
-      Spacer(minLength: 0)
-      ZStack {
-        LinearGradient(
-          stops: [
-            .init(color: AIMTheme.titleTeal.opacity(scheme == .dark ? 0.195 : 0.156), location: 0),
-            .init(color: .clear, location: 0.48),
-            .init(color: AIMTheme.titleArt.opacity(scheme == .dark ? 0.30 : 0.24), location: 1),
-          ],
-          startPoint: UnitPoint(x: 0.14, y: 1),
-          endPoint: UnitPoint(x: 0.86, y: 0)
-        )
-        Canvas { context, _ in
-          for (center, opacity) in [(CGPoint(x: 187, y: 47), 1.0), (CGPoint(x: 128, y: -23), 0.6)] {
-            for radius in [CGFloat(24), 33, 42, 51, 60] {
-              let rect = CGRect(
-                x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-              context.stroke(
-                Path(ellipseIn: rect), with: .color(AIMTheme.titleArt.opacity(0.48 * opacity)),
-                lineWidth: 0.65)
-            }
-          }
-        }
-        .mask(
-          LinearGradient(
-            stops: [
-              .init(color: .white.opacity(0.22), location: 0),
-              .init(color: .white.opacity(0.6), location: 0.55), .init(color: .white, location: 1),
-            ], startPoint: .leading, endPoint: .trailing)
-        )
+    Canvas { context, _ in
+      for radius in [CGFloat(28), 42, 56] {
+        let center = CGPoint(x: 148, y: 43)
+        let rect = CGRect(
+          x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+        context.stroke(
+          Path(ellipseIn: rect), with: .color(AIMTheme.titleArt.opacity(0.22)), lineWidth: 0.65)
       }
-      .frame(width: 200, height: 40)
     }
+    .frame(width: 160, height: 40)
+    .allowsHitTesting(false)
+  }
+}
+
+struct AIMScrollView<Content: View>: View {
+  @ViewBuilder let content: Content
+  @Environment(\.self) private var environment
+
+  init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+  var body: some View {
+    AIMNativeScrollView(
+      content: AnyView(
+        content.environment(\.self, environment)
+          .foregroundStyle(AIMTheme.ink)
+          .focusEffectDisabled(!environment.aimFocusIndicatorsEnabled)))
+  }
+}
+
+final class AIMThinScroller: NSScroller {
+  override class var isCompatibleWithOverlayScrollers: Bool { true }
+  override var scrollerStyle: NSScroller.Style {
+    get { super.scrollerStyle }
+    set { super.scrollerStyle = .overlay }
+  }
+
+  override class func scrollerWidth(
+    for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style
+  ) -> CGFloat { 3 }
+
+  override func drawKnob() {
+    let knob = rect(for: .knob)
+    guard !knob.isEmpty else { return }
+    NSColor.secondaryLabelColor.withAlphaComponent(0.52).setFill()
+    NSBezierPath(
+      roundedRect: NSRect(x: bounds.midX - 1.5, y: knob.minY, width: 3, height: knob.height),
+      xRadius: 1.5,
+      yRadius: 1.5
+    ).fill()
+  }
+
+  override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
+}
+
+final class AIMOwnedScrollView: NSScrollView {
+  private var hideTask: Task<Void, Never>?
+  private var observers: [NSObjectProtocol] = []
+  private var hoverTrackingArea: NSTrackingArea?
+  private var isHovered = false
+  private var isScrolling = false
+
+  override var scrollerStyle: NSScroller.Style {
+    get { super.scrollerStyle }
+    set { super.scrollerStyle = .overlay }
+  }
+
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    drawsBackground = false
+    borderType = .noBorder
+    hasHorizontalScroller = false
+    hasVerticalScroller = true
+    autohidesScrollers = true
+    verticalScroller = AIMThinScroller()
+    super.scrollerStyle = .overlay
+    verticalScroller?.scrollerStyle = .overlay
+    verticalScroller?.controlSize = .mini
+    verticalScroller?.alphaValue = 0
+    observers = [
+      NotificationCenter.default.addObserver(
+        forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: .main
+      ) { [weak self] _ in
+        self?.isScrolling = true
+        self?.showScroller()
+      },
+      NotificationCenter.default.addObserver(
+        forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: .main
+      ) { [weak self] _ in
+        self?.isScrolling = false
+        self?.scheduleHide()
+      },
+    ]
+  }
+
+  @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+    let trackingArea = NSTrackingArea(
+      rect: .zero,
+      options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self,
+      userInfo: nil)
+    addTrackingArea(trackingArea)
+    hoverTrackingArea = trackingArea
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    isHovered = true
+    showScroller()
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    isHovered = false
+    scheduleHide()
+  }
+
+  override func scrollWheel(with event: NSEvent) {
+    showScroller()
+    super.scrollWheel(with: event)
+    if event.phase == .ended || event.phase == [] { scheduleHide() }
+  }
+
+  private func showScroller() {
+    hideTask?.cancel()
+    verticalScroller?.alphaValue = 1
+  }
+
+  private func scheduleHide() {
+    guard !isHovered, !isScrolling else { return }
+    hideTask?.cancel()
+    hideTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .milliseconds(700))
+      guard !Task.isCancelled else { return }
+      self?.verticalScroller?.animator().alphaValue = 0
+    }
+  }
+
+  deinit {
+    observers.forEach(NotificationCenter.default.removeObserver)
+    hideTask?.cancel()
+  }
+}
+
+private struct AIMNativeScrollView: NSViewRepresentable {
+  let content: AnyView
+
+  final class Coordinator {
+    let host = NSHostingView(rootView: AnyView(EmptyView()))
+  }
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeNSView(context: Context) -> AIMOwnedScrollView {
+    let scrollView = AIMOwnedScrollView(frame: .zero)
+    let host = context.coordinator.host
+    host.rootView = content
+    host.translatesAutoresizingMaskIntoConstraints = false
+    host.focusRingType = .none
+    scrollView.documentView = host
+    NSLayoutConstraint.activate([
+      host.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+      host.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+      host.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+      host.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+    ])
+    return scrollView
+  }
+
+  func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
+    context.coordinator.host.rootView = content
   }
 }
