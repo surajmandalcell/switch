@@ -10,6 +10,8 @@
 	<string>com.mandalsuraj.ai-manager</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>AI Manager</string>
 	<key>CFBundlePackageType</key>

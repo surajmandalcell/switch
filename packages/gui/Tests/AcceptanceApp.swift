@@ -74,10 +74,13 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     private let receipts = AcceptanceReceipts()
     private let model = AccountViewModel()
     private var windowController: AIManagerWindowController<AnyView>?
+    private var statusItemController: AIManagerStatusItemController?
+    var hasStatusItem: Bool { statusItemController?.isPresent == true }
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DemoFonts.register()
+        AIManagerBrand.installApplicationIcon()
         receipts.model = model
         model.$selectedAccountID
             .dropFirst()
@@ -104,6 +107,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             rootView: content
         )
         windowController = controller
+        statusItemController = AIManagerStatusItemController {
+            controller.present()
+            NSApp.activate(ignoringOtherApps: true)
+        }
         installMainMenu(title: title)
         controller.present()
     }
@@ -210,6 +217,8 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
+    failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
+    expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "AI Manager status item is unavailable")
     for icon in AIMIcon.Name.allCases {
         expect(
             NSImage(systemSymbolName: icon.symbol, accessibilityDescription: nil) != nil,
