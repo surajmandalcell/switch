@@ -4,9 +4,11 @@ AI Manager is a native macOS app for managing Codex accounts. It imports
 Codex homes, keeps credentials separate, shares approved settings, preserves
 chat history, and opens Codex with a selected account.
 
-Development status: the native targets build, synthetic contracts pass, and
-protected-copy migration and native history checks pass. GUI interaction and
-installed-app acceptance remain pending. See [goals.md](goals.md) for the
+Development status: native targets, synthetic contracts, and protected-copy
+preservation checks pass. The custom borderless GUI passes isolated auth-only
+and full import, switching, local fake verification, and keyboard-focus checks.
+Native history discovery has open findings, and signed installed-app acceptance
+remains pending. See [goals.md](goals.md) for the
 remaining gates and recorded test limits.
 
 The repository contains one Swift package with three products:
