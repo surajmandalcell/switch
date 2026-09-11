@@ -61,7 +61,7 @@ private enum AcceptanceConfiguration {
 }
 
 @MainActor
-private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
+private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let fixture: AcceptanceFixture?
     let model: AccountViewModel?
     let errorMessage: String?
@@ -127,7 +127,43 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             rootView: content
         )
         windowController = controller
+        installMainMenu(title: title)
         controller.present()
+    }
+
+    private func installMainMenu(title: String) {
+        let main = NSMenu()
+        for (name, commands) in [
+            (title, [("Quit \(title)", #selector(NSApplication.terminate(_:)), "q", NSApp as AnyObject)]),
+            ("File", [
+                ("Import Account…", #selector(importAccount), "i", self as AnyObject),
+                ("Close Window", #selector(closeWindow), "w", self as AnyObject),
+                ("Minimize", #selector(minimizeWindow), "m", self as AnyObject)
+            ])
+        ] {
+            let parent = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: name)
+            for (label, action, key, target) in commands {
+                let item = NSMenuItem(title: label, action: action, keyEquivalent: key)
+                item.target = target
+                submenu.addItem(item)
+            }
+            parent.submenu = submenu
+            main.addItem(parent)
+        }
+        NSApp.mainMenu = main
+    }
+
+    @objc private func importAccount() {
+        guard let model, !model.isBusy else { return }
+        Task { await model.beginImport() }
+    }
+
+    @objc private func closeWindow() { windowController?.window?.close() }
+    @objc private func minimizeWindow() { windowController?.window?.miniaturize(nil) }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem.action == #selector(importAccount) ? model?.isBusy == false : true
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -184,6 +220,10 @@ private func checkWindowContract(fixture: AcceptanceFixture, stage: String) {
     expect(window.standardWindowButton(.closeButton) == nil, "Native close button exists")
     expect(window.standardWindowButton(.miniaturizeButton) == nil, "Native minimize button exists")
     expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
+    let commands = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
+    expect(commands.contains {
+        $0.keyEquivalent == "q" && $0.action == #selector(NSApplication.terminate(_:))
+    }, "Preview Quit command is missing")
     let receipt = WindowContractReceipt(
         passed: failures.isEmpty,
         failures: failures,
