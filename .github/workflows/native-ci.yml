@@ -1,0 +1,69 @@
+name: Native macOS CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths:
+      - Package.swift
+      - packages/**
+      - packaging/**
+      - scripts/build-native.sh
+      - scripts/check-native.sh
+      - scripts/verify-codex-history.py
+      - .github/workflows/native-ci.yml
+      - .gitignore
+      - README.md
+      - docs/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and test native targets
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Show Apple toolchain
+        run: |
+          xcode-select --print-path
+          xcodebuild -version
+          swift --version
+
+      - name: Validate package and run core tests
+        run: scripts/check-native.sh
+
+      - name: Build app and CLI artifacts
+        run: scripts/build-native.sh
+
+      - name: Verify CLI workflows
+        run: bash packages/tui/Tests/acceptance.sh /private/tmp/ai-manager-build/artifacts/ai-manager
+
+      - name: Check generated app metadata
+        run: |
+          test -x "/private/tmp/ai-manager-build/package/AI Manager.app/Contents/MacOS/AIManager"
+          test -x "/private/tmp/ai-manager-build/artifacts/ai-manager"
+          /usr/bin/plutil -lint "/private/tmp/ai-manager-build/package/AI Manager.app/Contents/Info.plist"
+          /usr/bin/codesign --verify --deep --strict "/private/tmp/ai-manager-build/package/AI Manager.app"
+
+      - name: Check patch formatting
+        run: git diff --check
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-manager-${{ runner.os }}-${{ github.sha }}
+          path: |
+            /private/tmp/ai-manager-build/package/AI Manager.app
+            /private/tmp/ai-manager-build/artifacts/ai-manager
+          if-no-files-found: error
+          retention-days: 7
