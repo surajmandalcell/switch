@@ -19,4 +19,5 @@ swift test \
   --disable-sandbox \
   --build-path "$build_path"
 bash "$repo_root/scripts/check-gui-demo.sh"
+bash "$repo_root/scripts/check-gui-scroll.sh"
 git -C "$repo_root" diff --check

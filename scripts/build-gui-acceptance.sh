@@ -20,18 +20,11 @@ case "$preview" in
 esac
 app_path="$output_path/$app_name.app"
 appearance="${AI_MANAGER_GUI_APPEARANCE:-system}"
-narrow="${AI_MANAGER_GUI_NARROW:-0}"
-seeded="${AI_MANAGER_GUI_SEEDED:-0}"
-if [[ "$preview" == "1" ]]; then seeded=1; fi
 gui_sources=()
 
 case "$appearance" in
   system|light|dark) ;;
   *) printf 'Unsupported GUI appearance: %s (expected system, light, or dark)\n' "$appearance" >&2; exit 2 ;;
-esac
-case "$narrow:$seeded" in
-  0:0|0:1|1:0|1:1) ;;
-  *) printf '%s\n' 'AI_MANAGER_GUI_NARROW and AI_MANAGER_GUI_SEEDED must be 0 or 1.' >&2; exit 2 ;;
 esac
 
 for source in "$repo_root"/packages/gui/Sources/AIManagerGUI/*.swift; do
@@ -64,6 +57,7 @@ swiftc \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "${gui_sources[@]}" \
+  "$repo_root/packages/gui/Tests/NativeUIContract.swift" \
   "$repo_root/packages/gui/Tests/AcceptanceApp.swift" \
   -o "$app_path/Contents/MacOS/AIManagerGUIAcceptance"
 
@@ -82,12 +76,6 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; t
 if [[ "$appearance" != "system" ]]; then
   /usr/bin/plutil -insert AIManagerGUIAppearance -string "$appearance" "$app_path/Contents/Info.plist"
 fi
-narrow_bool=false
-seeded_bool=false
-if [[ "$narrow" == "1" ]]; then narrow_bool=true; fi
-if [[ "$seeded" == "1" ]]; then seeded_bool=true; fi
-/usr/bin/plutil -insert AIManagerGUINarrow -bool "$narrow_bool" "$app_path/Contents/Info.plist"
-/usr/bin/plutil -insert AIManagerGUISeeded -bool "$seeded_bool" "$app_path/Contents/Info.plist"
 /usr/bin/codesign --force --entitlements "$repo_root/packaging/macos/AIManager.entitlements" \
   --sign "${AI_MANAGER_SIGNING_IDENTITY:--}" "$app_path"
 
