@@ -689,7 +689,7 @@ The old account remains recoverable. Running external sessions are not reported 
 - [x] Snapshot supported databases and validate transcript consistency.
 - [x] Preserve chat identity, archive state, references, and divergent copies.
 - [x] Share merged transcripts across account homes while keeping SQLite files independent.
-- [ ] Verify both homes discover imported chats and later additions through Codex's resume behavior.
+- [x] Verify both homes discover imported chats and later additions through Codex's resume behavior.
 - [x] Rebase recognized copied index paths without rewriting historical content.
 - [x] Show all excluded or unsupported categories in the result.
 - [x] Verify a supported imported conversation can resume through Codex.
@@ -702,11 +702,11 @@ Saving files without a working discovery and resume path is not sufficient.
 - [x] Exercise rollback and restart recovery from interrupted operations.
 - [ ] Verify the native flow with keyboard and VoiceOver.
 - [x] Test denied paths, disconnected volumes, insufficient space, and corrupt sources.
-- [ ] Build the final signed app with the permitted existing signing identity.
-- [ ] Inspect the final artifact's entitlements and embedded source revision.
+- [x] Build the final signed app with the permitted existing signing identity.
+- [x] Inspect the final artifact's entitlements and embedded source revision.
 - [ ] Install and verify the exact app only when implementation scope includes local installation.
 - [x] Replace legacy user docs with the actual native workflow and its supported limits.
-- [ ] Run the Ponytail debt inventory and report every remaining marker.
+- [x] Run the Ponytail debt inventory and report every remaining marker.
 
 Done when an installed native app completes both import modes and switching with recorded recovery evidence.
 Publication and new account permissions remain separate user actions.
@@ -1060,8 +1060,29 @@ request now governs the remaining UI work and acceptance.
   unknown. Replace it with home-specific detection when Codex provides a reliable lock
   or probe; do not weaken the safety check to bypass this limit.
 
-Current gates remain explicit: a corrected protected-copy import and signed installation
-acceptance remain pending. Isolated custom GUI acceptance passes within the limits above.
+### Final protected-copy acceptance
+
+- A freshly rebuilt release test at `c08af240a7d7` passes in 175.226 seconds. All 1,604
+  source transcripts are accounted for; 1,600 are imported and divergent variants remain
+  in backup. The source auth digest is unchanged. Peak memory is 605,421,568 bytes.
+  An earlier run used a stale test binary and was rejected by strict preflight; it is
+  not counted as acceptance.
+- Strict preflight passes all 1,600 active rows with zero missing, escaping, or unmapped
+  paths. Protected backups retain the original 9,497 state rows, 377,070 projection items,
+  and 3,759 turns, including the three unsupported database-only histories.
+- Unchanged database copies in two neutral homes list the same 341 interactive threads.
+  The remaining 1,259 active records are background or noninteractive histories. One
+  existing paginated interactive conversation passes native read, resume, and turn loading
+  in both homes. A later shared transcript is independently discovered and indexed by
+  both homes, without SQL insertion or an online model request. Large native responses
+  require a 64 MiB response bound and a 60-second startup/request bound for this dataset.
+- Current packaged CLI acceptance passes. All large transfers are finished. The signed
+  release at `c08af240a7d7` has dirty-source false, an Apple Development signature, empty
+  entitlements, and native arm64 app and CLI executables. Strict signature validation passes.
+
+Current gates remain explicit: installed-app launch, actual VoiceOver navigation, and
+the native Terminal handoff remain pending. Isolated custom GUI acceptance and protected-copy
+history acceptance pass within the limits above.
 
 Remote native CI was dispatched as run `34588863904`, but repository Actions are
 disabled (`enabled: false`) and no job started. Repository permissions were not changed.
@@ -1069,7 +1090,7 @@ Local native tests and packaging remain the executed verification evidence.
 
 ### Next action
 
-The native UI and acceptance harness are committed and pushed. Verify the corrected
-protected-copy import and signed installed artifact. The core migration and history
+The native UI, CLI, and history checks pass. Install and verify the exact signed artifact,
+then finish the remaining focus-dependent checks. The core migration and history
 evidence is recorded above; do not mark the full G1–G6 goal complete before the remaining gates pass.
 Keep the user's prepared homes unchanged; validation uses only the protected test copy.
