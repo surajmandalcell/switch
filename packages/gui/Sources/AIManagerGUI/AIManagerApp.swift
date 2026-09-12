@@ -6,6 +6,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
     private let model = AccountViewModel(paths: .environment())
     private var windowController: AIManagerWindowController<AccountWindow>?
     private var statusItemController: AIManagerStatusItemController?
+    private var instanceActivationObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DemoFonts.register()
@@ -15,6 +16,17 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
             rootView: AccountWindow(model: model)
         )
         windowController = controller
+        instanceActivationObserver = DistributedNotificationCenter.default().addObserver(
+            forName: AIManagerSingleInstance.activationNotification(
+                bundleIdentifier: AIManagerSingleInstance.bundleIdentifier()),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.windowController?.present()
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         statusItemController = AIManagerStatusItemController {
             controller.present()
             NSApp.activate(ignoringOtherApps: true)
@@ -34,6 +46,12 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let instanceActivationObserver {
+            DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
+        }
+    }
 
     @objc private func importAccount() {
         guard !model.isBusy else { return }
@@ -100,11 +118,14 @@ private extension NSMenuItem {
 enum AIManagerApp {
     @MainActor
     static func main() {
+        let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
+        guard let instanceLock = AIManagerSingleInstance.acquireOrActivate(
+            bundleIdentifier: bundleIdentifier) else { return }
         let application = NSApplication.shared
         let delegate = AIManagerAppDelegate()
         application.setActivationPolicy(.regular)
         application.delegate = delegate
-        withExtendedLifetime(delegate) {
+        withExtendedLifetime((delegate, instanceLock)) {
             application.run()
         }
     }

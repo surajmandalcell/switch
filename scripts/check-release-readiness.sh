@@ -15,6 +15,7 @@ test -x "$app_path/Contents/MacOS/AIManager"
 test -x "$cli_path"
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist" >/dev/null
 [[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw -o - "$app_path/Contents/Info.plist")" == "IIA Directeur" ]]
+[[ "$(/usr/bin/plutil -extract LSMultipleInstancesProhibited raw -o - "$app_path/Contents/Info.plist")" == "true" ]]
 [[ "$(/usr/bin/plutil -extract AIManagerSourceDirty raw -o - "$app_path/Contents/Info.plist")" == "false" ]]
 revision="$(/usr/bin/plutil -extract AIManagerSourceRevision raw -o - "$app_path/Contents/Info.plist")"
 [[ -n "$revision" && "$revision" != "unknown" ]]
