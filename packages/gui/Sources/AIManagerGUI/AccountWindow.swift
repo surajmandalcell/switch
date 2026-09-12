@@ -111,7 +111,7 @@ private enum Page: String, CaseIterable {
   }
   var subtitle: String {
     switch self {
-    case .accounts: "Codex profiles and launch state"
+    case .accounts: "Codex only for now · more providers planned"
     case .settings: "One configuration across every account"
     case .history: "The merged resume library"
     case .recovery: "Backups and interrupted operations"
@@ -288,37 +288,46 @@ private struct RailTop: View {
   }
   var body: some View {
     ZStack(alignment: .topLeading) {
-      Button(action: close) {
-        AIMIcon(name: .close, size: 15).foregroundStyle(Color(nsColor: .systemRed))
-          .frame(width: 48, height: 48)
-          .background(closeHover ? Color(nsColor: .systemRed).opacity(0.12) : Color.clear)
-          .contentShape(Rectangle())
-      }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($closeFocused)
-        .accessibilityLabel("Close window")
-        .onHover { closeHover = $0 }
       Button(action: minimize) {
         AIMIcon(name: .minimize, size: 15).foregroundStyle(AIMTheme.ink)
-          .frame(width: 24, height: 24)
+          .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
           .background(AIMTheme.panel3)
-          .clipShape(RoundedRectangle(cornerRadius: 3))
+          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
       }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($minimizeFocused)
         .accessibilityLabel("Minimize window").opacity(showMinimize ? 1 : 0)
         .allowsHitTesting(showMinimize)
-        .offset(x: 48, y: 12)
-    }
-    .frame(width: 72, height: 48, alignment: .topLeading)
-    .contentShape(Rectangle())
-    .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: showMinimize)
-    .onHover { value in
-      pendingHide?.cancel()
-      if value {
-        hover = true
-      } else {
-        pendingHide = Task {
-          try? await Task.sleep(for: .milliseconds(220))
-          guard !Task.isCancelled else { return }
-          hover = false
+        .offset(x: showMinimize ? AIMTheme.windowControlSize : 0)
+        .onHover(perform: updateHover)
+      Button(action: close) {
+        AIMIcon(name: .close, size: 15).foregroundStyle(Color(nsColor: .systemRed))
+          .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
+          .background(closeHover ? Color(nsColor: .systemRed).opacity(0.12) : AIMTheme.rail)
+          .contentShape(Rectangle())
+      }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($closeFocused)
+        .accessibilityLabel("Close window")
+        .onHover { value in
+          closeHover = value
+          updateHover(value)
         }
+        .zIndex(1)
+    }
+    .frame(
+      width: AIMTheme.windowControlSize * 2,
+      height: AIMTheme.windowControlSize,
+      alignment: .topLeading
+    )
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: showMinimize)
+  }
+
+  private func updateHover(_ value: Bool) {
+    pendingHide?.cancel()
+    if value {
+      hover = true
+    } else {
+      pendingHide = Task {
+        try? await Task.sleep(for: .milliseconds(220))
+        guard !Task.isCancelled else { return }
+        hover = false
       }
     }
   }
@@ -883,7 +892,7 @@ private struct ImportFlow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
+      HStack(spacing: 0) {
         Text(title).font(AIMTheme.sans(22, weight: .semibold))
         Spacer()
         ImportSteps(step: step)
@@ -891,10 +900,13 @@ private struct ImportFlow: View {
           model.resetImport()
           model.showImport = false
         } label: {
-          AIMIcon(name: .close, size: 14).frame(width: 40, height: 40).background(AIMTheme.control)
+          AIMIcon(name: .close, size: 15)
+            .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
+            .background(AIMTheme.control)
+            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
         }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut(.cancelAction)
           .accessibilityLabel("Close import")
-      }.padding(.leading, 24).frame(height: 56).background(AIMTheme.panel2)
+      }.padding(.leading, AIMTheme.modalOuterInset).frame(height: 56).background(AIMTheme.panel2)
       if let error = model.errorMessage {
         ErrorBar(message: error) { model.errorMessage = nil }.padding(.horizontal, 24).padding(
           .top, 12)
@@ -924,7 +936,7 @@ private struct ImportFlow: View {
   }
   private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
   private var title: String {
-    step == 1 ? "Import Account" : step == 2 ? "Review Import" : "Import Result"
+    step == 1 ? "Import Codex Account" : step == 2 ? "Review Codex Import" : "Codex Import Result"
   }
 }
 private struct ImportSteps: View {
@@ -951,6 +963,10 @@ private struct SourcePage: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
     VStack(spacing: 8) {
+      Text("Codex is the only supported provider for now. More providers are planned.")
+        .font(AIMTheme.sans(11))
+        .foregroundStyle(AIMTheme.muted)
+        .frame(maxWidth: .infinity, alignment: .leading)
       AIMPanel(title: "Source") {
         AIMScrollView {
           LazyVStack(spacing: 0) {
@@ -993,7 +1009,7 @@ private struct SourcePage: View {
             model.importMode = .full
           }
           Spacer()
-        }.padding(8)
+        }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 8)
       }
       Text(
         model.importMode == .authOnly
@@ -1012,7 +1028,7 @@ private struct SourcePage: View {
               != .supportedChatGPT
         ) { Task { await model.reviewImport() } }
       }
-    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24).frame(
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24).frame(
       maxHeight: .infinity, alignment: .top)
   }
 }
@@ -1094,7 +1110,8 @@ private struct ImportReviewPage: View {
                         }
                       }
                     }
-                  }.padding(12).overlay(alignment: .bottom) {
+                  }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 12)
+                    .overlay(alignment: .bottom) {
                     Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
                   }
                 }
@@ -1123,7 +1140,7 @@ private struct ImportReviewPage: View {
           Task { await model.commitImport() }
         }
       }
-    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
   }
 }
 private struct ImportResultPage: View {
@@ -1177,7 +1194,7 @@ private struct ImportResultPage: View {
           model.showImport = false
         }
       }
-    }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
   }
 }
 
