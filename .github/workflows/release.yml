@@ -28,9 +28,9 @@ jobs:
       - name: Archive app and generate checksum
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
-            "/private/tmp/ai-manager-build/package/AI Manager.app" \
-            "/private/tmp/ai-manager-build/AI-Manager-${GITHUB_REF_NAME}.zip"
-          shasum -a 256 "/private/tmp/ai-manager-build/AI-Manager-${GITHUB_REF_NAME}.zip" \
+            "/private/tmp/ai-manager-build/package/IIA Directeur.app" \
+            "/private/tmp/ai-manager-build/IIA-Directeur-${GITHUB_REF_NAME}.zip"
+          shasum -a 256 "/private/tmp/ai-manager-build/IIA-Directeur-${GITHUB_REF_NAME}.zip" \
             "/private/tmp/ai-manager-build/artifacts/ai-manager" \
             > "/private/tmp/ai-manager-build/checksums-${GITHUB_REF_NAME}.txt"
       - name: Create release and upload verified files
@@ -42,7 +42,7 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
             gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes
           gh release upload "${GITHUB_REF_NAME}" \
-            "/private/tmp/ai-manager-build/AI-Manager-${GITHUB_REF_NAME}.zip" \
+            "/private/tmp/ai-manager-build/IIA-Directeur-${GITHUB_REF_NAME}.zip" \
             "/private/tmp/ai-manager-build/artifacts/ai-manager" \
             "/private/tmp/ai-manager-build/checksums-${GITHUB_REF_NAME}.txt" \
             --repo "${GITHUB_REPOSITORY}" \

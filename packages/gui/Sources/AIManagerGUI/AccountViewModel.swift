@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import AIManagerCore
@@ -19,29 +20,60 @@ final class AccountViewModel: ObservableObject {
     @Published var importPlan: ImportPlan?
     @Published var conflictChoices: [String: ConflictChoice] = [:]
     @Published var importResult: ImportResult?
+    @Published var accountHistory: [UUID: HistorySummary] = [:]
 
     let paths: ManagerPaths
-    private var scenario: Scenario
+    private let manager: AccountManager?
+    private var scenario: Scenario?
     private var actionGeneration = 0
 
-    init(
-        paths: ManagerPaths? = nil,
-        scenario: Scenario = .demo
-    ) {
-        self.paths = paths ?? DemoData.paths
+    init(paths: ManagerPaths, manager injectedManager: AccountManager? = nil) {
+        self.paths = paths
+        scenario = nil
+        do {
+            manager = try injectedManager ?? AccountManager(paths: paths)
+        } catch {
+            manager = nil
+            errorMessage = "IIA Directeur could not open its private data folder. \(error.localizedDescription)"
+        }
+    }
+
+    init(scenario: Scenario = .demo, demoPaths: ManagerPaths? = nil) {
+        paths = demoPaths ?? DemoData.paths
+        manager = nil
         self.scenario = scenario
         reset(to: scenario)
     }
+
+    var isDemo: Bool { scenario != nil }
 
     var selectedAccount: AccountRecord? {
         status?.accounts.first { $0.id == selectedAccountID }
     }
 
     func load() async {
-        if status == nil { reset(to: scenario) }
+        guard let manager else {
+            if status == nil, let scenario { reset(to: scenario) }
+            return
+        }
+        await perform {
+            try await reloadStatus(using: manager)
+            let newStatus = status!
+            if selectedAccountID == nil {
+                selectedAccountID = newStatus.defaultAccountID ?? newStatus.accounts.first?.id
+            }
+        }
     }
 
     func refresh() async {
+        if let manager {
+            await perform {
+                try await reloadStatus(using: manager)
+                refreshedAt = Date()
+                notice = "Accounts and recovery state refreshed."
+            }
+            return
+        }
         await perform {
             refreshedAt = Date()
             notice = "Demo data refreshed. Accounts and selections are unchanged."
@@ -49,6 +81,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     func reset(to scenario: Scenario = .demo) {
+        guard isDemo else { return }
         actionGeneration += 1
         self.scenario = scenario
         let accounts = scenario == .empty ? [] : DemoData.accounts
@@ -71,6 +104,9 @@ final class AccountViewModel: ObservableObject {
         importPlan = nil
         conflictChoices = [:]
         importResult = nil
+        accountHistory = Dictionary(uniqueKeysWithValues: accounts.map {
+            ($0.id, HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true))
+        })
     }
 
     func beginImport() async {
@@ -79,7 +115,24 @@ final class AccountViewModel: ObservableObject {
         await discover()
     }
 
-    func discover(explicit _: URL? = nil) async {
+    func discover(explicit: URL? = nil) async {
+        if let manager {
+            await perform {
+                discoveries = await manager.discover(explicit: explicit)
+                let selectedPath = explicit.map {
+                    $0.lastPathComponent == "auth.json" ? $0.deletingLastPathComponent() : $0
+                }
+                if let selectedPath,
+                   let source = discoveries.first(where: {
+                       $0.path.standardizedFileURL.path == selectedPath.standardizedFileURL.path
+                   }) {
+                    selectedSourceID = source.id
+                } else if !discoveries.contains(where: { $0.id == selectedSourceID }) {
+                    selectedSourceID = discoveries.first(where: { $0.support == .supportedChatGPT })?.id
+                }
+            }
+            return
+        }
         await perform {
             discoveries = DemoData.discoveries
             if !discoveries.contains(where: { $0.id == selectedSourceID }) {
@@ -90,6 +143,17 @@ final class AccountViewModel: ObservableObject {
     }
 
     func chooseSource() async {
+        if manager != nil {
+            let panel = NSOpenPanel()
+            panel.title = "Choose a Codex home or auth.json"
+            panel.prompt = "Choose"
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = true
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            await discover(explicit: url)
+            return
+        }
         await perform {
             selectedSourceID = DemoData.manualSource.id
             if !discoveries.contains(where: { $0.id == DemoData.manualSource.id }) {
@@ -100,6 +164,18 @@ final class AccountViewModel: ObservableObject {
     }
 
     func reviewImport() async {
+        if let manager {
+            guard let source = discoveries.first(where: { $0.id == selectedSourceID }) else {
+                errorMessage = "Choose a supported source."
+                return
+            }
+            await perform {
+                importPlan = try await manager.planImport(source: source.path, mode: importMode)
+                conflictChoices = [:]
+                importResult = nil
+            }
+            return
+        }
         guard let source = discoveries.first(where: { $0.id == selectedSourceID }),
               source.support == .supportedChatGPT,
               let identity = source.identity else {
@@ -115,6 +191,14 @@ final class AccountViewModel: ObservableObject {
 
     func commitImport() async {
         guard let plan = importPlan else { return }
+        if let manager {
+            await perform {
+                importResult = try await manager.importAccount(plan: plan, decisions: conflictChoices)
+                try await reloadStatus(using: manager)
+                selectedAccountID = importResult?.account.id
+            }
+            return
+        }
         let missing = plan.conflicts.filter { conflictChoices[$0.relativePath] == nil }.map(\.relativePath)
         guard missing.isEmpty else {
             errorMessage = "Choose how to resolve: \(missing.joined(separator: ", "))"
@@ -138,6 +222,13 @@ final class AccountViewModel: ObservableObject {
     }
 
     func reviewExternalSetting(_ relativePath: String) async {
+        if let manager, let plan = importPlan {
+            await perform {
+                importPlan = try await manager.reviewExternalSetting(
+                    plan: plan, relativePath: relativePath)
+            }
+            return
+        }
         await perform {
             guard var plan = importPlan,
                   let index = plan.conflicts.firstIndex(where: { $0.relativePath == relativePath }) else { return }
@@ -148,6 +239,15 @@ final class AccountViewModel: ObservableObject {
     }
 
     func switchDefault() async {
+        if let manager {
+            guard let id = selectedAccountID else { return }
+            await perform {
+                let result = try await manager.switchDefault(to: id)
+                try await reloadStatus(using: manager)
+                notice = "Future default-home Codex sessions will use this account. Backup: \(result.backup.path)"
+            }
+            return
+        }
         guard let id = selectedAccountID, var current = status else { return }
         await perform {
             current.defaultAccountID = id
@@ -157,6 +257,15 @@ final class AccountViewModel: ObservableObject {
     }
 
     func verify() async {
+        if let manager {
+            guard let id = selectedAccountID else { return }
+            await perform {
+                let result = await manager.verifyLocal(accountID: id)
+                notice = result.detail
+                try await reloadStatus(using: manager)
+            }
+            return
+        }
         guard let id = selectedAccountID, var current = status,
               let index = current.accounts.firstIndex(where: { $0.id == id }) else { return }
         await perform {
@@ -171,6 +280,19 @@ final class AccountViewModel: ObservableObject {
     }
 
     func openAccount() async {
+        if let manager {
+            guard let id = selectedAccountID else { return }
+            await perform {
+                let spec = try await manager.launchSpec(accountID: id)
+                let script = try makeLaunchArtifact(spec)
+                guard NSWorkspace.shared.open(script) else {
+                    throw AIManagerError.operationFailed(
+                        "Terminal could not open the account launch file. Copy the profile path and open it from a terminal instead.")
+                }
+                notice = "Opened a new terminal session for this account. Existing sessions keep their current account."
+            }
+            return
+        }
         await perform {
             guard selectedAccount != nil else { return }
             notice = "Demo account opened. No Terminal process was started."
@@ -178,6 +300,18 @@ final class AccountViewModel: ObservableObject {
     }
 
     func repairLinkedSetting(_ issue: LinkedSettingsDivergence) async {
+        if let manager {
+            await perform {
+                let result = try await manager.repairLinkedSetting(
+                    accountID: issue.accountID,
+                    relativePath: issue.relativePath,
+                    reviewedFingerprint: issue.localFingerprint
+                )
+                try await reloadStatus(using: manager)
+                notice = "The shared settings link was restored. The displaced local entry is preserved in \(result.backup.path)."
+            }
+            return
+        }
         await perform {
             guard var current = status else { return }
             current.linkedSettingsDivergences.removeAll { $0.id == issue.id }
@@ -187,15 +321,34 @@ final class AccountViewModel: ObservableObject {
     }
 
     func copyProfilePath() {
-        guard selectedAccount != nil else { return }
-        notice = "Demo profile path ready. The clipboard was not changed."
+        guard let home = selectedAccount?.home.path else { return }
+        if isDemo {
+            notice = "Demo profile path ready. The clipboard was not changed."
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(home, forType: .string)
+            notice = "Profile path copied."
+        }
     }
 
     func showSharedRoot() {
-        notice = "Demo shared data includes 8 settings and 567 chats. Finder was not opened."
+        if isDemo {
+            notice = "Demo shared data includes 8 settings and 567 chats. Finder was not opened."
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([paths.sharedRoot])
+        }
     }
 
     func recover() async {
+        if let manager {
+            await perform {
+                let results = try await manager.recover()
+                notice = results.isEmpty
+                    ? "No recovery was needed." : results.map(\.message).joined(separator: " ")
+                try await reloadStatus(using: manager)
+            }
+            return
+        }
         await perform {
             guard var current = status else { return }
             let count = current.pendingRecovery.count
@@ -206,7 +359,12 @@ final class AccountViewModel: ObservableObject {
     }
 
     func showDemoError() {
+        guard isDemo else { return }
         errorMessage = "Demo: The selected credential needs sign-in."
+    }
+
+    func history(for account: AccountRecord) -> HistorySummary {
+        accountHistory[account.id] ?? HistorySummary()
     }
 
     func resetImport() {
@@ -216,15 +374,51 @@ final class AccountViewModel: ObservableObject {
         conflictChoices = [:]
     }
 
-    private func perform(_ operation: () -> Void) async {
+    private func perform(_ operation: () async throws -> Void) async {
         guard !isBusy else { return }
         let generation = actionGeneration
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
-        try? await Task.sleep(for: .milliseconds(250))
+        if isDemo { try? await Task.sleep(for: .milliseconds(250)) }
         guard !Task.isCancelled, generation == actionGeneration else { return }
-        operation()
+        do { try await operation() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    private func reloadStatus(using manager: AccountManager) async throws {
+        let newStatus = try await manager.status()
+        var summaries: [UUID: HistorySummary] = [:]
+        for account in newStatus.accounts {
+            summaries[account.id] = await manager.historySummary(for: account.home)
+        }
+        status = newStatus
+        accountHistory = summaries
+    }
+
+    private func makeLaunchArtifact(_ spec: LaunchSpec) throws -> URL {
+        let directory = paths.applicationSupport.appending(path: "Launch", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        let url = directory.appending(path: "Open IIA Directeur Account.command")
+        var exports = spec.environment["CODEX_HOME"].map { ["export CODEX_HOME=\(shellQuote($0))"] } ?? []
+        if paths.isolationRoot != nil, let home = spec.environment["HOME"] {
+            exports.append("export HOME=\(shellQuote(home))")
+        }
+        let command = ([spec.executable.path] + spec.arguments).map(shellQuote).joined(separator: " ")
+        let workingDirectory = spec.workingDirectory.map { "cd \(shellQuote($0.path))\n" } ?? ""
+        let contents = (
+            ["#!/bin/zsh", "set -e", "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN"]
+                + exports + [workingDirectory + "exec \(command)"]
+        ).joined(separator: "\n") + "\n"
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        return url
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

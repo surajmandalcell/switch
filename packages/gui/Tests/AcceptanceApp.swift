@@ -67,6 +67,12 @@ private enum AcceptanceConfiguration {
     }
 
     static let initialSize = NSSize(width: 1120, height: 740)
+    static var initialPageIndex: Int {
+        if CommandLine.arguments.contains("--settings") { return 1 }
+        if CommandLine.arguments.contains("--history") { return 2 }
+        if CommandLine.arguments.contains("--recovery") { return 3 }
+        return 0
+    }
 }
 
 @MainActor
@@ -91,7 +97,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             .sink { [receipts] _ in checkWindowContract(receipts: receipts, stage: "after-import-state-change") }
             .store(in: &modelObservers)
         let content = AnyView(
-            AccountWindow(model: model)
+            AccountWindow(model: model, initialPageIndex: AcceptanceConfiguration.initialPageIndex)
                 .preferredColorScheme(AcceptanceConfiguration.appearance)
                 .task { [receipts, model] in
                     receipts.observeWindowEvents()
@@ -101,7 +107,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
                 }
         )
 
-        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "AI Manager GUI Acceptance"
+        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "IIA Directeur GUI Acceptance"
         let controller = AIManagerWindowController(
             title: title,
             rootView: content
@@ -222,7 +228,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
-    expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "AI Manager status item is unavailable")
+    expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "IIA Directeur status item is unavailable")
     let behaviorDomain = "com.mandalsuraj.ai-manager.acceptance.window-behavior"
     if let behaviorDefaults = UserDefaults(suiteName: behaviorDomain) {
         behaviorDefaults.set(true, forKey: AIManagerWindowBehavior.minimizeToTrayKey)

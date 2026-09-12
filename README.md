@@ -1,14 +1,11 @@
-# AI Manager
+# IIA Directeur
 
-AI Manager is a native macOS app for managing Codex accounts. It imports
+IIA Directeur is a native macOS app for managing Codex accounts. It imports
 Codex homes, keeps credentials separate, shares approved settings, preserves
 chat history, and opens Codex with a selected account.
 
-The GUI is currently a design-review demo using Recap Pro v2's visual system.
-All account actions use in-memory sample data. Import, switching, verification,
-launch, shared settings, and recovery do not touch real accounts or launch Codex.
-The CLI retains its real account operations. See [goals.md](goals.md) for
-production verification gates and design-review progress.
+The normal app and CLI use the same production account manager. The separately
+named Preview app uses in-memory sample data for design review.
 
 The repository contains one Swift package with three products:
 
@@ -18,8 +15,8 @@ The repository contains one Swift package with three products:
 | `AIManager` | `packages/gui` | Native SwiftUI account window |
 | `ai-manager` | `packages/tui` | CLI and interactive terminal interface |
 
-The CLI uses the core operations. The GUI temporarily uses mock responses with
-the same account contracts while the design is reviewed.
+The CLI and normal GUI use the core operations. Preview uses matching synthetic
+contracts without filesystem or account side effects.
 
 ## Requirements
 
@@ -43,13 +40,13 @@ The build uses `/private/tmp/ai-manager-build` as its canonical cache. Set
 `AI_MANAGER_BUILD_PATH` to another private path when the host requires it. The
 script produces:
 
-- `/private/tmp/ai-manager-build/package/AI Manager.app`
+- `/private/tmp/ai-manager-build/package/IIA Directeur.app`
 - `/private/tmp/ai-manager-build/artifacts/ai-manager`
 
 Run the built products directly when needed:
 
 ```bash
-open "/private/tmp/ai-manager-build/package/AI Manager.app"
+open "/private/tmp/ai-manager-build/package/IIA Directeur.app"
 "/private/tmp/ai-manager-build/artifacts/ai-manager" help
 ```
 
@@ -60,10 +57,10 @@ configuration.
 
 ```bash
 AI_MANAGER_GUI_PREVIEW=1 scripts/build-gui-acceptance.sh
-open "/private/tmp/ai-manager-build/gui-acceptance/AI Manager Preview.app"
+open "/private/tmp/ai-manager-build/gui-acceptance/IIA Directeur Preview.app"
 ```
 
-Both the normal app and preview start with sample accounts. Use Import Account
+The Preview app starts with sample accounts. Use Import Account
 to explore source selection, both import modes, conflict review, and results.
 The demo includes shared settings, chats, activity, errors, and recovery states.
 All changes stay in memory and reset on the next launch. No sample credentials
@@ -77,7 +74,7 @@ real-format checks, use a protected copy of `~/.codex` outside this repository.
 Never mutate the original home, follow copied links back to it, or commit
 authentication files, transcripts, settings, or backups.
 
-AI Manager does not access the login Keychain. It does not execute imported
+IIA Directeur does not access the login Keychain. It does not execute imported
 hooks, commands, or plugins during discovery or import. It does not send a
 model request during offline verification.
 

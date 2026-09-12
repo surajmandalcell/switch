@@ -10,7 +10,7 @@ export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$build_path/module-cache/swiftpm"
 mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
 
-swift build --disable-sandbox --build-path "$build_path" --configuration debug --target AIManagerCore
+swift build --disable-sandbox --build-path "$build_path" --configuration debug --product AIManagerCore
 products_path="$(swift build --disable-sandbox --build-path "$build_path" --configuration debug --show-bin-path)"
 
 swiftc \

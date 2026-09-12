@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'AI Manager GUI acceptance requires macOS.' >&2
+  printf '%s\n' 'IIA Directeur GUI acceptance requires macOS.' >&2
   exit 1
 fi
 
@@ -11,11 +11,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 output_path="$build_path/gui-acceptance"
 preview="${AI_MANAGER_GUI_PREVIEW:-0}"
-app_name='AI Manager GUI Acceptance'
+app_name='IIA Directeur GUI Acceptance'
 bundle_id='com.mandalsuraj.ai-manager.gui-acceptance'
 case "$preview" in
   0) ;;
-  1) app_name='AI Manager Preview'; bundle_id='com.mandalsuraj.ai-manager.preview' ;;
+  1) app_name='IIA Directeur Preview'; bundle_id='com.mandalsuraj.ai-manager.preview' ;;
   *) printf '%s\n' 'AI_MANAGER_GUI_PREVIEW must be 0 or 1.' >&2; exit 2 ;;
 esac
 app_path="$output_path/$app_name.app"
@@ -41,7 +41,7 @@ swift build \
   --disable-sandbox \
   --build-path "$build_path" \
   --configuration debug \
-  --target AIManagerCore
+  --product AIManagerCore
 products_path="$(swift build --disable-sandbox --build-path "$build_path" --configuration debug --show-bin-path)"
 
 rm -rf "$app_path"

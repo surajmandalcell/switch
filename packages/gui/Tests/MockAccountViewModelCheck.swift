@@ -14,7 +14,7 @@ struct MockAccountViewModelCheck {
         )
         precondition(!FileManager.default.fileExists(atPath: root.path))
 
-        let model = AccountViewModel(paths: paths, scenario: .allStates)
+        let model = AccountViewModel(scenario: .allStates, demoPaths: paths)
         precondition(model.status?.accounts.count == 3)
         precondition(model.status?.pendingRecovery.count == 1)
         precondition(model.status?.linkedSettingsDivergences.count == 1)

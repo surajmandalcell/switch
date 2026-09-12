@@ -3,7 +3,7 @@ import AIManagerCore
 
 @MainActor
 private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
-    private let model = AccountViewModel()
+    private let model = AccountViewModel(paths: .environment())
     private var windowController: AIManagerWindowController<AccountWindow>?
     private var statusItemController: AIManagerStatusItemController?
 
@@ -11,7 +11,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
         DemoFonts.register()
         AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
-            title: "AI Manager",
+            title: "IIA Directeur",
             rootView: AccountWindow(model: model)
         )
         windowController = controller
@@ -49,14 +49,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
 
     private func installMainMenu() {
         let mainMenu = NSMenu()
-        mainMenu.addItem(menuItem(title: "AI Manager", items: [
-            NSMenuItem(title: "About AI Manager", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
+        mainMenu.addItem(menuItem(title: "IIA Directeur", items: [
+            NSMenuItem(title: "About IIA Directeur", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
-            NSMenuItem(title: "Hide AI Manager", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
+            NSMenuItem(title: "Hide IIA Directeur", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
             NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h", modifiers: [.command, .option]),
             NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
             .separator(),
-            NSMenuItem(title: "Quit AI Manager", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            NSMenuItem(title: "Quit IIA Directeur", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         ]))
         mainMenu.addItem(menuItem(title: "File", items: [
             NSMenuItem(title: "Import Account…", action: #selector(importAccount), keyEquivalent: "i", target: self),

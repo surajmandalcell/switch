@@ -93,12 +93,12 @@ final class AIManagerStatusItemController: NSObject {
 
     statusItem.button?.image = AIManagerBrand.trayImage(in: bundle)
     statusItem.button?.imagePosition = .imageOnly
-    let title = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "AI Manager"
+    let title = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "IIA Directeur"
     statusItem.button?.toolTip = title
     statusItem.button?.setAccessibilityLabel(title)
 
     let menu = NSMenu()
-    let showItem = NSMenuItem(title: "Show AI Manager", action: #selector(show), keyEquivalent: "")
+    let showItem = NSMenuItem(title: "Show IIA Directeur", action: #selector(show), keyEquivalent: "")
     showItem.target = self
     menu.addItem(showItem)
     let quitItem = NSMenuItem(title: "Quit", action: #selector(terminate), keyEquivalent: "")

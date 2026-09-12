@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'AI Manager requires macOS.' >&2
+  printf '%s\n' 'IIA Directeur requires macOS.' >&2
   exit 1
 fi
 
@@ -19,5 +19,6 @@ swift test \
   --disable-sandbox \
   --build-path "$build_path"
 bash "$repo_root/scripts/check-gui-demo.sh"
+bash "$repo_root/scripts/check-gui-production.sh"
 bash "$repo_root/scripts/check-gui-scroll.sh"
 git -C "$repo_root" diff --check
