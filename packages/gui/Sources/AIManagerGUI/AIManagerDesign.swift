@@ -35,6 +35,9 @@ enum AIMTheme {
   static let railWidth: CGFloat = 48
   static let topbarHeight: CGFloat = 56
   static let listWidth: CGFloat = 200
+  static let windowControlSize: CGFloat = 48
+  static let modalOuterInset: CGFloat = 24
+  static let panelContentInset: CGFloat = 16
 
   static let canvas = dynamic(light: 0xECEBE7, dark: 0x0B0C0F)
   static let rail = dynamic(light: 0xF4F3EF, dark: 0x101216)
@@ -166,7 +169,7 @@ struct AIMPanel<Content: View>: View {
       HStack(spacing: 0) {
         Text(title)
           .font(AIMTheme.sans(12, weight: .semibold))
-          .padding(.horizontal, 28)
+          .padding(.horizontal, AIMTheme.panelContentInset)
           .frame(height: 40)
         Spacer(minLength: 0)
       }

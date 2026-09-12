@@ -67,6 +67,7 @@ private enum AcceptanceConfiguration {
     }
 
     static let initialSize = NSSize(width: 1120, height: 740)
+    static var opensImport: Bool { CommandLine.arguments.contains("--import") }
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--settings") { return 1 }
         if CommandLine.arguments.contains("--history") { return 2 }
@@ -87,6 +88,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     func applicationDidFinishLaunching(_ notification: Notification) {
         DemoFonts.register()
         AIManagerBrand.installApplicationIcon()
+        if let appearance = AcceptanceConfiguration.appearance {
+            NSApp.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
+        }
         receipts.model = model
         model.$selectedAccountID
             .dropFirst()
@@ -102,6 +106,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
                 .task { [receipts, model] in
                     receipts.observeWindowEvents()
                     await model.load()
+                    if AcceptanceConfiguration.opensImport { await model.beginImport() }
                     try? await Task.sleep(for: .milliseconds(300))
                     checkWindowContract(receipts: receipts, stage: "after-load")
                 }
@@ -184,6 +189,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { failures.append(message) }
     }
+    expect(AIMTheme.windowControlSize == 48, "Custom controls are not 48 points square")
+    expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
+    expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
     guard let window = NSApp.windows.first(where: { $0 is AIManagerWindow }) else {
         let receipt = WindowContractReceipt(
             passed: false,
