@@ -1579,3 +1579,15 @@ combined control region. Static panels and decorative surfaces do not animate.
 - The native suite passes 52 tests with two private-copy gates skipped and no failures. The
   mock GUI model, production GUI model, thin-scrollbar fixture, Swift package build, and diff
   checks pass using the canonical build cache and synthetic account homes.
+
+### Single-instance launch contract (2026-09-12)
+
+Only one process for each IIA Directeur application bundle may run in a user session. Acquire
+an atomic process-held lock before constructing the GUI model or reading account state. A
+second direct executable launch must notify and activate the existing process, then exit
+successfully. The lock must release automatically when the owner exits or crashes.
+
+Declare the native Launch Services multiple-instance prohibition in every built app bundle.
+Production and Preview have distinct bundle identifiers, so one of each may run together;
+neither bundle may run two copies. Verify the lock boundary and the exact packaged executable
+with temporary synthetic homes before installation.
