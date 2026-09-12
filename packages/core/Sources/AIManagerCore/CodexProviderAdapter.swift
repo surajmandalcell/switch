@@ -29,7 +29,9 @@ struct CodexProviderAdapter {
               let leftAccount = lhs.accountID, let rightAccount = rhs.accountID else {
             return false
         }
-        return leftUser == rightUser && leftAccount == rightAccount
+        return leftUser == rightUser
+            && leftAccount == rightAccount
+            && lhs.workspaceID == rhs.workspaceID
     }
 
     func requireSupported(_ providerID: ProviderID) throws {
