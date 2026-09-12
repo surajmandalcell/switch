@@ -110,8 +110,11 @@ public actor AccountManager {
                 return overflow ? Int64.max : sum
             }
         requiredBytes = requiredBytes.addingReportingOverflow(databaseBackupBytes).overflow ? Int64.max : requiredBytes + databaseBackupBytes
-        if let available = capacityCheck(paths.applicationSupport), available < requiredBytes {
-            throw AIManagerError.operationFailed("The destination needs \(requiredBytes) bytes but only \(available) bytes are available.")
+        for destination in [paths.applicationSupport, paths.sharedRoot] {
+            if let available = capacityCheck(destination), available < requiredBytes {
+                throw AIManagerError.operationFailed(
+                    "The destination needs \(requiredBytes) bytes but only \(available) bytes are available.")
+            }
         }
         return .init(
             id: id,
@@ -121,7 +124,8 @@ public actor AccountManager {
             mode: mode,
             identity: identity,
             sourceAuthDigest: inspection.digest,
-            reviewedDataDigest: try reviewedDataDigest(source: source, mode: mode, authDigest: inspection.digest),
+            reviewedDataDigest: try reviewedDataDigest(
+                source: source, mode: mode, authDigest: inspection.digest, manifest: manifest),
             manifest: manifest,
             conflicts: conflicts,
             warnings: warnings,
@@ -133,16 +137,31 @@ public actor AccountManager {
         try ensureNoRecovery()
         let missing = plan.conflicts.map(\.relativePath).filter { decisions[$0] == nil }
         guard missing.isEmpty else { throw AIManagerError.missingConflictDecisions(missing) }
+        var requiredBytes = plan.requiredBytes
         for conflict in plan.conflicts where conflict.externalTarget != nil && decisions[conflict.relativePath] == .useImported {
             guard conflict.externalTargetBytes != nil, conflict.importedDigest != "external-link-requires-review" else {
                 throw AIManagerError.invalidSource("Review the linked target for \(conflict.relativePath) before importing it.")
             }
-            let bytes = try portableLogicalSize(plan.source.appending(path: conflict.relativePath))
-            if let available = capacityCheck(paths.applicationSupport), available < bytes { throw AIManagerError.operationFailed("The reviewed linked data needs \(bytes) bytes but only \(available) bytes are available.") }
+            let source = plan.source.appending(path: conflict.relativePath)
+            guard try firstExternalLink(source, sourceRoot: plan.source) == conflict.externalTarget,
+                  try portableLogicalSize(source) == conflict.externalTargetBytes,
+                  try treeDigest(source) == conflict.importedDigest else {
+                throw AIManagerError.sourceChanged
+            }
+            let (sum, overflow) = requiredBytes.addingReportingOverflow(conflict.externalTargetBytes ?? 0)
+            requiredBytes = overflow ? Int64.max : sum
+        }
+        for destination in [paths.applicationSupport, paths.sharedRoot] {
+            if let available = capacityCheck(destination), available < requiredBytes {
+                throw AIManagerError.operationFailed(
+                    "The destination needs \(requiredBytes) bytes but only \(available) bytes are available.")
+            }
         }
         let current = provider.inspect(home: plan.source)
         guard current.digest == plan.sourceAuthDigest else { throw AIManagerError.sourceChanged }
-        guard try reviewedDataDigest(source: plan.source, mode: plan.mode, authDigest: current.digest) == plan.reviewedDataDigest else { throw AIManagerError.sourceChanged }
+        guard try reviewedDataDigest(
+            source: plan.source, mode: plan.mode, authDigest: current.digest,
+            manifest: plan.manifest) == plan.reviewedDataDigest else { throw AIManagerError.sourceChanged }
         if plan.mode == .full {
             var checked = Set<String>()
             for location in [plan.source, paths.sharedRoot] where checked.insert(CoreSupport.canonical(location).path).inserted {
@@ -165,7 +184,12 @@ public actor AccountManager {
             throw AIManagerError.invalidSource("No reviewed external setting exists at \(relativePath).")
         }
         let source = plan.source.appending(path: relativePath)
-        let currentTarget = try firstExternalLink(source, sourceRoot: plan.source)
+        let values = try source.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values.isSymbolicLink == true else {
+            throw AIManagerError.invalidSource(
+                "Nested external links are not imported. Keep the shared \(relativePath) entry instead.")
+        }
+        let currentTarget = lexicalLinkTarget(source)
         guard currentTarget == plan.conflicts[index].externalTarget else { throw AIManagerError.sourceChanged }
         var reviewed = plan
         reviewed.conflicts[index].externalTargetBytes = try portableLogicalSize(source)
@@ -426,6 +450,9 @@ extension AccountManager {
     }
 
     private var registryURL: URL { paths.applicationSupport.appending(path: "accounts.json") }
+    private var accountsRoot: URL {
+        paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
+    }
     private var transactionsURL: URL { paths.applicationSupport.appending(path: "transactions", directoryHint: .isDirectory) }
 
     private func operationItemsURL(_ id: UUID) -> URL {
@@ -433,8 +460,29 @@ extension AccountManager {
     }
 
     private func loadRegistry() throws -> Registry {
-        guard fileManager.fileExists(atPath: registryURL.path) else { return Registry() }
-        return try decoder.decode(Registry.self, from: Data(contentsOf: registryURL))
+        guard CoreSupport.entryExists(registryURL) else { return Registry() }
+        let values = try registryURL.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              let size = values.fileSize, size <= 16 * 1_024 * 1_024 else {
+            throw AIManagerError.unsafePath("account registry is not a bounded regular file")
+        }
+        let registry = try decoder.decode(Registry.self, from: Data(contentsOf: registryURL))
+        guard Set(registry.accounts.map(\.id)).count == registry.accounts.count else {
+            throw AIManagerError.invalidSource("The account registry contains duplicate identifiers.")
+        }
+        for account in registry.accounts {
+            let expected = accountsRoot.appending(path: account.id.uuidString)
+                .appending(path: "home", directoryHint: .isDirectory)
+            guard CoreSupport.canonical(account.home) == CoreSupport.canonical(expected) else {
+                throw AIManagerError.unsafePath("managed account home is outside the private account root")
+            }
+        }
+        if let defaultID = registry.defaultAccountID,
+           !registry.accounts.contains(where: { $0.id == defaultID }) {
+            throw AIManagerError.invalidSource("The default account is missing from the registry.")
+        }
+        return registry
     }
 
     private func saveRegistry(_ registry: Registry) throws {
@@ -626,7 +674,9 @@ extension AccountManager {
         return lockNames.contains { fileManager.fileExists(atPath: source.appending(path: $0).path) }
     }
 
-    private func reviewedDataDigest(source: URL, mode: ImportMode, authDigest: String) throws -> String {
+    private func reviewedDataDigest(
+        source: URL, mode: ImportMode, authDigest: String, manifest: [ManifestEntry]
+    ) throws -> String {
         var hasher = SHA256()
         hasher.update(data: Data(authDigest.utf8))
         guard mode == .full else { return hasher.finalize().map { String(format: "%02x", $0) }.joined() }
@@ -635,6 +685,12 @@ extension AccountManager {
             if CoreSupport.entryExists(entry) { try updateSourceDigest(entry, relative: name, hasher: &hasher, depth: 0) }
         }
         hasher.update(data: Data(try transcriptFingerprint(source).utf8))
+        for entry in manifest where entry.category == .database {
+            let sourceEntry = source.appending(path: entry.relativePath)
+            guard CoreSupport.entryExists(sourceEntry) else { throw AIManagerError.sourceChanged }
+            hasher.update(data: Data(entry.relativePath.utf8))
+            hasher.update(data: Data(try treeDigest(sourceEntry).utf8))
+        }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
@@ -745,7 +801,6 @@ extension AccountManager {
             }
             try faultInjector(.duringHistoryCopy)
             let merge = try mergeHistory(from: plan.source, operation: &operation)
-            guard try reviewedDataDigest(source: plan.source, mode: plan.mode, authDigest: plan.sourceAuthDigest) == plan.reviewedDataDigest else { throw AIManagerError.sourceChanged }
             importedChats = merge.imported
             importedFiles += merge.imported
             unresolved += merge.unresolved
@@ -792,6 +847,11 @@ extension AccountManager {
                     if CoreSupport.entryExists(output) { try? fileManager.removeItem(at: output) }
                     unresolved.append("\(database.relativePath): unsupported or busy database (\(error.localizedDescription))")
                 }
+            }
+            guard try reviewedDataDigest(
+                source: plan.source, mode: plan.mode, authDigest: plan.sourceAuthDigest,
+                manifest: plan.manifest) == plan.reviewedDataDigest else {
+                throw AIManagerError.sourceChanged
             }
         }
 
