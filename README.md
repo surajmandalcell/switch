@@ -34,6 +34,7 @@ Run these commands from the repository root:
 ```bash
 scripts/check-native.sh
 scripts/build-native.sh
+scripts/check-release-readiness.sh
 ```
 
 The build uses `/private/tmp/ai-manager-build` as its canonical cache. Set
