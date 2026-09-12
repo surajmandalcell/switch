@@ -135,9 +135,23 @@ struct AIManagerCLI {
         var plan = try await manager.planImport(source: URL(fileURLWithPath: NSString(string: value).expandingTildeInPath), mode: mode)
         printPlan(plan)
         var decisions: [String: ConflictChoice] = [:]
-        for conflict in plan.conflicts { decisions[conflict.relativePath] = try askConflict(conflict.relativePath) }
-        let approvedPaths = Set(plan.conflicts.compactMap { $0.externalTarget == nil ? nil : $0.relativePath })
-        plan = try await reviewExternalSettings(plan, decisions: decisions, approvedPaths: approvedPaths, manager: manager, report: true)
+        for conflict in plan.conflicts {
+            guard conflict.externalTarget != nil else {
+                decisions[conflict.relativePath] = try askConflict(conflict.relativePath)
+                continue
+            }
+            plan = try await manager.reviewExternalSetting(plan: plan, relativePath: conflict.relativePath)
+            guard let reviewed = plan.conflicts.first(where: { $0.relativePath == conflict.relativePath }),
+                  let target = reviewed.externalTarget,
+                  let bytes = reviewed.externalTargetBytes else {
+                throw CLIError.message("Could not review linked setting \(conflict.relativePath).")
+            }
+            print("Reviewed linked setting \(conflict.relativePath):")
+            print("  Target: \(target.path)")
+            print("  Size: \(bytes) bytes")
+            print("  Fingerprint: \(reviewed.importedDigest)")
+            decisions[conflict.relativePath] = askYes("Use this imported linked setting?") ? .useImported : .keepShared
+        }
         guard askYes("Import this reviewed plan?") else { print("Import cancelled."); return }
         let result = try await manager.importAccount(plan: plan, decisions: decisions)
         await output(result, json: false)
