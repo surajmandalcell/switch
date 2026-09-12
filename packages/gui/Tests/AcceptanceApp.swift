@@ -249,7 +249,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.windowControlSize == 48, "Custom controls are not 48 points square")
     expect(
         AIManagerNativeContract.windowControlGeometryMatches(),
-        "Window controls or title clearances do not match the 48-point chrome contract"
+        "Window controls, titlebar, or page insets do not match the chrome contract"
     )
     expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")

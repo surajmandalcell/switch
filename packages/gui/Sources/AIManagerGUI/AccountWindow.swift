@@ -299,8 +299,7 @@ struct AccountWindow: View {
       .accessibilityLabel(model.isDemo ? "Refresh demo data" : "Refresh accounts")
       .accessibilityHint(refreshHelp)
       .frame(maxWidth: .infinity, alignment: .trailing)
-    }.padding(.leading, AIMTheme.windowControlsTitleInset)
-      .padding(.trailing, AIMTheme.modalOuterInset)
+    }.padding(.horizontal, AIMTheme.modalOuterInset)
       .frame(height: AIMTheme.topbarHeight)
       .background(AIMTheme.canvas.opacity(reduceTransparency ? 1 : 0.92))
       .overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.railLine).frame(height: 1) }
@@ -510,8 +509,7 @@ private struct AccountsPage: View {
       } else {
         EmptyAccountView(model: model)
       }
-    }.padding(.leading, AIMTheme.windowControlsTitleInset)
-      .padding(.trailing, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
   }
 }
 private struct AccountListRow: View {
@@ -764,8 +762,7 @@ private struct SharedSettingsPage: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
       }
-    }.padding(.leading, AIMTheme.windowControlsTitleInset)
-      .padding(.trailing, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
   }
 
   private func settingRow<Description: View>(
@@ -836,8 +833,7 @@ private struct HistoryPage: View {
             "New Codex sessions opened from either account can resume the same merged history. Existing processes keep the account they started with.",
           tone: AIMTheme.blue, icon: .info)
       }
-    }.padding(.leading, AIMTheme.windowControlsTitleInset)
-      .padding(.trailing, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
   }
 }
 private struct Metric: View {
@@ -940,8 +936,7 @@ private struct RecoveryPage: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
       }
-    }.padding(.leading, AIMTheme.windowControlsTitleInset)
-      .padding(.trailing, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
   }
 }
 

@@ -43,7 +43,7 @@ these requirements.
 
 Copy the current Recap Pro v2 Producer UI from
 `/Volumes/External1TB/dev/organization/keypath.india/recap-pro` as the visual
-source of truth: its 48px rail, 56px titlebar, Geist typography, 3px component
+source of truth: its 48px rail, 48px titlebar, Geist typography, 3px component
 corners, panel/list structure, exact light/dark tokens, and interaction styling.
 Preserve native custom close/minimize controls and safe window lifecycle. Adapt
 the reference to account-management content.
@@ -97,6 +97,12 @@ panel headings and their rows share a 16-point internal edge. The import flow na
 as the provider, and Shared Settings states that Codex is supported now while more
 providers are planned. Persist an explicit Codex provider identifier in new account data
 and decode pre-provider registries as Codex without changing existing account behavior.
+
+Layout refinement (2026-09-12): the page title and every page body use the same 24-point
+leading and trailing edge inside the content pane. The overlaid Minimize control reserves
+no layout space. The titlebar is 48 points high, matching the Close and Minimize cells.
+Panel-title art keeps the full available width and uses Recap Pro's restrained trailing
+concentric-arc pattern without changing title or content geometry.
 
 ## 1. The outcome
 
