@@ -58,10 +58,20 @@ Automated account tests must use synthetic credentials and isolated temporary
 homes. The GUI remains an in-memory demo while its design is under review.
 Repository baseline: `e7bb55bf2dea7c05072d85481aa5652ab4cdfe16` on `master`.
 
+Modal and provider refinement (2026-09-12): use one 48-point square control geometry
+for the window Close, window Minimize, and import-modal Close buttons. Minimize sits
+behind Close at rest and folds out beside it on hover, with an interruptible reduced-motion
+fallback and no layout shift. Modal titles and outer content share a 24-point edge;
+panel headings and their rows share a 16-point internal edge. The import flow names Codex
+as the provider, and Shared Settings states that Codex is supported now while more
+providers are planned. Persist an explicit Codex provider identifier in new account data
+and decode pre-provider registries as Codex without changing existing account behavior.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
-Ship it as a native macOS app. Support Codex only.
+Ship it as a native macOS app. Support Codex only in this release, say so in the
+interface, and tell users that more providers are planned.
 Use the same settings across accounts by default.
 Use a merged chat library so the resume picker can find history from either account.
 Offer two import modes: **Auth only** and **Auth, settings, and chats**.
@@ -333,7 +343,10 @@ Foundation + SQLite + filesystem
 ```
 
 Split a type only when it has a separate invariant or real caller.
-Do not add provider interfaces, factories, dependency injection frameworks, or a generic migration engine.
+Persist provider identity with every account and source so stored data can distinguish
+future providers. Keep Codex behavior cohesive while it is the only implementation;
+add a behavioral provider interface and adapter only when a second provider exists.
+Do not add factories, dependency injection frameworks, or a generic migration engine.
 Tests can inject temporary roots and a process runner at the actual side-effect boundaries.
 
 Use a direct-distribution macOS app as the initial packaging target.
