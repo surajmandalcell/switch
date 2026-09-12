@@ -24,7 +24,10 @@ revision="$(/usr/bin/plutil -extract AIManagerSourceRevision raw -o - "$app_path
 if (( public )); then
   app_signature="$(/usr/bin/codesign -dv --verbose=4 "$app_path" 2>&1)"
   cli_signature="$(/usr/bin/codesign -dv --verbose=4 "$cli_path" 2>&1)"
-  grep -q '^Authority=Developer ID Application:' <<<"$app_signature"
+  if ! grep -q '^Authority=Developer ID Application:' <<<"$app_signature"; then
+    printf '%s\n' 'PUBLIC_RELEASE_NOT_READY: app lacks a Developer ID Application signature.' >&2
+    exit 1
+  fi
   grep -q 'flags=0x10000(runtime)' <<<"$app_signature"
   grep -q '^Timestamp=' <<<"$app_signature"
   grep -q '^Authority=Developer ID Application:' <<<"$cli_signature"
