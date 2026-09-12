@@ -1484,9 +1484,9 @@ Development-signed local build alone is not a public distribution release.
   skipped, plus the production model, mock model, and native scroll checks. CLI acceptance
   also passes. Automated runs touched only temporary synthetic homes.
 - Settings labels now fill and align to the leading edge while their switches align to the
-  trailing edge. Close stays centered in the 48-point rail. Minimize is a 24-point floating
-  control outside Close's layout and stays hidden until hover or an explicitly enabled
-  keyboard-focus preference. Preview renders show no startup outline. Dark Settings, light
+  trailing edge. Close stays centered in the 48-point rail. The former 24-point Minimize
+  control was superseded by the modal-and-provider refinement below. Preview renders show
+  no startup outline. Dark Settings, light
   Settings, and Recovery render receipts pass the native fixed-window, title-drag, focus,
   scrollbar, and asset contracts.
 - Preview Recovery shows separate regular-conversation, incremental, custom-location, and
@@ -1515,6 +1515,29 @@ Development-signed local build alone is not a public distribution release.
   accepted per-window renders came from the preview's own nonfatal AppKit receipt path; no
   alternate GUI driver was used.
 - Ponytail debt remains one existing marker at
-  `packages/core/Sources/AIManagerCore/AccountManager.swift:402`: all Codex processes block
+  `packages/core/Sources/AIManagerCore/AccountManager.swift:411`: all Codex processes block
   mutations until Codex exposes a reliable home-scoped writer lock or probe. Zero missing
   triggers and no new shortcuts were introduced.
+
+### Modal and provider acceptance (2026-09-12)
+
+- Window Close, window Minimize, and modal Close now use the same 48-point square geometry
+  and 15-point SF Symbol scale. Minimize rests behind Close and animates one full control
+  width beside it on pointer hover; Close never moves. A delayed hide keeps the control open
+  while the pointer crosses between them, and reduced motion removes the animation.
+- The import shell uses a 24-point outer edge. Panel headings, source rows, import-scope
+  choices, conflicts, manifest rows, and result rows use a 16-point internal edge. Light and
+  Dark Aqua import-source renders pass the fixed-window, drag-region, scrollbar, asset, and
+  geometry contract with three configured overlay scroll regions.
+- Accounts says "Codex only for now" and the import flow states that more providers are
+  planned. Import, review, and result titles name Codex explicitly.
+- `ProviderID` is an open stored identifier. New discoveries and accounts record `codex`;
+  old registries without the field decode as Codex. The internal concrete
+  `CodexProviderAdapter` owns Codex discovery, credential parsing, identity matching, and
+  unsupported-provider rejection. `AccountManager` remains the public operation interface;
+  no speculative provider protocol, factory, or selector was added.
+- The native suite passes 52 tests with two authorized-private-copy tests skipped, plus the
+  production model, mock model, scrollbar, dark/light modal, local release, and CLI gates.
+  The exact clean signed `/Applications/IIA Directeur.app`, Preview app, and installed CLI
+  match their packaged hashes and launch without a new crash. Automated account operations
+  used temporary homes and synthetic credentials only.
