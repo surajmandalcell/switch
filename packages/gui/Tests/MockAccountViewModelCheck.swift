@@ -16,6 +16,7 @@ struct MockAccountViewModelCheck {
 
         let model = AccountViewModel(scenario: .allStates, demoPaths: paths)
         precondition(model.isDemo)
+        precondition(!model.isUnavailable)
         precondition(model.status?.accounts.count == 3)
         precondition(model.status?.pendingRecovery.count == 1)
         precondition(model.status?.linkedSettingsDivergences.count == 1)

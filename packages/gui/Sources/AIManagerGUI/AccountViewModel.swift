@@ -21,10 +21,12 @@ final class AccountViewModel: ObservableObject {
     @Published var conflictChoices: [String: ConflictChoice] = [:]
     @Published var importResult: ImportResult?
     @Published var accountHistory: [UUID: HistorySummary] = [:]
+    @Published private(set) var isUnavailable = false
 
     let paths: ManagerPaths
     private let manager: AccountManager?
     private var scenario: Scenario?
+    private var unavailableReason: String? = nil
     private var actionGeneration = 0
 
     init(paths: ManagerPaths, manager injectedManager: AccountManager? = nil) {
@@ -34,7 +36,9 @@ final class AccountViewModel: ObservableObject {
             manager = try injectedManager ?? AccountManager(paths: paths)
         } catch {
             manager = nil
-            errorMessage = "IIA Directeur could not open its private data folder. \(error.localizedDescription)"
+            isUnavailable = true
+            unavailableReason = "IIA Directeur could not open its private data folder. \(error.localizedDescription)"
+            errorMessage = unavailableReason
         }
     }
 
@@ -54,6 +58,7 @@ final class AccountViewModel: ObservableObject {
     func load() async {
         guard let manager else {
             if status == nil, let scenario { reset(to: scenario) }
+            if scenario == nil { reportUnavailable() }
             return
         }
         await perform {
@@ -74,6 +79,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             refreshedAt = Date()
             notice = "Demo data refreshed. Accounts and selections are unchanged."
@@ -110,6 +116,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     func beginImport() async {
+        guard !isUnavailable else { reportUnavailable(); return }
         showImport = true
         resetImport()
         await discover()
@@ -133,6 +140,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             discoveries = DemoData.discoveries
             if !discoveries.contains(where: { $0.id == selectedSourceID }) {
@@ -154,6 +162,7 @@ final class AccountViewModel: ObservableObject {
             await discover(explicit: url)
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             selectedSourceID = DemoData.manualSource.id
             if !discoveries.contains(where: { $0.id == DemoData.manualSource.id }) {
@@ -176,6 +185,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         guard let source = discoveries.first(where: { $0.id == selectedSourceID }),
               source.support == .supportedChatGPT,
               let identity = source.identity else {
@@ -190,7 +200,10 @@ final class AccountViewModel: ObservableObject {
     }
 
     func commitImport() async {
-        guard let plan = importPlan else { return }
+        guard let plan = importPlan else {
+            if isUnavailable { reportUnavailable() }
+            return
+        }
         if let manager {
             await perform {
                 importResult = try await manager.importAccount(plan: plan, decisions: conflictChoices)
@@ -199,6 +212,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         let missing = plan.conflicts.filter { conflictChoices[$0.relativePath] == nil }.map(\.relativePath)
         guard missing.isEmpty else {
             errorMessage = "Choose how to resolve: \(missing.joined(separator: ", "))"
@@ -222,13 +236,18 @@ final class AccountViewModel: ObservableObject {
     }
 
     func reviewExternalSetting(_ relativePath: String) async {
-        if let manager, let plan = importPlan {
+        if let manager {
+            guard let plan = importPlan else {
+                errorMessage = "Review an import plan before reviewing linked data."
+                return
+            }
             await perform {
                 importPlan = try await manager.reviewExternalSetting(
                     plan: plan, relativePath: relativePath)
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var plan = importPlan,
                   let index = plan.conflicts.firstIndex(where: { $0.relativePath == relativePath }) else { return }
@@ -248,6 +267,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         guard let id = selectedAccountID, var current = status else { return }
         await perform {
             current.defaultAccountID = id
@@ -266,6 +286,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         guard let id = selectedAccountID, var current = status,
               let index = current.accounts.firstIndex(where: { $0.id == id }) else { return }
         await perform {
@@ -293,6 +314,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             guard selectedAccount != nil else { return }
             notice = "Demo account opened. No Terminal process was started."
@@ -312,6 +334,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var current = status else { return }
             current.linkedSettingsDivergences.removeAll { $0.id == issue.id }
@@ -321,6 +344,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     func copyProfilePath() {
+        guard !isUnavailable else { reportUnavailable(); return }
         guard let home = selectedAccount?.home.path else { return }
         if isDemo {
             notice = "Demo profile path ready. The clipboard was not changed."
@@ -332,6 +356,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     func showSharedRoot() {
+        guard !isUnavailable else { reportUnavailable(); return }
         if isDemo {
             notice = "Demo shared data includes 8 settings and 567 chats. Finder was not opened."
         } else {
@@ -349,6 +374,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var current = status else { return }
             let count = current.pendingRecovery.count
@@ -375,6 +401,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     private func perform(_ operation: () async throws -> Void) async {
+        guard !isUnavailable else { reportUnavailable(); return }
         guard !isBusy else { return }
         let generation = actionGeneration
         isBusy = true
@@ -384,6 +411,11 @@ final class AccountViewModel: ObservableObject {
         guard !Task.isCancelled, generation == actionGeneration else { return }
         do { try await operation() }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    private func reportUnavailable() {
+        guard isUnavailable else { return }
+        errorMessage = unavailableReason ?? "IIA Directeur is unavailable until its private data folder can be opened."
     }
 
     private func reloadStatus(using manager: AccountManager) async throws {

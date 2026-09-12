@@ -9,6 +9,7 @@ struct ProductionAccountViewModelCheck {
         let root = fileManager.temporaryDirectory.appending(
             path: "iia-directeur-gui-check-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
 
         let paths = ManagerPaths(
             applicationSupport: root.appending(path: "support", directoryHint: .isDirectory),
@@ -31,6 +32,7 @@ struct ProductionAccountViewModelCheck {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let model = AccountViewModel(paths: paths, manager: manager)
         precondition(!model.isDemo)
+        precondition(!model.isUnavailable)
         await model.load()
         precondition(model.status?.accounts.isEmpty == true)
 
@@ -68,6 +70,41 @@ struct ProductionAccountViewModelCheck {
         precondition(model.status?.defaultAccountID == model.selectedAccountID)
         await model.recover()
         precondition(model.errorMessage == nil)
+
+        let unavailableSupport = root.appending(path: "unavailable-support")
+        try Data("not-a-directory".utf8).write(to: unavailableSupport)
+        let unavailablePaths = ManagerPaths(
+            applicationSupport: unavailableSupport,
+            defaultHome: root.appending(path: "unavailable-default", directoryHint: .isDirectory),
+            sharedRoot: root.appending(path: "unavailable-shared", directoryHint: .isDirectory),
+            orcaAccountsRoot: root.appending(path: "unavailable-orca", directoryHint: .isDirectory),
+            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            isolationRoot: root
+        )
+        let unavailable = AccountViewModel(paths: unavailablePaths)
+        let unavailableError = unavailable.errorMessage
+        precondition(unavailable.isUnavailable)
+        precondition(!unavailable.isDemo)
+        precondition(unavailableError?.contains("could not open") == true)
+        await unavailable.load()
+        await unavailable.beginImport()
+        await unavailable.refresh()
+        await unavailable.discover()
+        await unavailable.chooseSource()
+        await unavailable.reviewImport()
+        await unavailable.commitImport()
+        await unavailable.reviewExternalSetting("rules")
+        await unavailable.switchDefault()
+        await unavailable.verify()
+        await unavailable.openAccount()
+        await unavailable.recover()
+        unavailable.copyProfilePath()
+        unavailable.showSharedRoot()
+        precondition(unavailable.errorMessage == unavailableError)
+        precondition(unavailable.status == nil)
+        precondition(unavailable.discoveries.isEmpty)
+        precondition(!unavailable.showImport)
+        precondition(unavailable.notice == nil)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")
     }
 
