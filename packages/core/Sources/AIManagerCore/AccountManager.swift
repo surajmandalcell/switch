@@ -66,6 +66,10 @@ public actor AccountManager {
         }
     }
 
+    public func historySummary(for home: URL) -> HistorySummary {
+        historySummary(in: CoreSupport.home(for: home))
+    }
+
     public func planImport(source selected: URL, mode: ImportMode) async throws -> ImportPlan {
         try ensureNoRecovery()
         let source = CoreSupport.home(for: selected)
@@ -470,11 +474,7 @@ extension AccountManager {
         let home = CoreSupport.home(for: selected)
         let inspection = AuthInspection.inspect(home: selected, fileManager: fileManager)
         let settings = CoreSupport.settings.filter { CoreSupport.entryExists(home.appending(path: $0)) }
-        let history = HistorySummary(
-            activeTranscripts: transcriptCount(in: home.appending(path: "sessions")),
-            archivedTranscripts: transcriptCount(in: home.appending(path: "archived_sessions")),
-            hasIndexes: ["history.jsonl", "session_index.jsonl"].contains { fileManager.fileExists(atPath: home.appending(path: $0).path) }
-        )
+        let history = historySummary(in: home)
         return .init(
             id: CoreSupport.canonical(home).path,
             path: home,
@@ -486,8 +486,19 @@ extension AccountManager {
         )
     }
 
+    private func historySummary(in home: URL) -> HistorySummary {
+        HistorySummary(
+            activeTranscripts: transcriptCount(in: home.appending(path: "sessions")),
+            archivedTranscripts: transcriptCount(in: home.appending(path: "archived_sessions")),
+            hasIndexes: ["history.jsonl", "session_index.jsonl"].contains { fileManager.fileExists(atPath: home.appending(path: $0).path) }
+        )
+    }
+
     private func transcriptCount(in root: URL) -> Int {
-        guard let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return 0 }
+        guard let enumerator = fileManager.enumerator(
+            at: root.resolvingSymlinksInPath(),
+            includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
+        ) else { return 0 }
         var count = 0
         while let url = enumerator.nextObject() as? URL {
             if url.pathExtension == "jsonl" { count += 1 }

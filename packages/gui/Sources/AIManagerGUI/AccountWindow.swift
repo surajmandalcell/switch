@@ -129,6 +129,13 @@ struct AccountWindow: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var dark: Bool { (themeOverride ?? systemScheme) == .dark }
+
+  init(model: AccountViewModel, initialPageIndex: Int = 0) {
+    self.model = model
+    let pages = Page.allCases
+    _page = State(initialValue: pages.indices.contains(initialPageIndex) ? pages[initialPageIndex] : .accounts)
+  }
+
   var body: some View {
     GeometryReader { geometry in
       ZStack {
@@ -252,7 +259,7 @@ struct AccountWindow: View {
       .disabled(model.isBusy)
       .opacity(model.isBusy ? 0.42 : 1)
       .help(refreshHelp)
-      .accessibilityLabel("Refresh demo data")
+      .accessibilityLabel(model.isDemo ? "Refresh demo data" : "Refresh accounts")
       .accessibilityHint(refreshHelp)
       .frame(maxWidth: .infinity, alignment: .trailing)
     }.padding(.leading, 24).padding(.trailing, 24)
@@ -260,7 +267,9 @@ struct AccountWindow: View {
   }
 
   private var refreshHelp: String {
-    guard let refreshedAt = model.refreshedAt else { return "Refresh demo data" }
+    guard let refreshedAt = model.refreshedAt else {
+      return model.isDemo ? "Refresh demo data" : "Refresh accounts"
+    }
     return "Last refreshed \(refreshedAt.formatted(date: .omitted, time: .shortened))"
   }
 }
@@ -268,26 +277,36 @@ struct AccountWindow: View {
 private struct RailTop: View {
   let close: () -> Void, minimize: () -> Void
   @State private var hover = false
+  @State private var closeHover = false
   @State private var pendingHide: Task<Void, Never>?
   @FocusState private var closeFocused: Bool
   @FocusState private var minimizeFocused: Bool
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private var showMinimize: Bool { hover || closeFocused || minimizeFocused }
+  private var showMinimize: Bool {
+    hover || (focusIndicatorsEnabled && (closeFocused || minimizeFocused))
+  }
   var body: some View {
-    HStack(spacing: 0) {
+    ZStack(alignment: .topLeading) {
       Button(action: close) {
         AIMIcon(name: .close, size: 15).foregroundStyle(Color(nsColor: .systemRed))
-          .frame(width: 32, height: 48)
-          .background(hover ? Color(nsColor: .systemRed).opacity(0.12) : Color.clear)
-      }.buttonStyle(AIMPressButtonStyle()).focused($closeFocused).accessibilityLabel("Close window")
+          .frame(width: 48, height: 48)
+          .background(closeHover ? Color(nsColor: .systemRed).opacity(0.12) : Color.clear)
+          .contentShape(Rectangle())
+      }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($closeFocused)
+        .accessibilityLabel("Close window")
+        .onHover { closeHover = $0 }
       Button(action: minimize) {
         AIMIcon(name: .minimize, size: 15).foregroundStyle(AIMTheme.ink)
-          .frame(width: 32, height: 48)
-          .background(AIMTheme.amber.opacity(0.22))
-      }.buttonStyle(AIMPressButtonStyle()).focused($minimizeFocused)
+          .frame(width: 24, height: 24)
+          .background(AIMTheme.panel3)
+          .clipShape(RoundedRectangle(cornerRadius: 3))
+      }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($minimizeFocused)
         .accessibilityLabel("Minimize window").opacity(showMinimize ? 1 : 0)
+        .allowsHitTesting(showMinimize)
+        .offset(x: 48, y: 12)
     }
-    .frame(width: 64, height: 48, alignment: .leading)
+    .frame(width: 72, height: 48, alignment: .topLeading)
     .contentShape(Rectangle())
     .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: showMinimize)
     .onHover { value in
@@ -560,41 +579,39 @@ private struct SharedSettingsPage: View {
     "config.toml", "AGENTS.md", "agents", "rules", "context", "skills", "plugins", "hooks.json",
     "sessions", "archived_sessions",
   ]
+  private var visibleShared: [String] {
+    model.isDemo
+      ? shared
+      : shared.filter {
+        FileManager.default.fileExists(atPath: model.paths.sharedRoot.appending(path: $0).path)
+      }
+  }
   var body: some View {
     AIMScrollView {
       VStack(spacing: 8) {
         AIMPanel(title: "App behavior") {
           VStack(spacing: 0) {
-            Toggle(isOn: $minimizeToTray) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text("Minimize to tray").font(AIMTheme.sans(11, weight: .medium))
-                Text("Hide the window and keep AI Manager available from its menu-bar icon.")
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              }
+            settingRow(isOn: $minimizeToTray, title: "Minimize to tray") {
+              Text("Hide the window and keep IIA Directeur available from its menu-bar icon.")
             }
-            .toggleStyle(.switch).controlSize(.small).padding(.horizontal, 16).frame(minHeight: 48)
-            Toggle(isOn: $showFocusIndicators) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text("Keyboard focus indicators").font(AIMTheme.sans(11, weight: .medium))
-                Text("Show outlines only while keyboard controls have focus.")
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              }
+            settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
+              Text("Show outlines only while keyboard controls have focus.")
             }
-            .toggleStyle(.switch).controlSize(.small).padding(.horizontal, 16).frame(minHeight: 48)
-            .background(AIMTheme.panel2.opacity(0.55))
           }
         }
-        AIMPanel(title: "Demo states") {
-          HStack(spacing: 4) {
-            AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
-            AIMButton(title: "Empty state") { model.reset(to: .empty) }
-            AIMButton(title: "Issues and recovery") { model.reset(to: .allStates) }
-            AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
-              Task { await model.refresh() }
-            }
-            Spacer()
-            AIMButton(title: "Show demo error", tone: .danger) { model.showDemoError() }
-          }.padding(12)
+        if model.isDemo {
+          AIMPanel(title: "Demo states") {
+            HStack(spacing: 4) {
+              AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
+              AIMButton(title: "Empty state") { model.reset(to: .empty) }
+              AIMButton(title: "Issues and recovery") { model.reset(to: .allStates) }
+              AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
+                Task { await model.refresh() }
+              }
+              Spacer()
+              AIMButton(title: "Show demo error", tone: .danger) { model.showDemoError() }
+            }.padding(12)
+          }
         }
         AIMPanel(title: "Shared root") {
           VStack(spacing: 0) {
@@ -610,7 +627,7 @@ private struct SharedSettingsPage: View {
         }
         AIMPanel(title: "Linked entries") {
           VStack(spacing: 0) {
-            ForEach(Array(shared.enumerated()), id: \.element) { index, item in
+            ForEach(Array(visibleShared.enumerated()), id: \.element) { index, item in
               HStack {
                 Text(item).font(AIMTheme.mono(11))
                 Spacer()
@@ -619,6 +636,11 @@ private struct SharedSettingsPage: View {
                 AIMIcon(name: .check, size: 12).foregroundStyle(AIMTheme.green)
               }.padding(.horizontal, 16).frame(height: 40).background(
                 index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
+            }
+            if visibleShared.isEmpty {
+              Text("No shared settings or history entries are present yet.")
+                .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
           }
         }
@@ -631,6 +653,23 @@ private struct SharedSettingsPage: View {
         if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
     }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+
+  private func settingRow<Description: View>(
+    isOn: Binding<Bool>, title: String, zebra: Bool = false,
+    @ViewBuilder description: () -> Description
+  ) -> some View {
+    HStack(spacing: 16) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(AIMTheme.sans(11, weight: .medium))
+        description().font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 24)
+      Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
+    }
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
 
@@ -657,6 +696,7 @@ private struct HistoryPage: View {
             }.padding(.horizontal, 16).frame(height: 30).background(AIMTheme.panel2)
             ForEach(Array((model.status?.accounts ?? []).enumerated()), id: \.element.id) {
               index, account in
+              let history = model.history(for: account)
               HStack {
                 VStack(alignment: .leading, spacing: 2) {
                   Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium))
@@ -664,10 +704,13 @@ private struct HistoryPage: View {
                     AIMTheme.muted)
                 }
                 Spacer()
-                Text("475").font(AIMTheme.mono(11)).frame(width: 70, alignment: .trailing)
-                Text("92").font(AIMTheme.mono(11)).frame(width: 70, alignment: .trailing)
-                AIMIcon(name: .check, size: 12).foregroundStyle(AIMTheme.green).frame(
+                Text("\(history.activeTranscripts)").font(AIMTheme.mono(11)).frame(
                   width: 70, alignment: .trailing)
+                Text("\(history.archivedTranscripts)").font(AIMTheme.mono(11)).frame(
+                  width: 70, alignment: .trailing)
+                AIMIcon(name: history.hasIndexes ? .check : .warning, size: 12)
+                  .foregroundStyle(history.hasIndexes ? AIMTheme.green : AIMTheme.amber)
+                  .frame(width: 70, alignment: .trailing)
               }.padding(.horizontal, 16).frame(minHeight: 44).background(
                 index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
             }
@@ -743,6 +786,7 @@ private struct RecoveryPage: View {
               label: "On failure", value: "Keep prior credentials and preserve a recovery journal")
           }
         }
+        if model.isDemo { RecoveryExamples(model: model) }
         HStack {
           Text("Recovery never deletes source data.").font(AIMTheme.sans(11)).foregroundStyle(
             AIMTheme.muted)
@@ -755,6 +799,60 @@ private struct RecoveryPage: View {
         if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
     }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+  }
+}
+
+private struct RecoveryExamples: View {
+  @ObservedObject var model: AccountViewModel
+  var body: some View {
+    AIMPanel(title: "Recovery examples") {
+      VStack(spacing: 0) {
+        RecoveryExampleRow(
+          title: "Regular conversation", detail: "Complete snapshot before replacement",
+          location: "~/Documents/IIA Directeur Backups", state: "Ready", color: AIMTheme.green)
+        RecoveryExampleRow(
+          title: "Incremental", detail: "Only changes since the last snapshot",
+          location: "Local backup set · 18 MB", state: "Current", color: AIMTheme.blue, zebra: true)
+        RecoveryExampleRow(
+          title: "Custom location", detail: "A selected folder outside the managed profile",
+          location: "/Volumes/Studio Archive/Codex", state: "Available", color: AIMTheme.green)
+        VStack(spacing: 0) {
+          RecoveryExampleRow(
+            title: "External drive", detail: "The selected backup volume is disconnected",
+            location: "/Volumes/Field SSD/Codex", state: "Offline", color: AIMTheme.amber,
+            zebra: true)
+          HStack(spacing: 4) {
+            Spacer()
+            AIMButton(title: "Wait for drive") {
+              model.notice = "Demo backup paused until Field SSD reconnects."
+            }
+            AIMButton(title: "Back up elsewhere", icon: .folder) {
+              model.notice = "Demo destination changed. No folder picker was opened."
+            }
+          }.padding(.horizontal, 16).padding(.bottom, 10).background(AIMTheme.panel2.opacity(0.55))
+        }
+      }
+    }
+  }
+}
+
+private struct RecoveryExampleRow: View {
+  let title: String, detail: String, location: String, state: String, color: Color
+  var zebra = false
+  var body: some View {
+    HStack(spacing: 12) {
+      AIMIcon(name: .recovery, size: 14).foregroundStyle(color)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(AIMTheme.sans(11, weight: .semibold))
+        Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 16)
+      Text(location).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+      Badge(text: state, color: color)
+    }
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
 private struct Notice: View {

@@ -52,10 +52,10 @@ jobs:
 
       - name: Check generated app metadata
         run: |
-          test -x "/private/tmp/ai-manager-build/package/AI Manager.app/Contents/MacOS/AIManager"
+          test -x "/private/tmp/ai-manager-build/package/IIA Directeur.app/Contents/MacOS/AIManager"
           test -x "/private/tmp/ai-manager-build/artifacts/ai-manager"
-          /usr/bin/plutil -lint "/private/tmp/ai-manager-build/package/AI Manager.app/Contents/Info.plist"
-          /usr/bin/codesign --verify --deep --strict "/private/tmp/ai-manager-build/package/AI Manager.app"
+          /usr/bin/plutil -lint "/private/tmp/ai-manager-build/package/IIA Directeur.app/Contents/Info.plist"
+          /usr/bin/codesign --verify --deep --strict "/private/tmp/ai-manager-build/package/IIA Directeur.app"
 
       - name: Check patch formatting
         run: git diff --check
@@ -65,7 +65,7 @@ jobs:
         with:
           name: ai-manager-${{ runner.os }}-${{ github.sha }}
           path: |
-            /private/tmp/ai-manager-build/package/AI Manager.app
+            /private/tmp/ai-manager-build/package/IIA Directeur.app
             /private/tmp/ai-manager-build/artifacts/ai-manager
           if-no-files-found: error
           retention-days: 7
