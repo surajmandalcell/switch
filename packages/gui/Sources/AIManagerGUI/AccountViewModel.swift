@@ -306,6 +306,10 @@ final class AccountViewModel: ObservableObject {
             await perform {
                 let spec = try await manager.launchSpec(accountID: id)
                 let script = try makeLaunchArtifact(spec)
+                if paths.isolationRoot != nil {
+                    notice = "Account launch file prepared for isolated validation. Terminal was not opened."
+                    return
+                }
                 guard NSWorkspace.shared.open(script) else {
                     throw AIManagerError.operationFailed(
                         "Terminal could not open the account launch file. Copy the profile path and open it from a terminal instead.")
@@ -348,6 +352,8 @@ final class AccountViewModel: ObservableObject {
         guard let home = selectedAccount?.home.path else { return }
         if isDemo {
             notice = "Demo profile path ready. The clipboard was not changed."
+        } else if paths.isolationRoot != nil {
+            notice = "Profile path validated in isolation. The clipboard was not changed."
         } else {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(home, forType: .string)
@@ -359,6 +365,8 @@ final class AccountViewModel: ObservableObject {
         guard !isUnavailable else { reportUnavailable(); return }
         if isDemo {
             notice = "Demo shared data includes 8 settings and 567 chats. Finder was not opened."
+        } else if paths.isolationRoot != nil {
+            notice = "Shared data path validated in isolation. Finder was not opened."
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([paths.sharedRoot])
         }
