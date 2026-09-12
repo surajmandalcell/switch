@@ -1,14 +1,15 @@
 # Security policy
 
-AI Manager is a local macOS account manager for Codex. It does not provide a
-proxy, provider router, hosted service, or OAuth implementation.
+IIA Directeur provides a native macOS account-manager GUI and shared core and
+terminal tools for macOS and Linux. It does not provide a proxy, provider
+router, hosted service, or OAuth implementation.
 
 ## Report a vulnerability
 
 Do not open a public issue for a vulnerability. Do not include credentials,
 tokens, transcripts, private settings, or unredacted logs in a report. Use
 GitHub private vulnerability reporting and include the affected commit,
-macOS version, reproduction steps, and security effect.
+operating system and architecture, reproduction steps, and security effect.
 
 ## Security boundaries
 

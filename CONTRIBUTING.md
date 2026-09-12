@@ -1,14 +1,20 @@
 # Contributing
 
-Read [goals.md](goals.md) before implementation. It defines the native macOS
-Codex account-manager scope and its acceptance gates.
+Read [goals.md](goals.md) before implementation. It defines IIA Directeur's
+Codex account-manager scope and acceptance gates. The GUI supports macOS 14 or
+later. The core library and terminal interface support macOS and Linux; the GUI
+does not run on Linux.
 
 ## Build and test
 
 ```bash
 scripts/check-native.sh
 scripts/build-native.sh
+scripts/check-release-readiness.sh
 ```
+
+On Linux, run `scripts/check-linux.sh` for the core, terminal, SQLite, and
+isolated runtime contracts.
 
 Use `/private/tmp/ai-manager-build` for SwiftPM output. Set
 `AI_MANAGER_BUILD_PATH` when the host requires another private path. Do not

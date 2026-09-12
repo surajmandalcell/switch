@@ -1,6 +1,6 @@
 ## Summary
 
-Describe the user-visible native macOS account-manager behavior.
+Describe the user-visible IIA Directeur behavior.
 
 ## Validation
 

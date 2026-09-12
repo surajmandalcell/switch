@@ -18,14 +18,15 @@ The repository contains one Swift package with three products:
 The CLI and normal GUI use the core operations. Preview uses matching synthetic
 contracts without filesystem or account side effects.
 
-## Requirements
+## Platform support
 
-- macOS 14 or later
-- Xcode with the Swift toolchain
+- The native GUI supports macOS 14 or later.
+- `AIManagerCore` and the `ai-manager` terminal interface support macOS and Linux.
+- Building requires a compatible Swift toolchain; the macOS GUI build uses Xcode.
 - Codex is optional for discovery and offline tests
 
-The first verified build target is Apple Silicon. Intel support needs a
-separate verified build before it is claimed.
+The first verified GUI target is Apple Silicon. Intel GUI support needs a
+separate verified build. The native GUI does not run on Linux.
 
 ## Build and test
 
@@ -36,6 +37,10 @@ scripts/check-native.sh
 scripts/build-native.sh
 scripts/check-release-readiness.sh
 ```
+
+On Linux, `scripts/check-linux.sh` validates the core library, terminal build,
+CLI acceptance flow, and isolated runtime smoke test. CI runs it in the
+repository's validation container.
 
 The build uses `/private/tmp/ai-manager-build` as its canonical cache. Set
 `AI_MANAGER_BUILD_PATH` to another private path when the host requires it. The
@@ -64,9 +69,9 @@ open "/private/tmp/ai-manager-build/gui-acceptance/IIA Directeur Preview.app"
 The Preview app starts with sample accounts. Use Import Account
 to explore source selection, both import modes, conflict review, and results.
 The demo includes shared settings, chats, activity, errors, and recovery states.
-All changes stay in memory and reset on the next launch. No sample credentials
-or Codex homes are created. The preview additionally records nonfatal native
-window checks under `/private/tmp/ai-manager-build/gui-acceptance/artifacts`.
+All changes stay in memory and reset on the next launch. No credentials,
+Codex homes, or backups are created. The preview additionally records nonfatal
+native window checks under `/private/tmp/ai-manager-build/gui-acceptance/artifacts`.
 
 ## Safety boundaries
 
@@ -99,10 +104,11 @@ identity, set `AI_MANAGER_SIGNING_IDENTITY` for the build command. The app
 records its source revision and dirty-source state in
 `AIManagerSourceRevision` and `AIManagerSourceDirty`.
 
-Public direct distribution requires a Developer ID Application certificate and
-Apple notarization. The tag workflow imports that identity from repository
-secrets, enables hardened runtime and timestamps, notarizes and staples the app,
-checks Gatekeeper acceptance, and only then creates the GitHub release.
+`scripts/check-release-readiness.sh` reports local package readiness only; it
+does not approve public distribution. Public direct distribution remains
+blocked until the tag workflow signs with a Developer ID Application identity,
+notarizes and staples the app, passes the public readiness and Gatekeeper checks,
+and creates the GitHub release.
 
 See [macOS package notes](packaging/macos/README.md) for the file-access
 boundary. See [goals.md](goals.md) for the product scope and acceptance

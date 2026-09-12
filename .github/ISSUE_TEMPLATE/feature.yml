@@ -21,4 +21,4 @@ body:
     id: constraints
     attributes:
       label: Limits and alternatives
-      description: List macOS, Codex, privacy, recovery, and accessibility limits.
+      description: List macOS or Linux, Codex, privacy, recovery, and accessibility limits.

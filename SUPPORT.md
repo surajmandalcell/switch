@@ -7,15 +7,18 @@ Read [goals.md](goals.md) for supported workflows and limits.
 ```bash
 scripts/check-native.sh
 scripts/build-native.sh
+scripts/check-release-readiness.sh
 ```
 
-AI Manager supports macOS 14 or later. The first verified build target is
-Apple Silicon. Codex is optional for offline discovery and contract tests.
+The IIA Directeur GUI supports macOS 14 or later; Apple Silicon is the first
+verified GUI target. `AIManagerCore` and the `ai-manager` terminal interface
+support macOS and Linux. The native GUI does not run on Linux. Codex is optional
+for offline discovery and contract tests.
 
 ## Report a defect
 
-Use the repository issue form. Include the app version or commit, macOS
-version, architecture, exact action, and redacted error text. Remove tokens,
+Use the repository issue form. Include the app version or commit, operating
+system, architecture, exact action, and redacted error text. Remove tokens,
 auth files, transcript content, private paths, and personal identity fields.
 
 For import failures, include the source kind and failure phase. Do not attach
