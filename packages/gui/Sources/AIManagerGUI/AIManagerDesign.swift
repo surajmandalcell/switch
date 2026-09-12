@@ -168,20 +168,17 @@ struct AIMPanel<Content: View>: View {
           .font(AIMTheme.sans(12, weight: .semibold))
           .padding(.horizontal, 28)
           .frame(height: 40)
-          .background(alignment: .trailing) {
-            LinearGradient(
-              colors: [AIMTheme.green.opacity(0.10), .clear, AIMTheme.titleArt.opacity(0.14)],
-              startPoint: .leading,
-              endPoint: .trailing
-            )
-            .frame(width: 160)
-            .allowsHitTesting(false)
-          }
-          .background(AIMTheme.panel2)
-          .clipped()
         Spacer(minLength: 0)
       }
       .frame(height: 40)
+      .background {
+        LinearGradient(
+          colors: [AIMTheme.green.opacity(0.10), .clear, AIMTheme.titleArt.opacity(0.14)],
+          startPoint: .leading,
+          endPoint: .trailing
+        )
+        .allowsHitTesting(false)
+      }
       .background(AIMTheme.panel2)
       content
     }

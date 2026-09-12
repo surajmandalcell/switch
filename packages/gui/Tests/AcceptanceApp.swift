@@ -215,6 +215,10 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(window.standardWindowButton(.closeButton) == nil, "Native close button exists")
     expect(window.standardWindowButton(.miniaturizeButton) == nil, "Native minimize button exists")
     expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
+    expect(
+        window.frameAutosaveName == AIManagerWindow.frameAutosaveName,
+        "Window position persistence is not configured"
+    )
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())

@@ -1,8 +1,8 @@
 # AI Manager: native macOS Codex account manager
 
-Status: implementation and native GUI acceptance in progress. Core and CLI validation
-pass; Computer access, Git writes, and an existing development signing identity are now
-available. The full G1–G6 completion gates remain unmet.
+Status: core and CLI implementation gates pass. The current native GUI design-review
+build is complete, installed, and intentionally mock-only; restoring production GUI
+operations remains deferred until the user approves the design.
 Decision date: 2026-09-11.
 Design revision: 2026-09-12.
 
@@ -10,11 +10,10 @@ Design revision: 2026-09-12.
 
 Copy the current Recap Pro v2 Producer UI from
 `/Volumes/External1TB/dev/organization/keypath.india/recap-pro` as the visual
-source of truth: its 48px rail, 56px titlebar, Geist typography, 2px component
+source of truth: its 48px rail, 56px titlebar, Geist typography, 3px component
 corners, panel/list structure, exact light/dark tokens, and interaction styling.
-This supersedes earlier conflicting requests for 3px corners, no shared header,
-and no panel borders. Preserve native custom close/minimize controls and safe
-window lifecycle. Adapt the reference to account-management content.
+Preserve native custom close/minimize controls and safe window lifecycle. Adapt
+the reference to account-management content.
 
 Latest refinement (2026-09-12): the window is fixed at 1120x740, without resize
 or maximize. Its custom title region must drag reliably. Light/dark switching
@@ -38,8 +37,8 @@ temporary demo requirement supersedes the shared-core GUI requirement below
 until the user approves restoring real operations.
 
 App identity refinement (2026-09-12): add coordinated Dock and menu-bar icons
-using Recap Pro Producer's charcoal tile and off-white mark treatment. Build a
-simple robot/manager mark from established licensed glyphs, with no hand-drawn
+using Recap Pro Producer's charcoal tile and off-white mark treatment. Use a
+simple manager/account mark from an established licensed glyph, with no hand-drawn
 SVG paths. Keep the menu-bar version monochrome and legible at native size.
 Use the same mark in the app rail, and package it in both GUI builds. Menu-bar
 actions only show the demo window or quit; account operations remain mocked.
@@ -1379,14 +1378,61 @@ Debt audit: one unchanged marker at
 blocks real mutations until reliable home-scoped writer detection is available.
 One marker, zero missing triggers; no icon-related shortcuts were added.
 
-### Next action (production functionality, deferred during design review)
+### Native polish and account-switch research acceptance (2026-09-12)
 
-The square-window app and sample preview are installed, and the recorded sample flow
-and window checks pass. Live
-VoiceOver verification is no longer a gate. Native Terminal handoff remains unexercised under the
-focus-preservation rule; positive GUI mutations use the isolated harness, while the installed
-CLI retains conservative writer checks; the installed GUI is now the mock design build.
-These limits must not be represented
-as completed production mutation or Terminal checks. The core migration and history evidence
-is recorded above; do not mark the full G1–G6 goal complete before remaining gates pass.
-Keep the user's prepared homes unchanged; validation uses only the protected test copy.
+- The light palette now resolves across every nested native scroll host, and the dark
+  palette remains consistent. Installed light and dark snapshots show aligned title/body
+  boundaries, a continuous Recovery rail, one background-free refresh action, a visible
+  Close control, and Minimize revealed by the shared control hover region. Custom surfaces
+  use three-point corners. Single-title panel art spans the full available header width.
+  Focus outlines remain off until the explicit keyboard-focus preference is enabled.
+- The fixed window uses AppKit frame autosave, retaining its last display and origin across
+  launches while reapplying the required 1120 by 740 content size. Acceptance checks both
+  the fixed bounds and the configured autosave identity.
+- Buttons, rows, rail navigation, page changes, import steps, modal presentation, and
+  scrollbar visibility use short interruptible transitions that honor Reduce Motion.
+  The always-running decorative timeline was removed. The installed release measured
+  0.00% median CPU and 0.11% average CPU across 30 one-second idle samples, with a 2.20%
+  launch peak.
+- Shared Settings contains a persistent Minimize to Tray switch. The titlebar control and
+  Command-M use the same behavior helper; acceptance covers both preference branches with
+  a disposable UserDefaults suite. The menu-bar item remains available to reopen the app.
+- Dock and Spotlight artwork use the exact Apache-2.0 Material Symbols Rounded
+  `switch_account` path on the Recap Pro charcoal tile, with a restrained top-left edge
+  highlight. The tray and rail reuse the same monochrome mark. Generated 16, 22, 44, 256,
+  and 1024-pixel assets were inspected and rebuilt deterministically.
+- [`docs/account-switching-research.md`](docs/account-switching-research.md) records the
+  official Codex storage/process contract, ten open-source switchers, and four broader
+  products. Eight of ten inspected tools use auth-only replacement. AI Manager therefore
+  swaps the complete file-backed auth record while keeping config, instructions, skills,
+  hooks, sessions, history, indexes, and databases shared. Existing Codex processes still
+  require reload/restart, and Keychain or higher-priority environment auth must fail closed.
+- Account identity now requires auth mode, `chatgpt_user_id`, and
+  `chatgpt_account_id`. Interrupted switch recovery preserves refreshed outgoing auth and
+  leaves non-auth files unchanged. The 50-test native suite passes with no failures; its
+  two opt-in copy tests also pass separately on isolated synthetic homes, accounting for
+  every transcript and preserving the source auth digest. Packaged and installed CLI
+  acceptance passes on temporary synthetic homes.
+- `/Applications/AI Manager.app`, `/Applications/AI Manager Preview.app`, and
+  `/Users/surajmandal/.local/bin/ai-manager` match their verified artifacts. The signed
+  implementation build at `be11e21fdae5` records dirty-source false, empty entitlements,
+  and passes strict signature validation. This documentation-only checkpoint requires a
+  final normal rebuild/install so the embedded revision matches its resulting commit.
+- Orca orchestration completed 25 Sol-high dispatches and released every worker. Native
+  Computer still reports `Sky Computer Use native pipe startup failed` after the documented
+  service recovery, so pointer movement could not be driven. AppKit title hit testing,
+  installed-window receipts, internal snapshots, and source-level hover checks provide the
+  available evidence without using an alternate GUI driver.
+- Ponytail debt: one unchanged marker at
+  `packages/core/Sources/AIManagerCore/AccountManager.swift:398`, zero missing triggers.
+  It conservatively blocks mutations when any Codex process is present; replace it when
+  Codex exposes a reliable home-scoped lock or probe.
+
+### Next action (production functionality, deferred after design review)
+
+The design-review app and sample preview are installed, and the recorded sample flow,
+window, contract, and performance checks pass. Production GUI account mutations remain
+disabled by the user's current mock-only design directive. When the design is approved,
+restore the shared core operations behind the existing views and repeat the protected
+installed-app mutation gates. Keep the user's prepared homes unchanged; automated
+validation continues to use isolated synthetic copies.
