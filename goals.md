@@ -1591,3 +1591,18 @@ Declare the native Launch Services multiple-instance prohibition in every built 
 Production and Preview have distinct bundle identifiers, so one of each may run together;
 neither bundle may run two copies. Verify the lock boundary and the exact packaged executable
 with temporary synthetic homes before installation.
+
+### Single-instance acceptance (2026-09-12)
+
+- Production and Preview acquire a per-user kernel lock keyed by bundle identifier before
+  their application delegate and account model are created. The retained descriptor releases
+  the lock on normal exit and process crashes without stale-lock recovery.
+- A duplicate sends a bundle-specific distributed activation notification, activates the
+  existing macOS application, and exits with success. The resident delegate restores and
+  presents its existing window when it receives that request.
+- The standalone process check proves a concurrent child cannot acquire the owner's lock and
+  a successor can acquire it after owner release. The packaged Preview test proves a second
+  executable exits while the original PID remains alive.
+- Every generated app inherits `LSMultipleInstancesProhibited`; the preview window contract
+  and local release-readiness gate verify the packaged value. The full native suite passes 52
+  tests with the two private-copy gates skipped, plus the model, scrollbar, and instance checks.
