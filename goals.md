@@ -1541,3 +1541,19 @@ Development-signed local build alone is not a public distribution release.
   The exact clean signed `/Applications/IIA Directeur.app`, Preview app, and installed CLI
   match their packaged hashes and launch without a new crash. Automated account operations
   used temporary homes and synthetic credentials only.
+
+### Typography and interaction refinement (2026-09-12)
+
+The primary interface must describe the task available now. Remove roadmap language such as
+"more providers planned" from page subtitles and import guidance. The import flow may state
+that it imports a Codex account where that identifies the required input or operation.
+
+Use the same real Geist variable font faces as Recap Pro, with deliberate weights for titles,
+labels, body copy, and metadata. Do not synthesize every weight from a regular-only face.
+Interactive controls must respond immediately to pointer entry, press, selection, busy, and
+disabled states through short, interruptible transitions that honor Reduce Motion. Hover
+feedback must clarify the hit target without dimming the entire interface.
+
+Window Close and Minimize remain 48-point edge-to-edge squares. Minimize has sharp corners,
+slides from behind Close without bounce, and retracts quickly after the pointer leaves the
+combined control region. Static panels and decorative surfaces do not animate.
