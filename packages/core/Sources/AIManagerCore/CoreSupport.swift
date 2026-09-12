@@ -80,7 +80,15 @@ enum CoreSupport {
     }
 
     static func privateDirectory(_ url: URL, fileManager: FileManager) throws {
+        if entryExists(url),
+           (try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw AIManagerError.unsafePath("private directory is a symbolic link: \(url.path)")
+        }
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw AIManagerError.unsafePath("private path is not a directory: \(url.path)")
+        }
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
     }
 
@@ -134,14 +142,28 @@ final class OperationLock: @unchecked Sendable {
 
     init(at url: URL, fileManager: FileManager) throws {
         try CoreSupport.privateDirectory(url.deletingLastPathComponent(), fileManager: fileManager)
-        descriptor = open(url.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0 else { throw AIManagerError.operationFailed("Could not open the operation lock.") }
+        if CoreSupport.entryExists(url),
+           (try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw AIManagerError.unsafePath("operation lock is a symbolic link")
+        }
+        let opened = open(url.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        guard opened >= 0 else { throw AIManagerError.operationFailed("Could not open the operation lock.") }
+        var info = stat()
+        guard fstat(opened, &info) == 0,
+              info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == getuid(),
+              info.st_nlink == 1,
+              fchmod(opened, S_IRUSR | S_IWUSR) == 0 else {
+            close(opened)
+            throw AIManagerError.operationFailed("The operation lock is not a private regular file.")
+        }
+        descriptor = opened
     }
 
     deinit { close(descriptor) }
 
     func withLock<T>(_ operation: () throws -> T) throws -> T {
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another AI Manager process is changing accounts.") }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
         defer { flock(descriptor, LOCK_UN) }
         return try operation()
     }
