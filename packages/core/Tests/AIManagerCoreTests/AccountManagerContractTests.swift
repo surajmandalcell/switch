@@ -120,6 +120,40 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(Set(accounts.compactMap(\.identity.userID)), ["user-one", "user-two"])
     }
 
+    func testImportAndSwitchKeepWorkspacesForTheSameAccountSeparate() async throws {
+        let firstSource = root.appending(path: "first-workspace")
+        let secondSource = root.appending(path: "second-workspace")
+        try writeAuth(home: firstSource, account: "shared-account", workspace: "workspace-one", user: "shared-user")
+        try writeAuth(home: secondSource, account: "shared-account", workspace: "workspace-two", user: "shared-user")
+        let firstAuth = try Data(contentsOf: firstSource.appending(path: "auth.json"))
+        let secondAuth = try Data(contentsOf: secondSource.appending(path: "auth.json"))
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        let firstPlan = try await manager.planImport(source: firstSource, mode: .authOnly)
+        let first = try await manager.importAccount(plan: firstPlan).account
+        let secondPlan = try await manager.planImport(source: secondSource, mode: .authOnly)
+        XCTAssertFalse(secondPlan.conflicts.contains { $0.relativePath == "auth.json" })
+        let second = try await manager.importAccount(
+            plan: secondPlan,
+            decisions: ["auth.json": .useImported]
+        ).account
+
+        XCTAssertNotEqual(first.id, second.id)
+        XCTAssertNotEqual(first.home, second.home)
+        XCTAssertEqual(try Data(contentsOf: first.home.appending(path: "auth.json")), firstAuth)
+        let accounts = try await manager.status().accounts
+        XCTAssertEqual(Set(accounts.compactMap(\.identity.workspaceID)), ["workspace-one", "workspace-two"])
+
+        _ = try await manager.switchDefault(to: first.id)
+        let firstStatus = try await manager.status()
+        XCTAssertEqual(firstStatus.defaultAccountID, first.id)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), firstAuth)
+        _ = try await manager.switchDefault(to: second.id)
+        let secondStatus = try await manager.status()
+        XCTAssertEqual(secondStatus.defaultAccountID, second.id)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), secondAuth)
+    }
+
     func testFullImportRequiresConflictChoiceAndPreservesDivergentTranscript() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account-a", workspace: "workspace")
