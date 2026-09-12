@@ -13,7 +13,7 @@ import Glibc
 #endif
 
 public enum WriterState: Sendable { case inactive, active, unknown }
-public enum FaultPoint: Sendable, Equatable { case duringHistoryCopy, afterTemporaryCopy, afterHomePublication, afterDefaultCredentialPublication, afterRegistryCommit }
+public enum FaultPoint: Sendable, Equatable { case duringHistoryCopy, afterTemporaryCopy, afterHomePublication, afterDefaultCredentialPublication, afterRegistryCommit, afterRecoveryConflictRestore }
 
 public actor AccountManager {
     public typealias WriterCheck = @Sendable (URL) async -> WriterState
@@ -22,6 +22,12 @@ public actor AccountManager {
     private struct Registry: Codable {
         var accounts: [AccountRecord] = []
         var defaultAccountID: UUID?
+    }
+
+    private struct RecoveryTarget {
+        var destination: URL
+        var backup: URL?
+        var previousDigest: String?
     }
 
     private let paths: ManagerPaths
@@ -199,15 +205,22 @@ public actor AccountManager {
 
     public func switchDefault(to accountID: UUID) async throws -> SwitchResult {
         try ensureNoRecovery()
-        switch await writerCheck(paths.defaultHome) {
-        case .active: throw AIManagerError.activeCodexProcesses
-        case .unknown: throw AIManagerError.writerStateUnknown
-        case .inactive: break
+        let registry = try loadRegistry()
+        guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
         }
+        var homes = [paths.defaultHome, selected.home]
+        let outgoing = provider.inspect(home: paths.defaultHome)
+        if let identity = outgoing.identity,
+           let managed = registry.accounts.first(where: { provider.sameIdentity($0.identity, identity) }) {
+            homes.append(managed.home)
+        }
+        try await ensureWritersInactive(homes)
         return try lock.withLock { try performSwitch(to: accountID) }
     }
 
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
+        try ensureNoRecovery()
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
         try provider.validateManagedCredential(account)
@@ -234,11 +247,7 @@ public actor AccountManager {
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
         try provider.requireSupported(account.identity.providerID)
-        switch await writerCheck(account.home) {
-        case .active: throw AIManagerError.activeCodexProcesses
-        case .unknown: throw AIManagerError.writerStateUnknown
-        case .inactive: break
-        }
+        try await ensureWritersInactive([account.home, paths.sharedRoot])
         return try lock.withLock {
             guard let issue = try inspectLinkedSettings(accounts: [account]).first(where: { $0.relativePath == relativePath }) else {
                 throw AIManagerError.operationFailed("The reviewed settings link is no longer divergent.")
@@ -367,7 +376,48 @@ public actor AccountManager {
     }
 
     public func recover() async throws -> [RecoveryResult] {
-        try lock.withLock { try pendingOperations().map { try recoverOperation($0) } }
+        let reviewed = try pendingOperations()
+        let reviewedHomes = try Dictionary(uniqueKeysWithValues: reviewed.map { operation in
+            (operation.id, Set(try affectedRecoveryHomes(operation).map { CoreSupport.canonical($0).path }))
+        })
+        try await ensureWritersInactive(reviewed.flatMap { try affectedRecoveryHomes($0) })
+        return try lock.withLock {
+            let current = try pendingOperations()
+            guard Set(current.map(\.id)) == Set(reviewed.map(\.id)) else {
+                throw AIManagerError.sourceChanged
+            }
+            for operation in current {
+                let homes = Set(try affectedRecoveryHomes(operation).map { CoreSupport.canonical($0).path })
+                guard homes == reviewedHomes[operation.id] else { throw AIManagerError.sourceChanged }
+            }
+            return try current.map { try recoverOperation($0) }
+        }
+    }
+
+    public func resolveRecoveryConflict(
+        operationID: UUID,
+        choice: RecoveryConflictChoice
+    ) async throws -> RecoveryResult {
+        guard let operation = try pendingOperations().first(where: { $0.id == operationID }) else {
+            throw AIManagerError.operationFailed("Recovery operation not found.")
+        }
+        guard operation.phase == .conflicted else {
+            throw AIManagerError.operationFailed("Recovery operation is not conflicted.")
+        }
+        let affectedHomes = try affectedRecoveryHomes(operation)
+        try await ensureWritersInactive(affectedHomes)
+        return try lock.withLock {
+            guard let current = try pendingOperations().first(where: { $0.id == operationID }) else {
+                throw AIManagerError.operationFailed("Recovery operation not found.")
+            }
+            guard current.phase == .conflicted else {
+                throw AIManagerError.operationFailed("Recovery operation is not conflicted.")
+            }
+            let reviewedHomes = Set(affectedHomes.map { CoreSupport.canonical($0).path })
+            let currentHomes = Set(try affectedRecoveryHomes(current).map { CoreSupport.canonical($0).path })
+            guard currentHomes == reviewedHomes else { throw AIManagerError.sourceChanged }
+            return try resolveRecoveryConflict(current, choice: choice)
+        }
     }
 }
 
@@ -517,6 +567,19 @@ extension AccountManager {
 
     private func ensureNoRecovery() throws {
         if try !pendingOperations().isEmpty { throw AIManagerError.recoveryRequired }
+    }
+
+    private func ensureWritersInactive(_ homes: [URL]) async throws {
+        var checked = Set<String>()
+        for home in homes {
+            let canonical = CoreSupport.canonical(home).path
+            guard checked.insert(canonical).inserted else { continue }
+            switch await writerCheck(home) {
+            case .active: throw AIManagerError.activeCodexProcesses
+            case .unknown: throw AIManagerError.writerStateUnknown
+            case .inactive: break
+            }
+        }
     }
 
     private func saveOperation(_ operation: RecoveryOperation) throws {
@@ -1447,17 +1510,202 @@ extension AccountManager {
         try copyPortable(source, to: destination)
     }
 
+    private func affectedRecoveryHomes(_ operation: RecoveryOperation) throws -> [URL] {
+        guard ["import", "switch", "settings-link-repair"].contains(operation.kind),
+              CoreSupport.isContained(operation.backup, by: paths.applicationSupport) else {
+            throw AIManagerError.invalidSource("Unknown or unsafe recovery operation.")
+        }
+        let registry = try loadRegistry()
+        var candidates = [paths.defaultHome, paths.sharedRoot] + registry.accounts.map(\.home)
+        if let previous = operation.previousAccount { candidates.append(previous.home) }
+        var homes: [URL] = []
+        switch operation.kind {
+        case "import":
+            let accountsRoot = paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
+            guard CoreSupport.isContained(operation.destination, by: accountsRoot) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+            candidates.append(operation.destination)
+            homes.append(operation.destination)
+        case "switch":
+            guard CoreSupport.isContained(operation.destination, by: paths.defaultHome) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+            homes.append(paths.defaultHome)
+            if let accountID = operation.registryAccountID,
+               let selected = registry.accounts.first(where: { $0.id == accountID }) {
+                homes.append(selected.home)
+            }
+        case "settings-link-repair":
+            guard let accountID = operation.registryAccountID,
+                  let account = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+            let accountParts = account.home.standardizedFileURL.pathComponents
+            let destinationParts = operation.destination.standardizedFileURL.pathComponents
+            let isLocalSetting = destinationParts.count > accountParts.count
+                && Array(destinationParts.prefix(accountParts.count)) == accountParts
+                && CoreSupport.settings.contains(destinationParts.dropFirst(accountParts.count).joined(separator: "/"))
+            guard isLocalSetting else { throw AIManagerError.unsafePath(operation.destination.path) }
+            homes += [account.home, paths.sharedRoot]
+        default:
+            throw AIManagerError.invalidSource("Unknown recovery operation kind.")
+        }
+
+        for target in try recoveryTargets(operation) {
+            if operation.kind == "settings-link-repair",
+               target.destination.standardizedFileURL != operation.destination.standardizedFileURL {
+                throw AIManagerError.unsafePath(target.destination.path)
+            }
+            if let backup = target.backup {
+                let backupRootParts = operation.backup.standardizedFileURL.pathComponents
+                let backupParts = backup.standardizedFileURL.pathComponents
+                let isBackupEntry = backupParts.count > backupRootParts.count
+                    && Array(backupParts.prefix(backupRootParts.count)) == backupRootParts
+                    && CoreSupport.isContained(backup.deletingLastPathComponent(), by: operation.backup)
+                guard isBackupEntry else { throw AIManagerError.unsafePath(backup.path) }
+            }
+            let matches = candidates.filter { CoreSupport.isContained(target.destination, by: $0) }
+            guard !matches.isEmpty else { throw AIManagerError.unsafePath(target.destination.path) }
+            homes += matches
+        }
+        var seen = Set<String>()
+        return homes.filter { seen.insert(CoreSupport.canonical($0).path).inserted }
+    }
+
+    private func recoveryTargets(_ operation: RecoveryOperation) throws -> [RecoveryTarget] {
+        var result: [RecoveryTarget] = []
+        var seen = Set<String>()
+        for item in (operation.touchedItems ?? []).reversed() {
+            let path = item.destination.standardizedFileURL.path
+            guard seen.insert(path).inserted else { continue }
+            result.append(.init(
+                destination: item.destination,
+                backup: item.backup,
+                previousDigest: item.previousDigest
+            ))
+        }
+        if operation.expectedDigest != nil {
+            let path = operation.destination.standardizedFileURL.path
+            if seen.insert(path).inserted {
+                let prior: URL
+                switch operation.kind {
+                case "import": prior = operation.backup.appending(path: "account-home", directoryHint: .isDirectory)
+                case "switch": prior = operation.backup.appending(path: "auth.json")
+                case "settings-link-repair":
+                    throw AIManagerError.invalidSource("Settings-link recovery is missing its recorded item.")
+                default: throw AIManagerError.invalidSource("Unknown recovery operation kind.")
+                }
+                let backup = operation.previousDigest != nil || CoreSupport.entryExists(prior) ? prior : nil
+                result.append(.init(
+                    destination: operation.destination,
+                    backup: backup,
+                    previousDigest: operation.previousDigest
+                ))
+            }
+        }
+        return result
+    }
+
+    private func resolveRecoveryConflict(
+        _ operation: RecoveryOperation,
+        choice: RecoveryConflictChoice
+    ) throws -> RecoveryResult {
+        var operation = operation
+        switch choice {
+        case .preserveCurrent:
+            try finishOperation(&operation)
+            return .init(
+                operationID: operation.id,
+                outcome: .completed,
+                message: "Current live files were kept. The protected backup remains at \(operation.backup.path)."
+            )
+        case .restoreBackup:
+            let targets = try recoveryTargets(operation)
+            for target in targets {
+                guard let backup = target.backup else {
+                    guard target.previousDigest == nil else {
+                        throw AIManagerError.operationFailed("A protected recovery backup is missing.")
+                    }
+                    continue
+                }
+                guard CoreSupport.entryExists(backup) else {
+                    throw AIManagerError.operationFailed("A protected recovery backup is missing.")
+                }
+            }
+            try preserveRecoveryTargets(targets, under: operation.backup)
+            for target in targets {
+                if let backup = target.backup {
+                    let staged = target.destination.deletingLastPathComponent()
+                        .appending(path: ".\(target.destination.lastPathComponent).\(operation.id.uuidString).recovery")
+                    if CoreSupport.entryExists(staged) { try fileManager.removeItem(at: staged) }
+                    try fileManager.copyItem(at: backup, to: staged)
+                    try CoreSupport.privateDirectory(target.destination.deletingLastPathComponent(), fileManager: fileManager)
+                    try CoreSupport.publish(staged, replacing: target.destination, fileManager: fileManager)
+                } else if CoreSupport.entryExists(target.destination) {
+                    try fileManager.removeItem(at: target.destination)
+                }
+            }
+            try faultInjector(.afterRecoveryConflictRestore)
+            var registry = try loadRegistry()
+            if registryCommitted(operation, registry: registry) {
+                restoreRegistry(operation, registry: &registry)
+                try saveRegistry(registry)
+            }
+            let staging = paths.applicationSupport.appending(path: "staging/\(operation.id.uuidString)")
+            if CoreSupport.entryExists(staging) { try fileManager.removeItem(at: staging) }
+            operation.phase = .rolledBack
+            try saveOperation(operation)
+            try? fileManager.removeItem(at: operationItemsURL(operation.id))
+            return .init(
+                operationID: operation.id,
+                outcome: .rolledBack,
+                message: "The protected backup was restored. Replaced live files remain under \(operation.backup.path)/recovery-conflict."
+            )
+        }
+    }
+
+    private func preserveRecoveryTargets(_ targets: [RecoveryTarget], under backup: URL) throws {
+        let root = backup.appending(path: "recovery-conflict/current", directoryHint: .isDirectory)
+        for (index, target) in targets.enumerated() where CoreSupport.entryExists(target.destination) {
+            try CoreSupport.privateDirectory(root, fileManager: fileManager)
+            let staged = root.appending(path: ".\(UUID().uuidString).recovery")
+            let preserved = root.appending(path: "\(index)-\(UUID().uuidString)")
+            try fileManager.copyItem(at: target.destination, to: staged)
+            try CoreSupport.publish(staged, replacing: preserved, fileManager: fileManager)
+        }
+    }
+
+    private func registryCommitted(_ operation: RecoveryOperation, registry: Registry) -> Bool {
+        if operation.kind == "switch" {
+            return registry.defaultAccountID == operation.registryAccountID
+        }
+        guard let accountID = operation.registryAccountID,
+              let expectedCredential = operation.registryCredentialDigest else { return false }
+        return registry.accounts.first(where: { $0.id == accountID })?.credentialDigest == expectedCredential
+    }
+
+    private func restoreRegistry(_ operation: RecoveryOperation, registry: inout Registry) {
+        if operation.kind == "switch" {
+            registry.defaultAccountID = operation.previousDefaultAccountID
+            if let previous = operation.previousAccount,
+               let index = registry.accounts.firstIndex(where: { $0.id == previous.id }) {
+                registry.accounts[index] = previous
+            }
+        } else if let accountID = operation.registryAccountID {
+            if let previous = operation.previousAccount,
+               let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
+                registry.accounts[index] = previous
+            } else {
+                registry.accounts.removeAll { $0.id == accountID }
+            }
+        }
+    }
+
     private func recoverOperation(_ operation: RecoveryOperation) throws -> RecoveryResult {
         var operation = operation
         var registry = try loadRegistry()
-        let registryCommitted: Bool
-        if operation.kind == "switch" {
-            registryCommitted = registry.defaultAccountID == operation.registryAccountID
-        } else if let accountID = operation.registryAccountID, let expectedCredential = operation.registryCredentialDigest {
-            registryCommitted = registry.accounts.first(where: { $0.id == accountID })?.credentialDigest == expectedCredential
-        } else {
-            registryCommitted = false
-        }
+        let registryCommitted = registryCommitted(operation, registry: registry)
         let currentDigest = fileManager.fileExists(atPath: operation.destination.path) ? try? treeDigest(operation.destination) : nil
         if registryCommitted, currentDigest == operation.expectedDigest {
             try finishOperation(&operation)
@@ -1506,19 +1754,7 @@ extension AccountManager {
             return .init(operationID: operation.id, outcome: .conflict, message: "Later edits were preserved; choose a recovery version.")
         }
         if registryCommitted {
-            if operation.kind == "switch" {
-                registry.defaultAccountID = operation.previousDefaultAccountID
-                if let previous = operation.previousAccount,
-                   let index = registry.accounts.firstIndex(where: { $0.id == previous.id }) {
-                    registry.accounts[index] = previous
-                }
-            } else if let accountID = operation.registryAccountID {
-                if let previous = operation.previousAccount, let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
-                    registry.accounts[index] = previous
-                } else {
-                    registry.accounts.removeAll { $0.id == accountID }
-                }
-            }
+            restoreRegistry(operation, registry: &registry)
             try saveRegistry(registry)
         }
         let staging = paths.applicationSupport.appending(path: "staging/\(operation.id.uuidString)")
