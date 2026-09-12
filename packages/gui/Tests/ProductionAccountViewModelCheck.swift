@@ -45,6 +45,12 @@ struct ProductionAccountViewModelCheck {
         precondition(model.status?.accounts.count == 1)
         precondition(model.selectedAccount?.identity.accountID == "account-production")
         precondition(model.selectedAccount.map { model.history(for: $0).activeTranscripts } == 1)
+        let importedID = model.selectedAccountID
+        model.reset(to: .allStates)
+        model.showDemoError()
+        precondition(model.selectedAccountID == importedID)
+        precondition(model.status?.accounts.count == 1)
+        precondition(model.errorMessage == nil)
 
         await model.switchDefault()
         precondition(model.errorMessage == nil)
