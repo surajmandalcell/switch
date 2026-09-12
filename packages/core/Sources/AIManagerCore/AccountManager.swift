@@ -1,6 +1,16 @@
-import CryptoKit
-import Darwin
 import Foundation
+
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
+
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 public enum WriterState: Sendable { case inactive, active, unknown }
 public enum FaultPoint: Sendable, Equatable { case duringHistoryCopy, afterTemporaryCopy, afterHomePublication, afterDefaultCredentialPublication, afterRegistryCommit }
@@ -392,9 +402,9 @@ extension AccountManager {
     public static func systemCapacity(at destination: URL) -> Int64? {
         var candidate = destination
         while !FileManager.default.fileExists(atPath: candidate.path), candidate.pathComponents.count > 1 { candidate.deleteLastPathComponent() }
-        let values = try? candidate.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        guard let capacity = values?.volumeAvailableCapacityForImportantUsage, capacity > 0 else { return nil }
-        return capacity
+        let values = try? candidate.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+        guard let capacity = values?.volumeAvailableCapacity, capacity > 0 else { return nil }
+        return Int64(capacity)
     }
 
     public static func systemWriterCheck(home: URL) async -> WriterState {
@@ -644,7 +654,7 @@ extension AccountManager {
             defer { try? handle.close() }
             while true {
                 var ended = false
-                try autoreleasepool {
+                try withAutoreleasePool {
                     guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
                     hasher.update(data: data)
                 }
@@ -789,11 +799,7 @@ extension AccountManager {
         operation.previousDigest = fileManager.fileExists(atPath: destination.path) ? try treeDigest(destination) : nil
         try saveOperation(operation)
         try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
-        if fileManager.fileExists(atPath: destination.path) {
-            _ = try fileManager.replaceItemAt(destination, withItemAt: staging, backupItemName: nil, options: [])
-        } else {
-            try fileManager.moveItem(at: staging, to: destination)
-        }
+        try CoreSupport.publish(staging, replacing: destination, fileManager: fileManager)
         try faultInjector(.afterHomePublication)
         operation.phase = .published
         try saveOperation(operation)
@@ -1047,7 +1053,7 @@ extension AccountManager {
             defer { try? handle.close() }
             while true {
                 var ended = false
-                try autoreleasepool {
+                try withAutoreleasePool {
                     guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
                     hasher.update(data: data)
                 }
@@ -1131,8 +1137,7 @@ extension AccountManager {
         operation.touchedItems![operation.touchedItems!.count - 1].expectedDigest = expected
         try saveOperation(operation)
         try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
-        if hadDestination { _ = try fileManager.replaceItemAt(destination, withItemAt: temporary, backupItemName: nil, options: []) }
-        else { try fileManager.moveItem(at: temporary, to: destination) }
+        try CoreSupport.publish(temporary, replacing: destination, fileManager: fileManager)
     }
 
     private func mergeSetting(
@@ -1191,7 +1196,7 @@ extension AccountManager {
                 defer { try? handle.close() }
                 while true {
                     var ended = false
-                    try autoreleasepool {
+                    try withAutoreleasePool {
                         guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
                         hasher.update(data: data)
                     }
@@ -1218,7 +1223,7 @@ extension AccountManager {
         while true {
             var ended = false
             var discoveredIdentity: String?
-            try autoreleasepool {
+            try withAutoreleasePool {
                 guard let record = try reader.next() else { ended = true; return }
                 if identity == nil, count < 20 {
                     guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any] else { throw AIManagerError.invalidSource("Malformed JSONL transcript metadata in \(url.lastPathComponent)") }
@@ -1318,7 +1323,7 @@ extension AccountManager {
         let prefixReader = try JSONLReader(url: prefix)
         let completeReader = try JSONLReader(url: complete)
         for _ in 0..<recordCount {
-            let equal = try autoreleasepool {
+            let equal = try withAutoreleasePool {
                 guard let left = try prefixReader.next(), let right = try completeReader.next() else { return false }
                 return left == right
             }
@@ -1335,7 +1340,7 @@ extension AccountManager {
         while true {
             var ended = false
             var found = false
-            try autoreleasepool {
+            try withAutoreleasePool {
                 guard let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty else { ended = true; return }
                 var window = overlap
                 window.append(chunk)

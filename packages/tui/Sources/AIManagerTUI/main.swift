@@ -1,6 +1,11 @@
 import Foundation
-import Darwin
 import AIManagerCore
+
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 @main
 struct AIManagerCLI {
@@ -15,7 +20,7 @@ struct AIManagerCLI {
             try await run(command, manager: manager)
         } catch {
             FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
-            Darwin.exit(1)
+            exit(1)
         }
     }
 

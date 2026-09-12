@@ -1,7 +1,12 @@
-import Darwin
 import Foundation
 import XCTest
 @testable import AIManagerCore
+
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 final class FilesystemFailureContractTests: XCTestCase {
     private let fileManager = FileManager.default
