@@ -1,0 +1,6 @@
+FROM swift:6.2.4-noble@sha256:9f82fca7d577f78772c1ef0c38392f9bee05d92c8483f903005cded067ded5ee
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends file git jq libsqlite3-dev procps ripgrep sqlite3 util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --create-home validator

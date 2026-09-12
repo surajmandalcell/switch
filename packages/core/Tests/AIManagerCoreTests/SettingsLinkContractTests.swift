@@ -53,26 +53,13 @@ final class SettingsLinkContractTests: XCTestCase {
     }
 
     func testFilesystemAliasToSharedSettingIsNotDivergent() async throws {
-        try fileManager.removeItem(at: root)
-        root = URL(fileURLWithPath: "/private/tmp/ai-manager-link-tests-\(UUID().uuidString)", isDirectory: true)
-        paths = .init(
-            applicationSupport: root.appending(path: "support"),
-            defaultHome: root.appending(path: "default"),
-            sharedRoot: root.appending(path: "shared"),
-            orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
-            isolationRoot: root
-        )
-        try fileManager.createDirectory(at: paths.sharedRoot, withIntermediateDirectories: true)
-        try Data("shared setting".utf8).write(to: paths.sharedRoot.appending(path: "config.toml"))
         try fileManager.createDirectory(at: paths.sharedRoot.appending(path: "rules"), withIntermediateDirectories: false)
+        let sharedAlias = root.appending(path: "shared-alias", directoryHint: .isDirectory)
+        try fileManager.createSymbolicLink(at: sharedAlias, withDestinationURL: paths.sharedRoot)
         let (manager, account) = try await importedAccount(writer: { _ in .inactive })
         let local = account.home.appending(path: "rules")
         try fileManager.removeItem(at: local)
-        let aliasTarget = URL(fileURLWithPath: paths.sharedRoot.appending(path: "rules").path.replacingOccurrences(
-            of: "/private/tmp/",
-            with: "/tmp/"
-        ))
+        let aliasTarget = sharedAlias.appending(path: "rules", directoryHint: .isDirectory)
         try fileManager.createSymbolicLink(at: local, withDestinationURL: aliasTarget)
 
         let status = try await manager.status()

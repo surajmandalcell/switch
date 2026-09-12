@@ -1,4 +1,4 @@
-name: Native macOS CI
+name: Native CI
 
 on:
   push:
@@ -6,8 +6,10 @@ on:
   pull_request:
     paths:
       - Package.swift
+      - Package.resolved
       - packages/**
       - packaging/**
+      - scripts/check-linux.sh
       - scripts/build-native.sh
       - scripts/check-native.sh
       - scripts/check-gui-demo.sh
@@ -27,6 +29,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  linux:
+    name: Validate Linux core and CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Build validation image
+        run: docker build --tag iia-directeur-linux-check --file packaging/linux/Dockerfile.validation .
+
+      - name: Run isolated Linux contracts
+        run: |
+          docker run --rm --read-only \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g \
+            --tmpfs /home/validator:rw,exec,nosuid,nodev,size=1g \
+            --mount type=bind,src="$GITHUB_WORKSPACE",dst=/source,readonly \
+            iia-directeur-linux-check bash -ceu '
+              mkdir -p /tmp/src /tmp/home /tmp/build
+              git -c safe.directory=/source -C /source ls-files -z \
+                | tar -C /source --null --files-from=- --create --file=- \
+                | tar -C /tmp/src --extract --file=-
+              chown -R validator:validator /tmp/src /tmp/home /tmp/build /home/validator
+              exec runuser -u validator -- env \
+                HOME=/tmp/home TMPDIR=/tmp AI_MANAGER_BUILD_PATH=/tmp/build \
+                bash /tmp/src/scripts/check-linux.sh
+            '
+
   validate:
     name: Build and test native targets
     runs-on: macos-14

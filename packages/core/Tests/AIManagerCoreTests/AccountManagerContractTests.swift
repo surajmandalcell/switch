@@ -1,8 +1,13 @@
 import CSQLite
-import CryptoKit
 import Foundation
 import XCTest
 @testable import AIManagerCore
+
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 
 final class AccountManagerContractTests: XCTestCase {
     private var root: URL!

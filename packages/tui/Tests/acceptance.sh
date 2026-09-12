@@ -8,7 +8,7 @@ if [[ $# -ne 1 || ! -x "$1" ]]; then
 fi
 
 binary="$1"
-test_root="$(mktemp -d /private/tmp/ai-manager-cli-test.XXXXXX)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/ai-manager-cli-test.XXXXXX")"
 fixture="$test_root/ai-manager-fixture"
 trap 'find "$test_root" -depth -delete' EXIT
 

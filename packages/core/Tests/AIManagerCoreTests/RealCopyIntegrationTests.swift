@@ -1,8 +1,19 @@
-import CryptoKit
-import Darwin
 import Foundation
 import XCTest
 @testable import AIManagerCore
+
+
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
+
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 final class RealCopyIntegrationTests: XCTestCase {
     func testAuthorizedPrivateCopyPlanningMemory() async throws {
@@ -104,7 +115,12 @@ final class RealCopyIntegrationTests: XCTestCase {
 
     nonisolated private static func peakRSS() -> Int {
         var usage = rusage()
+#if os(Linux)
+        return getrusage(__rusage_who_t(RUSAGE_SELF.rawValue), &usage) == 0
+            ? usage.ru_maxrss * 1_024 : -1
+#else
         return getrusage(RUSAGE_SELF, &usage) == 0 ? usage.ru_maxrss : -1
+#endif
     }
 
     nonisolated private static func record(_ line: String, to url: URL) {
@@ -153,7 +169,7 @@ final class RealCopyIntegrationTests: XCTestCase {
     private func identity(_ url: URL) throws -> String? {
         let reader = try JSONLReader(url: url)
         for _ in 0..<20 {
-            let found: String? = try autoreleasepool {
+            let found: String? = try withAutoreleasePool {
                 guard let record = try reader.next(), let object = try JSONSerialization.jsonObject(with: record) as? [String: Any] else { return nil }
                 if let payload = object["payload"] as? [String: Any], let id = payload["id"] as? String { return id }
                 return object["id"] as? String
@@ -168,7 +184,7 @@ final class RealCopyIntegrationTests: XCTestCase {
         let right = try JSONLReader(url: complete)
         while true {
             var ended = false
-            let equal = try autoreleasepool {
+            let equal = try withAutoreleasePool {
                 guard let record = try left.next() else { ended = true; return true }
                 guard let other = try right.next() else { return false }
                 return record == other
@@ -195,7 +211,7 @@ final class RealCopyIntegrationTests: XCTestCase {
         var hasher = SHA256()
         while true {
             var ended = false
-            try autoreleasepool {
+            try withAutoreleasePool {
                 guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
                 hasher.update(data: data)
             }

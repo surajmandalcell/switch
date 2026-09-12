@@ -1,6 +1,34 @@
-import CryptoKit
-import Darwin
 import Foundation
+
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
+
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+
+@_silgen_name("renameat2")
+private func linuxRenameAt2(
+    _ oldDirectory: Int32,
+    _ oldPath: UnsafePointer<CChar>,
+    _ newDirectory: Int32,
+    _ newPath: UnsafePointer<CChar>,
+    _ flags: UInt32
+) -> Int32
+#endif
+
+@inline(__always)
+func withAutoreleasePool<T>(_ body: () throws -> T) rethrows -> T {
+#if canImport(ObjectiveC)
+    return try autoreleasepool(invoking: body)
+#else
+    return try body()
+#endif
+}
 
 enum CoreSupport {
     static let settings = ["config.toml", "AGENTS.md", "agents", "rules", "context", "skills", "hooks.json"]
@@ -42,7 +70,7 @@ enum CoreSupport {
         var hasher = SHA256()
         while true {
             var ended = false
-            try autoreleasepool {
+            try withAutoreleasePool {
                 guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
                 hasher.update(data: data)
             }
@@ -61,11 +89,34 @@ enum CoreSupport {
         let temporary = destination.deletingLastPathComponent().appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
         try data.write(to: temporary, options: [.atomic])
         try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: temporary.path)
-        if fileManager.fileExists(atPath: destination.path) {
-            _ = try fileManager.replaceItemAt(destination, withItemAt: temporary, backupItemName: nil, options: [])
-        } else {
-            try fileManager.moveItem(at: temporary, to: destination)
+        guard rename(temporary.path, destination.path) == 0 else {
+            let error = NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            try? fileManager.removeItem(at: temporary)
+            throw error
         }
+    }
+
+    static func publish(_ staged: URL, replacing destination: URL, fileManager: FileManager) throws {
+        guard entryExists(destination) else {
+            guard rename(staged.path, destination.path) == 0 else { throw posixError() }
+            return
+        }
+
+#if os(Linux)
+        let result = staged.path.withCString { stagedPath in
+            destination.path.withCString { destinationPath in
+                linuxRenameAt2(AT_FDCWD, stagedPath, AT_FDCWD, destinationPath, 2)
+            }
+        }
+#else
+        let result = renamex_np(staged.path, destination.path, UInt32(RENAME_SWAP))
+#endif
+        guard result == 0 else { throw posixError() }
+        try fileManager.removeItem(at: staged)
+    }
+
+    private static func posixError() -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
     }
 
     static func safeRelativePath(_ path: String) -> Bool {
