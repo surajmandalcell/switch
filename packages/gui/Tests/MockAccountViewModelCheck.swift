@@ -18,6 +18,7 @@ struct MockAccountViewModelCheck {
         precondition(model.hasLoaded)
         precondition(model.isDemo)
         precondition(!model.isUnavailable)
+        precondition(model.selectedProviderID == .codex)
         precondition(model.status?.accounts.count == 3)
         precondition(model.status?.pendingRecovery.count == 2)
         precondition(model.status?.linkedSettingsDivergences.count == 1)

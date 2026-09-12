@@ -323,27 +323,38 @@ private struct RailTop: View {
   private var showMinimize: Bool { hover }
   var body: some View {
     ZStack(alignment: .topLeading) {
-      if showMinimize {
-        Button(action: minimize) {
-          AIMIcon(name: .minimize, size: 15).foregroundStyle(
-            minimizeHover ? AIMTheme.ink : AIMTheme.muted
-          )
-          .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-          .background(minimizeHover ? AIMTheme.minimizeHover : AIMTheme.minimizeControl)
-          .contentShape(Rectangle())
-        }.buttonStyle(AIMPressButtonStyle()).focusable()
-          .accessibilityLabel("Minimize window")
-          .offset(x: AIMTheme.windowControlSize)
-          .transition(reduceMotion ? .identity : .offset(x: -AIMTheme.windowControlSize))
-          .onHover { value in
-            minimizeHover = value
-            updateHover(value)
-          }
-      }
+      Button(action: minimize) {
+        AIMIcon(name: .minimize, size: 15).foregroundStyle(
+          minimizeHover ? AIMTheme.ink : AIMTheme.muted
+        )
+        .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
+        .background(minimizeHover ? AIMTheme.minimizeHover : AIMTheme.minimizeControl)
+        .contentShape(Rectangle())
+      }.buttonStyle(AIMPressButtonStyle()).focusable()
+        .accessibilityLabel("Minimize window")
+        .accessibilityHidden(!showMinimize)
+        .offset(x: showMinimize ? AIMTheme.windowControlSize : 0)
+        .opacity(showMinimize ? 1 : 0)
+        .allowsHitTesting(showMinimize)
+        .onHover { value in
+          minimizeHover = value
+          updateHover(value)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.minimize), value: showMinimize)
+        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: minimizeHover)
       Button(action: close) {
         AIMIcon(name: .close, size: 15).foregroundStyle(Color(nsColor: .systemRed))
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-          .background(closeHover ? Color(nsColor: .systemRed).opacity(0.12) : AIMTheme.rail)
+          .background(alignment: .leading) {
+            ZStack {
+              AIMTheme.rail
+              Color(nsColor: .systemRed).opacity(closeHover ? 0.12 : 0)
+                .animation(
+                  reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: closeHover)
+            }.frame(
+              width: AIMTheme.windowControlSize - 1,
+              height: AIMTheme.windowControlSize)
+          }
           .contentShape(Rectangle())
       }.buttonStyle(AIMPressButtonStyle()).focusable()
         .accessibilityLabel("Close window")
@@ -358,9 +369,6 @@ private struct RailTop: View {
       height: AIMTheme.windowControlSize,
       alignment: .topLeading
     )
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.minimize), value: showMinimize)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: minimizeHover)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: closeHover)
   }
 
   private func updateHover(_ value: Bool) {
@@ -1081,7 +1089,7 @@ private struct ImportFlow: View {
   }
   private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
   private var title: String {
-    step == 1 ? "Import Codex Account" : step == 2 ? "Review Codex Import" : "Codex Import Result"
+    step == 1 ? "Import Account" : step == 2 ? "Review Import" : "Import Result"
   }
 }
 private struct ImportSteps: View {
@@ -1111,10 +1119,18 @@ private struct SourcePage: View {
   @Environment(\.isEnabled) private var isEnabled
   var body: some View {
     VStack(spacing: 8) {
-      Text("Choose a Codex profile to import.")
+      Text("Choose a provider and one of its data folders.")
         .font(AIMTheme.sans(12))
         .foregroundStyle(AIMTheme.muted)
         .frame(maxWidth: .infinity, alignment: .leading)
+      AIMPanel(title: "Provider") {
+        HStack(spacing: 4) {
+          Choice(title: "Codex", selected: model.selectedProviderID == .codex) {
+            model.selectedProviderID = .codex
+          }
+          Spacer()
+        }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 8)
+      }
       AIMPanel(title: "Source") {
         AIMScrollView {
           LazyVStack(spacing: 0) {
@@ -1195,7 +1211,9 @@ private struct SourcePage: View {
       ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
         maxWidth: .infinity, alignment: .leading)
       HStack(spacing: 4) {
-        AIMButton(title: "Choose other…", icon: .folder) { Task { await model.chooseSource() } }
+        AIMButton(title: "Choose Codex folder…", icon: .folder) {
+          Task { await model.chooseSource() }
+        }
         AIMButton(title: "Refresh", icon: .refresh) { Task { await model.discover() } }
         Spacer()
         AIMButton(
