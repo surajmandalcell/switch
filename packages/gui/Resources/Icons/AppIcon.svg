@@ -1,7 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Tile dimensions and colors match Recap Pro Producer's app icon. -->
-  <rect x="92" y="92" width="840" height="840" rx="200" fill="#1b1c20"/>
-  <g transform="translate(200 184) scale(26)">
+  <!-- Recap Pro Producer's approved charcoal tile proportions and palette. -->
+  <defs>
+    <linearGradient id="tile-surface" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#222328"/>
+      <stop offset="0.42" stop-color="#1b1c20"/>
+      <stop offset="1" stop-color="#191a1e"/>
+    </linearGradient>
+    <linearGradient id="edge-lift" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="0.34" stop-color="#ffffff" stop-opacity="0.025"/>
+      <stop offset="0.68" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="92" y="92" width="840" height="840" rx="200" fill="url(#tile-surface)"/>
+  <rect x="94" y="94" width="836" height="836" rx="198" fill="none" stroke="url(#edge-lift)" stroke-width="4"/>
+  <g transform="translate(200 200) scale(26)">
     <mask id="dock-mark" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24" style="mask-type:alpha">
       <image xlink:href="ManagerMark.svg" width="24" height="24"/>
     </mask>

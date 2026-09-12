@@ -41,7 +41,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     @objc private func closeWindow() { NSApp.keyWindow?.close() }
-    @objc private func minimizeWindow() { windowController?.window?.miniaturize(nil) }
+    @objc private func minimizeWindow() { AIManagerWindowBehavior.minimize(windowController?.window) }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem.action == #selector(importAccount) ? !model.isBusy : true

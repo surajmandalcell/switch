@@ -1,14 +1,16 @@
 # App icons
 
-The mark combines existing [Lucide bot](https://github.com/lucide-icons/lucide/blob/0.577.0/icons/bot.svg)
-and [sliders-horizontal](https://github.com/lucide-icons/lucide/blob/0.577.0/icons/sliders-horizontal.svg)
-geometry. The robot body is filled, its eyes become cutouts, and the top slider
-row replaces the antenna. No new glyph paths are drawn. Lucide 0.577.0's license
-is included in `LICENSE-LUCIDE.txt` and bundled with the app.
+The mark is Google's exact [Material Symbols Rounded `switch_account` filled
+24 px glyph](https://github.com/google/material-design-icons/blob/6d7ca43bd6e6668531a00fcaca06d921b63dd716/symbols/web/switch_account/materialsymbolsrounded/switch_account_fill1_24px.svg).
+Its path data is unchanged; `ManagerMark.svg` only adds `currentColor` styling
+so the same monochrome template works in the menu bar and app rail. The source
+glyph is Apache-2.0 licensed; the license is included in
+`LICENSE-MATERIAL-SYMBOLS.txt` and bundled with the app.
 
-The Dock icon uses Recap Pro Producer's charcoal `#1b1c20`, warm-white
-`#ecebe7`, and rounded-tile proportions. The tray and rail use the same mark as
-a monochrome template so macOS can tint it for light/dark menu bars.
+The Dock and Spotlight icon keeps Recap Pro Producer's approved charcoal
+`#1b1c20`, warm-white `#ecebe7`, and rounded-tile proportions. A restrained
+charcoal surface gradient and translucent top-left inner edge provide lift
+without adding new glyph geometry.
 
 Run `scripts/build-icons.sh` to regenerate PNGs and the macOS ICNS. It uses
 the installed `rsvg-convert` and macOS `iconutil`; normal app builds use the

@@ -5,15 +5,33 @@ private struct AIMFocusIndicatorsKey: EnvironmentKey {
   static let defaultValue = false
 }
 
+private struct AIMDarkModeKey: EnvironmentKey {
+  static let defaultValue = false
+}
+
+private struct AIMAdaptiveColor: ShapeStyle, Hashable {
+  let light: UInt32
+  let dark: UInt32
+
+  func resolve(in environment: EnvironmentValues) -> Color.Resolved {
+    return Color(hex: environment.colorScheme == .dark ? dark : light).resolve(in: environment)
+  }
+}
+
 extension EnvironmentValues {
   var aimFocusIndicatorsEnabled: Bool {
     get { self[AIMFocusIndicatorsKey.self] }
     set { self[AIMFocusIndicatorsKey.self] = newValue }
   }
+
+  var aimDarkMode: Bool {
+    get { self[AIMDarkModeKey.self] }
+    set { self[AIMDarkModeKey.self] = newValue }
+  }
 }
 
 enum AIMTheme {
-  static let radius: CGFloat = 2
+  static let radius: CGFloat = 3
   static let railWidth: CGFloat = 48
   static let topbarHeight: CGFloat = 56
   static let listWidth: CGFloat = 200
@@ -33,12 +51,14 @@ enum AIMTheme {
   static let amber = dynamic(light: 0x856F43, dark: 0xB39A68)
   static let red = dynamic(light: 0x8D5A60, dark: 0xAD7379)
   static let titleArt = dynamic(light: 0x657B98, dark: 0x92A7C3)
-  static let active = Color(hex: 0x3C4A61)
-  static let activeInk = Color(hex: 0xF2F1ED)
-  static let railIdle = Color(hex: 0x91A0B2)
+  static let active = dynamic(light: 0xDCE3EC, dark: 0x3C4A61)
+  static let activeInk = dynamic(light: 0x28364A, dark: 0xF2F1ED)
+  static let railIdle = dynamic(light: 0x5D6670, dark: 0x91A0B2)
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
   static let control = dynamic(light: 0xDEDCD6, dark: 0x1D2025)
   static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x262A30)
+  static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x1A1C20)
+  static let disabledInk = dynamic(light: 0x74777D, dark: 0x858890)
 
   static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
     .custom("Geist-Regular", size: size).weight(weight)
@@ -49,11 +69,7 @@ enum AIMTheme {
   }
 
   private static func dynamic(light: UInt32, dark: UInt32) -> Color {
-    Color(
-      nsColor: NSColor(name: nil) { appearance in
-        Color(hex: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light)
-          .nsColor
-      })
+    Color(AIMAdaptiveColor(light: light, dark: dark))
   }
 }
 
@@ -67,8 +83,6 @@ extension Color {
       opacity: 1
     )
   }
-
-  fileprivate var nsColor: NSColor { NSColor(self) }
 }
 
 struct AIMIcon: View {
@@ -120,6 +134,29 @@ struct AIMIcon: View {
   }
 }
 
+struct AIMPressButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> Body {
+    Body(configuration: configuration)
+  }
+
+  struct Body: View {
+    let configuration: Configuration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+    @State private var isHovered = false
+
+    var body: some View {
+      configuration.label
+        .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+        .opacity(configuration.isPressed ? 0.84 : (isHovered ? 0.94 : 1))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
+        .focusEffectDisabled(!focusIndicatorsEnabled)
+        .onHover { isHovered = $0 }
+    }
+  }
+}
+
 struct AIMPanel<Content: View>: View {
   let title: String
   @ViewBuilder var content: Content
@@ -131,7 +168,15 @@ struct AIMPanel<Content: View>: View {
           .font(AIMTheme.sans(12, weight: .semibold))
           .padding(.horizontal, 28)
           .frame(height: 40)
-          .background(alignment: .trailing) { AIMPanelTitleArt() }
+          .background(alignment: .trailing) {
+            LinearGradient(
+              colors: [AIMTheme.green.opacity(0.10), .clear, AIMTheme.titleArt.opacity(0.14)],
+              startPoint: .leading,
+              endPoint: .trailing
+            )
+            .frame(width: 160)
+            .allowsHitTesting(false)
+          }
           .background(AIMTheme.panel2)
           .clipped()
         Spacer(minLength: 0)
@@ -145,34 +190,21 @@ struct AIMPanel<Content: View>: View {
   }
 }
 
-private struct AIMPanelTitleArt: View {
-  var body: some View {
-    Canvas { context, _ in
-      for radius in [CGFloat(28), 42, 56] {
-        let center = CGPoint(x: 148, y: 43)
-        let rect = CGRect(
-          x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        context.stroke(
-          Path(ellipseIn: rect), with: .color(AIMTheme.titleArt.opacity(0.22)), lineWidth: 0.65)
-      }
-    }
-    .frame(width: 160, height: 40)
-    .allowsHitTesting(false)
-  }
-}
-
 struct AIMScrollView<Content: View>: View {
   @ViewBuilder let content: Content
-  @Environment(\.self) private var environment
+  @Environment(\.aimDarkMode) private var darkMode
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
 
   init(@ViewBuilder content: () -> Content) { self.content = content() }
 
   var body: some View {
     AIMNativeScrollView(
       content: AnyView(
-        content.environment(\.self, environment)
+        content.environment(\.colorScheme, darkMode ? .dark : .light)
+          .environment(\.aimDarkMode, darkMode)
+          .environment(\.aimFocusIndicatorsEnabled, focusIndicatorsEnabled)
           .foregroundStyle(AIMTheme.ink)
-          .focusEffectDisabled(!environment.aimFocusIndicatorsEnabled)))
+          .focusEffectDisabled(!focusIndicatorsEnabled)))
   }
 }
 
@@ -207,6 +239,7 @@ final class AIMOwnedScrollView: NSScrollView {
   private var hoverTrackingArea: NSTrackingArea?
   private var isHovered = false
   private var isScrolling = false
+  private var isScrollerVisible = false
 
   override var scrollerStyle: NSScroller.Style {
     get { super.scrollerStyle }
@@ -224,6 +257,7 @@ final class AIMOwnedScrollView: NSScrollView {
     super.scrollerStyle = .overlay
     verticalScroller?.scrollerStyle = .overlay
     verticalScroller?.controlSize = .mini
+    verticalScroller?.wantsLayer = true
     verticalScroller?.alphaValue = 0
     observers = [
       NotificationCenter.default.addObserver(
@@ -254,6 +288,16 @@ final class AIMOwnedScrollView: NSScrollView {
     hoverTrackingArea = trackingArea
   }
 
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    documentView?.appearance = effectiveAppearance
+  }
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    documentView?.appearance = effectiveAppearance
+  }
+
   override func mouseEntered(with event: NSEvent) {
     isHovered = true
     showScroller()
@@ -272,7 +316,7 @@ final class AIMOwnedScrollView: NSScrollView {
 
   private func showScroller() {
     hideTask?.cancel()
-    verticalScroller?.alphaValue = 1
+    setScrollerVisible(true)
   }
 
   private func scheduleHide() {
@@ -281,7 +325,17 @@ final class AIMOwnedScrollView: NSScrollView {
     hideTask = Task { @MainActor [weak self] in
       try? await Task.sleep(for: .milliseconds(700))
       guard !Task.isCancelled else { return }
-      self?.verticalScroller?.animator().alphaValue = 0
+      self?.setScrollerVisible(false)
+    }
+  }
+
+  private func setScrollerVisible(_ visible: Bool) {
+    guard visible != isScrollerVisible, let scroller = verticalScroller else { return }
+    isScrollerVisible = visible
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        ? 0 : (visible ? 0.12 : 0.20)
+      scroller.animator().alphaValue = visible ? 1 : 0
     }
   }
 
@@ -303,9 +357,9 @@ private struct AIMNativeScrollView: NSViewRepresentable {
   func makeNSView(context: Context) -> AIMOwnedScrollView {
     let scrollView = AIMOwnedScrollView(frame: .zero)
     let host = context.coordinator.host
-    host.rootView = content
     host.translatesAutoresizingMaskIntoConstraints = false
     host.focusRingType = .none
+    host.rootView = content
     scrollView.documentView = host
     NSLayoutConstraint.activate([
       host.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
@@ -318,5 +372,6 @@ private struct AIMNativeScrollView: NSViewRepresentable {
 
   func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
     context.coordinator.host.rootView = content
+    context.coordinator.host.appearance = scrollView.effectiveAppearance
   }
 }

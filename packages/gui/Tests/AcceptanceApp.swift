@@ -144,7 +144,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     }
 
     @objc private func closeWindow() { windowController?.window?.close() }
-    @objc private func minimizeWindow() { windowController?.window?.miniaturize(nil) }
+    @objc private func minimizeWindow() { AIManagerWindowBehavior.minimize(windowController?.window) }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem.action == #selector(importAccount) ? !model.isBusy : true
@@ -228,6 +228,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     if let contentView = window.contentView {
         expect(contentView.bounds.size == AcceptanceConfiguration.initialSize, "Acceptance content size changed")
         if stage == "after-load" {
+            receipts.writeSnapshot(of: contentView)
             expect(
                 AIManagerNativeContract.focusPolicyMatches(in: contentView, indicatorsEnabled: false),
                 "Acceptance host focus policy is not disabled at startup"
@@ -236,6 +237,10 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         expect(
             AIManagerNativeContract.scrollBehaviorIsInstalled(in: contentView),
             "Acceptance scroll behavior is not installed after layout"
+        )
+        expect(
+            AIManagerNativeContract.scrollAppearancesMatch(in: contentView, appearance: window.effectiveAppearance),
+            "Acceptance scroll content appearance differs from the window"
         )
         // The shared helper converts top-origin coordinates to AppKit hit-test coordinates.
         let titlePoint = NSPoint(x: 400, y: 28)
@@ -377,6 +382,14 @@ private final class AcceptanceReceipts {
         try? data.write(to: directory.appending(path: "window-contract.json"), options: .atomic)
     }
 
+    func writeSnapshot(of view: NSView) {
+        guard let directory,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: directory.appending(path: "window.png"), options: .atomic)
+    }
+
     func report(failures: [String]) {
         let status = failures.isEmpty
             ? "WINDOW_CONTRACT_PASS\n"
@@ -387,7 +400,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }

@@ -44,6 +44,13 @@ enum AIManagerNativeContract {
     }.count
   }
 
+  static func scrollAppearancesMatch(in root: NSView, appearance: NSAppearance) -> Bool {
+    views(in: root).compactMap { $0 as? NSScrollView }.allSatisfy {
+      $0.documentView?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        == appearance.bestMatch(from: [.darkAqua, .aqua])
+    }
+  }
+
   static func scrollIdentity(in root: NSView) -> String {
     views(in: root).compactMap { $0 as? NSScrollView }
       .map { String(describing: ObjectIdentifier($0)) }.joined(separator: ",")
