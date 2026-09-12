@@ -1,8 +1,8 @@
 # AI Manager: native macOS Codex account manager
 
-Status: core and CLI implementation gates pass. The current native GUI design-review
-build is complete, installed, and intentionally mock-only; restoring production GUI
-operations remains deferred until the user approves the design.
+Status: core and CLI implementation gates pass. The user approved restoring production
+GUI operations on 2026-09-12. The normal app must use the real shared core; only the
+separately named Preview app may use in-memory demo data.
 Decision date: 2026-09-11.
 Design revision: 2026-09-12.
 
@@ -1430,9 +1430,29 @@ One marker, zero missing triggers; no icon-related shortcuts were added.
 
 ### Next action (production functionality, deferred after design review)
 
-The design-review app and sample preview are installed, and the recorded sample flow,
-window, contract, and performance checks pass. Production GUI account mutations remain
-disabled by the user's current mock-only design directive. When the design is approved,
-restore the shared core operations behind the existing views and repeat the protected
-installed-app mutation gates. Keep the user's prepared homes unchanged; automated
-validation continues to use isolated synthetic copies.
+The user approved production wiring on 2026-09-12. The normal app must discover, import,
+verify, switch, launch, repair, and recover through `AccountManager`; the Preview app must
+remain synthetic and side-effect free. Validate the normal GUI model against isolated
+synthetic homes before installing it. Keep the user's prepared homes unchanged during
+automated validation.
+
+### IIA Directeur production refinement (2026-09-12)
+
+The macOS app's display name is **IIA Directeur**. Preserve the existing bundle identifier,
+application-support location, frame-autosave name, and `ai-manager` CLI command so the
+rename does not strand preferences or managed data.
+
+The 48-point rail keeps Close centered in its own square. Minimize is a square floating
+control that appears beside it on hover or keyboard focus and never changes Close's
+position. Shared Settings rows span the panel: labels align at the leading content edge and
+switches align at the trailing edge. Neither row may collapse to its intrinsic width.
+
+Recovery must show interrupted core operations and distinct, legible examples for a regular
+conversation snapshot, an incremental snapshot, a custom-location backup, and a disconnected
+external-drive backup. A disconnected drive offers explicit actions to wait for reconnection
+or choose another destination; demo actions stay in memory. These examples explain recovery
+policy and do not imply a background backup engine that is outside v1.
+
+Public release readiness requires the production GUI synthetic-account flow, full native
+contracts, clean packaging, and distribution signing/notarization evidence. An Apple
+Development-signed local build alone is not a public distribution release.
