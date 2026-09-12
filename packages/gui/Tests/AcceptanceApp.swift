@@ -82,6 +82,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     private let model = AccountViewModel()
     private var windowController: AIManagerWindowController<AnyView>?
     private var statusItemController: AIManagerStatusItemController?
+    private var instanceActivationObserver: NSObjectProtocol?
     var hasStatusItem: Bool { statusItemController?.isPresent == true }
     private var modelObservers = Set<AnyCancellable>()
 
@@ -118,6 +119,17 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             rootView: content
         )
         windowController = controller
+        instanceActivationObserver = DistributedNotificationCenter.default().addObserver(
+            forName: AIManagerSingleInstance.activationNotification(
+                bundleIdentifier: AIManagerSingleInstance.bundleIdentifier()),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.windowController?.present()
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         statusItemController = AIManagerStatusItemController {
             controller.present()
             NSApp.activate(ignoringOtherApps: true)
@@ -167,17 +179,26 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let instanceActivationObserver {
+            DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
+        }
+    }
 }
 
 @main
 enum AIManagerGUIAcceptanceApp {
     @MainActor
     static func main() {
+        let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
+        guard let instanceLock = AIManagerSingleInstance.acquireOrActivate(
+            bundleIdentifier: bundleIdentifier) else { return }
         let application = NSApplication.shared
         let delegate = AcceptanceAppDelegate()
         application.setActivationPolicy(.regular)
         application.delegate = delegate
-        withExtendedLifetime(delegate) {
+        withExtendedLifetime((delegate, instanceLock)) {
             application.run()
         }
     }
@@ -192,6 +213,10 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.windowControlSize == 48, "Custom controls are not 48 points square")
     expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
+    expect(
+        Bundle.main.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool == true,
+        "Launch Services does not prohibit duplicate app instances"
+    )
     guard let window = NSApp.windows.first(where: { $0 is AIManagerWindow }) else {
         let receipt = WindowContractReceipt(
             passed: false,
