@@ -39,10 +39,9 @@ extension EnvironmentValues {
 enum AIMTheme {
   static let radius: CGFloat = 3
   static let railWidth: CGFloat = 48
-  static let topbarHeight: CGFloat = 56
+  static let topbarHeight: CGFloat = 48
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48
-  static let windowControlsTitleInset: CGFloat = 64
   static let modalOuterInset: CGFloat = 24
   static let panelContentInset: CGFloat = 16
 
@@ -237,18 +236,49 @@ struct AIMPanel<Content: View>: View {
       }
       .frame(height: 40)
       .background {
-        LinearGradient(
-          colors: [AIMTheme.green.opacity(0.16), .clear, AIMTheme.titleArt.opacity(0.24)],
-          startPoint: .leading,
-          endPoint: .trailing
-        )
-        .allowsHitTesting(false)
+        ZStack(alignment: .trailing) {
+          LinearGradient(
+            colors: [AIMTheme.green.opacity(0.16), .clear, AIMTheme.titleArt.opacity(0.24)],
+            startPoint: .leading,
+            endPoint: .trailing
+          )
+          AIMTitleArt()
+        }.allowsHitTesting(false)
       }
       .background(AIMTheme.panel2)
       content
     }
     .background(AIMTheme.panel)
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+}
+
+private struct AIMTitleArt: View {
+  var body: some View {
+    Canvas { context, _ in
+      for radius in stride(from: CGFloat(24), through: 60, by: 9) {
+        context.stroke(
+          Path(ellipseIn: CGRect(
+            x: 187 - radius, y: 47 - radius, width: radius * 2, height: radius * 2)),
+          with: .color(AIMTheme.titleArt.opacity(0.48)), lineWidth: 0.65)
+        context.stroke(
+          Path(ellipseIn: CGRect(
+            x: 128 - radius, y: -23 - radius, width: radius * 2, height: radius * 2)),
+          with: .color(AIMTheme.titleArt.opacity(0.29)), lineWidth: 0.65)
+      }
+    }
+    .frame(width: 200, height: 40)
+    .mask {
+      LinearGradient(
+        stops: [
+          .init(color: .black.opacity(0.22), location: 0),
+          .init(color: .black.opacity(0.60), location: 0.55),
+          .init(color: .black, location: 1),
+        ],
+        startPoint: .leading,
+        endPoint: .trailing)
+    }
+    .accessibilityHidden(true)
   }
 }
 
