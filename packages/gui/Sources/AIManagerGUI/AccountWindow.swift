@@ -291,7 +291,10 @@ struct AccountWindow: View {
       .accessibilityLabel(model.isDemo ? "Refresh demo data" : "Refresh accounts")
       .accessibilityHint(refreshHelp)
       .frame(maxWidth: .infinity, alignment: .trailing)
-    }.padding(.leading, windowControlsExpanded ? 64 : 24).padding(.trailing, 24)
+    }.padding(
+      .leading,
+      windowControlsExpanded ? AIMTheme.windowControlsExpandedTitleInset : AIMTheme.modalOuterInset
+    ).padding(.trailing, AIMTheme.modalOuterInset)
       .animation(
         reduceMotion ? nil : .easeOut(duration: AIMMotion.minimize),
         value: windowControlsExpanded)
