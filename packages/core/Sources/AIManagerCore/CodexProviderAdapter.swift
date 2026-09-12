@@ -70,8 +70,9 @@ struct CodexProviderAdapter {
             return .init(data: Data(), digest: "", identity: nil, support: .missingAuth, error: "auth.json is missing. Sign in with Codex or choose another source.")
         }
         do {
-            let values = try auth.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            guard values.isRegularFile == true else {
+            let values = try auth.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else {
                 return .init(data: Data(), digest: "", identity: nil, support: .malformedAuth, error: "auth.json is not a regular file.")
             }
             guard let count = values.fileSize, count <= CoreSupport.maxAuthBytes else {

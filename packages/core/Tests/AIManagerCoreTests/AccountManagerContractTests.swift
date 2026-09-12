@@ -87,6 +87,24 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(found.first(where: { $0.path.standardizedFileURL.path == malformed.standardizedFileURL.path })?.support, .malformedAuth)
     }
 
+    func testImportRefusesAuthSymbolicLinkWithoutReadingItsTarget() async throws {
+        let source = root.appending(path: "source")
+        let external = root.appending(path: "external-auth.json")
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        let credential = try authData(account: "account", workspace: "workspace")
+        try credential.write(to: external)
+        try fm.createSymbolicLink(
+            at: source.appending(path: "auth.json"), withDestinationURL: external)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.planImport(source: source, mode: .authOnly)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("not a regular file"))
+        }
+        XCTAssertEqual(try Data(contentsOf: external), credential)
+    }
+
     func testAuthOnlyImportKeepsSourceAndLinksSharedData() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account-a", workspace: "workspace")
@@ -346,6 +364,28 @@ final class AccountManagerContractTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
             XCTAssertEqual(error as? AIManagerError, .credentialConflict)
+        }
+    }
+
+    func testRegistryRejectsManagedHomeOutsidePrivateAccountRoot() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        _ = try await manager.importAccount(plan: plan)
+        let registry = paths.applicationSupport.appending(path: "accounts.json")
+        var rootObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registry)) as? [String: Any]
+        )
+        var accounts = try XCTUnwrap(rootObject["accounts"] as? [[String: Any]])
+        accounts[0]["home"] = source.absoluteString
+        rootObject["accounts"] = accounts
+        try JSONSerialization.data(withJSONObject: rootObject).write(to: registry)
+
+        await XCTAssertThrowsErrorAsync(try await manager.status()) { error in
+            XCTAssertEqual(
+                error as? AIManagerError,
+                .unsafePath("managed account home is outside the private account root"))
         }
     }
 
@@ -651,6 +691,70 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: paths.sharedRoot.appending(path: "skills/SKILL.md")), Data("skill".utf8))
         XCTAssertEqual(try Data(contentsOf: portable.backup.appending(path: "linked-source/skills/SKILL.md")), Data("skill".utf8))
         XCTAssertFalse(portable.unresolved.contains { $0.contains("skills: external symbolic-link") })
+    }
+
+    func testReviewedExternalSettingRejectsChangedTargetContent() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let external = root.appending(path: "outside-skills")
+        try fm.createDirectory(at: external, withIntermediateDirectories: true)
+        let skill = external.appending(path: "SKILL.md")
+        try Data("reviewed".utf8).write(to: skill)
+        try fm.createSymbolicLink(at: source.appending(path: "skills"), withDestinationURL: external)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        var plan = try await manager.planImport(source: source, mode: .full)
+        plan = try await manager.reviewExternalSetting(plan: plan, relativePath: "skills")
+        try Data("changed after review".utf8).write(to: skill)
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.importAccount(plan: plan, decisions: ["skills": .useImported])
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        XCTAssertFalse(CoreSupport.entryExists(paths.sharedRoot.appending(path: "skills")))
+        let status = try await manager.status()
+        XCTAssertTrue(status.accounts.isEmpty)
+    }
+
+    func testNestedExternalSettingCannotBeApprovedButCanStayShared() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let rules = source.appending(path: "rules")
+        let external = root.appending(path: "outside-rule")
+        let sharedRules = paths.sharedRoot.appending(path: "rules")
+        try fm.createDirectory(at: rules, withIntermediateDirectories: true)
+        try fm.createDirectory(at: external, withIntermediateDirectories: true)
+        try fm.createDirectory(at: sharedRules, withIntermediateDirectories: true)
+        try Data("external".utf8).write(to: external.appending(path: "rule.md"))
+        try Data("shared".utf8).write(to: sharedRules.appending(path: "rule.md"))
+        try fm.createSymbolicLink(at: rules.appending(path: "linked"), withDestinationURL: external)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .full)
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.reviewExternalSetting(plan: plan, relativePath: "rules")
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Nested external links"))
+        }
+        _ = try await manager.importAccount(plan: plan, decisions: ["rules": .keepShared])
+        XCTAssertEqual(
+            try Data(contentsOf: sharedRules.appending(path: "rule.md")), Data("shared".utf8))
+    }
+
+    func testFullImportRejectsDatabaseChangesAfterReview() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let database = source.appending(path: "state_5.sqlite")
+        try Data("before".utf8).write(to: database)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .full)
+        try Data("after".utf8).write(to: database)
+
+        await XCTAssertThrowsErrorAsync(try await manager.importAccount(plan: plan)) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        let status = try await manager.status()
+        XCTAssertTrue(status.accounts.isEmpty)
     }
 
     func testSourceMutationDuringCopyRollsBackSharedAddition() async throws {
