@@ -60,6 +60,10 @@ enum CoreSupport {
         return candidateParts.count >= parentParts.count && Array(candidateParts.prefix(parentParts.count)) == parentParts
     }
 
+    static func sameLocation(_ first: URL, _ second: URL) -> Bool {
+        canonical(first).pathComponents == canonical(second).pathComponents
+    }
+
     static func digest(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }

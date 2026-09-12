@@ -59,6 +59,13 @@ final class AccountManagerContractTests: XCTestCase {
         }
     }
 
+    func testCanonicalLocationIgnoresDirectoryHint() {
+        let location = root.appending(path: "portable-home")
+        let directory = URL(fileURLWithPath: location.path, isDirectory: true)
+
+        XCTAssertTrue(CoreSupport.sameLocation(location, directory))
+    }
+
     func testDiscoveryIsBoundedOfflineAndDistinguishesWorkspaces() async throws {
         let first = paths.defaultHome
         let second = first.deletingLastPathComponent().appending(path: ".codex2")
