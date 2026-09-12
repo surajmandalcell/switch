@@ -219,6 +219,22 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
     expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "AI Manager status item is unavailable")
+    let behaviorDomain = "com.mandalsuraj.ai-manager.acceptance.window-behavior"
+    if let behaviorDefaults = UserDefaults(suiteName: behaviorDomain) {
+        behaviorDefaults.set(true, forKey: AIManagerWindowBehavior.minimizeToTrayKey)
+        expect(
+            AIManagerWindowBehavior.hidesOnMinimize(defaults: behaviorDefaults),
+            "Minimize-to-tray preference did not select window hiding"
+        )
+        behaviorDefaults.set(false, forKey: AIManagerWindowBehavior.minimizeToTrayKey)
+        expect(
+            !AIManagerWindowBehavior.hidesOnMinimize(defaults: behaviorDefaults),
+            "Native minimize preference did not select miniaturization"
+        )
+        behaviorDefaults.removePersistentDomain(forName: behaviorDomain)
+    } else {
+        failures.append("Acceptance preference domain was unavailable")
+    }
     for icon in AIMIcon.Name.allCases {
         expect(
             NSImage(systemSymbolName: icon.symbol, accessibilityDescription: nil) != nil,
