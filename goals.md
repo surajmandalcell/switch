@@ -104,6 +104,13 @@ no layout space. The titlebar is 48 points high, matching the Close and Minimize
 Panel-title art keeps the full available width and uses Recap Pro's restrained trailing
 concentric-arc pattern without changing title or content geometry.
 
+Import and rail refinement (2026-09-12): keep Close mounted on a stable rail surface and
+animate only its red hover tint. Keep Minimize mounted behind it and animate only Minimize's
+offset and opacity, so entering Close cannot flash or shift layout. The rail's existing
+one-point trailing divider stays continuous through the control row; do not draw a second
+line. The import wizard exposes Codex as the selected provider and labels the native chooser
+for an explicit Codex home folder or `auth.json`. A chosen source stays unchanged.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
@@ -1653,12 +1660,11 @@ with temporary synthetic homes before installation.
   window contracts, thin-scrollbar check, and fresh-path single-instance check also pass.
   System appearance now clears an earlier fixed window appearance so later macOS changes
   propagate. Production renders a loading state until account discovery finishes.
-- Close is the only resting window control. Minimize is conditionally inserted only while
-  the pointer is within the Close/Minimize region, overlays one fixed 48-point square beside
-  Close, and never participates in title layout. The title uses the same fixed 112-point
-  global leading position in both states, leaving 16 points after the possible two-control
-  footprint. The fold-out lasts 80 milliseconds, reduced motion removes it, and a short
-  seam grace lets the pointer cross between the edge-to-edge controls.
+- Close is the only visible resting window control. Minimize stays mounted behind Close and
+  changes only offset and opacity while the pointer is within the control region. Close keeps
+  one stable rail fill and changes only a translucent red tint, which prevents the prior bright
+  flash. Neither control participates in title layout. The fold-out lasts 80 milliseconds,
+  reduced motion removes it, and a short seam grace joins the edge-to-edge controls.
 - The same tracked source snapshot passed `scripts/check-linux.sh` as an unprivileged user
   in read-only ARM64 and AMD64 Linux containers. Each architecture passed all 79 tests,
   release ELF and SQLite linkage, CLI discovery/import/verification/launch/recovery,
@@ -1711,3 +1717,19 @@ with temporary synthetic homes before installation.
 - Native Computer is registered, but this Orca host exposes neither the required native-pipe
   connection nor Launch Services bridge. The installed contract and launch receipts are the
   available runtime evidence; no alternate desktop driver was used.
+
+### Import folder and rail acceptance (2026-09-12)
+
+- The import modal now starts with a provider choice. Codex is the only available choice; the
+  stored provider ID remains part of every source and account record for later provider support.
+- The native chooser opens at the user's home, shows hidden folders such as `.codex`, and accepts
+  either a chosen Codex home or its `auth.json`. The selected home is highlighted after discovery.
+- The Close surface stops before the rail's existing trailing pixel. The same one-point divider
+  now stays visible from the window top to bottom without another overlapping line.
+- The current `~/.codex2` structure was inspected without reading credential, settings, transcript,
+  or database contents. It already keeps separate auth and SQLite state while linking settings and
+  transcript paths to `~/.codex`, which matches the managed-home contract.
+- The full native gate passes 79 core tests with two authorized-copy tests skipped, both GUI model
+  checks, System/Light/Dark window contracts, single-instance behavior, and thin scrollbars. A hidden
+  native light render confirms the final 780 by 600 import layout. Native Computer reached the current
+  plugin but its native-pipe startup failed; no alternate desktop driver was used.
