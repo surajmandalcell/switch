@@ -5,6 +5,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 output_path="$build_path/gui-single-instance-check"
+mkdir -p "$build_path"
 
 swiftc \
   -parse-as-library \

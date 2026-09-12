@@ -236,6 +236,10 @@ struct AccountWindow: View {
   }
 
   private func applyAppearance(to window: NSWindow) {
+    guard appearanceMode != "system" else {
+      if window.appearance != nil { window.appearance = nil }
+      return
+    }
     let name: NSAppearance.Name = dark ? .darkAqua : .aqua
     if window.appearance?.name != name { window.appearance = NSAppearance(named: name) }
   }
@@ -316,13 +320,8 @@ private struct RailTop: View {
   @State private var closeHover = false
   @State private var minimizeHover = false
   @State private var pendingHide: Task<Void, Never>?
-  @FocusState private var closeFocused: Bool
-  @FocusState private var minimizeFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  private var showMinimize: Bool {
-    hover || (focusIndicatorsEnabled && (closeFocused || minimizeFocused))
-  }
+  private var showMinimize: Bool { hover }
   var body: some View {
     ZStack(alignment: .topLeading) {
       if showMinimize {
@@ -333,7 +332,7 @@ private struct RailTop: View {
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
           .background(minimizeHover ? AIMTheme.minimizeHover : AIMTheme.minimizeControl)
           .contentShape(Rectangle())
-        }.buttonStyle(AIMPressButtonStyle()).focusable().focused($minimizeFocused)
+        }.buttonStyle(AIMPressButtonStyle()).focusable()
           .accessibilityLabel("Minimize window")
           .offset(x: AIMTheme.windowControlSize)
           .transition(reduceMotion ? .identity : .offset(x: -AIMTheme.windowControlSize))
@@ -347,7 +346,7 @@ private struct RailTop: View {
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
           .background(closeHover ? Color(nsColor: .systemRed).opacity(0.12) : AIMTheme.rail)
           .contentShape(Rectangle())
-      }.buttonStyle(AIMPressButtonStyle()).focusable().focused($closeFocused)
+      }.buttonStyle(AIMPressButtonStyle()).focusable()
         .accessibilityLabel("Close window")
         .onHover { value in
           closeHover = value
@@ -424,16 +423,19 @@ private struct AIMButton: View {
           unavailable
             ? AIMTheme.disabledInk
             : (tone == .primary
-              ? AIMTheme.canvas : (tone == .danger ? (hover ? AIMTheme.statusInk : AIMTheme.red) : AIMTheme.ink))
+              ? AIMTheme.canvas : (tone == .danger ? AIMTheme.statusInk : AIMTheme.ink))
         ).background(
           unavailable
             ? AIMTheme.disabledControl
             : (tone == .primary
               ? (hover ? AIMTheme.primaryHover : AIMTheme.ink)
               : (tone == .danger
-                ? (hover ? AIMTheme.red : AIMTheme.red.opacity(0.14))
+                ? AIMTheme.red
                 : (hover ? AIMTheme.controlHover : AIMTheme.control)))
         ).overlay {
+          if tone == .danger && hover {
+            RoundedRectangle(cornerRadius: 3).fill(AIMTheme.statusInk.opacity(0.08))
+          }
           if focused, focusIndicatorsEnabled {
             RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
           }
@@ -474,7 +476,13 @@ private struct AccountsPage: View {
                     isDefault: account.id == model.status?.defaultAccountID)
                 }.buttonStyle(AIMPressButtonStyle())
               }
-              if model.status?.accounts.isEmpty != false {
+              if !model.hasLoaded {
+                HStack(spacing: 8) {
+                  ProgressView().controlSize(.small)
+                  Text("Loading accounts…")
+                }.font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
+                  .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+              } else if model.status?.accounts.isEmpty != false {
                 Text("No accounts yet.").font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
                   .padding(16).frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -488,11 +496,11 @@ private struct AccountsPage: View {
               Text("Import account")
               Spacer()
             }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
-              .foregroundStyle(model.isBusy ? AIMTheme.disabledInk : AIMTheme.ink)
-              .background(importHovered && !model.isBusy ? AIMTheme.controlHover : AIMTheme.panel2)
+              .foregroundStyle(model.isBusy || !model.hasLoaded ? AIMTheme.disabledInk : AIMTheme.ink)
+              .background(importHovered && !model.isBusy && model.hasLoaded ? AIMTheme.controlHover : AIMTheme.panel2)
           }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut("i", modifiers: [.command])
-            .disabled(model.isBusy)
-            .onHover { importHovered = $0 && !model.isBusy }
+            .disabled(model.isBusy || !model.hasLoaded)
+            .onHover { importHovered = $0 && !model.isBusy && model.hasLoaded }
             .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: importHovered)
             .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
         }
@@ -535,13 +543,22 @@ private struct EmptyAccountView: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
     AIMPanel(title: "Account") {
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Import your first Codex account").font(AIMTheme.sans(18, weight: .semibold))
-        Text(
-          "Choose a Codex home to review credentials, shared settings, chat history, and its backup plan."
-        ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
-        AIMButton(title: "Import account", icon: .plus, tone: .primary, disabled: model.isBusy) {
-          Task { await model.beginImport() }
+      Group {
+        if !model.hasLoaded {
+          HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("Loading Codex profiles…").font(AIMTheme.sans(13, weight: .medium))
+          }
+        } else {
+          VStack(alignment: .leading, spacing: 10) {
+            Text("Import your first Codex account").font(AIMTheme.sans(18, weight: .semibold))
+            Text(
+              "Choose a Codex home to review credentials, shared settings, chat history, and its backup plan."
+            ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
+            AIMButton(title: "Import account", icon: .plus, tone: .primary, disabled: model.isBusy) {
+              Task { await model.beginImport() }
+            }
+          }
         }
       }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }.frame(maxWidth: .infinity)
@@ -805,9 +822,9 @@ private struct HistoryPage: View {
                   width: 70, alignment: .trailing)
                 Text("\(history.archivedTranscripts)").font(AIMTheme.mono(11)).frame(
                   width: 70, alignment: .trailing)
-                Text(history.hasIndexes ? "Ready" : "Missing")
-                  .font(AIMTheme.sans(10, weight: .medium))
-                  .foregroundStyle(history.hasIndexes ? AIMTheme.green : AIMTheme.amber)
+                Badge(
+                  text: history.hasIndexes ? "Ready" : "Missing",
+                  color: history.hasIndexes ? AIMTheme.green : AIMTheme.amber)
                   .frame(width: 70, alignment: .trailing)
               }.padding(.horizontal, 16).frame(minHeight: 44).background(
                 index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
@@ -1115,22 +1132,25 @@ private struct SourcePage: View {
             }
             ForEach(Array(model.discoveries.enumerated()), id: \.element.id) { index, source in
               let supported = source.support == .supportedChatGPT
+              let selected = source.id == model.selectedSourceID
               Button {
                 model.selectedSourceID = source.id
               } label: {
                 HStack(spacing: 12) {
                   AIMIcon(
-                    name: source.id == model.selectedSourceID ? .checkSquare : .square,
+                    name: selected ? .checkSquare : .square,
                     size: 14)
                   VStack(alignment: .leading, spacing: 3) {
                     Text(source.identity?.displayName ?? source.support.label).font(
                       AIMTheme.sans(12, weight: .medium))
-                    Text(source.path.path).font(AIMTheme.mono(11)).foregroundStyle(AIMTheme.muted)
+                    Text(source.path.path).font(AIMTheme.mono(11)).foregroundStyle(
+                      selected ? AIMTheme.activeInk : AIMTheme.muted)
                       .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                       .help(source.path.path)
                     Text(
                       "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
-                    ).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+                    ).font(AIMTheme.mono(10)).foregroundStyle(
+                      selected ? AIMTheme.activeInk : AIMTheme.muted)
                     if let reason = source.inspectionError, !supported {
                       Text(reason).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
                         .lineLimit(2)
@@ -1141,14 +1161,14 @@ private struct SourcePage: View {
                     text: source.support.label,
                     color: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber)
                 }.padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 58).background(
-                  source.id == model.selectedSourceID
+                  selected
                     ? AIMTheme.active.opacity(0.70)
                     : (hoveredSourceID == source.id
                       ? AIMTheme.panel2
                       : (index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55)))
                 ).contentShape(Rectangle())
                   .foregroundStyle(
-                    source.id == model.selectedSourceID ? AIMTheme.activeInk : AIMTheme.ink)
+                    selected ? AIMTheme.activeInk : AIMTheme.ink)
                   .opacity(isEnabled && supported ? 1 : 0.58)
               }.buttonStyle(AIMPressButtonStyle())
                 .disabled(!supported)

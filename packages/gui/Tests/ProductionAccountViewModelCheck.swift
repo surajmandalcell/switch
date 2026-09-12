@@ -56,7 +56,9 @@ struct ProductionAccountViewModelCheck {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let model = AccountViewModel(paths: paths, manager: manager)
         try expect(!model.isDemo && !model.isUnavailable, "Production model was unavailable")
+        try expect(!model.hasLoaded, "Production model should begin in a loading state")
         await model.load()
+        try expect(model.hasLoaded, "Production model did not leave its loading state")
         try expect(model.status?.accounts.isEmpty == true, "Production registry was not initially empty")
 
         await model.beginImport()
