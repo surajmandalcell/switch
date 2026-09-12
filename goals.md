@@ -1,18 +1,17 @@
 # IIA Directeur: native macOS Codex account manager
 
-Status: release-candidate audit reopened. Earlier local gates are evidence, not completion.
-The normal app uses the real shared core; only the separately named Preview app uses
-in-memory demo data. Public direct distribution remains blocked on a Developer ID
-Application identity and notarization.
+Status: local release-candidate gates passed; the exact clean installation is recorded by
+the final receipt named in the closeout evidence. The normal app uses the real shared core;
+only the separately named Preview app uses in-memory demo data. Public direct distribution
+remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
 Design revision: 2026-09-12.
 
-### Release-candidate audit reopened (2026-09-12)
+### Release-candidate audit requirements (2026-09-12)
 
-Do not call the product complete because one change or one acceptance script passes.
-Continue until the full current surface and operation inventory has been inspected,
-confirmed defects have been fixed, and every applicable gate below passes from a clean
-checkout state.
+The closeout evidence records the full surface and operation inventory, confirmed fixes,
+and clean-checkout gates. One passing change or acceptance script alone does not satisfy
+these requirements.
 
 - Replace the current Dock, Spotlight, rail, and menu-bar artwork with one clear,
   licensed account-manager mark. It must stay legible at 16, 22, 44, 256, and 1024 pixels.
