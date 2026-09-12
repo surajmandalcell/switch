@@ -5,6 +5,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 output_path="$build_path/gui-production-check"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/iia-directeur-gui-production.XXXXXX")"
+trap 'rm -rf "$test_root"' EXIT
 
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$build_path/module-cache/swiftpm"
@@ -25,4 +27,10 @@ swiftc \
   "$repo_root/packages/gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
 
-"$output_path"
+mkdir -p "$test_root/home" "$test_root/codex-home" "$test_root/manager" "$test_root/tmp"
+HOME="$test_root/home" \
+CFFIXED_USER_HOME="$test_root/home" \
+CODEX_HOME="$test_root/codex-home" \
+AI_MANAGER_ROOT="$test_root/manager" \
+TMPDIR="$test_root/tmp" \
+  "$output_path"

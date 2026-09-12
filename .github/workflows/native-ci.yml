@@ -13,6 +13,10 @@ on:
       - scripts/build-native.sh
       - scripts/check-native.sh
       - scripts/check-gui-demo.sh
+      - scripts/check-gui-contract.sh
+      - scripts/check-gui-production.sh
+      - scripts/check-gui-single-instance.sh
+      - scripts/check-gui-scroll.sh
       - scripts/build-gui-acceptance.sh
       - scripts/verify-codex-history.py
       - .github/workflows/native-ci.yml
