@@ -1557,3 +1557,25 @@ feedback must clarify the hit target without dimming the entire interface.
 Window Close and Minimize remain 48-point edge-to-edge squares. Minimize has sharp corners,
 slides from behind Close without bounce, and retracts quickly after the pointer leaves the
 combined control region. Static panels and decorative surfaces do not animate.
+
+### Typography and interaction acceptance (2026-09-12)
+
+- The app uses the named Regular, Medium, and SemiBold instances in its bundled Geist and
+  Geist Mono variable fonts. Page titles follow Recap Pro's 22-point, tight-tracked treatment;
+  subtitles are 13 points, and wizard source metadata no longer falls below 10 points.
+- Accounts now says "Import, verify, and switch accounts." The wizard gives the direct
+  instruction "Choose a Codex profile to import." No shipped GUI, core, or TUI source contains
+  provider-roadmap language or conversation-attachment labels.
+- Minimize is a sharp 48-point amber-tinted square. It moves one control width from behind
+  Close in 80 milliseconds without opacity or bounce and has a 70-millisecond seam grace.
+  Close remains fixed and visible. Both controls retain their full square hit areas.
+- Rail cells, account rows, the account importer, source rows, scope choices, modal Close,
+  refresh, normal/primary/danger buttons, and error dismissal have explicit pointer states.
+  Selection, busy, and disabled changes use 100-millisecond transitions, and Reduce Motion
+  removes movement. Disabled children inherit the wizard's busy state.
+- Light Accounts, light History, dark Shared Settings, dark Recovery, and the light import
+  wizard were rendered and inspected at the fixed 1120 by 740 window size. The modal contract
+  passes with three configured overlay scroll views and a working title drag target.
+- The native suite passes 52 tests with two private-copy gates skipped and no failures. The
+  mock GUI model, production GUI model, thin-scrollbar fixture, Swift package build, and diff
+  checks pass using the canonical build cache and synthetic account homes.
