@@ -61,14 +61,12 @@ hover behavior. All scrolling regions use very thin overlay scrollbars, visible
 only while their region is hovered or scrolling. These refinements supersede
 conflicting reference geometry or earlier resize/focus-outline requirements.
 
-For design review, both the normal GUI and preview run entirely on in-memory
+For design review, the separately named Preview app runs entirely on in-memory
 mock accounts, discovery, import/review/results, settings, verification, launch,
 switching, and recovery. No real account manager, credential discovery, filesystem
 mutation, Terminal/Finder launch, clipboard mutation, or network request is
-allowed through GUI account actions. Keep all pages and states reachable with
-sample data. Core and CLI production functionality remains unchanged. This
-temporary demo requirement supersedes the shared-core GUI requirement below
-until the user approves restoring real operations.
+allowed through Preview actions. Keep all pages and states reachable with sample
+data. The normal GUI uses the production core with fail-closed errors.
 
 App identity refinement (2026-09-12): add coordinated Dock and menu-bar icons
 using Recap Pro Producer's charcoal tile and off-white mark treatment. Use a

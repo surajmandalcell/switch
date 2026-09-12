@@ -56,6 +56,10 @@ enum AIManagerNativeContract {
       .map { String(describing: ObjectIdentifier($0)) }.joined(separator: ",")
   }
 
+  static func hasVisualEffect(in root: NSView) -> Bool {
+    views(in: root).contains { $0 is NSVisualEffectView }
+  }
+
   static func hierarchySnapshot(in root: NSView) -> [AIManagerNativeViewSnapshot] {
     snapshot(view: root, path: "0")
   }
