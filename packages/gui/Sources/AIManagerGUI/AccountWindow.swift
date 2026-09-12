@@ -11,9 +11,13 @@ import SwiftUI
 enum AIManagerWindowBehavior {
   static let minimizeToTrayKey = "minimizeToTray"
 
-  @MainActor static func minimize(_ window: NSWindow?) {
+  static func hidesOnMinimize(defaults: UserDefaults = .standard) -> Bool {
+    defaults.bool(forKey: minimizeToTrayKey)
+  }
+
+  @MainActor static func minimize(_ window: NSWindow?, defaults: UserDefaults = .standard) {
     guard let window else { return }
-    if UserDefaults.standard.bool(forKey: minimizeToTrayKey) {
+    if hidesOnMinimize(defaults: defaults) {
       window.orderOut(nil)
     } else {
       window.miniaturize(nil)
