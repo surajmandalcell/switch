@@ -700,8 +700,11 @@ final class AccountManagerContractTests: XCTestCase {
         let transcript = source.appending(path: "sessions/2026/01/01/thread.jsonl")
         let handle = try FileHandle(forWritingTo: transcript)
         try handle.seekToEnd()
-        try handle.write(contentsOf: Data(repeating: 0x78, count: 8 * 1_024 * 1_024))
-        try handle.write(contentsOf: Data([0x0A]))
+        let record = try JSONSerialization.data(withJSONObject: [
+            "type": "event",
+            "payload": ["text": String(repeating: "x", count: 8 * 1_024 * 1_024)]
+        ])
+        try handle.write(contentsOf: record + Data([0x0A]))
         try handle.close()
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
 
@@ -709,6 +712,95 @@ final class AccountManagerContractTests: XCTestCase {
         let result = try await manager.importAccount(plan: plan)
         XCTAssertEqual(result.importedChats, 1)
         XCTAssertEqual(try fm.attributesOfItem(atPath: paths.sharedRoot.appending(path: "sessions/2026/01/01/thread.jsonl").path)[.size] as? NSNumber, try fm.attributesOfItem(atPath: transcript.path)[.size] as? NSNumber)
+    }
+
+    func testMalformedAndUnidentifiedTranscriptsStayAtSourceAndAreReported() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let directory = source.appending(path: "sessions/2026/01/01")
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let unidentified = Data(#"{"id":"legacy-top-level-id","type":"event"}"#.utf8)
+        let malformed = Data(
+            "{\"type\":\"session_meta\",\"payload\":{\"id\":\"broken\"}}\nnot-json\n".utf8)
+        try unidentified.write(to: directory.appending(path: "unidentified.jsonl"))
+        try malformed.write(to: directory.appending(path: "malformed.jsonl"))
+        let sharedDirectory = paths.sharedRoot.appending(path: "sessions/2026/01/01")
+        try fm.createDirectory(at: sharedDirectory, withIntermediateDirectories: true)
+        try malformed.write(to: sharedDirectory.appending(path: "shared-malformed.jsonl"))
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        let plan = try await manager.planImport(source: source, mode: .full)
+        let result = try await manager.importAccount(plan: plan)
+
+        XCTAssertEqual(result.importedChats, 0)
+        XCTAssertTrue(result.unresolved.contains { $0.contains("unidentified.jsonl") && $0.contains("session_meta.payload.id") })
+        XCTAssertTrue(result.unresolved.contains { $0.contains("malformed.jsonl") && $0.contains("malformed JSONL") })
+        XCTAssertTrue(result.unresolved.contains { $0.contains("shared-malformed.jsonl") && $0.contains("malformed JSONL") })
+        XCTAssertFalse(fm.fileExists(atPath: paths.sharedRoot.appending(path: "sessions/2026/01/01/unidentified.jsonl").path))
+        XCTAssertFalse(fm.fileExists(atPath: paths.sharedRoot.appending(path: "sessions/2026/01/01/malformed.jsonl").path))
+        XCTAssertEqual(try Data(contentsOf: directory.appending(path: "unidentified.jsonl")), unidentified)
+        XCTAssertEqual(try Data(contentsOf: directory.appending(path: "malformed.jsonl")), malformed)
+        XCTAssertEqual(
+            try Data(contentsOf: sharedDirectory.appending(path: "shared-malformed.jsonl")),
+            malformed)
+    }
+
+    func testHistoryTraversalSkipsSymlinksAndCountsOnlyRegularJSONLFiles() async throws {
+        let source = root.appending(path: "source")
+        let external = root.appending(path: "external-history")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        try writeTranscript(home: external, id: "external", marker: "private")
+        try fm.createSymbolicLink(
+            at: source.appending(path: "sessions"),
+            withDestinationURL: external.appending(path: "sessions"))
+        try fm.createSymbolicLink(
+            at: source.appending(path: "history.jsonl"),
+            withDestinationURL: external.appending(path: "sessions/2026/01/01/external.jsonl"))
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        let summary = await manager.historySummary(for: source)
+        let plan = try await manager.planImport(source: source, mode: .full)
+        let result = try await manager.importAccount(plan: plan)
+
+        XCTAssertEqual(summary.activeTranscripts, 0)
+        XCTAssertFalse(summary.hasIndexes)
+        XCTAssertEqual(plan.manifest.first(where: { $0.relativePath == "sessions" })?.selected, false)
+        XCTAssertEqual(
+            plan.manifest.first(where: { $0.relativePath == "history.jsonl" })?.disposition,
+            "history symbolic links are not imported")
+        XCTAssertTrue(result.unresolved.contains { $0.contains("sessions") && $0.contains("symbolic link") })
+        XCTAssertFalse(fm.fileExists(atPath: paths.sharedRoot.appending(path: "sessions/2026/01/01/external.jsonl").path))
+
+        let local = root.appending(path: "regular-history")
+        try writeTranscript(home: local, id: "regular", marker: "count")
+        try fm.createDirectory(at: local.appending(path: "sessions/fake.jsonl"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            at: local.appending(path: "sessions/link.jsonl"),
+            withDestinationURL: external.appending(path: "sessions/2026/01/01/external.jsonl"))
+        let localSummary = await manager.historySummary(for: local)
+        XCTAssertEqual(localSummary.activeTranscripts, 1)
+    }
+
+    func testDuplicateSharedTranscriptIdentityStaysUntouchedAndBlocksIncomingCopy() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        try writeTranscript(home: source, id: "duplicate", marker: "incoming", filename: "incoming.jsonl")
+        try writeTranscript(home: paths.sharedRoot, id: "duplicate", marker: "first", filename: "first.jsonl")
+        try writeTranscript(home: paths.sharedRoot, id: "duplicate", marker: "second", filename: "second.jsonl")
+        let first = paths.sharedRoot.appending(path: "sessions/2026/01/01/first.jsonl")
+        let second = paths.sharedRoot.appending(path: "sessions/2026/01/01/second.jsonl")
+        let firstData = try Data(contentsOf: first)
+        let secondData = try Data(contentsOf: second)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        let plan = try await manager.planImport(source: source, mode: .full)
+        let result = try await manager.importAccount(plan: plan)
+
+        XCTAssertEqual(result.importedChats, 0)
+        XCTAssertTrue(result.unresolved.contains { $0.contains("duplicate shared transcript ID duplicate") })
+        XCTAssertEqual(try Data(contentsOf: first), firstData)
+        XCTAssertEqual(try Data(contentsOf: second), secondData)
+        XCTAssertFalse(fm.fileExists(atPath: paths.sharedRoot.appending(path: "sessions/2026/01/01/incoming.jsonl").path))
     }
 
     func testDirectorySettingMergePreservesSharedOnlyFilesAndUsesPerFileChoices() async throws {
