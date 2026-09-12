@@ -40,6 +40,22 @@ struct CodexProviderAdapter {
         }
     }
 
+    func validateManagedCredential(_ account: AccountRecord) throws {
+        try requireSupported(account.identity.providerID)
+        let auth = account.home.appending(path: "auth.json")
+        guard let values = try? auth.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw AIManagerError.credentialConflict
+        }
+        let inspection = inspect(home: account.home)
+        guard inspection.support == .supportedChatGPT,
+              let identity = inspection.identity,
+              sameIdentity(account.identity, identity),
+              inspection.digest == account.credentialDigest else {
+            throw AIManagerError.credentialConflict
+        }
+    }
+
     func inspect(home selected: URL) -> AuthInspection {
         let home = CoreSupport.home(for: selected)
         let auth = selected.lastPathComponent == "auth.json" ? selected : home.appending(path: "auth.json")
