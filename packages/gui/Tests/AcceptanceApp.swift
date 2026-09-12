@@ -234,6 +234,8 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(window.styleMask.contains(.closable), "Acceptance window is not closable")
     expect(window.styleMask.contains(.miniaturizable), "Acceptance window is not miniaturizable")
     expect(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
+    expect(!window.isOpaque, "Acceptance window is opaque")
+    expect(window.backgroundColor.alphaComponent == 0, "Acceptance window background is not clear")
     expect(
         window.frame.size == AcceptanceConfiguration.initialSize,
         "Acceptance window frame changed to \(NSStringFromSize(window.frame.size))"
@@ -301,6 +303,12 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             AIManagerNativeContract.scrollAppearancesMatch(in: contentView, appearance: window.effectiveAppearance),
             "Acceptance scroll content appearance differs from the window"
         )
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            expect(
+                AIManagerNativeContract.hasVisualEffect(in: contentView),
+                "Acceptance window has no visual-effect backdrop"
+            )
+        }
         // The shared helper converts top-origin coordinates to AppKit hit-test coordinates.
         let titlePoint = NSPoint(x: 400, y: 28)
         if receipts.model?.showImport != true {

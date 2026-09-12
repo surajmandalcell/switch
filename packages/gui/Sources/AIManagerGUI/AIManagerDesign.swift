@@ -12,9 +12,15 @@ private struct AIMDarkModeKey: EnvironmentKey {
 private struct AIMAdaptiveColor: ShapeStyle, Hashable {
   let light: UInt32
   let dark: UInt32
+  var lightHighContrast: UInt32?
+  var darkHighContrast: UInt32?
 
   func resolve(in environment: EnvironmentValues) -> Color.Resolved {
-    return Color(hex: environment.colorScheme == .dark ? dark : light).resolve(in: environment)
+    let highContrast = environment.colorSchemeContrast == .increased
+    let hex = environment.colorScheme == .dark
+      ? (highContrast ? darkHighContrast ?? dark : dark)
+      : (highContrast ? lightHighContrast ?? light : light)
+    return Color(hex: hex).resolve(in: environment)
   }
 }
 
@@ -39,32 +45,39 @@ enum AIMTheme {
   static let modalOuterInset: CGFloat = 24
   static let panelContentInset: CGFloat = 16
 
-  static let canvas = dynamic(light: 0xECEBE7, dark: 0x0B0C0F)
-  static let rail = dynamic(light: 0xF4F3EF, dark: 0x101216)
-  static let panel = dynamic(light: 0xFAF9F6, dark: 0x17191D)
-  static let panel2 = dynamic(light: 0xF0EFEB, dark: 0x1D2025)
-  static let panel3 = dynamic(light: 0xE5E4DF, dark: 0x262A30)
-  static let line = dynamic(light: 0xD4D3CE, dark: 0x2A2E34)
-  static let lineSoft = dynamic(light: 0xE2E1DC, dark: 0x22262B)
-  static let ink = dynamic(light: 0x1A1B1D, dark: 0xEFEEE9)
-  static let muted = dynamic(light: 0x666970, dark: 0x999CA3)
-  static let faint = dynamic(light: 0x75787F, dark: 0x767A82)
+  static let canvas = dynamic(light: 0xECEBE7, dark: 0x343539)
+  static let rail = dynamic(light: 0xF4F3EF, dark: 0x303136)
+  static let panel = dynamic(light: 0xFAF9F6, dark: 0x3B3C40)
+  static let panel2 = dynamic(light: 0xF0EFEB, dark: 0x424348)
+  static let panel3 = dynamic(light: 0xE5E4DF, dark: 0x4A4B50)
+  static let line = dynamic(
+    light: 0xD4D3CE, dark: 0x62646A, lightHighContrast: 0xA7A69F,
+    darkHighContrast: 0x8A8D94)
+  static let lineSoft = dynamic(
+    light: 0xE2E1DC, dark: 0x505157, lightHighContrast: 0xB9B8B2,
+    darkHighContrast: 0x777980)
+  static let railLine = dynamic(light: 0xDAD9D5, dark: 0x424348)
+  static let ink = dynamic(
+    light: 0x1A1B1D, dark: 0xF2F2F3, lightHighContrast: 0x000000,
+    darkHighContrast: 0xFFFFFF)
+  static let muted = dynamic(light: 0x666970, dark: 0xB9BBC0)
+  static let faint = dynamic(light: 0x75787F, dark: 0xA7A9AF)
   static let blue = dynamic(light: 0x566D95, dark: 0x8295B5)
   static let green = dynamic(light: 0x557D68, dark: 0x78A28B)
   static let amber = dynamic(light: 0x856F43, dark: 0xB39A68)
   static let red = dynamic(light: 0x8D5A60, dark: 0xAD7379)
   static let titleArt = dynamic(light: 0x657B98, dark: 0x92A7C3)
-  static let active = dynamic(light: 0xDCE3EC, dark: 0x3C4A61)
-  static let activeInk = dynamic(light: 0x28364A, dark: 0xF2F1ED)
-  static let railIdle = dynamic(light: 0x5D6670, dark: 0x91A0B2)
+  static let active = dynamic(light: 0x3C4A61, dark: 0x566D95)
+  static let activeInk = dynamic(light: 0xF2F1ED, dark: 0xF2F1ED)
+  static let railIdle = dynamic(light: 0x5D6670, dark: 0xB0B7C2)
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
-  static let control = dynamic(light: 0xDEDCD6, dark: 0x1D2025)
-  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x262A30)
+  static let control = dynamic(light: 0xDEDCD6, dark: 0x4A4B50)
+  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x56585E)
   static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
-  static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3E3B34)
-  static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x50493C)
-  static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x1A1C20)
-  static let disabledInk = dynamic(light: 0x74777D, dark: 0x858890)
+  static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x5B564F)
+  static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x686153)
+  static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x515258)
+  static let disabledInk = dynamic(light: 0x62656B, dark: 0xC9CACD)
 
   enum FontWeight: String {
     case regular = "Regular"
@@ -80,9 +93,25 @@ enum AIMTheme {
     .custom("GeistMono-\(weight.rawValue)", size: size)
   }
 
-  private static func dynamic(light: UInt32, dark: UInt32) -> Color {
-    Color(AIMAdaptiveColor(light: light, dark: dark))
+  private static func dynamic(
+    light: UInt32, dark: UInt32, lightHighContrast: UInt32? = nil,
+    darkHighContrast: UInt32? = nil
+  ) -> Color {
+    Color(AIMAdaptiveColor(
+      light: light, dark: dark, lightHighContrast: lightHighContrast,
+      darkHighContrast: darkHighContrast))
   }
+}
+
+enum AIMMotion {
+  static let press = 0.055
+  static let hover = 0.08
+  static let navigation = 0.14
+  static let modal = 0.14
+  static let theme = 0.16
+  static let minimize = 0.07
+  static let scrollbarIn = 0.10
+  static let scrollbarOut = 0.16
 }
 
 extension Color {
@@ -97,10 +126,28 @@ extension Color {
   }
 }
 
+struct AIMVisualEffect: NSViewRepresentable {
+  let material: NSVisualEffectView.Material
+  let blendingMode: NSVisualEffectView.BlendingMode
+  let darkMode: Bool
+
+  func makeNSView(context: Context) -> NSVisualEffectView {
+    let view = NSVisualEffectView()
+    view.state = .active
+    return view
+  }
+
+  func updateNSView(_ view: NSVisualEffectView, context: Context) {
+    view.material = material
+    view.blendingMode = blendingMode
+    view.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
+  }
+}
+
 struct AIMIcon: View {
   enum Name: CaseIterable {
     case mark, account, settings, history, recovery, plus, refresh, moon, sun, close, minimize
-    case chevron, check, folder, play, copy, warning
+    case chevron, check, square, checkSquare, folder, play, copy, warning, info, success
 
     var symbol: String {
       switch self {
@@ -117,10 +164,14 @@ struct AIMIcon: View {
       case .minimize: "minus"
       case .chevron: "chevron.right"
       case .check: "checkmark"
+      case .square: "square"
+      case .checkSquare: "checkmark.square.fill"
       case .folder: "folder"
       case .play: "play"
       case .copy: "doc.on.doc"
       case .warning: "exclamationmark.triangle"
+      case .info: "info.circle"
+      case .success: "checkmark.circle"
       }
     }
   }
@@ -159,9 +210,11 @@ struct AIMPressButtonStyle: ButtonStyle {
 
     var body: some View {
       configuration.label
-        .scaleEffect(configuration.isPressed && isEnabled && !reduceMotion ? 0.97 : 1)
-        .opacity(configuration.isPressed && isEnabled ? 0.84 : 1)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.06), value: configuration.isPressed)
+        .brightness(configuration.isPressed && isEnabled ? -0.035 : 0)
+        .opacity(configuration.isPressed && isEnabled ? 0.92 : 1)
+        .animation(
+          reduceMotion ? nil : .easeOut(duration: AIMMotion.press),
+          value: configuration.isPressed)
         .focusEffectDisabled(!focusIndicatorsEnabled)
     }
   }
@@ -183,7 +236,7 @@ struct AIMPanel<Content: View>: View {
       .frame(height: 40)
       .background {
         LinearGradient(
-          colors: [AIMTheme.green.opacity(0.10), .clear, AIMTheme.titleArt.opacity(0.14)],
+          colors: [AIMTheme.green.opacity(0.16), .clear, AIMTheme.titleArt.opacity(0.24)],
           startPoint: .leading,
           endPoint: .trailing
         )
@@ -341,7 +394,7 @@ final class AIMOwnedScrollView: NSScrollView {
     isScrollerVisible = visible
     NSAnimationContext.runAnimationGroup { context in
       context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        ? 0 : (visible ? 0.12 : 0.20)
+        ? 0 : (visible ? AIMMotion.scrollbarIn : AIMMotion.scrollbarOut)
       scroller.animator().alphaValue = visible ? 1 : 0
     }
   }
