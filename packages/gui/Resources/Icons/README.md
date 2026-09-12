@@ -1,7 +1,7 @@
 # App icons
 
-The mark is Google's exact [Material Symbols Rounded `manage_accounts` filled
-24 px glyph](https://github.com/google/material-design-icons/blob/6d7ca43bd6e6668531a00fcaca06d921b63dd716/symbols/web/manage_accounts/materialsymbolsrounded/manage_accounts_fill1_24px.svg).
+The mark is Google's exact [Material Symbols Rounded `switch_account` filled
+24 px glyph](https://github.com/google/material-design-icons/blob/40a7a292a79d9394157e1ea24f83d52d5e17c556/symbols/web/switch_account/materialsymbolsrounded/switch_account_fill1_24px.svg).
 Its path data is unchanged; `ManagerMark.svg` only adds `currentColor` styling
 so the same monochrome template works in the menu bar and app rail. The source
 glyph is Apache-2.0 licensed; the license is included in
