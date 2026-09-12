@@ -126,10 +126,19 @@ signing_identity="${AI_MANAGER_SIGNING_IDENTITY:-}"
 if [[ -n "$signing_identity" ]]; then
   /usr/bin/codesign \
     --force \
+    --options runtime \
+    --timestamp \
+    --sign "$signing_identity" \
+    "$artifact_path/ai-manager"
+  /usr/bin/codesign \
+    --force \
+    --options runtime \
+    --timestamp \
     --entitlements "$repo_root/packaging/macos/AIManager.entitlements" \
     --sign "$signing_identity" \
     "$app_path"
 else
+  /usr/bin/codesign --force --sign - "$artifact_path/ai-manager"
   /usr/bin/codesign \
     --force \
     --entitlements "$repo_root/packaging/macos/AIManager.entitlements" \
@@ -139,6 +148,7 @@ fi
 
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist"
 /usr/bin/codesign --verify --deep --strict "$app_path"
+/usr/bin/codesign --verify --strict "$artifact_path/ai-manager"
 
 printf 'Built %s\n' "$app_path"
 printf 'Built %s\n' "$artifact_path/ai-manager"

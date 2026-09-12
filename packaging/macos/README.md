@@ -9,4 +9,7 @@ reported to the user. The app does not inspect the login Keychain.
 The package records the source revision in `AIManagerSourceRevision` and marks
 uncommitted source in `AIManagerSourceDirty`. The default build uses an ad hoc
 signature. Set `AI_MANAGER_SIGNING_IDENTITY` only when a maintainer explicitly
-provides a signing identity.
+provides a signing identity. Identity builds enable hardened runtime and secure
+timestamping for both the app and CLI. Public direct distribution additionally
+requires a Developer ID Application identity and Apple notarization; the release
+workflow fails before publication when its signing or notary secrets are absent.
