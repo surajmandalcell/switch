@@ -237,7 +237,8 @@ Do not report that Orca, Super, or every terminal has switched automatically.
 
 ### Outside v1
 
-- Windows, Linux, mobile, and a browser frontend.
+- Windows, mobile, a browser frontend, and a Linux GUI. The shared core and terminal
+  interface remain supported on Linux.
 - Claude, Gemini, API routing, provider conversion, or automatic failover.
 - A proxy server, background daemon, quota polling, pricing, or a usage dashboard.
 - A chat editor, model client, terminal emulator, or orchestration system.
@@ -356,7 +357,8 @@ Use Swift and SwiftUI, with AppKit where a native file panel or application inte
 Start with one macOS app target and one focused test target.
 Use the installed SDK and document the selected deployment target before using newer APIs.
 Working default: macOS 14 or later, with Apple Silicon as the first verified build.
-macOS remains the only platform. Intel support needs a verified build before it is claimed.
+The native GUI remains macOS-only. The shared core and terminal interface support macOS
+and Linux. Intel GUI support needs a verified build before it is claimed.
 
 Prefer Foundation file APIs, CryptoKit for hashes, and the system SQLite library for database snapshots.
 Use a small JSON registry for app metadata. A second app-owned database is unnecessary for a few account records.
@@ -755,7 +757,7 @@ Errors should name the failed action and the next useful action without dumping 
 - [x] Choose deployment target, app identity, and one canonical build directory.
 - [x] Replace active Electron packaging and multi-platform CI with macOS validation.
 - [x] Retire gateway navigation, server startup, and conflicting product instructions.
-- [x] Update app identity and repository URLs to AI Manager and this repository.
+- [x] Update app identity and repository URLs to IIA Directeur and this repository.
 
 Done when a fresh checkout builds and opens the native account window without starting the old gateway.
 The window must not require Node, Electron, a local HTTP server, or provider setup.
@@ -893,8 +895,8 @@ If an unsupported format blocks full import, preserve it and report the exact ca
 
 These references support the data model and integration boundaries, not a claim that the native app is implemented.
 
-- [OpenAI config and state locations](https://learn.chatgpt.com/docs/config-file/config-advanced): `CODEX_HOME` groups config and local state.
-- [OpenAI authentication](https://learn.chatgpt.com/docs/auth): file-based auth, credential storage choices, and token refresh behavior.
+- [OpenAI config and state locations](https://developers.openai.com/codex/config-advanced): `CODEX_HOME` groups config and local state.
+- [OpenAI authentication](https://developers.openai.com/codex/auth): file-based auth, credential storage choices, and token refresh behavior.
 - [Codex developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli): local login status and supported resume commands.
 - [Super profiles](https://super.engineering/docs/providers-and-models/#profiles): Codex profiles select a home through `CODEX_HOME`.
 - [Super session ownership](https://super.engineering/docs/session-history-and-restore/): app state and provider history are separate.
@@ -1638,3 +1640,54 @@ with temporary synthetic homes before installation.
 - Every generated app inherits `LSMultipleInstancesProhibited`; the preview window contract
   and local release-readiness gate verify the packaged value. The full native suite passes 52
   tests with the two private-copy gates skipped, plus the model, scrollbar, and instance checks.
+
+### Release-candidate closeout evidence (2026-09-12)
+
+- The current macOS suite passes 79 tests with zero failures and two authorized-copy tests
+  skipped in the normal run. The production and mock GUI-model checks, System/Light/Dark
+  window contracts, thin-scrollbar check, and fresh-path single-instance check also pass.
+  System appearance now clears an earlier fixed window appearance so later macOS changes
+  propagate. Production renders a loading state until account discovery finishes.
+- Close is the only resting window control. Minimize is conditionally inserted only while
+  the pointer is within the Close/Minimize region, overlays one fixed 48-point square beside
+  Close, and never participates in title layout. The title uses the same fixed 112-point
+  global leading position in both states, leaving 16 points after the possible two-control
+  footprint. The fold-out lasts 80 milliseconds, reduced motion removes it, and a short
+  seam grace lets the pointer cross between the edge-to-edge controls.
+- The same tracked source snapshot passed `scripts/check-linux.sh` as an unprivileged user
+  in read-only ARM64 and AMD64 Linux containers. Each architecture passed all 79 tests,
+  release ELF and SQLite linkage, CLI discovery/import/verification/launch/recovery,
+  isolated status, 0700 application-support permissions, and a 0600 process lock. No test
+  container or temporary home remains. The two tagged validation images are retained as
+  reproducibility caches.
+- Recovery now compares canonical path components instead of Foundation URL directory-hint
+  identity. This fixes the Linux/macOS difference without weakening containment checks.
+  The CLI recovery fixture contains a valid account identity, canonical account directory,
+  and matching protected-backup fingerprint; direct and interactive recovery pass on both
+  Linux architectures.
+- The authorized 26 GB protected Codex-home copy passed both opt-in tests against the
+  committed core. All 1,604 source transcripts were accounted for: 1,257 imported and the
+  rest explicitly retained or protected with reported reasons. Source auth remained
+  byte-identical. Planning covered 11,936 entries and one conflict. Both tests finished in
+  339.975 seconds with 558,645,248 bytes peak RSS. The 23 GB disposable result was removed;
+  small telemetry remains under `/private/tmp/ai-manager-validation/evidence-a459`.
+- Release readiness now rejects dirty, stale-revision, invalid-plist, wrong-identity,
+  missing-arm64, or invalid-signature artifacts with explicit errors. Public mode also
+  requires Developer ID Application signatures, hardened runtime, timestamps, a stapled
+  notarization ticket, and Gatekeeper acceptance. CI-created certificate and notary-key
+  files use a private umask. A `MAJOR.MINOR.PATCH` version is required at build time.
+- `/private/tmp/iia-directeur-vm-fixture.tar.gz` is a private VM fixture derived from the
+  protected root Codex config. It preserves the non-secret model, reasoning, personality,
+  service-tier, feature, and memory settings; it omits connections, authorization headers,
+  hook trust, project paths, real credentials, real transcripts, databases, caches, and
+  sockets. Its synthetic two-account validation passes in the read-only ARM64 container,
+  and its extracted SHA-256 manifest verifies. No login Keychain access occurs.
+- The exact clean app, Preview app, and CLI installed after this documentation checkpoint
+  are recorded in `/private/tmp/ai-manager-build/final-install-receipt.json`. The receipt is
+  the final source revision, package/installed hashes, signatures, launch check, duplicate-
+  instance check, and local/public readiness result; it must exist and pass before handoff.
+  Native Computer remains unavailable in this tool session, so hover inspection uses the
+  window geometry contract and current AppKit render receipts rather than another GUI driver.
+- Public direct distribution remains blocked until a Developer ID Application identity and
+  repository notarization credentials are supplied. The local release candidate must not be
+  described as a notarized public release.

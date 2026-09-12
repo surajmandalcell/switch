@@ -24,6 +24,17 @@ The auth-only model has three strict limits:
 
 ## Official Codex contract
 
+The current official documentation describes `auth.json` as the file credential
+store inside `CODEX_HOME`, with file, Keychain, automatic, and ephemeral storage
+modes. It documents `config.toml`, instructions, and other configuration as
+separate state. The implementation below is pinned so later Codex changes can be
+reviewed against the exact behavior used for this decision.
+
+- [Authentication documentation](https://developers.openai.com/codex/auth)
+- [Configuration basics](https://developers.openai.com/codex/config-basic)
+- [Advanced configuration](https://developers.openai.com/codex/config-advanced)
+- [Codex 0.154.0 release](https://github.com/openai/codex/releases/tag/rust-v0.154.0)
+
 The source review used OpenAI Codex commit
 [`53ff712a`](https://github.com/openai/codex/commit/53ff712a48379ce8df605e292afd6046ca88ae9b).
 
