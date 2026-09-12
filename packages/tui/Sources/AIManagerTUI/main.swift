@@ -53,6 +53,23 @@ struct AIManagerCLI {
         case "recover":
             try confirm(input, "Recover pending operations from their journals and backups?")
             await output(try await manager.recover(), json: input.json)
+        case "resolve-recovery":
+            let id = try input.requiredOperationID()
+            let choice = try input.requiredRecoveryChoice()
+            let status = try await manager.status()
+            guard let operation = status.pendingRecovery.first(where: { $0.id == id }) else {
+                throw CLIError.message("Recovery operation not found.")
+            }
+            guard operation.phase == .conflicted else {
+                throw CLIError.message("Recovery operation is not conflicted.")
+            }
+            let prompt = choice == .preserveCurrent
+                ? "Keep the current data and finish recovery? The protected backup will remain at \(operation.backup.path)."
+                : "Restore the protected backup from \(operation.backup.path)? The current data will be preserved inside that backup."
+            try confirm(input, prompt)
+            await output(
+                try await manager.resolveRecoveryConflict(operationID: id, choice: choice),
+                json: input.json)
         case "inspect-links":
             let status = try await manager.status()
             let issues: [LinkedSettingsDivergence]
@@ -103,7 +120,7 @@ struct AIManagerCLI {
     static func interactive(_ manager: AccountManager) async throws {
         while true {
             let status = try await manager.status()
-            print("\nAI Manager")
+            print("\nIIA Directeur")
             for (index, account) in status.accounts.enumerated() {
                 let marker = account.id == status.defaultAccountID ? "default" : account.verification.state.rawValue
                 print("  \(index + 1). \(displayName(account.identity)) [\(marker)]")
@@ -117,7 +134,7 @@ struct AIManagerCLI {
                 case "u": if let account = chooseAccount(status.accounts) { await output(try await manager.switchDefault(to: account.id), json: false) }
                 case "o": if let account = chooseAccount(status.accounts) { _ = try await manager.run(try await manager.launchSpec(accountID: account.id)) }
                 case "v": if let account = chooseAccount(status.accounts) { await output(manager.verifyLocal(accountID: account.id), json: false) }
-                case "r": await output(try await manager.recover(), json: false)
+                case "r": try await interactiveRecovery(manager)
                 case "q": return
                 default: print("Choose one of the shown letters.")
                 }
@@ -157,6 +174,33 @@ struct AIManagerCLI {
         await output(result, json: false)
         if !result.unresolved.isEmpty {
             throw CLIError.message("Import completed with unresolved items; review the reported paths before using this account.")
+        }
+    }
+
+    static func interactiveRecovery(_ manager: AccountManager) async throws {
+        await output(try await manager.recover(), json: false)
+        let conflicts = try await manager.status().pendingRecovery.filter { $0.phase == .conflicted }
+        for operation in conflicts {
+            print("Recovery conflict \(operation.id.uuidString) (\(operation.kind))")
+            print("  Current data: \(operation.destination.path)")
+            print("  Protected backup: \(operation.backup.path)")
+            print("[k] Keep current data  [b] Restore protected backup  [s] Skip:", terminator: " ")
+            let choice: RecoveryConflictChoice
+            switch readLine()?.lowercased() {
+            case "k": choice = .preserveCurrent
+            case "b":
+                guard askYes("Restore the protected backup? The current data will be preserved inside it.") else {
+                    print("Recovery choice skipped.")
+                    continue
+                }
+                choice = .restoreBackup
+            default:
+                print("Recovery choice skipped.")
+                continue
+            }
+            await output(
+                try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice),
+                json: false)
         }
     }
 
@@ -254,6 +298,8 @@ struct AIManagerCLI {
         case let results as [RecoveryResult]:
             if results.isEmpty { print("No recovery was needed.") }
             for result in results { print("\(result.operationID.uuidString)\t\(result.outcome.rawValue)\t\(result.message)") }
+        case let result as RecoveryResult:
+            print("\(result.operationID.uuidString)\t\(result.outcome.rawValue)\t\(result.message)")
         case let issues as [LinkedSettingsDivergence]:
             if issues.isEmpty { print("All managed shared settings links are intact.") }
             for issue in issues {
@@ -277,7 +323,7 @@ struct AIManagerCLI {
     }
 
     static let usage = """
-    AI Manager manages file-based Codex accounts without using Keychain.
+    IIA Directeur manages file-based Codex accounts without using Keychain.
 
     Usage:
       ai-manager status [--json]
@@ -289,6 +335,7 @@ struct AIManagerCLI {
       ai-manager profile <account-uuid>
       ai-manager verify <account-uuid> [--json]
       ai-manager recover [--yes] [--json]
+      ai-manager resolve-recovery <operation-uuid> (--keep-current|--restore-backup) [--yes] [--json]
       ai-manager inspect-links [account-uuid] [--json]
       ai-manager repair-link <account-uuid> <settings-path> --fingerprint <sha256> [--yes] [--json]
       ai-manager interactive
@@ -420,6 +467,7 @@ struct CommandLineInput {
     let mode: ImportMode
     let decisions: [String: ConflictChoice]
     let externalReviews: Set<String>
+    let recoveryChoice: RecoveryConflictChoice?
     let forwardedArguments: [String]
     let paths: ManagerPaths
 
@@ -436,6 +484,14 @@ struct CommandLineInput {
         Self.options("--use-imported", in: arguments).forEach { choices[$0] = .useImported }
         decisions = choices
         externalReviews = Set(Self.options("--review-external", in: arguments))
+        let recoveryChoices = arguments.filter { ["--keep-current", "--restore-backup"].contains($0) }
+        if command == "resolve-recovery" {
+            guard recoveryChoices.count == 1 else {
+                throw CLIError.message("Choose exactly one of --keep-current or --restore-backup.")
+            }
+        }
+        recoveryChoice = recoveryChoices.first == "--keep-current" ? .preserveCurrent
+            : recoveryChoices.first == "--restore-backup" ? .restoreBackup : nil
         forwardedArguments = arguments.firstIndex(of: "--").map { Array(arguments.dropFirst($0 + 1)) } ?? []
         paths = ManagerPaths.environment(environment)
     }
@@ -454,6 +510,11 @@ struct CommandLineInput {
 
     func requiredPath() throws -> URL { guard let path else { throw CLIError.message("A source path is required.") }; return path }
     func requiredAccountID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid account UUID is required.") }; return id }
+    func requiredOperationID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid recovery operation UUID is required.") }; return id }
+    func requiredRecoveryChoice() throws -> RecoveryConflictChoice {
+        guard let recoveryChoice else { throw CLIError.message("Choose exactly one of --keep-current or --restore-backup.") }
+        return recoveryChoice
+    }
 
     func option(_ name: String) -> String? { Self.option(name, in: values) }
 

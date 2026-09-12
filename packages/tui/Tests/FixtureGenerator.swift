@@ -83,4 +83,27 @@ printf '%s\\t%s\n' "$CODEX_HOME" "$*" >> '\(log)'
 """
 try write(fakeCodex, to: "fake-codex", permissions: 0o700)
 
+func recoveryHeader(id: String) throws -> String {
+    let destination = root.appending(path: "application-support/accounts/\(id)/home")
+    let backup = root.appending(path: "application-support/backups/\(id)")
+    let value: [String: Any] = [
+        "id": id,
+        "kind": "import",
+        "phase": "conflicted",
+        "source": root.appending(path: "source-one").absoluteString,
+        "destination": destination.absoluteString,
+        "backup": backup.absoluteString,
+        "expectedDigest": "synthetic-expected-digest",
+        "previousDigest": "synthetic-previous-digest",
+    ]
+    try write("later user edit\n", to: "application-support/accounts/\(id)/home/auth.json")
+    try write("protected original\n", to: "application-support/backups/\(id)/account-home/auth.json")
+    return String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)
+}
+
+let directRecoveryID = "11111111-1111-4111-8111-111111111111"
+let interactiveRecoveryID = "22222222-2222-4222-8222-222222222222"
+try write(try recoveryHeader(id: directRecoveryID), to: "recovery-fixtures/\(directRecoveryID).json")
+try write(try recoveryHeader(id: interactiveRecoveryID), to: "recovery-fixtures/\(interactiveRecoveryID).json")
+
 print(root.path)
