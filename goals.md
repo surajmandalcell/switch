@@ -1696,3 +1696,18 @@ with temporary synthetic homes before installation.
 - Public direct distribution remains blocked until a Developer ID Application identity and
   repository notarization credentials are supplied. The local release candidate must not be
   described as a notarized public release.
+
+### Page alignment acceptance (2026-09-12)
+
+- The page title and all four page bodies now use the same 24-point leading and trailing
+  inset. The removed control-clearance inset no longer reserves Minimize space in layout.
+- The titlebar is 48 points high, exactly matching the Close and Minimize cells. Minimize
+  remains a floating overlay and does not move the title or page content when it appears.
+- Panel headers use Recap Pro's trailing 200 by 40-point concentric-arc art. The native
+  Canvas is static, ignores input, and leaves header and content geometry unchanged.
+- `scripts/check-native.sh` passes all 79 core tests with two authorized-copy tests skipped,
+  both view-model checks, system/light/dark window contracts, single-instance behavior, and
+  thin-scrollbar behavior. The installed contract passes at 1120 by 740 points.
+- Native Computer is registered, but this Orca host exposes neither the required native-pipe
+  connection nor Launch Services bridge. The installed contract and launch receipts are the
+  available runtime evidence; no alternate desktop driver was used.
