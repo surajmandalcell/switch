@@ -314,6 +314,11 @@ public struct SwitchResult: Codable, Sendable {
 
 public enum RecoveryPhase: String, Codable, Sendable { case prepared, backedUp, staged, published, registryCommitted, completed, rolledBack, conflicted }
 
+public enum RecoveryConflictChoice: String, Codable, Sendable {
+    case preserveCurrent
+    case restoreBackup
+}
+
 public struct RecoveryItem: Codable, Sendable {
     public var destination: URL
     public var backup: URL?

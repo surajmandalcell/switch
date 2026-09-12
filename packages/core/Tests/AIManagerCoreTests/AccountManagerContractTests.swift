@@ -217,6 +217,69 @@ final class AccountManagerContractTests: XCTestCase {
         }
     }
 
+    func testSwitchRechecksSelectedAndOutgoingManagedHomes() async throws {
+        let firstSource = root.appending(path: "writer-first")
+        let secondSource = root.appending(path: "writer-second")
+        try writeAuth(home: firstSource, account: "writer-first", workspace: "workspace")
+        try writeAuth(home: secondSource, account: "writer-second", workspace: "workspace")
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let firstPlan = try await setup.planImport(source: firstSource, mode: .authOnly)
+        let first = try await setup.importAccount(plan: firstPlan).account
+        let secondPlan = try await setup.planImport(source: secondSource, mode: .authOnly)
+        let second = try await setup.importAccount(plan: secondPlan).account
+        _ = try await setup.switchDefault(to: first.id)
+
+        let outgoingBlocked = try AccountManager(paths: paths, writerCheck: { home in
+            CoreSupport.canonical(home) == CoreSupport.canonical(first.home) ? .active : .inactive
+        })
+        await XCTAssertThrowsErrorAsync(
+            try await outgoingBlocked.switchDefault(to: second.id)
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
+        }
+
+        let selectedBlocked = try AccountManager(paths: paths, writerCheck: { home in
+            CoreSupport.canonical(home) == CoreSupport.canonical(second.home) ? .active : .inactive
+        })
+        await XCTAssertThrowsErrorAsync(
+            try await selectedBlocked.switchDefault(to: second.id)
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
+        }
+        let defaultAccountID = try await setup.status().defaultAccountID
+        XCTAssertEqual(defaultAccountID, first.id)
+    }
+
+    func testLinkedSettingRepairRechecksSharedRootWriter() async throws {
+        try Data("shared setting".utf8).write(to: paths.sharedRoot.appending(path: "config.toml"))
+        let source = root.appending(path: "repair-writer-source")
+        try writeAuth(home: source, account: "repair-writer", workspace: "workspace")
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await setup.planImport(source: source, mode: .authOnly)
+        let account = try await setup.importAccount(plan: plan).account
+        let local = account.home.appending(path: "config.toml")
+        try fm.removeItem(at: local)
+        let localEdit = Data("local edit".utf8)
+        try localEdit.write(to: local)
+        let status = try await setup.status()
+        let issue = try XCTUnwrap(status.linkedSettingsDivergences.first)
+        let sharedRoot = paths.sharedRoot
+        let blocked = try AccountManager(paths: paths, writerCheck: { home in
+            CoreSupport.canonical(home) == CoreSupport.canonical(sharedRoot) ? .active : .inactive
+        })
+
+        await XCTAssertThrowsErrorAsync(
+            try await blocked.repairLinkedSetting(
+                accountID: account.id,
+                relativePath: issue.relativePath,
+                reviewedFingerprint: issue.localFingerprint
+            )
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
+        }
+        XCTAssertEqual(try Data(contentsOf: local), localEdit)
+    }
+
     func testSwitchingAlreadySelectedAccountKeepsRefreshedDefaultCredential() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
@@ -794,6 +857,168 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: plan.destination.appending(path: "auth.json")), laterEdit)
     }
 
+    func testRecoveryConflictCanPreserveCurrentAndFinalize() async throws {
+        let fixture = try await makeConflictedReimport()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.launchSpec(accountID: fixture.accountID)
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .recoveryRequired)
+        }
+
+        let result = try await manager.resolveRecoveryConflict(
+            operationID: fixture.plan.id,
+            choice: .preserveCurrent
+        )
+
+        XCTAssertEqual(result.outcome, .completed)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.destination.appending(path: "auth.json")),
+            fixture.later
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.plan.backup.appending(path: "account-home/auth.json")),
+            fixture.initial
+        )
+        let status = try await manager.status()
+        XCTAssertTrue(status.pendingRecovery.isEmpty)
+    }
+
+    func testRecoveryConflictCanRestoreBackupAndPreserveCurrent() async throws {
+        let fixture = try await makeConflictedReimport()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        let result = try await manager.resolveRecoveryConflict(
+            operationID: fixture.plan.id,
+            choice: .restoreBackup
+        )
+
+        XCTAssertEqual(result.outcome, .rolledBack)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.destination.appending(path: "auth.json")),
+            fixture.initial
+        )
+        XCTAssertTrue(try preservedRecoveryAuth(for: fixture.plan).contains(fixture.later))
+        let status = try await manager.status()
+        XCTAssertTrue(status.pendingRecovery.isEmpty)
+    }
+
+    func testRecoveryConflictResolverRejectsUnknownAndNonConflictedOperations() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        await XCTAssertThrowsErrorAsync(
+            try await manager.resolveRecoveryConflict(
+                operationID: UUID(), choice: .preserveCurrent)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("not found"))
+        }
+
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let crashing = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            faultInjector: { point in
+                if point == .afterHomePublication {
+                    throw AIManagerError.operationFailed("injected interruption")
+                }
+            }
+        )
+        let plan = try await crashing.planImport(source: source, mode: .authOnly)
+        await XCTAssertThrowsErrorAsync(try await crashing.importAccount(plan: plan))
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.resolveRecoveryConflict(
+                operationID: plan.id, choice: .preserveCurrent)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("not conflicted"))
+        }
+    }
+
+    func testRecoveryConflictResolverRechecksAffectedWriters() async throws {
+        let fixture = try await makeConflictedReimport()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .active })
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.resolveRecoveryConflict(
+                operationID: fixture.plan.id, choice: .restoreBackup)
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.destination.appending(path: "auth.json")),
+            fixture.later
+        )
+        let status = try await manager.status()
+        XCTAssertEqual(status.pendingRecovery.first?.phase, .conflicted)
+    }
+
+    func testRecoveryConflictRestoreResumesAfterInterruption() async throws {
+        let fixture = try await makeConflictedReimport()
+        let crashing = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            faultInjector: { point in
+                if point == .afterRecoveryConflictRestore {
+                    throw AIManagerError.operationFailed("injected resolution interruption")
+                }
+            }
+        )
+
+        await XCTAssertThrowsErrorAsync(
+            try await crashing.resolveRecoveryConflict(
+                operationID: fixture.plan.id, choice: .restoreBackup)
+        )
+        let interruptedStatus = try await crashing.status()
+        XCTAssertEqual(interruptedStatus.pendingRecovery.first?.phase, .conflicted)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.destination.appending(path: "auth.json")),
+            fixture.initial
+        )
+
+        let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let result = try await recovering.resolveRecoveryConflict(
+            operationID: fixture.plan.id,
+            choice: .restoreBackup
+        )
+        XCTAssertEqual(result.outcome, .rolledBack)
+        XCTAssertTrue(try preservedRecoveryAuth(for: fixture.plan).contains(fixture.later))
+        let status = try await recovering.status()
+        XCTAssertTrue(status.pendingRecovery.isEmpty)
+    }
+
+    func testAutomaticRecoveryRechecksActiveAndUnknownWriters() async throws {
+        let source = root.appending(path: "recovery-writer-source")
+        try writeAuth(home: source, account: "recovery-writer", workspace: "workspace")
+        let crashing = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            faultInjector: { point in
+                if point == .afterHomePublication {
+                    throw AIManagerError.operationFailed("injected interruption")
+                }
+            }
+        )
+        let plan = try await crashing.planImport(source: source, mode: .authOnly)
+        await XCTAssertThrowsErrorAsync(try await crashing.importAccount(plan: plan))
+        let published = try Data(contentsOf: plan.destination.appending(path: "auth.json"))
+
+        let active = try AccountManager(paths: paths, writerCheck: { _ in .active })
+        await XCTAssertThrowsErrorAsync(try await active.recover()) { error in
+            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
+        }
+        let unknown = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
+        await XCTAssertThrowsErrorAsync(try await unknown.recover()) { error in
+            XCTAssertEqual(error as? AIManagerError, .writerStateUnknown)
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: plan.destination.appending(path: "auth.json")),
+            published
+        )
+        let status = try await unknown.status()
+        XCTAssertEqual(status.pendingRecovery.first?.id, plan.id)
+    }
+
     func testRecoveryPreservesRecordedInterruptedTemporaryOutsideLiveSharedTree() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
@@ -887,6 +1112,53 @@ final class AccountManagerContractTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await manager.planImport(source: source, mode: .authOnly))
         await XCTAssertThrowsErrorAsync(try await manager.recover())
+    }
+
+    private func makeConflictedReimport() async throws -> (
+        plan: ImportPlan,
+        accountID: UUID,
+        destination: URL,
+        initial: Data,
+        later: Data
+    ) {
+        let source = root.appending(path: "conflicted-reimport-source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let initialPlan = try await setup.planImport(source: source, mode: .authOnly)
+        let account = try await setup.importAccount(plan: initialPlan).account
+        let initial = try Data(contentsOf: account.home.appending(path: "auth.json"))
+        try refreshedAuth(account: "account", workspace: "workspace", marker: "incoming")
+            .write(to: source.appending(path: "auth.json"))
+
+        let crashing = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            faultInjector: { point in
+                if point == .afterHomePublication {
+                    throw AIManagerError.operationFailed("injected interruption")
+                }
+            }
+        )
+        let plan = try await crashing.planImport(source: source, mode: .authOnly)
+        await XCTAssertThrowsErrorAsync(
+            try await crashing.importAccount(
+                plan: plan,
+                decisions: ["auth.json": .useImported]
+            )
+        )
+        let later = try refreshedAuth(
+            account: "account", workspace: "workspace", marker: "later-live-edit")
+        try later.write(to: account.home.appending(path: "auth.json"))
+        let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let result = try await recovering.recover()
+        XCTAssertEqual(result.first?.outcome, .conflict)
+        return (plan, account.id, account.home, initial, later)
+    }
+
+    private func preservedRecoveryAuth(for plan: ImportPlan) throws -> [Data] {
+        let root = plan.backup.appending(path: "recovery-conflict/current")
+        return try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .compactMap { try? Data(contentsOf: $0.appending(path: "auth.json")) }
     }
 
     private func writeAuth(home: URL, account: String, workspace: String, email: String = "person@example.test", user: String? = nil) throws {
