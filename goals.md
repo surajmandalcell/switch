@@ -1,8 +1,8 @@
-# AI Manager: native macOS Codex account manager
+# IIA Directeur: native macOS Codex account manager
 
-Status: core and CLI implementation gates pass. The user approved restoring production
-GUI operations on 2026-09-12. The normal app must use the real shared core; only the
-separately named Preview app may use in-memory demo data.
+Status: core, CLI, and production GUI gates pass locally. The normal app uses the real
+shared core; only the separately named Preview app uses in-memory demo data. Public direct
+distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
 Design revision: 2026-09-12.
 
@@ -1456,3 +1456,52 @@ policy and do not imply a background backup engine that is outside v1.
 Public release readiness requires the production GUI synthetic-account flow, full native
 contracts, clean packaging, and distribution signing/notarization evidence. An Apple
 Development-signed local build alone is not a public distribution release.
+
+### IIA Directeur production acceptance (2026-09-12)
+
+- The normal app constructs `AccountViewModel` with `ManagerPaths.environment()` and an
+  `AccountManager`. Discovery, both import modes, conflict review, default switching,
+  local verification, account launch preparation, linked-setting repair, Finder/clipboard
+  actions, refresh, and interrupted-operation recovery use the shared core again. Preview
+  keeps the explicit in-memory initializer. Production rejects demo resets and demo errors.
+- A new synthetic GUI-model acceptance imports a resolved account, preserves its source
+  credential and shared configuration, switches the default auth, verifies through a
+  synthetic Codex executable, refreshes, recovers, and reads the managed shared-history
+  count. The normal native suite passes 50 core tests with the two protected-copy gates
+  skipped, plus the production model, mock model, and native scroll checks. CLI acceptance
+  also passes. Automated runs touched only temporary synthetic homes.
+- Settings labels now fill and align to the leading edge while their switches align to the
+  trailing edge. Close stays centered in the 48-point rail. Minimize is a 24-point floating
+  control outside Close's layout and stays hidden until hover or an explicitly enabled
+  keyboard-focus preference. Preview renders show no startup outline. Dark Settings, light
+  Settings, and Recovery render receipts pass the native fixed-window, title-drag, focus,
+  scrollbar, and asset contracts.
+- Preview Recovery shows separate regular-conversation, incremental, custom-location, and
+  disconnected-external-drive examples, including Wait for drive and Back up elsewhere.
+  Production shows only real recovery journals and policy because v1 has no background
+  backup scheduler. Production History now reads actual transcript totals and index state;
+  Shared Settings no longer labels absent entries as linked.
+- The app display name, menu commands, status-item text, bundle filenames, build scripts,
+  CI paths, and documentation are renamed to **IIA Directeur**. The bundle identifier,
+  application-support root, frame-autosave key, executable target, and `ai-manager` CLI name
+  remain stable so existing data and preferences continue to resolve.
+- The clean `d35bab54b31e` local candidate and installed app/CLI passed strict signature,
+  empty-entitlements, embedded-revision, clean-source, and SHA-256 equality checks. The old
+  named apps were moved to `/private/tmp/iia-directeur-install-backup-20260912-1137` before
+  `/Applications/IIA Directeur.app`, `/Applications/IIA Directeur Preview.app`, and the CLI
+  were installed. The exact installed production path launches without a new crash.
+- Identity builds now sign both GUI and CLI with hardened runtime and secure timestamps.
+  The tag workflow imports a Developer ID identity, notarizes the combined app/CLI archive,
+  staples the app, checks Gatekeeper, and publishes only after every gate succeeds. This Mac
+  has Apple Development and Apple Distribution identities but no Developer ID Application
+  identity; `scripts/check-release-readiness.sh --public` therefore fails closed as intended.
+  Public distribution is not ready until that identity and the repository notary secrets
+  are supplied and the workflow returns `PUBLIC_RELEASE_READY`.
+- Native Computer remains unavailable with `Sky Computer Use native pipe startup failed`
+  after current-tool discovery, module import, service-signature inspection, and retry. The
+  accepted per-window renders came from the preview's own nonfatal AppKit receipt path; no
+  alternate GUI driver was used.
+- Ponytail debt remains one existing marker at
+  `packages/core/Sources/AIManagerCore/AccountManager.swift:402`: all Codex processes block
+  mutations until Codex exposes a reliable home-scoped writer lock or probe. Zero missing
+  triggers and no new shortcuts were introduced.
