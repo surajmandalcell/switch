@@ -168,7 +168,7 @@ final class SettingsLinkContractTests: XCTestCase {
     }
 
     private func syntheticAuth() throws -> Data {
-        let claims = try JSONSerialization.data(withJSONObject: ["email": "link@example.test", "chatgpt_account_id": "link-account", "workspace_id": "link-workspace"])
+        let claims = try JSONSerialization.data(withJSONObject: ["email": "link@example.test", "chatgpt_user_id": "link-user", "chatgpt_account_id": "link-account", "workspace_id": "link-workspace"])
         let payload = claims.base64EncodedString()
             .replacingOccurrences(of: "=", with: "")
             .replacingOccurrences(of: "+", with: "-")

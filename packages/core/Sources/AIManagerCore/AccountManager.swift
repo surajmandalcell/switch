@@ -852,7 +852,6 @@ extension AccountManager {
                 registry.accounts[outgoingIndex].credentialDigest = managed.digest
             }
             registry.defaultAccountID = registry.accounts[outgoingIndex].id
-            try saveRegistry(registry)
             try saveOperation(operation)
         } else if outgoingInspection.support == .supportedChatGPT, let identity = outgoingInspection.identity, identity.isResolved {
                 let outgoingID = UUID()
@@ -861,7 +860,6 @@ extension AccountManager {
                 registry.accounts.append(.init(id: outgoingID, identity: identity, home: outgoingHome, source: paths.defaultHome, importedAt: Date(), verification: .init(state: .imported, checkedAt: Date(), detail: "Captured before changing the default account."), credentialDigest: outgoingInspection.digest))
                 registry.defaultAccountID = outgoingID
                 operation.previousDefaultAccountID = outgoingID
-            try saveRegistry(registry)
             try saveOperation(operation)
         }
 
@@ -871,6 +869,7 @@ extension AccountManager {
         guard incomingInspection.support == .supportedChatGPT, let incomingIdentity = incomingInspection.identity,
               sameIdentity(incoming.identity, incomingIdentity) else { throw AIManagerError.credentialConflict }
         if registry.defaultAccountID == accountID, outgoingInspection.digest == incomingInspection.digest {
+            try saveRegistry(registry)
             try finishOperation(&operation)
             return .init(accountID: accountID, backup: backup, previousAccountID: accountID)
         }
@@ -908,8 +907,10 @@ extension AccountManager {
 
     private func sameIdentity(_ lhs: AccountIdentity, _ rhs: AccountIdentity) -> Bool {
         guard lhs.authMode == rhs.authMode else { return false }
-        if let left = lhs.accountID, let right = rhs.accountID { return left == right && lhs.workspaceID == rhs.workspaceID }
-        return lhs.email != nil && lhs.email == rhs.email && lhs.workspaceID != nil && lhs.workspaceID == rhs.workspaceID
+        guard lhs.authMode == .chatGPT,
+              let leftUser = lhs.userID, let rightUser = rhs.userID,
+              let leftAccount = lhs.accountID, let rightAccount = rhs.accountID else { return false }
+        return leftUser == rightUser && leftAccount == rightAccount
     }
 
     private func resolveExecutable() -> URL? {

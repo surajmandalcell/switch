@@ -201,6 +201,7 @@ final class SQLiteImportContractTests: XCTestCase {
     private func syntheticAuth() throws -> Data {
         let claims = try JSONSerialization.data(withJSONObject: [
             "email": "history@example.test",
+            "chatgpt_user_id": "history-user",
             "chatgpt_account_id": "history-account",
             "workspace_id": "history-workspace",
         ])

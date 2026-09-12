@@ -68,6 +68,23 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual((try fm.attributesOfItem(atPath: result.account.home.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
     }
 
+    func testImportKeepsDifferentUsersInTheSameWorkspaceSeparate() async throws {
+        let firstSource = root.appending(path: "first-user")
+        let secondSource = root.appending(path: "second-user")
+        try writeAuth(home: firstSource, account: "shared-workspace", workspace: "workspace", user: "user-one")
+        try writeAuth(home: secondSource, account: "shared-workspace", workspace: "workspace", user: "user-two")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+
+        let firstPlan = try await manager.planImport(source: firstSource, mode: .authOnly)
+        _ = try await manager.importAccount(plan: firstPlan)
+        let secondPlan = try await manager.planImport(source: secondSource, mode: .authOnly)
+        _ = try await manager.importAccount(plan: secondPlan)
+
+        let accounts = try await manager.status().accounts
+        XCTAssertEqual(accounts.count, 2)
+        XCTAssertEqual(Set(accounts.compactMap(\.identity.userID)), ["user-one", "user-two"])
+    }
+
     func testFullImportRequiresConflictChoiceAndPreservesDivergentTranscript() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account-a", workspace: "workspace")
@@ -263,6 +280,47 @@ final class AccountManagerContractTests: XCTestCase {
         let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         _ = try await recovering.recover()
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), outgoing)
+    }
+
+    func testInterruptedSwitchRecoveryRetainsRefreshedOutgoingCredential() async throws {
+        let firstSource = root.appending(path: "first")
+        let secondSource = root.appending(path: "second")
+        try writeAuth(home: firstSource, account: "first", workspace: "workspace")
+        try writeAuth(home: secondSource, account: "second", workspace: "workspace")
+        let preserved = paths.defaultHome.appending(path: "rules/keep.md")
+        try fm.createDirectory(at: preserved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: preserved)
+        let preservedDigest = try localTreeDigest(preserved.deletingLastPathComponent())
+
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let firstPlan = try await setup.planImport(source: firstSource, mode: .authOnly)
+        let first = try await setup.importAccount(plan: firstPlan).account
+        let secondPlan = try await setup.planImport(source: secondSource, mode: .authOnly)
+        let second = try await setup.importAccount(plan: secondPlan).account
+        _ = try await setup.switchDefault(to: first.id)
+        let refreshed = try refreshedAuth(account: "first", workspace: "workspace", marker: "refreshed-outgoing")
+        try refreshed.write(to: paths.defaultHome.appending(path: "auth.json"))
+
+        let crashing = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, faultInjector: { point in
+            if point == .afterDefaultCredentialPublication { throw AIManagerError.operationFailed("injected crash") }
+        })
+        await XCTAssertThrowsErrorAsync(try await crashing.switchDefault(to: second.id))
+
+        let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let recovery = try await recovering.recover()
+        XCTAssertEqual(recovery.first?.outcome, .rolledBack)
+        _ = try await recovering.switchDefault(to: second.id)
+        _ = try await recovering.switchDefault(to: first.id)
+
+        let status = try await recovering.status()
+        let registryDigest = try XCTUnwrap(status.accounts.first(where: { $0.id == first.id })?.credentialDigest)
+        let managedDigest = try CoreSupport.digest(file: first.home.appending(path: "auth.json"))
+        let defaultDigest = try CoreSupport.digest(file: paths.defaultHome.appending(path: "auth.json"))
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), refreshed)
+        XCTAssertEqual(registryDigest, CoreSupport.digest(refreshed))
+        XCTAssertEqual(managedDigest, registryDigest)
+        XCTAssertEqual(defaultDigest, registryDigest)
+        XCTAssertEqual(try localTreeDigest(preserved.deletingLastPathComponent()), preservedDigest)
     }
 
     func testSwitchRecoveryCompletesAfterRegistryCommitInterruption() async throws {
@@ -606,13 +664,13 @@ final class AccountManagerContractTests: XCTestCase {
         await XCTAssertThrowsErrorAsync(try await manager.recover())
     }
 
-    private func writeAuth(home: URL, account: String, workspace: String, email: String = "person@example.test") throws {
+    private func writeAuth(home: URL, account: String, workspace: String, email: String = "person@example.test", user: String? = nil) throws {
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
-        try authData(account: account, workspace: workspace, email: email).write(to: home.appending(path: "auth.json"))
+        try authData(account: account, workspace: workspace, email: email, user: user).write(to: home.appending(path: "auth.json"))
     }
 
-    private func authData(account: String, workspace: String, email: String = "person@example.test") throws -> Data {
-        let claims = try JSONSerialization.data(withJSONObject: ["email": email, "chatgpt_account_id": account, "workspace_id": workspace])
+    private func authData(account: String, workspace: String, email: String = "person@example.test", user: String? = nil) throws -> Data {
+        let claims = try JSONSerialization.data(withJSONObject: ["email": email, "chatgpt_user_id": user ?? "user-\(email)", "chatgpt_account_id": account, "workspace_id": workspace])
             .base64EncodedString().replacingOccurrences(of: "=", with: "").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         let auth: [String: Any] = ["last_refresh": "2026-01-01T00:00:00Z", "tokens": ["access_token": "header.\(claims).signature", "account_id": account, "refresh_token": "synthetic"]]
         return try JSONSerialization.data(withJSONObject: auth)

@@ -122,6 +122,7 @@ struct AuthInspection {
             let accountID = string(tokens?["account_id"]) ?? findString(in: claims, keys: ["chatgpt_account_id", "account_id"])
             let identity = AccountIdentity(
                 email: findString(in: claims, keys: ["email", "preferred_username"]),
+                userID: findString(in: claims, keys: ["chatgpt_user_id"]),
                 accountID: accountID,
                 workspaceID: findString(in: claims, keys: ["workspace_id", "organization_id", "org_id"]),
                 authMode: mode
