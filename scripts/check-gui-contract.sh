@@ -16,7 +16,7 @@ trap 'rm -rf "$test_root"' EXIT
 
 "$repo_root/scripts/build-gui-acceptance.sh"
 
-for appearance in light dark; do
+for appearance in system light dark; do
   run_root="$test_root/$appearance"
   artifacts="$run_root/artifacts"
   receipt="$artifacts/window-contract.json"
@@ -32,18 +32,20 @@ for appearance in light dark; do
   TMPDIR="$run_root/tmp" \
     "$executable" --contract-only "--persisted-$appearance"
 
-  expected_appearance="NSAppearanceNameAqua"
-  if [[ "$appearance" == "dark" ]]; then
-    expected_appearance="NSAppearanceNameDarkAqua"
-  fi
   if [[ ! -f "$receipt" ]]; then
     printf 'GUI_CONTRACT_FAIL %s: no receipt\n' "$appearance" >&2
     exit 1
   fi
   passed="$(/usr/bin/plutil -extract passed raw -o - "$receipt")"
   stage="$(/usr/bin/plutil -extract window.stage raw -o - "$receipt")"
-  actual_appearance="$(/usr/bin/plutil -extract window.appearance raw -o - "$receipt")"
-  if [[ "$passed" != "true" || "$stage" != "contract-only" || "$actual_appearance" != "$expected_appearance" ]]; then
+  appearance_matches=true
+  if [[ "$appearance" != "system" ]]; then
+    actual_appearance="$(/usr/bin/plutil -extract window.appearance raw -o - "$receipt")"
+    expected_appearance="NSAppearanceNameAqua"
+    if [[ "$appearance" == "dark" ]]; then expected_appearance="NSAppearanceNameDarkAqua"; fi
+    if [[ "$actual_appearance" != "$expected_appearance" ]]; then appearance_matches=false; fi
+  fi
+  if [[ "$passed" != "true" || "$stage" != "contract-only" || "$appearance_matches" != "true" ]]; then
     /usr/bin/plutil -p "$receipt" >&2
     exit 1
   fi

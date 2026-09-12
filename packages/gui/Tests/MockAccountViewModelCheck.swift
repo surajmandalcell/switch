@@ -15,6 +15,7 @@ struct MockAccountViewModelCheck {
         precondition(!FileManager.default.fileExists(atPath: root.path))
 
         let model = AccountViewModel(scenario: .allStates, demoPaths: paths)
+        precondition(model.hasLoaded)
         precondition(model.isDemo)
         precondition(!model.isUnavailable)
         precondition(model.status?.accounts.count == 3)

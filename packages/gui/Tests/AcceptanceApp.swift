@@ -71,6 +71,7 @@ private enum AcceptanceConfiguration {
     static var persistedAppearanceMode: String? {
         if CommandLine.arguments.contains("--persisted-dark") { return "dark" }
         if CommandLine.arguments.contains("--persisted-light") { return "light" }
+        if CommandLine.arguments.contains("--persisted-system") { return "system" }
         return nil
     }
     static var opensImport: Bool { CommandLine.arguments.contains("--import") }
@@ -278,6 +279,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(!window.styleMask.contains(.resizable), "Acceptance window is resizable")
     expect(window.styleMask.contains(.closable), "Acceptance window is not closable")
     expect(window.styleMask.contains(.miniaturizable), "Acceptance window is not miniaturizable")
+    if AcceptanceConfiguration.persistedAppearanceMode == "system" {
+        expect(window.appearance == nil, "System appearance is pinned to a fixed Aqua appearance")
+    }
     expect(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
     expect(!window.isOpaque, "Acceptance window is opaque")
     expect(window.backgroundColor.alphaComponent == 0, "Acceptance window background is not clear")
@@ -306,8 +310,12 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         "Window position persistence is not configured"
     )
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
-        let expected: NSAppearance.Name = mode == "dark" ? .darkAqua : .aqua
-        expect(window.appearance?.name == expected, "Persisted appearance was not applied to the window")
+        if mode == "system" {
+            expect(window.appearance == nil, "System appearance was not inherited from macOS")
+        } else {
+            let expected: NSAppearance.Name = mode == "dark" ? .darkAqua : .aqua
+            expect(window.appearance?.name == expected, "Persisted appearance was not applied to the window")
+        }
     }
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")

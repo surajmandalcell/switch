@@ -22,6 +22,7 @@ final class AccountViewModel: ObservableObject {
     @Published var importResult: ImportResult?
     @Published var accountHistory: [UUID: HistorySummary] = [:]
     @Published private(set) var isUnavailable = false
+    @Published private(set) var hasLoaded = false
 
     let paths: ManagerPaths
     private let manager: AccountManager?
@@ -37,6 +38,7 @@ final class AccountViewModel: ObservableObject {
         } catch {
             manager = nil
             isUnavailable = true
+            hasLoaded = true
             unavailableReason = "IIA Directeur could not open its private data folder. \(error.localizedDescription)"
             errorMessage = unavailableReason
         }
@@ -56,6 +58,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     func load() async {
+        defer { hasLoaded = true }
         guard let manager else {
             if status == nil, let scenario { reset(to: scenario) }
             if scenario == nil { reportUnavailable() }
@@ -117,6 +120,7 @@ final class AccountViewModel: ObservableObject {
         accountHistory = Dictionary(uniqueKeysWithValues: accounts.map {
             ($0.id, HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true))
         })
+        hasLoaded = true
     }
 
     func beginImport() async {
