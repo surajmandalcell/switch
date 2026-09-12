@@ -56,6 +56,7 @@ struct ProductionAccountViewModelCheck {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let model = AccountViewModel(paths: paths, manager: manager)
         try expect(!model.isDemo && !model.isUnavailable, "Production model was unavailable")
+        try expect(model.selectedProviderID == .codex, "Codex was not the selected provider")
         try expect(!model.hasLoaded, "Production model should begin in a loading state")
         await model.load()
         try expect(model.hasLoaded, "Production model did not leave its loading state")
@@ -85,6 +86,9 @@ struct ProductionAccountViewModelCheck {
         let explicit = try expect(
             model.discoveries.first { $0.path.standardizedFileURL == fullSource.standardizedFileURL },
             "Explicit full-import source was not discovered")
+        await model.discover(explicit: fullSource.appending(path: "auth.json"))
+        try expect(model.selectedSourceID == explicit.id,
+                   "Choosing auth.json did not select its containing Codex folder")
         model.selectedSourceID = explicit.id
         model.importMode = .full
         await model.reviewImport()

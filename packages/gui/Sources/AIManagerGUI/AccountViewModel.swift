@@ -15,6 +15,7 @@ final class AccountViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var notice: String?
     @Published var showImport = false
+    @Published var selectedProviderID: ProviderID = .codex
     @Published var importMode: ImportMode = .authOnly
     @Published var selectedSourceID: String?
     @Published var importPlan: ImportPlan?
@@ -113,6 +114,7 @@ final class AccountViewModel: ObservableObject {
         errorMessage = scenario == .allStates ? "One account needs sign-in before it can be opened." : nil
         notice = scenario == .allStates ? "Demo recovery and settings issues are ready to review." : nil
         showImport = false
+        selectedProviderID = .codex
         importMode = .authOnly
         importPlan = nil
         conflictChoices = [:]
@@ -165,11 +167,14 @@ final class AccountViewModel: ObservableObject {
     func chooseSource() async {
         if manager != nil {
             let panel = NSOpenPanel()
-            panel.title = "Choose a Codex home or auth.json"
+            panel.title = "Choose Codex Data"
+            panel.message = "Select a Codex home folder or its auth.json file."
             panel.prompt = "Choose"
             panel.canChooseDirectories = true
             panel.canChooseFiles = true
             panel.allowsMultipleSelection = false
+            panel.showsHiddenFiles = true
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
             guard panel.runModal() == .OK, let url = panel.url else { return }
             await discover(explicit: url)
             return
