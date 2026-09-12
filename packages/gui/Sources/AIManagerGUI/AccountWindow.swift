@@ -4,6 +4,7 @@ import SwiftUI
 
 @MainActor final class AIManagerWindow: NSWindow {
   static let fixedSize = NSSize(width: 1120, height: 740)
+  static let frameAutosaveName = "AIManagerMainWindow"
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
 }
@@ -47,7 +48,10 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
     window.minSize = fixedSize
     window.maxSize = fixedSize
     window.isReleasedWhenClosed = false
-    window.center()
+    let restoredFrame = window.setFrameUsingName(AIManagerWindow.frameAutosaveName, force: true)
+    window.setContentSize(fixedSize)
+    if !restoredFrame { window.center() }
+    window.setFrameAutosaveName(AIManagerWindow.frameAutosaveName)
     super.init(window: window)
     window.delegate = self
   }
