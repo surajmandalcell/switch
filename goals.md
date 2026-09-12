@@ -1,10 +1,44 @@
 # IIA Directeur: native macOS Codex account manager
 
-Status: core, CLI, and production GUI gates pass locally. The normal app uses the real
-shared core; only the separately named Preview app uses in-memory demo data. Public direct
-distribution remains blocked on a Developer ID Application identity and notarization.
+Status: release-candidate audit reopened. Earlier local gates are evidence, not completion.
+The normal app uses the real shared core; only the separately named Preview app uses
+in-memory demo data. Public direct distribution remains blocked on a Developer ID
+Application identity and notarization.
 Decision date: 2026-09-11.
 Design revision: 2026-09-12.
+
+### Release-candidate audit reopened (2026-09-12)
+
+Do not call the product complete because one change or one acceptance script passes.
+Continue until the full current surface and operation inventory has been inspected,
+confirmed defects have been fixed, and every applicable gate below passes from a clean
+checkout state.
+
+- Replace the current Dock, Spotlight, rail, and menu-bar artwork with one clear,
+  licensed account-manager mark. It must stay legible at 16, 22, 44, 256, and 1024 pixels.
+  The Dock artwork needs restrained macOS depth and edge light without a glossy effect.
+- Replace the near-black dark theme with a lighter graphite macOS palette. Preserve the
+  custom Recap Pro geometry, density, translucency, and three-point component corners.
+  Audit every surface, overlay, hover, selected, pressed, disabled, warning, and error state
+  in both themes. Keep normal text at WCAG AA contrast or better.
+- Replace scattered animation timings with one restrained motion system. Pointer feedback
+  must begin at once, use fill or icon changes that preserve layout, remain interruptible,
+  and honor Reduce Motion. Audit navigation, rows, buttons, window controls, theme changes,
+  scrollbars, the import wizard, notices, and modal transitions. Idle surfaces stay still.
+- Confirm all production GUI actions through `AccountManager` with synthetic credentials and
+  temporary roots. Preview remains side-effect free. Tests must not read or write the user's
+  Codex homes or login Keychain.
+- Support the native GUI on macOS. Support `AIManagerCore` and `ai-manager` on macOS and
+  Linux. Add a clean Linux Docker gate for the core tests, CLI build, CLI acceptance flow,
+  SQLite, permissions, symlinks, and an isolated runtime smoke test. Do not claim that the
+  AppKit GUI runs on Linux.
+- Audit tracked and ignored repository residue. Remove obsolete empty legacy directories,
+  stale build output, and conflicting active documentation while preserving recovery backups,
+  private test copies, Git history, and the one canonical build cache.
+- Rebuild, package, and install the exact clean macOS candidate only after both platform
+  matrices pass. Verify the installed revision, hashes, signature, launch, duplicate-instance
+  behavior, and isolated account flow. Public release remains blocked until Developer ID and
+  notarization gates pass.
 
 ### Current design-review build
 
