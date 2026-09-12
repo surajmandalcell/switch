@@ -18,9 +18,13 @@ struct MockAccountViewModelCheck {
         precondition(model.isDemo)
         precondition(!model.isUnavailable)
         precondition(model.status?.accounts.count == 3)
-        precondition(model.status?.pendingRecovery.count == 1)
+        precondition(model.status?.pendingRecovery.count == 2)
         precondition(model.status?.linkedSettingsDivergences.count == 1)
 
+        model.isBusy = true
+        await model.beginImport()
+        precondition(!model.showImport)
+        model.isBusy = false
         await model.beginImport()
         await model.chooseSource()
         precondition(model.selectedSourceID == "chosen-home")
@@ -77,6 +81,11 @@ struct MockAccountViewModelCheck {
             await model.repairLinkedSetting(issue)
         }
         precondition(model.status?.linkedSettingsDivergences.isEmpty == true)
+        guard let conflict = model.status?.pendingRecovery.first(where: { $0.phase == .conflicted }) else {
+            preconditionFailure("Missing demo recovery conflict")
+        }
+        await model.resolveRecoveryConflict(conflict, choice: .restoreBackup)
+        precondition(model.status?.pendingRecovery.count == 1)
         await model.recover()
         precondition(model.status?.pendingRecovery.isEmpty == true)
         model.showDemoError()

@@ -9,6 +9,8 @@ glyph is Apache-2.0 licensed; the license is included in
 
 The Dock and Spotlight icon uses a graphite-blue macOS tile, a warm-white
 glyph, a restrained surface gradient, and light only along the top-left edge.
+The menu-bar template keeps the same licensed glyph at 18 points inside the
+native 22-point canvas so it matches the visual weight of standard status icons.
 
 Run `scripts/build-icons.sh` to regenerate PNGs and the macOS ICNS. It uses
 the installed `rsvg-convert` and macOS `iconutil`; normal app builds use the

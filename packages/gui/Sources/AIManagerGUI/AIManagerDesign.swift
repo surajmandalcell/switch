@@ -42,7 +42,7 @@ enum AIMTheme {
   static let topbarHeight: CGFloat = 56
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48
-  static let windowControlsExpandedTitleInset: CGFloat = 64
+  static let windowControlsTitleInset: CGFloat = 64
   static let modalOuterInset: CGFloat = 24
   static let panelContentInset: CGFloat = 16
 
@@ -87,11 +87,11 @@ enum AIMTheme {
   }
 
   static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("Geist-\(weight.rawValue)", size: size)
+    .custom("Geist-\(weight.rawValue)", size: size, relativeTo: .body)
   }
 
   static func mono(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("GeistMono-\(weight.rawValue)", size: size)
+    .custom("GeistMono-\(weight.rawValue)", size: size, relativeTo: .body)
   }
 
   private static func dynamic(
@@ -107,10 +107,11 @@ enum AIMTheme {
 enum AIMMotion {
   static let press = 0.055
   static let hover = 0.08
+  static let state = 0.10
   static let navigation = 0.14
   static let modal = 0.14
   static let theme = 0.16
-  static let minimize = 0.07
+  static let minimize = 0.08
   static let scrollbarIn = 0.10
   static let scrollbarOut = 0.16
 }
@@ -314,7 +315,7 @@ final class AIMOwnedScrollView: NSScrollView {
     hasHorizontalScroller = false
     hasVerticalScroller = true
     autohidesScrollers = true
-    verticalScroller = AIMThinScroller()
+    verticalScroller = AIMThinScroller(frame: NSRect(x: 0, y: 0, width: 3, height: 100))
     super.scrollerStyle = .overlay
     verticalScroller?.scrollerStyle = .overlay
     verticalScroller?.controlSize = .mini
@@ -347,16 +348,6 @@ final class AIMOwnedScrollView: NSScrollView {
       userInfo: nil)
     addTrackingArea(trackingArea)
     hoverTrackingArea = trackingArea
-  }
-
-  override func viewDidMoveToWindow() {
-    super.viewDidMoveToWindow()
-    documentView?.appearance = effectiveAppearance
-  }
-
-  override func viewDidChangeEffectiveAppearance() {
-    super.viewDidChangeEffectiveAppearance()
-    documentView?.appearance = effectiveAppearance
   }
 
   override func mouseEntered(with event: NSEvent) {
@@ -433,6 +424,5 @@ private struct AIMNativeScrollView: NSViewRepresentable {
 
   func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
     context.coordinator.host.rootView = content
-    context.coordinator.host.appearance = scrollView.effectiveAppearance
   }
 }

@@ -74,6 +74,7 @@ private enum AcceptanceConfiguration {
         return nil
     }
     static var opensImport: Bool { CommandLine.arguments.contains("--import") }
+    static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--settings") { return 1 }
         if CommandLine.arguments.contains("--history") { return 2 }
@@ -85,7 +86,8 @@ private enum AcceptanceConfiguration {
 @MainActor
 private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let receipts = AcceptanceReceipts()
-    private let model = AccountViewModel()
+    private let model = AccountViewModel(
+        scenario: AcceptanceConfiguration.showsAllStates ? .allStates : .demo)
     private var windowController: AIManagerWindowController<AnyView>?
     private var statusItemController: AIManagerStatusItemController?
     private var instanceActivationObserver: NSObjectProtocol?
@@ -116,6 +118,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             AccountWindow(model: model, initialPageIndex: AcceptanceConfiguration.initialPageIndex)
                 .preferredColorScheme(AcceptanceConfiguration.appearance)
                 .task { [receipts, model] in
+                    guard !AcceptanceConfiguration.contractOnly else { return }
                     receipts.observeWindowEvents()
                     await model.load()
                     if AcceptanceConfiguration.opensImport { await model.beginImport() }
@@ -156,6 +159,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
 
     private func runContractOnly(in window: NSWindow?) async {
         await model.load()
+        if AcceptanceConfiguration.opensImport { await model.beginImport() }
         try? await Task.sleep(for: .milliseconds(100))
         window?.contentView?.layoutSubtreeIfNeeded()
         checkWindowContract(receipts: receipts, stage: "contract-only")
@@ -339,7 +343,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             AIManagerNativeContract.defaultFocusIndicatorsAreHidden(in: window),
             "A default focus ring is visible"
         )
-        if stage == "after-load" {
+        if stage == "after-load" || stage == "contract-only" {
             receipts.writeSnapshot(of: contentView)
             expect(
                 AIManagerNativeContract.focusPolicyMatches(in: contentView, indicatorsEnabled: false),
@@ -388,7 +392,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         failures: failures,
         window: WindowContractObservation(stage: stage, window: window)
     )
-    if !failures.isEmpty, let root = window.contentView {
+    if (["after-load", "contract-only"].contains(stage) || !failures.isEmpty), let root = window.contentView {
         receipt.hierarchy = AIManagerNativeContract.hierarchySnapshot(in: root)
         receipt.titleHitPath = AIManagerNativeContract.hitTestPath(in: window, atTopOriginPoint: NSPoint(x: 400, y: 28))
     }
@@ -509,6 +513,13 @@ private final class AcceptanceReceipts {
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: directory.appending(path: "window.png"), options: .atomic)
+        let hierarchy = AIManagerNativeContract.hierarchySnapshot(in: view)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let hierarchyData = try? encoder.encode(hierarchy) {
+            try? hierarchyData.write(
+                to: directory.appending(path: "window-hierarchy.json"), options: .atomic)
+        }
     }
 
     func report(failures: [String]) {
@@ -521,7 +532,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window.png", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }

@@ -10,8 +10,10 @@ mkdir -p "$iconset"
 
 rsvg-convert --width 1024 --height 1024 "$icons/AppIcon.svg" --output "$icons/AppIcon.png"
 rsvg-convert --width 256 --height 256 "$icons/ManagerMark.svg" --output "$icons/ManagerMark.png"
-rsvg-convert --width 22 --height 22 "$icons/ManagerMark.svg" --output "$icons/TrayTemplate.png"
-rsvg-convert --width 44 --height 44 "$icons/ManagerMark.svg" --output "$icons/TrayTemplate@2x.png"
+rsvg-convert --width 18 --height 18 --page-width 22 --page-height 22 --left 2 --top 2 \
+  "$icons/ManagerMark.svg" --output "$icons/TrayTemplate.png"
+rsvg-convert --width 36 --height 36 --page-width 44 --page-height 44 --left 4 --top 4 \
+  "$icons/ManagerMark.svg" --output "$icons/TrayTemplate@2x.png"
 
 for size in 16 32 128 256 512; do
   rsvg-convert --width "$size" --height "$size" "$icons/AppIcon.svg" \
