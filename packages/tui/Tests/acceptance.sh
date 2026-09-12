@@ -21,6 +21,15 @@ export AI_MANAGER_CODEX_EXECUTABLE="$fixture/fake-codex"
 "$binary" discover "$fixture/source-one" --json \
   | jq -e 'length == 1 and .[0].identity.workspaceID == "workspace-a"' >/dev/null
 
+interactive_result="$test_root/interactive-result.log"
+printf 'i\n%s\n2\nk\nn\nn\nq\n' "$fixture/source-one" | "$binary" interactive >"$interactive_result"
+rg -F 'Reviewed linked setting rules:' "$interactive_result" >/dev/null
+rg -e 'Target: .*/ai-manager-fixture/external-rules$' "$interactive_result" >/dev/null
+rg -e 'Size: [1-9][0-9]* bytes' "$interactive_result" >/dev/null
+rg -e 'Fingerprint: [0-9a-f]{64}' "$interactive_result" >/dev/null
+rg -F 'Use this imported linked setting? [y/N]' "$interactive_result" >/dev/null
+rg -F 'Import cancelled.' "$interactive_result" >/dev/null
+
 auth_result="$test_root/auth-result.json"
 "$binary" import "$fixture/source-two" --mode auth-only --yes --json >"$auth_result"
 jq -e '.importedChats == 0 and (.unresolved | length) == 0' "$auth_result" >/dev/null
