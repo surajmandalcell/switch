@@ -1686,6 +1686,7 @@ extension AccountManager {
         var operation = operation
         switch choice {
         case .preserveCurrent:
+            try reconcileRegistryKeepingCurrent(operation)
             try finishOperation(&operation)
             return .init(
                 operationID: operation.id,
@@ -1694,25 +1695,16 @@ extension AccountManager {
             )
         case .restoreBackup:
             let targets = try recoveryTargets(operation)
-            for target in targets {
-                guard let backup = target.backup else {
-                    guard target.previousDigest == nil else {
-                        throw AIManagerError.operationFailed("A protected recovery backup is missing.")
-                    }
-                    continue
-                }
-                guard CoreSupport.entryExists(backup) else {
-                    throw AIManagerError.operationFailed("A protected recovery backup is missing.")
-                }
-            }
+            try validateRecoveryBackups(targets)
             try preserveRecoveryTargets(targets, under: operation.backup)
             for target in targets {
                 if let backup = target.backup {
+                    try CoreSupport.privateDirectory(
+                        target.destination.deletingLastPathComponent(), fileManager: fileManager)
                     let staged = target.destination.deletingLastPathComponent()
                         .appending(path: ".\(target.destination.lastPathComponent).\(operation.id.uuidString).recovery")
                     if CoreSupport.entryExists(staged) { try fileManager.removeItem(at: staged) }
                     try fileManager.copyItem(at: backup, to: staged)
-                    try CoreSupport.privateDirectory(target.destination.deletingLastPathComponent(), fileManager: fileManager)
                     try CoreSupport.publish(staged, replacing: target.destination, fileManager: fileManager)
                 } else if CoreSupport.entryExists(target.destination) {
                     try fileManager.removeItem(at: target.destination)
@@ -1734,6 +1726,136 @@ extension AccountManager {
                 outcome: .rolledBack,
                 message: "The protected backup was restored. Replaced live files remain under \(operation.backup.path)/recovery-conflict."
             )
+        }
+    }
+
+    private func validateRecoveryBackups(_ targets: [RecoveryTarget]) throws {
+        for target in targets {
+            switch (target.previousDigest, target.backup) {
+            case (nil, nil):
+                continue
+            case let (expected?, backup?):
+                guard CoreSupport.entryExists(backup) else {
+                    throw AIManagerError.operationFailed("A protected recovery backup is missing.")
+                }
+                guard try treeDigest(backup) == expected else {
+                    throw AIManagerError.operationFailed("A protected recovery backup changed after it was recorded.")
+                }
+            default:
+                throw AIManagerError.operationFailed(
+                    "A protected recovery backup is missing its recorded fingerprint.")
+            }
+        }
+    }
+
+    private func reconcileRegistryKeepingCurrent(_ operation: RecoveryOperation) throws {
+        switch operation.kind {
+        case "import":
+            try reconcileImportRegistryKeepingCurrent(operation)
+        case "switch":
+            try reconcileSwitchRegistryKeepingCurrent(operation)
+        case "settings-link-repair":
+            break
+        default:
+            throw AIManagerError.invalidSource("Unknown recovery operation kind.")
+        }
+    }
+
+    private func reconcileImportRegistryKeepingCurrent(_ operation: RecoveryOperation) throws {
+        guard let accountID = operation.registryAccountID else {
+            throw AIManagerError.invalidSource("Import recovery is missing its account identifier.")
+        }
+        let inspection = provider.inspect(home: operation.destination)
+        guard inspection.support == .supportedChatGPT,
+              let identity = inspection.identity, identity.isResolved else {
+            throw AIManagerError.credentialConflict
+        }
+        var registry = try loadRegistry()
+        let verification = VerificationResult(
+            state: .imported,
+            checkedAt: Date(),
+            detail: "The current credential was retained during recovery and verified offline."
+        )
+        if let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
+            let expectedHome = accountsRoot.appending(path: accountID.uuidString)
+                .appending(path: "home", directoryHint: .isDirectory)
+            guard CoreSupport.canonical(registry.accounts[index].home) == CoreSupport.canonical(expectedHome),
+                  CoreSupport.canonical(operation.destination) == CoreSupport.canonical(expectedHome) else {
+                throw AIManagerError.unsafePath("managed account home is outside the private account root")
+            }
+            guard provider.sameIdentity(registry.accounts[index].identity, identity) else {
+                throw AIManagerError.credentialConflict
+            }
+            registry.accounts[index].identity = identity
+            registry.accounts[index].source = operation.source
+            registry.accounts[index].verification = verification
+            registry.accounts[index].credentialDigest = inspection.digest
+        } else {
+            guard !registry.accounts.contains(where: { provider.sameIdentity($0.identity, identity) }) else {
+                throw AIManagerError.credentialConflict
+            }
+            let expectedHome = accountsRoot.appending(path: accountID.uuidString)
+                .appending(path: "home", directoryHint: .isDirectory)
+            guard CoreSupport.canonical(operation.destination) == CoreSupport.canonical(expectedHome) else {
+                throw AIManagerError.unsafePath("managed account home is outside the private account root")
+            }
+            registry.accounts.append(.init(
+                id: accountID,
+                identity: identity,
+                home: operation.destination,
+                source: operation.source,
+                importedAt: Date(),
+                verification: verification,
+                credentialDigest: inspection.digest
+            ))
+        }
+        try saveRegistry(registry)
+    }
+
+    private func reconcileSwitchRegistryKeepingCurrent(_ operation: RecoveryOperation) throws {
+        guard let accountID = operation.registryAccountID else {
+            throw AIManagerError.invalidSource("Switch recovery is missing its account identifier.")
+        }
+        let currentDefault = provider.inspect(home: paths.defaultHome)
+        guard currentDefault.support == .supportedChatGPT,
+              let currentIdentity = currentDefault.identity, currentIdentity.isResolved else {
+            throw AIManagerError.credentialConflict
+        }
+        var registry = try loadRegistry()
+        try refreshManagedCredentialsTouched(by: operation, registry: &registry)
+        guard let selectedIndex = registry.accounts.firstIndex(where: { $0.id == accountID }),
+              provider.sameIdentity(registry.accounts[selectedIndex].identity, currentIdentity) else {
+            throw AIManagerError.credentialConflict
+        }
+        try provider.validateManagedCredential(registry.accounts[selectedIndex])
+        registry.defaultAccountID = accountID
+        registry.accounts[selectedIndex].lastUsedAt = Date()
+        try saveRegistry(registry)
+    }
+
+    private func refreshManagedCredentialsTouched(
+        by operation: RecoveryOperation,
+        registry: inout Registry
+    ) throws {
+        let verification = VerificationResult(
+            state: .imported,
+            checkedAt: Date(),
+            detail: "The current credential was retained during recovery and verified offline."
+        )
+        for target in try recoveryTargets(operation) where target.destination.lastPathComponent == "auth.json" {
+            guard let index = registry.accounts.firstIndex(where: {
+                CoreSupport.canonical($0.home.appending(path: "auth.json"))
+                    == CoreSupport.canonical(target.destination)
+            }) else { continue }
+            let inspection = provider.inspect(home: registry.accounts[index].home)
+            guard inspection.support == .supportedChatGPT,
+                  let identity = inspection.identity, identity.isResolved,
+                  provider.sameIdentity(registry.accounts[index].identity, identity) else {
+                throw AIManagerError.credentialConflict
+            }
+            registry.accounts[index].identity = identity
+            registry.accounts[index].verification = verification
+            registry.accounts[index].credentialDigest = inspection.digest
         }
     }
 
@@ -1783,6 +1905,8 @@ extension AccountManager {
             try finishOperation(&operation)
             return .init(operationID: operation.id, outcome: .completed, message: "The published files and registry agree; recovery finalized the operation.")
         }
+
+        try validateRecoveryBackups(recoveryTargets(operation))
 
         if let expected = operation.expectedDigest {
             if currentDigest == expected {

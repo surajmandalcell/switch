@@ -49,7 +49,7 @@ public struct ManagerPaths: Sendable {
         }
         if let value = url("AI_MANAGER_DEFAULT_HOME"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.defaultHome = value }
         if let value = url("AI_MANAGER_SHARED_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.sharedRoot = value }
-        if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT") { paths.orcaAccountsRoot = value }
+        if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.orcaAccountsRoot = value }
         if let value = url("AI_MANAGER_CODEX_EXECUTABLE") { paths.codexExecutable = value }
         return paths
     }
