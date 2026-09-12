@@ -50,7 +50,7 @@ chmod 0755 "$app_path" "$app_path/Contents" "$app_path/Contents/MacOS" "$app_pat
 
 swiftc \
   -parse-as-library \
-  -target arm64-apple-macos14.0 \
+  -target "$(uname -m)-apple-macos14.0" \
   -I "$products_path" \
   -L "$products_path" \
   -lAIManagerCore \
