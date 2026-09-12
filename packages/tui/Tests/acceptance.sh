@@ -68,4 +68,29 @@ fi
 profile_path="$("$binary" profile "$account_id")"
 rg -F "$profile_path" "$fixture/launch.log" >/dev/null
 
+transactions="$fixture/application-support/transactions"
+mkdir -p "$transactions"
+direct_recovery_id='11111111-1111-4111-8111-111111111111'
+cp "$fixture/recovery-fixtures/$direct_recovery_id.json" "$transactions/$direct_recovery_id.json"
+if "$binary" resolve-recovery "$direct_recovery_id" --yes >"$test_root/missing-choice.log" 2>&1; then
+  printf '%s\n' 'Expected recovery resolution to require one choice.' >&2
+  exit 1
+fi
+rg -F 'Choose exactly one of --keep-current or --restore-backup.' "$test_root/missing-choice.log" >/dev/null
+if "$binary" resolve-recovery "$direct_recovery_id" --keep-current --restore-backup --yes >"$test_root/double-choice.log" 2>&1; then
+  printf '%s\n' 'Expected recovery resolution to reject two choices.' >&2
+  exit 1
+fi
+rg -F 'Choose exactly one of --keep-current or --restore-backup.' "$test_root/double-choice.log" >/dev/null
+"$binary" resolve-recovery "$direct_recovery_id" --keep-current --yes --json \
+  | jq -e --arg id "$direct_recovery_id" '(.operationID | ascii_downcase) == $id and .outcome == "completed"' >/dev/null
+
+interactive_recovery_id='22222222-2222-4222-8222-222222222222'
+cp "$fixture/recovery-fixtures/$interactive_recovery_id.json" "$transactions/$interactive_recovery_id.json"
+recovery_result="$test_root/interactive-recovery.log"
+printf 'r\nk\nq\n' | "$binary" interactive >"$recovery_result"
+rg -Fi "Recovery conflict $interactive_recovery_id (import)" "$recovery_result" >/dev/null
+rg -F '[k] Keep current data  [b] Restore protected backup  [s] Skip:' "$recovery_result" >/dev/null
+rg -F $'\tcompleted\tCurrent live files were kept.' "$recovery_result" >/dev/null
+
 printf '%s\n' 'CLI acceptance passed.'
