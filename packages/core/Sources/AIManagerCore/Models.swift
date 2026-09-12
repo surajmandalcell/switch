@@ -63,6 +63,25 @@ private enum CoreSupportForPaths {
     }
 }
 
+public struct ProviderID: RawRepresentable, Codable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let codex = ProviderID(rawValue: "codex")
+
+    public init(from decoder: Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        try value.encode(rawValue)
+    }
+}
+
 public enum AuthMode: String, Codable, Sendable {
     case chatGPT
     case apiKey
@@ -70,13 +89,15 @@ public enum AuthMode: String, Codable, Sendable {
 }
 
 public struct AccountIdentity: Codable, Hashable, Sendable {
+    public var providerID: ProviderID
     public var email: String?
     public var userID: String?
     public var accountID: String?
     public var workspaceID: String?
     public var authMode: AuthMode
 
-    public init(email: String? = nil, userID: String? = nil, accountID: String? = nil, workspaceID: String? = nil, authMode: AuthMode) {
+    public init(providerID: ProviderID = .codex, email: String? = nil, userID: String? = nil, accountID: String? = nil, workspaceID: String? = nil, authMode: AuthMode) {
+        self.providerID = providerID
         self.email = email
         self.userID = userID
         self.accountID = accountID
@@ -84,7 +105,23 @@ public struct AccountIdentity: Codable, Hashable, Sendable {
         self.authMode = authMode
     }
 
-    public var isResolved: Bool { authMode == .chatGPT && userID != nil && accountID != nil }
+    public var isResolved: Bool {
+        providerID == .codex && authMode == .chatGPT && userID != nil && accountID != nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case providerID, email, userID, accountID, workspaceID, authMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        providerID = try values.decodeIfPresent(ProviderID.self, forKey: .providerID) ?? .codex
+        email = try values.decodeIfPresent(String.self, forKey: .email)
+        userID = try values.decodeIfPresent(String.self, forKey: .userID)
+        accountID = try values.decodeIfPresent(String.self, forKey: .accountID)
+        workspaceID = try values.decodeIfPresent(String.self, forKey: .workspaceID)
+        authMode = try values.decode(AuthMode.self, forKey: .authMode)
+    }
 }
 
 public enum VerificationState: String, Codable, Sendable {
@@ -152,6 +189,7 @@ public enum SourceSupport: String, Codable, Sendable {
 
 public struct DiscoveredSource: Identifiable, Codable, Sendable {
     public var id: String
+    public var providerID: ProviderID
     public var path: URL
     public var identity: AccountIdentity?
     public var support: SourceSupport
@@ -159,8 +197,9 @@ public struct DiscoveredSource: Identifiable, Codable, Sendable {
     public var history: HistorySummary
     public var inspectionError: String?
 
-    public init(id: String, path: URL, identity: AccountIdentity?, support: SourceSupport, settings: [String], history: HistorySummary, inspectionError: String? = nil) {
+    public init(id: String, providerID: ProviderID = .codex, path: URL, identity: AccountIdentity?, support: SourceSupport, settings: [String], history: HistorySummary, inspectionError: String? = nil) {
         self.id = id
+        self.providerID = providerID
         self.path = path
         self.identity = identity
         self.support = support

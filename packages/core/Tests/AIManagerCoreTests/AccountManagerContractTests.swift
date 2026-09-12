@@ -26,6 +26,34 @@ final class AccountManagerContractTests: XCTestCase {
         if let root { try? fm.removeItem(at: root) }
     }
 
+    func testLegacyIdentityWithoutProviderDecodesAsCodex() throws {
+        let legacy = Data(
+            #"{"email":"person@example.test","userID":"user","accountID":"account","workspaceID":"workspace","authMode":"chatGPT"}"#.utf8
+        )
+
+        let identity = try JSONDecoder().decode(AccountIdentity.self, from: legacy)
+
+        XCTAssertEqual(identity.providerID, .codex)
+        XCTAssertTrue(identity.isResolved)
+        XCTAssertTrue(
+            String(decoding: try JSONEncoder().encode(identity), as: UTF8.self)
+                .contains(#""providerID":"codex""#)
+        )
+    }
+
+    func testCodexAdapterRejectsUnknownProvider() {
+        XCTAssertThrowsError(
+            try CodexProviderAdapter(fileManager: fm).requireSupported(
+                ProviderID(rawValue: "future-provider")
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? AIManagerError,
+                .unsupportedSource("Provider future-provider is not supported by this release.")
+            )
+        }
+    }
+
     func testDiscoveryIsBoundedOfflineAndDistinguishesWorkspaces() async throws {
         let first = paths.defaultHome
         let second = first.deletingLastPathComponent().appending(path: ".codex2")
@@ -37,6 +65,7 @@ final class AccountManagerContractTests: XCTestCase {
         let found = await manager.discover()
 
         XCTAssertEqual(found.count, 2)
+        XCTAssertTrue(found.allSatisfy { $0.providerID == .codex && $0.identity?.providerID == .codex })
         XCTAssertEqual(Set(found.compactMap(\.identity?.workspaceID)), ["workspace-a", "workspace-b"])
         XCTAssertEqual(try Data(contentsOf: first.appending(path: "auth.json")), original)
     }
@@ -62,6 +91,7 @@ final class AccountManagerContractTests: XCTestCase {
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         let result = try await manager.importAccount(plan: plan)
 
+        XCTAssertEqual(result.account.identity.providerID, .codex)
         XCTAssertEqual(try Data(contentsOf: source.appending(path: "auth.json")), try Data(contentsOf: result.account.home.appending(path: "auth.json")))
         XCTAssertTrue(try result.account.home.appending(path: "config.toml").resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true)
         XCTAssertEqual((try fm.attributesOfItem(atPath: result.account.home.appending(path: "auth.json").path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
