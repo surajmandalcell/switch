@@ -4,7 +4,7 @@ Research date: 2026-09-12
 
 ## Decision
 
-AI Manager will change only the complete active authentication record. It will
+IIA Directeur will change only the complete active authentication record. It will
 leave config, instructions, skills, hooks, sessions, history, indexes, and
 databases in the selected `CODEX_HOME` unchanged.
 
@@ -20,7 +20,7 @@ The auth-only model has three strict limits:
 2. The switch applies to new Codex processes. A running process caches its
    current identity and must reload or restart.
 3. Shared history means every managed account can see the same local chat and
-   session records. This is intentional for AI Manager.
+   session records. This is intentional for IIA Directeur.
 
 ## Official Codex contract
 
@@ -51,7 +51,7 @@ The source review used OpenAI Codex commit
 OpenAI merged account-session protocol data types, but current main does not
 register or implement the switch routes. The related lifecycle
 [`PR #25383`](https://github.com/openai/codex/pull/25383) closed without merge.
-AI Manager cannot depend on that proposed interface.
+IIA Directeur cannot depend on that proposed interface.
 
 ## Current tools
 
@@ -80,7 +80,7 @@ The broader product review found the same split:
 - [Relay](https://github.com/ark-daemon/relay) keeps sessions and databases
   shared but treats config and personalization as account-owned.
 
-## AI Manager safety contract
+## IIA Directeur safety contract
 
 1. Lock each target home before inspection or mutation.
 2. Reject an unresolved owner. For ChatGPT, compare auth mode,

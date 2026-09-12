@@ -83,6 +83,9 @@ jobs:
           xcrun stapler validate "$PAYLOAD_PATH/IIA Directeur.app"
           spctl --assess --type execute --verbose=4 "$PAYLOAD_PATH/IIA Directeur.app"
           spctl --assess --type execute --verbose=4 "$PAYLOAD_PATH/ai-manager"
+          scripts/check-release-readiness.sh --public \
+            "$PAYLOAD_PATH/IIA Directeur.app" \
+            "$PAYLOAD_PATH/ai-manager"
           ditto -c -k --sequesterRsrc --keepParent "$PAYLOAD_PATH" "$ARCHIVE_PATH"
           shasum -a 256 "$ARCHIVE_PATH" > "/private/tmp/ai-manager-build/checksums-${GITHUB_REF_NAME}.txt"
       - name: Create release and upload verified files

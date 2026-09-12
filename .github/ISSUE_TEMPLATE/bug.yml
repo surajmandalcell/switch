@@ -1,5 +1,5 @@
 name: Defect report
-description: Report a defect in the native macOS Codex account manager.
+description: Report an IIA Directeur GUI, core, or terminal defect.
 title: "[Defect]: "
 labels: [bug, needs-triage]
 body:
@@ -13,10 +13,10 @@ body:
     validations:
       required: true
   - type: input
-    id: macos
+    id: platform
     attributes:
-      label: macOS version and architecture
-      placeholder: macOS 14, Apple Silicon
+      label: Operating system and architecture
+      placeholder: macOS 14 on Apple Silicon, or Ubuntu 24.04 on x86_64
     validations:
       required: true
   - type: textarea
