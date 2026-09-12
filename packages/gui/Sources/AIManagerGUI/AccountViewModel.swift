@@ -321,7 +321,7 @@ private enum DemoData {
 
     private static func account(id: String, email: String, workspace: String, state: VerificationState, detail: String) -> AccountRecord {
         AccountRecord(
-            id: UUID(uuidString: id)!, identity: AccountIdentity(email: email, accountID: "acct-\(workspace)", workspaceID: workspace, authMode: .chatGPT),
+            id: UUID(uuidString: id)!, identity: AccountIdentity(email: email, userID: "user-\(id)", accountID: "acct-\(workspace)", workspaceID: workspace, authMode: .chatGPT),
             home: URL(fileURLWithPath: "/Demo/Accounts/\(workspace)", isDirectory: true),
             source: URL(fileURLWithPath: "/Demo/Sources/\(workspace)", isDirectory: true), importedAt: now.addingTimeInterval(-86_400),
             verification: VerificationResult(state: state, checkedAt: state == .needsSignIn ? nil : now, detail: detail),
@@ -332,7 +332,7 @@ private enum DemoData {
     private static func source(id: String, path: String, email: String, workspace: String, settings: [String], active: Int, archived: Int) -> DiscoveredSource {
         DiscoveredSource(
             id: id, path: URL(fileURLWithPath: path, isDirectory: true),
-            identity: AccountIdentity(email: email, accountID: "source-\(workspace)", workspaceID: workspace, authMode: .chatGPT),
+            identity: AccountIdentity(email: email, userID: "source-user-\(workspace)", accountID: "source-\(workspace)", workspaceID: workspace, authMode: .chatGPT),
             support: .supportedChatGPT, settings: settings,
             history: HistorySummary(activeTranscripts: active, archivedTranscripts: archived, hasIndexes: true)
         )

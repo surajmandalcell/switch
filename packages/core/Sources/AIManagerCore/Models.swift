@@ -71,18 +71,20 @@ public enum AuthMode: String, Codable, Sendable {
 
 public struct AccountIdentity: Codable, Hashable, Sendable {
     public var email: String?
+    public var userID: String?
     public var accountID: String?
     public var workspaceID: String?
     public var authMode: AuthMode
 
-    public init(email: String? = nil, accountID: String? = nil, workspaceID: String? = nil, authMode: AuthMode) {
+    public init(email: String? = nil, userID: String? = nil, accountID: String? = nil, workspaceID: String? = nil, authMode: AuthMode) {
         self.email = email
+        self.userID = userID
         self.accountID = accountID
         self.workspaceID = workspaceID
         self.authMode = authMode
     }
 
-    public var isResolved: Bool { accountID != nil || (email != nil && workspaceID != nil) }
+    public var isResolved: Bool { authMode == .chatGPT && userID != nil && accountID != nil }
 }
 
 public enum VerificationState: String, Codable, Sendable {

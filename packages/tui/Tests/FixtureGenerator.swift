@@ -29,6 +29,7 @@ func write(_ text: String, to relativePath: String, permissions: Int = 0o600) th
 func auth(account: String, workspace: String, email: String) throws -> String {
     let claims = try JSONSerialization.data(withJSONObject: [
         "email": email,
+        "chatgpt_user_id": "user-\(email)",
         "chatgpt_account_id": account,
         "workspace_id": workspace,
     ])

@@ -123,6 +123,7 @@ final class FilesystemFailureContractTests: XCTestCase {
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         let claims = try JSONSerialization.data(withJSONObject: [
             "email": "\(account)@example.test",
+            "chatgpt_user_id": "user-\(account)",
             "chatgpt_account_id": account,
             "workspace_id": "workspace"
         ])
