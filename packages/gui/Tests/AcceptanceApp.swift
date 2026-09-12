@@ -67,6 +67,12 @@ private enum AcceptanceConfiguration {
     }
 
     static let initialSize = NSSize(width: 1120, height: 740)
+    static var contractOnly: Bool { CommandLine.arguments.contains("--contract-only") }
+    static var persistedAppearanceMode: String? {
+        if CommandLine.arguments.contains("--persisted-dark") { return "dark" }
+        if CommandLine.arguments.contains("--persisted-light") { return "light" }
+        return nil
+    }
     static var opensImport: Bool { CommandLine.arguments.contains("--import") }
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--settings") { return 1 }
@@ -83,12 +89,17 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     private var windowController: AIManagerWindowController<AnyView>?
     private var statusItemController: AIManagerStatusItemController?
     private var instanceActivationObserver: NSObjectProtocol?
+    private var priorAppearanceMode: Any?
     var hasStatusItem: Bool { statusItemController?.isPresent == true }
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DemoFonts.register()
         AIManagerBrand.installApplicationIcon()
+        if let mode = AcceptanceConfiguration.persistedAppearanceMode {
+            priorAppearanceMode = UserDefaults.standard.object(forKey: "appearanceMode")
+            UserDefaults.standard.set(mode, forKey: "appearanceMode")
+        }
         if let appearance = AcceptanceConfiguration.appearance {
             NSApp.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
         }
@@ -119,6 +130,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             rootView: content
         )
         windowController = controller
+        if AcceptanceConfiguration.contractOnly {
+            controller.window?.orderOut(nil)
+            Task { await runContractOnly(in: controller.window) }
+            return
+        }
         instanceActivationObserver = DistributedNotificationCenter.default().addObserver(
             forName: AIManagerSingleInstance.activationNotification(
                 bundleIdentifier: AIManagerSingleInstance.bundleIdentifier()),
@@ -136,6 +152,14 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
         }
         installMainMenu(title: title)
         controller.present()
+    }
+
+    private func runContractOnly(in window: NSWindow?) async {
+        await model.load()
+        try? await Task.sleep(for: .milliseconds(100))
+        window?.contentView?.layoutSubtreeIfNeeded()
+        checkWindowContract(receipts: receipts, stage: "contract-only")
+        NSApp.terminate(nil)
     }
 
     private func installMainMenu(title: String) {
@@ -184,6 +208,13 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
         if let instanceActivationObserver {
             DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
         }
+        if AcceptanceConfiguration.persistedAppearanceMode != nil {
+            if let priorAppearanceMode {
+                UserDefaults.standard.set(priorAppearanceMode, forKey: "appearanceMode")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "appearanceMode")
+            }
+        }
     }
 }
 
@@ -196,7 +227,7 @@ enum AIManagerGUIAcceptanceApp {
             bundleIdentifier: bundleIdentifier) else { return }
         let application = NSApplication.shared
         let delegate = AcceptanceAppDelegate()
-        application.setActivationPolicy(.regular)
+        application.setActivationPolicy(AcceptanceConfiguration.contractOnly ? .accessory : .regular)
         application.delegate = delegate
         withExtendedLifetime((delegate, instanceLock)) {
             application.run()
@@ -211,8 +242,18 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         if !condition() { failures.append(message) }
     }
     expect(AIMTheme.windowControlSize == 48, "Custom controls are not 48 points square")
+    expect(
+        AIManagerNativeContract.windowControlGeometryMatches(),
+        "Window controls or title clearances do not match the 48-point chrome contract"
+    )
     expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
+    if let mode = AcceptanceConfiguration.persistedAppearanceMode {
+        expect(
+            UserDefaults.standard.string(forKey: "appearanceMode") == mode,
+            "Persisted appearance selection was not retained"
+        )
+    }
     expect(
         Bundle.main.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool == true,
         "Launch Services does not prohibit duplicate app instances"
@@ -260,10 +301,16 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         window.frameAutosaveName == AIManagerWindow.frameAutosaveName,
         "Window position persistence is not configured"
     )
+    if let mode = AcceptanceConfiguration.persistedAppearanceMode {
+        let expected: NSAppearance.Name = mode == "dark" ? .darkAqua : .aqua
+        expect(window.appearance?.name == expected, "Persisted appearance was not applied to the window")
+    }
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
-    expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "IIA Directeur status item is unavailable")
+    if !AcceptanceConfiguration.contractOnly {
+        expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "IIA Directeur status item is unavailable")
+    }
     let behaviorDomain = "com.mandalsuraj.ai-manager.acceptance.window-behavior"
     if let behaviorDefaults = UserDefaults(suiteName: behaviorDomain) {
         behaviorDefaults.set(true, forKey: AIManagerWindowBehavior.minimizeToTrayKey)
@@ -288,6 +335,10 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     }
     if let contentView = window.contentView {
         expect(contentView.bounds.size == AcceptanceConfiguration.initialSize, "Acceptance content size changed")
+        expect(
+            AIManagerNativeContract.defaultFocusIndicatorsAreHidden(in: window),
+            "A default focus ring is visible"
+        )
         if stage == "after-load" {
             receipts.writeSnapshot(of: contentView)
             expect(
@@ -327,9 +378,11 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         failures.append("Acceptance window content view did not resolve")
     }
     let commands = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
-    expect(commands.contains {
-        $0.keyEquivalent == "q" && $0.action == #selector(NSApplication.terminate(_:))
-    }, "Preview Quit command is missing")
+    if !AcceptanceConfiguration.contractOnly {
+        expect(commands.contains {
+            $0.keyEquivalent == "q" && $0.action == #selector(NSApplication.terminate(_:))
+        }, "Preview Quit command is missing")
+    }
     var receipt = WindowContractReceipt(
         passed: failures.isEmpty,
         failures: failures,
@@ -362,7 +415,8 @@ private func windowHelperResolves(at point: NSPoint, in contentView: NSView) -> 
 private final class AcceptanceReceipts {
     weak var model: AccountViewModel?
     private static let stableDirectory = URL(
-        fileURLWithPath: "/private/tmp/ai-manager-build/gui-acceptance/artifacts",
+        fileURLWithPath: ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"]
+            ?? "/private/tmp/ai-manager-build/gui-acceptance/artifacts",
         isDirectory: true
     )
     private let directory: URL?

@@ -42,6 +42,7 @@ enum AIMTheme {
   static let topbarHeight: CGFloat = 56
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48
+  static let windowControlsExpandedTitleInset: CGFloat = 64
   static let modalOuterInset: CGFloat = 24
   static let panelContentInset: CGFloat = 16
 

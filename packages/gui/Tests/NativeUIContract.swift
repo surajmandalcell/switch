@@ -26,6 +26,19 @@ enum AIManagerNativeContract {
     root.focusRingType == (indicatorsEnabled ? .default : .none)
   }
 
+  static func defaultFocusIndicatorsAreHidden(in window: NSWindow) -> Bool {
+    window.contentView?.focusRingType == NSFocusRingType.none
+  }
+
+  static func windowControlGeometryMatches() -> Bool {
+    let size = AIMTheme.windowControlSize
+    let initialTitleX = AIMTheme.railWidth + AIMTheme.modalOuterInset
+    let expandedTitleX = AIMTheme.railWidth + AIMTheme.windowControlsExpandedTitleInset
+    return size == 48 && AIMTheme.railWidth == size
+      && initialTitleX - size == 24
+      && expandedTitleX - (size * 2) == 16
+  }
+
   static func scrollBehaviorIsInstalled(in root: NSView) -> Bool {
     let scrollViews = views(in: root).compactMap { $0 as? NSScrollView }
     return !scrollViews.isEmpty && configuredScrollViewCount(in: root) == scrollViews.count
