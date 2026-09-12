@@ -186,7 +186,7 @@ public actor AccountManager {
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
-        try provider.requireSupported(account.identity.providerID)
+        try provider.validateManagedCredential(account)
         guard try inspectLinkedSettings(accounts: [account]).isEmpty else {
             throw AIManagerError.operationFailed("Shared settings links changed. Review and repair them before launching this account.")
         }

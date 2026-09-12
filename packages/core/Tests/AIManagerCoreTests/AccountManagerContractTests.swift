@@ -297,6 +297,58 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(spec.arguments, ["-c", "cli_auth_credentials_store=\"file\"", "resume", "--all"])
     }
 
+    func testLaunchRefusesTamperedManagedAuth() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let account = try await manager.importAccount(plan: plan).account
+        try refreshedAuth(account: "account", workspace: "workspace", marker: "tampered")
+            .write(to: account.home.appending(path: "auth.json"))
+
+        await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .credentialConflict)
+        }
+    }
+
+    func testLaunchRefusesSymlinkedManagedAuth() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let account = try await manager.importAccount(plan: plan).account
+        let auth = account.home.appending(path: "auth.json")
+        let target = root.appending(path: "linked-auth.json")
+        try fm.moveItem(at: auth, to: target)
+        try fm.createSymbolicLink(at: auth, withDestinationURL: target)
+
+        await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .credentialConflict)
+        }
+    }
+
+    func testLaunchRefusesStaleRegistryIdentity() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let account = try await manager.importAccount(plan: plan).account
+        let registry = paths.applicationSupport.appending(path: "accounts.json")
+        var rootObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registry)) as? [String: Any]
+        )
+        var accounts = try XCTUnwrap(rootObject["accounts"] as? [[String: Any]])
+        var identity = try XCTUnwrap(accounts[0]["identity"] as? [String: Any])
+        identity["workspaceID"] = "stale-workspace"
+        accounts[0]["identity"] = identity
+        rootObject["accounts"] = accounts
+        try JSONSerialization.data(withJSONObject: rootObject).write(to: registry)
+
+        await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .credentialConflict)
+        }
+    }
+
     func testCrashAfterHomePublicationRollsBackUnregisteredHome() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
