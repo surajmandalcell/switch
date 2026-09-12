@@ -84,7 +84,8 @@ printf '%s\\t%s\n' "$CODEX_HOME" "$*" >> '\(log)'
 try write(fakeCodex, to: "fake-codex", permissions: 0o700)
 
 func recoveryHeader(id: String) throws -> String {
-    let destination = root.appending(path: "application-support/accounts/\(id)/home")
+    let accountID = UUID(uuidString: id)!.uuidString
+    let destination = root.appending(path: "application-support/accounts/\(accountID)/home")
     let backup = root.appending(path: "application-support/backups/\(id)")
     let value: [String: Any] = [
         "id": id,
@@ -94,9 +95,17 @@ func recoveryHeader(id: String) throws -> String {
         "destination": destination.absoluteString,
         "backup": backup.absoluteString,
         "expectedDigest": "synthetic-expected-digest",
-        "previousDigest": "synthetic-previous-digest",
+        "previousDigest": "4a760c51b2523437cd79805c5da8206f17b1239169361d1494ce1e8aacb19c45",
+        "registryAccountID": id,
     ]
-    try write("later user edit\n", to: "application-support/accounts/\(id)/home/auth.json")
+    try write(
+        try auth(
+            account: "recovery-\(id)",
+            workspace: "recovery-workspace",
+            email: "recovery@example.test"
+        ),
+        to: "application-support/accounts/\(accountID)/home/auth.json"
+    )
     try write("protected original\n", to: "application-support/backups/\(id)/account-home/auth.json")
     return String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)
 }

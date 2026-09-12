@@ -13,6 +13,11 @@ configuration="${AI_MANAGER_CONFIGURATION:-release}"
 version="${AI_MANAGER_VERSION:-0.1.0}"
 debug_info_format="${AI_MANAGER_DEBUG_INFO_FORMAT:-}"
 
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf 'Unsupported version: %s (expected MAJOR.MINOR.PATCH)\n' "$version" >&2
+  exit 2
+fi
+
 if [[ -n "$debug_info_format" ]]; then
   case "$debug_info_format" in
     dwarf|codeview|none) ;;

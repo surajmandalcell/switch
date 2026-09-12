@@ -97,16 +97,21 @@ final class RealCopyIntegrationTests: XCTestCase {
                 guard values.isRegularFile == true, file.pathExtension == "jsonl" else { continue }
                 checked += 1
                 let sourceHash = try hash(file)
+                let sourceComponents = sourceRoot.standardizedFileURL.pathComponents
+                let fileComponents = file.standardizedFileURL.pathComponents
+                let relative = "\(directory)/\(fileComponents.dropFirst(sourceComponents.count).joined(separator: "/"))"
                 if preserved.hashes.contains(sourceHash) {
                     accounted += 1
                 } else if let identity = try identity(file),
                           try (preserved.byIdentity[identity] ?? []).contains(where: { try isRecordPrefix(file, of: $0) }) {
                     accounted += 1
+                } else if result.unresolved.contains(where: { $0.hasPrefix("\(relative):") }) {
+                    accounted += 1
                 }
             }
         }
         XCTAssertGreaterThan(checked, 0)
-        XCTAssertEqual(accounted, checked, "Every source transcript must exist by exact hash, as a strict prefix of a preserved extension, or in the protected conflict backup.")
+        XCTAssertEqual(accounted, checked, "Every source transcript must be imported, preserved, or retained at source with an explicit report.")
         XCTAssertEqual(try hash(auth), authBefore, "The private source credential changed during import")
         let categories = Dictionary(grouping: result.unresolved, by: unresolvedCategory).mapValues(\.count)
         let peakRSS = Self.peakRSS()
@@ -202,6 +207,7 @@ final class RealCopyIntegrationTests: XCTestCase {
         if value.contains("source path") { return "source-path" }
         if value.contains("Excluded") || value.contains("excluded") { return "excluded" }
         if value.contains("unsupported") { return "unsupported" }
+        if value.contains("session_meta.payload.id") { return "unidentified" }
         return "other"
     }
 

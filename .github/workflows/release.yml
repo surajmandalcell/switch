@@ -35,6 +35,7 @@ jobs:
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
         run: |
+          umask 077
           test -n "$CERTIFICATE_BASE64"
           test -n "$CERTIFICATE_PASSWORD"
           test -n "$KEYCHAIN_PASSWORD"
@@ -66,6 +67,7 @@ jobs:
           NOTARY_API_KEY_ID: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
           NOTARY_API_ISSUER_ID: ${{ secrets.APPLE_NOTARY_API_ISSUER_ID }}
         run: |
+          umask 077
           test -n "$NOTARY_API_KEY_BASE64"
           test -n "$NOTARY_API_KEY_ID"
           test -n "$NOTARY_API_ISSUER_ID"

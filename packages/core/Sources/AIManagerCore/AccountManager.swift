@@ -524,7 +524,7 @@ extension AccountManager {
         for account in registry.accounts {
             let expected = accountsRoot.appending(path: account.id.uuidString)
                 .appending(path: "home", directoryHint: .isDirectory)
-            guard CoreSupport.canonical(account.home) == CoreSupport.canonical(expected) else {
+            guard CoreSupport.sameLocation(account.home, expected) else {
                 throw AIManagerError.unsafePath("managed account home is outside the private account root")
             }
         }
@@ -1626,7 +1626,7 @@ extension AccountManager {
 
         for target in try recoveryTargets(operation) {
             if operation.kind == "settings-link-repair",
-               target.destination.standardizedFileURL != operation.destination.standardizedFileURL {
+               !CoreSupport.sameLocation(target.destination, operation.destination) {
                 throw AIManagerError.unsafePath(target.destination.path)
             }
             if let backup = target.backup {
@@ -1779,8 +1779,8 @@ extension AccountManager {
         if let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
             let expectedHome = accountsRoot.appending(path: accountID.uuidString)
                 .appending(path: "home", directoryHint: .isDirectory)
-            guard CoreSupport.canonical(registry.accounts[index].home) == CoreSupport.canonical(expectedHome),
-                  CoreSupport.canonical(operation.destination) == CoreSupport.canonical(expectedHome) else {
+            guard CoreSupport.sameLocation(registry.accounts[index].home, expectedHome),
+                  CoreSupport.sameLocation(operation.destination, expectedHome) else {
                 throw AIManagerError.unsafePath("managed account home is outside the private account root")
             }
             guard provider.sameIdentity(registry.accounts[index].identity, identity) else {
@@ -1796,7 +1796,7 @@ extension AccountManager {
             }
             let expectedHome = accountsRoot.appending(path: accountID.uuidString)
                 .appending(path: "home", directoryHint: .isDirectory)
-            guard CoreSupport.canonical(operation.destination) == CoreSupport.canonical(expectedHome) else {
+            guard CoreSupport.sameLocation(operation.destination, expectedHome) else {
                 throw AIManagerError.unsafePath("managed account home is outside the private account root")
             }
             registry.accounts.append(.init(
@@ -1844,8 +1844,7 @@ extension AccountManager {
         )
         for target in try recoveryTargets(operation) where target.destination.lastPathComponent == "auth.json" {
             guard let index = registry.accounts.firstIndex(where: {
-                CoreSupport.canonical($0.home.appending(path: "auth.json"))
-                    == CoreSupport.canonical(target.destination)
+                CoreSupport.sameLocation($0.home.appending(path: "auth.json"), target.destination)
             }) else { continue }
             let inspection = provider.inspect(home: registry.accounts[index].home)
             guard inspection.support == .supportedChatGPT,
