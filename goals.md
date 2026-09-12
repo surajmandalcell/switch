@@ -43,6 +43,20 @@ simple robot/manager mark from established licensed glyphs, with no hand-drawn
 SVG paths. Keep the menu-bar version monochrome and legible at native size.
 Use the same mark in the app rail, and package it in both GUI builds. Menu-bar
 actions only show the demo window or quit; account operations remain mocked.
+
+Native polish refinement (2026-09-12): finish the light palette across every
+surface and state; replace the current robot mark with a simpler licensed-glyph
+composition and add a restrained edge highlight to Dock and Spotlight artwork.
+Remove the Recovery rail gap, align page titles to the content grid, remove the
+extra title-bar control, keep Close visible, and reveal Minimize only on hover.
+Add a persistent Minimize to Tray setting with predictable close/minimize/menu
+behavior. Apply restrained interruptible micro-interactions, honor reduced
+motion, and keep rendering work GPU-friendly. Verify that account switching
+changes only authentication while configuration, sessions, history, skills,
+and other shared Codex state remain untouched; base this contract on current
+official Codex behavior and a broad survey of major account-switching tools.
+Automated account tests must use synthetic credentials and isolated temporary
+homes. The GUI remains an in-memory demo while its design is under review.
 Repository baseline: `e7bb55bf2dea7c05072d85481aa5652ab4cdfe16` on `master`.
 
 ## 1. The outcome
