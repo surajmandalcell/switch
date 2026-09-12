@@ -60,15 +60,24 @@ enum AIMTheme {
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
   static let control = dynamic(light: 0xDEDCD6, dark: 0x1D2025)
   static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x262A30)
+  static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
+  static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3E3B34)
+  static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x50493C)
   static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x1A1C20)
   static let disabledInk = dynamic(light: 0x74777D, dark: 0x858890)
 
-  static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-    .custom("Geist-Regular", size: size).weight(weight)
+  enum FontWeight: String {
+    case regular = "Regular"
+    case medium = "Medium"
+    case semibold = "SemiBold"
   }
 
-  static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-    .custom("GeistMono-Regular", size: size).weight(weight)
+  static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
+    .custom("Geist-\(weight.rawValue)", size: size)
+  }
+
+  static func mono(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
+    .custom("GeistMono-\(weight.rawValue)", size: size)
   }
 
   private static func dynamic(light: UInt32, dark: UInt32) -> Color {
@@ -146,16 +155,14 @@ struct AIMPressButtonStyle: ButtonStyle {
     let configuration: Configuration
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-    @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
       configuration.label
-        .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
-        .opacity(configuration.isPressed ? 0.84 : (isHovered ? 0.94 : 1))
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
+        .scaleEffect(configuration.isPressed && isEnabled && !reduceMotion ? 0.97 : 1)
+        .opacity(configuration.isPressed && isEnabled ? 0.84 : 1)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.06), value: configuration.isPressed)
         .focusEffectDisabled(!focusIndicatorsEnabled)
-        .onHover { isHovered = $0 }
     }
   }
 }

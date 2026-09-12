@@ -111,7 +111,7 @@ private enum Page: String, CaseIterable {
   }
   var subtitle: String {
     switch self {
-    case .accounts: "Codex only for now · more providers planned"
+    case .accounts: "Import, verify, and switch accounts"
     case .settings: "One configuration across every account"
     case .history: "The merged resume library"
     case .recovery: "Backups and interrupted operations"
@@ -125,6 +125,7 @@ struct AccountWindow: View {
   @State private var page: Page = .accounts
   @State private var themeOverride: ColorScheme?
   @State private var showFocusIndicators = false
+  @State private var refreshHovered = false
   @Environment(\.colorScheme) private var systemScheme
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -230,7 +231,7 @@ struct AccountWindow: View {
       Spacer()
       RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false)
       {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.28)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.20)) {
           themeOverride = dark ? .light : .dark
         }
       }
@@ -244,20 +245,25 @@ struct AccountWindow: View {
   private var topbar: some View {
     ZStack {
       WindowDragRegion()
-      HStack(alignment: .lastTextBaseline, spacing: 10) {
-        Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).lineLimit(1)
-        Text(page.subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+      HStack(alignment: .lastTextBaseline, spacing: 14) {
+        Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).tracking(-0.55).lineLimit(1)
+        Text(page.subtitle).font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.muted).lineLimit(1)
         Spacer(minLength: 12)
       }
       .allowsHitTesting(false)
       Button {
         Task { await model.refresh() }
       } label: {
-        AIMIcon(name: .refresh, size: 15).frame(width: 32, height: 32).contentShape(Rectangle())
+        AIMIcon(name: .refresh, size: 15)
+          .foregroundStyle(refreshHovered ? AIMTheme.ink : AIMTheme.muted)
+          .frame(width: 32, height: 32).contentShape(Rectangle())
       }
       .buttonStyle(AIMPressButtonStyle())
       .disabled(model.isBusy)
       .opacity(model.isBusy ? 0.42 : 1)
+      .onHover { refreshHovered = $0 }
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: refreshHovered)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: model.isBusy)
       .help(refreshHelp)
       .accessibilityLabel(model.isDemo ? "Refresh demo data" : "Refresh accounts")
       .accessibilityHint(refreshHelp)
@@ -278,6 +284,7 @@ private struct RailTop: View {
   let close: () -> Void, minimize: () -> Void
   @State private var hover = false
   @State private var closeHover = false
+  @State private var minimizeHover = false
   @State private var pendingHide: Task<Void, Never>?
   @FocusState private var closeFocused: Bool
   @FocusState private var minimizeFocused: Bool
@@ -288,16 +295,23 @@ private struct RailTop: View {
   }
   var body: some View {
     ZStack(alignment: .topLeading) {
-      Button(action: minimize) {
-        AIMIcon(name: .minimize, size: 15).foregroundStyle(AIMTheme.ink)
+      if showMinimize {
+        Button(action: minimize) {
+          AIMIcon(name: .minimize, size: 15).foregroundStyle(
+            minimizeHover ? AIMTheme.ink : AIMTheme.muted
+          )
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-          .background(AIMTheme.panel3)
-          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($minimizeFocused)
-        .accessibilityLabel("Minimize window").opacity(showMinimize ? 1 : 0)
-        .allowsHitTesting(showMinimize)
-        .offset(x: showMinimize ? AIMTheme.windowControlSize : 0)
-        .onHover(perform: updateHover)
+          .background(minimizeHover ? AIMTheme.minimizeHover : AIMTheme.minimizeControl)
+          .contentShape(Rectangle())
+        }.buttonStyle(AIMPressButtonStyle()).focusable(focusIndicatorsEnabled).focused($minimizeFocused)
+          .accessibilityLabel("Minimize window")
+          .offset(x: AIMTheme.windowControlSize)
+          .transition(reduceMotion ? .identity : .offset(x: -AIMTheme.windowControlSize))
+          .onHover { value in
+            minimizeHover = value
+            updateHover(value)
+          }
+      }
       Button(action: close) {
         AIMIcon(name: .close, size: 15).foregroundStyle(Color(nsColor: .systemRed))
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
@@ -316,7 +330,8 @@ private struct RailTop: View {
       height: AIMTheme.windowControlSize,
       alignment: .topLeading
     )
-    .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: showMinimize)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: showMinimize)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: minimizeHover)
   }
 
   private func updateHover(_ value: Bool) {
@@ -325,7 +340,7 @@ private struct RailTop: View {
       hover = true
     } else {
       pendingHide = Task {
-        try? await Task.sleep(for: .milliseconds(220))
+        try? await Task.sleep(for: .milliseconds(70))
         guard !Task.isCancelled else { return }
         hover = false
       }
@@ -340,13 +355,13 @@ private struct RailButton: View {
   var body: some View {
     Button(action: action) {
       AIMIcon(name: icon).frame(width: 48, height: 48).foregroundStyle(
-        active ? AIMTheme.activeInk : AIMTheme.railIdle
+        active ? AIMTheme.activeInk : (hover ? AIMTheme.ink : AIMTheme.railIdle)
       ).background(active ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear))
         .contentShape(Rectangle())
     }.buttonStyle(AIMPressButtonStyle()).help(label).accessibilityLabel(label).accessibilityAddTraits(
       active ? .isSelected : []
     ).onHover { hover = $0 }.animation(
-      reduceMotion ? nil : .easeOut(duration: 0.12), value: hover)
+      reduceMotion ? nil : .easeOut(duration: 0.10), value: hover)
   }
 }
 private enum ButtonTone { case normal, primary, danger }
@@ -360,6 +375,8 @@ private struct AIMButton: View {
   @FocusState private var focused: Bool
   @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
+  private var unavailable: Bool { disabled || !isEnabled }
   var body: some View {
     Button(action: action) {
       HStack(spacing: 6) {
@@ -367,22 +384,27 @@ private struct AIMButton: View {
         Text(title).lineLimit(1)
       }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 13).frame(height: 30)
         .foregroundStyle(
-          disabled
+          unavailable
             ? AIMTheme.disabledInk
             : (tone == .primary
-              ? AIMTheme.canvas : (tone == .danger && hover ? AIMTheme.red : AIMTheme.ink))
+              ? AIMTheme.canvas : (tone == .danger && hover ? AIMTheme.statusInk : AIMTheme.ink))
         ).background(
-          disabled
+          unavailable
             ? AIMTheme.disabledControl
-            : (tone == .primary ? AIMTheme.ink : (hover ? AIMTheme.controlHover : AIMTheme.control))
+            : (tone == .primary
+              ? (hover ? AIMTheme.primaryHover : AIMTheme.ink)
+              : (tone == .danger && hover ? AIMTheme.red : (hover ? AIMTheme.controlHover : AIMTheme.control)))
         ).overlay {
           if focused, focusIndicatorsEnabled {
             RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
           }
         }.clipShape(RoundedRectangle(cornerRadius: 3))
     }
-    .buttonStyle(AIMPressButtonStyle()).focused($focused).disabled(disabled).onHover { hover = $0 }
-    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hover)
+    .buttonStyle(AIMPressButtonStyle()).focused($focused).disabled(disabled).onHover {
+      hover = $0 && !unavailable
+    }
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: hover)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: unavailable)
   }
 }
 private struct Badge: View {
@@ -396,6 +418,8 @@ private struct Badge: View {
 
 private struct AccountsPage: View {
   @ObservedObject var model: AccountViewModel
+  @State private var importHovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
       AIMPanel(title: "Accounts") {
@@ -425,8 +449,10 @@ private struct AccountsPage: View {
               Text("Import account")
               Spacer()
             }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
-              .background(AIMTheme.panel2)
+              .background(importHovered ? AIMTheme.controlHover : AIMTheme.panel2)
           }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut("i", modifiers: [.command])
+            .onHover { importHovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: importHovered)
         }
       }.frame(width: AIMTheme.listWidth)
       if let account = model.selectedAccount {
@@ -458,6 +484,7 @@ private struct AccountListRow: View {
       .contentShape(Rectangle()).onHover { hover = $0 }.accessibilityElement(children: .combine)
       .accessibilityAddTraits(selected ? .isSelected : [])
       .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hover)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: selected)
   }
 }
 private struct EmptyAccountView: View {
@@ -554,13 +581,13 @@ private struct AccountDetail: View {
   }
   @ViewBuilder private var actions: some View {
     AIMButton(
-      title: "Use by default", tone: .primary,
+      title: "Use for new Codex sessions", tone: .primary,
       disabled: account.id == model.status?.defaultAccountID || model.isBusy
     ) { Task { await model.switchDefault() } }
-    AIMButton(title: "Open account", icon: .play, disabled: model.isBusy || !issues.isEmpty) {
+    AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy || !issues.isEmpty) {
       Task { await model.openAccount() }
     }
-    AIMButton(title: "Verify locally", icon: .check, disabled: model.isBusy) {
+    AIMButton(title: "Check account files", icon: .check, disabled: model.isBusy) {
       Task { await model.verify() }
     }
     AIMButton(title: "Copy path", icon: .copy) { model.copyProfilePath() }
@@ -881,19 +908,19 @@ private struct ErrorBar: View {
       AIMIcon(name: .warning, size: 14).foregroundStyle(AIMTheme.red)
       Text(message).font(AIMTheme.sans(11)).lineLimit(2).textSelection(.enabled)
       Spacer()
-      Button("Dismiss", action: dismiss).buttonStyle(AIMPressButtonStyle()).font(
-        AIMTheme.sans(11, weight: .semibold))
+      AIMButton(title: "Dismiss", action: dismiss)
     }.padding(12).background(AIMTheme.panel)
   }
 }
 
 private struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
+  @State private var closeHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 0) {
-        Text(title).font(AIMTheme.sans(22, weight: .semibold))
+        Text(title).font(AIMTheme.sans(22, weight: .semibold)).tracking(-0.55)
         Spacer()
         ImportSteps(step: step)
         Button {
@@ -902,10 +929,12 @@ private struct ImportFlow: View {
         } label: {
           AIMIcon(name: .close, size: 15)
             .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-            .background(AIMTheme.control)
+            .background(closeHovered ? AIMTheme.controlHover : AIMTheme.control)
             .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
         }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut(.cancelAction)
           .accessibilityLabel("Close import")
+          .onHover { closeHovered = $0 }
+          .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: closeHovered)
       }.padding(.leading, AIMTheme.modalOuterInset).frame(height: 56).background(AIMTheme.panel2)
       if let error = model.errorMessage {
         ErrorBar(message: error) { model.errorMessage = nil }.padding(.horizontal, 24).padding(
@@ -927,12 +956,13 @@ private struct ImportFlow: View {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
           Text("Working…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-        }.padding(10)
+        }.padding(10).transition(reduceMotion ? .identity : .opacity)
       }
     }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel).frame(
       maxWidth: .infinity, maxHeight: .infinity
     )
     .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: step)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: model.isBusy)
   }
   private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
   private var title: String {
@@ -961,10 +991,13 @@ private struct ImportSteps: View {
 
 private struct SourcePage: View {
   @ObservedObject var model: AccountViewModel
+  @State private var hoveredSourceID: String?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
   var body: some View {
     VStack(spacing: 8) {
-      Text("Codex is the only supported provider for now. More providers are planned.")
-        .font(AIMTheme.sans(11))
+      Text("Choose a Codex profile to import.")
+        .font(AIMTheme.sans(12))
         .foregroundStyle(AIMTheme.muted)
         .frame(maxWidth: .infinity, alignment: .leading)
       AIMPanel(title: "Source") {
@@ -982,30 +1015,42 @@ private struct SourcePage: View {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(source.identity?.displayName ?? source.support.label).font(
                       AIMTheme.sans(12, weight: .medium))
-                    Text(source.path.path).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+                    Text(source.path.path).font(AIMTheme.mono(11)).foregroundStyle(AIMTheme.muted)
                       .lineLimit(1)
                     Text(
                       "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
-                    ).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+                    ).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
                   }
                   Spacer()
                   Badge(
                     text: source.support.label,
                     color: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber)
-                }.padding(.horizontal, 16).frame(minHeight: 54).background(
-                  index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55)
+                }.padding(.horizontal, 16).frame(minHeight: 58).background(
+                  source.id == model.selectedSourceID
+                    ? AIMTheme.active.opacity(0.70)
+                    : (hoveredSourceID == source.id
+                      ? AIMTheme.panel2
+                      : (index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55)))
                 ).contentShape(Rectangle())
+                  .foregroundStyle(
+                    source.id == model.selectedSourceID ? AIMTheme.activeInk : AIMTheme.ink)
+                  .opacity(isEnabled ? 1 : 0.55)
               }.buttonStyle(AIMPressButtonStyle())
+                .onHover { hoveredSourceID = $0 && isEnabled ? source.id : nil }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: hoveredSourceID)
+                .animation(
+                  reduceMotion ? nil : .easeOut(duration: 0.10), value: model.selectedSourceID)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: isEnabled)
             }
           }
         }
       }.frame(maxHeight: .infinity)
       AIMPanel(title: "Import scope") {
         HStack(spacing: 4) {
-          Choice(title: "Auth only", selected: model.importMode == .authOnly) {
+          Choice(title: "Account access only", selected: model.importMode == .authOnly) {
             model.importMode = .authOnly
           }
-          Choice(title: "Auth, settings, and chats", selected: model.importMode == .full) {
+          Choice(title: "Account access, settings, and chats", selected: model.importMode == .full) {
             model.importMode = .full
           }
           Spacer()
@@ -1034,6 +1079,9 @@ private struct SourcePage: View {
 }
 private struct Choice: View {
   let title: String, selected: Bool, action: () -> Void
+  @State private var hover = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
   var body: some View {
     Button(action: action) {
       HStack(spacing: 7) {
@@ -1043,9 +1091,17 @@ private struct Choice: View {
         }.frame(width: 14, height: 14)
         Text(title)
       }.font(AIMTheme.sans(11, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
-        .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background(
-          selected ? AIMTheme.active : AIMTheme.control)
+        .foregroundStyle(
+          !isEnabled ? AIMTheme.disabledInk : (selected ? AIMTheme.activeInk : AIMTheme.ink)
+        ).background(
+          !isEnabled
+            ? AIMTheme.disabledControl
+            : (selected ? AIMTheme.active : (hover ? AIMTheme.controlHover : AIMTheme.control)))
     }.buttonStyle(AIMPressButtonStyle()).accessibilityAddTraits(selected ? .isSelected : [])
+      .onHover { hover = $0 && isEnabled }
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: hover)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: selected)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: isEnabled)
   }
 }
 
@@ -1183,7 +1239,7 @@ private struct ImportResultPage: View {
           }
           Notice(
             text:
-              "The imported account is ready. It becomes the default only after you choose Use by default.",
+              "The imported account is ready. Choose Use for new Codex sessions when you want to switch.",
             tone: AIMTheme.blue)
         }
       }
