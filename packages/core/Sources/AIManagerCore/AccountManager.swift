@@ -16,6 +16,7 @@ public actor AccountManager {
 
     private let paths: ManagerPaths
     private let fileManager: FileManager
+    private let provider: CodexProviderAdapter
     private let writerCheck: WriterCheck
     private let faultInjector: @Sendable (FaultPoint) throws -> Void
     private let verificationTimeout: TimeInterval
@@ -27,6 +28,7 @@ public actor AccountManager {
     public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }) throws {
         self.paths = paths
         self.fileManager = fileManager
+        self.provider = CodexProviderAdapter(fileManager: fileManager)
         self.writerCheck = writerCheck ?? { home in await AccountManager.systemWriterCheck(home: home) }
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
@@ -41,21 +43,18 @@ public actor AccountManager {
 
     public func status() throws -> ManagerStatus {
         let registry = try loadRegistry()
+        let codexAccounts = registry.accounts.filter { $0.identity.providerID == provider.id }
         return .init(
             accounts: registry.accounts,
             defaultAccountID: registry.defaultAccountID,
             sharedRoot: paths.sharedRoot,
             pendingRecovery: try pendingOperations(),
-            linkedSettingsDivergences: try inspectLinkedSettings(accounts: registry.accounts)
+            linkedSettingsDivergences: try inspectLinkedSettings(accounts: codexAccounts)
         )
     }
 
     public func discover(explicit: URL? = nil) async -> [DiscoveredSource] {
-        var candidates = [paths.defaultHome, paths.defaultHome.deletingLastPathComponent().appending(path: ".codex2")]
-        if let homes = try? fileManager.contentsOfDirectory(at: paths.orcaAccountsRoot, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
-            candidates += homes.map { $0.appending(path: "home", directoryHint: .isDirectory) }
-        }
-        if let explicit { candidates.append(CoreSupport.home(for: explicit)) }
+        let candidates = provider.discoveryCandidates(paths: paths, explicit: explicit)
 
         var seen = Set<String>()
         return candidates.compactMap { candidate in
@@ -73,7 +72,7 @@ public actor AccountManager {
     public func planImport(source selected: URL, mode: ImportMode) async throws -> ImportPlan {
         try ensureNoRecovery()
         let source = CoreSupport.home(for: selected)
-        let inspection = AuthInspection.inspect(home: selected, fileManager: fileManager)
+        let inspection = provider.inspect(home: selected)
         guard inspection.support == .supportedChatGPT else {
             throw AIManagerError.unsupportedSource(inspection.error ?? inspection.support.rawValue)
         }
@@ -86,7 +85,7 @@ public actor AccountManager {
         let manifest = try buildManifest(source: source, mode: mode)
         var conflicts = try mode == .full ? settingConflicts(source: source) : []
         let registry = try loadRegistry()
-        if let existing = registry.accounts.first(where: { sameIdentity($0.identity, identity) }), existing.credentialDigest != inspection.digest {
+        if let existing = registry.accounts.first(where: { provider.sameIdentity($0.identity, identity) }), existing.credentialDigest != inspection.digest {
             conflicts.append(.init(relativePath: "auth.json", importedDigest: inspection.digest, sharedDigest: existing.credentialDigest, affectsAllAccounts: false))
         }
         var warnings = manifest.filter { !$0.selected }.map { "Excluded \($0.relativePath): \($0.disposition)" }
@@ -131,7 +130,7 @@ public actor AccountManager {
             let bytes = try portableLogicalSize(plan.source.appending(path: conflict.relativePath))
             if let available = capacityCheck(paths.applicationSupport), available < bytes { throw AIManagerError.operationFailed("The reviewed linked data needs \(bytes) bytes but only \(available) bytes are available.") }
         }
-        let current = AuthInspection.inspect(home: plan.source, fileManager: fileManager)
+        let current = provider.inspect(home: plan.source)
         guard current.digest == plan.sourceAuthDigest else { throw AIManagerError.sourceChanged }
         guard try reviewedDataDigest(source: plan.source, mode: plan.mode, authDigest: current.digest) == plan.reviewedDataDigest else { throw AIManagerError.sourceChanged }
         if plan.mode == .full {
@@ -177,6 +176,7 @@ public actor AccountManager {
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+        try provider.requireSupported(account.identity.providerID)
         guard try inspectLinkedSettings(accounts: [account]).isEmpty else {
             throw AIManagerError.operationFailed("Shared settings links changed. Review and repair them before launching this account.")
         }
@@ -199,6 +199,7 @@ public actor AccountManager {
         guard CoreSupport.settings.contains(relativePath) else { throw AIManagerError.unsafePath(relativePath) }
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+        try provider.requireSupported(account.identity.providerID)
         switch await writerCheck(account.home) {
         case .active: throw AIManagerError.activeCodexProcesses
         case .unknown: throw AIManagerError.writerStateUnknown
@@ -281,6 +282,14 @@ public actor AccountManager {
     }
 
     public func verifyLocal(accountID: UUID) async -> VerificationResult {
+        if let account = try? loadRegistry().accounts.first(where: { $0.id == accountID }),
+           account.identity.providerID != provider.id {
+            return .init(
+                state: .unsupported,
+                checkedAt: Date(),
+                detail: "Provider \(account.identity.providerID.rawValue) is not supported by this release."
+            )
+        }
         var verificationHome: URL?
         do {
             let base = try launchSpec(accountID: accountID, arguments: ["login", "status"])
@@ -472,11 +481,12 @@ extension AccountManager {
 
     private func inspectSource(_ selected: URL) -> DiscoveredSource {
         let home = CoreSupport.home(for: selected)
-        let inspection = AuthInspection.inspect(home: selected, fileManager: fileManager)
+        let inspection = provider.inspect(home: selected)
         let settings = CoreSupport.settings.filter { CoreSupport.entryExists(home.appending(path: $0)) }
         let history = historySummary(in: home)
         return .init(
             id: CoreSupport.canonical(home).path,
+            providerID: provider.id,
             path: home,
             identity: inspection.identity,
             support: inspection.support,
@@ -647,7 +657,7 @@ extension AccountManager {
 
     private func performImport(plan: ImportPlan, auth: Data, decisions: [String: ConflictChoice]) throws -> ImportResult {
         var registry = try loadRegistry()
-        let matching = registry.accounts.firstIndex { sameIdentity($0.identity, plan.identity) }
+        let matching = registry.accounts.firstIndex { provider.sameIdentity($0.identity, plan.identity) }
         let keepExistingCredential = matching != nil && registry.accounts[matching!].credentialDigest != plan.sourceAuthDigest && decisions["auth.json"] == .keepShared
         if let matching, registry.accounts[matching].credentialDigest != plan.sourceAuthDigest,
            decisions["auth.json"] != .useImported, !keepExistingCredential { throw AIManagerError.credentialConflict }
@@ -809,27 +819,30 @@ extension AccountManager {
 
     private func performSwitch(to accountID: UUID) throws -> SwitchResult {
         var registry = try loadRegistry()
-        guard registry.accounts.contains(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+        guard let requested = registry.accounts.first(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
+        }
+        try provider.requireSupported(requested.identity.providerID)
 
         let defaultAuth = paths.defaultHome.appending(path: "auth.json")
         if (try? defaultAuth.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
             throw AIManagerError.unsafePath("default auth.json is a symbolic link")
         }
-        let outgoingInspection = AuthInspection.inspect(home: paths.defaultHome, fileManager: fileManager)
+        let outgoingInspection = provider.inspect(home: paths.defaultHome)
         var registeredOutgoingIndex: Int?
         var registeredOutgoingInspection: AuthInspection?
         if outgoingInspection.support == .supportedChatGPT, let identity = outgoingInspection.identity, identity.isResolved {
             if let currentID = registry.defaultAccountID,
                let index = registry.accounts.firstIndex(where: { $0.id == currentID }) {
-                guard sameIdentity(registry.accounts[index].identity, identity) else { throw AIManagerError.credentialConflict }
+                guard provider.sameIdentity(registry.accounts[index].identity, identity) else { throw AIManagerError.credentialConflict }
                 registeredOutgoingIndex = index
             } else {
-                registeredOutgoingIndex = registry.accounts.firstIndex(where: { sameIdentity($0.identity, identity) })
+                registeredOutgoingIndex = registry.accounts.firstIndex(where: { provider.sameIdentity($0.identity, identity) })
             }
             if let index = registeredOutgoingIndex {
-                let managed = AuthInspection.inspect(home: registry.accounts[index].home, fileManager: fileManager)
+                let managed = provider.inspect(home: registry.accounts[index].home)
                 guard managed.support == .supportedChatGPT, let managedIdentity = managed.identity,
-                      sameIdentity(registry.accounts[index].identity, managedIdentity) else { throw AIManagerError.credentialConflict }
+                      provider.sameIdentity(registry.accounts[index].identity, managedIdentity) else { throw AIManagerError.credentialConflict }
                 let baseline = registry.accounts[index].credentialDigest
                 let defaultChanged = outgoingInspection.digest != baseline
                 let managedChanged = managed.digest != baseline
@@ -841,7 +854,7 @@ extension AccountManager {
         }
         let id = UUID()
         let backup = paths.applicationSupport.appending(path: "backups/\(id.uuidString)", directoryHint: .isDirectory)
-        let originallySelected = registry.accounts.first(where: { $0.id == accountID })!
+        let originallySelected = requested
         var operation = RecoveryOperation(id: id, kind: "switch", phase: .prepared, source: originallySelected.home.appending(path: "auth.json"), destination: defaultAuth, backup: backup, touchedItems: [], previousDigest: outgoingInspection.digest.isEmpty ? nil : outgoingInspection.digest, registryAccountID: accountID, previousDefaultAccountID: registry.defaultAccountID ?? registeredOutgoingIndex.map { registry.accounts[$0].id })
         try saveOperation(operation)
         try CoreSupport.privateDirectory(backup, fileManager: fileManager)
@@ -876,15 +889,15 @@ extension AccountManager {
 
         guard let incomingIndex = registry.accounts.firstIndex(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
         let incoming = registry.accounts[incomingIndex]
-        let incomingInspection = AuthInspection.inspect(home: incoming.home, fileManager: fileManager)
+        let incomingInspection = provider.inspect(home: incoming.home)
         guard incomingInspection.support == .supportedChatGPT, let incomingIdentity = incomingInspection.identity,
-              sameIdentity(incoming.identity, incomingIdentity) else { throw AIManagerError.credentialConflict }
+              provider.sameIdentity(incoming.identity, incomingIdentity) else { throw AIManagerError.credentialConflict }
         if registry.defaultAccountID == accountID, outgoingInspection.digest == incomingInspection.digest {
             try saveRegistry(registry)
             try finishOperation(&operation)
             return .init(accountID: accountID, backup: backup, previousAccountID: accountID)
         }
-        let recheck = AuthInspection.inspect(home: paths.defaultHome, fileManager: fileManager)
+        let recheck = provider.inspect(home: paths.defaultHome)
         guard recheck.digest == outgoingInspection.digest else { throw AIManagerError.sourceChanged }
         operation.expectedDigest = incomingInspection.digest
         try saveOperation(operation)
@@ -892,7 +905,7 @@ extension AccountManager {
         try faultInjector(.afterDefaultCredentialPublication)
         operation.phase = .published
         try saveOperation(operation)
-        guard AuthInspection.inspect(home: paths.defaultHome, fileManager: fileManager).digest == incomingInspection.digest else {
+        guard provider.inspect(home: paths.defaultHome).digest == incomingInspection.digest else {
             throw AIManagerError.operationFailed("The committed default credential did not verify.")
         }
         let previous = registry.defaultAccountID
@@ -914,14 +927,6 @@ extension AccountManager {
             guard fileManager.fileExists(atPath: target.path) else { continue }
             try fileManager.createSymbolicLink(at: home.appending(path: entry), withDestinationURL: target)
         }
-    }
-
-    private func sameIdentity(_ lhs: AccountIdentity, _ rhs: AccountIdentity) -> Bool {
-        guard lhs.authMode == rhs.authMode else { return false }
-        guard lhs.authMode == .chatGPT,
-              let leftUser = lhs.userID, let rightUser = rhs.userID,
-              let leftAccount = lhs.accountID, let rightAccount = rhs.accountID else { return false }
-        return leftUser == rightUser && leftAccount == rightAccount
     }
 
     private func resolveExecutable() -> URL? {
