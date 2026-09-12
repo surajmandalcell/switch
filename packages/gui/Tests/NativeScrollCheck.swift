@@ -38,6 +38,11 @@ struct NativeScrollCheck {
     expect(scrollView.scrollerStyle == .overlay, "The scrollbar is not an overlay")
     expect(scrollView.verticalScroller is AIMThinScroller, "The owned thin scrollbar is missing")
     expect(
+      (scrollView.verticalScroller?.frame.height ?? 0)
+        > (scrollView.verticalScroller?.frame.width ?? 0),
+      "The vertical scrollbar was laid out horizontally"
+    )
+    expect(
       AIMThinScroller.scrollerWidth(for: .mini, scrollerStyle: .overlay) == 3,
       "The native scrollbar is not 3 px"
     )

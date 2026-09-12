@@ -61,7 +61,10 @@ final class AccountViewModel: ObservableObject {
             if scenario == nil { reportUnavailable() }
             return
         }
-        await perform {
+        await perform(
+            failure: "Couldn’t load accounts.",
+            recovery: "Refresh after resolving any item shown in Recovery."
+        ) {
             try await reloadStatus(using: manager)
             let newStatus = status!
             if selectedAccountID == nil {
@@ -72,7 +75,7 @@ final class AccountViewModel: ObservableObject {
 
     func refresh() async {
         if let manager {
-            await perform {
+            await perform(failure: "Couldn’t refresh accounts.", recovery: "Try Refresh again.") {
                 try await reloadStatus(using: manager)
                 refreshedAt = Date()
                 notice = "Accounts and recovery state refreshed."
@@ -95,7 +98,8 @@ final class AccountViewModel: ObservableObject {
             accounts: accounts,
             defaultAccountID: accounts.first?.id,
             sharedRoot: paths.sharedRoot,
-            pendingRecovery: scenario == .allStates ? [DemoData.recovery(paths: paths)] : [],
+            pendingRecovery: scenario == .allStates
+                ? [DemoData.recovery(paths: paths), DemoData.recoveryConflict(paths: paths)] : [],
             linkedSettingsDivergences: scenario == .allStates ? [DemoData.divergence(paths: paths)] : []
         )
         selectedAccountID = accounts.first?.id
@@ -103,7 +107,7 @@ final class AccountViewModel: ObservableObject {
         selectedSourceID = discoveries.first(where: { $0.support == .supportedChatGPT })?.id
         isBusy = false
         refreshedAt = nil
-        errorMessage = scenario == .allStates ? "Demo: Codex could not verify one account." : nil
+        errorMessage = scenario == .allStates ? "One account needs sign-in before it can be opened." : nil
         notice = scenario == .allStates ? "Demo recovery and settings issues are ready to review." : nil
         showImport = false
         importMode = .authOnly
@@ -117,6 +121,7 @@ final class AccountViewModel: ObservableObject {
 
     func beginImport() async {
         guard !isUnavailable else { reportUnavailable(); return }
+        guard !isBusy else { return }
         showImport = true
         resetImport()
         await discover()
@@ -124,7 +129,10 @@ final class AccountViewModel: ObservableObject {
 
     func discover(explicit: URL? = nil) async {
         if let manager {
-            await perform {
+            await perform(
+                failure: "Couldn’t find Codex profiles.",
+                recovery: "Choose another folder or check its permissions."
+            ) {
                 discoveries = await manager.discover(explicit: explicit)
                 let selectedPath = explicit.map {
                     $0.lastPathComponent == "auth.json" ? $0.deletingLastPathComponent() : $0
@@ -178,7 +186,10 @@ final class AccountViewModel: ObservableObject {
                 errorMessage = "Choose a supported source."
                 return
             }
-            await perform {
+            await perform(
+                failure: "Couldn’t prepare the import.",
+                recovery: "Choose the source again and review its files."
+            ) {
                 importPlan = try await manager.planImport(source: source.path, mode: importMode)
                 conflictChoices = [:]
                 importResult = nil
@@ -205,7 +216,10 @@ final class AccountViewModel: ObservableObject {
             return
         }
         if let manager {
-            await perform {
+            await perform(
+                failure: "Couldn’t import the account.",
+                recovery: "Open Recovery before retrying if an interrupted operation is listed."
+            ) {
                 importResult = try await manager.importAccount(plan: plan, decisions: conflictChoices)
                 try await reloadStatus(using: manager)
                 selectedAccountID = importResult?.account.id
@@ -241,7 +255,10 @@ final class AccountViewModel: ObservableObject {
                 errorMessage = "Review an import plan before reviewing linked data."
                 return
             }
-            await perform {
+            await perform(
+                failure: "Couldn’t review the linked data.",
+                recovery: "Check that the linked folder is connected, then review it again."
+            ) {
                 importPlan = try await manager.reviewExternalSetting(
                     plan: plan, relativePath: relativePath)
             }
@@ -260,7 +277,10 @@ final class AccountViewModel: ObservableObject {
     func switchDefault() async {
         if let manager {
             guard let id = selectedAccountID else { return }
-            await perform {
+            await perform(
+                failure: "Couldn’t change the default account.",
+                recovery: "Close running Codex sessions, resolve Recovery items, then retry."
+            ) {
                 let result = try await manager.switchDefault(to: id)
                 try await reloadStatus(using: manager)
                 notice = "Future default-home Codex sessions will use this account. Backup: \(result.backup.path)"
@@ -279,7 +299,7 @@ final class AccountViewModel: ObservableObject {
     func verify() async {
         if let manager {
             guard let id = selectedAccountID else { return }
-            await perform {
+            await perform(failure: "Couldn’t check the account files.", recovery: "Try the check again.") {
                 let result = await manager.verifyLocal(accountID: id)
                 notice = result.detail
                 try await reloadStatus(using: manager)
@@ -303,7 +323,10 @@ final class AccountViewModel: ObservableObject {
     func openAccount() async {
         if let manager {
             guard let id = selectedAccountID else { return }
-            await perform {
+            await perform(
+                failure: "Couldn’t open Codex.",
+                recovery: "Copy the profile path and open it from a terminal."
+            ) {
                 let spec = try await manager.launchSpec(accountID: id)
                 let script = try makeLaunchArtifact(spec)
                 if paths.isolationRoot != nil {
@@ -327,7 +350,10 @@ final class AccountViewModel: ObservableObject {
 
     func repairLinkedSetting(_ issue: LinkedSettingsDivergence) async {
         if let manager {
-            await perform {
+            await perform(
+                failure: "Couldn’t repair the shared setting.",
+                recovery: "Refresh the account and review the changed entry again."
+            ) {
                 let result = try await manager.repairLinkedSetting(
                     accountID: issue.accountID,
                     relativePath: issue.relativePath,
@@ -374,7 +400,10 @@ final class AccountViewModel: ObservableObject {
 
     func recover() async {
         if let manager {
-            await perform {
+            await perform(
+                failure: "Couldn’t recover the interrupted operation.",
+                recovery: "Review the pending item and its protected backup before retrying."
+            ) {
                 let results = try await manager.recover()
                 notice = results.isEmpty
                     ? "No recovery was needed." : results.map(\.message).joined(separator: " ")
@@ -392,9 +421,35 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    func resolveRecoveryConflict(_ operation: RecoveryOperation, choice: RecoveryConflictChoice) async {
+        if let manager {
+            await perform(
+                failure: "Couldn’t resolve the recovery conflict.",
+                recovery: "Confirm that Codex is closed, then review the protected backup and retry."
+            ) {
+                let result = try await manager.resolveRecoveryConflict(
+                    operationID: operation.id,
+                    choice: choice
+                )
+                notice = result.message
+                try await reloadStatus(using: manager)
+            }
+            return
+        }
+        guard isDemo else { reportUnavailable(); return }
+        await perform {
+            guard var current = status else { return }
+            current.pendingRecovery.removeAll { $0.id == operation.id }
+            status = current
+            notice = choice == .preserveCurrent
+                ? "Current demo files kept; the protected backup remains available."
+                : "Protected demo backup restored; the replaced files remain preserved."
+        }
+    }
+
     func showDemoError() {
         guard isDemo else { return }
-        errorMessage = "Demo: The selected credential needs sign-in."
+        errorMessage = "The selected account needs sign-in before it can be opened."
     }
 
     func history(for account: AccountRecord) -> HistorySummary {
@@ -408,7 +463,11 @@ final class AccountViewModel: ObservableObject {
         conflictChoices = [:]
     }
 
-    private func perform(_ operation: () async throws -> Void) async {
+    private func perform(
+        failure: String? = nil,
+        recovery: String? = nil,
+        _ operation: () async throws -> Void
+    ) async {
         guard !isUnavailable else { reportUnavailable(); return }
         guard !isBusy else { return }
         let generation = actionGeneration
@@ -418,7 +477,11 @@ final class AccountViewModel: ObservableObject {
         if isDemo { try? await Task.sleep(for: .milliseconds(250)) }
         guard !Task.isCancelled, generation == actionGeneration else { return }
         do { try await operation() }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            errorMessage = [failure, error.localizedDescription, recovery]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
     }
 
     private func reportUnavailable() {
@@ -465,7 +528,7 @@ final class AccountViewModel: ObservableObject {
 private enum DemoData {
     static let now = Date(timeIntervalSince1970: 1_788_748_100)
     static let paths = ManagerPaths(
-        applicationSupport: URL(fileURLWithPath: "/AI Manager Demo", isDirectory: true),
+        applicationSupport: URL(fileURLWithPath: "/IIA Directeur Demo", isDirectory: true),
         defaultHome: URL(fileURLWithPath: "/Demo/Codex", isDirectory: true),
         sharedRoot: URL(fileURLWithPath: "/Demo/Shared", isDirectory: true),
         orcaAccountsRoot: URL(fileURLWithPath: "/Demo/Orca", isDirectory: true)
@@ -542,6 +605,15 @@ private enum DemoData {
             source: URL(fileURLWithPath: "/Demo/Sources/Interrupted Import", isDirectory: true),
             destination: paths.applicationSupport.appending(path: "accounts/recovery/home", directoryHint: .isDirectory),
             backup: paths.applicationSupport.appending(path: "backups/recovery", directoryHint: .isDirectory)
+        )
+    }
+
+    static func recoveryConflict(paths: ManagerPaths) -> RecoveryOperation {
+        RecoveryOperation(
+            id: UUID(uuidString: "146E18F1-41BB-45EC-BA80-F309458F1414")!, kind: "switch", phase: .conflicted,
+            source: paths.defaultHome.appending(path: "auth.json"),
+            destination: paths.defaultHome.appending(path: "auth.json"),
+            backup: paths.applicationSupport.appending(path: "backups/conflicted-switch", directoryHint: .isDirectory)
         )
     }
 
