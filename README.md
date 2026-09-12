@@ -98,6 +98,11 @@ identity, set `AI_MANAGER_SIGNING_IDENTITY` for the build command. The app
 records its source revision and dirty-source state in
 `AIManagerSourceRevision` and `AIManagerSourceDirty`.
 
+Public direct distribution requires a Developer ID Application certificate and
+Apple notarization. The tag workflow imports that identity from repository
+secrets, enables hardened runtime and timestamps, notarizes and staples the app,
+checks Gatekeeper acceptance, and only then creates the GitHub release.
+
 See [macOS package notes](packaging/macos/README.md) for the file-access
 boundary. See [goals.md](goals.md) for the product scope and acceptance
 matrix. See [ADR 0003](docs/adr/0003-credential-transactions.md) for the
