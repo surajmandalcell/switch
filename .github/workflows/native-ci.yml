@@ -56,6 +56,7 @@ jobs:
           test -x "/private/tmp/ai-manager-build/artifacts/ai-manager"
           /usr/bin/plutil -lint "/private/tmp/ai-manager-build/package/IIA Directeur.app/Contents/Info.plist"
           /usr/bin/codesign --verify --deep --strict "/private/tmp/ai-manager-build/package/IIA Directeur.app"
+          scripts/check-release-readiness.sh
 
       - name: Check patch formatting
         run: git diff --check
