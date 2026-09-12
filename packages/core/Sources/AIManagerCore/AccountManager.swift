@@ -621,19 +621,30 @@ extension AccountManager {
         HistorySummary(
             activeTranscripts: transcriptCount(in: home.appending(path: "sessions")),
             archivedTranscripts: transcriptCount(in: home.appending(path: "archived_sessions")),
-            hasIndexes: ["history.jsonl", "session_index.jsonl"].contains { fileManager.fileExists(atPath: home.appending(path: $0).path) }
+            hasIndexes: ["history.jsonl", "session_index.jsonl"].contains {
+                let values = try? home.appending(path: $0).resourceValues(
+                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                return values?.isRegularFile == true && values?.isSymbolicLink != true
+            }
         )
     }
 
     private func transcriptCount(in root: URL) -> Int {
+        guard fileManager.fileExists(atPath: root.path),
+              let rootValues = try? root.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              rootValues.isDirectory == true, rootValues.isSymbolicLink != true else { return 0 }
         guard let enumerator = fileManager.enumerator(
-            at: root.resolvingSymlinksInPath(),
-            includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]
         ) else { return 0 }
         var count = 0
+        var visited = 0
         while let url = enumerator.nextObject() as? URL {
-            if url.pathExtension == "jsonl" { count += 1 }
-            if count >= 1_000_000 { break }
+            visited += 1
+            if visited > 500_000 { break }
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            if values?.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+            if values?.isRegularFile == true, url.pathExtension == "jsonl" { count += 1 }
         }
         return count
     }
@@ -649,10 +660,12 @@ extension AccountManager {
             if categorySelected {
                 try appendManifest(url: url, relative: relative, source: source, category: category, count: &count, result: &result)
             } else {
-                let values = try url.resourceValues(forKeys: [.fileSizeKey])
-                let disposition = category == .historyIndex
-                    ? "Codex rebuilds this local projection from shared transcripts"
-                    : "excluded top-level \(category.rawValue) data; descendants were not inspected"
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
+                let disposition = values.isSymbolicLink == true && [.transcript, .historyIndex].contains(category)
+                    ? "history symbolic links are not imported"
+                    : category == .historyIndex
+                        ? "Codex rebuilds this local projection from shared transcripts"
+                        : "excluded top-level \(category.rawValue) data; descendants were not inspected"
                 result.append(.init(relativePath: relative, category: category, byteCount: Int64(values.fileSize ?? 0), selected: false, disposition: disposition))
             }
         }
@@ -666,6 +679,13 @@ extension AccountManager {
         guard CoreSupport.safeRelativePath(relative) else { throw AIManagerError.unsafePath(relative) }
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey])
         if values.isSymbolicLink == true {
+            if category == .transcript {
+                result.append(.init(
+                    relativePath: relative, category: category,
+                    byteCount: Int64(values.fileSize ?? 0), selected: false,
+                    disposition: "history symbolic links are not imported"))
+                return
+            }
             guard let target = lexicalLinkTarget(url) else { throw AIManagerError.unsafePath("unreadable symbolic link \(relative)") }
             let external = !CoreSupport.isContained(target, by: source)
             result.append(.init(relativePath: relative, category: category, byteCount: Int64(values.fileSize ?? 0), selected: !external, disposition: external ? "external symbolic-link target requires explicit review" : "copy target content"))
@@ -1305,12 +1325,17 @@ extension AccountManager {
 
     private func transcriptFingerprint(_ source: URL) throws -> String {
         var hasher = SHA256()
+        var visited = 0
         for name in CoreSupport.historyDirectories {
             let root = source.appending(path: name)
             guard fileManager.fileExists(atPath: root.path) else { continue }
             if try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true { continue }
             guard let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []) else { continue }
             while let url = enumerator.nextObject() as? URL {
+                visited += 1
+                guard visited <= 500_000 else {
+                    throw AIManagerError.invalidSource("History exceeds the 500,000-entry inspection limit.")
+                }
                 let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                 if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
                 guard values.isRegularFile == true else { continue }
@@ -1338,57 +1363,99 @@ extension AccountManager {
         var archived: Bool
     }
 
-    private func transcriptInfo(_ url: URL, archived: Bool) throws -> TranscriptInfo? {
+    private func transcriptInfo(_ url: URL, archived: Bool) throws -> TranscriptInfo {
         let reader = try JSONLReader(url: url)
         var hasher = SHA256()
         var count = 0
         var identity: String?
         while true {
             var ended = false
-            var discoveredIdentity: String?
             try withAutoreleasePool {
                 guard let record = try reader.next() else { ended = true; return }
-                if identity == nil, count < 20 {
-                    guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any] else { throw AIManagerError.invalidSource("Malformed JSONL transcript metadata in \(url.lastPathComponent)") }
-                    if let payload = object["payload"] as? [String: Any], let id = payload["id"] as? String { discoveredIdentity = id }
-                    else { discoveredIdentity = object["id"] as? String }
+                guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any] else {
+                    throw AIManagerError.invalidSource("malformed JSONL record")
+                }
+                if object["type"] as? String == "session_meta" {
+                    guard let payload = object["payload"] as? [String: Any],
+                          let id = payload["id"] as? String, !id.isEmpty else {
+                        throw AIManagerError.invalidSource("session_meta.payload.id is missing")
+                    }
+                    guard identity == nil || identity == id else {
+                        throw AIManagerError.invalidSource("conflicting session_meta.payload.id values")
+                    }
+                    identity = id
                 }
                 hasher.update(data: record)
                 hasher.update(data: Data([0x0A]))
                 count += 1
             }
             if ended { break }
-            if let discoveredIdentity { identity = discoveredIdentity }
         }
-        guard count > 0 else { return nil }
-        guard let identity, !identity.isEmpty else { return nil }
+        guard count > 0, let identity else {
+            throw AIManagerError.invalidSource("session_meta.payload.id is missing")
+        }
         let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         return .init(url: url, identity: identity, recordCount: count, contentDigest: digest, archived: archived)
     }
 
-    private func transcriptFiles(_ root: URL, archived: Bool) throws -> [TranscriptInfo] {
-        guard fileManager.fileExists(atPath: root.path),
-              (try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
-              let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []) else { return [] }
+    private func transcriptFiles(_ root: URL, archived: Bool) throws -> (files: [TranscriptInfo], unresolved: [String]) {
+        guard fileManager.fileExists(atPath: root.path) else { return ([], []) }
+        if try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
+            return ([], ["symbolic link was not scanned"])
+        }
+        guard
+              let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []) else { return ([], []) }
         var result: [TranscriptInfo] = []
+        var unresolved: [String] = []
+        var visited = 0
         while let url = enumerator.nextObject() as? URL {
+            visited += 1
+            guard visited <= 500_000 else {
+                throw AIManagerError.invalidSource("History exceeds the 500,000-entry inspection limit.")
+            }
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
-            if values.isRegularFile == true, url.pathExtension == "jsonl", let info = try transcriptInfo(url, archived: archived) { result.append(info) }
+            guard values.isRegularFile == true, url.pathExtension == "jsonl" else { continue }
+            do {
+                result.append(try transcriptInfo(url, archived: archived))
+            } catch {
+                let base = root.standardizedFileURL.pathComponents
+                let relative = url.standardizedFileURL.pathComponents.dropFirst(base.count).joined(separator: "/")
+                unresolved.append("\(relative): \(error.localizedDescription)")
+            }
         }
-        return result
+        return (result, unresolved)
     }
 
     private func mergeHistory(from sourceHome: URL, operation: inout RecoveryOperation) throws -> (imported: Int, unresolved: [String], destinations: [String: String]) {
         var existing: [String: TranscriptInfo] = [:]
-        for (name, archived) in [("sessions", false), ("archived_sessions", true)] {
-            for info in try transcriptFiles(paths.sharedRoot.appending(path: name), archived: archived) { existing[info.identity] = info }
-        }
-        var imported = 0
+        var duplicateShared = Set<String>()
         var unresolved: [String] = []
         for (name, archived) in [("sessions", false), ("archived_sessions", true)] {
+            let scan = try transcriptFiles(paths.sharedRoot.appending(path: name), archived: archived)
+            unresolved += scan.unresolved.map { "shared \(name)/\($0)" }
+            for info in scan.files {
+                if duplicateShared.contains(info.identity) {
+                    unresolved.append("duplicate shared transcript ID \(info.identity): \(info.url.lastPathComponent)")
+                } else if let first = existing.removeValue(forKey: info.identity) {
+                    duplicateShared.insert(info.identity)
+                    unresolved.append(
+                        "duplicate shared transcript ID \(info.identity): \(first.url.lastPathComponent), \(info.url.lastPathComponent)")
+                } else {
+                    existing[info.identity] = info
+                }
+            }
+        }
+        var imported = 0
+        for (name, archived) in [("sessions", false), ("archived_sessions", true)] {
             let sourceRoot = sourceHome.appending(path: name)
-            for incoming in try transcriptFiles(sourceRoot, archived: archived) {
+            let scan = try transcriptFiles(sourceRoot, archived: archived)
+            unresolved += scan.unresolved.map { "\(name)/\($0)" }
+            for incoming in scan.files {
+                if duplicateShared.contains(incoming.identity) {
+                    unresolved.append("\(incoming.identity): skipped because the shared transcript ID is duplicated")
+                    continue
+                }
                 if try file(incoming.url, contains: Data(sourceHome.path.utf8)) {
                     unresolved.append("\(incoming.identity): transcript retains a source path needed for resume context")
                 }
@@ -1482,7 +1549,12 @@ extension AccountManager {
               let enumerator = fileManager.enumerator(at: sourceRoot, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []) else { return (0, []) }
         var imported = 0
         var unresolved: [String] = []
+        var visited = 0
         while let source = enumerator.nextObject() as? URL {
+            visited += 1
+            guard visited <= 500_000 else {
+                throw AIManagerError.invalidSource("History exceeds the 500,000-entry inspection limit.")
+            }
             let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
             guard values.isRegularFile == true, source.pathExtension != "jsonl" else { continue }
