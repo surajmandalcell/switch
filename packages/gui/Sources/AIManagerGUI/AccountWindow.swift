@@ -28,7 +28,12 @@ enum AIManagerWindowBehavior {
 
 @MainActor
 final class AIManagerWindowController<Content: View>: NSWindowController, NSWindowDelegate {
-  init(title: String, rootView: Content) {
+  private let placementDefaults: UserDefaults
+  private var preserveUnavailableDisplayPlacement = false
+  private var unavailableDisplayFallbackFrame: NSRect?
+
+  init(title: String, rootView: Content, placementDefaults: UserDefaults = .standard) {
+    self.placementDefaults = placementDefaults
     let fixedSize = AIManagerWindow.fixedSize
     let window = AIManagerWindow(
       contentRect: NSRect(origin: .zero, size: fixedSize),
@@ -48,14 +53,42 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
     window.minSize = fixedSize
     window.maxSize = fixedSize
     window.isReleasedWhenClosed = false
-    let restoredFrame = window.setFrameUsingName(AIManagerWindow.frameAutosaveName, force: true)
     window.setContentSize(fixedSize)
-    if !restoredFrame { window.center() }
-    window.setFrameAutosaveName(AIManagerWindow.frameAutosaveName)
+    let restoreOutcome = AIManagerWindowPlacement.restore(
+      window, autosaveName: AIManagerWindow.frameAutosaveName, defaults: placementDefaults)
+    if restoreOutcome != .restored { window.center() }
     super.init(window: window)
+    preserveUnavailableDisplayPlacement = restoreOutcome == .savedDisplayUnavailable
+    unavailableDisplayFallbackFrame = preserveUnavailableDisplayPlacement ? window.frame : nil
     window.delegate = self
   }
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+  func windowDidMove(_ notification: Notification) {
+    if preserveUnavailableDisplayPlacement,
+      let fallback = unavailableDisplayFallbackFrame,
+      framesMatch(window?.frame, fallback)
+    {
+      return
+    }
+    preserveUnavailableDisplayPlacement = false
+    unavailableDisplayFallbackFrame = nil
+    savePlacement()
+  }
+
+  func windowWillClose(_ notification: Notification) { savePlacement() }
+
+  func savePlacement() {
+    guard !preserveUnavailableDisplayPlacement, let window else { return }
+    AIManagerWindowPlacement.save(window, defaults: placementDefaults)
+  }
+
+  private func framesMatch(_ left: NSRect?, _ right: NSRect) -> Bool {
+    guard let left else { return false }
+    return abs(left.minX - right.minX) < 1 && abs(left.minY - right.minY) < 1
+      && abs(left.width - right.width) < 1 && abs(left.height - right.height) < 1
+  }
+
   func present() {
     guard let window else { return }
     if window.isMiniaturized { window.deminiaturize(nil) }

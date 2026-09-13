@@ -202,6 +202,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
+        windowController?.savePlacement()
         if let instanceActivationObserver {
             DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
         }
@@ -300,10 +301,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(window.standardWindowButton(.closeButton) == nil, "Native close button exists")
     expect(window.standardWindowButton(.miniaturizeButton) == nil, "Native minimize button exists")
     expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
-    expect(
-        window.frameAutosaveName == AIManagerWindow.frameAutosaveName,
-        "Window position persistence is not configured"
-    )
+    failures.append(contentsOf: AIManagerNativeContract.windowPlacementFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         if mode == "system" {
             expect(window.appearance == nil, "System appearance was not inherited from macOS")
