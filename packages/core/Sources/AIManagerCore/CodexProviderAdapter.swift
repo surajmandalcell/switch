@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
+
 struct CodexProviderAdapter {
     let fileManager: FileManager
     let id = ProviderID.codex
@@ -42,12 +48,9 @@ struct CodexProviderAdapter {
 
     func validateManagedCredential(_ account: AccountRecord) throws {
         try requireSupported(account.identity.providerID)
-        let auth = account.home.appending(path: "auth.json")
-        guard let values = try? auth.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
-              values.isRegularFile == true, values.isSymbolicLink != true else {
-            throw AIManagerError.credentialConflict
-        }
-        let inspection = inspect(home: account.home)
+        let auth = account.credentialFile
+        try validatePrivateCredentialFile(auth)
+        let inspection = inspect(credentialFile: auth)
         guard inspection.support == .supportedChatGPT,
               let identity = inspection.identity,
               sameIdentity(account.identity, identity),
@@ -56,9 +59,28 @@ struct CodexProviderAdapter {
         }
     }
 
+    func validatePrivateCredentialFile(_ auth: URL, requireOwnerOnlyPermissions: Bool = true) throws {
+        var info = stat()
+        guard lstat(auth.path, &info) == 0,
+              info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == getuid(),
+              info.st_nlink == 1,
+              (!requireOwnerOnlyPermissions || info.st_mode & 0o777 == 0o600) else {
+            throw AIManagerError.credentialConflict
+        }
+    }
+
     func inspect(home selected: URL) -> AuthInspection {
         let home = CoreSupport.home(for: selected)
         let auth = selected.lastPathComponent == "auth.json" ? selected : home.appending(path: "auth.json")
+        return inspect(authFile: auth, home: home)
+    }
+
+    func inspect(credentialFile: URL) -> AuthInspection {
+        inspect(authFile: credentialFile, home: credentialFile.deletingLastPathComponent())
+    }
+
+    private func inspect(authFile auth: URL, home: URL) -> AuthInspection {
         guard fileManager.fileExists(atPath: auth.path) else {
             let config = home.appending(path: "config.toml")
             if let values = try? config.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
