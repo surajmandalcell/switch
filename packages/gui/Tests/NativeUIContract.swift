@@ -16,6 +16,103 @@ struct AIManagerNativeViewSnapshot: Codable {
 
 @MainActor
 enum AIManagerNativeContract {
+  @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
+    guard let mainMenu else { return ["Main menu is unavailable"] }
+    var failures: [String] = []
+    let expectedMenus = [applicationName, "File", "Edit", "View", "Window", "Help"]
+    if mainMenu.items.map(\.title) != expectedMenus {
+      failures.append("Main menu order does not match the native menu contract")
+    }
+    func command(_ menu: String, _ title: String, key: String, modifiers: NSEvent.ModifierFlags = .command) {
+      guard let item = mainMenu.item(withTitle: menu)?.submenu?.item(withTitle: title) else {
+        failures.append("\(menu) > \(title) is missing")
+        return
+      }
+      if item.keyEquivalent != key || item.keyEquivalentModifierMask != modifiers {
+        failures.append("\(menu) > \(title) has the wrong key equivalent")
+      }
+    }
+    func nativeCommand(_ menu: String, _ title: String, action: Selector) {
+      guard let item = mainMenu.item(withTitle: menu)?.submenu?.item(withTitle: title) else {
+        failures.append("\(menu) > \(title) is missing")
+        return
+      }
+      if item.action != action { failures.append("\(menu) > \(title) does not use the native action") }
+    }
+    command(applicationName, "Settings…", key: ",")
+    command(applicationName, "Quit \(applicationName)", key: "q")
+    command("File", "Import Account…", key: "i")
+    command("File", "Close Window", key: "w")
+    command("Window", "Minimize", key: "m")
+    for (index, page) in AIManagerPage.allCases.enumerated() {
+      command("View", page.rawValue, key: String(index + 1))
+    }
+    for (menu, title, action) in [
+      (applicationName, "About \(applicationName)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+      (applicationName, "Hide \(applicationName)", #selector(NSApplication.hide(_:))),
+      (applicationName, "Hide Others", #selector(NSApplication.hideOtherApplications(_:))),
+      (applicationName, "Show All", #selector(NSApplication.unhideAllApplications(_:))),
+      (applicationName, "Quit \(applicationName)", #selector(NSApplication.terminate(_:))),
+      ("Edit", "Cut", #selector(NSText.cut(_:))),
+      ("Edit", "Copy", #selector(NSText.copy(_:))),
+      ("Edit", "Paste", #selector(NSText.paste(_:))),
+      ("Edit", "Select All", #selector(NSText.selectAll(_:))),
+      ("Window", "Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
+      ("Help", "\(applicationName) Help", #selector(NSApplication.showHelp(_:))),
+    ] {
+      nativeCommand(menu, title, action: action)
+    }
+    if mainMenu.item(withTitle: applicationName)?.submenu?.item(withTitle: "Services")?.submenu !== NSApp.servicesMenu {
+      failures.append("The application Services menu is not registered")
+    }
+    if mainMenu.item(withTitle: "Window")?.submenu !== NSApp.windowsMenu {
+      failures.append("The Window menu is not registered with AppKit")
+    }
+    if mainMenu.item(withTitle: "Help")?.submenu !== NSApp.helpMenu {
+      failures.append("The Help menu is not registered with AppKit")
+    }
+    let windowItems = mainMenu.item(withTitle: "Window")?.submenu?.items ?? []
+    if windowItems.contains(where: { $0.action == #selector(NSWindow.performZoom(_:)) || $0.title.contains("Zoom") }) {
+      failures.append("The fixed window exposes a maximize command")
+    }
+    return failures
+  }
+
+  @MainActor static func exerciseMenuNavigation(in window: NSWindow?) -> [String] {
+    guard let mainMenu = NSApp.mainMenu, let window else { return ["Menu navigation test could not resolve the app window"] }
+    var failures: [String] = []
+    var shownPages: [AIManagerPage] = []
+    let observer = NotificationCenter.default.addObserver(
+      forName: AIManagerNavigation.didShowPage, object: nil, queue: .main
+    ) { notification in
+      if let page = notification.object as? AIManagerPage { shownPages.append(page) }
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+
+    window.orderOut(nil)
+    let settings = mainMenu.item(withTitle: mainMenu.items[0].title)?.submenu?.item(withTitle: "Settings…")
+    if let settings, let action = settings.action {
+      if !NSApp.sendAction(action, to: settings.target, from: settings) {
+        failures.append("Command+, could not dispatch its action")
+      }
+    } else {
+      failures.append("Command+, could not resolve its menu item")
+    }
+    if !window.isVisible { failures.append("Command+, did not bring the main window forward") }
+    if shownPages.last != .settings { failures.append("Command+, did not navigate to Shared Settings") }
+
+    for page in AIManagerPage.allCases {
+      guard let item = mainMenu.item(withTitle: "View")?.submenu?.item(withTitle: page.rawValue),
+            let action = item.action else {
+        failures.append("View > \(page.rawValue) could not resolve its action")
+        continue
+      }
+      _ = NSApp.sendAction(action, to: item.target, from: item)
+      if shownPages.last != page { failures.append("View > \(page.rawValue) did not navigate") }
+    }
+    return failures
+  }
+
   // Acceptance points use the screenshot's top-left origin; AppKit content views usually do not.
   static func titleDragTarget(in window: NSWindow, at point: NSPoint) -> Bool {
     guard let contentView = window.contentView else { return false }

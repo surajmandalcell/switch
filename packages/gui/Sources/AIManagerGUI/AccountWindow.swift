@@ -96,11 +96,7 @@ private struct WindowDragRegion: NSViewRepresentable {
   func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-private enum Page: String, CaseIterable {
-  case accounts = "Accounts"
-  case settings = "Shared Settings"
-  case history = "Chat History"
-  case recovery = "Recovery"
+private extension AIManagerPage {
   var icon: AIMIcon.Name {
     switch self {
     case .accounts: .account
@@ -122,7 +118,7 @@ private enum Page: String, CaseIterable {
 struct AccountWindow: View {
   @ObservedObject var model: AccountViewModel
   @StateObject private var target = WindowTarget()
-  @State private var page: Page = .accounts
+  @State private var page: AIManagerPage = .accounts
   @AppStorage("appearanceMode") private var appearanceMode = "system"
   @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
   @State private var refreshHovered = false
@@ -137,7 +133,7 @@ struct AccountWindow: View {
 
   init(model: AccountViewModel, initialPageIndex: Int = 0) {
     self.model = model
-    let pages = Page.allCases
+    let pages = AIManagerPage.allCases
     _page = State(initialValue: pages.indices.contains(initialPageIndex) ? pages[initialPageIndex] : .accounts)
   }
 
@@ -234,6 +230,11 @@ struct AccountWindow: View {
     .onChange(of: showFocusIndicators) { _, _ in
       if let window = target.window { applyFocusPolicy(to: window) }
     }
+    .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.request)) { notification in
+      guard let requestedPage = notification.object as? AIManagerPage else { return }
+      page = requestedPage
+      NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: requestedPage)
+    }
     .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.load() } } }
   }
 
@@ -254,7 +255,7 @@ struct AccountWindow: View {
     VStack(spacing: 0) {
       Color.clear.frame(width: AIMTheme.railWidth, height: AIMTheme.railWidth)
         .accessibilityHidden(true)
-      ForEach(Page.allCases, id: \.self) { item in
+      ForEach(AIManagerPage.allCases, id: \.self) { item in
         RailButton(icon: item.icon, label: item.rawValue, active: page == item) { page = item }
       }
       Spacer()
