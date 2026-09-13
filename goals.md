@@ -2066,15 +2066,16 @@ with temporary synthetic homes before installation.
   `bdeec18e308f1587716dbd4f5b0b9adf73ed4fe8bfeed3a8953e08cc8843f252`.
   Its 520-point foreground box is placed at x 245, y 258. It occupies 61.9% of the 840-point tile
   width and leaves at least 140 points between the nominal mark box and every tile edge.
-- Light uses neutral graphite `#383d45`, `#292f37`, and `#1a2027`; Dark uses `#292e35`,
-  `#1d2229`, and `#12171d`. The one-point edge lift peaks at 0.07 opacity in Light and 0.05 in
+- The first cool graphite revision was rejected because it still read blue. Every final gradient
+  stop is neutral grayscale. Light uses `#292929`, `#202020`, and `#171717`; Dark uses `#232323`,
+  `#191919`, and `#111111`. The one-point edge lift peaks at 0.07 opacity in Light and 0.05 in
   Dark. Lower shading peaks at 0.12 and 0.16. The 1024-point comparison at
-  `/private/tmp/ai-manager-build/icon-composition-review.png` shows the old and revised treatments
-  side by side; the revised treatment is visibly smaller, darker, flatter, and more neutral.
+  `/private/tmp/ai-manager-build/icon-black-composition-review.png` shows the cool installed tile
+  and final neutral-black tile side by side.
 - Deterministic asset regeneration passes. Light PNG SHA-256 is
-  `8eb273fb67360bfaaae8c6e0a692d8159af8d1cde438db0fc0d3148e98459307`, Dark PNG SHA-256 is
-  `4fe8043b2c8f6bbaebdfcf9b1f55cd43a10ed8c067f3ff6f1570270e66dd69ff`, and ICNS SHA-256 is
-  `7a3622e57c65811b79490cfecf84cf990309d51abbaace77bb6f8a0f6e173211`.
+  `d49d80f779c7dda9a9e19f9c25c0ab7e7f412a74f2af5bea76d65bedadba0c6d`, Dark PNG SHA-256 is
+  `e064402cf24f3e1e23118d29c0d684a8460e8f56a21945bd12b777a83b62ecdc`, and ICNS SHA-256 is
+  `36086cccf70734c201da27287414d54c3ceb9ace00362619fbba30291b019940`.
 - `scripts/check-native.sh` discovered 92 tests, executed 90 without failure, and skipped only the
   two explicit protected-copy opt-ins. Production and Preview model checks, System/Light/Dark
   window contracts, deterministic icon output, fixed-window behavior, thin scrollbars, and
