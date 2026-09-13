@@ -174,8 +174,8 @@ final class OperationLock: @unchecked Sendable {
 
     func withLock<T>(_ operation: () throws -> T) throws -> T {
         if OperationLockTaskContext.heldTokens.contains(token) { return try operation() }
-        guard !isHeld else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
+        guard !isHeld else { throw AIManagerError.operationFailed("Another Switch process is changing accounts.") }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another Switch process is changing accounts.") }
         isHeld = true
         defer {
             isHeld = false
@@ -189,8 +189,8 @@ final class OperationLock: @unchecked Sendable {
 
     func withAsyncLock<T>(_ operation: () async throws -> T) async throws -> T {
         if OperationLockTaskContext.heldTokens.contains(token) { return try await operation() }
-        guard !isHeld else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
+        guard !isHeld else { throw AIManagerError.operationFailed("Another Switch process is changing accounts.") }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another Switch process is changing accounts.") }
         isHeld = true
         defer {
             isHeld = false

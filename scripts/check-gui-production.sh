@@ -5,7 +5,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 output_path="$build_path/gui-production-check"
-test_root="$(mktemp -d "${TMPDIR:-/tmp}/iia-directeur-gui-production.XXXXXX")"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/switch-gui-production.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
 
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"

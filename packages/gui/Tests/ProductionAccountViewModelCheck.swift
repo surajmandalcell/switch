@@ -127,7 +127,7 @@ struct ProductionAccountViewModelCheck {
                    "Default switch changed shared settings")
 
         await model.openAccount()
-        let launchFile = paths.applicationSupport.appending(path: "Launch/Open IIA Directeur Account.command")
+        let launchFile = paths.applicationSupport.appending(path: "Launch/Open Switch Account.command")
         let launchContents = try String(contentsOf: launchFile, encoding: .utf8)
         try expect(launchContents.contains("export CODEX_HOME="), "Launch file omitted CODEX_HOME")
         try expect(launchContents.contains(executable.path), "Launch file omitted the Codex executable")

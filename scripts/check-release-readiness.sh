@@ -9,7 +9,7 @@ if [[ "${1:-}" == "--public" ]]; then
   public=1
   shift
 fi
-app_path="${1:-$build_path/package/IIA Directeur.app}"
+app_path="${1:-$build_path/package/Switch.app}"
 cli_path="${2:-$build_path/artifacts/ai-manager}"
 
 fail() {
@@ -21,7 +21,7 @@ test -x "$app_path/Contents/MacOS/AIManager" || fail "app executable is missing"
 test -x "$app_path/Contents/Helpers/ai-manager" || fail "bundled account launcher is missing"
 test -x "$cli_path" || fail "CLI executable is missing"
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist" >/dev/null || fail "Info.plist is invalid"
-[[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw -o - "$app_path/Contents/Info.plist")" == "IIA Directeur" ]] || fail "display name is incorrect"
+[[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw -o - "$app_path/Contents/Info.plist")" == "Switch" ]] || fail "display name is incorrect"
 [[ "$(/usr/bin/plutil -extract LSMultipleInstancesProhibited raw -o - "$app_path/Contents/Info.plist")" == "true" ]] || fail "multiple instances are not prohibited"
 [[ "$(/usr/bin/plutil -extract AIManagerSourceDirty raw -o - "$app_path/Contents/Info.plist")" == "false" ]] || fail "package was built from a dirty source tree"
 revision="$(/usr/bin/plutil -extract AIManagerSourceRevision raw -o - "$app_path/Contents/Info.plist")" || fail "source revision is missing"

@@ -701,7 +701,7 @@ private struct SharedSettingsPage: View {
         AIMPanel(title: "App behavior") {
           VStack(spacing: 0) {
             settingRow(isOn: $minimizeToTray, title: "Minimize to tray") {
-              Text("Hide the window and keep IIA Directeur available from its menu-bar icon.")
+              Text("Hide the window and keep Switch available from its menu-bar icon.")
             }
             settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
               Text("Show outlines only while keyboard controls have focus.")
@@ -951,7 +951,7 @@ private struct RecoveryExamples: View {
       VStack(spacing: 0) {
         RecoveryExampleRow(
           title: "Regular conversation", detail: "Complete snapshot before replacement",
-          location: "~/Documents/IIA Directeur Backups", state: "Ready", color: AIMTheme.green)
+          location: "~/Documents/Switch Backups", state: "Ready", color: AIMTheme.green)
         RecoveryExampleRow(
           title: "Incremental", detail: "Only changes since the last snapshot",
           location: "Local backup set · 18 MB", state: "Current", color: AIMTheme.blue, zebra: true)

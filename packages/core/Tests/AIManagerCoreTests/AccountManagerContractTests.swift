@@ -228,7 +228,7 @@ final class AccountManagerContractTests: XCTestCase {
         await XCTAssertThrowsErrorAsync(try await manager.status()) { error in
             XCTAssertEqual(
                 error as? AIManagerError,
-                .operationFailed("Another IIA Directeur process is changing accounts.")
+                .operationFailed("Another Switch process is changing accounts.")
             )
         }
     }
