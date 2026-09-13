@@ -15,3 +15,8 @@ requires a Developer ID Application identity and Apple notarization; the release
 workflow fails before publication when its signing or notary secrets are absent
 or its public readiness check does not pass. A local readiness result is not
 approval for public distribution.
+
+Production builds never define `AI_MANAGER_PREVIEW`. The sample account model,
+mock actions, and Preview-only interface are compiled only by the uninstalled
+developer launcher, `scripts/launch-switch.sh --preview`. The release readiness
+gate rejects a production executable that contains Preview-only sample data.

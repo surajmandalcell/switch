@@ -5,7 +5,9 @@ import AIManagerCore
 
 @MainActor
 final class AccountViewModel: ObservableObject {
+    #if AI_MANAGER_PREVIEW
     enum Scenario { case demo, empty, allStates }
+    #endif
 
     @Published var status: ManagerStatus?
     @Published var selectedAccountID: UUID?
@@ -27,13 +29,14 @@ final class AccountViewModel: ObservableObject {
 
     let paths: ManagerPaths
     private let manager: AccountManager?
+    #if AI_MANAGER_PREVIEW
     private var scenario: Scenario?
+    #endif
     private var unavailableReason: String? = nil
     private var actionGeneration = 0
 
     init(paths: ManagerPaths, manager injectedManager: AccountManager? = nil) {
         self.paths = paths
-        scenario = nil
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
         } catch {
@@ -45,6 +48,7 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    #if AI_MANAGER_PREVIEW
     init(scenario: Scenario = .demo, demoPaths: ManagerPaths? = nil) {
         paths = demoPaths ?? DemoData.paths
         manager = nil
@@ -53,6 +57,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     var isDemo: Bool { scenario != nil }
+    #endif
 
     var selectedAccount: AccountRecord? {
         status?.accounts.first { $0.id == selectedAccountID }
@@ -61,8 +66,12 @@ final class AccountViewModel: ObservableObject {
     func load() async {
         defer { hasLoaded = true }
         guard let manager else {
+            #if AI_MANAGER_PREVIEW
             if status == nil, let scenario { reset(to: scenario) }
             if scenario == nil { reportUnavailable() }
+            #else
+            reportUnavailable()
+            #endif
             return
         }
         await perform(
@@ -86,13 +95,18 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             refreshedAt = Date()
             notice = "Demo data refreshed. Accounts and selections are unchanged."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
+    #if AI_MANAGER_PREVIEW
     func reset(to scenario: Scenario = .demo) {
         guard isDemo else { return }
         actionGeneration += 1
@@ -124,6 +138,7 @@ final class AccountViewModel: ObservableObject {
         })
         hasLoaded = true
     }
+    #endif
 
     func beginImport() async {
         guard !isUnavailable else { reportUnavailable(); return }
@@ -154,6 +169,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             discoveries = DemoData.discoveries
@@ -162,6 +178,9 @@ final class AccountViewModel: ObservableObject {
             }
             notice = "Demo sources refreshed. No files were inspected."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func chooseSource() async {
@@ -179,6 +198,7 @@ final class AccountViewModel: ObservableObject {
             await discover(explicit: url)
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             selectedSourceID = DemoData.manualSource.id
@@ -187,6 +207,9 @@ final class AccountViewModel: ObservableObject {
             }
             notice = "Demo source selected. No file picker was opened."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func reviewImport() async {
@@ -205,6 +228,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         guard let source = discoveries.first(where: { $0.id == selectedSourceID }),
               source.support == .supportedChatGPT,
@@ -217,6 +241,9 @@ final class AccountViewModel: ObservableObject {
             conflictChoices = [:]
             importResult = nil
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func commitImport() async {
@@ -235,6 +262,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         let missing = plan.conflicts.filter { conflictChoices[$0.relativePath] == nil }.map(\.relativePath)
         guard missing.isEmpty else {
@@ -256,6 +284,9 @@ final class AccountViewModel: ObservableObject {
             selectedAccountID = result.account.id
             notice = "Demo import completed in memory."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func reviewExternalSetting(_ relativePath: String) async {
@@ -273,6 +304,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var plan = importPlan,
@@ -281,6 +313,9 @@ final class AccountViewModel: ObservableObject {
             importPlan = plan
             notice = "Demo linked data reviewed. No file was opened."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func switchDefault() async {
@@ -296,6 +331,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         guard let id = selectedAccountID, var current = status else { return }
         await perform {
@@ -303,6 +339,9 @@ final class AccountViewModel: ObservableObject {
             status = current
             notice = "Future demo sessions will use this account. Existing sessions are unchanged."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func verify() async {
@@ -315,6 +354,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         guard let id = selectedAccountID, var current = status,
               let index = current.accounts.firstIndex(where: { $0.id == id }) else { return }
@@ -327,6 +367,9 @@ final class AccountViewModel: ObservableObject {
             status = current
             notice = current.accounts[index].verification.detail
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func openAccount() async {
@@ -353,11 +396,15 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             guard selectedAccount != nil else { return }
             notice = "Demo account opened. No Terminal process was started."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func repairLinkedSetting(_ issue: LinkedSettingsDivergence) async {
@@ -376,6 +423,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var current = status else { return }
@@ -383,14 +431,21 @@ final class AccountViewModel: ObservableObject {
             status = current
             notice = "Demo shared settings link repaired in memory."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func copySavedAuthPath() {
         guard !isUnavailable else { reportUnavailable(); return }
         guard let credential = selectedAccount?.credentialFile.path else { return }
+        #if AI_MANAGER_PREVIEW
         if isDemo {
             notice = "Demo saved auth path ready. The clipboard was not changed."
-        } else if paths.isolationRoot != nil {
+            return
+        }
+        #endif
+        if paths.isolationRoot != nil {
             notice = "Saved auth path validated in isolation. The clipboard was not changed."
         } else {
             NSPasteboard.general.clearContents()
@@ -401,9 +456,13 @@ final class AccountViewModel: ObservableObject {
 
     func showSharedRoot() {
         guard !isUnavailable else { reportUnavailable(); return }
+        #if AI_MANAGER_PREVIEW
         if isDemo {
             notice = "Demo shared data includes 8 settings and 567 chats. Finder was not opened."
-        } else if paths.isolationRoot != nil {
+            return
+        }
+        #endif
+        if paths.isolationRoot != nil {
             notice = "Shared data path validated in isolation. Finder was not opened."
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([paths.sharedRoot])
@@ -423,6 +482,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var current = status else { return }
@@ -431,6 +491,9 @@ final class AccountViewModel: ObservableObject {
             status = current
             notice = count == 0 ? "No recovery was needed." : "Demo recovery completed in memory."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func resolveRecoveryConflict(_ operation: RecoveryOperation, choice: RecoveryConflictChoice) async {
@@ -448,6 +511,7 @@ final class AccountViewModel: ObservableObject {
             }
             return
         }
+        #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
             guard var current = status else { return }
@@ -457,12 +521,17 @@ final class AccountViewModel: ObservableObject {
                 ? "Current demo files kept; the protected backup remains available."
                 : "Protected demo backup restored; the replaced files remain preserved."
         }
+        #else
+        reportUnavailable()
+        #endif
     }
 
+    #if AI_MANAGER_PREVIEW
     func showDemoError() {
         guard isDemo else { return }
         errorMessage = "The selected account needs sign-in before it can be opened."
     }
+    #endif
 
     func history(for account: AccountRecord) -> HistorySummary {
         accountHistory[account.id] ?? HistorySummary()
@@ -486,7 +555,9 @@ final class AccountViewModel: ObservableObject {
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
+        #if AI_MANAGER_PREVIEW
         if isDemo { try? await Task.sleep(for: .milliseconds(250)) }
+        #endif
         guard !Task.isCancelled, generation == actionGeneration else { return }
         do { try await operation() }
         catch {
@@ -561,6 +632,7 @@ final class AccountViewModel: ObservableObject {
     }
 }
 
+#if AI_MANAGER_PREVIEW
 private enum DemoData {
     static let now = Date(timeIntervalSince1970: 1_788_748_100)
     static let paths = ManagerPaths(
@@ -692,3 +764,4 @@ private enum DemoData {
         )
     }
 }
+#endif

@@ -3,6 +3,10 @@ import Combine
 import Foundation
 import SwiftUI
 
+#if !AI_MANAGER_PREVIEW
+#error("AcceptanceApp requires AI_MANAGER_PREVIEW")
+#endif
+
 private struct WindowContractReceipt: Codable {
     let passed: Bool
     let failures: [String]
@@ -97,7 +101,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DemoFonts.register()
+        AppFonts.register()
         AIManagerBrand.installApplicationIcon()
         if let mode = AcceptanceConfiguration.persistedAppearanceMode {
             priorAppearanceMode = UserDefaults.standard.object(forKey: "appearanceMode")

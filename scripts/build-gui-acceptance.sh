@@ -9,13 +9,19 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
-output_path="$build_path/gui-acceptance"
 preview="${AI_MANAGER_GUI_PREVIEW:-0}"
 app_name='Switch GUI Acceptance'
 bundle_id='com.mandalsuraj.ai-manager.gui-acceptance'
+output_path="$build_path/gui-acceptance"
+build_kind='gui-acceptance'
 case "$preview" in
   0) ;;
-  1) app_name='Switch Preview'; bundle_id='com.mandalsuraj.ai-manager.preview' ;;
+  1)
+    app_name='Switch'
+    bundle_id='com.mandalsuraj.ai-manager.preview'
+    output_path="$build_path/preview"
+    build_kind='preview'
+    ;;
   *) printf '%s\n' 'AI_MANAGER_GUI_PREVIEW must be 0 or 1.' >&2; exit 2 ;;
 esac
 app_path="$output_path/$app_name.app"
@@ -50,6 +56,7 @@ chmod 0755 "$app_path" "$app_path/Contents" "$app_path/Contents/MacOS" "$app_pat
 
 swiftc \
   -parse-as-library \
+  -D AI_MANAGER_PREVIEW \
   -target "$(uname -m)-apple-macos14.0" \
   -I "$products_path" \
   -L "$products_path" \
@@ -61,6 +68,12 @@ swiftc \
   "$repo_root/packages/gui/Tests/AcceptanceApp.swift" \
   -o "$app_path/Contents/MacOS/AIManagerGUIAcceptance"
 
+if ! LC_ALL=C rg -q '/Demo/Sources/' \
+  < <(/usr/bin/strings "$app_path/Contents/MacOS/AIManagerGUIAcceptance"); then
+  printf '%s\n' 'Preview compiler condition did not include the sample data.' >&2
+  exit 1
+fi
+
 install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app_path/Contents/Info.plist"
 ditto "$repo_root/packages/gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
 ditto "$repo_root/packages/gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
@@ -70,7 +83,7 @@ install -m 0644 "$repo_root/packages/gui/Resources/Icons/AppIcon.icns" \
 /usr/bin/plutil -replace CFBundleName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleExecutable -string 'AIManagerGUIAcceptance' "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleIdentifier -string "$bundle_id" "$app_path/Contents/Info.plist"
-/usr/bin/plutil -replace AIManagerBuildConfiguration -string 'gui-acceptance' "$app_path/Contents/Info.plist"
+/usr/bin/plutil -replace AIManagerBuildConfiguration -string "$build_kind" "$app_path/Contents/Info.plist"
 source_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD)"
 source_dirty=false
 if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; then source_dirty=true; fi

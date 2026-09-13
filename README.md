@@ -66,16 +66,18 @@ configuration.
 ## Try the sample accounts
 
 ```bash
-AI_MANAGER_GUI_PREVIEW=1 scripts/build-gui-acceptance.sh
-open "/private/tmp/ai-manager-build/gui-acceptance/Switch Preview.app"
+scripts/launch-switch.sh --preview
 ```
 
-The Preview app starts with sample accounts. Use Import Account
+This builds an uninstalled `Switch.app` under
+`/private/tmp/ai-manager-build/preview` with the `AI_MANAGER_PREVIEW` compiler
+condition, then opens it. Use Import Account
 to explore source selection, both import modes, conflict review, and results.
 The demo includes shared settings, chats, activity, errors, and recovery states.
 All changes stay in memory and reset on the next launch. No credentials,
-Codex homes, or backups are created. The preview additionally records nonfatal
-native window checks under `/private/tmp/ai-manager-build/gui-acceptance/artifacts`.
+Codex homes, or backups are created. The production target never defines that
+compiler condition, and release readiness rejects Preview-only data in its
+executable.
 
 ## Safety boundaries
 

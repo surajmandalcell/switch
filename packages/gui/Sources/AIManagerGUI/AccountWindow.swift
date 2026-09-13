@@ -293,7 +293,7 @@ struct AccountWindow: View {
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: refreshHovered)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
       .help(refreshHelp)
-      .accessibilityLabel(model.isDemo ? "Refresh demo data" : "Refresh accounts")
+      .accessibilityLabel(refreshAccessibilityLabel)
       .accessibilityHint(refreshHelp)
       .frame(maxWidth: .infinity, alignment: .trailing)
     }.padding(.horizontal, AIMTheme.modalOuterInset)
@@ -304,9 +304,17 @@ struct AccountWindow: View {
 
   private var refreshHelp: String {
     guard let refreshedAt = model.refreshedAt else {
-      return model.isDemo ? "Refresh demo data" : "Refresh accounts"
+      return refreshAccessibilityLabel
     }
     return "Last refreshed \(refreshedAt.formatted(date: .omitted, time: .shortened))"
+  }
+
+  private var refreshAccessibilityLabel: String {
+    #if AI_MANAGER_PREVIEW
+    return model.isDemo ? "Refresh preview data" : "Refresh accounts"
+    #else
+    return "Refresh accounts"
+    #endif
   }
 }
 
@@ -689,11 +697,12 @@ private struct SharedSettingsPage: View {
     "sessions", "archived_sessions",
   ]
   private var visibleShared: [String] {
-    model.isDemo
-      ? shared
-      : shared.filter {
-        FileManager.default.fileExists(atPath: model.paths.sharedRoot.appending(path: $0).path)
-      }
+    #if AI_MANAGER_PREVIEW
+    if model.isDemo { return shared }
+    #endif
+    return shared.filter {
+      FileManager.default.fileExists(atPath: model.paths.sharedRoot.appending(path: $0).path)
+    }
   }
   var body: some View {
     AIMScrollView {
@@ -708,6 +717,7 @@ private struct SharedSettingsPage: View {
             }
           }
         }
+        #if AI_MANAGER_PREVIEW
         if model.isDemo {
           AIMPanel(title: "Demo states") {
             HStack(spacing: 4) {
@@ -722,6 +732,7 @@ private struct SharedSettingsPage: View {
             }.padding(12)
           }
         }
+        #endif
         AIMPanel(title: "Shared root") {
           VStack(spacing: 0) {
             DetailRow(label: "Location", value: model.paths.sharedRoot.path)
@@ -931,7 +942,9 @@ private struct RecoveryPage: View {
           ) { Task { await model.recover() } }
         }.padding(12).background(AIMTheme.panel)
           .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        #if AI_MANAGER_PREVIEW
         if model.isDemo { RecoveryExamples(model: model) }
+        #endif
         Group {
           if let notice = model.notice {
             Notice(text: notice, tone: AIMTheme.blue)
@@ -944,6 +957,7 @@ private struct RecoveryPage: View {
   }
 }
 
+#if AI_MANAGER_PREVIEW
 private struct RecoveryExamples: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
@@ -998,6 +1012,7 @@ private struct RecoveryExampleRow: View {
     .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
+#endif
 private struct Notice: View {
   let text: String, tone: Color
   var icon: AIMIcon.Name = .info

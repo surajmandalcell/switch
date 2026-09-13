@@ -55,7 +55,7 @@ struct ProductionAccountViewModelCheck {
 
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let model = AccountViewModel(paths: paths, manager: manager)
-        try expect(!model.isDemo && !model.isUnavailable, "Production model was unavailable")
+        try expect(!model.isUnavailable, "Production model was unavailable")
         try expect(model.selectedProviderID == .codex, "Codex was not the selected provider")
         try expect(!model.hasLoaded, "Production model should begin in a loading state")
         await model.load()
@@ -202,7 +202,6 @@ struct ProductionAccountViewModelCheck {
                    "Recovery did not restore the local edit")
 
         try await checkUnavailableState(root: root)
-        try await checkPreviewHasNoSideEffects(root: root)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")
     }
 
@@ -220,7 +219,7 @@ struct ProductionAccountViewModelCheck {
         )
         let unavailable = AccountViewModel(paths: unavailablePaths)
         let unavailableError = unavailable.errorMessage
-        try expect(unavailable.isUnavailable && !unavailable.isDemo, "Unavailable model did not fail closed")
+        try expect(unavailable.isUnavailable, "Unavailable model did not fail closed")
         await unavailable.load()
         await unavailable.beginImport()
         await unavailable.openAccount()
@@ -229,36 +228,6 @@ struct ProductionAccountViewModelCheck {
         try expect(unavailable.errorMessage == unavailableError, "Unavailable actions changed the failure UI")
         try expect(unavailable.status == nil && unavailable.notice == nil,
                    "Unavailable actions produced usable state")
-    }
-
-    @MainActor
-    private static func checkPreviewHasNoSideEffects(root: URL) async throws {
-        let previewRoot = root.appending(path: "preview-must-stay-absent", directoryHint: .isDirectory)
-        let previewPaths = ManagerPaths(
-            applicationSupport: previewRoot.appending(path: "support", directoryHint: .isDirectory),
-            defaultHome: previewRoot.appending(path: "default", directoryHint: .isDirectory),
-            sharedRoot: previewRoot.appending(path: "shared", directoryHint: .isDirectory),
-            orcaAccountsRoot: previewRoot.appending(path: "orca", directoryHint: .isDirectory),
-            codexExecutable: previewRoot.appending(path: "bin/codex"),
-            isolationRoot: previewRoot
-        )
-        let preview = AccountViewModel(scenario: .allStates, demoPaths: previewPaths)
-        await preview.beginImport()
-        await preview.chooseSource()
-        preview.importMode = .full
-        await preview.reviewImport()
-        if let conflicts = preview.importPlan?.conflicts {
-            preview.conflictChoices = Dictionary(
-                uniqueKeysWithValues: conflicts.map { ($0.relativePath, .keepShared) })
-        }
-        await preview.commitImport()
-        await preview.openAccount()
-        preview.copySavedAuthPath()
-        preview.showSharedRoot()
-        await preview.recover()
-        try expect(!FileManager.default.fileExists(atPath: previewRoot.path),
-                   "Preview actions wrote to disk")
-        try expect(preview.notice?.contains("Demo") == true, "Preview actions left demo mode")
     }
 
     private static func writeSource(at home: URL, account: String, workspace: String) throws -> Data {
