@@ -29,7 +29,13 @@ struct ProductionAccountViewModelCheck {
         try fileManager.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
         let sessions = paths.sharedRoot.appending(path: "sessions", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: sessions, withIntermediateDirectories: true)
-        try Data("{\"type\":\"session_meta\",\"payload\":{\"id\":\"shared\"}}\n".utf8)
+        try Data(
+            """
+            {"timestamp":"2026-09-13T04:00:00Z","type":"session_meta","payload":{"id":"shared","cwd":"/Projects/Switch"}}
+            {"timestamp":"2026-09-13T04:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"Inspect the shared chat library"}}
+            {"timestamp":"2026-09-13T04:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The synthetic chat is readable."}]}}
+
+            """.utf8)
             .write(to: sessions.appending(path: "shared.jsonl"))
         try Data("shared-setting".utf8).write(to: paths.sharedRoot.appending(path: "config.toml"))
         let sharedRules = paths.sharedRoot.appending(path: "rules", directoryHint: .isDirectory)
@@ -61,6 +67,11 @@ struct ProductionAccountViewModelCheck {
         await model.load()
         try expect(model.hasLoaded, "Production model did not leave its loading state")
         try expect(model.status?.accounts.isEmpty == true, "Production registry was not initially empty")
+        await model.refreshChatHistory(query: "shared chat")
+        try expect(model.chatHistory.totalThreadCount == 1, "Production chat index missed its transcript")
+        try expect(model.chatHistory.matchingThreadCount == 1, "Production chat search missed its transcript")
+        try expect(model.selectedChat?.messages.map(\.role) == [.user, .assistant],
+                   "Production chat detail did not decode user and assistant messages")
 
         await model.beginImport()
         let discovered = try expect(

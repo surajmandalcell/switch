@@ -24,23 +24,35 @@ final class AccountViewModel: ObservableObject {
     @Published var conflictChoices: [String: ConflictChoice] = [:]
     @Published var importResult: ImportResult?
     @Published var accountHistory: [UUID: HistorySummary] = [:]
+    @Published private(set) var chatHistory = ChatHistorySnapshot()
+    @Published private(set) var selectedChatID: String?
+    @Published private(set) var selectedChat: ChatThreadDetail?
+    @Published private(set) var isChatHistoryLoading = false
+    @Published private(set) var isChatLoading = false
+    @Published private(set) var chatHistoryError: String?
     @Published private(set) var isUnavailable = false
     @Published private(set) var hasLoaded = false
 
     let paths: ManagerPaths
     private let manager: AccountManager?
+    private let chatHistoryIndex: ChatHistoryIndex?
     #if AI_MANAGER_PREVIEW
     private var scenario: Scenario?
     #endif
     private var unavailableReason: String? = nil
     private var actionGeneration = 0
+    private var chatSelectionGeneration = 0
+    private var hasScannedChatHistory = false
+    private var chatDetailTask: Task<ChatThreadDetail?, Error>?
 
     init(paths: ManagerPaths, manager injectedManager: AccountManager? = nil) {
         self.paths = paths
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
+            chatHistoryIndex = ChatHistoryIndex(home: paths.sharedRoot)
         } catch {
             manager = nil
+            chatHistoryIndex = nil
             isUnavailable = true
             hasLoaded = true
             unavailableReason = "Switch could not open its private data folder. \(error.localizedDescription)"
@@ -52,6 +64,7 @@ final class AccountViewModel: ObservableObject {
     init(scenario: Scenario = .demo, demoPaths: ManagerPaths? = nil) {
         paths = demoPaths ?? DemoData.paths
         manager = nil
+        chatHistoryIndex = nil
         self.scenario = scenario
         reset(to: scenario)
     }
@@ -76,7 +89,7 @@ final class AccountViewModel: ObservableObject {
         }
         await perform(
             failure: "Couldn’t load accounts.",
-            recovery: "Refresh after resolving any item shown in Recovery."
+            recovery: "Refresh after resolving any item shown in Backup."
         ) {
             try await reloadStatus(using: manager)
             let newStatus = status!
@@ -91,7 +104,7 @@ final class AccountViewModel: ObservableObject {
             await perform(failure: "Couldn’t refresh accounts.", recovery: "Try Refresh again.") {
                 try await reloadStatus(using: manager)
                 refreshedAt = Date()
-                notice = "Accounts and recovery state refreshed."
+                notice = "Accounts and backup state refreshed."
             }
             return
         }
@@ -126,7 +139,7 @@ final class AccountViewModel: ObservableObject {
         isBusy = false
         refreshedAt = nil
         errorMessage = scenario == .allStates ? "One account needs sign-in before it can be opened." : nil
-        notice = scenario == .allStates ? "Demo recovery and settings issues are ready to review." : nil
+        notice = scenario == .allStates ? "Demo backup and settings issues are ready to review." : nil
         showImport = false
         selectedProviderID = .codex
         importMode = .authOnly
@@ -136,6 +149,17 @@ final class AccountViewModel: ObservableObject {
         accountHistory = Dictionary(uniqueKeysWithValues: accounts.map {
             ($0.id, HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true))
         })
+        let demoThreads = scenario == .empty ? [] : DemoData.chatThreads
+        chatHistory = ChatHistorySnapshot(
+            threads: demoThreads,
+            totalThreadCount: demoThreads.count,
+            matchingThreadCount: demoThreads.count)
+        selectedChatID = demoThreads.first?.id
+        selectedChat = selectedChatID.flatMap(DemoData.chatDetail)
+        isChatHistoryLoading = false
+        isChatLoading = false
+        chatHistoryError = nil
+        hasScannedChatHistory = true
         hasLoaded = true
     }
     #endif
@@ -254,7 +278,7 @@ final class AccountViewModel: ObservableObject {
         if let manager {
             await perform(
                 failure: "Couldn’t import the account.",
-                recovery: "Open Recovery before retrying if an interrupted operation is listed."
+                recovery: "Open Backup before retrying if an interrupted operation is listed."
             ) {
                 importResult = try await manager.importAccount(plan: plan, decisions: conflictChoices)
                 try await reloadStatus(using: manager)
@@ -323,7 +347,7 @@ final class AccountViewModel: ObservableObject {
             guard let id = selectedAccountID else { return }
             await perform(
                 failure: "Couldn’t change the default account.",
-                recovery: "Close running Codex sessions, resolve Recovery items, then retry."
+                recovery: "Close running Codex sessions, resolve Backup items, then retry."
             ) {
                 let result = try await manager.switchDefault(to: id)
                 try await reloadStatus(using: manager)
@@ -472,12 +496,13 @@ final class AccountViewModel: ObservableObject {
     func recover() async {
         if let manager {
             await perform(
-                failure: "Couldn’t recover the interrupted operation.",
+                failure: "Couldn’t finish the interrupted operation.",
                 recovery: "Review the pending item and its protected backup before retrying."
             ) {
                 let results = try await manager.recover()
                 notice = results.isEmpty
-                    ? "No recovery was needed." : results.map(\.message).joined(separator: " ")
+                    ? "No backup work was needed."
+                    : results.map { backupCopy($0.message) }.joined(separator: " ")
                 try await reloadStatus(using: manager)
             }
             return
@@ -489,7 +514,7 @@ final class AccountViewModel: ObservableObject {
             let count = current.pendingRecovery.count
             current.pendingRecovery = []
             status = current
-            notice = count == 0 ? "No recovery was needed." : "Demo recovery completed in memory."
+            notice = count == 0 ? "No backup work was needed." : "Demo backup work completed in memory."
         }
         #else
         reportUnavailable()
@@ -499,14 +524,14 @@ final class AccountViewModel: ObservableObject {
     func resolveRecoveryConflict(_ operation: RecoveryOperation, choice: RecoveryConflictChoice) async {
         if let manager {
             await perform(
-                failure: "Couldn’t resolve the recovery conflict.",
+                failure: "Couldn’t resolve the backup conflict.",
                 recovery: "Confirm that Codex is closed, then review the protected backup and retry."
             ) {
                 let result = try await manager.resolveRecoveryConflict(
                     operationID: operation.id,
                     choice: choice
                 )
-                notice = result.message
+                notice = backupCopy(result.message)
                 try await reloadStatus(using: manager)
             }
             return
@@ -535,6 +560,117 @@ final class AccountViewModel: ObservableObject {
 
     func history(for account: AccountRecord) -> HistorySummary {
         accountHistory[account.id] ?? HistorySummary()
+    }
+
+    func watchChatHistory(query: String) async {
+        if !query.isEmpty {
+            do { try await Task.sleep(for: .milliseconds(120)) }
+            catch { return }
+        }
+        while !Task.isCancelled {
+            await refreshChatHistory(query: query)
+            do { try await Task.sleep(for: .milliseconds(750)) }
+            catch { return }
+        }
+    }
+
+    func refreshChatHistory(query: String) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            let terms = query.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }
+            let all = scenario == .empty ? [] : DemoData.chatThreads
+            let matches = terms.isEmpty ? all : all.filter { thread in
+                let text = [thread.title, thread.preview, thread.workingDirectory, thread.threadID]
+                    .compactMap { $0 }.joined(separator: "\n").lowercased()
+                return terms.allSatisfy(text.contains)
+            }
+            chatHistory = ChatHistorySnapshot(
+                threads: matches,
+                totalThreadCount: all.count,
+                matchingThreadCount: matches.count)
+            await selectVisibleChat()
+            return
+        }
+        #endif
+        guard let chatHistoryIndex else {
+            chatHistoryError = unavailableReason ?? "The chat library is unavailable."
+            return
+        }
+        let showsInitialLoader = !hasScannedChatHistory
+        if showsInitialLoader { isChatHistoryLoading = true }
+        defer { if showsInitialLoader { isChatHistoryLoading = false } }
+        do {
+            let snapshot = try await chatHistoryIndex.refresh(query: query)
+            guard !Task.isCancelled else { return }
+            hasScannedChatHistory = true
+            if snapshot != chatHistory { chatHistory = snapshot }
+            chatHistoryError = nil
+            await selectVisibleChat()
+        } catch is CancellationError {
+            return
+        } catch {
+            hasScannedChatHistory = true
+            chatHistoryError = "The chat library could not refresh. \(error.localizedDescription)"
+        }
+    }
+
+    func selectChat(_ id: String) async {
+        guard selectedChatID != id || selectedChat?.thread.id != id else { return }
+        selectedChatID = id
+        selectedChat = nil
+        await loadSelectedChat(id)
+    }
+
+    private func selectVisibleChat() async {
+        let visible = chatHistory.threads
+        guard !visible.isEmpty else {
+            selectedChatID = nil
+            selectedChat = nil
+            return
+        }
+        let nextID = visible.contains { $0.id == selectedChatID }
+            ? selectedChatID! : visible[0].id
+        selectedChatID = nextID
+        guard selectedChat?.thread != visible.first(where: { $0.id == nextID }) else { return }
+        selectedChat = nil
+        await loadSelectedChat(nextID)
+    }
+
+    private func loadSelectedChat(_ id: String) async {
+        chatDetailTask?.cancel()
+        chatSelectionGeneration += 1
+        let generation = chatSelectionGeneration
+        isChatLoading = true
+        defer {
+            if generation == chatSelectionGeneration { isChatLoading = false }
+        }
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            selectedChat = DemoData.chatDetail(id)
+            return
+        }
+        #endif
+        guard let chatHistoryIndex else { return }
+        let task = Task { try await chatHistoryIndex.detail(for: id) }
+        chatDetailTask = task
+        do {
+            let detail = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            guard !Task.isCancelled,
+                  generation == chatSelectionGeneration,
+                  selectedChatID == id else { return }
+            selectedChat = detail
+            chatDetailTask = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            guard generation == chatSelectionGeneration else { return }
+            chatDetailTask = nil
+            chatHistoryError = "The selected chat could not open. \(error.localizedDescription)"
+        }
     }
 
     func resetImport() {
@@ -630,17 +766,76 @@ final class AccountViewModel: ObservableObject {
     private func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
+    private func backupCopy(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "Recovery", with: "Backup")
+            .replacingOccurrences(of: "recovery", with: "backup")
+    }
 }
 
 #if AI_MANAGER_PREVIEW
 private enum DemoData {
-    static let now = Date(timeIntervalSince1970: 1_788_748_100)
+    static let now = Date(timeIntervalSince1970: 1_789_281_000)
     static let paths = ManagerPaths(
         applicationSupport: URL(fileURLWithPath: "/Switch Demo", isDirectory: true),
         defaultHome: URL(fileURLWithPath: "/Demo/Codex", isDirectory: true),
         sharedRoot: URL(fileURLWithPath: "/Demo/Shared", isDirectory: true),
         orcaAccountsRoot: URL(fileURLWithPath: "/Demo/Orca", isDirectory: true)
     )
+
+    static let chatThreads = [
+        chatThread(
+            id: "demo-chat-accounts", threadID: "019f4b6d-accounts",
+            title: "Polish the account import flow",
+            preview: "The source rows now stay aligned and the review step is ready.",
+            project: "/Projects/Switch", minutesAgo: 8, messages: 4),
+        chatThread(
+            id: "demo-chat-linux", threadID: "019f4b6d-linux",
+            title: "Verify the Linux release matrix",
+            preview: "Both ARM64 and AMD64 passed in clean read-only containers.",
+            project: "/Projects/Switch", minutesAgo: 74, messages: 3),
+        chatThread(
+            id: "demo-chat-icon", threadID: "019f4b6d-icon",
+            title: "Trace the final Switch icon",
+            preview: "The approved pixel trace is packaged for light and dark appearances.",
+            project: "/Projects/Switch", minutesAgo: 1_460, messages: 4, archived: true),
+    ]
+
+    static func chatDetail(_ id: String) -> ChatThreadDetail? {
+        guard let thread = chatThreads.first(where: { $0.id == id }) else { return nil }
+        let copy: [(ChatMessageRole, String)]
+        switch id {
+        case "demo-chat-accounts":
+            copy = [
+                (.user, "Make the Codex account import flow compact and easy to scan."),
+                (.assistant, "I aligned the provider, source, and scope sections to one grid."),
+                (.user, "Keep every source row visible and give the groups more breathing room."),
+                (.assistant, "The source rows now stay aligned and the review step is ready."),
+            ]
+        case "demo-chat-linux":
+            copy = [
+                (.user, "Run the core and CLI checks on both Linux architectures."),
+                (.assistant, "The read-only ARM64 container passed."),
+                (.assistant, "Both ARM64 and AMD64 passed in clean read-only containers."),
+            ]
+        default:
+            copy = [
+                (.user, "Use the approved pixel trace everywhere."),
+                (.assistant, "I preserved the exact silhouette and rebuilt each icon size."),
+                (.user, "Check the light and dark variants at small sizes."),
+                (.assistant, "The approved pixel trace is packaged for light and dark appearances."),
+            ]
+        }
+        return ChatThreadDetail(
+            thread: thread,
+            messages: copy.enumerated().map { index, item in
+                ChatMessage(
+                    id: "\(id)#\(index)", role: item.0, text: item.1,
+                    timestamp: thread.updatedAt.addingTimeInterval(Double(index - copy.count) * 45))
+            },
+            omittedMessageCount: 0)
+    }
 
     static let accounts = [
         account(id: "7A08CA5E-F528-4E45-B730-DAF68B0A3133", email: "suraj@example.com", workspace: "personal", state: .verifiedWithCodex, detail: "Verified with Codex at 10:15 AM."),
@@ -762,6 +957,30 @@ private enum DemoData {
             support: .supportedChatGPT, settings: settings,
             history: HistorySummary(activeTranscripts: active, archivedTranscripts: archived, hasIndexes: true)
         )
+    }
+
+    private static func chatThread(
+        id: String,
+        threadID: String,
+        title: String,
+        preview: String,
+        project: String,
+        minutesAgo: Int,
+        messages: Int,
+        archived: Bool = false
+    ) -> ChatThreadSummary {
+        ChatThreadSummary(
+            id: id,
+            threadID: threadID,
+            title: title,
+            preview: preview,
+            workingDirectory: project,
+            updatedAt: now.addingTimeInterval(Double(-minutesAgo * 60)),
+            archived: archived,
+            messageCount: messages,
+            fileByteCount: Int64(messages * 2_048),
+            source: paths.sharedRoot.appending(path: "sessions/\(id).jsonl"),
+            unreadableRecordCount: 0)
     }
 }
 #endif

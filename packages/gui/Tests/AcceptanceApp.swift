@@ -72,6 +72,7 @@ private enum AcceptanceConfiguration {
 
     static let initialSize = NSSize(width: 1120, height: 740)
     static var contractOnly: Bool { CommandLine.arguments.contains("--contract-only") }
+    static var snapshotOnly: Bool { CommandLine.arguments.contains("--snapshot-only") }
     static var persistedAppearanceMode: String? {
         if CommandLine.arguments.contains("--persisted-dark") { return "dark" }
         if CommandLine.arguments.contains("--persisted-light") { return "light" }
@@ -81,9 +82,10 @@ private enum AcceptanceConfiguration {
     static var opensImport: Bool { CommandLine.arguments.contains("--import") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var initialPageIndex: Int {
-        if CommandLine.arguments.contains("--settings") { return 1 }
+        if CommandLine.arguments.contains("--backup")
+            || CommandLine.arguments.contains("--recovery") { return 1 }
         if CommandLine.arguments.contains("--history") { return 2 }
-        if CommandLine.arguments.contains("--recovery") { return 3 }
+        if CommandLine.arguments.contains("--settings") { return 3 }
         return 0
     }
 }
@@ -180,7 +182,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         if AcceptanceConfiguration.opensImport { await model.beginImport() }
         try? await Task.sleep(for: .milliseconds(100))
         window?.contentView?.layoutSubtreeIfNeeded()
-        menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
+        if !AcceptanceConfiguration.snapshotOnly {
+            menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
+        }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
     }

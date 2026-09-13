@@ -150,15 +150,16 @@ struct AIMVisualEffect: NSViewRepresentable {
 
 struct AIMIcon: View {
   enum Name: CaseIterable {
-    case account, settings, history, recovery, plus, refresh, moon, sun, close, minimize
+    case account, settings, history, backup, search, plus, refresh, moon, sun, close, minimize
     case chevron, check, square, checkSquare, folder, play, copy, warning, info, success
 
     var symbol: String {
       switch self {
       case .account: "person.crop.circle"
       case .settings: "gearshape"
-      case .history: "clock.arrow.circlepath"
-      case .recovery: "arrow.counterclockwise"
+      case .history: "bubble.left.and.bubble.right"
+      case .backup: "archivebox"
+      case .search: "magnifyingglass"
       case .plus: "plus"
       case .refresh: "arrow.clockwise"
       case .moon: "moon"
