@@ -1970,15 +1970,12 @@ with temporary synthetic homes before installation.
   `Sky Computer Use native pipe startup failed`; process, package, signature, resource, contract,
   and isolated runtime checks supply the completed installation evidence.
 
-### Icon composition and import-layout acceptance (2026-09-13)
+### Icon composition and import-layout acceptance (2026-09-13, Dock treatment superseded)
 
-- The approved Pixel trace SHA remains unchanged. Its Dock and Spotlight foreground is scaled
-  from 800 to 640 points and placed at x 183, y 199, which centers the trace's alpha-weighted
-  visible mass within 0.1 point of the 1024-point canvas center. Light and dark tile gradients are
-  darker, the edge rim is reduced from four to two points, and the strongest highlight opacity is
-  reduced from 0.34 to 0.20 in Light and 0.27 to 0.15 in Dark. This follows Apple's current app-icon
-  guidance to center primary content, keep the concept simple, retain crisp vector edges, and use a
-  simple background: https://developer.apple.com/design/human-interface-guidelines/app-icons.
+- The 640-point Dock treatment at x 183, y 199 was rejected after installation because the mark
+  still occupied 76% of the tile width, the blue graphite remained too light, and the two-point
+  edge lift remained too bright. The import-layout results below remain accepted. The replacement
+  Dock treatment is recorded in Revised Dock composition acceptance.
 - The import titlebar and Close cell are both 48 points high. Close owns the trailing 48-point
   region, touches the modal's top and trailing edges, and fills with system red on hover. The step
   indicator is fixed-size with a reserved 16-point gap before Close. It cannot enter the close-cell
@@ -2060,3 +2057,23 @@ with temporary synthetic homes before installation.
   contracts, deterministic icon output, fixed-window behavior, thin scrollbars, and single-instance
   behavior passed. Read-only unprivileged `linux/arm64` and `linux/amd64` containers each produced
   the same 90 passes and two opt-in skips, then passed the complete CLI acceptance.
+
+### Revised Dock composition acceptance (2026-09-13)
+
+- The approved Pixel trace remains byte-identical at SHA-256
+  `bdeec18e308f1587716dbd4f5b0b9adf73ed4fe8bfeed3a8953e08cc8843f252`.
+  Its 520-point foreground box is placed at x 245, y 258. It occupies 61.9% of the 840-point tile
+  width and leaves at least 140 points between the nominal mark box and every tile edge.
+- Light uses neutral graphite `#383d45`, `#292f37`, and `#1a2027`; Dark uses `#292e35`,
+  `#1d2229`, and `#12171d`. The one-point edge lift peaks at 0.07 opacity in Light and 0.05 in
+  Dark. Lower shading peaks at 0.12 and 0.16. The 1024-point comparison at
+  `/private/tmp/ai-manager-build/icon-composition-review.png` shows the old and revised treatments
+  side by side; the revised treatment is visibly smaller, darker, flatter, and more neutral.
+- Deterministic asset regeneration passes. Light PNG SHA-256 is
+  `8eb273fb67360bfaaae8c6e0a692d8159af8d1cde438db0fc0d3148e98459307`, Dark PNG SHA-256 is
+  `4fe8043b2c8f6bbaebdfcf9b1f55cd43a10ed8c067f3ff6f1570270e66dd69ff`, and ICNS SHA-256 is
+  `7a3622e57c65811b79490cfecf84cf990309d51abbaace77bb6f8a0f6e173211`.
+- `scripts/check-native.sh` discovered 92 tests, executed 90 without failure, and skipped only the
+  two explicit protected-copy opt-ins. Production and Preview model checks, System/Light/Dark
+  window contracts, deterministic icon output, fixed-window behavior, thin scrollbars, and
+  single-instance behavior pass. The exact signed installation is recorded after this checkpoint.
