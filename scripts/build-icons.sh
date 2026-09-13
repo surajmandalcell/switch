@@ -9,8 +9,8 @@ command -v iconutil >/dev/null
 rm -rf "$iconset"
 mkdir -p "$iconset"
 
-rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkBalanced.svg" \
-  --output "$icons/SwitchMarkBalanced.png"
+rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkPixelTrace.svg" \
+  --output "$icons/SwitchMarkPixelTrace.png"
 rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkMenubar.svg" \
   --output "$icons/SwitchMarkMenubar.png"
 rsvg-convert --width 1024 --height 1024 "$icons/AppIconLight.svg" --output "$icons/AppIconLight.png"

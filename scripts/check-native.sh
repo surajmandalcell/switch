@@ -18,6 +18,7 @@ swift package --disable-sandbox dump-package >/dev/null
 swift test \
   --disable-sandbox \
   --build-path "$build_path"
+bash "$repo_root/scripts/check-icon-assets.sh"
 bash "$repo_root/scripts/check-gui-demo.sh"
 bash "$repo_root/scripts/check-gui-production.sh"
 bash "$repo_root/scripts/check-gui-contract.sh"
