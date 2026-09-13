@@ -87,7 +87,7 @@ struct CodexProviderAdapter {
                values.isRegularFile == true, let size = values.fileSize, size <= 1_048_576,
                let text = try? String(contentsOf: config, encoding: .utf8),
                text.contains("cli_auth_credentials_store"), text.contains("keyring") {
-                return .init(data: Data(), digest: "", identity: nil, support: .keychainOnly, error: "This home is configured for Keychain-only credentials. Use Codex sign-in with file storage for a managed profile.")
+                return .init(data: Data(), digest: "", identity: nil, support: .keychainOnly, error: "This Codex home uses Keychain-only credentials. Sign in with Codex using file storage, then import it again.")
             }
             return .init(data: Data(), digest: "", identity: nil, support: .missingAuth, error: "auth.json is missing. Sign in with Codex or choose another source.")
         }

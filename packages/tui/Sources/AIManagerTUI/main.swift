@@ -36,18 +36,20 @@ struct AIManagerCLI {
         case "import": try await importAccount(input, manager: manager)
         case "use":
             let id = try input.requiredAccountID()
-            try confirm(input, "Use this account for future default-home sessions? Existing sessions will not change.")
+            try confirm(input, "Use this account for new Codex sessions? Existing sessions will not change.")
             await output(try await manager.switchDefault(to: id), json: input.json)
         case "open":
             let id = try input.requiredAccountID()
-            let spec = try await manager.launchSpec(accountID: id, arguments: input.forwardedArguments)
-            let code = try await manager.run(spec)
+            let code = try await manager.activateAndRun(
+                accountID: id, arguments: input.forwardedArguments)
             if code != 0 { throw CLIError.message("Codex exited with status \(code).") }
-        case "profile":
+        case "saved-auth":
             let id = try input.requiredAccountID()
             let status = try await manager.status()
             guard let account = status.accounts.first(where: { $0.id == id }) else { throw AIManagerError.accountNotFound }
-            print(account.home.path)
+            print(account.credentialFile.path)
+        case "profile":
+            throw CLIError.message("The profile command was removed. Use saved-auth to print the saved auth file, or open to start Codex.")
         case "verify":
             await output(manager.verifyLocal(accountID: try input.requiredAccountID()), json: input.json)
         case "recover":
@@ -109,7 +111,10 @@ struct AIManagerCLI {
             decisions[conflict.relativePath] = try askConflict(conflict.relativePath)
         }
         plan = try await reviewExternalSettings(plan, decisions: decisions, approvedPaths: input.externalReviews, manager: manager, report: true)
-        try confirm(input, "Import to \(plan.destination.path) with backup at \(plan.backup.path)?")
+        let target = plan.mode == .full
+            ? "Save account access at \(plan.credentialDestination.path) and merge reviewed data into \(plan.sharedDestination.path)"
+            : "Save account access at \(plan.credentialDestination.path)"
+        try confirm(input, "\(target) with backup at \(plan.backup.path)?")
         let result = try await manager.importAccount(plan: plan, decisions: decisions)
         await output(result, json: input.json)
         if !result.unresolved.isEmpty {
@@ -132,7 +137,7 @@ struct AIManagerCLI {
                 case "d": await printDiscovery(manager.discover())
                 case "i": try await interactiveImport(manager)
                 case "u": if let account = chooseAccount(status.accounts) { await output(try await manager.switchDefault(to: account.id), json: false) }
-                case "o": if let account = chooseAccount(status.accounts) { _ = try await manager.run(try await manager.launchSpec(accountID: account.id)) }
+                case "o": if let account = chooseAccount(status.accounts) { _ = try await manager.activateAndRun(accountID: account.id) }
                 case "v": if let account = chooseAccount(status.accounts) { await output(manager.verifyLocal(accountID: account.id), json: false) }
                 case "r": try await interactiveRecovery(manager)
                 case "q": return
@@ -214,7 +219,11 @@ struct AIManagerCLI {
     static func printPlan(_ plan: ImportPlan) {
         print("Account: \(displayName(plan.identity))")
         print("Mode: \(plan.mode == .authOnly ? "auth only" : "auth, settings, and chats")")
-        print("Destination: \(plan.destination.path)")
+        print("Saved auth: \(plan.credentialDestination.path)")
+        if plan.mode == .full {
+            print("Shared Codex home: \(plan.sharedDestination.path)")
+            print("Imported account data: \(plan.destination.path)")
+        }
         print("Backup: \(plan.backup.path)")
         print("Selected files: \(plan.manifest.filter(\.selected).count); conflicts: \(plan.conflicts.count)")
         for warning in plan.warnings { print("Warning: \(warning)") }
@@ -290,7 +299,7 @@ struct AIManagerCLI {
             if !status.pendingRecovery.isEmpty { print("Pending recovery: \(status.pendingRecovery.count)") }
         case let sources as [DiscoveredSource]: printDiscovery(sources)
         case let result as ImportResult:
-            print("Imported \(displayName(result.account.identity)) to \(result.account.home.path).")
+            print("Saved \(displayName(result.account.identity)) at \(result.account.credentialFile.path).")
             print("Backup: \(result.backup.path); files: \(result.importedFiles); chats: \(result.importedChats)")
             for item in result.unresolved { print("Unresolved: \(item)") }
         case let result as SwitchResult: print("Default account changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
@@ -332,7 +341,7 @@ struct AIManagerCLI {
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
       ai-manager open <account-uuid> [-- codex arguments]
-      ai-manager profile <account-uuid>
+      ai-manager saved-auth <account-uuid>
       ai-manager verify <account-uuid> [--json]
       ai-manager recover [--yes] [--json]
       ai-manager resolve-recovery <operation-uuid> (--keep-current|--restore-backup) [--yes] [--json]
@@ -341,13 +350,15 @@ struct AIManagerCLI {
       ai-manager interactive
 
     Isolation overrides: AI_MANAGER_ROOT, AI_MANAGER_DEFAULT_HOME,
-    AI_MANAGER_SHARED_ROOT, AI_MANAGER_CODEX_EXECUTABLE.
+    AI_MANAGER_CREDENTIAL_STORE, AI_MANAGER_SHARED_ROOT,
+    AI_MANAGER_CODEX_EXECUTABLE.
     """
 }
 
 private struct SafeAccount: Encodable {
     let id: UUID
     let identity: AccountIdentity
+    let credentialFile: URL
     let home: URL
     let source: URL
     let importedAt: Date
@@ -357,6 +368,7 @@ private struct SafeAccount: Encodable {
     init(_ account: AccountRecord) {
         id = account.id
         identity = account.identity
+        credentialFile = account.credentialFile
         home = account.home
         source = account.source
         importedAt = account.importedAt
@@ -419,6 +431,8 @@ private struct PlanOutput: Encodable {
     let id: UUID
     let source: URL
     let destination: URL
+    let credentialDestination: URL
+    let sharedDestination: URL
     let backup: URL
     let mode: ImportMode
     let identity: AccountIdentity
@@ -431,6 +445,8 @@ private struct PlanOutput: Encodable {
         id = plan.id
         source = plan.source
         destination = plan.destination
+        credentialDestination = plan.credentialDestination
+        sharedDestination = plan.sharedDestination
         backup = plan.backup
         mode = plan.mode
         identity = plan.identity

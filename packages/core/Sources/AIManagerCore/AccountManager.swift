@@ -13,7 +13,7 @@ import Glibc
 #endif
 
 public enum WriterState: Sendable { case inactive, active, unknown }
-public enum FaultPoint: Sendable, Equatable { case duringHistoryCopy, afterTemporaryCopy, afterHomePublication, afterDefaultCredentialPublication, afterRegistryCommit, afterRecoveryConflictRestore }
+public enum FaultPoint: Sendable, Equatable { case duringHistoryCopy, afterTemporaryCopy, afterHomePublication, afterDefaultCredentialPublication, afterRegistryCommit, afterRecoveryConflictRestore, afterProcessStart }
 
 public actor AccountManager {
     public typealias WriterCheck = @Sendable (URL) async -> WriterState
@@ -138,7 +138,8 @@ public actor AccountManager {
             conflicts: conflicts,
             warnings: warnings,
             requiredBytes: requiredBytes,
-            credentialDestination: credentialFile(for: id)
+            credentialDestination: credentialFile(for: id),
+            sharedDestination: paths.sharedRoot
         )
     }
 
@@ -171,19 +172,12 @@ public actor AccountManager {
         guard try reviewedDataDigest(
             source: plan.source, mode: plan.mode, authDigest: current.digest,
             manifest: plan.manifest) == plan.reviewedDataDigest else { throw AIManagerError.sourceChanged }
-        if plan.mode == .full {
-            var checked = Set<String>()
-            for location in [plan.source, paths.sharedRoot] where checked.insert(CoreSupport.canonical(location).path).inserted {
-                switch await writerCheck(location) {
-                case .active: throw AIManagerError.activeCodexProcesses
-                case .unknown: throw AIManagerError.writerStateUnknown
-                case .inactive: break
-                }
+        return try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            if plan.mode == .full {
+                try await ensureWritersInactive([plan.source, paths.sharedRoot])
             }
-        }
-
-        return try lock.withLock {
-            try performImport(plan: plan, auth: current.data, decisions: decisions)
+            return try performImport(plan: plan, auth: current.data, decisions: decisions)
         }
     }
 
@@ -207,36 +201,16 @@ public actor AccountManager {
     }
 
     public func switchDefault(to accountID: UUID) async throws -> SwitchResult {
-        try ensureNoRecovery()
-        let registry = try loadRegistry()
-        guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
-            throw AIManagerError.accountNotFound
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            let registry = try loadRegistry()
+            guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try provider.validateManagedCredential(selected)
+            try await ensureWritersInactive([paths.defaultHome])
+            return try performSwitch(to: accountID)
         }
-        try provider.validateManagedCredential(selected)
-        try await ensureWritersInactive([paths.defaultHome])
-        return try lock.withLock { try performSwitch(to: accountID) }
-    }
-
-    public func activateAndLaunchSpec(
-        accountID: UUID,
-        arguments: [String] = [],
-        workingDirectory: URL? = nil
-    ) async throws -> LaunchSpec {
-        try ensureNoRecovery()
-        let registry = try loadRegistry()
-        guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
-            throw AIManagerError.accountNotFound
-        }
-        let live = provider.inspect(home: paths.defaultHome)
-        let alreadyActive = registry.defaultAccountID == accountID
-            && live.digest == account.credentialDigest
-            && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
-        if !alreadyActive { _ = try await switchDefault(to: accountID) }
-        return try launchSpec(
-            accountID: accountID,
-            arguments: arguments,
-            workingDirectory: workingDirectory
-        )
     }
 
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
@@ -268,14 +242,62 @@ public actor AccountManager {
         )
     }
 
+    @discardableResult
+    public func activateAndRun(
+        accountID: UUID,
+        arguments: [String] = [],
+        workingDirectory: URL? = nil
+    ) async throws -> Int32 {
+        var launched: Process?
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            let registry = try loadRegistry()
+            guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try provider.validateManagedCredential(account)
+            let live = provider.inspect(home: paths.defaultHome)
+            let alreadyActive = registry.defaultAccountID == accountID
+                && live.digest == account.credentialDigest
+                && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
+            if !alreadyActive {
+                try await ensureWritersInactive([paths.defaultHome])
+                _ = try performSwitch(to: accountID)
+            }
+            let process = configuredProcess(
+                try launchSpec(
+                    accountID: accountID,
+                    arguments: arguments,
+                    workingDirectory: workingDirectory
+                )
+            )
+            try process.run()
+            do {
+                try faultInjector(.afterProcessStart)
+            } catch {
+                if process.isRunning {
+                    process.terminate()
+                }
+                process.waitUntilExit()
+                throw error
+            }
+            launched = process
+        }
+        guard let launched else {
+            throw AIManagerError.operationFailed("Codex did not start.")
+        }
+        launched.waitUntilExit()
+        return launched.terminationStatus
+    }
+
     public func repairLinkedSetting(accountID: UUID, relativePath: String, reviewedFingerprint: String) async throws -> LinkedSettingRepairResult {
-        try ensureNoRecovery()
-        guard CoreSupport.settings.contains(relativePath) else { throw AIManagerError.unsafePath(relativePath) }
-        let registry = try loadRegistry()
-        guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
-        try provider.requireSupported(account.identity.providerID)
-        try await ensureWritersInactive([account.home, paths.sharedRoot])
-        return try lock.withLock {
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            guard CoreSupport.settings.contains(relativePath) else { throw AIManagerError.unsafePath(relativePath) }
+            let registry = try loadRegistry()
+            guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+            try provider.requireSupported(account.identity.providerID)
+            try await ensureWritersInactive([account.home, paths.sharedRoot])
             guard let issue = try inspectLinkedSettings(accounts: [account]).first(where: { $0.relativePath == relativePath }) else {
                 throw AIManagerError.operationFailed("The reviewed settings link is no longer divergent.")
             }
@@ -341,14 +363,19 @@ public actor AccountManager {
 
     @discardableResult
     public func run(_ spec: LaunchSpec) async throws -> Int32 {
+        let process = configuredProcess(spec)
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    private func configuredProcess(_ spec: LaunchSpec) -> Process {
         let process = Process()
         process.executableURL = spec.executable
         process.arguments = spec.arguments
         process.environment = spec.environment
         process.currentDirectoryURL = spec.workingDirectory
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus
+        return process
     }
 
     public func verifyLocal(accountID: UUID) async -> VerificationResult {
@@ -413,12 +440,12 @@ public actor AccountManager {
     }
 
     public func recover() async throws -> [RecoveryResult] {
-        let reviewed = try pendingOperations()
-        let reviewedHomes = try Dictionary(uniqueKeysWithValues: reviewed.map { operation in
-            (operation.id, Set(try affectedRecoveryHomes(operation).map { CoreSupport.canonical($0).path }))
-        })
-        try await ensureWritersInactive(reviewed.flatMap { try affectedRecoveryHomes($0) })
-        return try lock.withLock {
+        try await lock.withAsyncLock {
+            let reviewed = try pendingOperations()
+            let reviewedHomes = try Dictionary(uniqueKeysWithValues: reviewed.map { operation in
+                (operation.id, Set(try affectedRecoveryHomes(operation).map { CoreSupport.canonical($0).path }))
+            })
+            try await ensureWritersInactive(reviewed.flatMap { try affectedRecoveryHomes($0) })
             let current = try pendingOperations()
             guard Set(current.map(\.id)) == Set(reviewed.map(\.id)) else {
                 throw AIManagerError.sourceChanged
@@ -435,15 +462,15 @@ public actor AccountManager {
         operationID: UUID,
         choice: RecoveryConflictChoice
     ) async throws -> RecoveryResult {
-        guard let operation = try pendingOperations().first(where: { $0.id == operationID }) else {
-            throw AIManagerError.operationFailed("Recovery operation not found.")
-        }
-        guard operation.phase == .conflicted else {
-            throw AIManagerError.operationFailed("Recovery operation is not conflicted.")
-        }
-        let affectedHomes = try affectedRecoveryHomes(operation)
-        try await ensureWritersInactive(affectedHomes)
-        return try lock.withLock {
+        try await lock.withAsyncLock {
+            guard let operation = try pendingOperations().first(where: { $0.id == operationID }) else {
+                throw AIManagerError.operationFailed("Recovery operation not found.")
+            }
+            guard operation.phase == .conflicted else {
+                throw AIManagerError.operationFailed("Recovery operation is not conflicted.")
+            }
+            let affectedHomes = try affectedRecoveryHomes(operation)
+            try await ensureWritersInactive(affectedHomes)
             guard let current = try pendingOperations().first(where: { $0.id == operationID }) else {
                 throw AIManagerError.operationFailed("Recovery operation not found.")
             }
@@ -550,6 +577,10 @@ extension AccountManager {
     }
 
     private func loadRegistry() throws -> Registry {
+        try lock.withLock { try loadRegistryLocked() }
+    }
+
+    private func loadRegistryLocked() throws -> Registry {
         guard CoreSupport.entryExists(registryURL) else { return Registry() }
         let values = try registryURL.resourceValues(
             forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
@@ -619,10 +650,12 @@ extension AccountManager {
     }
 
     private func recordVerification(_ result: VerificationResult, accountID: UUID) throws {
-        var registry = try loadRegistry()
-        guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
-        registry.accounts[index].verification = result
-        try saveRegistry(registry)
+        try lock.withLock {
+            var registry = try loadRegistry()
+            guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+            registry.accounts[index].verification = result
+            try saveRegistry(registry)
+        }
     }
 
     private func pendingOperations() throws -> [RecoveryOperation] {
@@ -890,12 +923,20 @@ extension AccountManager {
         if let matching, registry.accounts[matching].credentialDigest != plan.sourceAuthDigest,
            decisions["auth.json"] != .useImported, !keepExistingCredential { throw AIManagerError.credentialConflict }
         let accountID = matching.map { registry.accounts[$0].id } ?? plan.id
+        let expectedDestination = matching.map { registry.accounts[$0].home }
+            ?? accountsRoot.appending(path: accountID.uuidString)
+                .appending(path: "home", directoryHint: .isDirectory)
+        let expectedBackup = paths.applicationSupport
+            .appending(path: "backups/\(plan.id.uuidString)", directoryHint: .isDirectory)
         guard accountID == plan.id,
+              CoreSupport.sameLocation(plan.destination, expectedDestination),
+              CoreSupport.sameLocation(plan.backup, expectedBackup),
+              CoreSupport.sameLocation(plan.sharedDestination, paths.sharedRoot),
               plan.credentialDestination.standardizedFileURL.path
                 == credentialFile(for: accountID).standardizedFileURL.path else {
-            throw AIManagerError.unsafePath("saved credential destination changed after review")
+            throw AIManagerError.unsafePath("an import destination changed after review")
         }
-        let destination = matching.map { registry.accounts[$0].home } ?? plan.destination
+        let destination = expectedDestination
         let staging = paths.applicationSupport.appending(path: "staging/\(plan.id.uuidString)/home", directoryHint: .isDirectory)
         var operation = RecoveryOperation(id: plan.id, kind: "import", phase: .prepared, source: plan.source, destination: destination, backup: plan.backup, touchedItems: [], registryAccountID: matching.map { registry.accounts[$0].id } ?? plan.id, registryCredentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest, previousAccount: matching.map { registry.accounts[$0] })
         try saveOperation(operation)
@@ -2010,6 +2051,16 @@ extension AccountManager {
         return registry.accounts.first(where: { $0.id == accountID })?.credentialDigest == expectedCredential
     }
 
+    private func publishedRecoveryTargetsMatch(_ operation: RecoveryOperation) throws -> Bool {
+        for item in operation.touchedItems ?? [] {
+            if let temporary = item.temporary, CoreSupport.entryExists(temporary) { return false }
+            guard !item.expectedDigest.isEmpty,
+                  CoreSupport.entryExists(item.destination),
+                  try treeDigest(item.destination) == item.expectedDigest else { return false }
+        }
+        return true
+    }
+
     private func restoreRegistry(_ operation: RecoveryOperation, registry: inout Registry) {
         if operation.kind == "switch" {
             registry.defaultAccountID = operation.previousDefaultAccountID
@@ -2033,8 +2084,17 @@ extension AccountManager {
         let registryCommitted = registryCommitted(operation, registry: registry)
         let currentDigest = fileManager.fileExists(atPath: operation.destination.path) ? try? treeDigest(operation.destination) : nil
         if registryCommitted, currentDigest == operation.expectedDigest {
-            try finishOperation(&operation)
-            return .init(operationID: operation.id, outcome: .completed, message: "The published files and registry agree; recovery finalized the operation.")
+            if try publishedRecoveryTargetsMatch(operation) {
+                try finishOperation(&operation)
+                return .init(operationID: operation.id, outcome: .completed, message: "The published files and registry agree; recovery finalized the operation.")
+            }
+            operation.phase = .conflicted
+            try saveOperation(operation)
+            return .init(
+                operationID: operation.id,
+                outcome: .conflict,
+                message: "A published file changed after the registry commit; the current and protected versions were preserved."
+            )
         }
 
         try validateRecoveryBackups(recoveryTargets(operation))

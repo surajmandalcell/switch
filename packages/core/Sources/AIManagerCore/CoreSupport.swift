@@ -141,8 +141,14 @@ enum CoreSupport {
     }
 }
 
+private enum OperationLockTaskContext {
+    @TaskLocal static var heldTokens: Set<UUID> = []
+}
+
 final class OperationLock: @unchecked Sendable {
     private let descriptor: Int32
+    private let token = UUID()
+    private var isHeld = false
 
     init(at url: URL, fileManager: FileManager) throws {
         try CoreSupport.privateDirectory(url.deletingLastPathComponent(), fileManager: fileManager)
@@ -167,8 +173,32 @@ final class OperationLock: @unchecked Sendable {
     deinit { close(descriptor) }
 
     func withLock<T>(_ operation: () throws -> T) throws -> T {
+        if OperationLockTaskContext.heldTokens.contains(token) { return try operation() }
+        guard !isHeld else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
-        defer { flock(descriptor, LOCK_UN) }
-        return try operation()
+        isHeld = true
+        defer {
+            isHeld = false
+            flock(descriptor, LOCK_UN)
+        }
+        return try OperationLockTaskContext.$heldTokens.withValue(
+            OperationLockTaskContext.heldTokens.union([token]),
+            operation: operation
+        )
+    }
+
+    func withAsyncLock<T>(_ operation: () async throws -> T) async throws -> T {
+        if OperationLockTaskContext.heldTokens.contains(token) { return try await operation() }
+        guard !isHeld else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw AIManagerError.operationFailed("Another IIA Directeur process is changing accounts.") }
+        isHeld = true
+        defer {
+            isHeld = false
+            flock(descriptor, LOCK_UN)
+        }
+        return try await OperationLockTaskContext.$heldTokens.withValue(
+            OperationLockTaskContext.heldTokens.union([token]),
+            operation: operation
+        )
     }
 }
