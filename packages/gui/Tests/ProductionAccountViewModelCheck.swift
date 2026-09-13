@@ -135,8 +135,16 @@ struct ProductionAccountViewModelCheck {
                    "Isolated launch did not report Terminal suppression")
         try expect(!fileManager.fileExists(atPath: launched.path), "The isolated launch started Codex")
 
+        let coordinatedLaunch = try model.makeCoordinatedLaunchArtifact(
+            accountID: selectedAccountID(model), helper: executable)
+        let coordinatedContents = try String(contentsOf: coordinatedLaunch, encoding: .utf8)
+        try expect(coordinatedContents.contains("'open' '\(selectedAccountID(model).uuidString)'"),
+                   "The packaged launch file did not delegate activation to the CLI")
+        try expect(!coordinatedContents.contains("export CODEX_HOME="),
+                   "The packaged launch file captured a stale Codex home")
+
         let pasteboardChange = NSPasteboard.general.changeCount
-        model.copyProfilePath()
+        model.copySavedAuthPath()
         try expect(NSPasteboard.general.changeCount == pasteboardChange,
                    "The isolated profile action changed the clipboard")
         try expect(model.notice?.contains("clipboard was not changed") == true,
@@ -216,7 +224,7 @@ struct ProductionAccountViewModelCheck {
         await unavailable.load()
         await unavailable.beginImport()
         await unavailable.openAccount()
-        unavailable.copyProfilePath()
+        unavailable.copySavedAuthPath()
         unavailable.showSharedRoot()
         try expect(unavailable.errorMessage == unavailableError, "Unavailable actions changed the failure UI")
         try expect(unavailable.status == nil && unavailable.notice == nil,
@@ -245,7 +253,7 @@ struct ProductionAccountViewModelCheck {
         }
         await preview.commitImport()
         await preview.openAccount()
-        preview.copyProfilePath()
+        preview.copySavedAuthPath()
         preview.showSharedRoot()
         await preview.recover()
         try expect(!FileManager.default.fileExists(atPath: previewRoot.path),
@@ -258,6 +266,11 @@ struct ProductionAccountViewModelCheck {
         let data = try authData(account: account, workspace: workspace)
         try data.write(to: home.appending(path: "auth.json"))
         return data
+    }
+
+    @MainActor
+    private static func selectedAccountID(_ model: AccountViewModel) throws -> UUID {
+        try expect(model.selectedAccountID, "The selected account ID was missing")
     }
 
     private static func authData(account: String, workspace: String) throws -> Data {

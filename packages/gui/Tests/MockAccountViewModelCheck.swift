@@ -76,7 +76,7 @@ struct MockAccountViewModelCheck {
         precondition(model.notice?.contains("refreshed") == true)
         await model.verify()
         precondition(model.selectedAccount?.verification.state == .verifiedWithCodex)
-        model.copyProfilePath()
+        model.copySavedAuthPath()
         model.showSharedRoot()
         await model.openAccount()
         if let issue = model.status?.linkedSettingsDivergences.first {
