@@ -111,6 +111,19 @@ one-point trailing divider stays continuous through the control row; do not draw
 line. The import wizard exposes Codex as the selected provider and labels the native chooser
 for an explicit Codex home folder or `auth.json`. A chosen source stays unchanged.
 
+Credential-vault refinement (2026-09-13): remove the decorative lower-rail brand mark; it
+has no action and is separate from the real macOS menu-bar item. Keep one normal live Codex
+home at `~/.codex`. Store each saved Codex authentication record as a private regular file at
+`~/.switch/codex/<account-UUID>.json`, with `0700` parent directories and `0600` files. Never
+make live `~/.codex/auth.json` a symbolic link or hard link. A switch captures a refreshed
+outgoing live credential into its saved record, stages and atomically replaces the live file
+with the selected record, verifies identity and digest, then commits registry metadata. A
+legacy managed credential must migrate into the vault without deleting its source until the
+new file and registry both verify. `~/.codex2` and other named Codex homes are import sources,
+not runtime requirements. Settings, sessions, history, skills, plugins, and databases stay in
+the shared live home. Opening Codex first activates the selected record and then launches the
+normal live home; an already-running Codex process keeps its old in-memory authentication.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
