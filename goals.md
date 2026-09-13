@@ -1993,3 +1993,37 @@ with temporary synthetic homes before installation.
   recovery, SQLite, permissions, symlink, and isolated-runtime acceptance. Code checkpoints
   `7eb400e` and `cedd8a1` pass their scoped contracts; the final signed installation and exact
   revision are recorded after this documentation checkpoint.
+
+### Navigation and live-history acceptance (2026-09-13)
+
+- The rail and View menu now use the same order: Accounts, Backup, Chat History, and Shared
+  Settings. Command+1 through Command+4 follow that order, Command+, still opens Shared Settings,
+  Backup uses the archive-box symbol, and Chat History uses the native two-bubble conversation
+  symbol. Recovery remains the internal operation and data-contract name so existing journals,
+  commands, and repair behavior stay compatible.
+- Chat History indexes the live Codex `sessions` and `archived_sessions` trees, updates while the
+  page is visible, searches thread title, preview, working directory, and thread ID, and loads the
+  selected transcript into a separate readable message pane. Production contains no sample
+  conversations; the three example threads remain behind `AI_MANAGER_PREVIEW`.
+- `ChatHistoryIndex` is an actor. It streams JSONL records, caches each regular file by size and
+  modification date, reparses only changed files, and runs changed-file work in a utility-priority
+  task group capped at six workers. Selected-thread detail parsing runs in a cancellable detached
+  user-initiated task. The main actor receives prepared snapshots only. A 750 ms visible-page poll,
+  a 120 ms search debounce, cancellation on query or selection changes, lazy detail loading, and
+  bounded message and character counts prevent transcript work from blocking UI input.
+- Transcript discovery does not follow symbolic links and retains the 500,000-entry traversal
+  ceiling. Summary scans bypass oversized non-visible tool-output records before JSON decoding;
+  visible records are bounded at 4 MiB and the existing JSONL hard ceiling remains 64 MiB. Tests
+  cover current and legacy records, duplicate-user suppression, incremental reparsing, malformed
+  records, symlink refusal, and a 5 MiB tool-output record followed by visible chat.
+- `scripts/check-native.sh` discovered 92 core contracts: 90 executed without failure and the two
+  authorized private-copy tests remained explicit opt-ins. Production and Preview model checks,
+  System/Light/Dark window contracts, the Pixel-trace icon, fixed-window geometry, thin overlay
+  scrollbars, and single-instance behavior passed. Final dark and light 1120 by 740 history renders
+  are stored at `/private/tmp/switch-history-dark-final.vApo0K/artifacts/window.png` and
+  `/private/tmp/switch-history-light-final.XIbNs0/artifacts/window.png` and were inspected at full
+  resolution.
+- The same source passed `scripts/check-linux.sh` as user 10001 from a read-only repository mount
+  in `linux/arm64` and `linux/amd64` containers. Each architecture discovered 92 tests, executed 90
+  without failure, skipped only the two protected-copy opt-ins, and passed the release CLI,
+  discovery, import, activation, backup, SQLite, symlink, permission, and isolated-home checks.
