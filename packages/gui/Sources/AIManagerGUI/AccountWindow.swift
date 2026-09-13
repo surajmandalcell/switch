@@ -224,10 +224,12 @@ struct AccountWindow: View {
         target.window = window
         applyAppearance(to: window)
         applyFocusPolicy(to: window)
+        AIManagerBrand.installApplicationIcon(dark: dark)
       }
     ).ignoresSafeArea(.container, edges: .top)
     .onChange(of: dark) { _, _ in
       if let window = target.window { applyAppearance(to: window) }
+      AIManagerBrand.installApplicationIcon(dark: dark)
     }
     .onChange(of: showFocusIndicators) { _, _ in
       if let window = target.window { applyFocusPolicy(to: window) }

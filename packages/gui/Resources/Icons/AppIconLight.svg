@@ -1,0 +1,26 @@
+<!-- Switch icon #17 balanced mark on a graphite tile for light environments. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile-surface-light" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#596b84"/>
+      <stop offset="0.48" stop-color="#3e4d63"/>
+      <stop offset="1" stop-color="#293443"/>
+    </linearGradient>
+    <linearGradient id="edge-light" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="0.7" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lower-shade-light" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0.62" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.27"/>
+    </linearGradient>
+    <mask id="balanced-mark-light" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" style="mask-type:alpha">
+      <image xlink:href="SwitchMarkBalanced.png" width="1024" height="1024"/>
+    </mask>
+  </defs>
+  <rect x="92" y="92" width="840" height="840" rx="200" fill="url(#tile-surface-light)"/>
+  <rect x="94" y="94" width="836" height="836" rx="198" fill="none" stroke="url(#edge-light)" stroke-width="4"/>
+  <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#lower-shade-light)"/>
+  <rect width="1024" height="1024" fill="#f4f1e8" mask="url(#balanced-mark-light)"/>
+</svg>
