@@ -1913,4 +1913,30 @@ with temporary synthetic homes before installation.
 - The artifact provides split, overlay, vector, and source modes; light and dark presentation;
   exact-size 16, 22, 32, 44, and 64 pixel samples; and an SVG download for every candidate.
   Headless Chrome renders of the default dark split view and light balanced vector view pass at
-  1440 by 900. The production icon remains unchanged until a review candidate is selected.
+  1440 by 900. Pixel trace was subsequently selected for production.
+
+### Approved Pixel trace deployment acceptance (2026-09-13)
+
+- `SwitchMarkPixelTrace.svg` is the only production silhouette source. Its SHA-256 is
+  `bdeec18e308f1587716dbd4f5b0b9adf73ed4fe8bfeed3a8953e08cc8843f252`. The prior
+  `SwitchMarkBalanced` source and raster are removed. Dock, Spotlight, rail, and menu-bar assets
+  use the approved geometry; only placement, scale, and color vary by context.
+- `scripts/check-icon-assets.sh` locks the approved SVG hash, rejects deprecated geometry,
+  validates every SVG, proves the rail and menu-bar wrappers render the same trace, regenerates
+  and byte-compares all tracked PNGs, and rebuilds and byte-compares the ten-slot ICNS. It runs
+  as part of the native gate and passes.
+- The full native gate passes 88 discovered core contracts: 86 execute without failure and the
+  two protected-copy checks remain explicit opt-ins. Production and Preview model checks,
+  System/Light/Dark window contracts, the fixed-window contract, thin overlay scrollbars, and
+  single-instance behavior also pass.
+- Icon code checkpoint `ac7c905b99ca` is signed with the configured Apple Development identity
+  and passes local release readiness. The final clean package built after this documentation
+  checkpoint is recorded in `/private/tmp/ai-manager-build/final-install-receipt.json`.
+  `/Applications/Switch.app` and `~/.local/bin/ai-manager` match that package; the bundled helper
+  and installed CLI are identical. The installed app launches, rejects a duplicate instance, and
+  contains the exact committed SVG and ICNS. The isolated installed CLI status smoke passes. The
+  pre-Pixel-trace installation is preserved at
+  `/private/tmp/ai-manager-build/rollback/20260913T052250Z`.
+- Native Computer remained unavailable at its read-only app-state step with
+  `Sky Computer Use native pipe startup failed`; process, package, signature, resource, contract,
+  and isolated runtime checks supply the completed installation evidence.
