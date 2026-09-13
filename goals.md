@@ -1833,7 +1833,8 @@ with temporary synthetic homes before installation.
   identifier separate from production. There is no installed Preview application.
 - Production compilation excludes `Scenario`, all in-memory sample records and paths, mock action
   branches, mock delays, recovery examples, and Preview controls. Both the production model test
-  and release-readiness gate inspect the executable and reject stable Preview-only strings. The
+  and release-readiness gate inspect the executable and reject stable Preview-only strings and
+  symbol names. The
   signed production executable at the icon checkpoint contains none of those strings.
 - Icon archive `switch_icon17_asset_pack.zip` has SHA-256
   `f8c74c8bd12e3c76296c80f1f7d3b33508aee700b8cf658e8fdc37697dc93570`.
