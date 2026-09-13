@@ -9,7 +9,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
     private var instanceActivationObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DemoFonts.register()
+        AppFonts.register()
         AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
             title: AIManagerBrand.bundleDisplayName(),

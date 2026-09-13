@@ -1,6 +1,10 @@
 import Foundation
 import AIManagerCore
 
+#if !AI_MANAGER_PREVIEW
+#error("MockAccountViewModelCheck requires AI_MANAGER_PREVIEW")
+#endif
+
 @main
 struct MockAccountViewModelCheck {
     @MainActor

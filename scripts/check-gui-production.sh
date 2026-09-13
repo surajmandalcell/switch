@@ -27,6 +27,12 @@ swiftc \
   "$repo_root/packages/gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
 
+if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import completed|Show demo error' \
+  < <(/usr/bin/strings "$output_path"); then
+  printf '%s\n' 'Production GUI check contains Preview-only data.' >&2
+  exit 1
+fi
+
 mkdir -p "$test_root/home" "$test_root/codex-home" "$test_root/manager" "$test_root/tmp"
 HOME="$test_root/home" \
 CFFIXED_USER_HOME="$test_root/home" \
