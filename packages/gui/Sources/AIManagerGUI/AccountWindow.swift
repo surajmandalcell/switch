@@ -1295,7 +1295,7 @@ private struct ImportReviewPage: View {
                     Text(conflict.relativePath).font(AIMTheme.mono(11, weight: .semibold))
                     Text(
                       conflict.affectsAllAccounts
-                        ? "This settings choice affects every linked account."
+                        ? "This settings choice affects every account opened from this Mac."
                         : "The saved credential differs from this source."
                     ).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
                     HStack(spacing: 4) {
