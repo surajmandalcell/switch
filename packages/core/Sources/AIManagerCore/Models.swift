@@ -4,7 +4,10 @@ public struct ManagerPaths: Sendable {
     public var applicationSupport: URL
     public var credentialStore: URL
     public var defaultHome: URL
-    public var sharedRoot: URL
+    public var sharedRoot: URL {
+        get { defaultHome }
+        set { defaultHome = newValue }
+    }
     public var orcaAccountsRoot: URL
     public var codexExecutable: URL?
     public var isolationRoot: URL?
@@ -22,7 +25,7 @@ public struct ManagerPaths: Sendable {
         self.credentialStore = credentialStore
             ?? applicationSupport.appending(path: "credential-store/codex", directoryHint: .isDirectory)
         self.defaultHome = defaultHome
-        self.sharedRoot = sharedRoot
+        _ = sharedRoot
         self.orcaAccountsRoot = orcaAccountsRoot
         self.codexExecutable = codexExecutable
         self.isolationRoot = isolationRoot
@@ -50,12 +53,14 @@ public struct ManagerPaths: Sendable {
             paths.applicationSupport = value.appending(path: "application-support", directoryHint: .isDirectory)
             paths.credentialStore = value.appending(path: ".switch/codex", directoryHint: .isDirectory)
             paths.defaultHome = value.appending(path: "default-home", directoryHint: .isDirectory)
-            paths.sharedRoot = value.appending(path: "shared-root", directoryHint: .isDirectory)
             paths.orcaAccountsRoot = value.appending(path: "orca-accounts", directoryHint: .isDirectory)
+        }
+        if let value = url("AI_MANAGER_SHARED_ROOT"), url("AI_MANAGER_DEFAULT_HOME") == nil,
+           paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) {
+            paths.defaultHome = value
         }
         if let value = url("AI_MANAGER_DEFAULT_HOME"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.defaultHome = value }
         if let value = url("AI_MANAGER_CREDENTIAL_STORE"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.credentialStore = value }
-        if let value = url("AI_MANAGER_SHARED_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.sharedRoot = value }
         if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.orcaAccountsRoot = value }
         if let value = url("AI_MANAGER_CODEX_EXECUTABLE") { paths.codexExecutable = value }
         return paths
@@ -297,6 +302,7 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
     public var source: URL
     public var destination: URL
     public var credentialDestination: URL
+    public var sharedDestination: URL
     public var backup: URL
     public var mode: ImportMode
     public var identity: AccountIdentity
@@ -307,11 +313,12 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
     public var warnings: [String]
     public var requiredBytes: Int64
 
-    public init(id: UUID, source: URL, destination: URL, backup: URL, mode: ImportMode, identity: AccountIdentity, sourceAuthDigest: String, reviewedDataDigest: String, manifest: [ManifestEntry], conflicts: [SettingConflict], warnings: [String], requiredBytes: Int64, credentialDestination: URL? = nil) {
+    public init(id: UUID, source: URL, destination: URL, backup: URL, mode: ImportMode, identity: AccountIdentity, sourceAuthDigest: String, reviewedDataDigest: String, manifest: [ManifestEntry], conflicts: [SettingConflict], warnings: [String], requiredBytes: Int64, credentialDestination: URL? = nil, sharedDestination: URL? = nil) {
         self.id = id
         self.source = source
         self.destination = destination
         self.credentialDestination = credentialDestination ?? destination.appending(path: "auth.json")
+        self.sharedDestination = sharedDestination ?? destination
         self.backup = backup
         self.mode = mode
         self.identity = identity
@@ -321,6 +328,33 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
         self.conflicts = conflicts
         self.warnings = warnings
         self.requiredBytes = requiredBytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, source, destination, credentialDestination, sharedDestination, backup, mode,
+             identity, sourceAuthDigest, reviewedDataDigest, manifest, conflicts, warnings,
+             requiredBytes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let destination = try values.decode(URL.self, forKey: .destination)
+        self.id = try values.decode(UUID.self, forKey: .id)
+        self.source = try values.decode(URL.self, forKey: .source)
+        self.destination = destination
+        self.credentialDestination = try values.decodeIfPresent(URL.self, forKey: .credentialDestination)
+            ?? destination.appending(path: "auth.json")
+        self.sharedDestination = try values.decodeIfPresent(URL.self, forKey: .sharedDestination)
+            ?? destination
+        self.backup = try values.decode(URL.self, forKey: .backup)
+        self.mode = try values.decode(ImportMode.self, forKey: .mode)
+        self.identity = try values.decode(AccountIdentity.self, forKey: .identity)
+        self.sourceAuthDigest = try values.decode(String.self, forKey: .sourceAuthDigest)
+        self.reviewedDataDigest = try values.decode(String.self, forKey: .reviewedDataDigest)
+        self.manifest = try values.decode([ManifestEntry].self, forKey: .manifest)
+        self.conflicts = try values.decode([SettingConflict].self, forKey: .conflicts)
+        self.warnings = try values.decode([String].self, forKey: .warnings)
+        self.requiredBytes = try values.decode(Int64.self, forKey: .requiredBytes)
     }
 }
 

@@ -60,7 +60,7 @@ try write(try auth(account: "account-one", workspace: "workspace-a", email: "one
 try write(try auth(account: "account-two", workspace: "workspace-b", email: "two@example.test"), to: "source-two/auth.json")
 try write("model = \"imported\"\n", to: "source-one/config.toml")
 try write("model = \"second\"\n", to: "source-two/config.toml")
-try write("model = \"shared\"\n", to: "shared-root/config.toml")
+try write("model = \"shared\"\n", to: "default-home/config.toml")
 try write("allow = [\"synthetic\"]\n", to: "external-rules/example.toml")
 try fileManager.createSymbolicLink(
     at: root.appending(path: "source-one/rules"),
@@ -68,9 +68,9 @@ try fileManager.createSymbolicLink(
 )
 try write(try transcript(id: "thread-divergent", events: ["imported branch"]), to: "source-one/sessions/2026/01/01/thread-divergent.jsonl")
 try write(try transcript(id: "thread-new", events: ["new chat"]), to: "source-one/sessions/2026/01/01/thread-new.jsonl")
-try write(try transcript(id: "thread-divergent", events: ["shared branch"]), to: "shared-root/sessions/2026/01/01/thread-divergent.jsonl")
+try write(try transcript(id: "thread-divergent", events: ["shared branch"]), to: "default-home/sessions/2026/01/01/thread-divergent.jsonl")
 try write(try transcript(id: "thread-extended", events: ["first", "second"]), to: "source-two/sessions/2026/01/01/thread-extended.jsonl")
-try write(try transcript(id: "thread-extended", events: ["first"]), to: "shared-root/sessions/2026/01/01/thread-extended.jsonl")
+try write(try transcript(id: "thread-extended", events: ["first"]), to: "default-home/sessions/2026/01/01/thread-extended.jsonl")
 
 let log = root.appending(path: "launch.log").path.replacingOccurrences(of: "'", with: "'\\''")
 let fakeCodex = """
