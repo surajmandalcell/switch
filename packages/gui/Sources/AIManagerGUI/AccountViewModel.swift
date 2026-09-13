@@ -136,7 +136,7 @@ final class AccountViewModel: ObservableObject {
     func discover(explicit: URL? = nil) async {
         if let manager {
             await perform(
-                failure: "Couldn’t find Codex profiles.",
+                failure: "Couldn’t find Codex accounts.",
                 recovery: "Choose another folder or check its permissions."
             ) {
                 discoveries = await manager.discover(explicit: explicit)
@@ -292,7 +292,7 @@ final class AccountViewModel: ObservableObject {
             ) {
                 let result = try await manager.switchDefault(to: id)
                 try await reloadStatus(using: manager)
-                notice = "Future default-home Codex sessions will use this account. Backup: \(result.backup.path)"
+                notice = "New Codex sessions will use this account. Backup: \(result.backup.path)"
             }
             return
         }
@@ -334,19 +334,22 @@ final class AccountViewModel: ObservableObject {
             guard let id = selectedAccountID else { return }
             await perform(
                 failure: "Couldn’t open Codex.",
-                recovery: "Copy the profile path and open it from a terminal."
+                recovery: "Run ai-manager open \(id.uuidString) in a terminal."
             ) {
-                let spec = try await manager.launchSpec(accountID: id)
-                let script = try makeLaunchArtifact(spec)
                 if paths.isolationRoot != nil {
+                    _ = try await manager.switchDefault(to: id)
+                    let spec = try await manager.launchSpec(accountID: id)
+                    try await reloadStatus(using: manager)
+                    _ = try makeLaunchArtifact(spec)
                     notice = "Account launch file prepared for isolated validation. Terminal was not opened."
                     return
                 }
+                let script = try makeCoordinatedLaunchArtifact(accountID: id)
                 guard NSWorkspace.shared.open(script) else {
                     throw AIManagerError.operationFailed(
-                        "Terminal could not open the account launch file. Copy the profile path and open it from a terminal instead.")
+                        "Terminal could not open the account launch file. Run ai-manager open \(id.uuidString) in a terminal.")
                 }
-                notice = "Opened a new terminal session for this account. Existing sessions keep their current account."
+                notice = "Terminal accepted the launch request. Account activation and any startup error appear there."
             }
             return
         }
@@ -382,17 +385,17 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    func copyProfilePath() {
+    func copySavedAuthPath() {
         guard !isUnavailable else { reportUnavailable(); return }
-        guard let home = selectedAccount?.home.path else { return }
+        guard let credential = selectedAccount?.credentialFile.path else { return }
         if isDemo {
-            notice = "Demo profile path ready. The clipboard was not changed."
+            notice = "Demo saved auth path ready. The clipboard was not changed."
         } else if paths.isolationRoot != nil {
-            notice = "Profile path validated in isolation. The clipboard was not changed."
+            notice = "Saved auth path validated in isolation. The clipboard was not changed."
         } else {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(home, forType: .string)
-            notice = "Profile path copied."
+            NSPasteboard.general.setString(credential, forType: .string)
+            notice = "Saved auth path copied."
         }
     }
 
@@ -500,10 +503,10 @@ final class AccountViewModel: ObservableObject {
 
     private func reloadStatus(using manager: AccountManager) async throws {
         let newStatus = try await manager.status()
-        var summaries: [UUID: HistorySummary] = [:]
-        for account in newStatus.accounts {
-            summaries[account.id] = await manager.historySummary(for: account.home)
-        }
+        let sharedHistory = await manager.historySummary(for: paths.sharedRoot)
+        let summaries = Dictionary(uniqueKeysWithValues: newStatus.accounts.map {
+            ($0.id, sharedHistory)
+        })
         status = newStatus
         accountHistory = summaries
     }
@@ -524,6 +527,30 @@ final class AccountViewModel: ObservableObject {
             ["#!/bin/zsh", "set -e", "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN"]
                 + exports + [workingDirectory + "exec \(command)"]
         ).joined(separator: "\n") + "\n"
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        return url
+    }
+
+    func makeCoordinatedLaunchArtifact(accountID: UUID, helper suppliedHelper: URL? = nil) throws -> URL {
+        let helper = suppliedHelper ?? Bundle.main.bundleURL
+            .appending(path: "Contents/Helpers/ai-manager")
+        guard FileManager.default.isExecutableFile(atPath: helper.path) else {
+            throw AIManagerError.operationFailed(
+                "The bundled account launcher is missing. Reinstall IIA Directeur or run ai-manager open \(accountID.uuidString) in a terminal.")
+        }
+        let directory = paths.applicationSupport.appending(path: "Launch", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        let url = directory.appending(path: "Open IIA Directeur Account.command")
+        let command = [helper.path, "open", accountID.uuidString].map(shellQuote).joined(separator: " ")
+        let contents = [
+            "#!/bin/zsh",
+            "set -e",
+            "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN",
+            "exec \(command)",
+        ].joined(separator: "\n") + "\n"
         try contents.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         return url
@@ -575,31 +602,43 @@ private enum DemoData {
     static let manualSource = source(id: "chosen-home", path: "/Demo/Sources/Chosen Home", email: "chosen@example.com", workspace: "freelance", settings: ["config.toml", "AGENTS.md"], active: 37, archived: 2)
 
     static func importPlan(source: DiscoveredSource, identity: AccountIdentity, mode: ImportMode, paths: ManagerPaths) -> ImportPlan {
+        let id: UUID
+        switch source.id {
+        case "orca-team":
+            id = UUID(uuidString: "5E0D7961-54CB-4D75-9CDA-715A3FF20F17")!
+        case "chosen-home":
+            id = UUID(uuidString: "B0BCF8B7-A01C-42F8-A494-3FB9D16504BB")!
+        default:
+            id = UUID(uuidString: "84EB5AA2-E27F-4A92-9C4D-C1A678565F31")!
+        }
         let conflicts = mode == .full ? [
             SettingConflict(relativePath: "config.toml", importedDigest: "demo-imported-config", sharedDigest: "demo-shared-config"),
             SettingConflict(relativePath: "rules", importedDigest: "demo-imported-rules", sharedDigest: "demo-shared-rules", externalTarget: URL(fileURLWithPath: "/Demo/External Rules", isDirectory: true)),
         ] : []
         var manifest = [
             ManifestEntry(relativePath: "auth.json", category: .credential, byteCount: 2_048, selected: true, disposition: "Copy credential"),
-            ManifestEntry(relativePath: "config.toml", category: .setting, byteCount: 1_024, selected: mode == .full, disposition: mode == .full ? "Review conflict" : "Link shared"),
+            ManifestEntry(relativePath: "config.toml", category: .setting, byteCount: 1_024, selected: mode == .full, disposition: mode == .full ? "Review conflict" : "Keep shared"),
         ]
         if mode == .full {
             manifest.append(ManifestEntry(relativePath: "sessions", category: .transcript, byteCount: 48_000_000, selected: true, disposition: "Merge 248 chats"))
         }
         return ImportPlan(
-            id: UUID(uuidString: "84EB5AA2-E27F-4A92-9C4D-C1A678565F31")!, source: source.path,
-            destination: paths.applicationSupport.appending(path: "accounts/demo-import/home", directoryHint: .isDirectory),
-            backup: paths.applicationSupport.appending(path: "backups/demo-import", directoryHint: .isDirectory),
+            id: id, source: source.path,
+            destination: paths.applicationSupport.appending(path: "accounts/\(id.uuidString)/home", directoryHint: .isDirectory),
+            backup: paths.applicationSupport.appending(path: "backups/\(id.uuidString)", directoryHint: .isDirectory),
             mode: mode, identity: identity, sourceAuthDigest: "demo-auth-digest", reviewedDataDigest: "demo-reviewed-digest",
             manifest: manifest, conflicts: conflicts,
-            warnings: mode == .full ? ["Shared settings choices affect every linked account."] : [],
-            requiredBytes: mode == .full ? 48_003_072 : 3_072
+            warnings: mode == .full ? ["Shared settings choices affect every account opened from this Mac."] : [],
+            requiredBytes: mode == .full ? 48_003_072 : 3_072,
+            credentialDestination: paths.credentialStore.appending(path: "\(id.uuidString).json"),
+            sharedDestination: paths.sharedRoot
         )
     }
 
     static func importResult(plan: ImportPlan) -> ImportResult {
         let account = AccountRecord(
-            id: UUID(), identity: plan.identity,
+            id: plan.id, identity: plan.identity,
+            credentialFile: plan.credentialDestination,
             home: plan.destination, source: plan.source, importedAt: now,
             verification: VerificationResult(state: .imported, checkedAt: now, detail: "Demo import verified locally."),
             credentialDigest: "demo-imported-credential"

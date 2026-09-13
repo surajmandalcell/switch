@@ -18,6 +18,7 @@ fail() {
 }
 
 test -x "$app_path/Contents/MacOS/AIManager" || fail "app executable is missing"
+test -x "$app_path/Contents/Helpers/ai-manager" || fail "bundled account launcher is missing"
 test -x "$cli_path" || fail "CLI executable is missing"
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist" >/dev/null || fail "Info.plist is invalid"
 [[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw -o - "$app_path/Contents/Info.plist")" == "IIA Directeur" ]] || fail "display name is incorrect"
@@ -27,8 +28,11 @@ revision="$(/usr/bin/plutil -extract AIManagerSourceRevision raw -o - "$app_path
 expected_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD)" || fail "source revision cannot be resolved"
 [[ "$revision" == "$expected_revision" ]] || fail "package revision $revision does not match source revision $expected_revision"
 /usr/bin/file "$app_path/Contents/MacOS/AIManager" | grep -q 'arm64' || fail "app has no verified arm64 slice"
+/usr/bin/file "$app_path/Contents/Helpers/ai-manager" | grep -q 'arm64' || fail "bundled account launcher has no verified arm64 slice"
 /usr/bin/file "$cli_path" | grep -q 'arm64' || fail "CLI has no verified arm64 slice"
+/usr/bin/cmp -s "$app_path/Contents/Helpers/ai-manager" "$cli_path" || fail "bundled account launcher does not match the verified CLI"
 /usr/bin/codesign --verify --deep --strict "$app_path" || fail "app signature is invalid"
+/usr/bin/codesign --verify --strict "$app_path/Contents/Helpers/ai-manager" || fail "bundled account launcher signature is invalid"
 /usr/bin/codesign --verify --strict "$cli_path" || fail "CLI signature is invalid"
 
 if (( public )); then

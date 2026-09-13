@@ -68,8 +68,8 @@ app_path="$package_path/IIA Directeur.app"
 
 mkdir -p "$artifact_path" "$package_path"
 rm -rf "$app_path"
-mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
-chmod 0755 "$artifact_path" "$package_path" "$app_path" "$app_path/Contents" "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
+mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Helpers" "$app_path/Contents/Resources"
+chmod 0755 "$artifact_path" "$package_path" "$app_path" "$app_path/Contents" "$app_path/Contents/MacOS" "$app_path/Contents/Helpers" "$app_path/Contents/Resources"
 
 install -m 0755 "$bin_path/ai-manager" "$artifact_path/ai-manager"
 install -m 0755 "$bin_path/AIManager" "$app_path/Contents/MacOS/AIManager"
@@ -135,6 +135,7 @@ if [[ -n "$signing_identity" ]]; then
     --timestamp \
     --sign "$signing_identity" \
     "$artifact_path/ai-manager"
+  install -m 0755 "$artifact_path/ai-manager" "$app_path/Contents/Helpers/ai-manager"
   /usr/bin/codesign \
     --force \
     --options runtime \
@@ -144,6 +145,7 @@ if [[ -n "$signing_identity" ]]; then
     "$app_path"
 else
   /usr/bin/codesign --force --sign - "$artifact_path/ai-manager"
+  install -m 0755 "$artifact_path/ai-manager" "$app_path/Contents/Helpers/ai-manager"
   /usr/bin/codesign \
     --force \
     --entitlements "$repo_root/packaging/macos/AIManager.entitlements" \

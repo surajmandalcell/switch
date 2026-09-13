@@ -550,7 +550,7 @@ private struct EmptyAccountView: View {
         if !model.hasLoaded {
           HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text("Loading Codex profiles…").font(AIMTheme.sans(13, weight: .medium))
+            Text("Loading Codex accounts…").font(AIMTheme.sans(13, weight: .medium))
           }
         } else {
           VStack(alignment: .leading, spacing: 10) {
@@ -604,7 +604,7 @@ private struct AccountDetail: View {
         }
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
-            DetailRow(label: "Profile", value: account.home.path)
+            DetailRow(label: "Saved auth", value: account.credentialFile.path)
             DetailRow(label: "Source", value: account.source.path, zebra: true)
             DetailRow(label: "Shared settings", value: model.paths.sharedRoot.path)
             DetailRow(
@@ -654,15 +654,15 @@ private struct AccountDetail: View {
   @ViewBuilder private var actions: some View {
     AIMButton(
       title: "Use for new Codex sessions", tone: .primary,
-      disabled: account.id == model.status?.defaultAccountID || model.isBusy
+      disabled: model.isBusy
     ) { Task { await model.switchDefault() } }
-    AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy || !issues.isEmpty) {
+    AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
       Task { await model.openAccount() }
     }
     AIMButton(title: "Check account files", icon: .check, disabled: model.isBusy) {
       Task { await model.verify() }
     }
-    AIMButton(title: "Copy path", icon: .copy) { model.copyProfilePath() }
+    AIMButton(title: "Copy saved auth path", icon: .copy) { model.copySavedAuthPath() }
   }
 }
 private struct DetailRow: View {
@@ -799,7 +799,7 @@ private struct HistoryPage: View {
             label: "Accounts", value: "\(model.status?.accounts.count ?? 0)",
             detail: "share one library")
           Metric(label: "Library", value: "Merged", detail: "active + archived")
-          Metric(label: "Indexes", value: "Per profile", detail: "kept independent")
+          Metric(label: "Indexes", value: "Shared", detail: "one live home")
         }
         AIMPanel(title: "Resume availability") {
           VStack(spacing: 0) {
@@ -816,8 +816,7 @@ private struct HistoryPage: View {
               HStack {
                 VStack(alignment: .leading, spacing: 2) {
                   Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium))
-                  Text(account.home.lastPathComponent).font(AIMTheme.mono(9)).foregroundStyle(
-                    AIMTheme.muted)
+                  Text("Shared Codex home").font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
                 }
                 Spacer()
                 Text("\(history.activeTranscripts)").font(AIMTheme.mono(11)).frame(
@@ -957,7 +956,7 @@ private struct RecoveryExamples: View {
           title: "Incremental", detail: "Only changes since the last snapshot",
           location: "Local backup set · 18 MB", state: "Current", color: AIMTheme.blue, zebra: true)
         RecoveryExampleRow(
-          title: "Custom location", detail: "A selected folder outside the managed profile",
+          title: "Custom location", detail: "A selected folder outside the default backup location",
           location: "/Volumes/Studio Archive/Codex", state: "Available", color: AIMTheme.green)
         VStack(spacing: 0) {
           RecoveryExampleRow(
@@ -1132,7 +1131,7 @@ private struct SourcePage: View {
         AIMScrollView {
           LazyVStack(spacing: 0) {
             if model.discoveries.isEmpty {
-              Text("No Codex profiles found. Refresh or choose another folder.")
+              Text("No Codex accounts found. Refresh or choose another folder.")
                 .font(AIMTheme.sans(11))
                 .foregroundStyle(AIMTheme.muted)
                 .padding(AIMTheme.panelContentInset)
@@ -1203,7 +1202,7 @@ private struct SourcePage: View {
       }
       Text(
         model.importMode == .authOnly
-          ? "Imports credentials and links the existing shared settings and history. The source stays unchanged."
+          ? "Saves account access. Settings and chats stay in the live Codex home. The source stays unchanged."
           : "Reviews shared settings conflicts and adds source chats to the merged library. Everything affected is backed up first."
       ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
         maxWidth: .infinity, alignment: .leading)
@@ -1267,7 +1266,11 @@ private struct ImportReviewPage: View {
           AIMPanel(title: "Plan") {
             VStack(spacing: 0) {
               DetailRow(label: "Account", value: plan.identity.displayName)
-              DetailRow(label: "Destination", value: plan.destination.path, zebra: true)
+              DetailRow(label: "Saved auth", value: plan.credentialDestination.path, zebra: true)
+              if plan.mode == .full {
+                DetailRow(label: "Shared Codex home", value: plan.sharedDestination.path)
+                DetailRow(label: "Imported account data", value: plan.destination.path, zebra: true)
+              }
               DetailRow(label: "Backup", value: plan.backup.path)
               DetailRow(
                 label: "Space needed",
@@ -1293,11 +1296,11 @@ private struct ImportReviewPage: View {
                     Text(
                       conflict.affectsAllAccounts
                         ? "This settings choice affects every linked account."
-                        : "The managed credential differs from this source."
+                        : "The saved credential differs from this source."
                     ).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
                     HStack(spacing: 4) {
                       Choice(
-                        title: conflict.affectsAllAccounts ? "Keep shared" : "Keep managed",
+                        title: conflict.affectsAllAccounts ? "Keep shared" : "Keep saved",
                         selected: model.conflictChoices[conflict.relativePath] == .keepShared
                       ) { model.conflictChoices[conflict.relativePath] = .keepShared }
                       Choice(
@@ -1370,7 +1373,7 @@ private struct ImportResultPage: View {
           }
           AIMPanel(title: "Result") {
             VStack(spacing: 0) {
-              DetailRow(label: "Profile", value: result.account.home.path)
+              DetailRow(label: "Saved auth", value: result.account.credentialFile.path)
               DetailRow(label: "Backup", value: result.backup.path, zebra: true)
               DetailRow(
                 label: "Imported",
