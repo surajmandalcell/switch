@@ -175,9 +175,11 @@ not. Retire the previous fourfold hand-fit mark and the menu-bar optical geometr
 Icon composition and import-layout refinement (2026-09-13): keep the approved pixel trace exact,
 but scale its Dock and Spotlight treatment to a 520-point foreground box and offset that box to
 center the trace by visible mass on the 1024-point canvas. This supersedes the rejected 640-point
-composition, whose foreground still occupied 76% of the tile width. Use a visibly darker neutral
-graphite tile in both appearances and reduce the painted edge highlight to a quiet one-point rim
-with no more than 0.07 opacity in Light or 0.05 in Dark; the mark remains crisp and unblurred. The
+composition, whose foreground still occupied 76% of the tile width. Use a neutral near-black tile
+whose gradient stops have equal red, green, and blue channels. Light must run from `#292929` to
+`#171717`; Dark must run from `#232323` to `#111111`. Reduce the painted edge highlight to a quiet
+one-point rim with no more than 0.07 opacity in Light or 0.05 in Dark; the mark remains crisp and
+unblurred. The
 import modal uses a 48-point titlebar with a dedicated 48 by 48 trailing Close
 cell that touches the top and trailing modal edges. The step indicator must end before that cell and
 never share its layout region. Close changes to red on hover. Modal title and content share the
