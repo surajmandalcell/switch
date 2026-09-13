@@ -1,17 +1,18 @@
 # Switch: native macOS Codex account manager
 
 Status: local release-candidate gates passed; the exact clean installation is recorded by
-the final receipt named in the closeout evidence. The normal app uses the real shared core;
-only the separately named Preview app uses in-memory demo data. Public direct distribution
-remains blocked on a Developer ID Application identity and notarization.
+the final receipt named in the closeout evidence. The installed app uses the real shared core.
+Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
+distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
 Design revision: 2026-09-13.
 
 ### Switch product identity refinement (2026-09-13)
 
-The macOS product name is **Switch**. Package the production bundle as `Switch.app`
-and the in-memory design build as `Switch Preview.app`. Use Switch in window titles,
-menus, menu-bar actions, errors, documentation, release archives, and acceptance paths.
+The macOS product name is **Switch**. Package the production bundle as `Switch.app`.
+Build the in-memory design variant as an uninstalled `Switch.app` in a separate Preview
+build directory. Use Switch in window titles, menus, menu-bar actions, errors,
+documentation, release archives, and acceptance paths.
 Preserve the existing bundle identifiers, `AIManager` Swift targets and executable,
 `ai-manager` CLI command, application-support directory, and window autosave key so the
 rename keeps installed data, scripts, single-instance behavior, and window placement.
@@ -70,12 +71,12 @@ hover behavior. All scrolling regions use very thin overlay scrollbars, visible
 only while their region is hovered or scrolling. These refinements supersede
 conflicting reference geometry or earlier resize/focus-outline requirements.
 
-For design review, the separately named Preview app runs entirely on in-memory
-mock accounts, discovery, import/review/results, settings, verification, launch,
-switching, and recovery. No real account manager, credential discovery, filesystem
-mutation, Terminal/Finder launch, clipboard mutation, or network request is
-allowed through Preview actions. Keep all pages and states reachable with sample
-data. The normal GUI uses the production core with fail-closed errors.
+For design review, the compile-time Preview build runs entirely on in-memory mock
+accounts, discovery, import/review/results, settings, verification, launch, switching,
+and recovery. No real account manager, credential discovery, filesystem mutation,
+Terminal/Finder launch, clipboard mutation, or network request is allowed through
+Preview actions. Keep all pages and states reachable with sample data. The installed
+GUI uses the production core with fail-closed errors.
 
 App identity refinement (2026-09-12): add coordinated Dock and menu-bar icons
 using Recap Pro Producer's charcoal tile and off-white mark treatment. Use a
@@ -133,6 +134,16 @@ new file and registry both verify. `~/.codex2` and other named Codex homes are i
 not runtime requirements. Settings, sessions, history, skills, plugins, and databases stay in
 the shared live home. Opening Codex first activates the selected record and then launches the
 normal live home; an already-running Codex process keeps its old in-memory authentication.
+
+Preview and icon refinement (2026-09-13): ship and install only the production `Switch.app`.
+The installed executable must contain no demo data, demo paths, mock actions, or Preview entry
+point. `scripts/launch-switch.sh --preview` may build and launch an uninstalled `Switch.app`
+with the `AI_MANAGER_PREVIEW` compile condition. Keep its bundle identifier and build directory
+separate so it cannot replace or lock the production app. Use the user-provided icon #17 balanced
+mark for the app icon and its heavier menu-bar mark for the AppKit template. Generate explicit
+light and dark app-icon treatments from those supplied paths, preserve their geometry, and test
+the final 16, 22, 44, 256, and 1024 pixel outputs. Record the supplied archive digest and asset
+provenance without adding the reference board or source exploration images to the app bundle.
 
 ## 1. The outcome
 
