@@ -1791,3 +1791,24 @@ with temporary synthetic homes before installation.
 - Local signing and installation can use the configured Apple Development identity. No Developer
   ID Application identity or notarization credential profile is available, so public readiness
   remains fail-closed and this candidate must not be presented as a notarized public release.
+
+### Switch rename acceptance (2026-09-13)
+
+- The production bundle is `Switch.app`, the design build is `Switch Preview.app`, and all
+  user-facing app, menu, status-item, error, documentation, CI, and release archive names use
+  Switch. The bundle identifiers, internal Swift targets, `ai-manager` command, application data
+  root, and window autosave key stay unchanged so the rename preserves existing data and window
+  placement.
+- The native gate discovers 88 core contracts: 86 pass and the two protected-copy checks remain
+  explicit opt-ins. Production and demo model checks, System/Light/Dark window contracts, thin
+  overlay scrollbars, single-instance behavior, and the fixed-window contract pass.
+- The signed production and Preview bundles pass strict signature checks. The installed bundles
+  match their build manifests, and the installed Preview passes the System, Light, and Dark
+  window contracts with isolated homes. The installed CLI matches the bundled helper and passes
+  an isolated status smoke test.
+- The prior installed IIA Directeur bundles are preserved in the canonical rollback directory and
+  removed from Applications only after both Switch bundles verify. The final exact revision,
+  hashes, paths, signatures, and readiness state are stored in
+  `/private/tmp/ai-manager-build/final-install-receipt.json`.
+- Local release readiness passes. Public readiness stops because this Mac has no Developer ID
+  Application identity, so the app is not notarized and is not ready for public distribution.
