@@ -19,6 +19,15 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
+    let expectedPages = ["Accounts", "Backup", "Chat History", "Shared Settings"]
+    if AIManagerPage.allCases.map(\.rawValue) != expectedPages {
+      failures.append("The rail and View menu page order is incorrect")
+    }
+    if AIMIcon.Name.history.symbol != "bubble.left.and.bubble.right"
+      || NSImage(systemSymbolName: AIMIcon.Name.history.symbol, accessibilityDescription: nil) == nil
+    {
+      failures.append("Chat History does not use the required system chat symbol")
+    }
     let expectedMenus = [applicationName, "File", "Edit", "View", "Window", "Help"]
     if mainMenu.items.map(\.title) != expectedMenus {
       failures.append("Main menu order does not match the native menu contract")

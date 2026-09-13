@@ -202,9 +202,14 @@ public actor ChatHistoryIndex {
             url: cached.summary.source,
             archived: cached.summary.archived,
             signature: cached.signature)
-        let transcript = try await Task.detached(priority: .userInitiated) {
+        let parsingTask = Task.detached(priority: .userInitiated) {
             try TranscriptParser.parse(candidate, includeMessages: true)
-        }.value
+        }
+        let transcript = try await withTaskCancellationHandler {
+            try await parsingTask.value
+        } onCancel: {
+            parsingTask.cancel()
+        }
         try Task.checkCancellation()
         let detail = ChatThreadDetail(
             thread: transcript.summary,

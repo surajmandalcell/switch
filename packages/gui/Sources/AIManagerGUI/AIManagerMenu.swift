@@ -2,9 +2,9 @@ import AppKit
 
 enum AIManagerPage: String, CaseIterable {
   case accounts = "Accounts"
-  case settings = "Shared Settings"
+  case backup = "Backup"
   case history = "Chat History"
-  case recovery = "Recovery"
+  case settings = "Shared Settings"
 }
 
 enum AIManagerNavigation {
@@ -56,8 +56,8 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
 
   @objc func showSettings(_ sender: Any?) { navigate(to: .settings) }
   @objc func showAccounts(_ sender: Any?) { navigate(to: .accounts) }
+  @objc func showBackup(_ sender: Any?) { navigate(to: .backup) }
   @objc func showChatHistory(_ sender: Any?) { navigate(to: .history) }
-  @objc func showRecovery(_ sender: Any?) { navigate(to: .recovery) }
   @objc func performImport(_ sender: Any?) { importAccount() }
   @objc func performClose(_ sender: Any?) { closeWindow() }
   @objc func performMinimize(_ sender: Any?) { minimizeWindow() }
@@ -121,9 +121,9 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   private func viewItems() -> [NSMenuItem] {
     [
       item("Accounts", #selector(showAccounts(_:)), key: "1", target: self),
-      item("Shared Settings", #selector(showSettings(_:)), key: "2", target: self),
+      item("Backup", #selector(showBackup(_:)), key: "2", target: self),
       item("Chat History", #selector(showChatHistory(_:)), key: "3", target: self),
-      item("Recovery", #selector(showRecovery(_:)), key: "4", target: self),
+      item("Shared Settings", #selector(showSettings(_:)), key: "4", target: self),
     ]
   }
 

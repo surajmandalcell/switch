@@ -100,17 +100,17 @@ private extension AIManagerPage {
   var icon: AIMIcon.Name {
     switch self {
     case .accounts: .account
-    case .settings: .settings
+    case .backup: .backup
     case .history: .history
-    case .recovery: .recovery
+    case .settings: .settings
     }
   }
   var subtitle: String {
     switch self {
     case .accounts: "Import, verify, and switch accounts"
-    case .settings: "One configuration across every account"
+    case .backup: "Snapshots and interrupted operations"
     case .history: "The merged resume library"
-    case .recovery: "Backups and interrupted operations"
+    case .settings: "One configuration across every account"
     }
   }
 }
@@ -155,10 +155,10 @@ struct AccountWindow: View {
             Group {
               switch page {
               case .accounts: AccountsPage(model: model)
+              case .backup: BackupPage(model: model)
+              case .history: HistoryPage(model: model)
               case .settings:
                 SharedSettingsPage(model: model, showFocusIndicators: $showFocusIndicators)
-              case .history: HistoryPage(model: model)
-              case .recovery: RecoveryPage(model: model)
               }
             }
             .id(page)
@@ -726,7 +726,7 @@ private struct SharedSettingsPage: View {
             HStack(spacing: 4) {
               AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
               AIMButton(title: "Empty state") { model.reset(to: .empty) }
-              AIMButton(title: "Issues and recovery") { model.reset(to: .allStates) }
+              AIMButton(title: "Issues and backups") { model.reset(to: .allStates) }
               AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
                 Task { await model.refresh() }
               }
@@ -805,79 +805,299 @@ private struct SharedSettingsPage: View {
 
 private struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
+  @State private var query = ""
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+
   var body: some View {
-    AIMScrollView {
-      VStack(spacing: 8) {
-        HStack(spacing: 8) {
-          Metric(
-            label: "Accounts", value: "\(model.status?.accounts.count ?? 0)",
-            detail: "share one library")
-          Metric(label: "Library", value: "Merged", detail: "active + archived")
-          Metric(label: "Indexes", value: "Shared", detail: "one live home")
+    VStack(spacing: 8) {
+      HStack(spacing: 12) {
+        HStack(spacing: 9) {
+          AIMIcon(name: .search, size: 13).foregroundStyle(AIMTheme.muted)
+          TextField("Search chats", text: $query)
+            .textFieldStyle(.plain)
+            .font(AIMTheme.sans(11))
+            .focusEffectDisabled(!focusIndicatorsEnabled)
+          if !query.isEmpty {
+            Button { query = "" } label: {
+              AIMIcon(name: .close, size: 9).foregroundStyle(AIMTheme.muted)
+                .frame(width: 22, height: 22).contentShape(Rectangle())
+            }
+            .buttonStyle(AIMPressButtonStyle())
+            .help("Clear search")
+            .accessibilityLabel("Clear search")
+          }
         }
-        AIMPanel(title: "Resume availability") {
-          VStack(spacing: 0) {
-            HStack {
-              Header("Account")
-              Spacer()
-              Header("Active")
-              Header("Archived")
-              Header("Index")
-            }.padding(.horizontal, 16).frame(height: 30).background(AIMTheme.panel2)
-            ForEach(Array((model.status?.accounts ?? []).enumerated()), id: \.element.id) {
-              index, account in
-              let history = model.history(for: account)
-              HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium))
-                  Text("Shared Codex home").font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+        .padding(.horizontal, 10)
+        .frame(width: 310, height: 32)
+        .background(AIMTheme.control.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+
+        Text(historyCountText)
+          .font(AIMTheme.sans(10))
+          .foregroundStyle(AIMTheme.muted)
+          .contentTransition(.numericText())
+        Spacer(minLength: 8)
+        if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
+          AIMIcon(name: .warning, size: 13).foregroundStyle(AIMTheme.amber)
+            .help(historyIssueText)
+            .accessibilityLabel(historyIssueText)
+        }
+        if let error = model.chatHistoryError {
+          HStack(spacing: 5) {
+            Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
+            Text("Update paused").font(AIMTheme.sans(10, weight: .medium))
+          }
+          .foregroundStyle(AIMTheme.red)
+          .help(error)
+          .accessibilityLabel(error)
+        } else if model.isChatHistoryLoading {
+          ProgressView().controlSize(.small)
+        } else {
+          HStack(spacing: 5) {
+            Circle().fill(AIMTheme.green).frame(width: 6, height: 6)
+            Text("Live").font(AIMTheme.sans(10, weight: .medium))
+          }
+          .foregroundStyle(AIMTheme.muted)
+          .transition(reduceMotion ? .identity : .opacity)
+        }
+      }
+      .padding(.horizontal, 12)
+      .frame(height: 48)
+      .background(AIMTheme.panel)
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+
+      HStack(spacing: 8) {
+        VStack(spacing: 0) {
+          HStack {
+            Text("Chats").font(AIMTheme.sans(12, weight: .semibold))
+            Spacer()
+            Text("Newest first").font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+          }
+          .padding(.horizontal, 14)
+          .frame(height: 40)
+          .background(AIMTheme.panel2)
+
+          if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
+            VStack(spacing: 10) {
+              ProgressView().controlSize(.small)
+              Text("Reading chat library").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else if model.chatHistory.threads.isEmpty {
+            VStack(spacing: 7) {
+              AIMIcon(name: .history, size: 18).foregroundStyle(AIMTheme.muted)
+              Text(query.isEmpty ? "No chats yet" : "No matching chats")
+                .font(AIMTheme.sans(11, weight: .medium))
+              Text(query.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
+                .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else {
+            AIMScrollView {
+              LazyVStack(spacing: 0) {
+                ForEach(model.chatHistory.threads) { thread in
+                  ChatThreadRow(
+                    thread: thread,
+                    selected: model.selectedChatID == thread.id
+                  ) { Task { await model.selectChat(thread.id) } }
                 }
-                Spacer()
-                Text("\(history.activeTranscripts)").font(AIMTheme.mono(11)).frame(
-                  width: 70, alignment: .trailing)
-                Text("\(history.archivedTranscripts)").font(AIMTheme.mono(11)).frame(
-                  width: 70, alignment: .trailing)
-                Badge(
-                  text: history.hasIndexes ? "Ready" : "Missing",
-                  color: history.hasIndexes ? AIMTheme.green : AIMTheme.amber)
-                  .frame(width: 70, alignment: .trailing)
-              }.padding(.horizontal, 16).frame(minHeight: 44).background(
-                index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
+              }
             }
           }
         }
-        Notice(
-          text:
-            "New Codex sessions opened from either account can resume the same merged history. Existing processes keep the account they started with.",
-          tone: AIMTheme.blue, icon: .info)
+        .frame(width: 310)
+        .background(AIMTheme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+
+        ChatDetailPane(model: model)
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset)
+    .padding(.top, 12)
+    .padding(.bottom, 24)
+    .task(id: query) { await model.watchChatHistory(query: query) }
   }
-}
-private struct Metric: View {
-  let label: String, value: String, detail: String
-  var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(label.uppercased()).font(AIMTheme.sans(9, weight: .semibold)).tracking(0.7)
-        .foregroundStyle(AIMTheme.muted)
-      Text(value).font(AIMTheme.mono(20, weight: .medium))
-      Text(detail).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
-    }.padding(12).frame(maxWidth: .infinity, minHeight: 72, alignment: .leading).background(
-      AIMTheme.panel
-    ).clipShape(RoundedRectangle(cornerRadius: 3))
+
+  private var historyCountText: String {
+    let result = model.chatHistory
+    if query.isEmpty { return "\(result.totalThreadCount) chats" }
+    return "\(result.matchingThreadCount) of \(result.totalThreadCount) chats"
   }
-}
-private struct Header: View {
-  let text: String
-  init(_ text: String) { self.text = text }
-  var body: some View {
-    Text(text.uppercased()).font(AIMTheme.sans(10, weight: .semibold)).foregroundStyle(
-      AIMTheme.muted
-    ).frame(width: text == "Account" ? nil : 70, alignment: .trailing)
+
+  private var historyIssueText: String {
+    let result = model.chatHistory
+    return "\(result.skippedFileCount) files and \(result.unreadableRecordCount) records could not be read."
   }
 }
 
-private struct RecoveryPage: View {
+private struct ChatThreadRow: View {
+  let thread: ChatThreadSummary
+  let selected: Bool
+  let action: () -> Void
+  @State private var hovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    Button(action: action) {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(thread.title).font(AIMTheme.sans(11, weight: .semibold)).lineLimit(1)
+          Spacer(minLength: 4)
+          Text(relativeTime)
+            .font(AIMTheme.mono(8)).foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.72) : AIMTheme.muted)
+        }
+        Text(thread.preview).font(AIMTheme.sans(9)).lineLimit(2)
+          .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.78) : AIMTheme.muted)
+        HStack(spacing: 6) {
+          if thread.archived {
+            Text("Archived").font(AIMTheme.sans(8, weight: .medium))
+          }
+          Text("\(thread.messageCount) messages").font(AIMTheme.mono(8))
+          Spacer(minLength: 0)
+        }
+        .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.65) : AIMTheme.faint)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+      .contentShape(Rectangle())
+      .background(
+        selected ? AIMTheme.active : (hovered ? AIMTheme.panel2 : Color.clear))
+      .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .onHover { hovered = $0 }
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hovered)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
+    .accessibilityLabel("\(thread.title), \(thread.messageCount) messages")
+  }
+
+  private var relativeTime: String {
+    let interval = max(0, Date().timeIntervalSince(thread.updatedAt))
+    if interval < 60 { return "Now" }
+    if interval < 3_600 { return "\(Int(interval / 60))m" }
+    if interval < 86_400 { return "\(Int(interval / 3_600))h" }
+    if interval < 604_800 { return "\(Int(interval / 86_400))d" }
+    return thread.updatedAt.formatted(.dateTime.month(.abbreviated).day())
+  }
+}
+
+private struct ChatDetailPane: View {
+  @ObservedObject var model: AccountViewModel
+
+  var body: some View {
+    VStack(spacing: 0) {
+      if let thread = selectedSummary {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(thread.title).font(AIMTheme.sans(12, weight: .semibold)).lineLimit(1)
+          if thread.archived { Badge(text: "Archived", color: AIMTheme.amber) }
+          Spacer(minLength: 8)
+          Text("\(thread.messageCount) messages")
+            .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background(AIMTheme.panel2)
+      } else {
+        Color.clear.frame(height: 40).background(AIMTheme.panel2)
+      }
+
+      if model.isChatLoading {
+        VStack(spacing: 10) {
+          ProgressView().controlSize(.small)
+          Text("Opening chat").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if let detail = model.selectedChat {
+        AIMScrollView {
+          LazyVStack(alignment: .leading, spacing: 8) {
+            ChatThreadMetadata(thread: detail.thread)
+            if detail.omittedMessageCount > 0 {
+              Notice(
+                text: "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast.",
+                tone: AIMTheme.amber, icon: .warning)
+            }
+            ForEach(detail.messages) { message in
+              ChatMessageRow(message: message)
+            }
+          }
+          .padding(12)
+        }
+      } else {
+        VStack(spacing: 7) {
+          AIMIcon(name: .history, size: 20).foregroundStyle(AIMTheme.muted)
+          Text("Select a chat").font(AIMTheme.sans(11, weight: .medium))
+          Text("Messages open here without changing the transcript.")
+            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(AIMTheme.panel)
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+
+  private var selectedSummary: ChatThreadSummary? {
+    model.chatHistory.threads.first { $0.id == model.selectedChatID }
+  }
+}
+
+private struct ChatThreadMetadata: View {
+  let thread: ChatThreadSummary
+
+  var body: some View {
+    HStack(spacing: 10) {
+      AIMIcon(name: .history, size: 14).foregroundStyle(AIMTheme.blue)
+      VStack(alignment: .leading, spacing: 3) {
+        if let directory = thread.workingDirectory {
+          Text(directory).font(AIMTheme.mono(9)).lineLimit(1).truncationMode(.middle)
+            .help(directory)
+        }
+        HStack(spacing: 8) {
+          Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
+          Text(ByteCountFormatter.string(fromByteCount: thread.fileByteCount, countStyle: .file))
+          Text(thread.threadID).lineLimit(1).truncationMode(.middle)
+        }
+        .font(AIMTheme.mono(8)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(10)
+    .background(AIMTheme.panel2.opacity(0.7))
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+}
+
+private struct ChatMessageRow: View {
+  let message: ChatMessage
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(message.role == .user ? "You" : "Codex")
+          .font(AIMTheme.sans(9, weight: .semibold))
+          .foregroundStyle(message.role == .user ? AIMTheme.blue : AIMTheme.green)
+        Spacer()
+        if let timestamp = message.timestamp {
+          Text(timestamp, style: .time).font(AIMTheme.mono(8)).foregroundStyle(AIMTheme.faint)
+        }
+      }
+      Text(message.text)
+        .font(AIMTheme.sans(11))
+        .lineSpacing(2)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(11)
+    .background(message.role == .user ? AIMTheme.active.opacity(0.18) : AIMTheme.panel2.opacity(0.72))
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+}
+
+private struct BackupPage: View {
   @ObservedObject var model: AccountViewModel
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var hasAutomaticRecovery: Bool {
@@ -919,34 +1139,34 @@ private struct RecoveryPage: View {
                 }.background(index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
               }
             } else {
-              Text("No interrupted operations need recovery.").font(AIMTheme.sans(12))
+              Text("No interrupted backup work needs attention.").font(AIMTheme.sans(12))
                 .foregroundStyle(AIMTheme.muted).padding(16).frame(
                   maxWidth: .infinity, alignment: .leading)
             }
           }
         }
-        AIMPanel(title: "Recovery policy") {
+        AIMPanel(title: "Backup policy") {
           VStack(spacing: 0) {
             DetailRow(
               label: "Before import", value: "Review destination, conflicts, and required space")
             DetailRow(
               label: "During import", value: "Back up, stage, verify, then publish", zebra: true)
             DetailRow(
-              label: "On failure", value: "Keep prior credentials and preserve a recovery journal")
+              label: "On failure", value: "Keep prior credentials and preserve a backup journal")
           }
         }
         HStack {
-          Text("Recovery never deletes source data.").font(AIMTheme.sans(11)).foregroundStyle(
+          Text("Backups never delete source data.").font(AIMTheme.sans(11)).foregroundStyle(
             AIMTheme.muted)
           Spacer()
           AIMButton(
-            title: "Recover operations", icon: .recovery, tone: .primary,
+            title: "Finish pending work", icon: .backup, tone: .primary,
             disabled: !hasAutomaticRecovery || model.isBusy
           ) { Task { await model.recover() } }
         }.padding(12).background(AIMTheme.panel)
           .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
         #if AI_MANAGER_PREVIEW
-        if model.isDemo { RecoveryExamples(model: model) }
+        if model.isDemo { BackupExamples(model: model) }
         #endif
         Group {
           if let notice = model.notice {
@@ -961,22 +1181,22 @@ private struct RecoveryPage: View {
 }
 
 #if AI_MANAGER_PREVIEW
-private struct RecoveryExamples: View {
+private struct BackupExamples: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    AIMPanel(title: "Recovery examples") {
+    AIMPanel(title: "Backup examples") {
       VStack(spacing: 0) {
-        RecoveryExampleRow(
+        BackupExampleRow(
           title: "Regular conversation", detail: "Complete snapshot before replacement",
           location: "~/Documents/Switch Backups", state: "Ready", color: AIMTheme.green)
-        RecoveryExampleRow(
+        BackupExampleRow(
           title: "Incremental", detail: "Only changes since the last snapshot",
           location: "Local backup set · 18 MB", state: "Current", color: AIMTheme.blue, zebra: true)
-        RecoveryExampleRow(
+        BackupExampleRow(
           title: "Custom location", detail: "A selected folder outside the default backup location",
           location: "/Volumes/Studio Archive/Codex", state: "Available", color: AIMTheme.green)
         VStack(spacing: 0) {
-          RecoveryExampleRow(
+          BackupExampleRow(
             title: "External drive", detail: "The selected backup volume is disconnected",
             location: "/Volumes/Field SSD/Codex", state: "Offline", color: AIMTheme.amber,
             zebra: true)
@@ -995,12 +1215,12 @@ private struct RecoveryExamples: View {
   }
 }
 
-private struct RecoveryExampleRow: View {
+private struct BackupExampleRow: View {
   let title: String, detail: String, location: String, state: String, color: Color
   var zebra = false
   var body: some View {
     HStack(spacing: 12) {
-      AIMIcon(name: .recovery, size: 14).foregroundStyle(color)
+      AIMIcon(name: .backup, size: 14).foregroundStyle(color)
       VStack(alignment: .leading, spacing: 2) {
         Text(title).font(AIMTheme.sans(11, weight: .semibold))
         Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
