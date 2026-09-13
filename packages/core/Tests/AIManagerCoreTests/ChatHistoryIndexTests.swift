@@ -109,6 +109,33 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.skippedFileCount, 0)
     }
 
+    func testOversizedRecordDoesNotBlockVisibleMessages() async throws {
+        let file = try transcript(
+            directory: "sessions/2026/09/13", filename: "large.jsonl",
+            records: standardRecords(id: "large", prompt: "Keep the chat view responsive"))
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        let oversized = try JSONSerialization.data(withJSONObject: [
+            "type": "response_item",
+            "payload": [
+                "type": "function_call_output",
+                "output": String(repeating: "x", count: 5 * 1_024 * 1_024),
+            ],
+        ])
+        try handle.write(contentsOf: oversized)
+        try handle.write(contentsOf: Data([0x0A]))
+        try handle.close()
+
+        let index = ChatHistoryIndex(home: root, maximumWorkerCount: 2)
+        let snapshot = try await index.refresh()
+
+        XCTAssertEqual(snapshot.totalThreadCount, 1)
+        XCTAssertEqual(snapshot.threads.first?.title, "Keep the chat view responsive")
+        XCTAssertEqual(snapshot.unreadableRecordCount, 1)
+        let detail = try await index.detail(for: try XCTUnwrap(snapshot.threads.first?.id))
+        XCTAssertEqual(detail?.messages.count, 1)
+    }
+
     private func standardRecords(id: String, prompt: String) -> [[String: Any]] {
         [
             ["timestamp": "2026-09-13T04:00:00Z", "type": "session_meta", "payload": ["id": id]],
