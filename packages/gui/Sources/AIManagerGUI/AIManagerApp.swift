@@ -60,6 +60,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
+        windowController?.savePlacement()
         if let instanceActivationObserver {
             DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
         }

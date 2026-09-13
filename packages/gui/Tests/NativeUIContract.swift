@@ -147,6 +147,84 @@ enum AIManagerNativeContract {
       && AIMTheme.modalSectionSpacing == 16
   }
 
+  static func windowPlacementFailures() -> [String] {
+    var failures: [String] = []
+    let size = NSSize(width: 1120, height: 740)
+    let primary = AIManagerDisplayDescriptor(
+      identifier: "primary", name: "Built-in Display",
+      frame: NSRect(x: 0, y: 0, width: 1728, height: 1117),
+      visibleFrame: NSRect(x: 0, y: 38, width: 1728, height: 1054))
+    let external = AIManagerDisplayDescriptor(
+      identifier: "external", name: "External Display",
+      frame: NSRect(x: -2560, y: 120, width: 2560, height: 1440),
+      visibleFrame: NSRect(x: -2560, y: 120, width: 2560, height: 1416))
+    let original = NSRect(x: -2200, y: 620, width: size.width, height: size.height)
+    let placement = AIManagerWindowPlacement.placement(for: original, on: external)
+    if AIManagerWindowPlacement.restoredFrame(
+      for: placement, windowSize: size, displays: [primary, external]) != original
+    {
+      failures.append("Window placement does not restore a negative-coordinate display")
+    }
+
+    let rearrangedExternal = AIManagerDisplayDescriptor(
+      identifier: "external", name: "External Display",
+      frame: NSRect(x: 1728, y: -400, width: 2560, height: 1440),
+      visibleFrame: NSRect(x: 1728, y: -400, width: 2560, height: 1416))
+    let expectedRearranged = NSRect(x: 2088, y: 100, width: size.width, height: size.height)
+    if AIManagerWindowPlacement.restoredFrame(
+      for: placement, windowSize: size, displays: [primary, rearrangedExternal])
+      != expectedRearranged
+    {
+      failures.append("Window placement does not follow a rearranged saved display")
+    }
+    if AIManagerWindowPlacement.restoredFrame(
+      for: placement, windowSize: size, displays: [primary]) != nil
+    {
+      failures.append("Window placement falls back to the wrong display")
+    }
+
+    let legacy = "-2200 620 1120 740 -2560 120 2560 1410"
+    if AIManagerWindowPlacement.legacyPlacement(
+      from: legacy, displays: [primary, external]) != placement
+    {
+      failures.append("Legacy AppKit placement does not tolerate usable-frame changes")
+    }
+    let unrelatedLegacy = "7000 7000 1120 740 7000 7000 2560 1440"
+    if AIManagerWindowPlacement.legacyPlacement(
+      from: unrelatedLegacy, displays: [primary, external]) != nil
+    {
+      failures.append("Legacy AppKit placement migrates to an unrelated display")
+    }
+
+    let domain = "com.mandalsuraj.ai-manager.acceptance.window-placement"
+    if let defaults = UserDefaults(suiteName: domain) {
+      defaults.removePersistentDomain(forName: domain)
+      AIManagerWindowPlacement.store(placement, defaults: defaults)
+      if AIManagerWindowPlacement.load(defaults: defaults) != placement {
+        failures.append("Window placement does not persist through UserDefaults")
+      }
+      defaults.removePersistentDomain(forName: domain)
+    } else {
+      failures.append("Window placement test defaults are unavailable")
+    }
+
+    let farOutside = AIManagerStoredWindowPlacement(
+      version: 1, displayIdentifier: "external", displayName: "External Display",
+      displayFrameX: external.frame.minX, displayFrameY: external.frame.minY,
+      displayFrameWidth: external.frame.width, displayFrameHeight: external.frame.height,
+      leftOffset: 99_999, topOffset: 99_999)
+    guard let clamped = AIManagerWindowPlacement.restoredFrame(
+      for: farOutside, windowSize: size, displays: [external])
+    else {
+      failures.append("Window placement did not produce a clamped frame")
+      return failures
+    }
+    if !external.visibleFrame.contains(clamped) {
+      failures.append("Window placement did not clamp into the display visible frame")
+    }
+    return failures
+  }
+
   static func scrollBehaviorIsInstalled(in root: NSView) -> Bool {
     let scrollViews = views(in: root).compactMap { $0 as? NSScrollView }
     return !scrollViews.isEmpty && configuredScrollViewCount(in: root) == scrollViews.count
