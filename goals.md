@@ -145,6 +145,18 @@ light and dark app-icon treatments from those supplied paths, preserve their geo
 the final 16, 22, 44, 256, and 1024 pixel outputs. Record the supplied archive digest and asset
 provenance without adding the reference board or source exploration images to the app bundle.
 
+Native menu and icon-shape refinement (2026-09-13): install a complete macOS menu bar in
+both production and compile-time Preview. The application menu includes About Switch,
+Settings with Command+,, Services, Hide, Hide Others, Show All, and Quit. Command+, must
+bring the main window forward and navigate its existing content pane to Shared Settings.
+File, Edit, View, Window, and Help use native selectors and key equivalents where macOS owns
+the behavior; View exposes Accounts, Shared Settings, Chat History, and Recovery without
+adding another navigation shell. Keep the fixed-window and custom-window-control contracts.
+Replace the current asymmetric icon trace with a clean vector derived from the supplied
+reference silhouette: four balanced outer lobes, one upper-right circular cutout, and one
+lower-left open-ring cutout. Compare faithful, symmetry-corrected, and tiny-size candidates,
+then ship the closest symmetric mark that remains clear at 16, 22, 44, and 256 pixels.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
@@ -1847,3 +1859,27 @@ with temporary synthetic homes before installation.
   protected-copy skips, both GUI model checks, System/Light/Dark window contracts, the fixed-window
   and single-instance contracts, and native thin-scrollbar behavior. The clean signed release at
   code checkpoint `51b6846` passes local readiness and strict signature checks.
+
+### Native menus and symmetric mark acceptance (2026-09-13)
+
+- Production and compile-time Preview now install the same AppKit menu structure: Switch, File,
+  Edit, View, Window, and Help. The application menu contains the standard About panel, Settings,
+  Services, Hide, Hide Others, Show All, and Quit commands. The fixed window exposes no Zoom or
+  maximize command.
+- Command+, presents the existing main window and changes its content route to Shared Settings.
+  Command+1 through Command+4 select Accounts, Shared Settings, Chat History, and Recovery. The
+  GUI contract dispatches these real menu items and verifies both window presentation and every
+  resulting page route, rather than checking menu labels alone.
+- The supplied reference PNG has SHA-256
+  `1fba71d24c2f6488f6fca711befb35b08523c924a9a08b0aae064686007c5b2e`. The selected production
+  vector uses exact fourfold outer symmetry, one upper-right circular counter, and one clean
+  lower-left open annulus whose inner disc remains solid. The prior sampled path and white lens
+  artifact are removed.
+- Dock and Spotlight keep explicit light and dark graphite treatments around the same mark. The
+  menu-bar template uses an optical variant with wider counters at 22 and 44 pixels. The generated
+  Dock PNGs are 1024 by 1024, the rail export is 256 by 256, every PNG has alpha, and the ICNS
+  expands to all ten standard macOS slots.
+- `scripts/check-native.sh` passes 88 discovered core contracts: 86 execute without failure and
+  the two authorized private-copy tests remain opt-in. Both GUI models, System/Light/Dark menu and
+  window contracts, thin overlay scrollbars, and single-instance behavior pass at code checkpoints
+  `feec7f3` and `c496190`.
