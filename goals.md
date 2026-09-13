@@ -1952,3 +1952,33 @@ with temporary synthetic homes before installation.
 - Native Computer remained unavailable at its read-only app-state step with
   `Sky Computer Use native pipe startup failed`; process, package, signature, resource, contract,
   and isolated runtime checks supply the completed installation evidence.
+
+### Icon composition and import-layout acceptance (2026-09-13)
+
+- The approved Pixel trace SHA remains unchanged. Its Dock and Spotlight foreground is scaled
+  from 800 to 640 points and placed at x 183, y 199, which centers the trace's alpha-weighted
+  visible mass within 0.1 point of the 1024-point canvas center. Light and dark tile gradients are
+  darker, the edge rim is reduced from four to two points, and the strongest highlight opacity is
+  reduced from 0.34 to 0.20 in Light and 0.27 to 0.15 in Dark. This follows Apple's current app-icon
+  guidance to center primary content, keep the concept simple, retain crisp vector edges, and use a
+  simple background: https://developer.apple.com/design/human-interface-guidelines/app-icons.
+- The import titlebar and Close cell are both 48 points high. Close owns the trailing 48-point
+  region, touches the modal's top and trailing edges, and fills with system red on hover. The step
+  indicator is fixed-size with a reserved 16-point gap before Close. It cannot enter the close-cell
+  layout region.
+- Source, scope, explanation, and action groups use a 16-point vertical rhythm. Modal content and
+  title start on the same 24-point edge. Source rows use the 16-point panel edge, 64-point minimum
+  height, and top-align the checkbox and status badge with the first text line. The 780 by 648-point
+  modal keeps the standard three-source state visible at the fixed 1120 by 740 window size.
+- Native Light and Dark import renders were inspected at full resolution. They show all three
+  source rows, aligned controls, uninterrupted section gaps, a flush close cell, and a stepper that
+  ends before Close. `scripts/check-native.sh` passes 88 discovered core contracts: 86 execute with
+  zero failures and two protected-copy checks remain explicit opt-ins. Both GUI models,
+  System/Light/Dark contracts, single-instance behavior, thin scrollbars, and deterministic icon
+  regeneration pass.
+- The exact committed core and CLI passed `scripts/check-linux.sh` in read-only unprivileged
+  `linux/arm64` and `linux/amd64` containers. Each architecture executed the same 86 core contracts,
+  skipped only the two protected-copy opt-ins, and passed CLI discovery, import, switching,
+  recovery, SQLite, permissions, symlink, and isolated-runtime acceptance. Code checkpoints
+  `7eb400e` and `cedd8a1` pass their scoped contracts; the final signed installation and exact
+  revision are recorded after this documentation checkpoint.
