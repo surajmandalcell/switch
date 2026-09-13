@@ -10,14 +10,6 @@ enum AIManagerBrand {
     }
   }
 
-  static func railMark(in bundle: Bundle = .main) -> NSImage? {
-    guard let image = image(named: "ManagerMark", extension: "png", bundle: bundle) else {
-      return nil
-    }
-    image.isTemplate = true
-    return image
-  }
-
   static func trayImage(in bundle: Bundle = .main) -> NSImage? {
     let image = NSImage(size: traySize)
     for name in ["TrayTemplate", "TrayTemplate@2x"] {
@@ -36,16 +28,11 @@ enum AIManagerBrand {
   static func acceptanceFailures(in bundle: Bundle = .main) -> [String] {
     var failures: [String] = []
     for (name, fileExtension) in [
-      ("AppIcon", "icns"), ("AppIcon", "png"), ("ManagerMark", "png"),
+      ("AppIcon", "icns"), ("AppIcon", "png"),
       ("TrayTemplate", "png"), ("TrayTemplate@2x", "png"),
     ] where resourceURL(named: name, extension: fileExtension, bundle: bundle) == nil {
       failures.append("Brand asset \(name).\(fileExtension) is unavailable")
     }
-    guard let rail = railMark(in: bundle) else {
-      failures.append("Rail brand mark did not load")
-      return failures
-    }
-    if !rail.isTemplate { failures.append("Rail brand mark is not a template image") }
     guard let tray = trayImage(in: bundle) else {
       failures.append("Menu-bar brand mark did not load")
       return failures

@@ -256,9 +256,6 @@ struct AccountWindow: View {
         RailButton(icon: item.icon, label: item.rawValue, active: page == item) { page = item }
       }
       Spacer()
-      AIMIcon(name: .mark, size: 16)
-        .frame(width: AIMTheme.railWidth, height: AIMTheme.railWidth)
-        .accessibilityHidden(true)
       RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false)
       {
         withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.theme)) {
