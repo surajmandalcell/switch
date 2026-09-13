@@ -134,6 +134,9 @@ public actor ChatHistoryIndex {
     private var cache: [String: CachedThread] = [:]
     private var failedSignatures: [String: FileSignature] = [:]
     private var detailCache: [String: CachedDetail] = [:]
+    private var orderedCache: [CachedThread] = []
+    private var cachedUnreadableRecordCount = 0
+    private var orderedCacheIsDirty = true
 
     public init(home: URL, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
@@ -146,6 +149,9 @@ public actor ChatHistoryIndex {
         try Task.checkCancellation()
         let candidates = try Self.transcriptCandidates(in: home)
         let currentPaths = Set(candidates.map { $0.url.path })
+        if cache.keys.contains(where: { !currentPaths.contains($0) }) {
+            orderedCacheIsDirty = true
+        }
         cache = cache.filter { currentPaths.contains($0.key) }
         failedSignatures = failedSignatures.filter { currentPaths.contains($0.key) }
         detailCache = detailCache.filter { currentPaths.contains($0.key) }
@@ -166,10 +172,12 @@ public actor ChatHistoryIndex {
                     signature: candidate.signature,
                     summary: transcript.summary,
                     searchText: transcript.searchText)
+                orderedCacheIsDirty = true
                 failedSignatures[path] = nil
                 detailCache[path] = nil
             case let .failed(candidate):
                 let path = candidate.url.path
+                if cache[path] != nil { orderedCacheIsDirty = true }
                 cache[path] = nil
                 failedSignatures[path] = candidate.signature
                 detailCache[path] = nil
@@ -214,12 +222,19 @@ public actor ChatHistoryIndex {
         let terms = query
             .split(whereSeparator: \.isWhitespace)
             .map { $0.lowercased() }
-        let all = cache.values.sorted {
-            if $0.summary.updatedAt != $1.summary.updatedAt {
-                return $0.summary.updatedAt > $1.summary.updatedAt
+        if orderedCacheIsDirty {
+            orderedCache = cache.values.sorted {
+                if $0.summary.updatedAt != $1.summary.updatedAt {
+                    return $0.summary.updatedAt > $1.summary.updatedAt
+                }
+                return $0.summary.id < $1.summary.id
             }
-            return $0.summary.id < $1.summary.id
+            cachedUnreadableRecordCount = orderedCache.reduce(0) {
+                $0 + $1.summary.unreadableRecordCount
+            }
+            orderedCacheIsDirty = false
         }
+        let all = orderedCache
         let matches = terms.isEmpty ? all : all.filter { cached in
             terms.allSatisfy { cached.searchText.contains($0) }
         }
@@ -229,7 +244,7 @@ public actor ChatHistoryIndex {
             totalThreadCount: all.count,
             matchingThreadCount: matches.count,
             skippedFileCount: failedSignatures.count,
-            unreadableRecordCount: all.reduce(0) { $0 + $1.summary.unreadableRecordCount },
+            unreadableRecordCount: cachedUnreadableRecordCount,
             reparsedFileCount: reparsedFileCount)
     }
 
@@ -343,10 +358,19 @@ private enum TranscriptParser {
         includeMessages: Bool
     ) throws -> ParsedTranscript {
         let reader = try JSONLReader(url: candidate.url)
-        let fractionalDateParser = ISO8601DateFormatter()
-        fractionalDateParser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let wholeSecondDateParser = ISO8601DateFormatter()
-        wholeSecondDateParser.formatOptions = [.withInternetDateTime]
+        let fractionalDateParser: ISO8601DateFormatter?
+        let wholeSecondDateParser: ISO8601DateFormatter?
+        if includeMessages {
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            fractionalDateParser = fractional
+            let wholeSecond = ISO8601DateFormatter()
+            wholeSecond.formatOptions = [.withInternetDateTime]
+            wholeSecondDateParser = wholeSecond
+        } else {
+            fractionalDateParser = nil
+            wholeSecondDateParser = nil
+        }
         var threadID: String?
         var workingDirectory: String?
         var latestDate = candidate.signature.modifiedAt
@@ -367,6 +391,7 @@ private enum TranscriptParser {
             if sequence == 1, record.starts(with: [0xEF, 0xBB, 0xBF]) {
                 record.removeFirst(3)
             }
+            if record.count > 64 * 1_024, !mayContainVisibleMessage(record) { continue }
             guard record.count <= 4 * 1_024 * 1_024,
                   let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any]
             else {
@@ -384,12 +409,6 @@ private enum TranscriptParser {
                     ?? nonempty(payload["session_id"] as? String)
                     ?? threadID
                 workingDirectory = nonempty(payload["cwd"] as? String) ?? workingDirectory
-                if let sessionDate = parseDate(
-                    payload["timestamp"], fractional: fractionalDateParser,
-                    wholeSecond: wholeSecondDateParser), sessionDate > latestDate
-                {
-                    latestDate = sessionDate
-                }
                 continue
             }
 
@@ -505,11 +524,21 @@ private enum TranscriptParser {
 
     private static func parseDate(
         _ value: Any?,
-        fractional: ISO8601DateFormatter,
-        wholeSecond: ISO8601DateFormatter
+        fractional: ISO8601DateFormatter?,
+        wholeSecond: ISO8601DateFormatter?
     ) -> Date? {
         guard let value = value as? String else { return nil }
-        return fractional.date(from: value) ?? wholeSecond.date(from: value)
+        return fractional?.date(from: value) ?? wholeSecond?.date(from: value)
+    }
+
+    private static func mayContainVisibleMessage(_ record: Data) -> Bool {
+        let markers = [
+            Data(#""type":"session_meta""#.utf8),
+            Data(#""type":"user_message""#.utf8),
+            Data(#""role":"user""#.utf8),
+            Data(#""role":"assistant""#.utf8),
+        ]
+        return markers.contains { record.range(of: $0) != nil }
     }
 
     private static func nonempty(_ value: String?) -> String? {
