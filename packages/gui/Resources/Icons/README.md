@@ -7,10 +7,12 @@ annulus without reconstructing or hand-fitting their geometry.
 appropriate optical size; neither changes its shape.
 
 `AppIconLight.svg` and `AppIconDark.svg` provide explicit Dock treatments. Both
-keep the graphite macOS tile, warm-white mark, restrained surface shading, and
-restrained top-left edge lift. The app swaps these treatments with its selected
-appearance. `AppIcon.svg` aliases the light treatment used by Spotlight and the
-checked-in `AppIcon.icns`.
+keep the neutral graphite macOS tile and exact warm-white Pixel trace. The trace
+uses a 520-point foreground box with generous internal clearance. Surface shade
+is shallow, and the one-point top-left edge lift peaks at seven percent opacity
+in Light and five percent in Dark. The app swaps these treatments with its
+selected appearance. `AppIcon.svg` aliases the light treatment used by Spotlight
+and the checked-in `AppIcon.icns`.
 
 Run `scripts/build-icons.sh` to regenerate PNGs and the macOS ICNS. It uses
 the installed `rsvg-convert` and macOS `iconutil`; normal app builds use the
