@@ -2,25 +2,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="tile-surface-dark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3b4659"/>
-      <stop offset="0.48" stop-color="#293241"/>
-      <stop offset="1" stop-color="#1c232f"/>
+      <stop offset="0" stop-color="#303b4d"/>
+      <stop offset="0.48" stop-color="#232d3b"/>
+      <stop offset="1" stop-color="#171e28"/>
     </linearGradient>
     <linearGradient id="edge-dark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.27"/>
-      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.15"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.03"/>
       <stop offset="0.7" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="lower-shade-dark" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0.58" stop-color="#000000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000000" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.30"/>
     </linearGradient>
     <mask id="pixel-mark-dark" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" style="mask-type:alpha">
-      <image x="112" y="112" width="800" height="800" xlink:href="SwitchMarkPixelTrace.svg"/>
+      <image x="183" y="199" width="640" height="640" xlink:href="SwitchMarkPixelTrace.svg"/>
     </mask>
   </defs>
   <rect x="92" y="92" width="840" height="840" rx="200" fill="url(#tile-surface-dark)"/>
-  <rect x="94" y="94" width="836" height="836" rx="198" fill="none" stroke="url(#edge-dark)" stroke-width="4"/>
+  <rect x="93" y="93" width="838" height="838" rx="199" fill="none" stroke="url(#edge-dark)" stroke-width="2"/>
   <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#lower-shade-dark)"/>
   <rect width="1024" height="1024" fill="#f8f6ef" mask="url(#pixel-mark-dark)"/>
 </svg>
