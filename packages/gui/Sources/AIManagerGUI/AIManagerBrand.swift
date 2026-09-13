@@ -2,7 +2,12 @@ import AppKit
 
 @MainActor
 enum AIManagerBrand {
+  static let displayName = "Switch"
   static let traySize = NSSize(width: 22, height: 22)
+
+  static func bundleDisplayName(in bundle: Bundle = .main) -> String {
+    bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? displayName
+  }
 
   static func installApplicationIcon(in bundle: Bundle = .main) {
     if let image = image(named: "AppIcon", extension: "png", bundle: bundle) {
@@ -80,12 +85,12 @@ final class AIManagerStatusItemController: NSObject {
 
     statusItem.button?.image = AIManagerBrand.trayImage(in: bundle)
     statusItem.button?.imagePosition = .imageOnly
-    let title = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "IIA Directeur"
+    let title = AIManagerBrand.bundleDisplayName(in: bundle)
     statusItem.button?.toolTip = title
     statusItem.button?.setAccessibilityLabel(title)
 
     let menu = NSMenu()
-    let showItem = NSMenuItem(title: "Show IIA Directeur", action: #selector(show), keyEquivalent: "")
+    let showItem = NSMenuItem(title: "Show \(title)", action: #selector(show), keyEquivalent: "")
     showItem.target = self
     menu.addItem(showItem)
     let quitItem = NSMenuItem(title: "Quit", action: #selector(terminate), keyEquivalent: "")

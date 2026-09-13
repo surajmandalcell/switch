@@ -125,7 +125,7 @@ struct AIManagerCLI {
     static func interactive(_ manager: AccountManager) async throws {
         while true {
             let status = try await manager.status()
-            print("\nIIA Directeur")
+            print("\nSwitch")
             for (index, account) in status.accounts.enumerated() {
                 let marker = account.id == status.defaultAccountID ? "default" : account.verification.state.rawValue
                 print("  \(index + 1). \(displayName(account.identity)) [\(marker)]")
@@ -332,7 +332,7 @@ struct AIManagerCLI {
     }
 
     static let usage = """
-    IIA Directeur manages file-based Codex accounts without using Keychain.
+    Switch manages file-based Codex accounts without using Keychain.
 
     Usage:
       ai-manager status [--json]

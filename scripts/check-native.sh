@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'IIA Directeur requires macOS.' >&2
+  printf '%s\n' 'Switch requires macOS.' >&2
   exit 1
 fi
 

@@ -3,15 +3,15 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'IIA Directeur GUI contracts require macOS.' >&2
+  printf '%s\n' 'Switch GUI contracts require macOS.' >&2
   exit 1
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
-app_path="$build_path/gui-acceptance/IIA Directeur GUI Acceptance.app"
+app_path="$build_path/gui-acceptance/Switch GUI Acceptance.app"
 executable="$app_path/Contents/MacOS/AIManagerGUIAcceptance"
-test_root="$(mktemp -d "/private/tmp/iia-directeur-gui-contract.XXXXXX")"
+test_root="$(mktemp -d "/private/tmp/switch-gui-contract.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
 
 "$repo_root/scripts/build-gui-acceptance.sh"

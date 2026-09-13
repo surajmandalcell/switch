@@ -40,7 +40,7 @@ final class AccountViewModel: ObservableObject {
             manager = nil
             isUnavailable = true
             hasLoaded = true
-            unavailableReason = "IIA Directeur could not open its private data folder. \(error.localizedDescription)"
+            unavailableReason = "Switch could not open its private data folder. \(error.localizedDescription)"
             errorMessage = unavailableReason
         }
     }
@@ -498,7 +498,7 @@ final class AccountViewModel: ObservableObject {
 
     private func reportUnavailable() {
         guard isUnavailable else { return }
-        errorMessage = unavailableReason ?? "IIA Directeur is unavailable until its private data folder can be opened."
+        errorMessage = unavailableReason ?? "Switch is unavailable until its private data folder can be opened."
     }
 
     private func reloadStatus(using manager: AccountManager) async throws {
@@ -516,7 +516,7 @@ final class AccountViewModel: ObservableObject {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
-        let url = directory.appending(path: "Open IIA Directeur Account.command")
+        let url = directory.appending(path: "Open Switch Account.command")
         var exports = spec.environment["CODEX_HOME"].map { ["export CODEX_HOME=\(shellQuote($0))"] } ?? []
         if paths.isolationRoot != nil, let home = spec.environment["HOME"] {
             exports.append("export HOME=\(shellQuote(home))")
@@ -537,13 +537,13 @@ final class AccountViewModel: ObservableObject {
             .appending(path: "Contents/Helpers/ai-manager")
         guard FileManager.default.isExecutableFile(atPath: helper.path) else {
             throw AIManagerError.operationFailed(
-                "The bundled account launcher is missing. Reinstall IIA Directeur or run ai-manager open \(accountID.uuidString) in a terminal.")
+                "The bundled account launcher is missing. Reinstall Switch or run ai-manager open \(accountID.uuidString) in a terminal.")
         }
         let directory = paths.applicationSupport.appending(path: "Launch", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
-        let url = directory.appending(path: "Open IIA Directeur Account.command")
+        let url = directory.appending(path: "Open Switch Account.command")
         let command = [helper.path, "open", accountID.uuidString].map(shellQuote).joined(separator: " ")
         let contents = [
             "#!/bin/zsh",
@@ -564,7 +564,7 @@ final class AccountViewModel: ObservableObject {
 private enum DemoData {
     static let now = Date(timeIntervalSince1970: 1_788_748_100)
     static let paths = ManagerPaths(
-        applicationSupport: URL(fileURLWithPath: "/IIA Directeur Demo", isDirectory: true),
+        applicationSupport: URL(fileURLWithPath: "/Switch Demo", isDirectory: true),
         defaultHome: URL(fileURLWithPath: "/Demo/Codex", isDirectory: true),
         sharedRoot: URL(fileURLWithPath: "/Demo/Shared", isDirectory: true),
         orcaAccountsRoot: URL(fileURLWithPath: "/Demo/Orca", isDirectory: true)

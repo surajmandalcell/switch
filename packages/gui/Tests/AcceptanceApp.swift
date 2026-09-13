@@ -128,7 +128,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
                 }
         )
 
-        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "IIA Directeur GUI Acceptance"
+        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Switch GUI Acceptance"
         let controller = AIManagerWindowController(
             title: title,
             rootView: content
@@ -321,7 +321,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
     if !AcceptanceConfiguration.contractOnly {
-        expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "IIA Directeur status item is unavailable")
+        expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "Switch status item is unavailable")
     }
     let behaviorDomain = "com.mandalsuraj.ai-manager.acceptance.window-behavior"
     if let behaviorDefaults = UserDefaults(suiteName: behaviorDomain) {

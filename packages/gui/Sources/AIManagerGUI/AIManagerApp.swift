@@ -12,7 +12,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
         DemoFonts.register()
         AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
-            title: "IIA Directeur",
+            title: AIManagerBrand.bundleDisplayName(),
             rootView: AccountWindow(model: model)
         )
         windowController = controller
@@ -66,15 +66,16 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     private func installMainMenu() {
+        let applicationName = AIManagerBrand.bundleDisplayName()
         let mainMenu = NSMenu()
-        mainMenu.addItem(menuItem(title: "IIA Directeur", items: [
-            NSMenuItem(title: "About IIA Directeur", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
+        mainMenu.addItem(menuItem(title: applicationName, items: [
+            NSMenuItem(title: "About \(applicationName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
-            NSMenuItem(title: "Hide IIA Directeur", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
+            NSMenuItem(title: "Hide \(applicationName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
             NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h", modifiers: [.command, .option]),
             NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
             .separator(),
-            NSMenuItem(title: "Quit IIA Directeur", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            NSMenuItem(title: "Quit \(applicationName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         ]))
         mainMenu.addItem(menuItem(title: "File", items: [
             NSMenuItem(title: "Import Account…", action: #selector(importAccount), keyEquivalent: "i", target: self),

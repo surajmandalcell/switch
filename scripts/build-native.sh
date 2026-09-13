@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'IIA Directeur requires macOS.' >&2
+  printf '%s\n' 'Switch requires macOS.' >&2
   exit 1
 fi
 
@@ -64,7 +64,7 @@ bin_path="$(swift_build --show-bin-path)"
 
 artifact_path="$build_path/artifacts"
 package_path="$build_path/package"
-app_path="$package_path/IIA Directeur.app"
+app_path="$package_path/Switch.app"
 
 mkdir -p "$artifact_path" "$package_path"
 rm -rf "$app_path"
