@@ -65,14 +65,14 @@ var targets: [Target] = [
 products.append(
     .executable(
         name: "AIManager",
-        targets: ["AIManagerGUI"]
+        targets: ["AIManagerMacGUI"]
     )
 )
 targets.append(
     .executableTarget(
-        name: "AIManagerGUI",
+        name: "AIManagerMacGUI",
         dependencies: ["AIManagerCore"],
-        path: "packages/gui/Sources/AIManagerGUI"
+        path: "packages/mac-gui/Sources/AIManagerMacGUI"
     )
 )
 #endif

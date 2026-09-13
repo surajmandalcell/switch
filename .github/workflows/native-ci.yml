@@ -12,12 +12,12 @@ on:
       - scripts/check-linux.sh
       - scripts/build-native.sh
       - scripts/check-native.sh
-      - scripts/check-gui-demo.sh
-      - scripts/check-gui-contract.sh
-      - scripts/check-gui-production.sh
-      - scripts/check-gui-single-instance.sh
-      - scripts/check-gui-scroll.sh
-      - scripts/build-gui-acceptance.sh
+      - scripts/check-mac-gui-demo.sh
+      - scripts/check-mac-gui-contract.sh
+      - scripts/check-mac-gui-production.sh
+      - scripts/check-mac-gui-single-instance.sh
+      - scripts/check-mac-gui-scroll.sh
+      - scripts/build-mac-gui-acceptance.sh
       - scripts/verify-codex-history.py
       - .github/workflows/native-ci.yml
       - .gitignore

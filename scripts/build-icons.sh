@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-icons="$repo_root/packages/gui/Resources/Icons"
+icons="$repo_root/packages/mac-gui/Resources/Icons"
 iconset="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}/icons/AppIcon.iconset"
 command -v rsvg-convert >/dev/null
 command -v iconutil >/dev/null

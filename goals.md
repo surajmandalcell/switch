@@ -237,7 +237,7 @@ Existing Codex home or auth.json
 ```
 
 The current request authorizes implementation through G6, including GUI and CLI workflows.
-Use `packages/core` for shared Swift contracts and account operations, `packages/gui`
+Use `packages/core` for shared Swift contracts and account operations, `packages/mac-gui`
 for the native SwiftUI app, and `packages/tui` for the command-line and interactive terminal interface.
 Both interfaces must use the same core operations and contract tests.
 Use isolated temporary homes with synthetic credentials for automated mutation tests.

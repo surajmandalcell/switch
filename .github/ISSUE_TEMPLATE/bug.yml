@@ -1,5 +1,5 @@
 name: Defect report
-description: Report a Switch GUI, core, or terminal defect.
+description: Report a Switch Mac GUI, core, or terminal defect.
 title: "[Defect]: "
 labels: [bug, needs-triage]
 body:

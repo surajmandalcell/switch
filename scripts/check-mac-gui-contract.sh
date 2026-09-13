@@ -3,18 +3,18 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'Switch GUI contracts require macOS.' >&2
+  printf '%s\n' 'Switch Mac GUI contracts require macOS.' >&2
   exit 1
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
-app_path="$build_path/gui-acceptance/Switch GUI Acceptance.app"
-executable="$app_path/Contents/MacOS/AIManagerGUIAcceptance"
-test_root="$(mktemp -d "/private/tmp/switch-gui-contract.XXXXXX")"
+app_path="$build_path/mac-gui-acceptance/Switch Mac GUI Acceptance.app"
+executable="$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
+test_root="$(mktemp -d "/private/tmp/switch-mac-gui-contract.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
 
-"$repo_root/scripts/build-gui-acceptance.sh"
+"$repo_root/scripts/build-mac-gui-acceptance.sh"
 
 for appearance in system light dark; do
   run_root="$test_root/$appearance"
@@ -33,7 +33,7 @@ for appearance in system light dark; do
     "$executable" --contract-only "--persisted-$appearance"
 
   if [[ ! -f "$receipt" ]]; then
-    printf 'GUI_CONTRACT_FAIL %s: no receipt\n' "$appearance" >&2
+    printf 'MAC_GUI_CONTRACT_FAIL %s: no receipt\n' "$appearance" >&2
     exit 1
   fi
   passed="$(/usr/bin/plutil -extract passed raw -o - "$receipt")"
@@ -49,5 +49,5 @@ for appearance in system light dark; do
     /usr/bin/plutil -p "$receipt" >&2
     exit 1
   fi
-  printf 'GUI_CONTRACT_PASS %s\n' "$appearance"
+  printf 'MAC_GUI_CONTRACT_PASS %s\n' "$appearance"
 done

@@ -3,17 +3,17 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf '%s\n' 'Switch GUI acceptance requires macOS.' >&2
+  printf '%s\n' 'Switch Mac GUI acceptance requires macOS.' >&2
   exit 1
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
-preview="${AI_MANAGER_GUI_PREVIEW:-0}"
-app_name='Switch GUI Acceptance'
-bundle_id='com.mandalsuraj.ai-manager.gui-acceptance'
-output_path="$build_path/gui-acceptance"
-build_kind='gui-acceptance'
+preview="${AI_MANAGER_MAC_GUI_PREVIEW:-0}"
+app_name='Switch Mac GUI Acceptance'
+bundle_id='com.mandalsuraj.ai-manager.mac-gui-acceptance'
+output_path="$build_path/mac-gui-acceptance"
+build_kind='mac-gui-acceptance'
 case "$preview" in
   0) ;;
   1)
@@ -22,20 +22,20 @@ case "$preview" in
     output_path="$build_path/preview"
     build_kind='preview'
     ;;
-  *) printf '%s\n' 'AI_MANAGER_GUI_PREVIEW must be 0 or 1.' >&2; exit 2 ;;
+  *) printf '%s\n' 'AI_MANAGER_MAC_GUI_PREVIEW must be 0 or 1.' >&2; exit 2 ;;
 esac
 app_path="$output_path/$app_name.app"
-appearance="${AI_MANAGER_GUI_APPEARANCE:-system}"
-gui_sources=()
+appearance="${AI_MANAGER_MAC_GUI_APPEARANCE:-system}"
+mac_gui_sources=()
 
 case "$appearance" in
   system|light|dark) ;;
-  *) printf 'Unsupported GUI appearance: %s (expected system, light, or dark)\n' "$appearance" >&2; exit 2 ;;
+  *) printf 'Unsupported Mac GUI appearance: %s (expected system, light, or dark)\n' "$appearance" >&2; exit 2 ;;
 esac
 
-for source in "$repo_root"/packages/gui/Sources/AIManagerGUI/*.swift; do
+for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
   if [[ "$(basename "$source")" != "AIManagerApp.swift" ]]; then
-    gui_sources+=("$source")
+    mac_gui_sources+=("$source")
   fi
 done
 
@@ -63,25 +63,25 @@ swiftc \
   -lAIManagerCore \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
-  "${gui_sources[@]}" \
-  "$repo_root/packages/gui/Tests/NativeUIContract.swift" \
-  "$repo_root/packages/gui/Tests/AcceptanceApp.swift" \
-  -o "$app_path/Contents/MacOS/AIManagerGUIAcceptance"
+  "${mac_gui_sources[@]}" \
+  "$repo_root/packages/mac-gui/Tests/NativeUIContract.swift" \
+  "$repo_root/packages/mac-gui/Tests/AcceptanceApp.swift" \
+  -o "$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 
 if ! LC_ALL=C rg -q '/Demo/Sources/' \
-  < <(/usr/bin/strings "$app_path/Contents/MacOS/AIManagerGUIAcceptance"); then
+  < <(/usr/bin/strings "$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"); then
   printf '%s\n' 'Preview compiler condition did not include the sample data.' >&2
   exit 1
 fi
 
 install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app_path/Contents/Info.plist"
-ditto "$repo_root/packages/gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
-ditto "$repo_root/packages/gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
-install -m 0644 "$repo_root/packages/gui/Resources/Icons/AppIcon.icns" \
+ditto "$repo_root/packages/mac-gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
+ditto "$repo_root/packages/mac-gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
+install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.icns" \
   "$app_path/Contents/Resources/AppIcon.icns"
 /usr/bin/plutil -replace CFBundleDisplayName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleName -string "$app_name" "$app_path/Contents/Info.plist"
-/usr/bin/plutil -replace CFBundleExecutable -string 'AIManagerGUIAcceptance' "$app_path/Contents/Info.plist"
+/usr/bin/plutil -replace CFBundleExecutable -string 'AIManagerMacGUIAcceptance' "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleIdentifier -string "$bundle_id" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace AIManagerBuildConfiguration -string "$build_kind" "$app_path/Contents/Info.plist"
 source_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD)"
@@ -90,7 +90,7 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; t
 /usr/bin/plutil -replace AIManagerSourceRevision -string "$source_revision" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace AIManagerSourceDirty -bool "$source_dirty" "$app_path/Contents/Info.plist"
 if [[ "$appearance" != "system" ]]; then
-  /usr/bin/plutil -insert AIManagerGUIAppearance -string "$appearance" "$app_path/Contents/Info.plist"
+  /usr/bin/plutil -insert AIManagerMacGUIAppearance -string "$appearance" "$app_path/Contents/Info.plist"
 fi
 /usr/bin/codesign --force --entitlements "$repo_root/packaging/macos/AIManager.entitlements" \
   --sign "${AI_MANAGER_SIGNING_IDENTITY:--}" "$app_path"
