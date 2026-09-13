@@ -10,7 +10,7 @@ scripts/build-native.sh
 scripts/check-release-readiness.sh
 ```
 
-The IIA Directeur GUI supports macOS 14 or later; Apple Silicon is the first
+The Switch GUI supports macOS 14 or later; Apple Silicon is the first
 verified GUI target. `AIManagerCore` and the `ai-manager` terminal interface
 support macOS and Linux. The native GUI does not run on Linux. Codex is optional
 for offline discovery and contract tests.

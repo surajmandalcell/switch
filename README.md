@@ -1,6 +1,6 @@
-# IIA Directeur
+# Switch
 
-IIA Directeur is a native macOS app for managing Codex accounts. It saves each
+Switch is a native macOS app for managing Codex accounts. It saves each
 account credential under `~/.switch/codex`, keeps one live `~/.codex` home for
 configuration and chat history, and activates an account before opening Codex.
 
@@ -46,7 +46,7 @@ The build uses `/private/tmp/ai-manager-build` as its canonical cache. Set
 `AI_MANAGER_BUILD_PATH` to another private path when the host requires it. The
 script produces:
 
-- `/private/tmp/ai-manager-build/package/IIA Directeur.app`
+- `/private/tmp/ai-manager-build/package/Switch.app`
 - `/private/tmp/ai-manager-build/artifacts/ai-manager`
 
 The app embeds that exact CLI as `Contents/Helpers/ai-manager`. **Open Codex**
@@ -56,7 +56,7 @@ cross-process lock instead of capturing an earlier credential state.
 Run the built products directly when needed:
 
 ```bash
-open "/private/tmp/ai-manager-build/package/IIA Directeur.app"
+open "/private/tmp/ai-manager-build/package/Switch.app"
 "/private/tmp/ai-manager-build/artifacts/ai-manager" help
 ```
 
@@ -67,7 +67,7 @@ configuration.
 
 ```bash
 AI_MANAGER_GUI_PREVIEW=1 scripts/build-gui-acceptance.sh
-open "/private/tmp/ai-manager-build/gui-acceptance/IIA Directeur Preview.app"
+open "/private/tmp/ai-manager-build/gui-acceptance/Switch Preview.app"
 ```
 
 The Preview app starts with sample accounts. Use Import Account
@@ -84,7 +84,7 @@ real-format checks, use a protected copy of `~/.codex` outside this repository.
 Never mutate the original home, follow copied links back to it, or commit
 authentication files, transcripts, settings, or backups.
 
-IIA Directeur does not access the login Keychain. It does not execute imported
+Switch does not access the login Keychain. It does not execute imported
 hooks, commands, or plugins during discovery or import. It does not send a
 model request during offline verification.
 

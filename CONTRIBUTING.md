@@ -1,6 +1,6 @@
 # Contributing
 
-Read [goals.md](goals.md) before implementation. It defines IIA Directeur's
+Read [goals.md](goals.md) before implementation. It defines Switch's
 Codex account-manager scope and acceptance gates. The GUI supports macOS 14 or
 later. The core library and terminal interface support macOS and Linux; the GUI
 does not run on Linux.

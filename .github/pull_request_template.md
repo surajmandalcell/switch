@@ -1,6 +1,6 @@
 ## Summary
 
-Describe the user-visible IIA Directeur behavior.
+Describe the user-visible Switch behavior.
 
 ## Validation
 

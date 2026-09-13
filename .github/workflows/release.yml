@@ -17,13 +17,13 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     env:
-      APP_PATH: /private/tmp/ai-manager-build/package/IIA Directeur.app
+      APP_PATH: /private/tmp/ai-manager-build/package/Switch.app
       CLI_PATH: /private/tmp/ai-manager-build/artifacts/ai-manager
-      ARCHIVE_PATH: /private/tmp/ai-manager-build/IIA-Directeur-${{ github.ref_name }}.zip
+      ARCHIVE_PATH: /private/tmp/ai-manager-build/Switch-${{ github.ref_name }}.zip
       KEYCHAIN_PATH: ${{ runner.temp }}/iia-directeur-signing.keychain-db
       CERTIFICATE_PATH: ${{ runner.temp }}/developer-id.p12
       NOTARY_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
-      PAYLOAD_PATH: ${{ runner.temp }}/IIA Directeur
+      PAYLOAD_PATH: ${{ runner.temp }}/Switch
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -73,7 +73,7 @@ jobs:
           test -n "$NOTARY_API_ISSUER_ID"
           printf '%s' "$NOTARY_API_KEY_BASE64" | base64 --decode > "$NOTARY_KEY_PATH"
           mkdir -p "$PAYLOAD_PATH"
-          ditto "$APP_PATH" "$PAYLOAD_PATH/IIA Directeur.app"
+          ditto "$APP_PATH" "$PAYLOAD_PATH/Switch.app"
           install -m 0755 "$CLI_PATH" "$PAYLOAD_PATH/ai-manager"
           ditto -c -k --sequesterRsrc --keepParent "$PAYLOAD_PATH" "$ARCHIVE_PATH"
           xcrun notarytool submit "$ARCHIVE_PATH" \
@@ -81,12 +81,12 @@ jobs:
             --key-id "$NOTARY_API_KEY_ID" \
             --issuer "$NOTARY_API_ISSUER_ID" \
             --wait
-          xcrun stapler staple "$PAYLOAD_PATH/IIA Directeur.app"
-          xcrun stapler validate "$PAYLOAD_PATH/IIA Directeur.app"
-          spctl --assess --type execute --verbose=4 "$PAYLOAD_PATH/IIA Directeur.app"
+          xcrun stapler staple "$PAYLOAD_PATH/Switch.app"
+          xcrun stapler validate "$PAYLOAD_PATH/Switch.app"
+          spctl --assess --type execute --verbose=4 "$PAYLOAD_PATH/Switch.app"
           spctl --assess --type execute --verbose=4 "$PAYLOAD_PATH/ai-manager"
           scripts/check-release-readiness.sh --public \
-            "$PAYLOAD_PATH/IIA Directeur.app" \
+            "$PAYLOAD_PATH/Switch.app" \
             "$PAYLOAD_PATH/ai-manager"
           ditto -c -k --sequesterRsrc --keepParent "$PAYLOAD_PATH" "$ARCHIVE_PATH"
           shasum -a 256 "$ARCHIVE_PATH" > "/private/tmp/ai-manager-build/checksums-${GITHUB_REF_NAME}.txt"
