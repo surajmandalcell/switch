@@ -42,7 +42,10 @@ enum AIMTheme {
   static let topbarHeight: CGFloat = 48
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48
+  static let modalTitlebarHeight: CGFloat = 48
+  static let modalHeight: CGFloat = 648
   static let modalOuterInset: CGFloat = 24
+  static let modalSectionSpacing: CGFloat = 16
   static let panelContentInset: CGFloat = 16
 
   static let canvas = dynamic(light: 0xECEBE7, dark: 0x343539)

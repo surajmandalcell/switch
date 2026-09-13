@@ -130,7 +130,9 @@ enum AIManagerNativeContract {
   static func windowControlGeometryMatches() -> Bool {
     let size = AIMTheme.windowControlSize
     return size == 48 && AIMTheme.railWidth == size
-      && AIMTheme.topbarHeight == size && AIMTheme.modalOuterInset == 24
+      && AIMTheme.topbarHeight == size && AIMTheme.modalTitlebarHeight == size
+      && AIMTheme.modalHeight == 648 && AIMTheme.modalOuterInset == 24
+      && AIMTheme.modalSectionSpacing == 16
   }
 
   static func scrollBehaviorIsInstalled(in root: NSView) -> Bool {
