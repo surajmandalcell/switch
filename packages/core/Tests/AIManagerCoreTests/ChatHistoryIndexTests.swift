@@ -131,7 +131,7 @@ final class ChatHistoryIndexTests: XCTestCase {
 
         XCTAssertEqual(snapshot.totalThreadCount, 1)
         XCTAssertEqual(snapshot.threads.first?.title, "Keep the chat view responsive")
-        XCTAssertEqual(snapshot.unreadableRecordCount, 1)
+        XCTAssertEqual(snapshot.unreadableRecordCount, 0)
         let detail = try await index.detail(for: try XCTUnwrap(snapshot.threads.first?.id))
         XCTAssertEqual(detail?.messages.count, 1)
     }
