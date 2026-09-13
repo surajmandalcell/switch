@@ -89,15 +89,17 @@ private enum AcceptanceConfiguration {
 }
 
 @MainActor
-private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private let receipts = AcceptanceReceipts()
     private let model = AccountViewModel(
         scenario: AcceptanceConfiguration.showsAllStates ? .allStates : .demo)
     private var windowController: AIManagerWindowController<AnyView>?
     private var statusItemController: AIManagerStatusItemController?
+    private var menuController: AIManagerMenuController?
     private var instanceActivationObserver: NSObjectProtocol?
     private var priorAppearanceMode: Any?
     var hasStatusItem: Bool { statusItemController?.isPresent == true }
+    var menuNavigationFailures: [String] = []
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -138,6 +140,18 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             rootView: content
         )
         windowController = controller
+        let menuController = AIManagerMenuController(
+            applicationName: title,
+            importAccount: { [weak self] in self?.importAccount() },
+            closeWindow: { [weak self] in self?.windowController?.window?.close() },
+            minimizeWindow: { [weak self] in
+                AIManagerWindowBehavior.minimize(self?.windowController?.window)
+            },
+            presentWindow: { [weak self] in self?.windowController?.present() },
+            canImport: { [weak self] in self?.model.isBusy == false }
+        )
+        self.menuController = menuController
+        menuController.install()
         if AcceptanceConfiguration.contractOnly {
             controller.window?.orderOut(nil)
             Task { await runContractOnly(in: controller.window) }
@@ -158,7 +172,6 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
             controller.present()
             NSApp.activate(ignoringOtherApps: true)
         }
-        installMainMenu(title: title)
         controller.present()
     }
 
@@ -167,43 +180,14 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate, NSMe
         if AcceptanceConfiguration.opensImport { await model.beginImport() }
         try? await Task.sleep(for: .milliseconds(100))
         window?.contentView?.layoutSubtreeIfNeeded()
+        menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
     }
 
-    private func installMainMenu(title: String) {
-        let main = NSMenu()
-        for (name, commands) in [
-            (title, [("Quit \(title)", #selector(NSApplication.terminate(_:)), "q", NSApp as AnyObject)]),
-            ("File", [
-                ("Import Account…", #selector(importAccount), "i", self as AnyObject),
-                ("Close Window", #selector(closeWindow), "w", self as AnyObject),
-                ("Minimize", #selector(minimizeWindow), "m", self as AnyObject)
-            ])
-        ] {
-            let parent = NSMenuItem(title: name, action: nil, keyEquivalent: "")
-            let submenu = NSMenu(title: name)
-            for (label, action, key, target) in commands {
-                let item = NSMenuItem(title: label, action: action, keyEquivalent: key)
-                item.target = target
-                submenu.addItem(item)
-            }
-            parent.submenu = submenu
-            main.addItem(parent)
-        }
-        NSApp.mainMenu = main
-    }
-
-    @objc private func importAccount() {
+    private func importAccount() {
         guard !model.isBusy else { return }
         Task { await model.beginImport() }
-    }
-
-    @objc private func closeWindow() { windowController?.window?.close() }
-    @objc private func minimizeWindow() { AIManagerWindowBehavior.minimize(windowController?.window) }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action == #selector(importAccount) ? !model.isBusy : true
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -324,6 +308,12 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
     expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
+    failures.append(contentsOf: AIManagerNativeContract.menuFailures(
+        in: NSApp.mainMenu,
+        applicationName: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? "Switch GUI Acceptance"
+    ))
+    failures.append(contentsOf: (NSApp.delegate as? AcceptanceAppDelegate)?.menuNavigationFailures ?? [])
     if !AcceptanceConfiguration.contractOnly {
         expect((NSApp.delegate as? AcceptanceAppDelegate)?.hasStatusItem == true, "Switch status item is unavailable")
     }
@@ -392,12 +382,6 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         )
     } else {
         failures.append("Acceptance window content view did not resolve")
-    }
-    let commands = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
-    if !AcceptanceConfiguration.contractOnly {
-        expect(commands.contains {
-            $0.keyEquivalent == "q" && $0.action == #selector(NSApplication.terminate(_:))
-        }, "Preview Quit command is missing")
     }
     var receipt = WindowContractReceipt(
         passed: failures.isEmpty,

@@ -2,10 +2,11 @@ import AppKit
 import AIManagerCore
 
 @MainActor
-private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private let model = AccountViewModel(paths: .environment())
     private var windowController: AIManagerWindowController<AccountWindow>?
     private var statusItemController: AIManagerStatusItemController?
+    private var menuController: AIManagerMenuController?
     private var instanceActivationObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,7 +32,18 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
             controller.present()
             NSApp.activate(ignoringOtherApps: true)
         }
-        installMainMenu()
+        let menuController = AIManagerMenuController(
+            applicationName: AIManagerBrand.bundleDisplayName(),
+            importAccount: { [weak self] in self?.importAccount() },
+            closeWindow: { [weak self] in self?.windowController?.window?.close() },
+            minimizeWindow: { [weak self] in
+                AIManagerWindowBehavior.minimize(self?.windowController?.window)
+            },
+            presentWindow: { [weak self] in self?.windowController?.present() },
+            canImport: { [weak self] in self?.model.isBusy == false }
+        )
+        self.menuController = menuController
+        menuController.install()
         controller.present()
         Task { await model.load() }
     }
@@ -53,66 +65,11 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate, NSMen
         }
     }
 
-    @objc private func importAccount() {
+    private func importAccount() {
         guard !model.isBusy else { return }
         Task { await model.beginImport() }
     }
 
-    @objc private func closeWindow() { NSApp.keyWindow?.close() }
-    @objc private func minimizeWindow() { AIManagerWindowBehavior.minimize(windowController?.window) }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action == #selector(importAccount) ? !model.isBusy : true
-    }
-
-    private func installMainMenu() {
-        let applicationName = AIManagerBrand.bundleDisplayName()
-        let mainMenu = NSMenu()
-        mainMenu.addItem(menuItem(title: applicationName, items: [
-            NSMenuItem(title: "About \(applicationName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
-            .separator(),
-            NSMenuItem(title: "Hide \(applicationName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
-            NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h", modifiers: [.command, .option]),
-            NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
-            .separator(),
-            NSMenuItem(title: "Quit \(applicationName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        ]))
-        mainMenu.addItem(menuItem(title: "File", items: [
-            NSMenuItem(title: "Import Account…", action: #selector(importAccount), keyEquivalent: "i", target: self),
-            .separator(),
-            NSMenuItem(title: "Close Window", action: #selector(closeWindow), keyEquivalent: "w", target: self)
-        ]))
-        mainMenu.addItem(menuItem(title: "Edit", items: [
-            NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"),
-            NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"),
-            .separator(),
-            NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
-            NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
-            NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
-            NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        ]))
-        mainMenu.addItem(menuItem(title: "Window", items: [
-            NSMenuItem(title: "Minimize", action: #selector(minimizeWindow), keyEquivalent: "m", target: self),
-            NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
-        ]))
-        NSApp.mainMenu = mainMenu
-    }
-
-    private func menuItem(title: String, items: [NSMenuItem]) -> NSMenuItem {
-        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: title)
-        items.forEach(submenu.addItem)
-        parent.submenu = submenu
-        return parent
-    }
-}
-
-private extension NSMenuItem {
-    convenience init(title: String, action: Selector?, keyEquivalent: String, target: AnyObject? = nil, modifiers: NSEvent.ModifierFlags = .command) {
-        self.init(title: title, action: action, keyEquivalent: keyEquivalent)
-        self.target = target
-        keyEquivalentModifierMask = modifiers
-    }
 }
 
 @main
