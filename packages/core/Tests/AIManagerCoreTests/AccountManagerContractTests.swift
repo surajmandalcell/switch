@@ -918,7 +918,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         XCTAssertEqual(plan.manifest.map(\.relativePath), ["auth.json", "packages"])
-        XCTAssertEqual(plan.warnings.count, 1)
+        XCTAssertTrue(plan.warnings.isEmpty, "Expected scope exclusions are manifest details, not warnings")
     }
 
     func testImportPlanRejectsInsufficientDestinationSpace() async throws {
