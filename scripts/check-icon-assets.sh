@@ -71,9 +71,13 @@ do
     --output "$actual/AppIcon${appearance}.png"
   cmp "$actual/AppIcon${appearance}.png" "$icons/AppIcon${appearance}.png"
 done
-rg -F -q 'stop-color="#383d45"' "$icons/AppIconLight.svg"
+rg -F -q 'stop-color="#292929"' "$icons/AppIconLight.svg"
+rg -F -q 'stop-color="#202020"' "$icons/AppIconLight.svg"
+rg -F -q 'stop-color="#171717"' "$icons/AppIconLight.svg"
 rg -F -q 'stop-opacity="0.07"' "$icons/AppIconLight.svg"
-rg -F -q 'stop-color="#292e35"' "$icons/AppIconDark.svg"
+rg -F -q 'stop-color="#232323"' "$icons/AppIconDark.svg"
+rg -F -q 'stop-color="#191919"' "$icons/AppIconDark.svg"
+rg -F -q 'stop-color="#111111"' "$icons/AppIconDark.svg"
 rg -F -q 'stop-opacity="0.05"' "$icons/AppIconDark.svg"
 cmp "$icons/AppIconLight.png" "$icons/AppIcon.png"
 
