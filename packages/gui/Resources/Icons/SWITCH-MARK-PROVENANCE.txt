@@ -1,0 +1,12 @@
+Source reference: user-supplied 733 by 808 PNG, 2026-09-13
+Source SHA-256: 1fba71d24c2f6488f6fca711befb35b08523c924a9a08b0aae064686007c5b2e
+
+The production mark uses a 1024-unit grid. Its outer body spans 112 through
+912 on both axes and repeats the same three cubic segments in each quadrant,
+giving exact fourfold rotational symmetry. The upper circular counter is
+centered at (603, 443) with radius 88. The open annulus is centered at
+(366, 680), with outer radius 190, inner radius 92, and a 40-degree opening.
+
+The menu-bar optical variant widens the small counters while preserving the
+same construction. It is used only for the 22-point and 44-pixel template
+representations. No bitmap tracing or generated path is used at runtime.
