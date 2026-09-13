@@ -184,6 +184,17 @@ text line; and 16-point group spacing separates the provider, source, scope, exp
 actions. Use a 780 by 648-point modal at the fixed 1120 by 740 window size so all three standard
 source rows remain visible without compressing the section rhythm.
 
+Navigation and live-history refinement (2026-09-13): order the rail and View menu as Accounts,
+Backup, Chat History, and Shared Settings. Rename the user-facing Recovery page and its copy to
+Backup while preserving the existing internal recovery transaction contract. Command+, still opens
+Shared Settings. Use an established chat-bubble SF Symbol for Chat History. The history page exposes
+live search, a thread list, and readable messages from the shared Codex transcript library. Enumerate
+only regular JSONL files below `sessions` and `archived_sessions`, never follow symbolic links, and
+keep the existing 500,000-entry bound. Stream records instead of loading whole transcript files.
+Refresh an incremental file-signature cache while the page is visible, decode only changed files on
+a bounded set of utility-priority workers, debounce search, load selected-thread messages away from
+the SwiftUI main actor, and cancel obsolete work. Main-actor updates contain only prepared view data.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
