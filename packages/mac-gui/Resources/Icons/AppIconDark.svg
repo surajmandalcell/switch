@@ -15,6 +15,11 @@
       <stop offset="0.58" stop-color="#000000" stop-opacity="0"/>
       <stop offset="1" stop-color="#000000" stop-opacity="0.16"/>
     </linearGradient>
+    <linearGradient id="top-sheen-dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.028"/>
+      <stop offset="0.24" stop-color="#ffffff" stop-opacity="0.009"/>
+      <stop offset="0.46" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
     <mask id="pixel-mark-dark" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" style="mask-type:alpha">
       <image x="245" y="258" width="520" height="520" xlink:href="SwitchMarkPixelTrace.svg"/>
     </mask>
@@ -22,5 +27,6 @@
   <rect x="92" y="92" width="840" height="840" rx="200" fill="url(#tile-surface-dark)"/>
   <rect x="92.5" y="92.5" width="839" height="839" rx="199.5" fill="none" stroke="url(#edge-dark)" stroke-width="1"/>
   <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#lower-shade-dark)"/>
+  <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#top-sheen-dark)"/>
   <rect width="1024" height="1024" fill="#f8f6ef" mask="url(#pixel-mark-dark)"/>
 </svg>

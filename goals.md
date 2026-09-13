@@ -187,6 +187,11 @@ text line; and 16-point group spacing separates the provider, source, scope, exp
 actions. Use a 780 by 648-point modal at the fixed 1120 by 740 window size so all three standard
 source rows remain visible without compressing the section rhythm.
 
+Dock top-sheen refinement (2026-09-13): keep the approved Pixel trace, tile geometry, neutral-black
+palette, one-point rim, and lower shading unchanged. Add one shallow white highlight that starts at
+the top of the tile and fades completely before its midpoint. Cap it at 0.035 opacity in Light and
+0.028 in Dark so the top gains a little depth without returning to the rejected glossy treatment.
+
 Mac window-placement and package naming correction (2026-09-13): persist the selected display and
 the window's top-left offset within that display's visible frame. Restore both on the next launch,
 including displays with negative desktop coordinates and displays whose desktop position changed.
