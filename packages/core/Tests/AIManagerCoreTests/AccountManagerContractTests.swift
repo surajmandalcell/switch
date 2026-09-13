@@ -709,6 +709,37 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(finalStatus.pendingRecovery.first?.phase, .conflicted)
     }
 
+    func testInterruptedSwitchRestoresMalformedLiveAuth() async throws {
+        let source = root.appending(path: "malformed-live-source")
+        try writeAuth(home: source, account: "incoming", workspace: "workspace")
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await setup.planImport(source: source, mode: .authOnly)
+        let incoming = try await setup.importAccount(plan: plan).account
+        let malformed = Data("{malformed-live-auth".utf8)
+        let liveAuth = paths.defaultHome.appending(path: "auth.json")
+        try malformed.write(to: liveAuth)
+        let crashing = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            faultInjector: { point in
+                if point == .afterDefaultCredentialPublication {
+                    throw AIManagerError.operationFailed("injected interruption")
+                }
+            }
+        )
+
+        await XCTAssertThrowsErrorAsync(try await crashing.switchDefault(to: incoming.id))
+        XCTAssertNotEqual(try Data(contentsOf: liveAuth), malformed)
+
+        let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let results = try await recovering.recover()
+
+        XCTAssertEqual(results.first?.outcome, .rolledBack)
+        XCTAssertEqual(try Data(contentsOf: liveAuth), malformed)
+        let recoveredStatus = try await recovering.status()
+        XCTAssertTrue(recoveredStatus.pendingRecovery.isEmpty)
+    }
+
     func testCrashAfterDefaultPublicationRestoresOutgoingAuth() async throws {
         let outgoing = try authData(account: "outgoing", workspace: "workspace")
         try outgoing.write(to: paths.defaultHome.appending(path: "auth.json"))
