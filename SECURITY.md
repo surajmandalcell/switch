@@ -1,6 +1,6 @@
 # Security policy
 
-Switch provides a native macOS account-manager GUI and shared core and
+Switch provides a native Mac account-manager GUI and shared core and
 terminal tools for macOS and Linux. It does not provide a proxy, provider
 router, hosted service, or OAuth implementation.
 

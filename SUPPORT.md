@@ -10,9 +10,9 @@ scripts/build-native.sh
 scripts/check-release-readiness.sh
 ```
 
-The Switch GUI supports macOS 14 or later; Apple Silicon is the first
-verified GUI target. `AIManagerCore` and the `ai-manager` terminal interface
-support macOS and Linux. The native GUI does not run on Linux. Codex is optional
+The Switch Mac GUI supports macOS 14 or later; Apple Silicon is the first
+verified target. `AIManagerCore` and the `ai-manager` terminal interface
+support macOS and Linux. The Mac GUI does not run on Linux. Codex is optional
 for offline discovery and contract tests.
 
 ## Report a defect

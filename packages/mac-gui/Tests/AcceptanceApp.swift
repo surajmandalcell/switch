@@ -63,7 +63,7 @@ private enum AcceptanceConfiguration {
     static var appearance: ColorScheme? {
         if CommandLine.arguments.contains("--dark") { return .dark }
         if CommandLine.arguments.contains("--light") { return .light }
-        switch Bundle.main.object(forInfoDictionaryKey: "AIManagerGUIAppearance") as? String {
+        switch Bundle.main.object(forInfoDictionaryKey: "AIManagerMacGUIAppearance") as? String {
         case "dark": return .dark
         case "light": return .light
         default: return nil
@@ -136,7 +136,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 }
         )
 
-        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Switch GUI Acceptance"
+        let title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Switch Mac GUI Acceptance"
         let controller = AIManagerWindowController(
             title: title,
             rootView: content
@@ -217,7 +217,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-enum AIManagerGUIAcceptanceApp {
+enum AIManagerMacGUIAcceptanceApp {
     @MainActor
     static func main() {
         let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
@@ -316,7 +316,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     failures.append(contentsOf: AIManagerNativeContract.menuFailures(
         in: NSApp.mainMenu,
         applicationName: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? "Switch GUI Acceptance"
+            ?? "Switch Mac GUI Acceptance"
     ))
     failures.append(contentsOf: (NSApp.delegate as? AcceptanceAppDelegate)?.menuNavigationFailures ?? [])
     if !AcceptanceConfiguration.contractOnly {
@@ -421,7 +421,7 @@ private final class AcceptanceReceipts {
     weak var model: AccountViewModel?
     private static let stableDirectory = URL(
         fileURLWithPath: ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"]
-            ?? "/private/tmp/ai-manager-build/gui-acceptance/artifacts",
+            ?? "/private/tmp/ai-manager-build/mac-gui-acceptance/artifacts",
         isDirectory: true
     )
     private let directory: URL?

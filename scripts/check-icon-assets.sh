@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-icons="$repo_root/packages/gui/Resources/Icons"
+icons="$repo_root/packages/mac-gui/Resources/Icons"
 build_root="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}/icon-contract"
 expected="$build_root/expected"
 actual="$build_root/actual"

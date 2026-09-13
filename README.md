@@ -12,21 +12,21 @@ The repository contains one Swift package with three products:
 | Product | Path | Purpose |
 | --- | --- | --- |
 | `AIManagerCore` | `packages/core` | Shared contracts and account operations |
-| `AIManager` | `packages/gui` | Native SwiftUI account window |
+| `AIManager` | `packages/mac-gui` | Native Mac GUI account window |
 | `ai-manager` | `packages/tui` | CLI and interactive terminal interface |
 
-The CLI and normal GUI use the core operations. Preview uses matching synthetic
+The CLI and normal Mac GUI use the core operations. Preview uses matching synthetic
 contracts without filesystem or account side effects.
 
 ## Platform support
 
-- The native GUI supports macOS 14 or later.
+- The native Mac GUI supports macOS 14 or later.
 - `AIManagerCore` and the `ai-manager` terminal interface support macOS and Linux.
-- Building requires a compatible Swift toolchain; the macOS GUI build uses Xcode.
+- Building requires a compatible Swift toolchain; the Mac GUI build uses Xcode.
 - Codex is optional for discovery and offline tests.
 
-The first verified GUI target is Apple Silicon. Intel GUI support needs a
-separate verified build. The native GUI does not run on Linux.
+The first verified Mac GUI target is Apple Silicon. Intel support needs a
+separate verified build. The Mac GUI does not run on Linux.
 
 ## Build and test
 

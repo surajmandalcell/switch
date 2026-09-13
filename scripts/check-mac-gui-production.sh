@@ -4,8 +4,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
-output_path="$build_path/gui-production-check"
-test_root="$(mktemp -d "${TMPDIR:-/tmp}/switch-gui-production.XXXXXX")"
+output_path="$build_path/mac-gui-production-check"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/switch-mac-gui-production.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
 
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
@@ -23,13 +23,13 @@ swiftc \
   -lAIManagerCore \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
-  "$repo_root/packages/gui/Sources/AIManagerGUI/AccountViewModel.swift" \
-  "$repo_root/packages/gui/Tests/ProductionAccountViewModelCheck.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \
+  "$repo_root/packages/mac-gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
 
 if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import completed|Show demo error|DemoData|AccountViewModel\.Scenario|AcceptanceApp|AIManagerNativeContract' \
   < <(/usr/bin/strings "$output_path"); then
-  printf '%s\n' 'Production GUI check contains Preview-only data.' >&2
+  printf '%s\n' 'Production Mac GUI check contains Preview-only data.' >&2
   exit 1
 fi
 

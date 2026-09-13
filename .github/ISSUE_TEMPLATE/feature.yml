@@ -14,7 +14,7 @@ body:
     id: area
     attributes:
       label: Main area
-      options: [Discovery, Auth-only import, Full import, Account switching, Shared chats, GUI, CLI, Build and docs]
+      options: [Discovery, Auth-only import, Full import, Account switching, Shared chats, Mac GUI, CLI, Build and docs]
     validations:
       required: true
   - type: textarea

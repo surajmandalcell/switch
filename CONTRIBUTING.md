@@ -1,8 +1,8 @@
 # Contributing
 
 Read [goals.md](goals.md) before implementation. It defines Switch's
-Codex account-manager scope and acceptance gates. The GUI supports macOS 14 or
-later. The core library and terminal interface support macOS and Linux; the GUI
+Codex account-manager scope and acceptance gates. The Mac GUI supports macOS 14 or
+later. The core library and terminal interface support macOS and Linux; the Mac GUI
 does not run on Linux.
 
 ## Build and test
@@ -27,9 +27,9 @@ repository.
 ## Code boundaries
 
 - `packages/core` owns shared contracts and account operations.
-- `packages/gui` owns the SwiftUI app and macOS file panels.
+- `packages/mac-gui` owns the SwiftUI app and macOS file panels.
 - `packages/tui` owns CLI argument and terminal presentation code.
-- GUI and CLI call core operations. They do not duplicate file mutation logic.
+- Mac GUI and CLI call core operations. They do not duplicate file mutation logic.
 - Core code does not access the login Keychain or execute imported commands.
 
 Preserve the transaction and recovery rules in [ADR 0003](docs/adr/0003-credential-transactions.md).

@@ -14,4 +14,4 @@ Describe the user-visible Switch behavior.
 - [ ] Source Codex homes remain unchanged by tests.
 - [ ] Credential bytes stay out of logs, errors, process arguments, and docs.
 - [ ] Recovery behavior is preserved for every mutation.
-- [ ] GUI and CLI use the same core operation and contract.
+- [ ] Mac GUI and CLI use the same core operation and contract.

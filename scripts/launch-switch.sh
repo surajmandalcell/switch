@@ -10,5 +10,5 @@ if [[ "${1:-}" != "--preview" || "$#" -ne 1 ]]; then
   exit 2
 fi
 
-AI_MANAGER_GUI_PREVIEW=1 "$repo_root/scripts/build-gui-acceptance.sh"
+AI_MANAGER_MAC_GUI_PREVIEW=1 "$repo_root/scripts/build-mac-gui-acceptance.sh"
 open "$build_path/preview/Switch.app"
