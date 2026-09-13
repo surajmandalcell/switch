@@ -86,10 +86,10 @@ jobs:
 
       - name: Check generated app metadata
         run: |
-          test -x "/private/tmp/ai-manager-build/package/IIA Directeur.app/Contents/MacOS/AIManager"
+          test -x "/private/tmp/ai-manager-build/package/Switch.app/Contents/MacOS/AIManager"
           test -x "/private/tmp/ai-manager-build/artifacts/ai-manager"
-          /usr/bin/plutil -lint "/private/tmp/ai-manager-build/package/IIA Directeur.app/Contents/Info.plist"
-          /usr/bin/codesign --verify --deep --strict "/private/tmp/ai-manager-build/package/IIA Directeur.app"
+          /usr/bin/plutil -lint "/private/tmp/ai-manager-build/package/Switch.app/Contents/Info.plist"
+          /usr/bin/codesign --verify --deep --strict "/private/tmp/ai-manager-build/package/Switch.app"
           scripts/check-release-readiness.sh
 
       - name: Check patch formatting
@@ -100,7 +100,7 @@ jobs:
         with:
           name: ai-manager-${{ runner.os }}-${{ github.sha }}
           path: |
-            /private/tmp/ai-manager-build/package/IIA Directeur.app
+            /private/tmp/ai-manager-build/package/Switch.app
             /private/tmp/ai-manager-build/artifacts/ai-manager
           if-no-files-found: error
           retention-days: 7

@@ -1,6 +1,6 @@
 # macOS package
 
-IIA Directeur uses an ordinary app bundle with no extra entitlements. It does not
+Switch uses an ordinary app bundle with no extra entitlements. It does not
 request Full Disk Access, Accessibility, Automation, or network access.
 
 The app reads a selected Codex home through native file APIs. A denied path is

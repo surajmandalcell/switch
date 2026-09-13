@@ -1,4 +1,4 @@
-# AI Manager instructions
+# Switch instructions
 
 For implementation, tests, UI, packaging, or documentation, read [goals.md](goals.md) first.
 It owns the current native macOS Codex account-manager scope and acceptance gates.

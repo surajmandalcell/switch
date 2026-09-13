@@ -4,7 +4,7 @@ Research date: 2026-09-13
 
 ## Decision
 
-IIA Directeur keeps one live Codex home at `~/.codex`. It stores one complete
+Switch keeps one live Codex home at `~/.codex`. It stores one complete
 authentication record per account at `~/.switch/codex/<account-UUID>.json` and
 atomically copies the selected record over `~/.codex/auth.json`. It leaves config,
 instructions, skills, hooks, sessions, history, indexes, and databases unchanged.
@@ -21,7 +21,7 @@ The auth-only model has three strict limits:
 2. The switch applies to new Codex processes. A running process caches its
    current identity and must reload or restart.
 3. Shared history means every managed account can see the same local chat and
-   session records. This is intentional for IIA Directeur.
+   session records. This is intentional for Switch.
 
 The live file is deliberately not a symbolic link. Current Codex opens
 `auth.json` with truncate-and-write, so a link happens to receive token refreshes
@@ -73,7 +73,7 @@ The source review was refreshed against OpenAI Codex commit
 OpenAI merged account-session protocol data types, but current main does not
 register or implement the switch routes. The related lifecycle
 [`PR #25383`](https://github.com/openai/codex/pull/25383) closed without merge.
-IIA Directeur cannot depend on that proposed interface.
+Switch cannot depend on that proposed interface.
 
 ## Current tools
 
@@ -108,7 +108,7 @@ The broader product review found the same split:
   intentionally uses a live symlink for refresh write-through, but documents that
   running `codex login` can overwrite the active saved account through that link.
 
-## IIA Directeur safety contract
+## Switch safety contract
 
 1. Lock each target home before inspection or mutation.
 2. Reject an unresolved owner. For ChatGPT, compare auth mode,
