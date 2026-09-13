@@ -39,6 +39,8 @@ extension EnvironmentValues {
 enum AIMTheme {
   static let radius: CGFloat = 3
   static let railWidth: CGFloat = 48
+  static let railIconSize: CGFloat = 17
+  static let historyRailIconSize: CGFloat = railIconSize * 0.85
   static let topbarHeight: CGFloat = 48
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48

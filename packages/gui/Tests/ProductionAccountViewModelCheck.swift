@@ -160,6 +160,11 @@ struct ProductionAccountViewModelCheck {
                    "The isolated profile action changed the clipboard")
         try expect(model.notice?.contains("clipboard was not changed") == true,
                    "Clipboard suppression was not reported")
+        model.copyWarnings(["First warning", "Second warning"])
+        try expect(NSPasteboard.general.changeCount == pasteboardChange,
+                   "The isolated warning action changed the clipboard")
+        try expect(model.notice == "2 warnings validated in isolation. The clipboard was not changed.",
+                   "Warning clipboard suppression was not reported")
         model.showSharedRoot()
         try expect(model.notice?.contains("Finder was not opened") == true,
                    "Finder suppression was not reported")

@@ -28,6 +28,9 @@ enum AIManagerNativeContract {
     {
       failures.append("Chat History does not use the required system chat symbol")
     }
+    if abs(AIMTheme.historyRailIconSize - (AIMTheme.railIconSize * 0.85)) > 0.001 {
+      failures.append("The Chat History rail symbol is not 15 percent smaller")
+    }
     let expectedMenus = [applicationName, "File", "Edit", "View", "Window", "Help"]
     if mainMenu.items.map(\.title) != expectedMenus {
       failures.append("Main menu order does not match the native menu contract")

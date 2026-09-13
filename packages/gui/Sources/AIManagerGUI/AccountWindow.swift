@@ -105,6 +105,9 @@ private extension AIManagerPage {
     case .settings: .settings
     }
   }
+  var railIconSize: CGFloat {
+    self == .history ? AIMTheme.historyRailIconSize : AIMTheme.railIconSize
+  }
   var subtitle: String {
     switch self {
     case .accounts: "Import, verify, and switch accounts"
@@ -146,7 +149,9 @@ struct AccountWindow: View {
             topbar
             Group {
               if let error = model.errorMessage, !model.showImport {
-                ErrorBar(message: error) { model.errorMessage = nil }
+                ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+                  model.errorMessage = nil
+                }
                   .padding(.horizontal, 12).padding(.top, 12)
                   .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
               }
@@ -256,7 +261,10 @@ struct AccountWindow: View {
       Color.clear.frame(width: AIMTheme.railWidth, height: AIMTheme.railWidth)
         .accessibilityHidden(true)
       ForEach(AIManagerPage.allCases, id: \.self) { item in
-        RailButton(icon: item.icon, label: item.rawValue, active: page == item) { page = item }
+        RailButton(
+          icon: item.icon, label: item.rawValue, active: page == item,
+          iconSize: item.railIconSize
+        ) { page = item }
       }
       Spacer()
       RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false)
@@ -396,6 +404,7 @@ private struct RailTop: View {
 private struct RailButton: View {
   let icon: AIMIcon.Name, label: String, active: Bool
   var disabled = false
+  var iconSize = AIMTheme.railIconSize
   let action: () -> Void
   @State private var hover = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -403,7 +412,7 @@ private struct RailButton: View {
   private var unavailable: Bool { disabled || !isEnabled }
   var body: some View {
     Button(action: action) {
-      AIMIcon(name: icon).frame(width: 48, height: 48).foregroundStyle(
+      AIMIcon(name: icon, size: iconSize).frame(width: 48, height: 48).foregroundStyle(
         active ? AIMTheme.activeInk : (hover && !unavailable ? AIMTheme.ink : AIMTheme.railIdle)
       ).background(active ? AIMTheme.active : (hover && !unavailable ? AIMTheme.panel2 : .clear))
         .contentShape(Rectangle())
@@ -642,6 +651,11 @@ private struct AccountDetail: View {
                       .help(issue.localPath.path)
                   }
                   Spacer()
+                  WarningCopyButton(label: "Copy repair warning") {
+                    model.copyWarnings([
+                      "Shared setting needs repair: \(issue.relativePath)\nLocation: \(issue.localPath.path)"
+                    ])
+                  }
                   AIMButton(title: "Back up and repair", tone: .danger, disabled: model.isBusy) {
                     Task { await model.repairLinkedSetting(issue) }
                   }
@@ -771,7 +785,12 @@ private struct SharedSettingsPage: View {
           Notice(
             text:
               "\(issues.count) linked setting\(issues.count == 1 ? "" : "s") need review on the Accounts page.",
-            tone: AIMTheme.amber, icon: .warning)
+            tone: AIMTheme.amber, icon: .warning,
+            copy: {
+              model.copyWarnings([
+                "\(issues.count) linked setting\(issues.count == 1 ? "" : "s") need review on the Accounts page."
+              ])
+            })
         }
         Group {
           if let notice = model.notice {
@@ -839,9 +858,10 @@ private struct HistoryPage: View {
           .contentTransition(.numericText())
         Spacer(minLength: 8)
         if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
-          AIMIcon(name: .warning, size: 13).foregroundStyle(AIMTheme.amber)
-            .help(historyIssueText)
-            .accessibilityLabel(historyIssueText)
+          WarningCopyButton(label: "Copy history warning") {
+            model.copyWarnings([historyIssueText])
+          }
+          .help(historyIssueText)
         }
         if let error = model.chatHistoryError {
           HStack(spacing: 5) {
@@ -928,7 +948,16 @@ private struct HistoryPage: View {
 
   private var historyIssueText: String {
     let result = model.chatHistory
-    return "\(result.skippedFileCount) files and \(result.unreadableRecordCount) records could not be read."
+    var parts: [String] = []
+    if result.skippedFileCount > 0 {
+      parts.append(
+        "\(result.skippedFileCount) transcript file\(result.skippedFileCount == 1 ? " was" : "s were") skipped")
+    }
+    if result.unreadableRecordCount > 0 {
+      parts.append(
+        "\(result.unreadableRecordCount) oversized or malformed record\(result.unreadableRecordCount == 1 ? " was" : "s were") skipped")
+    }
+    return parts.joined(separator: "; ") + "."
   }
 }
 
@@ -1017,7 +1046,12 @@ private struct ChatDetailPane: View {
             if detail.omittedMessageCount > 0 {
               Notice(
                 text: "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast.",
-                tone: AIMTheme.amber, icon: .warning)
+                tone: AIMTheme.amber, icon: .warning,
+                copy: {
+                  model.copyWarnings([
+                    "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast."
+                  ])
+                })
             }
             ForEach(detail.messages) { message in
               ChatMessageRow(message: message)
@@ -1121,6 +1155,11 @@ private struct BackupPage: View {
                         .help(item.destination.path)
                     }
                     Spacer()
+                    WarningCopyButton(label: "Copy backup warning") {
+                      model.copyWarnings([
+                        "Pending \(item.kind) operation (\(item.phase.rawValue))\nDestination: \(item.destination.path)"
+                      ])
+                    }
                     Badge(text: item.phase.rawValue, color: AIMTheme.amber)
                   }.padding(.horizontal, 16).frame(minHeight: 44)
                   if item.phase == .conflicted {
@@ -1236,25 +1275,101 @@ private struct BackupExampleRow: View {
   }
 }
 #endif
+private struct WarningCopyButton: View {
+  let label: String
+  var showsTitle = false
+  let action: () -> Void
+  @State private var copied = false
+  @State private var hovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    Button {
+      action()
+      withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state)) { copied = true }
+      Task {
+        try? await Task.sleep(for: .milliseconds(900))
+        guard !Task.isCancelled else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state)) { copied = false }
+      }
+    } label: {
+      HStack(spacing: 5) {
+        AIMIcon(name: copied ? .check : .copy, size: 12)
+        if showsTitle {
+          Text(copied ? "Copied" : "Copy warnings")
+            .font(AIMTheme.sans(10, weight: .medium))
+        }
+      }
+      .padding(.horizontal, showsTitle ? 9 : 0)
+      .frame(minWidth: showsTitle ? 92 : 28, minHeight: 28)
+      .foregroundStyle(copied ? AIMTheme.green : AIMTheme.amber)
+      .background(hovered ? AIMTheme.controlHover : Color.clear)
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .onHover { hovered = $0 }
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hovered)
+    .help(label)
+    .accessibilityLabel(label)
+  }
+}
+
+private struct WarningList: View {
+  let warnings: [String]
+  let copy: ([String]) -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack {
+        Text("\(warnings.count) item\(warnings.count == 1 ? "" : "s") need attention")
+          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        Spacer()
+        WarningCopyButton(label: "Copy all warnings", showsTitle: true) { copy(warnings) }
+      }
+      .padding(.horizontal, 12)
+      .frame(minHeight: 38)
+      .background(AIMTheme.panel2.opacity(0.55))
+      ForEach(Array(warnings.enumerated()), id: \.offset) { index, warning in
+        HStack(alignment: .top, spacing: 10) {
+          AIMIcon(name: .warning, size: 13).foregroundStyle(AIMTheme.amber)
+          Text(warning).font(AIMTheme.sans(11)).textSelection(.enabled)
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(index.isMultiple(of: 2) ? Color.clear : AIMTheme.panel2.opacity(0.55))
+      }
+    }
+  }
+}
+
 private struct Notice: View {
   let text: String, tone: Color
   var icon: AIMIcon.Name = .info
+  var copy: (() -> Void)? = nil
   var body: some View {
     HStack(alignment: .top, spacing: 10) {
       AIMIcon(name: icon, size: 14).foregroundStyle(tone)
       Text(text).font(AIMTheme.sans(11)).textSelection(.enabled)
       Spacer()
+      if let copy {
+        WarningCopyButton(label: "Copy warning", action: copy)
+      }
     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AIMTheme.panel)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
   }
 }
 private struct ErrorBar: View {
-  let message: String, dismiss: () -> Void
+  let message: String
+  let copy: () -> Void
+  let dismiss: () -> Void
   var body: some View {
     HStack(spacing: 10) {
       AIMIcon(name: .warning, size: 14).foregroundStyle(AIMTheme.red)
       Text(message).font(AIMTheme.sans(11)).lineLimit(2).textSelection(.enabled)
       Spacer()
+      WarningCopyButton(label: "Copy error", action: copy)
       AIMButton(title: "Dismiss", action: dismiss)
     }.padding(12).background(AIMTheme.panel)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
@@ -1276,8 +1391,10 @@ private struct ImportFlow: View {
       }
       Group {
         if let error = model.errorMessage {
-          ErrorBar(message: error) { model.errorMessage = nil }.padding(.horizontal, 24).padding(
-            .top, 12)
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
+          }
+          .padding(.horizontal, 24).padding(.top, 12)
             .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
         }
       }
@@ -1567,11 +1684,7 @@ private struct ImportReviewPage: View {
           }
           if !plan.warnings.isEmpty {
             AIMPanel(title: "Warnings") {
-              VStack(spacing: 0) {
-                ForEach(plan.warnings, id: \.self) {
-                  Notice(text: $0, tone: AIMTheme.amber, icon: .warning)
-                }
-              }
+              WarningList(warnings: plan.warnings) { model.copyWarnings($0) }
             }
           }
           if !plan.conflicts.isEmpty {
@@ -1669,11 +1782,7 @@ private struct ImportResultPage: View {
           }
           if !result.unresolved.isEmpty {
             AIMPanel(title: "Unresolved items") {
-              VStack(spacing: 0) {
-                ForEach(result.unresolved, id: \.self) {
-                  Notice(text: $0, tone: AIMTheme.amber, icon: .warning)
-                }
-              }
+              WarningList(warnings: result.unresolved) { model.copyWarnings($0) }
             }
           }
           Notice(
