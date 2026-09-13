@@ -147,12 +147,11 @@ struct AIMVisualEffect: NSViewRepresentable {
 
 struct AIMIcon: View {
   enum Name: CaseIterable {
-    case mark, account, settings, history, recovery, plus, refresh, moon, sun, close, minimize
+    case account, settings, history, recovery, plus, refresh, moon, sun, close, minimize
     case chevron, check, square, checkSquare, folder, play, copy, warning, info, success
 
     var symbol: String {
       switch self {
-      case .mark: "play.rectangle"
       case .account: "person.crop.circle"
       case .settings: "gearshape"
       case .history: "clock.arrow.circlepath"
@@ -180,21 +179,12 @@ struct AIMIcon: View {
   let name: Name
   var size: CGFloat = 17
 
-  @ViewBuilder
   var body: some View {
-    if name == .mark, let mark = AIManagerBrand.railMark() {
-      Image(nsImage: mark)
-        .resizable()
-        .scaledToFit()
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    } else {
-      Image(systemName: name.symbol)
-        .font(.system(size: size, weight: .regular))
-        .symbolRenderingMode(.monochrome)
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
+    Image(systemName: name.symbol)
+      .font(.system(size: size, weight: .regular))
+      .symbolRenderingMode(.monochrome)
+      .frame(width: size, height: size)
+      .accessibilityHidden(true)
   }
 }
 
