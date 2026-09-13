@@ -35,7 +35,7 @@ expected_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD)" || fail "so
 /usr/bin/codesign --verify --strict "$app_path/Contents/Helpers/ai-manager" || fail "bundled account launcher signature is invalid"
 /usr/bin/codesign --verify --strict "$cli_path" || fail "CLI signature is invalid"
 
-if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import completed|Show demo error' \
+if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import completed|Show demo error|DemoData|AccountViewModel\.Scenario|AcceptanceApp|AIManagerNativeContract' \
   < <(/usr/bin/strings "$app_path/Contents/MacOS/AIManager"); then
   fail "production executable contains Preview-only data"
 fi

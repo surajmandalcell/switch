@@ -27,7 +27,7 @@ swiftc \
   "$repo_root/packages/gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
 
-if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import completed|Show demo error' \
+if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import completed|Show demo error|DemoData|AccountViewModel\.Scenario|AcceptanceApp|AIManagerNativeContract' \
   < <(/usr/bin/strings "$output_path"); then
   printf '%s\n' 'Production GUI check contains Preview-only data.' >&2
   exit 1
