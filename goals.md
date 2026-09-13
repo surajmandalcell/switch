@@ -1805,7 +1805,8 @@ with temporary synthetic homes before installation.
 
 ### Switch rename acceptance (2026-09-13)
 
-- The production bundle is `Switch.app`, the design build is `Switch Preview.app`, and all
+- The production bundle is `Switch.app`, the design build is an uninstalled `Switch.app` under
+  the canonical Preview build directory, and all
   user-facing app, menu, status-item, error, documentation, CI, and release archive names use
   Switch. The bundle identifiers, internal Swift targets, `ai-manager` command, application data
   root, and window autosave key stay unchanged so the rename preserves existing data and window
@@ -1813,13 +1814,35 @@ with temporary synthetic homes before installation.
 - The native gate discovers 88 core contracts: 86 pass and the two protected-copy checks remain
   explicit opt-ins. Production and demo model checks, System/Light/Dark window contracts, thin
   overlay scrollbars, single-instance behavior, and the fixed-window contract pass.
-- The signed production and Preview bundles pass strict signature checks. The installed bundles
-  match their build manifests, and the installed Preview passes the System, Light, and Dark
-  window contracts with isolated homes. The installed CLI matches the bundled helper and passes
+- The signed production and uninstalled Preview bundles pass strict signature checks. The
+  production installation matches its build manifest, and the Preview build passes the System,
+  Light, and Dark window contracts with isolated homes. The installed CLI matches the bundled helper and passes
   an isolated status smoke test.
-- The prior installed IIA Directeur bundles are preserved in the canonical rollback directory and
-  removed from Applications only after both Switch bundles verify. The final exact revision,
+- The prior installed IIA Directeur and Switch Preview bundles are preserved in the canonical
+  rollback directory and removed from Applications after the production and uninstalled Preview
+  builds verify. The final exact revision,
   hashes, paths, signatures, and readiness state are stored in
   `/private/tmp/ai-manager-build/final-install-receipt.json`.
 - Local release readiness passes. Public readiness stops because this Mac has no Developer ID
   Application identity, so the app is not notarized and is not ready for public distribution.
+
+### Preview isolation and supplied icon acceptance (2026-09-13)
+
+- `scripts/launch-switch.sh --preview` builds `/private/tmp/ai-manager-build/preview/Switch.app`
+  with `AI_MANAGER_PREVIEW` and opens that uninstalled bundle. It keeps the Preview bundle
+  identifier separate from production. There is no installed Preview application.
+- Production compilation excludes `Scenario`, all in-memory sample records and paths, mock action
+  branches, mock delays, recovery examples, and Preview controls. Both the production model test
+  and release-readiness gate inspect the executable and reject stable Preview-only strings. The
+  signed production executable at the icon checkpoint contains none of those strings.
+- Icon archive `switch_icon17_asset_pack.zip` has SHA-256
+  `f8c74c8bd12e3c76296c80f1f7d3b33508aee700b8cf658e8fdc37697dc93570`.
+  Its balanced path is the Dock and rail mark; its heavier menu-bar path supplies the native
+  template. Generated light and dark Dock PNGs are 1024 by 1024 with alpha, menu-bar assets are
+  22 and 44 pixels, the rail export is 256 by 256, and the ICNS expands to all ten expected slots.
+  The app changes its Dock treatment when its selected appearance changes; AppKit tints the
+  menu-bar template for the active system appearance.
+- `scripts/check-native.sh` passes 86 executed core contracts with zero failures and two explicit
+  protected-copy skips, both GUI model checks, System/Light/Dark window contracts, the fixed-window
+  and single-instance contracts, and native thin-scrollbar behavior. The clean signed release at
+  code checkpoint `51b6846` passes local readiness and strict signature checks.
