@@ -2122,3 +2122,19 @@ with temporary synthetic homes before installation.
   unprivileged `linux/arm64` and `linux/amd64` containers each passed the same test inventory plus
   the complete release CLI discovery, import, activation, open, recovery, SQLite, symlink,
   permission, and isolated-home acceptance flow.
+
+### Dock top sheen acceptance (2026-09-13)
+
+- Light and Dark icons now add one top-biased white gradient above the unchanged neutral-black
+  tile. It peaks at 0.035 opacity in Light and 0.028 in Dark, drops to roughly one-third strength
+  after the top quarter, and reaches zero at 46% of the tile height. The approved Pixel trace
+  remains byte-identical at SHA-256
+  `bdeec18e308f1587716dbd4f5b0b9adf73ed4fe8bfeed3a8953e08cc8843f252`.
+- Deterministic regeneration and byte comparison pass. Light PNG SHA-256 is
+  `5f01281668ccc46b78101463c3156d5e0b4ebfe7cbf27704de98ae395a6e5cd8`, Dark PNG SHA-256 is
+  `6007c40e4a27eff5e64c516836a4d3c5ba606e0a37bc44c147df55557afbe122`, and ICNS SHA-256 is
+  `8c405363493be0767e6b1177585b115ad7dd6c48ff60e551bedea6ac442aa475`.
+- The 1024-point before/after Light and Dark comparison at
+  `/private/tmp/ai-manager-build/icon-top-sheen-review.png` was inspected at full resolution. The
+  top lift is visible without changing the dark center or lower shading. The Impeccable detector
+  returned no findings, and the exact-source native gate passed all Mac GUI and icon contracts.
