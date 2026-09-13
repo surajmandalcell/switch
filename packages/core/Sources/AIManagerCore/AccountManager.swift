@@ -106,7 +106,13 @@ public actor AccountManager {
         if let existing = registry.accounts.first(where: { provider.sameIdentity($0.identity, identity) }), existing.credentialDigest != inspection.digest {
             conflicts.append(.init(relativePath: "auth.json", importedDigest: inspection.digest, sharedDigest: existing.credentialDigest, affectsAllAccounts: false))
         }
-        var warnings = manifest.filter { !$0.selected }.map { "Excluded \($0.relativePath): \($0.disposition)" }
+        var warnings = manifest.compactMap { entry -> String? in
+            guard !entry.selected,
+                  entry.disposition.contains("requires explicit review")
+                    || entry.disposition.contains("symbolic links are not imported")
+            else { return nil }
+            return "Excluded \(entry.relativePath): \(entry.disposition)"
+        }
         if try sourceMayBeChanging(source) { warnings.append("The source appears active. Close Codex before a full import.") }
         var requiredBytes = manifest.filter(\.selected).reduce(Int64(0)) { partial, entry in
             let (sum, overflow) = partial.addingReportingOverflow(entry.byteCount)
