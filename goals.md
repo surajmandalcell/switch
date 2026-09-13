@@ -172,6 +172,18 @@ the Dock, Spotlight, in-app mark, and menu-bar template. Context-specific paddin
 allowed; reconstructing, smoothing, widening, or otherwise changing its outline or counters is
 not. Retire the previous fourfold hand-fit mark and the menu-bar optical geometry.
 
+Icon composition and import-layout refinement (2026-09-13): keep the approved pixel trace exact,
+but scale its Dock and Spotlight treatment to a 640-point foreground box and offset that box to
+center the trace by visible mass on the 1024-point canvas. Use a darker graphite tile in both
+appearances and reduce the painted edge highlight to a quiet two-point rim; the mark remains crisp
+and unblurred. The import modal uses a 48-point titlebar with a dedicated 48 by 48 trailing Close
+cell that touches the top and trailing modal edges. The step indicator must end before that cell and
+never share its layout region. Close changes to red on hover. Modal title and content share the
+24-point outer grid; panel rows share the 16-point inner grid; source controls align to their first
+text line; and 16-point group spacing separates the provider, source, scope, explanation, and
+actions. Use a 780 by 648-point modal at the fixed 1120 by 740 window size so all three standard
+source rows remain visible without compressing the section rhythm.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
