@@ -2089,3 +2089,31 @@ with temporary synthetic homes before installation.
   two explicit protected-copy opt-ins. Production and Preview model checks, System/Light/Dark
   window contracts, deterministic icon output, fixed-window behavior, thin scrollbars, and
   single-instance behavior pass. The exact signed installation is recorded after this checkpoint.
+
+### Mac window placement, package, and terminal acceptance (2026-09-13)
+
+- The Mac GUI stores the selected display identity and the fixed window's top-left offset inside
+  that display's visible frame. It restores negative desktop coordinates, follows a saved display
+  after macOS rearranges the desktop, and clamps the 1120 by 740 window into the current visible
+  frame. If the saved display is disconnected, the app centers on an available display without
+  replacing the external-display preference until the user moves the window.
+- The migration recognizes the workstation's legacy AppKit record for `Gigabyte M32U` at
+  `{-732, 1460}` even though the old record stored a 2130-point usable height and the current
+  display reports 2160 points. Synthetic contracts cover negative coordinates, rearrangement,
+  clamping, missing displays, unrelated legacy frames, and a UserDefaults encode/decode round trip.
+  This supersedes the earlier frame-autosave-only acceptance claim.
+- The macOS-only package is now `packages/mac-gui`, and its Swift target is `AIManagerMacGUI`.
+  Mac-only build and acceptance scripts use `mac-gui` names. The shipping product remains
+  `AIManager` inside `Switch.app`, so the executable, bundle identity, user data, and installed
+  command stay compatible.
+- `packages/tui` remains the macOS and Linux terminal implementation. It provides the
+  `ai-manager` command set and a prompt-driven `ai-manager interactive` flow backed by
+  `AIManagerCore`; it is not a full-screen two-dimensional terminal interface. The macOS binary
+  built and its discovery and interactive review ran until the active Codex process correctly
+  blocked mutation because writer ownership was unknown.
+- `scripts/check-native.sh` passed all 92 discovered tests with 90 executions and two authorized
+  private-copy skips. Both Mac GUI models, the Pixel-trace icon, System/Light/Dark window and menu
+  contracts, single-instance behavior, and thin scrollbars passed after the rename. Read-only,
+  unprivileged `linux/arm64` and `linux/amd64` containers each passed the same test inventory plus
+  the complete release CLI discovery, import, activation, open, recovery, SQLite, symlink,
+  permission, and isolated-home acceptance flow.
