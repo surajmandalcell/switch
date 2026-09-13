@@ -157,6 +157,16 @@ reference silhouette: four balanced outer lobes, one upper-right circular cutout
 lower-left open-ring cutout. Compare faithful, symmetry-corrected, and tiny-size candidates,
 then ship the closest symmetric mark that remains clear at 16, 22, 44, and 256 pixels.
 
+Icon trace review correction (2026-09-13): the earlier hand-fit vector is not accepted as
+an accurate copy of the supplied raster. Before replacing the production asset again, keep a
+standalone HTML review at `docs/design/switch-icon-trace-preview.html`. It must embed the
+supplied image and every candidate locally, place the source and selected vector on the same
+coordinates for split and overlay comparison, show actual-size 16, 22, 32, 44, and 64 pixel
+samples, and allow the selected SVG to be downloaded. Include a direct Potrace fidelity trace,
+three symmetry-strength options whose counters remain pixel-derived, and the rejected previous
+build for comparison. The review must make no network requests. Production artwork changes only
+after a candidate is selected from this review.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
@@ -1883,3 +1893,20 @@ with temporary synthetic homes before installation.
   the two authorized private-copy tests remain opt-in. Both GUI models, System/Light/Dark menu and
   window contracts, thin overlay scrollbars, and single-instance behavior pass at code checkpoints
   `feec7f3` and `c496190`.
+
+### Raster trace review acceptance (2026-09-13)
+
+- `docs/design/switch-icon-trace-preview.html` is a standalone 791 KB comparison artifact. It
+  embeds the 733-by-808 supplied PNG, the prior rejected app vector, one direct pixel trace, and
+  three symmetry-strength traces without external URLs or runtime requests.
+- The direct candidate was produced locally with Potrace 1.16 at a 45% luminance threshold,
+  alpha max 1.0, no speck removal, and no curve optimization. Its binary edge mismatch is 516 of
+  592,264 source-canvas pixels, or 0.0871%.
+- The balanced candidates reconstruct the outer silhouette from the untouched upper-right
+  quadrant with 24, 40, and 64 Fourier harmonics. The upper circular counter and lower open-ring
+  counter are preserved from source pixels, including the solid inner disc and its opening into
+  the body.
+- The artifact provides split, overlay, vector, and source modes; light and dark presentation;
+  exact-size 16, 22, 32, 44, and 64 pixel samples; and an SVG download for every candidate.
+  Headless Chrome renders of the default dark split view and light balanced vector view pass at
+  1440 by 900. The production icon remains unchanged until a review candidate is selected.
