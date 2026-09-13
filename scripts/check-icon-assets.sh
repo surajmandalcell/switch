@@ -64,10 +64,17 @@ cmp "$actual/SwitchMarkMenubar.png" "$icons/SwitchMarkMenubar.png"
 
 for appearance in Light Dark
 do
+  rg -F -q '<image x="245" y="258" width="520" height="520" xlink:href="SwitchMarkPixelTrace.svg"/>' \
+    "$icons/AppIcon${appearance}.svg"
+  rg -F -q 'stroke-width="1"' "$icons/AppIcon${appearance}.svg"
   rsvg-convert --width 1024 --height 1024 "$icons/AppIcon${appearance}.svg" \
     --output "$actual/AppIcon${appearance}.png"
   cmp "$actual/AppIcon${appearance}.png" "$icons/AppIcon${appearance}.png"
 done
+rg -F -q 'stop-color="#383d45"' "$icons/AppIconLight.svg"
+rg -F -q 'stop-opacity="0.07"' "$icons/AppIconLight.svg"
+rg -F -q 'stop-color="#292e35"' "$icons/AppIconDark.svg"
+rg -F -q 'stop-opacity="0.05"' "$icons/AppIconDark.svg"
 cmp "$icons/AppIconLight.png" "$icons/AppIcon.png"
 
 rsvg-convert --width 18 --height 18 --page-width 22 --page-height 22 --left 2 --top 2 \
