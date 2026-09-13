@@ -179,14 +179,23 @@ composition, whose foreground still occupied 76% of the tile width. Use a neutra
 whose gradient stops have equal red, green, and blue channels. Light must run from `#292929` to
 `#171717`; Dark must run from `#232323` to `#111111`. Reduce the painted edge highlight to a quiet
 one-point rim with no more than 0.07 opacity in Light or 0.05 in Dark; the mark remains crisp and
-unblurred. The
-import modal uses a 48-point titlebar with a dedicated 48 by 48 trailing Close
+unblurred. The import modal uses a 48-point titlebar with a dedicated 48 by 48 trailing Close
 cell that touches the top and trailing modal edges. The step indicator must end before that cell and
 never share its layout region. Close changes to red on hover. Modal title and content share the
 24-point outer grid; panel rows share the 16-point inner grid; source controls align to their first
 text line; and 16-point group spacing separates the provider, source, scope, explanation, and
 actions. Use a 780 by 648-point modal at the fixed 1120 by 740 window size so all three standard
 source rows remain visible without compressing the section rhythm.
+
+Mac window-placement and package naming correction (2026-09-13): persist the selected display and
+the window's top-left offset within that display's visible frame. Restore both on the next launch,
+including displays with negative desktop coordinates and displays whose desktop position changed.
+Clamp the fixed window into the saved display's current visible frame. If that display is absent,
+center safely on an available display without overwriting the saved external-display preference
+until the user moves the window. Replace the generic AppKit frame-autosave-only implementation and
+test a secondary-display restore contract with synthetic screen frames. Name the macOS-only UI
+module and package `Mac GUI` and `packages/mac-gui`; retain `packages/tui` as the macOS and Linux CLI
+plus interactive terminal interface.
 
 Navigation and live-history refinement (2026-09-13): order the rail and View menu as Accounts,
 Backup, Chat History, and Shared Settings. Rename the user-facing Recovery page and its copy to
