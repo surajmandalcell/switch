@@ -27,6 +27,7 @@ final class SettingsLinkContractTests: XCTestCase {
 
     func testRepairPreservesLocalEditAndRestoresReviewedLink() async throws {
         let (manager, account) = try await importedAccount(writer: { _ in .inactive })
+        _ = try await manager.switchDefault(to: account.id)
         let local = account.home.appending(path: "config.toml")
         try fileManager.removeItem(at: local)
         let localEdit = Data("local editor replacement".utf8)
@@ -35,10 +36,8 @@ final class SettingsLinkContractTests: XCTestCase {
         let status = try await manager.status()
         let issue = try XCTUnwrap(status.linkedSettingsDivergences.first)
         XCTAssertEqual(issue.accountID, account.id)
-        do {
-            _ = try await manager.launchSpec(accountID: account.id)
-            XCTFail("Expected launch to refuse divergent shared settings")
-        } catch {}
+        let launch = try await manager.launchSpec(accountID: account.id)
+        XCTAssertEqual(launch.environment["CODEX_HOME"], paths.defaultHome.path)
 
         let repaired = try await manager.repairLinkedSetting(
             accountID: account.id,
@@ -57,6 +56,7 @@ final class SettingsLinkContractTests: XCTestCase {
         let sharedAlias = root.appending(path: "shared-alias", directoryHint: .isDirectory)
         try fileManager.createSymbolicLink(at: sharedAlias, withDestinationURL: paths.sharedRoot)
         let (manager, account) = try await importedAccount(writer: { _ in .inactive })
+        _ = try await manager.switchDefault(to: account.id)
         let local = account.home.appending(path: "rules")
         try fileManager.removeItem(at: local)
         let aliasTarget = sharedAlias.appending(path: "rules", directoryHint: .isDirectory)

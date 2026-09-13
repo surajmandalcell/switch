@@ -2,6 +2,7 @@ import Foundation
 
 public struct ManagerPaths: Sendable {
     public var applicationSupport: URL
+    public var credentialStore: URL
     public var defaultHome: URL
     public var sharedRoot: URL
     public var orcaAccountsRoot: URL
@@ -10,6 +11,7 @@ public struct ManagerPaths: Sendable {
 
     public init(
         applicationSupport: URL,
+        credentialStore: URL? = nil,
         defaultHome: URL,
         sharedRoot: URL,
         orcaAccountsRoot: URL,
@@ -17,6 +19,8 @@ public struct ManagerPaths: Sendable {
         isolationRoot: URL? = nil
     ) {
         self.applicationSupport = applicationSupport
+        self.credentialStore = credentialStore
+            ?? applicationSupport.appending(path: "credential-store/codex", directoryHint: .isDirectory)
         self.defaultHome = defaultHome
         self.sharedRoot = sharedRoot
         self.orcaAccountsRoot = orcaAccountsRoot
@@ -29,6 +33,7 @@ public struct ManagerPaths: Sendable {
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return .init(
             applicationSupport: support.appending(path: "AI Manager", directoryHint: .isDirectory),
+            credentialStore: home.appending(path: ".switch/codex", directoryHint: .isDirectory),
             defaultHome: home.appending(path: ".codex", directoryHint: .isDirectory),
             sharedRoot: home.appending(path: ".codex", directoryHint: .isDirectory),
             orcaAccountsRoot: support.appending(path: "Orca/codex-accounts", directoryHint: .isDirectory)
@@ -43,11 +48,13 @@ public struct ManagerPaths: Sendable {
         if let value = url("AI_MANAGER_ROOT") {
             paths.isolationRoot = value
             paths.applicationSupport = value.appending(path: "application-support", directoryHint: .isDirectory)
+            paths.credentialStore = value.appending(path: ".switch/codex", directoryHint: .isDirectory)
             paths.defaultHome = value.appending(path: "default-home", directoryHint: .isDirectory)
             paths.sharedRoot = value.appending(path: "shared-root", directoryHint: .isDirectory)
             paths.orcaAccountsRoot = value.appending(path: "orca-accounts", directoryHint: .isDirectory)
         }
         if let value = url("AI_MANAGER_DEFAULT_HOME"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.defaultHome = value }
+        if let value = url("AI_MANAGER_CREDENTIAL_STORE"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.credentialStore = value }
         if let value = url("AI_MANAGER_SHARED_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.sharedRoot = value }
         if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.orcaAccountsRoot = value }
         if let value = url("AI_MANAGER_CODEX_EXECUTABLE") { paths.codexExecutable = value }
@@ -147,6 +154,7 @@ public struct VerificationResult: Codable, Sendable {
 public struct AccountRecord: Identifiable, Codable, Sendable {
     public var id: UUID
     public var identity: AccountIdentity
+    public var credentialFile: URL
     public var home: URL
     public var source: URL
     public var importedAt: Date
@@ -154,15 +162,47 @@ public struct AccountRecord: Identifiable, Codable, Sendable {
     public var lastUsedAt: Date?
     public var credentialDigest: String
 
-    public init(id: UUID, identity: AccountIdentity, home: URL, source: URL, importedAt: Date, verification: VerificationResult, lastUsedAt: Date? = nil, credentialDigest: String) {
+    public init(id: UUID, identity: AccountIdentity, credentialFile: URL? = nil, home: URL, source: URL, importedAt: Date, verification: VerificationResult, lastUsedAt: Date? = nil, credentialDigest: String) {
         self.id = id
         self.identity = identity
+        self.credentialFile = credentialFile ?? home.appending(path: "auth.json")
         self.home = home
         self.source = source
         self.importedAt = importedAt
         self.verification = verification
         self.lastUsedAt = lastUsedAt
         self.credentialDigest = credentialDigest
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, identity, credentialFile, home, source, importedAt, verification, lastUsedAt, credentialDigest
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        identity = try values.decode(AccountIdentity.self, forKey: .identity)
+        home = try values.decode(URL.self, forKey: .home)
+        credentialFile = try values.decodeIfPresent(URL.self, forKey: .credentialFile)
+            ?? home.appending(path: "auth.json")
+        source = try values.decode(URL.self, forKey: .source)
+        importedAt = try values.decode(Date.self, forKey: .importedAt)
+        verification = try values.decode(VerificationResult.self, forKey: .verification)
+        lastUsedAt = try values.decodeIfPresent(Date.self, forKey: .lastUsedAt)
+        credentialDigest = try values.decode(String.self, forKey: .credentialDigest)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(identity, forKey: .identity)
+        try values.encode(credentialFile, forKey: .credentialFile)
+        try values.encode(home, forKey: .home)
+        try values.encode(source, forKey: .source)
+        try values.encode(importedAt, forKey: .importedAt)
+        try values.encode(verification, forKey: .verification)
+        try values.encodeIfPresent(lastUsedAt, forKey: .lastUsedAt)
+        try values.encode(credentialDigest, forKey: .credentialDigest)
     }
 }
 
@@ -256,6 +296,7 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
     public var id: UUID
     public var source: URL
     public var destination: URL
+    public var credentialDestination: URL
     public var backup: URL
     public var mode: ImportMode
     public var identity: AccountIdentity
@@ -266,10 +307,11 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
     public var warnings: [String]
     public var requiredBytes: Int64
 
-    public init(id: UUID, source: URL, destination: URL, backup: URL, mode: ImportMode, identity: AccountIdentity, sourceAuthDigest: String, reviewedDataDigest: String, manifest: [ManifestEntry], conflicts: [SettingConflict], warnings: [String], requiredBytes: Int64) {
+    public init(id: UUID, source: URL, destination: URL, backup: URL, mode: ImportMode, identity: AccountIdentity, sourceAuthDigest: String, reviewedDataDigest: String, manifest: [ManifestEntry], conflicts: [SettingConflict], warnings: [String], requiredBytes: Int64, credentialDestination: URL? = nil) {
         self.id = id
         self.source = source
         self.destination = destination
+        self.credentialDestination = credentialDestination ?? destination.appending(path: "auth.json")
         self.backup = backup
         self.mode = mode
         self.identity = identity

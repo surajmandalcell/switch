@@ -93,14 +93,16 @@ public actor AccountManager {
             throw AIManagerError.unsupportedSource(inspection.error ?? inspection.support.rawValue)
         }
         guard let identity = inspection.identity, identity.isResolved else { throw AIManagerError.unresolvedIdentity }
-        let id = UUID()
-        let destination = paths.applicationSupport.appending(path: "accounts/\(id.uuidString)/home", directoryHint: .isDirectory)
+        let registry = try loadRegistry()
+        let existing = registry.accounts.first { provider.sameIdentity($0.identity, identity) }
+        let id = existing?.id ?? UUID()
+        let destination = existing?.home
+            ?? paths.applicationSupport.appending(path: "accounts/\(id.uuidString)/home", directoryHint: .isDirectory)
         guard !CoreSupport.isContained(source, by: paths.applicationSupport), !CoreSupport.isContained(destination, by: source) else {
             throw AIManagerError.unsafePath("source and managed destination overlap")
         }
         let manifest = try buildManifest(source: source, mode: mode)
         var conflicts = try mode == .full ? settingConflicts(source: source) : []
-        let registry = try loadRegistry()
         if let existing = registry.accounts.first(where: { provider.sameIdentity($0.identity, identity) }), existing.credentialDigest != inspection.digest {
             conflicts.append(.init(relativePath: "auth.json", importedDigest: inspection.digest, sharedDigest: existing.credentialDigest, affectsAllAccounts: false))
         }
@@ -135,7 +137,8 @@ public actor AccountManager {
             manifest: manifest,
             conflicts: conflicts,
             warnings: warnings,
-            requiredBytes: requiredBytes
+            requiredBytes: requiredBytes,
+            credentialDestination: credentialFile(for: id)
         )
     }
 
@@ -209,14 +212,31 @@ public actor AccountManager {
         guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
         }
-        var homes = [paths.defaultHome, selected.home]
-        let outgoing = provider.inspect(home: paths.defaultHome)
-        if let identity = outgoing.identity,
-           let managed = registry.accounts.first(where: { provider.sameIdentity($0.identity, identity) }) {
-            homes.append(managed.home)
-        }
-        try await ensureWritersInactive(homes)
+        try provider.validateManagedCredential(selected)
+        try await ensureWritersInactive([paths.defaultHome])
         return try lock.withLock { try performSwitch(to: accountID) }
+    }
+
+    public func activateAndLaunchSpec(
+        accountID: UUID,
+        arguments: [String] = [],
+        workingDirectory: URL? = nil
+    ) async throws -> LaunchSpec {
+        try ensureNoRecovery()
+        let registry = try loadRegistry()
+        guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
+        }
+        let live = provider.inspect(home: paths.defaultHome)
+        let alreadyActive = registry.defaultAccountID == accountID
+            && live.digest == account.credentialDigest
+            && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
+        if !alreadyActive { _ = try await switchDefault(to: accountID) }
+        return try launchSpec(
+            accountID: accountID,
+            arguments: arguments,
+            workingDirectory: workingDirectory
+        )
     }
 
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
@@ -224,14 +244,21 @@ public actor AccountManager {
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
         try provider.validateManagedCredential(account)
-        guard try inspectLinkedSettings(accounts: [account]).isEmpty else {
-            throw AIManagerError.operationFailed("Shared settings links changed. Review and repair them before launching this account.")
+        guard registry.defaultAccountID == accountID else {
+            throw AIManagerError.operationFailed("Use this account before opening Codex.")
+        }
+        let live = provider.inspect(home: paths.defaultHome)
+        guard live.support == .supportedChatGPT,
+              let liveIdentity = live.identity,
+              provider.sameIdentity(account.identity, liveIdentity),
+              live.digest == account.credentialDigest else {
+            throw AIManagerError.credentialConflict
         }
         guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "OPENAI_API_KEY")
         environment.removeValue(forKey: "CODEX_ACCESS_TOKEN")
-        environment["CODEX_HOME"] = account.home.path
+        environment["CODEX_HOME"] = paths.defaultHome.path
         if let isolationRoot = paths.isolationRoot { environment["HOME"] = isolationRoot.path }
         return .init(
             executable: executable,
@@ -325,8 +352,7 @@ public actor AccountManager {
     }
 
     public func verifyLocal(accountID: UUID) async -> VerificationResult {
-        if let account = try? loadRegistry().accounts.first(where: { $0.id == accountID }),
-           account.identity.providerID != provider.id {
+        if let account = try? loadRegistry().accounts.first(where: { $0.id == accountID }), account.identity.providerID != provider.id {
             return .init(
                 state: .unsupported,
                 checkedAt: Date(),
@@ -335,15 +361,26 @@ public actor AccountManager {
         }
         var verificationHome: URL?
         do {
-            let base = try launchSpec(accountID: accountID, arguments: ["login", "status"])
+            let registry = try loadRegistry()
+            guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try provider.validateManagedCredential(account)
+            guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
             let isolated = paths.applicationSupport.appending(path: "verification/\(UUID().uuidString)", directoryHint: .isDirectory)
             verificationHome = isolated
             try CoreSupport.privateDirectory(isolated, fileManager: fileManager)
-            let registry = try loadRegistry()
-            guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
-            try copyPortable(account.home.appending(path: "auth.json"), to: isolated.appending(path: "auth.json"))
-            var spec = base
-            spec.environment["CODEX_HOME"] = isolated.path
+            try copyPortable(account.credentialFile, to: isolated.appending(path: "auth.json"))
+            var environment = ProcessInfo.processInfo.environment
+            environment.removeValue(forKey: "OPENAI_API_KEY")
+            environment.removeValue(forKey: "CODEX_ACCESS_TOKEN")
+            environment["CODEX_HOME"] = isolated.path
+            if let isolationRoot = paths.isolationRoot { environment["HOME"] = isolationRoot.path }
+            let spec = LaunchSpec(
+                executable: executable,
+                arguments: ["-c", "cli_auth_credentials_store=\"file\"", "login", "status"],
+                environment: environment
+            )
             let process = Process()
             process.executableURL = spec.executable
             process.arguments = spec.arguments
@@ -503,6 +540,9 @@ extension AccountManager {
     private var accountsRoot: URL {
         paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
     }
+    private func credentialFile(for accountID: UUID) -> URL {
+        paths.credentialStore.appending(path: "\(accountID.uuidString).json")
+    }
     private var transactionsURL: URL { paths.applicationSupport.appending(path: "transactions", directoryHint: .isDirectory) }
 
     private func operationItemsURL(_ id: UUID) -> URL {
@@ -517,21 +557,60 @@ extension AccountManager {
               let size = values.fileSize, size <= 16 * 1_024 * 1_024 else {
             throw AIManagerError.unsafePath("account registry is not a bounded regular file")
         }
-        let registry = try decoder.decode(Registry.self, from: Data(contentsOf: registryURL))
+        var registry = try decoder.decode(Registry.self, from: Data(contentsOf: registryURL))
         guard Set(registry.accounts.map(\.id)).count == registry.accounts.count else {
             throw AIManagerError.invalidSource("The account registry contains duplicate identifiers.")
         }
-        for account in registry.accounts {
+        var migratedCredential = false
+        for index in registry.accounts.indices {
+            let account = registry.accounts[index]
             let expected = accountsRoot.appending(path: account.id.uuidString)
                 .appending(path: "home", directoryHint: .isDirectory)
             guard CoreSupport.sameLocation(account.home, expected) else {
                 throw AIManagerError.unsafePath("managed account home is outside the private account root")
+            }
+            let expectedCredential = credentialFile(for: account.id)
+            let legacyCredential = account.home.appending(path: "auth.json")
+            if account.credentialFile.standardizedFileURL.path == legacyCredential.standardizedFileURL.path {
+                let legacy = provider.inspect(credentialFile: legacyCredential)
+                guard legacy.support == .supportedChatGPT,
+                      let identity = legacy.identity,
+                      provider.sameIdentity(account.identity, identity) else {
+                    throw AIManagerError.credentialConflict
+                }
+                if CoreSupport.entryExists(expectedCredential) {
+                    let saved = provider.inspect(credentialFile: expectedCredential)
+                    guard saved.support == .supportedChatGPT,
+                          let savedIdentity = saved.identity,
+                          provider.sameIdentity(identity, savedIdentity),
+                          saved.digest == legacy.digest else {
+                        throw AIManagerError.credentialConflict
+                    }
+                } else {
+                    try CoreSupport.atomicWrite(legacy.data, to: expectedCredential, fileManager: fileManager)
+                }
+                registry.accounts[index].credentialFile = expectedCredential
+                registry.accounts[index].credentialDigest = legacy.digest
+                migratedCredential = true
+            } else {
+                guard account.credentialFile.standardizedFileURL.path
+                    == expectedCredential.standardizedFileURL.path else {
+                    throw AIManagerError.unsafePath("saved credential is outside the private credential store")
+                }
+                try provider.validatePrivateCredentialFile(account.credentialFile)
+                let saved = provider.inspect(credentialFile: account.credentialFile)
+                guard saved.support == .supportedChatGPT,
+                      let savedIdentity = saved.identity,
+                      provider.sameIdentity(account.identity, savedIdentity) else {
+                    throw AIManagerError.credentialConflict
+                }
             }
         }
         if let defaultID = registry.defaultAccountID,
            !registry.accounts.contains(where: { $0.id == defaultID }) {
             throw AIManagerError.invalidSource("The default account is missing from the registry.")
         }
+        if migratedCredential { try saveRegistry(registry) }
         return registry
     }
 
@@ -810,6 +889,12 @@ extension AccountManager {
         let keepExistingCredential = matching != nil && registry.accounts[matching!].credentialDigest != plan.sourceAuthDigest && decisions["auth.json"] == .keepShared
         if let matching, registry.accounts[matching].credentialDigest != plan.sourceAuthDigest,
            decisions["auth.json"] != .useImported, !keepExistingCredential { throw AIManagerError.credentialConflict }
+        let accountID = matching.map { registry.accounts[$0].id } ?? plan.id
+        guard accountID == plan.id,
+              plan.credentialDestination.standardizedFileURL.path
+                == credentialFile(for: accountID).standardizedFileURL.path else {
+            throw AIManagerError.unsafePath("saved credential destination changed after review")
+        }
         let destination = matching.map { registry.accounts[$0].home } ?? plan.destination
         let staging = paths.applicationSupport.appending(path: "staging/\(plan.id.uuidString)/home", directoryHint: .isDirectory)
         var operation = RecoveryOperation(id: plan.id, kind: "import", phase: .prepared, source: plan.source, destination: destination, backup: plan.backup, touchedItems: [], registryAccountID: matching.map { registry.accounts[$0].id } ?? plan.id, registryCredentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest, previousAccount: matching.map { registry.accounts[$0] })
@@ -833,7 +918,9 @@ extension AccountManager {
         } else {
             try CoreSupport.privateDirectory(staging, fileManager: fileManager)
         }
-        let selectedAuth = keepExistingCredential ? try Data(contentsOf: destination.appending(path: "auth.json")) : auth
+        let selectedAuth = keepExistingCredential
+            ? try Data(contentsOf: registry.accounts[matching!].credentialFile)
+            : auth
         try CoreSupport.atomicWrite(selectedAuth, to: staging.appending(path: "auth.json"), fileManager: fileManager)
 
         for entry in CoreSupport.settings + CoreSupport.sharedHistoryEntries {
@@ -947,10 +1034,27 @@ extension AccountManager {
         operation.phase = .published
         try saveOperation(operation)
 
+        let savedCredential = plan.credentialDestination
+        try replaceRecoverably(
+            source: destination.appending(path: "auth.json"),
+            destination: savedCredential,
+            operation: &operation,
+            backupName: "saved-credential.json"
+        )
+        let savedInspection = provider.inspect(credentialFile: savedCredential)
+        guard savedInspection.support == .supportedChatGPT,
+              let savedIdentity = savedInspection.identity,
+              provider.sameIdentity(plan.identity, savedIdentity),
+              savedInspection.digest == (keepExistingCredential
+                ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest) else {
+            throw AIManagerError.credentialConflict
+        }
+
         let verification = VerificationResult(state: .imported, checkedAt: Date(), detail: "Credential format and private destination were verified offline.")
         let account = AccountRecord(
-            id: matching.map { registry.accounts[$0].id } ?? plan.id,
+            id: accountID,
             identity: plan.identity,
+            credentialFile: savedCredential,
             home: destination,
             source: plan.source,
             importedAt: matching.map { registry.accounts[$0].importedAt } ?? Date(),
@@ -971,11 +1075,11 @@ extension AccountManager {
         guard let requested = registry.accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
         }
-        try provider.requireSupported(requested.identity.providerID)
+        try provider.validateManagedCredential(requested)
 
         let defaultAuth = paths.defaultHome.appending(path: "auth.json")
-        if (try? defaultAuth.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-            throw AIManagerError.unsafePath("default auth.json is a symbolic link")
+        if CoreSupport.entryExists(defaultAuth) {
+            try provider.validatePrivateCredentialFile(defaultAuth, requireOwnerOnlyPermissions: false)
         }
         let outgoingInspection = provider.inspect(home: paths.defaultHome)
         var registeredOutgoingIndex: Int?
@@ -989,22 +1093,21 @@ extension AccountManager {
                 registeredOutgoingIndex = registry.accounts.firstIndex(where: { provider.sameIdentity($0.identity, identity) })
             }
             if let index = registeredOutgoingIndex {
-                let managed = provider.inspect(home: registry.accounts[index].home)
-                guard managed.support == .supportedChatGPT, let managedIdentity = managed.identity,
-                      provider.sameIdentity(registry.accounts[index].identity, managedIdentity) else { throw AIManagerError.credentialConflict }
+                let saved = provider.inspect(credentialFile: registry.accounts[index].credentialFile)
+                guard saved.support == .supportedChatGPT, let savedIdentity = saved.identity,
+                      provider.sameIdentity(registry.accounts[index].identity, savedIdentity) else { throw AIManagerError.credentialConflict }
                 let baseline = registry.accounts[index].credentialDigest
-                let defaultChanged = outgoingInspection.digest != baseline
-                let managedChanged = managed.digest != baseline
-                if defaultChanged, managedChanged, outgoingInspection.digest != managed.digest {
+                let savedChanged = saved.digest != baseline
+                if savedChanged, outgoingInspection.digest != saved.digest {
                     throw AIManagerError.credentialConflict
                 }
-                registeredOutgoingInspection = managed
+                registeredOutgoingInspection = saved
             }
         }
         let id = UUID()
         let backup = paths.applicationSupport.appending(path: "backups/\(id.uuidString)", directoryHint: .isDirectory)
         let originallySelected = requested
-        var operation = RecoveryOperation(id: id, kind: "switch", phase: .prepared, source: originallySelected.home.appending(path: "auth.json"), destination: defaultAuth, backup: backup, touchedItems: [], previousDigest: outgoingInspection.digest.isEmpty ? nil : outgoingInspection.digest, registryAccountID: accountID, previousDefaultAccountID: registry.defaultAccountID ?? registeredOutgoingIndex.map { registry.accounts[$0].id })
+        var operation = RecoveryOperation(id: id, kind: "switch", phase: .prepared, source: originallySelected.credentialFile, destination: defaultAuth, backup: backup, touchedItems: [], previousDigest: outgoingInspection.digest.isEmpty ? nil : outgoingInspection.digest, registryAccountID: accountID, previousDefaultAccountID: registry.defaultAccountID ?? registeredOutgoingIndex.map { registry.accounts[$0].id })
         try saveOperation(operation)
         try CoreSupport.privateDirectory(backup, fileManager: fileManager)
         if fileManager.fileExists(atPath: defaultAuth.path) {
@@ -1013,16 +1116,16 @@ extension AccountManager {
         }
         operation.phase = .backedUp
         try saveOperation(operation)
-        if let outgoingIndex = registeredOutgoingIndex, let managed = registeredOutgoingInspection {
+        if let outgoingIndex = registeredOutgoingIndex, let saved = registeredOutgoingInspection {
             let baseline = registry.accounts[outgoingIndex].credentialDigest
             let defaultChanged = outgoingInspection.digest != baseline
-            let managedChanged = managed.digest != baseline
-            if defaultChanged, !managedChanged {
+            let savedChanged = saved.digest != baseline
+            if defaultChanged, !savedChanged {
                 operation.previousAccount = registry.accounts[outgoingIndex]
-                try replaceRecoverably(source: defaultAuth, destination: registry.accounts[outgoingIndex].home.appending(path: "auth.json"), operation: &operation, backupName: "outgoing-managed-auth.json")
+                try replaceRecoverably(source: defaultAuth, destination: registry.accounts[outgoingIndex].credentialFile, operation: &operation, backupName: "outgoing-saved-auth.json")
                 registry.accounts[outgoingIndex].credentialDigest = outgoingInspection.digest
-            } else if managedChanged {
-                registry.accounts[outgoingIndex].credentialDigest = managed.digest
+            } else if savedChanged {
+                registry.accounts[outgoingIndex].credentialDigest = saved.digest
             }
             registry.defaultAccountID = registry.accounts[outgoingIndex].id
             try saveOperation(operation)
@@ -1030,7 +1133,9 @@ extension AccountManager {
                 let outgoingID = UUID()
                 let outgoingHome = paths.applicationSupport.appending(path: "accounts/\(outgoingID.uuidString)/home")
                 try createManagedHome(auth: outgoingInspection.data, at: outgoingHome)
-                registry.accounts.append(.init(id: outgoingID, identity: identity, home: outgoingHome, source: paths.defaultHome, importedAt: Date(), verification: .init(state: .imported, checkedAt: Date(), detail: "Captured before changing the default account."), credentialDigest: outgoingInspection.digest))
+                let outgoingCredential = credentialFile(for: outgoingID)
+                try replaceRecoverably(source: defaultAuth, destination: outgoingCredential, operation: &operation, backupName: "captured-outgoing-auth.json")
+                registry.accounts.append(.init(id: outgoingID, identity: identity, credentialFile: outgoingCredential, home: outgoingHome, source: paths.defaultHome, importedAt: Date(), verification: .init(state: .imported, checkedAt: Date(), detail: "Captured before changing the default account."), credentialDigest: outgoingInspection.digest))
                 registry.defaultAccountID = outgoingID
                 operation.previousDefaultAccountID = outgoingID
             try saveOperation(operation)
@@ -1038,7 +1143,7 @@ extension AccountManager {
 
         guard let incomingIndex = registry.accounts.firstIndex(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
         let incoming = registry.accounts[incomingIndex]
-        let incomingInspection = provider.inspect(home: incoming.home)
+        let incomingInspection = provider.inspect(credentialFile: incoming.credentialFile)
         guard incomingInspection.support == .supportedChatGPT, let incomingIdentity = incomingInspection.identity,
               provider.sameIdentity(incoming.identity, incomingIdentity) else { throw AIManagerError.credentialConflict }
         if registry.defaultAccountID == accountID, outgoingInspection.digest == incomingInspection.digest {
@@ -1588,7 +1693,8 @@ extension AccountManager {
             throw AIManagerError.invalidSource("Unknown or unsafe recovery operation.")
         }
         let registry = try loadRegistry()
-        var candidates = [paths.defaultHome, paths.sharedRoot] + registry.accounts.map(\.home)
+        var candidates = [paths.defaultHome, paths.sharedRoot, paths.credentialStore]
+            + registry.accounts.map(\.home)
         if let previous = operation.previousAccount { candidates.append(previous.home) }
         var homes: [URL] = []
         switch operation.kind {
@@ -1776,6 +1882,22 @@ extension AccountManager {
             checkedAt: Date(),
             detail: "The current credential was retained during recovery and verified offline."
         )
+        let savedCredential = credentialFile(for: accountID)
+        if CoreSupport.entryExists(savedCredential) {
+            let saved = provider.inspect(credentialFile: savedCredential)
+            guard saved.support == .supportedChatGPT,
+                  let savedIdentity = saved.identity,
+                  provider.sameIdentity(identity, savedIdentity) else {
+                throw AIManagerError.credentialConflict
+            }
+            if saved.digest != inspection.digest {
+                let preserved = operation.backup.appending(path: "recovery-conflict/saved-credential-before-reconcile.json")
+                if !CoreSupport.entryExists(preserved) { try copyPortable(savedCredential, to: preserved) }
+                try CoreSupport.atomicWrite(inspection.data, to: savedCredential, fileManager: fileManager)
+            }
+        } else {
+            try CoreSupport.atomicWrite(inspection.data, to: savedCredential, fileManager: fileManager)
+        }
         if let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
             let expectedHome = accountsRoot.appending(path: accountID.uuidString)
                 .appending(path: "home", directoryHint: .isDirectory)
@@ -1787,6 +1909,7 @@ extension AccountManager {
                 throw AIManagerError.credentialConflict
             }
             registry.accounts[index].identity = identity
+            registry.accounts[index].credentialFile = savedCredential
             registry.accounts[index].source = operation.source
             registry.accounts[index].verification = verification
             registry.accounts[index].credentialDigest = inspection.digest
@@ -1802,6 +1925,7 @@ extension AccountManager {
             registry.accounts.append(.init(
                 id: accountID,
                 identity: identity,
+                credentialFile: savedCredential,
                 home: operation.destination,
                 source: operation.source,
                 importedAt: Date(),
@@ -1827,6 +1951,14 @@ extension AccountManager {
               provider.sameIdentity(registry.accounts[selectedIndex].identity, currentIdentity) else {
             throw AIManagerError.credentialConflict
         }
+        if currentDefault.digest != registry.accounts[selectedIndex].credentialDigest {
+            try CoreSupport.atomicWrite(
+                currentDefault.data,
+                to: registry.accounts[selectedIndex].credentialFile,
+                fileManager: fileManager
+            )
+            registry.accounts[selectedIndex].credentialDigest = currentDefault.digest
+        }
         try provider.validateManagedCredential(registry.accounts[selectedIndex])
         registry.defaultAccountID = accountID
         registry.accounts[selectedIndex].lastUsedAt = Date()
@@ -1842,11 +1974,11 @@ extension AccountManager {
             checkedAt: Date(),
             detail: "The current credential was retained during recovery and verified offline."
         )
-        for target in try recoveryTargets(operation) where target.destination.lastPathComponent == "auth.json" {
+        for target in try recoveryTargets(operation) {
             guard let index = registry.accounts.firstIndex(where: {
-                CoreSupport.sameLocation($0.home.appending(path: "auth.json"), target.destination)
+                CoreSupport.sameLocation($0.credentialFile, target.destination)
             }) else { continue }
-            let inspection = provider.inspect(home: registry.accounts[index].home)
+            let inspection = provider.inspect(credentialFile: registry.accounts[index].credentialFile)
             guard inspection.support == .supportedChatGPT,
                   let identity = inspection.identity, identity.isResolved,
                   provider.sameIdentity(registry.accounts[index].identity, identity) else {

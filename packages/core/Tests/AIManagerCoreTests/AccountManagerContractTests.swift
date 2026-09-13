@@ -19,6 +19,7 @@ final class AccountManagerContractTests: XCTestCase {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         paths = .init(
             applicationSupport: root.appending(path: "support"),
+            credentialStore: root.appending(path: "user/.switch/codex"),
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
@@ -122,10 +123,53 @@ final class AccountManagerContractTests: XCTestCase {
         let result = try await manager.importAccount(plan: plan)
 
         XCTAssertEqual(result.account.identity.providerID, .codex)
-        XCTAssertEqual(try Data(contentsOf: source.appending(path: "auth.json")), try Data(contentsOf: result.account.home.appending(path: "auth.json")))
+        XCTAssertEqual(
+            result.account.credentialFile.standardizedFileURL,
+            paths.credentialStore.appending(path: "\(result.account.id.uuidString).json").standardizedFileURL
+        )
+        XCTAssertEqual(try Data(contentsOf: source.appending(path: "auth.json")), try Data(contentsOf: result.account.credentialFile))
         XCTAssertTrue(try result.account.home.appending(path: "config.toml").resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true)
-        XCTAssertEqual((try fm.attributesOfItem(atPath: result.account.home.appending(path: "auth.json").path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        let credentialValues = try result.account.credentialFile.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        XCTAssertTrue(credentialValues.isRegularFile == true)
+        XCTAssertTrue(credentialValues.isSymbolicLink != true)
+        XCTAssertEqual((try fm.attributesOfItem(atPath: result.account.credentialFile.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual((try fm.attributesOfItem(atPath: paths.credentialStore.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
         XCTAssertEqual((try fm.attributesOfItem(atPath: result.account.home.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    func testLegacyManagedCredentialMigratesToVaultWithoutDeletingSource() async throws {
+        let accountID = UUID()
+        let home = paths.applicationSupport.appending(path: "accounts/\(accountID.uuidString)/home")
+        try writeAuth(home: home, account: "legacy", workspace: "workspace")
+        let original = try Data(contentsOf: home.appending(path: "auth.json"))
+        let identity = try XCTUnwrap(CodexProviderAdapter(fileManager: fm).inspect(home: home).identity)
+        let legacy = AccountRecord(
+            id: accountID,
+            identity: identity,
+            home: home,
+            source: home,
+            importedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            verification: .init(state: .imported, detail: "Legacy account"),
+            credentialDigest: CoreSupport.digest(original)
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(legacy)) as? [String: Any])
+        encoded.removeValue(forKey: "credentialFile")
+        let registry = try JSONSerialization.data(withJSONObject: ["accounts": [encoded]])
+        try CoreSupport.atomicWrite(
+            registry,
+            to: paths.applicationSupport.appending(path: "accounts.json"),
+            fileManager: fm
+        )
+
+        let status = try await AccountManager(paths: paths, writerCheck: { _ in .inactive }).status()
+        let migrated = try XCTUnwrap(status.accounts.first)
+
+        XCTAssertEqual(migrated.credentialFile, paths.credentialStore.appending(path: "\(accountID.uuidString).json"))
+        XCTAssertEqual(try Data(contentsOf: migrated.credentialFile), original)
+        XCTAssertEqual(try Data(contentsOf: home.appending(path: "auth.json")), original)
+        XCTAssertTrue(String(decoding: try Data(contentsOf: paths.applicationSupport.appending(path: "accounts.json")), as: UTF8.self).contains("credentialFile"))
     }
 
     func testImportKeepsDifferentUsersInTheSameWorkspaceSeparate() async throws {
@@ -215,7 +259,7 @@ final class AccountManagerContractTests: XCTestCase {
         _ = try await manager.switchDefault(to: first.account.id)
         let settings = try Data(contentsOf: paths.defaultHome.appending(path: "config.toml"))
         _ = try await manager.switchDefault(to: second.account.id)
-        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), try Data(contentsOf: second.account.home.appending(path: "auth.json")))
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), try Data(contentsOf: second.account.credentialFile))
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "config.toml")), settings)
 
         let blocked = try AccountManager(paths: paths, writerCheck: { _ in .active })
@@ -224,7 +268,7 @@ final class AccountManagerContractTests: XCTestCase {
         }
     }
 
-    func testSwitchRechecksSelectedAndOutgoingManagedHomes() async throws {
+    func testSwitchChecksTheSingleLiveCodexHome() async throws {
         let firstSource = root.appending(path: "writer-first")
         let secondSource = root.appending(path: "writer-second")
         try writeAuth(home: firstSource, account: "writer-first", workspace: "workspace")
@@ -236,8 +280,9 @@ final class AccountManagerContractTests: XCTestCase {
         let second = try await setup.importAccount(plan: secondPlan).account
         _ = try await setup.switchDefault(to: first.id)
 
+        let defaultHome = paths.defaultHome
         let outgoingBlocked = try AccountManager(paths: paths, writerCheck: { home in
-            CoreSupport.canonical(home) == CoreSupport.canonical(first.home) ? .active : .inactive
+            CoreSupport.canonical(home) == CoreSupport.canonical(defaultHome) ? .active : .inactive
         })
         await XCTAssertThrowsErrorAsync(
             try await outgoingBlocked.switchDefault(to: second.id)
@@ -245,14 +290,6 @@ final class AccountManagerContractTests: XCTestCase {
             XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
         }
 
-        let selectedBlocked = try AccountManager(paths: paths, writerCheck: { home in
-            CoreSupport.canonical(home) == CoreSupport.canonical(second.home) ? .active : .inactive
-        })
-        await XCTAssertThrowsErrorAsync(
-            try await selectedBlocked.switchDefault(to: second.id)
-        ) { error in
-            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
-        }
         let defaultAccountID = try await setup.status().defaultAccountID
         XCTAssertEqual(defaultAccountID, first.id)
     }
@@ -299,10 +336,10 @@ final class AccountManagerContractTests: XCTestCase {
 
         _ = try await manager.switchDefault(to: account.id)
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), refreshed)
-        XCTAssertEqual(try Data(contentsOf: account.home.appending(path: "auth.json")), refreshed)
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile), refreshed)
     }
 
-    func testSwitchRefusesWhenDefaultAndManagedCredentialsBothDiverged() async throws {
+    func testSwitchRefusesWhenDefaultAndSavedCredentialsBothDiverged() async throws {
         let firstSource = root.appending(path: "first")
         let secondSource = root.appending(path: "second")
         try writeAuth(home: firstSource, account: "first", workspace: "workspace")
@@ -314,15 +351,15 @@ final class AccountManagerContractTests: XCTestCase {
         let second = try await manager.importAccount(plan: secondPlan).account
         _ = try await manager.switchDefault(to: first.id)
         let defaultEdit = try refreshedAuth(account: "first", workspace: "workspace", marker: "default-edit")
-        let managedEdit = try refreshedAuth(account: "first", workspace: "workspace", marker: "managed-edit")
+        let savedEdit = try refreshedAuth(account: "first", workspace: "workspace", marker: "saved-edit")
         try defaultEdit.write(to: paths.defaultHome.appending(path: "auth.json"))
-        try managedEdit.write(to: first.home.appending(path: "auth.json"))
+        try savedEdit.write(to: first.credentialFile)
 
         await XCTAssertThrowsErrorAsync(try await manager.switchDefault(to: second.id)) { error in
             XCTAssertEqual(error as? AIManagerError, .credentialConflict)
         }
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), defaultEdit)
-        XCTAssertEqual(try Data(contentsOf: first.home.appending(path: "auth.json")), managedEdit)
+        XCTAssertEqual(try Data(contentsOf: first.credentialFile), savedEdit)
         let recovery = try await manager.recover()
         XCTAssertTrue(recovery.isEmpty)
     }
@@ -379,36 +416,54 @@ final class AccountManagerContractTests: XCTestCase {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         let result = try await manager.importAccount(plan: plan)
-        let spec = try await manager.launchSpec(accountID: result.account.id, arguments: ["resume", "--all"])
-        XCTAssertEqual(spec.environment["CODEX_HOME"], result.account.home.path)
+        let spec = try await manager.activateAndLaunchSpec(accountID: result.account.id, arguments: ["resume", "--all"])
+        XCTAssertEqual(spec.environment["CODEX_HOME"], paths.defaultHome.path)
         XCTAssertNil(spec.environment["OPENAI_API_KEY"])
         XCTAssertEqual(spec.arguments, ["-c", "cli_auth_credentials_store=\"file\"", "resume", "--all"])
     }
 
-    func testLaunchRefusesTamperedManagedAuth() async throws {
+    func testLaunchRefusesTamperedSavedAuth() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         let account = try await manager.importAccount(plan: plan).account
+        _ = try await manager.switchDefault(to: account.id)
         try refreshedAuth(account: "account", workspace: "workspace", marker: "tampered")
-            .write(to: account.home.appending(path: "auth.json"))
+            .write(to: account.credentialFile)
 
         await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
             XCTAssertEqual(error as? AIManagerError, .credentialConflict)
         }
     }
 
-    func testLaunchRefusesSymlinkedManagedAuth() async throws {
+    func testLaunchRefusesSymlinkedSavedAuth() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         let account = try await manager.importAccount(plan: plan).account
-        let auth = account.home.appending(path: "auth.json")
+        _ = try await manager.switchDefault(to: account.id)
+        let auth = account.credentialFile
         let target = root.appending(path: "linked-auth.json")
         try fm.moveItem(at: auth, to: target)
         try fm.createSymbolicLink(at: auth, withDestinationURL: target)
+
+        await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .credentialConflict)
+        }
+    }
+
+    func testLaunchRefusesHardLinkedSavedAuth() async throws {
+        let source = root.appending(path: "source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let account = try await manager.importAccount(plan: plan).account
+        _ = try await manager.switchDefault(to: account.id)
+        let target = root.appending(path: "hard-linked-auth.json")
+        try fm.moveItem(at: account.credentialFile, to: target)
+        try fm.linkItem(at: target, to: account.credentialFile)
 
         await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
             XCTAssertEqual(error as? AIManagerError, .credentialConflict)
@@ -545,7 +600,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         let status = try await recovering.status()
         let registryDigest = try XCTUnwrap(status.accounts.first(where: { $0.id == first.id })?.credentialDigest)
-        let managedDigest = try CoreSupport.digest(file: first.home.appending(path: "auth.json"))
+        let managedDigest = try CoreSupport.digest(file: first.credentialFile)
         let defaultDigest = try CoreSupport.digest(file: paths.defaultHome.appending(path: "auth.json"))
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), refreshed)
         XCTAssertEqual(registryDigest, CoreSupport.digest(refreshed))
@@ -575,7 +630,7 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(results.first?.outcome, .completed)
         let status = try await recovering.status()
         XCTAssertEqual(status.defaultAccountID, second.id)
-        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), try Data(contentsOf: second.home.appending(path: "auth.json")))
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), try Data(contentsOf: second.credentialFile))
     }
 
     func testDifferentIdentityAtSameTranscriptPathIsNeverOverwritten() async throws {
@@ -600,10 +655,12 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(derived.sharedRoot.standardizedFileURL.path, isolated.appending(path: "shared-root").path)
         XCTAssertEqual(derived.orcaAccountsRoot.standardizedFileURL.path, isolated.appending(path: "orca-accounts").path)
         XCTAssertEqual(derived.applicationSupport.standardizedFileURL.path, isolated.appending(path: "application-support").path)
-        let escaped = ManagerPaths.environment(["AI_MANAGER_ROOT": isolated.path, "AI_MANAGER_DEFAULT_HOME": paths.defaultHome.path, "AI_MANAGER_SHARED_ROOT": paths.sharedRoot.path, "AI_MANAGER_ORCA_ACCOUNTS_ROOT": paths.orcaAccountsRoot.path])
+        XCTAssertEqual(derived.credentialStore.standardizedFileURL.path, isolated.appending(path: ".switch/codex").path)
+        let escaped = ManagerPaths.environment(["AI_MANAGER_ROOT": isolated.path, "AI_MANAGER_DEFAULT_HOME": paths.defaultHome.path, "AI_MANAGER_SHARED_ROOT": paths.sharedRoot.path, "AI_MANAGER_ORCA_ACCOUNTS_ROOT": paths.orcaAccountsRoot.path, "AI_MANAGER_CREDENTIAL_STORE": paths.credentialStore.path])
         XCTAssertEqual(escaped.defaultHome.standardizedFileURL.path, isolated.appending(path: "default-home").path)
         XCTAssertEqual(escaped.sharedRoot.standardizedFileURL.path, isolated.appending(path: "shared-root").path)
         XCTAssertEqual(escaped.orcaAccountsRoot.standardizedFileURL.path, isolated.appending(path: "orca-accounts").path)
+        XCTAssertEqual(escaped.credentialStore.standardizedFileURL.path, isolated.appending(path: ".switch/codex").path)
     }
 
     func testFullImportRefusesActiveSourceBeforeSharedMutation() async throws {
@@ -985,8 +1042,8 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertTrue(status.pendingRecovery.isEmpty)
         let account = try XCTUnwrap(status.accounts.first(where: { $0.id == fixture.accountID }))
         XCTAssertEqual(account.credentialDigest, CoreSupport.digest(fixture.later))
-        let launch = try await manager.launchSpec(accountID: fixture.accountID)
-        XCTAssertEqual(launch.environment["CODEX_HOME"], fixture.destination.path)
+        let launch = try await manager.activateAndLaunchSpec(accountID: fixture.accountID)
+        XCTAssertEqual(launch.environment["CODEX_HOME"], paths.defaultHome.path)
     }
 
     func testRecoveryConflictPreserveRegistersNewImportAndAllowsLaunch() async throws {
@@ -1021,8 +1078,8 @@ final class AccountManagerContractTests: XCTestCase {
         let account = try XCTUnwrap(status.accounts.first(where: { $0.id == plan.id }))
         XCTAssertEqual(account.credentialDigest, CoreSupport.digest(later))
         XCTAssertEqual(account.home.standardizedFileURL, plan.destination.standardizedFileURL)
-        let launch = try await manager.launchSpec(accountID: plan.id)
-        XCTAssertEqual(launch.environment["CODEX_HOME"], plan.destination.path)
+        let launch = try await manager.activateAndLaunchSpec(accountID: plan.id)
+        XCTAssertEqual(launch.environment["CODEX_HOME"], paths.defaultHome.path)
     }
 
     func testRecoveryConflictPreserveReconcilesSwitchAndTouchedOutgoingCredential() async throws {
@@ -1073,10 +1130,10 @@ final class AccountManagerContractTests: XCTestCase {
             status.accounts.first(where: { $0.id == first.id })?.credentialDigest,
             CoreSupport.digest(refreshedFirst)
         )
-        let firstLaunch = try await manager.launchSpec(accountID: first.id)
-        let secondLaunch = try await manager.launchSpec(accountID: second.id)
-        XCTAssertEqual(firstLaunch.environment["CODEX_HOME"], first.home.path)
-        XCTAssertEqual(secondLaunch.environment["CODEX_HOME"], second.home.path)
+        let firstLaunch = try await manager.activateAndLaunchSpec(accountID: first.id)
+        let secondLaunch = try await manager.activateAndLaunchSpec(accountID: second.id)
+        XCTAssertEqual(firstLaunch.environment["CODEX_HOME"], paths.defaultHome.path)
+        XCTAssertEqual(secondLaunch.environment["CODEX_HOME"], paths.defaultHome.path)
     }
 
     func testRecoveryConflictCanRestoreBackupAndPreserveCurrent() async throws {
@@ -1100,8 +1157,8 @@ final class AccountManagerContractTests: XCTestCase {
             status.accounts.first(where: { $0.id == fixture.accountID })?.credentialDigest,
             CoreSupport.digest(fixture.initial)
         )
-        let launch = try await manager.launchSpec(accountID: fixture.accountID)
-        XCTAssertEqual(launch.environment["CODEX_HOME"], fixture.destination.path)
+        let launch = try await manager.activateAndLaunchSpec(accountID: fixture.accountID)
+        XCTAssertEqual(launch.environment["CODEX_HOME"], paths.defaultHome.path)
     }
 
     func testRecoveryConflictRestoreRejectsChangedBackupWithoutMutatingLiveFiles() async throws {
