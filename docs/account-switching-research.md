@@ -1,12 +1,13 @@
 # Codex account-switching research
 
-Research date: 2026-09-12
+Research date: 2026-09-13
 
 ## Decision
 
-IIA Directeur will change only the complete active authentication record. It will
-leave config, instructions, skills, hooks, sessions, history, indexes, and
-databases in the selected `CODEX_HOME` unchanged.
+IIA Directeur keeps one live Codex home at `~/.codex`. It stores one complete
+authentication record per account at `~/.switch/codex/<account-UUID>.json` and
+atomically copies the selected record over `~/.codex/auth.json`. It leaves config,
+instructions, skills, hooks, sessions, history, indexes, and databases unchanged.
 
 This is the dominant design among current open-source Codex account switchers.
 Eight of the ten inspected tools replace only authentication. One isolates a
@@ -22,6 +23,13 @@ The auth-only model has three strict limits:
 3. Shared history means every managed account can see the same local chat and
    session records. This is intentional for IIA Directeur.
 
+The live file is deliberately not a symbolic link. Current Codex opens
+`auth.json` with truncate-and-write, so a link happens to receive token refreshes
+today. That also lets `codex login` overwrite whichever saved account the link
+targets. Logout can remove the link, and a future atomic writer could replace the
+link itself. A regular live file plus outgoing refresh capture avoids all three
+failure modes.
+
 ## Official Codex contract
 
 The current official documentation describes `auth.json` as the file credential
@@ -35,27 +43,30 @@ reviewed against the exact behavior used for this decision.
 - [Advanced configuration](https://developers.openai.com/codex/config-advanced)
 - [Codex 0.154.0 release](https://github.com/openai/codex/releases/tag/rust-v0.154.0)
 
-The source review used OpenAI Codex commit
-[`53ff712a`](https://github.com/openai/codex/commit/53ff712a48379ce8df605e292afd6046ca88ae9b).
+The source review was refreshed against OpenAI Codex commit
+[`7efa9d96`](https://github.com/openai/codex/commit/7efa9d96fb34c3cafe108a3c870bfc33e5635772).
 
-- [`AuthDotJson`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/login/src/auth/storage.rs#L39)
+- [`AuthDotJson`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/login/src/auth/storage.rs)
   is one complete active auth record for a `CODEX_HOME`.
-- [`create_auth_storage`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/login/src/auth/storage.rs#L502)
+- [`create_auth_storage`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/login/src/auth/storage.rs)
   selects file, Keychain, automatic, or ephemeral storage. Automatic storage
   prefers Keychain when available.
-- [`AuthManager`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/login/src/auth/manager.rs#L2041)
+- [`FileAuthStorage`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/login/src/auth/storage.rs)
+  resolves the file as `CODEX_HOME/auth.json`, creates it with mode `0600`, and
+  currently saves with `truncate(true)`, `write(true)`, and `create(true)`.
+- [`AuthManager`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/login/src/auth/manager.rs)
   caches auth. External file changes do not update a running manager until it
   reloads.
-- [`same_owner`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/login/src/auth/change_state.rs#L15)
+- [`same_owner`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/login/src/auth/change_state.rs)
   compares auth mode, ChatGPT user ID, and workspace account ID. Missing owner
   fields do not count as equality.
-- [`history.jsonl`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/message-history/src/lib.rs#L51-L66)
+- [`history.jsonl`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/message-history/src/lib.rs)
   stores prompt history under `CODEX_HOME` independently of auth.
-- [`sessions`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/rollout/src/recorder.rs#L1700-L1721)
+- [`sessions`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/rollout/src/recorder.rs)
   stores full transcripts under `CODEX_HOME/sessions` independently of auth.
-- [`state` databases](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/state/src/sqlite.rs#L29-L35)
+- [`state` databases](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/state/src/sqlite.rs)
   include thread, log, goal, and memory SQLite files under `CODEX_HOME`.
-- [`codex login`](https://github.com/openai/codex/blob/53ff712a48379ce8df605e292afd6046ca88ae9b/codex-rs/cli/src/login.rs#L122)
+- [`codex login`](https://github.com/openai/codex/blob/7efa9d96fb34c3cafe108a3c870bfc33e5635772/codex-rs/cli/src/login.rs)
   clears and revokes the old credential before sign-in. It is not a safe saved
   account switch operation.
 
@@ -90,6 +101,12 @@ The broader product review found the same split:
   `~/.codex/auth.json` and reads analytics from shared sessions.
 - [Relay](https://github.com/ark-daemon/relay) keeps sessions and databases
   shared but treats config and personalization as account-owned.
+- [CodexSwitch](https://github.com/ScWen7/CodexSwitch/tree/65469fc42160ae89a16c8829dd9babe2950d569e)
+  keeps saved profiles under `~/.codex-switch`, then uses backup, temporary-file,
+  and rename steps to replace the regular live auth file.
+- [codex-accounts](https://github.com/omarhoumz/codex-accounts/tree/9f636ab11d3e1b33ced4c8909ce0cf368ca0aaeb)
+  intentionally uses a live symlink for refresh write-through, but documents that
+  running `codex login` can overwrite the active saved account through that link.
 
 ## IIA Directeur safety contract
 
@@ -97,11 +114,13 @@ The broader product review found the same split:
 2. Reject an unresolved owner. For ChatGPT, compare auth mode,
    `chatgpt_user_id`, and `chatgpt_account_id`.
 3. Re-read and save refreshed outgoing credentials before switching.
-4. Validate and stage the complete incoming auth record.
+4. Validate and stage the complete incoming auth record from
+   `~/.switch/codex/<account-UUID>.json`.
 5. Back up, atomically replace, verify, then commit registry metadata.
 6. Roll back auth and metadata after any interrupted phase.
 7. Never call login or logout during a switch. Switching must not revoke access.
-8. Never modify non-auth files during an auth-only switch.
+8. Never modify non-auth files during an auth-only switch, and never link the
+   live credential to a saved record.
 9. Refuse a default-home mutation while an identified Codex writer is active.
 10. Test only with synthetic credentials and isolated temporary homes.
 

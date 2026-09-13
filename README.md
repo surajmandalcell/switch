@@ -1,8 +1,8 @@
 # IIA Directeur
 
-IIA Directeur is a native macOS app for managing Codex accounts. It imports
-Codex homes, keeps credentials separate, shares approved settings, preserves
-chat history, and opens Codex with a selected account.
+IIA Directeur is a native macOS app for managing Codex accounts. It saves each
+account credential under `~/.switch/codex`, keeps one live `~/.codex` home for
+configuration and chat history, and activates an account before opening Codex.
 
 The normal app and CLI use the same production account manager. The separately
 named Preview app uses in-memory sample data for design review.
@@ -23,7 +23,7 @@ contracts without filesystem or account side effects.
 - The native GUI supports macOS 14 or later.
 - `AIManagerCore` and the `ai-manager` terminal interface support macOS and Linux.
 - Building requires a compatible Swift toolchain; the macOS GUI build uses Xcode.
-- Codex is optional for discovery and offline tests
+- Codex is optional for discovery and offline tests.
 
 The first verified GUI target is Apple Silicon. Intel GUI support needs a
 separate verified build. The native GUI does not run on Linux.
@@ -48,6 +48,10 @@ script produces:
 
 - `/private/tmp/ai-manager-build/package/IIA Directeur.app`
 - `/private/tmp/ai-manager-build/artifacts/ai-manager`
+
+The app embeds that exact CLI as `Contents/Helpers/ai-manager`. **Open Codex**
+delegates to the helper so account activation and process start share the same
+cross-process lock instead of capturing an earlier credential state.
 
 Run the built products directly when needed:
 
@@ -89,9 +93,11 @@ backup, stages changes, validates the staged result, publishes the account,
 and verifies the result. A failed operation keeps the prior usable state and
 shows a recovery action.
 
-Existing Codex processes keep their current credentials. **Use by default**
-changes future launches that use the default home. **Open with this account**
-launches Codex with an explicit `CODEX_HOME`.
+Existing Codex processes keep their cached credentials. **Use for new Codex
+sessions** atomically replaces the regular `~/.codex/auth.json` file while
+leaving the rest of `~/.codex` unchanged. **Open Codex** performs that activation
+when needed and launches the same live home. Saved credentials are regular
+private files, never symbolic or hard links.
 
 ## Native package
 

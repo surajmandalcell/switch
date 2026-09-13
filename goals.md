@@ -5,7 +5,7 @@ the final receipt named in the closeout evidence. The normal app uses the real s
 only the separately named Preview app uses in-memory demo data. Public direct distribution
 remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
-Design revision: 2026-09-12.
+Design revision: 2026-09-13.
 
 ### Release-candidate audit requirements (2026-09-12)
 
@@ -94,9 +94,9 @@ for the window Close, window Minimize, and import-modal Close buttons. Minimize 
 behind Close at rest and folds out beside it on hover, with an interruptible reduced-motion
 fallback and no layout shift. Modal titles and outer content share a 24-point edge;
 panel headings and their rows share a 16-point internal edge. The import flow names Codex
-as the provider, and Shared Settings states that Codex is supported now while more
-providers are planned. Persist an explicit Codex provider identifier in new account data
-and decode pre-provider registries as Codex without changing existing account behavior.
+as the provider without putting roadmap language in the interface. Persist an explicit
+Codex provider identifier in new account data and decode pre-provider registries as Codex
+without changing existing account behavior. Keep the core data model open to later providers.
 
 Layout refinement (2026-09-12): the page title and every page body use the same 24-point
 leading and trailing edge inside the content pane. The overlaid Minimize control reserves
@@ -127,8 +127,8 @@ normal live home; an already-running Codex process keeps its old in-memory authe
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
-Ship it as a native macOS app. Support Codex only in this release, say so in the
-interface, and tell users that more providers are planned.
+Ship it as a native macOS app. Support Codex only in this release and name Codex where
+the user must choose or understand the provider-specific operation.
 Use the same settings across accounts by default.
 Use a merged chat library so the resume picker can find history from either account.
 Offer two import modes: **Auth only** and **Auth, settings, and chats**.
@@ -234,8 +234,8 @@ Changing a file does not change credentials already held by a running process.
 An external client may also use its own `CODEX_HOME`.
 
 ```text
-Use by default -> updates auth for future default-home launches
-Open account  -> launches using that account's explicit CODEX_HOME
+Use for new sessions -> atomically activates saved auth in the live home
+Open Codex -> activates when needed, then launches the same live CODEX_HOME
 Existing process -> continues until stopped or restarted
 External custom home -> remains owned by that client
 ```
@@ -254,9 +254,9 @@ Do not report that Orca, Super, or every terminal has switched automatically.
 - Import authentication with settings and chat data.
 - Identify duplicate accounts and preserve separate workspaces.
 - Reuse shared settings across imported accounts.
-- Merge chat libraries and make the merged history discoverable from both account homes.
-- Switch the account used by future default-home Codex sessions.
-- Provide a usable path to launch an account-specific Codex session.
+- Merge chat libraries and make the merged history discoverable from the shared live home.
+- Switch the account used by future Codex sessions in the live home.
+- Activate a selected account and launch a new Codex session in that same home.
 - Back up, verify, report conflicts, and recover failed mutations.
 - Show missing CLI, missing credentials, permission errors, and unsupported data formats.
 
@@ -421,26 +421,26 @@ Proposed app-owned layout:
 ~/Library/Application Support/AI Manager/
   accounts.json                   non-secret registry
   accounts/<local-id>/home/
-    auth.json                     account credential
-    config.toml -> shared root
-    AGENTS.md, rules, skills ... -> shared root
-    sessions/ -> shared root      merged user history
-    archived_sessions/ -> shared root
-    state_*.sqlite                independent indexes of shared history
+    legacy/full-import data       migration and recovery only; never launched
   backups/<operation-id>/          data needed for rollback
   transactions/<operation-id>.json non-secret recovery journal
   staging/<operation-id>/          unpublished destination
 
+~/.switch/codex/
+  <local-id>.json                 canonical saved account credential
+
 ~/.codex/                         default Codex home
   config.toml, rules, skills ...   default shared settings root
-  auth.json                       credential for default launches
+  auth.json                       regular live copy for new Codex processes
   sessions/, archived_sessions/   shared transcript library
-  state_*.sqlite                  default-home indexes
+  state_*.sqlite                  shared live indexes
 ```
 
-The user can select a different shared root during setup.
-Resolve it once and retain the actual URL. Never derive storage names from email strings.
+The live `~/.codex` home is the only shared root in v1. Never derive storage names from
+email strings.
 Store credentials in Codex-compatible files with mode `0600`, inside private directories with mode `0700`.
+Saved account records use `~/.switch/codex/<local-id>.json`; live `~/.codex/auth.json`
+is atomically replaced from a saved record and is never linked to one.
 Backups and staging use the same restrictions before any secret bytes are written.
 
 Store only local record IDs, display identity, home URLs, source kind, verification state, and import metadata in the registry.
@@ -492,7 +492,7 @@ The import sheet has two primary choices:
 | Auth, settings, and chats | Import | Review and reconcile | Copy and validate | Account uses shared settings and preserved history |
 
 Importing does not activate the new account automatically.
-After success, show **Use by default** and **Open with this account**.
+After success, show **Use for new Codex sessions** and **Open Codex**.
 The import result includes the destination, backup location, and any unresolved items.
 
 ### Settings policy
@@ -502,7 +502,7 @@ Full import cannot silently replace the settings used by every existing account.
 
 Compare source settings with the shared root before committing:
 
-- Same bytes: retain the shared file and create the account link.
+- Same bytes: retain the live shared file.
 - Source-only skill or rule: preview an addition to the shared root.
 - Conflicting file: show Keep shared or Replace with imported for that file.
 - Complex TOML difference: preserve the original and choose the whole file in v1.
@@ -512,14 +512,14 @@ Do not invent a partial TOML parser or perform text replacement across unknown c
 If structured editing becomes required, choose a maintained parser based on concrete needs.
 Preserve comments and unknown fields when passing through a selected file.
 
-Show that applying imported shared settings affects every linked account.
+Show that applying imported shared settings affects every account launched from the live home.
 Redact secret-looking values in previews, including MCP headers and environment values.
 Treat hooks, skills, and MCP commands as executable configuration.
 Preserving them does not authorize running them during import verification.
 
-Validate links at launch and when the app returns to the foreground.
-Some external editors replace a link with a regular file during an atomic save.
-Report that divergence and offer a backed-up repair. Do not discard the diverged file.
+Treat a source setting that is itself a symbolic link as external data. Resolve it only after
+explicit review, copy the reviewed contents into the live home, and never keep that external
+link as part of the runtime account model.
 
 ### Data categories for full import
 
@@ -586,7 +586,7 @@ Do not kill the user's Codex processes to complete an import.
 
 ### Commit and recovery
 
-Publish the staged account home before adding its visible registry record.
+Publish the staged saved credential and reviewed account data before adding its visible registry record.
 A crash may leave an unreferenced staged home. It must not leave a registry row pointing to missing credentials.
 Shared settings changes span multiple files and require explicit journal steps and backups.
 An atomic rename of one file is not an atomic transaction across all files.
@@ -634,11 +634,12 @@ Report source paths that still matter before the user retires the source install
 A missing working directory is a resume problem, not a reason to delete a transcript.
 
 History must be merged into a shared transcript library while credentials remain separate.
-Shared live SQLite files remain outside v1. Keep local indexes and verify Codex can repair discovery from the shared transcripts.
-Auth-only import links the existing shared library without importing that source's conversations.
+The live home retains its SQLite files and indexes across every account switch.
+Auth-only import leaves that shared library unchanged.
 Full import adds the selected source history to that library after duplicate and conflict handling.
-Default-home switching then preserves the same chat library for both accounts.
-Verify both an existing merged chat and a newly added chat can be discovered from either home.
+Switching preserves the same chat library for every account.
+Verify both an existing merged chat and a newly added chat can be discovered after switching
+the live credential between two accounts.
 
 ## 13. Account switching contract
 
@@ -664,31 +665,31 @@ A compare-before-write check alone cannot eliminate every external race.
 The first release must establish a documented quiescence requirement and test its enforcement.
 Do not implement switching as unconditional `cp` over a live auth file.
 
-Account-home and default-home credentials can diverge after token refresh.
-Track which location was last used and preserve refreshed credentials before switching away.
+Saved and live credentials can diverge after token refresh.
+Capture a refreshed live credential into its saved record before switching away.
 When two copies diverge without a reliable order, report a conflict or require a fresh Codex sign-in.
 Do not overwrite a refreshed credential with an older imported snapshot.
 
 Never implement switching through `codex logout`.
 Logout can remove credentials and does not implement a safe local account selection.
-If the default auth file is a symlink, inspect its target and avoid writing through it into another account.
-Back up and normalize only through a reviewed operation with a clear ownership rule.
+Reject a symbolic or hard-linked live auth file. Back up and normalize only through a reviewed
+operation with a clear ownership rule.
 
-### Open with this account
+### Open Codex
 
-Launch Codex with the selected home through a structured process environment.
-This gives the user a working alternative while the default home is busy.
+Activate the selected saved credential, then launch Codex with the normal live `~/.codex` home
+through a structured process environment. Refuse activation while that home may have a writer.
 Use the native terminal or a small saved launch artifact, without building a terminal emulator.
 The user starts the session deliberately. Do not type into an unrelated live terminal.
 
-Expose **Copy profile path** for hosts such as Super that accept `CODEX_HOME`.
-Super's profile selection can reuse the same home without copying its credentials again.
+Expose the saved auth path for inspection, but do not describe it as a launchable profile home.
+Hosts such as Super continue to use the shared live home after IIA Directeur activates an account.
 Do not edit another app's live database or claim that its running sessions have changed accounts.
 
 ### Verify and sign in
 
 Use the installed Codex command surface rather than implementing OAuth.
-Force file-based auth for a deliberate managed-home verification when supported.
+Force file-based auth in a disposable verification home when supported.
 Ensure verification cannot fall through to the real login Keychain.
 `codex login status` proves local credential presence, not successful server access.
 An online check must be explicitly initiated and accurately labeled.
@@ -799,16 +800,17 @@ Do not publish a release during this milestone.
 Done when temporary fixtures produce correct account rows and every failure has a usable state.
 Use synthetic identity data. Keep real credentials out of fixtures.
 
-### G3. Auth-only import and account-specific launch
+### G3. Auth-only import and coordinated launch
 
 - [x] Implement private staging, account publication, and registry recovery.
-- [x] Link approved shared settings without replacing their content.
+- [x] Preserve live shared settings unless the reviewed import explicitly replaces them.
 - [x] Preserve the original source and verify permissions.
 - [x] Handle duplicate-account auth updates without losing refreshed credentials.
-- [x] Launch or provide a working native launch path for the imported home.
+- [x] Save the imported credential and provide a coordinated launch through the live home.
 - [x] Show honest local verification and sign-in states.
 
-Done when the native flow imports a fixture and launches Codex against exactly that destination.
+Done when the native flow imports a fixture, atomically activates its saved credential, and
+starts Codex against the same live home before another account operation can intervene.
 A real-account smoke check requires explicit user participation and must not mutate unrelated auth.
 
 ### G4. Default-account switching
@@ -830,8 +832,8 @@ The old account remains recoverable. Running external sessions are not reported 
 - [x] Resolve settings conflicts before mutation.
 - [x] Snapshot supported databases and validate transcript consistency.
 - [x] Preserve chat identity, archive state, references, and divergent copies.
-- [x] Share merged transcripts across account homes while keeping SQLite files independent.
-- [x] Verify both homes discover imported chats and later additions through Codex's resume behavior.
+- [x] Keep the live transcript library and indexes shared while account credentials change.
+- [x] Verify the live home discovers imported chats and later additions after account switches.
 - [x] Rebase recognized copied index paths without rewriting historical content.
 - [x] Show all excluded or unsupported categories in the result.
 - [x] Verify a supported imported conversation can resume through Codex.
@@ -888,7 +890,7 @@ Do not mirror every method with a test or retain obsolete gateway coverage targe
 | Crash during settings replacement | Journal restores or completes the documented operation |
 | Disk full or volume disconnect | No half-published account, recoverable error |
 | Restore after later user edit | New edit preserved, no unconditional rollback overwrite |
-| CLI verification | Correct explicit home, bounded timeout, no hidden model request |
+| CLI verification | Disposable verification home, bounded timeout, no hidden model request |
 | Keyboard and accessibility labels | All actions reachable and states named without relying on color; live VoiceOver testing is outside the user-requested gate |
 | Final package | Native macOS binary, intended revision, no gateway process |
 
@@ -1588,8 +1590,8 @@ Development-signed local build alone is not a public distribution release.
   choices, conflicts, manifest rows, and result rows use a 16-point internal edge. Light and
   Dark Aqua import-source renders pass the fixed-window, drag-region, scrollbar, asset, and
   geometry contract with three configured overlay scroll regions.
-- Accounts says "Codex only for now" and the import flow states that more providers are
-  planned. Import, review, and result titles name Codex explicitly.
+- The import flow names Codex only where it identifies the source or operation. Page subtitles
+  and helper text contain no provider-roadmap language.
 - `ProviderID` is an open stored identifier. New discoveries and accounts record `codex`;
   old registries without the field decode as Codex. The internal concrete
   `CodexProviderAdapter` owns Codex discovery, credential parsing, identity matching, and
@@ -1746,3 +1748,36 @@ with temporary synthetic homes before installation.
   checks, System/Light/Dark window contracts, single-instance behavior, and thin scrollbars. A hidden
   native light render confirms the final 780 by 600 import layout. Native Computer reached the current
   plugin but its native-pipe startup failed; no alternate desktop driver was used.
+
+### Saved credential and coordinated launch acceptance (2026-09-13)
+
+- Standard production paths now use one live `~/.codex` home and private saved credentials at
+  `~/.switch/codex/<account-UUID>.json`. The saved files and live `auth.json` are private regular
+  files. Switching never creates a symbolic or hard link and leaves settings, skills, sessions,
+  history, and databases in the live home unchanged.
+- Import migrates legacy managed credentials into the saved-auth vault without removing the
+  source until the vault file and registry both verify. Reviewed destination, backup, shared-home,
+  and credential paths are revalidated inside the transaction. Recovery preserves an externally
+  changed live or saved credential as a conflict instead of overwriting it.
+- GUI and TUI opening use the same coordinated core operation. A cross-process lock covers writer
+  validation, outgoing refresh capture, selected credential publication, and successful Codex
+  process start. The production app embeds the exact verified CLI at
+  `Contents/Helpers/ai-manager`; its terminal launch file delegates to `ai-manager open` and does
+  not capture a stale `CODEX_HOME`.
+- The macOS gate discovered 88 core contracts: 86 executed and passed, and the two explicit
+  protected-copy tests remained opt-in. Production and demo model checks, System/Light/Dark window
+  contracts, the custom overlay scrollbar, single-instance behavior, and the fixed-window contract
+  also passed. Dark and light account renders confirm the 48-point titlebar, aligned 24-point page
+  edges, hidden resting Minimize control, full-width title pattern, and removal of the dead rail mark.
+- The exact committed core/TUI tree at `b5ac8ab` passed in read-only `linux/arm64` and
+  `linux/amd64` containers. Each architecture executed 86 passing core tests, skipped only the two
+  protected-copy opt-ins, and passed CLI discovery, auth-only and full import, activation and open,
+  direct and interactive recovery, SQLite linkage, isolated runtime, and private permission checks.
+  The documentation checkpoint does not change shipping code.
+- The account-switching decision was refreshed against official Codex commit
+  `7efa9d96fb34c3cafe108a3c870bfc33e5635772` and current open-source switchers. Codex uses
+  `CODEX_HOME/auth.json`, writes file auth with `0600`, and caches auth in running managers. The
+  regular-live-file design avoids saved-account corruption through `codex login` or logout.
+- Local signing and installation can use the configured Apple Development identity. No Developer
+  ID Application identity or notarization credential profile is available, so public readiness
+  remains fail-closed and this candidate must not be presented as a notarized public release.
