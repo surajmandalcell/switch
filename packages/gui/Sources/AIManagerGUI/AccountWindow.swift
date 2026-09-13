@@ -191,7 +191,7 @@ struct AccountWindow: View {
           ImportFlow(model: model)
             .frame(
               width: min(780, geometry.size.width - 48),
-              height: min(600, geometry.size.height - 48)
+              height: min(AIMTheme.modalHeight, geometry.size.height - 48)
             )
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .shadow(color: .black.opacity(dark ? 0.22 : 0.1), radius: 34, y: 14)
@@ -1043,30 +1043,17 @@ private struct ErrorBar: View {
 
 private struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
-  @State private var closeHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 0) {
-        Text(title).font(AIMTheme.sans(22, weight: .semibold)).tracking(-0.55)
-        Spacer()
-        ImportSteps(step: step)
-        Button {
-          model.resetImport()
-          model.showImport = false
-        } label: {
-          AIMIcon(name: .close, size: 15)
-            .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-            .background(closeHovered && !model.isBusy ? AIMTheme.controlHover : AIMTheme.control)
-            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-        }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut(.cancelAction)
-          .accessibilityLabel("Close import")
-          .disabled(model.isBusy)
-          .opacity(model.isBusy ? 0.45 : 1)
-          .onHover { closeHovered = $0 && !model.isBusy }
-          .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: closeHovered)
-          .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
-      }.padding(.leading, AIMTheme.modalOuterInset).frame(height: 56).background(AIMTheme.panel2)
+      ImportHeader(
+        title: title,
+        step: step,
+        closeDisabled: model.isBusy
+      ) {
+        model.resetImport()
+        model.showImport = false
+      }
       Group {
         if let error = model.errorMessage {
           ErrorBar(message: error) { model.errorMessage = nil }.padding(.horizontal, 24).padding(
@@ -1106,6 +1093,62 @@ private struct ImportFlow: View {
     step == 1 ? "Import Account" : step == 2 ? "Review Import" : "Import Result"
   }
 }
+
+private struct ImportHeader: View {
+  let title: String
+  let step: Int
+  let closeDisabled: Bool
+  let close: () -> Void
+  @State private var closeHovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    HStack(spacing: 0) {
+      Text(title)
+        .font(AIMTheme.sans(22, weight: .semibold))
+        .tracking(-0.55)
+        .lineLimit(1)
+        .padding(.leading, AIMTheme.modalOuterInset)
+      Spacer(minLength: AIMTheme.modalOuterInset)
+      ImportSteps(step: step)
+        .fixedSize(horizontal: true, vertical: true)
+        .padding(.trailing, 16)
+      Button(action: close) {
+        AIMIcon(name: .close, size: 15)
+          .foregroundStyle(closeHovered && !closeDisabled ? Color.white : AIMTheme.ink)
+          .frame(
+            width: AIMTheme.windowControlSize,
+            height: AIMTheme.modalTitlebarHeight
+          )
+          .background(
+            closeHovered && !closeDisabled
+              ? Color(nsColor: .systemRed)
+              : AIMTheme.panel3
+          )
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(AIMPressButtonStyle())
+      .keyboardShortcut(.cancelAction)
+      .accessibilityLabel("Close import")
+      .accessibilityIdentifier("import-modal-close")
+      .disabled(closeDisabled)
+      .opacity(closeDisabled ? 0.45 : 1)
+      .onHover { closeHovered = $0 && !closeDisabled }
+      .animation(
+        reduceMotion ? nil : .easeOut(duration: AIMMotion.hover),
+        value: closeHovered
+      )
+      .animation(
+        reduceMotion ? nil : .easeOut(duration: AIMMotion.state),
+        value: closeDisabled
+      )
+    }
+    .frame(height: AIMTheme.modalTitlebarHeight)
+    .background(AIMTheme.panel2)
+    .accessibilityIdentifier("import-modal-titlebar")
+  }
+}
+
 private struct ImportSteps: View {
   let step: Int
   private let labels = ["Source", "Review", "Done"]
@@ -1123,6 +1166,7 @@ private struct ImportSteps: View {
       }
     }.clipShape(RoundedRectangle(cornerRadius: 3)).accessibilityElement(children: .ignore)
       .accessibilityLabel("Step \(step) of 3")
+      .accessibilityIdentifier("import-modal-steps")
   }
 }
 
@@ -1132,7 +1176,7 @@ private struct SourcePage: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.isEnabled) private var isEnabled
   var body: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: AIMTheme.modalSectionSpacing) {
       Text("Choose a provider and one of its data folders.")
         .font(AIMTheme.sans(12))
         .foregroundStyle(AIMTheme.muted)
@@ -1161,10 +1205,12 @@ private struct SourcePage: View {
               Button {
                 model.selectedSourceID = source.id
               } label: {
-                HStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
                   AIMIcon(
                     name: selected ? .checkSquare : .square,
-                    size: 14)
+                    size: 14
+                  )
+                  .padding(.top, 2)
                   VStack(alignment: .leading, spacing: 3) {
                     Text(source.identity?.displayName ?? source.support.label).font(
                       AIMTheme.sans(12, weight: .medium))
@@ -1184,8 +1230,11 @@ private struct SourcePage: View {
                   Spacer()
                   Badge(
                     text: source.support.label,
-                    color: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber)
-                }.padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 58).background(
+                    color: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber
+                  )
+                  .padding(.top, 1)
+                }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 10)
+                  .frame(minHeight: 64).background(
                   selected
                     ? AIMTheme.active.opacity(0.70)
                     : (hoveredSourceID == source.id
@@ -1237,7 +1286,7 @@ private struct SourcePage: View {
               != .supportedChatGPT
         ) { Task { await model.reviewImport() } }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24).frame(
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24).frame(
       maxHeight: .infinity, alignment: .top)
   }
 }
@@ -1278,9 +1327,9 @@ private struct ImportReviewPage: View {
     }
   }
   var body: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: AIMTheme.modalSectionSpacing) {
       AIMScrollView {
-        VStack(spacing: 8) {
+        VStack(spacing: AIMTheme.modalSectionSpacing) {
           AIMPanel(title: "Plan") {
             VStack(spacing: 0) {
               DetailRow(label: "Account", value: plan.identity.displayName)
@@ -1364,16 +1413,16 @@ private struct ImportReviewPage: View {
           Task { await model.commitImport() }
         }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24)
   }
 }
 private struct ImportResultPage: View {
   let result: ImportResult
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: AIMTheme.modalSectionSpacing) {
       AIMScrollView {
-        VStack(spacing: 8) {
+        VStack(spacing: AIMTheme.modalSectionSpacing) {
           AIMPanel(title: result.unresolved.isEmpty ? "Import complete" : "Review required") {
             HStack(spacing: 14) {
               ZStack {
@@ -1420,7 +1469,7 @@ private struct ImportResultPage: View {
           model.showImport = false
         }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24)
   }
 }
 

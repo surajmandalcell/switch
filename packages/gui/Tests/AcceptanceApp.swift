@@ -240,6 +240,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         "Window controls, titlebar, or page insets do not match the chrome contract"
     )
     expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
+    expect(AIMTheme.modalTitlebarHeight == 48, "Modal titlebar is not 48 points high")
+    expect(AIMTheme.modalHeight == 648, "Modal height does not preserve the source-row rhythm")
+    expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
