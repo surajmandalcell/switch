@@ -167,6 +167,11 @@ three symmetry-strength options whose counters remain pixel-derived, and the rej
 build for comparison. The review must make no network requests. Production artwork changes only
 after a candidate is selected from this review.
 
+Icon selection (2026-09-13): **Pixel trace** is approved. Use that exact traced silhouette for
+the Dock, Spotlight, in-app mark, and menu-bar template. Context-specific padding and color are
+allowed; reconstructing, smoothing, widening, or otherwise changing its outline or counters is
+not. Retire the previous fourfold hand-fit mark and the menu-bar optical geometry.
+
 ## 1. The outcome
 
 Build one reliable workflow: import Codex accounts and choose which account Codex uses.
@@ -1881,12 +1886,11 @@ with temporary synthetic homes before installation.
   GUI contract dispatches these real menu items and verifies both window presentation and every
   resulting page route, rather than checking menu labels alone.
 - The supplied reference PNG has SHA-256
-  `1fba71d24c2f6488f6fca711befb35b08523c924a9a08b0aae064686007c5b2e`. The selected production
-  vector uses exact fourfold outer symmetry, one upper-right circular counter, and one clean
-  lower-left open annulus whose inner disc remains solid. The prior sampled path and white lens
-  artifact are removed.
+  `1fba71d24c2f6488f6fca711befb35b08523c924a9a08b0aae064686007c5b2e`. The approved production
+  vector is the direct Pixel trace from the HTML review. Its source-canvas binary edge mismatch
+  is 516 pixels, or 0.0871%. The earlier fourfold hand-fit mark is removed.
 - Dock and Spotlight keep explicit light and dark graphite treatments around the same mark. The
-  menu-bar template uses an optical variant with wider counters at 22 and 44 pixels. The generated
+  menu-bar and rail assets scale the identical trace without changing its counters. The generated
   Dock PNGs are 1024 by 1024, the rail export is 256 by 256, every PNG has alpha, and the ICNS
   expands to all ten standard macOS slots.
 - `scripts/check-native.sh` passes 88 discovered core contracts: 86 execute without failure and

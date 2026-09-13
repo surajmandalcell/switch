@@ -41,7 +41,7 @@ enum AIManagerBrand {
       ("AppIcon", "icns"), ("AppIcon", "png"),
       ("AppIconLight", "svg"), ("AppIconLight", "png"),
       ("AppIconDark", "svg"), ("AppIconDark", "png"),
-      ("SwitchMarkBalanced", "svg"), ("SwitchMarkMenubar", "svg"),
+      ("SwitchMarkPixelTrace", "svg"), ("SwitchMarkMenubar", "svg"),
       ("TrayTemplate", "png"), ("TrayTemplate@2x", "png"),
     ] where resourceURL(named: name, extension: fileExtension, bundle: bundle) == nil {
       failures.append("Brand asset \(name).\(fileExtension) is unavailable")

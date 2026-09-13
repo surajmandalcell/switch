@@ -1,11 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Optical version for 16- and 22-point use: wider counters preserve the same silhouette. -->
-  <defs>
-    <mask id="mark" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <path fill="#fff" d="M512 108C590 108 600 183 630 254C670 348 730 388 834 428C894 451 916 477 916 512C916 590 841 600 770 630C676 670 636 730 596 834C573 894 547 916 512 916C434 916 424 841 394 770C354 676 294 636 190 596C130 573 108 547 108 512C108 434 183 424 254 394C348 354 388 294 428 190C451 130 477 108 512 108Z"/>
-      <circle cx="590" cy="448" r="84" fill="#000"/>
-      <path d="M390.139 816.435A138 138 0 1 1 485.512 749.000" fill="none" stroke="#000" stroke-width="116" stroke-linecap="butt"/>
-    </mask>
-  </defs>
-  <rect width="1024" height="1024" fill="currentColor" mask="url(#mark)"/>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+ width="1024" height="1024" viewBox="0 0 1024 1024">
+  <image x="96" y="96" width="832" height="832"
+    xlink:href="SwitchMarkPixelTrace.svg"/>
 </svg>
