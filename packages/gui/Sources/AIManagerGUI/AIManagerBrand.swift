@@ -9,8 +9,13 @@ enum AIManagerBrand {
     bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? displayName
   }
 
-  static func installApplicationIcon(in bundle: Bundle = .main) {
-    if let image = image(named: "AppIcon", extension: "png", bundle: bundle) {
+  static func installApplicationIcon(dark: Bool? = nil, in bundle: Bundle = .main) {
+    let usesDarkTreatment = dark ?? (
+      NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+    let treatment = usesDarkTreatment ? "AppIconDark" : "AppIconLight"
+    if let image = image(named: treatment, extension: "png", bundle: bundle)
+      ?? image(named: "AppIcon", extension: "png", bundle: bundle)
+    {
       NSApp.applicationIconImage = image
     }
   }
@@ -34,9 +39,23 @@ enum AIManagerBrand {
     var failures: [String] = []
     for (name, fileExtension) in [
       ("AppIcon", "icns"), ("AppIcon", "png"),
+      ("AppIconLight", "svg"), ("AppIconLight", "png"),
+      ("AppIconDark", "svg"), ("AppIconDark", "png"),
+      ("SwitchMarkBalanced", "svg"), ("SwitchMarkMenubar", "svg"),
       ("TrayTemplate", "png"), ("TrayTemplate@2x", "png"),
     ] where resourceURL(named: name, extension: fileExtension, bundle: bundle) == nil {
       failures.append("Brand asset \(name).\(fileExtension) is unavailable")
+    }
+    for name in ["AppIcon", "AppIconLight", "AppIconDark"] {
+      guard let url = resourceURL(named: name, extension: "png", bundle: bundle),
+        let data = try? Data(contentsOf: url),
+        let representation = NSBitmapImageRep(data: data),
+        representation.pixelsWide == 1024,
+        representation.pixelsHigh == 1024
+      else {
+        failures.append("Dock brand asset \(name).png is not 1024 by 1024")
+        continue
+      }
     }
     guard let tray = trayImage(in: bundle) else {
       failures.append("Menu-bar brand mark did not load")
