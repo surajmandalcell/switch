@@ -90,6 +90,8 @@ struct MockAccountViewModelCheck {
         await model.verify()
         precondition(model.selectedAccount?.verification.state == .verifiedWithCodex)
         model.copySavedAuthPath()
+        model.copyWarnings(["First warning", "Second warning"])
+        precondition(model.notice == "2 warnings ready to copy in the production app.")
         model.showSharedRoot()
         await model.openAccount()
         if let issue = model.status?.linkedSettingsDivergences.first {

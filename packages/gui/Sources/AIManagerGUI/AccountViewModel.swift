@@ -478,6 +478,30 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    func copyWarnings(_ warnings: [String]) {
+        let warnings = warnings
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !warnings.isEmpty else { return }
+        let text = warnings.count == 1
+            ? warnings[0]
+            : warnings.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n\n")
+        let noun = warnings.count == 1 ? "Warning" : "\(warnings.count) warnings"
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            notice = "\(noun) ready to copy in the production app."
+            return
+        }
+        #endif
+        if paths.isolationRoot != nil {
+            notice = "\(noun) validated in isolation. The clipboard was not changed."
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            notice = "\(noun) copied."
+        }
+    }
+
     func showSharedRoot() {
         guard !isUnavailable else { reportUnavailable(); return }
         #if AI_MANAGER_PREVIEW
