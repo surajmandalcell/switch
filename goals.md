@@ -1,4 +1,4 @@
-# IIA Directeur: native macOS Codex account manager
+# Switch: native macOS Codex account manager
 
 Status: local release-candidate gates passed; the exact clean installation is recorded by
 the final receipt named in the closeout evidence. The normal app uses the real shared core;
@@ -6,6 +6,16 @@ only the separately named Preview app uses in-memory demo data. Public direct di
 remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
 Design revision: 2026-09-13.
+
+### Switch product identity refinement (2026-09-13)
+
+The macOS product name is **Switch**. Package the production bundle as `Switch.app`
+and the in-memory design build as `Switch Preview.app`. Use Switch in window titles,
+menus, menu-bar actions, errors, documentation, release archives, and acceptance paths.
+Preserve the existing bundle identifiers, `AIManager` Swift targets and executable,
+`ai-manager` CLI command, application-support directory, and window autosave key so the
+rename keeps installed data, scripts, single-instance behavior, and window placement.
+Remove the installed IIA Directeur bundles after the exact signed Switch bundles verify.
 
 ### Release-candidate audit requirements (2026-09-12)
 
