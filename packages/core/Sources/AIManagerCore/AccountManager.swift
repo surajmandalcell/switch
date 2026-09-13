@@ -1119,9 +1119,7 @@ extension AccountManager {
         try provider.validateManagedCredential(requested)
 
         let defaultAuth = paths.defaultHome.appending(path: "auth.json")
-        if CoreSupport.entryExists(defaultAuth) {
-            try provider.validatePrivateCredentialFile(defaultAuth, requireOwnerOnlyPermissions: false)
-        }
+        let outgoingFileDigest = try credentialFingerprintIfPresent(defaultAuth)
         let outgoingInspection = provider.inspect(home: paths.defaultHome)
         var registeredOutgoingIndex: Int?
         var registeredOutgoingInspection: AuthInspection?
@@ -1148,7 +1146,7 @@ extension AccountManager {
         let id = UUID()
         let backup = paths.applicationSupport.appending(path: "backups/\(id.uuidString)", directoryHint: .isDirectory)
         let originallySelected = requested
-        var operation = RecoveryOperation(id: id, kind: "switch", phase: .prepared, source: originallySelected.credentialFile, destination: defaultAuth, backup: backup, touchedItems: [], previousDigest: outgoingInspection.digest.isEmpty ? nil : outgoingInspection.digest, registryAccountID: accountID, previousDefaultAccountID: registry.defaultAccountID ?? registeredOutgoingIndex.map { registry.accounts[$0].id })
+        var operation = RecoveryOperation(id: id, kind: "switch", phase: .prepared, source: originallySelected.credentialFile, destination: defaultAuth, backup: backup, touchedItems: [], previousDigest: outgoingFileDigest, registryAccountID: accountID, previousDefaultAccountID: registry.defaultAccountID ?? registeredOutgoingIndex.map { registry.accounts[$0].id })
         try saveOperation(operation)
         try CoreSupport.privateDirectory(backup, fileManager: fileManager)
         if fileManager.fileExists(atPath: defaultAuth.path) {
@@ -1192,8 +1190,9 @@ extension AccountManager {
             try finishOperation(&operation)
             return .init(accountID: accountID, backup: backup, previousAccountID: accountID)
         }
-        let recheck = provider.inspect(home: paths.defaultHome)
-        guard recheck.digest == outgoingInspection.digest else { throw AIManagerError.sourceChanged }
+        guard try credentialFingerprintIfPresent(defaultAuth) == outgoingFileDigest else {
+            throw AIManagerError.sourceChanged
+        }
         operation.expectedDigest = incomingInspection.digest
         try saveOperation(operation)
         try CoreSupport.atomicWrite(incomingInspection.data, to: defaultAuth, fileManager: fileManager)
@@ -1212,6 +1211,15 @@ extension AccountManager {
         try saveOperation(operation)
         try finishOperation(&operation)
         return .init(accountID: accountID, backup: backup, previousAccountID: previous)
+    }
+
+    private func credentialFingerprintIfPresent(_ credential: URL) throws -> String? {
+        guard CoreSupport.entryExists(credential) else { return nil }
+        try provider.validatePrivateCredentialFile(
+            credential,
+            requireOwnerOnlyPermissions: false
+        )
+        return try CoreSupport.digest(file: credential)
     }
 
     private func createManagedHome(auth: Data, at home: URL) throws {
