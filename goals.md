@@ -187,13 +187,17 @@ source rows remain visible without compressing the section rhythm.
 Navigation and live-history refinement (2026-09-13): order the rail and View menu as Accounts,
 Backup, Chat History, and Shared Settings. Rename the user-facing Recovery page and its copy to
 Backup while preserving the existing internal recovery transaction contract. Command+, still opens
-Shared Settings. Use an established chat-bubble SF Symbol for Chat History. The history page exposes
-live search, a thread list, and readable messages from the shared Codex transcript library. Enumerate
+Shared Settings. Use an established chat-bubble SF Symbol for Chat History at 85% of the standard
+rail-glyph size while preserving its 48-point hit target. The history page exposes live search, a
+thread list, and readable messages from the shared Codex transcript library. Enumerate
 only regular JSONL files below `sessions` and `archived_sessions`, never follow symbolic links, and
 keep the existing 500,000-entry bound. Stream records instead of loading whole transcript files.
 Refresh an incremental file-signature cache while the page is visible, decode only changed files on
 a bounded set of utility-priority workers, debounce search, load selected-thread messages away from
 the SwiftUI main actor, and cancel obsolete work. Main-actor updates contain only prepared view data.
+Every actionable warning offers a copy action, and warning groups offer one bulk copy action. Expected
+scope exclusions stay visible in the import manifest but do not create warning cards; warnings are
+reserved for conditions that need attention, such as an active source or a symbolic-link review.
 
 ## 1. The outcome
 
@@ -2027,3 +2031,30 @@ with temporary synthetic homes before installation.
   in `linux/arm64` and `linux/amd64` containers. Each architecture discovered 92 tests, executed 90
   without failure, skipped only the two protected-copy opt-ins, and passed the release CLI,
   discovery, import, activation, backup, SQLite, symlink, permission, and isolated-home checks.
+
+### Warning controls and rail-scale acceptance (2026-09-13)
+
+- The Chat History rail glyph is 14.45 points, exactly 85% of the standard 17-point rail glyph,
+  while its selection surface and hit target remain 48 by 48 points. The native menu contract locks
+  the ratio. A full-resolution dark render at
+  `/private/tmp/switch-chat-icon-review.RWkqBe/artifacts/window.png` confirms that the smaller glyph
+  remains optically centered with the other rail controls.
+- Auth-only planning previously promoted every intentionally excluded top-level entry into a
+  warning even though the manifest already explained it. Those expected scope exclusions now stay
+  in the manifest without producing warning cards. Import warnings are reserved for actionable
+  symbolic-link review and active-source conditions. The focused contract proves that a large
+  excluded package tree produces one manifest entry and zero warnings.
+- Error bars, shared-setting repair items, pending backup operations, Chat History scan notices,
+  hidden-message notices, import warning lists, and unresolved import results expose copy actions.
+  Warning groups have one bulk action that copies a numbered plain-text list and changes briefly to
+  a success state. Preview and isolated production checks prove that test builds never change the
+  workstation clipboard.
+- The read-only live-history diagnosis found 1,687 transcripts totaling 19,290,875,312 bytes. No
+  transcript file failed indexing; one transcript contained eight oversized or malformed records.
+  The history warning now describes skipped files and records accurately and copies that diagnostic
+  without exposing transcript content.
+- `scripts/check-native.sh` discovered 92 tests, executed 90 without failure, and skipped only the
+  two explicit protected-copy opt-ins. Production and Preview model checks, System/Light/Dark
+  contracts, deterministic icon output, fixed-window behavior, thin scrollbars, and single-instance
+  behavior passed. Read-only unprivileged `linux/arm64` and `linux/amd64` containers each produced
+  the same 90 passes and two opt-in skips, then passed the complete CLI acceptance.
