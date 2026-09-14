@@ -5,7 +5,7 @@ the final receipt named in the closeout evidence. The installed app uses the rea
 Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
 distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
-Design revision: 2026-09-14. The current product contract is
+Design revision: 2026-09-15. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
@@ -2472,7 +2472,26 @@ with temporary synthetic homes before installation.
   two explicit private-copy opt-ins skipped), production/Preview model checks, icon contracts,
   System/Light/Dark window and menu contracts, single-instance behavior, and native scrolling.
   Preference checks cover inheritance, explicit overrides, Use default, reopening the preference
-  store, hiding cached limits, and rejecting menu refresh for hidden usage.
+  store, and hiding cached limits and the active tray percentage.
+
+### Menu-card, wizard, and typography acceptance (2026-09-15)
+
+- The menu popover is a 384-point account-card list with a 440-point height cap. Usage-enabled
+  accounts expose separate Weekly and 5 hour bars, eligible accounts have a dedicated Switch
+  control, and the footer contains only the last update time and Open App. The removed header,
+  columns, refresh, session note, Add Account, and Quit controls have no remaining popover actions.
+- Account rows and identity badges use provider names such as Codex CLI instead of repeating
+  verification copy. Action-needed states remain separate. Add Account and Advanced Import use
+  full-height titlebar steps, balanced 16-point content/action spacing, and panel-aligned checkboxes.
+- Inter, Lora, and PT Mono replace Geist for interface, display, and technical text respectively.
+  Production and Preview bundles include the exact font files and their OFL licenses.
+- `scripts/check-native.sh` passes all 153 discovered core contracts: 151 execute successfully and
+  the two protected-copy integrations remain explicit opt-ins. Production and Preview model checks,
+  Pixel icon assets, System/Light/Dark window and menu contracts, single-instance behavior, and
+  native overlay scrolling pass. The final dark menu, Add Account, Advanced Import, Accounts, and
+  settled light modal renders were inspected at full resolution in the canonical build cache.
+- The Ponytail debt audit finds two existing safety deferrals in `AccountManager.swift`, each with
+  an explicit upgrade trigger; this work adds no marker and leaves no marker without a trigger.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 
