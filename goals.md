@@ -2284,3 +2284,49 @@ with temporary synthetic homes before installation.
   `/private/tmp/ai-manager-build/icon-top-sheen-review.png` was inspected at full resolution. The
   top lift is visible without changing the dark center or lower shading. The Impeccable detector
   returned no findings, and the exact-source native gate passed all Mac GUI and icon contracts.
+
+### Transactional onboarding, statistics, and workstation migration (2026-09-14)
+
+- First launch now adopts a valid regular live `~/.codex/auth.json` into an opaque UUID credential
+  vault without changing the live file. Add Account starts Codex browser sign-in in a private,
+  app-owned `CODEX_HOME`; Check Now imports the completed identity, Cancel removes only that
+  session, and both operations resume safely after an app restart. A newly added account is saved
+  without replacing an existing default until the user chooses Use for New Sessions.
+- The provider catalog is ready for additional adapters. Codex CLI is enabled; Claude Code,
+  Gemini CLI, and Antigravity CLI are present and explicitly unavailable. Advanced Import remains
+  available for an existing Codex folder or `auth.json` while the ordinary path stays focused on
+  Add Account.
+- Account usage uses Codex app-server account APIs from a disposable private home containing a
+  copy of the selected credential. The transport never reads from or writes to the live home,
+  releases the mutation lock while waiting, rejects stale results after a concurrent account
+  change, never copies token rotation back, and removes its temporary home on success or failure.
+  Bounded private SQLite caching keeps the menu-bar popover instant and retains rate-limit data if
+  the optional activity endpoint is unavailable.
+- The Mac account page presents every returned limit bucket, reset window, plan, credits, spend
+  control, ordinary-usage state, token totals, streaks, longest turn, and daily rows. Missing
+  backend fields say Unavailable. Usage and switch failures have copy actions. The fixed-width
+  menu-bar popover shows six virtualized account rows at most, cached quota detail, Add Account,
+  and direct account switching without starting a network request when it opens.
+- The terminal interface exposes the same provider order and Add, Check, Cancel, status-resume,
+  Advanced Import, switch, open, and recovery operations. Human and JSON output carry stable
+  session commands without credential content. First-run status adopts the current login and
+  lists unfinished login sessions without changing the existing top-level status fields.
+- The complete native gate passed 136 core contracts with zero failures; its two protected-copy
+  opt-ins were then run against an authorized minimal private copy of the workstation home and
+  both passed. The representative transcript was fully accounted for, source authentication
+  stayed unchanged, and peak resident memory stayed below 30 MB. Production and Preview models,
+  the Pixel icon, System/Light/Dark window contracts, fixed geometry, single-instance behavior,
+  menu commands, and thin overlay scrollbars pass. Read-only unprivileged `linux/arm64` and
+  `linux/amd64` containers pass the release build, core suite, and full CLI acceptance.
+- Workstation migration found one live account and two distinct legacy credential snapshots; the
+  former `~/.codex2` directory is no longer present. Switch registered `me@mandalsuraj.com`,
+  `me@surajmandal.in`, and `surajmandalcell@gmail.com` as three UUID-named 0600 vault files under
+  the 0700 `~/.switch/codex` directory. The current account remains default, the live credential
+  digest is unchanged, both legacy snapshots were tightened from 0644 to 0600, and status reports
+  no pending recovery or login session. Shared config, chats, and other live-home files remain in
+  the single `~/.codex` tree.
+- Switching continues to fail closed while any Codex process is running because the installed CLI
+  cannot attribute a process to a particular home. Closing active Codex sessions before choosing
+  another account prevents a later token refresh from overwriting the selected live credential.
+  The exact clean signed installation and hashes are recorded outside the repository in
+  `/private/tmp/ai-manager-build/final-install-receipt.json`.
