@@ -32,13 +32,12 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let statusItemController = AIManagerStatusItemController(
-            snapshot: menuBarSnapshot(),
+            snapshot: menuBarSnapshot(status: model.status, usageSnapshots: model.usageSnapshots),
             actions: MenuBarPopoverActions(
                 openMainWindow: {
                     controller.present()
                     NSApp.activate(ignoringOtherApps: true)
                 },
-                addAccount: { [weak self] in self?.addAccountFromMenuBar() },
                 quit: { NSApp.terminate(nil) },
                 switchAccount: { [weak self] accountID in
                     guard let self else { throw MenuBarActionError.appUnavailable }
@@ -46,12 +45,6 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 },
                 refreshAccountUsage: { [weak self] accountID in
                     await self?.model.refreshUsage(accountID: accountID)
-                },
-                refreshAllUsage: { [weak self] in
-                    guard let self else { return }
-                    for account in self.model.status?.accounts ?? [] where account.identity.providerID == .codex {
-                        await self.model.refreshUsage(accountID: account.id)
-                    }
                 }
             ))
         self.statusItemController = statusItemController
@@ -60,19 +53,29 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.applyAppearance() }
+        ) { [weak self, weak statusItemController] _ in
+            Task { @MainActor [weak self, weak statusItemController] in
+                guard let self else { return }
+                self.applyAppearance()
+                statusItemController?.update(snapshot: self.menuBarSnapshot(
+                    status: self.model.status,
+                    usageSnapshots: self.model.usageSnapshots))
+            }
         }
         model.$status
-            .sink { [weak self, weak statusItemController] _ in
+            .sink { [weak self, weak statusItemController] status in
                 guard let self else { return }
-                statusItemController?.update(snapshot: self.menuBarSnapshot())
+                statusItemController?.update(snapshot: self.menuBarSnapshot(
+                    status: status,
+                    usageSnapshots: self.model.usageSnapshots))
             }
             .store(in: &modelObservers)
         model.$usageSnapshots
-            .sink { [weak self, weak statusItemController] _ in
+            .sink { [weak self, weak statusItemController] usageSnapshots in
                 guard let self else { return }
-                statusItemController?.update(snapshot: self.menuBarSnapshot())
+                statusItemController?.update(snapshot: self.menuBarSnapshot(
+                    status: self.model.status,
+                    usageSnapshots: usageSnapshots))
             }
             .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
@@ -156,24 +159,42 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func menuBarSnapshot() -> MenuBarSnapshot {
-        guard let status = model.status else { return .empty }
-        let activeUsage = status.defaultAccountID.flatMap { menuBarUsage(for: $0) }
+    private func menuBarSnapshot(
+        status: ManagerStatus?,
+        usageSnapshots: [UUID: CodexAccountUsageSnapshot]
+    ) -> MenuBarSnapshot {
+        guard let status else { return .empty }
+        let activeUsage = status.defaultAccountID.flatMap { accountID -> MenuBarUsageSnapshot? in
+            guard MenuBarUsagePreferences.showsUsage(for: accountID) else { return nil }
+            return menuBarUsage(for: accountID, status: status, usageSnapshots: usageSnapshots)
+        }
         return MenuBarSnapshot(
             accounts: status.accounts.map { account in
-                MenuBarAccountSnapshot(
+                let showsUsage = MenuBarUsagePreferences.showsUsage(for: account.id)
+                return MenuBarAccountSnapshot(
                     id: account.id,
                     identity: account.identity.email ?? "Codex account",
                     detail: Self.accountDetail(account),
                     isVerified: Self.canSwitch(account),
                     isActive: account.id == status.defaultAccountID,
-                    usage: menuBarUsage(for: account.id))
+                    usage: showsUsage
+                        ? menuBarUsage(
+                            for: account.id,
+                            status: status,
+                            usageSnapshots: usageSnapshots)
+                        : nil,
+                    showsUsage: showsUsage)
             },
             primaryUsedPercentage: activeUsage?.usedPercentage)
     }
 
-    private func menuBarUsage(for accountID: UUID) -> MenuBarUsageSnapshot? {
-        guard let snapshot = model.usage(for: accountID),
+    private func menuBarUsage(
+        for accountID: UUID,
+        status: ManagerStatus,
+        usageSnapshots: [UUID: CodexAccountUsageSnapshot]
+    ) -> MenuBarUsageSnapshot? {
+        guard status.accounts.first(where: { $0.id == accountID })?.verification.state != .needsSignIn,
+              let snapshot = usageSnapshots[accountID],
               let used = snapshot.rateLimits?.defaultBucket?.primary?.usedPercent else { return nil }
         let bucket = snapshot.rateLimits?.defaultBucket
         let reset = bucket?.primary?.resetsAt.map {

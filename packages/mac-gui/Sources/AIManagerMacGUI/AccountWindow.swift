@@ -794,7 +794,7 @@ private struct AccountDetail: View {
             }
           }.padding(16)
         }
-        AccountUsagePanel(account: account, model: model)
+        AccountUsagePanel(account: account, model: model).id(account.id)
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
             DetailRow(label: "Saved auth", value: account.credentialFile.path)
@@ -978,6 +978,15 @@ enum UsagePresentation {
 private struct AccountUsagePanel: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
+  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = false
+  @State private var showUsageOverride: Bool?
+
+  init(account: AccountRecord, model: AccountViewModel) {
+    self.account = account
+    self.model = model
+    _showUsageOverride = State(
+      initialValue: MenuBarUsagePreferences.explicitValue(for: account.id))
+  }
 
   private var snapshot: CodexAccountUsageSnapshot? { model.usage(for: account.id) }
   private var cached: CachedCodexAccountUsage? { model.cachedUsage(for: account.id) }
@@ -1008,6 +1017,8 @@ private struct AccountUsagePanel: View {
   var body: some View {
     AIMPanel(title: "Usage") {
       VStack(spacing: 0) {
+        menuBarPreference
+        Divider().overlay(AIMTheme.lineSoft)
         if let snapshot {
           VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
@@ -1097,6 +1108,37 @@ private struct AccountUsagePanel: View {
         }
       }
     }
+    .onAppear {
+      showUsageOverride = MenuBarUsagePreferences.explicitValue(for: account.id)
+    }
+  }
+
+  private var menuBarPreference: some View {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Show usage in menu bar").font(AIMTheme.sans(11, weight: .medium))
+        Text("Show this account’s cached limits and active usage percentage.")
+          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 16)
+      if showUsageOverride != nil {
+        AIMButton(title: "Use default") {
+          MenuBarUsagePreferences.useDefault(for: account.id)
+          showUsageOverride = nil
+        }
+      }
+      Toggle("", isOn: Binding(
+        get: { showUsageOverride ?? defaultShowUsage },
+        set: { value in
+          MenuBarUsagePreferences.setOverride(value, for: account.id)
+          showUsageOverride = value
+        }
+      ))
+      .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      .accessibilityLabel("Show usage in menu bar")
+    }
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
   }
 
   @ViewBuilder private var usageStatus: some View {
@@ -1258,6 +1300,7 @@ private struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
   @Binding var showFocusIndicators: Bool
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
+  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     AIMScrollView {
@@ -1270,6 +1313,11 @@ private struct SettingsPage: View {
             settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
               Text("Show outlines only while keyboard controls have focus.")
             }
+          }
+        }
+        AIMPanel(title: "Menu bar defaults") {
+          settingRow(isOn: $defaultShowUsage, title: "Show account usage") {
+            Text("Accounts without their own choice show cached usage in the menu bar.")
           }
         }
         #if AI_MANAGER_PREVIEW

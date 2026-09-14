@@ -36,7 +36,9 @@ opens Settings. Settings contains only:
 1. **App behavior** — Minimize to menu bar and the optional keyboard-focus indicator.
 2. **Data locations** — Codex home (`~/.codex`) and saved account vault
    (`~/.switch/codex`), each with a plain-language purpose and an explicit Reveal action.
-3. Preview-only demo controls in Preview builds.
+3. **Menu bar defaults** — Show account usage, initially off. Accounts without an
+   explicit override follow this default. Changing it preserves explicit account choices.
+4. Preview-only demo controls in Preview builds.
 
 Settings never lists files as “Linked entries,” never implies that each account owns a
 separate configuration or chat library, and never exposes internal managed-home topology.
@@ -57,8 +59,21 @@ statistics. Optional fields are conditional:
 - Never manufacture a value from transcripts and never combine stale usage with Needs
   sign-in.
 
-The menu-bar ledger keeps its fixed quota columns aligned. It may use a blank cell for a
-missing percentage because removing a cell would break the table geometry.
+The menu popover contains the account list, available limit columns, and a compact Open
+Switch/Quit footer. Remove the brand/count/refresh header, session explanation, and Add
+Account action. Account creation belongs in the main window.
+
+Each account's Usage panel exposes Show usage in menu bar and an action to return to the
+Settings default. This preference controls both that account's popover limits and the
+active account's percentage beside the menu-bar icon. All accounts remain listed and
+switchable. Disabled usage has no refresh action or placeholder; enabling display does
+not activate an account. Preferences persist by account UUID and update the menu at once.
+Main-window usage and its cache remain available regardless of this display preference.
+
+The ledger keeps quota columns aligned and blank where an account hides usage. Missing
+percentages are never fabricated. The popover is 384 points wide, shows at most six
+60-point rows, and uses a 24-point column row plus a 40-point footer. It has no automatic
+focus outline unless the keyboard-focus indicator setting is enabled.
 
 ## 4. Visual system
 

@@ -2450,3 +2450,20 @@ with temporary synthetic homes before installation.
   behavior, native scrolling, and focused presentation contracts passed. Dark Accounts, Settings,
   Chat History, and menu renders were inspected under `/private/tmp/switch-dark-final.kBpUq7` and
   `/private/tmp/switch-dark-review.8NJ9nS`.
+
+### Menu-bar scope and account preferences (2026-09-14)
+
+- The menu popover is for switching and viewing limits. Remove its brand/count/refresh header,
+  session explanation, and Add Account action. Keep account rows, available limit columns,
+  Open Switch, and Quit within a 384-point-wide, six-row maximum layout.
+- Usage display starts off. Each account has a Show usage in menu bar toggle and can return to
+  the Settings default using Use default. Explicit per-account choices persist by account ID;
+  changing the default affects only accounts without an override.
+- The same preference controls row limits and the active tray percentage. Hidden usage has no
+  placeholder or refresh action; all accounts remain available for switching. This preference
+  does not alter account-page usage, saved credentials, or the live Codex home.
+- Verification: `scripts/check-native.sh` passed 152 discovered core contracts (150 executed,
+  two explicit private-copy opt-ins skipped), production/Preview model checks, icon contracts,
+  System/Light/Dark window and menu contracts, single-instance behavior, and native scrolling.
+  Preference checks cover inheritance, explicit overrides, Use default, reopening the preference
+  store, hiding cached limits, and rejecting menu refresh for hidden usage.

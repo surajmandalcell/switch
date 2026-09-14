@@ -185,9 +185,6 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                     controller.present()
                     NSApp.activate(ignoringOtherApps: true)
                 },
-                addAccount: { [weak self] in
-                    Task { await self?.model.beginAddAccount() }
-                },
                 quit: {},
                 switchAccount: { [weak self] accountID in
                     guard let self else { return }
@@ -589,7 +586,7 @@ private final class AcceptanceReceipts {
         let store = MenuBarPopoverStore(
             snapshot: snapshot,
             actions: MenuBarPopoverActions(
-                openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in }))
+                openMainWindow: {}, quit: {}, switchAccount: { _ in }))
         let view = NSHostingView(rootView: MenuBarPopover(store: store))
         view.appearance = appearance
         view.frame = NSRect(

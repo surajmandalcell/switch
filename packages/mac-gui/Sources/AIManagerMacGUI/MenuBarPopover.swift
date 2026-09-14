@@ -30,6 +30,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let isVerified: Bool
   let isActive: Bool
   let usage: MenuBarUsageSnapshot?
+  let showsUsage: Bool
 
   init(
     id: UUID,
@@ -37,14 +38,16 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     detail: String,
     isVerified: Bool,
     isActive: Bool,
-    usage: MenuBarUsageSnapshot? = nil
+    usage: MenuBarUsageSnapshot? = nil,
+    showsUsage: Bool = true
   ) {
     self.id = id
     self.identity = identity
     self.detail = detail
     self.isVerified = isVerified
     self.isActive = isActive
-    self.usage = usage
+    self.usage = showsUsage ? usage : nil
+    self.showsUsage = showsUsage
   }
 }
 
@@ -63,28 +66,22 @@ struct MenuBarSnapshot: Equatable, Sendable {
 @MainActor
 struct MenuBarPopoverActions {
   let openMainWindow: () -> Void
-  let addAccount: () -> Void
   let quit: () -> Void
   let switchAccount: (UUID) async throws -> Void
   let refreshAccountUsage: (UUID) async -> Void
-  let refreshAllUsage: () async -> Void
   let copyText: ((String) -> Void)?
 
   init(
     openMainWindow: @escaping () -> Void,
-    addAccount: @escaping () -> Void,
     quit: @escaping () -> Void,
     switchAccount: @escaping (UUID) async throws -> Void,
     refreshAccountUsage: @escaping (UUID) async -> Void = { _ in },
-    refreshAllUsage: @escaping () async -> Void = {},
     copyText: ((String) -> Void)? = nil
   ) {
     self.openMainWindow = openMainWindow
-    self.addAccount = addAccount
     self.quit = quit
     self.switchAccount = switchAccount
     self.refreshAccountUsage = refreshAccountUsage
-    self.refreshAllUsage = refreshAllUsage
     self.copyText = copyText
   }
 }
@@ -94,7 +91,6 @@ final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var snapshot: MenuBarSnapshot
   @Published private(set) var switchingAccountID: UUID?
   @Published private(set) var refreshingAccountID: UUID?
-  @Published private(set) var isRefreshingAll = false
   @Published private(set) var rowErrors: [UUID: String] = [:]
 
   let actions: MenuBarPopoverActions
@@ -118,11 +114,6 @@ final class MenuBarPopoverStore: ObservableObject {
     didRequestDismissal?()
   }
 
-  func addAccount() {
-    actions.addAccount()
-    didRequestDismissal?()
-  }
-
   func quit() {
     actions.quit()
   }
@@ -139,7 +130,7 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   func select(_ account: MenuBarAccountSnapshot) {
-    guard switchingAccountID == nil, refreshingAccountID == nil, !isRefreshingAll,
+    guard switchingAccountID == nil, refreshingAccountID == nil,
       account.isVerified,
       !account.isActive
     else { return }
@@ -160,8 +151,8 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   func refresh(_ account: MenuBarAccountSnapshot) {
-    guard switchingAccountID == nil, refreshingAccountID == nil, !isRefreshingAll,
-      account.isVerified else { return }
+    guard switchingAccountID == nil, refreshingAccountID == nil,
+      account.isVerified, account.showsUsage else { return }
     refreshingAccountID = account.id
     Task { @MainActor [weak self] in
       guard let self else { return }
@@ -170,24 +161,14 @@ final class MenuBarPopoverStore: ObservableObject {
     }
   }
 
-  func refreshAll() {
-    guard switchingAccountID == nil, refreshingAccountID == nil, !isRefreshingAll else { return }
-    isRefreshingAll = true
-    Task { @MainActor [weak self] in
-      guard let self else { return }
-      await actions.refreshAllUsage()
-      isRefreshingAll = false
-    }
-  }
 }
 
 struct MenuBarPopover: View {
   static let width: CGFloat = 384
-  static let minimumHeight: CGFloat = 192
-  static let maximumHeight: CGFloat = 548
-  static let headerHeight: CGFloat = 44
+  static let minimumHeight: CGFloat = 124
+  static let maximumHeight: CGFloat = 424
   static let columnHeaderHeight: CGFloat = 24
-  static let footerHeight: CGFloat = 120
+  static let footerHeight: CGFloat = 40
   static let accountRowHeight: CGFloat = 60
   static let quotaWidth: CGFloat = 48
   static let statusWidth: CGFloat = 18
@@ -199,13 +180,11 @@ struct MenuBarPopover: View {
   }
 
   @ObservedObject var store: MenuBarPopoverStore
-  @State private var refreshHovered = false
+  @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
   @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     VStack(spacing: 0) {
-      header
       if !store.snapshot.accounts.isEmpty { columnHeader }
       accountList
       footer
@@ -214,43 +193,9 @@ struct MenuBarPopover: View {
     .background(AIMTheme.panel)
     .foregroundStyle(AIMTheme.ink)
     .environment(\.aimDarkMode, colorScheme == .dark)
+    .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
+    .focusEffectDisabled(!showFocusIndicators)
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-  }
-
-  private var header: some View {
-    HStack(spacing: 8) {
-      Text("Switch")
-        .font(AIMTheme.sans(13, weight: .semibold))
-      Text(accountCountLabel.uppercased())
-        .font(AIMTheme.sans(9, weight: .medium))
-        .foregroundStyle(AIMTheme.muted)
-      Spacer(minLength: 8)
-      Button { store.refreshAll() } label: {
-        Group {
-          if store.isRefreshingAll {
-            ProgressView().controlSize(.small)
-          } else {
-            AIMIcon(name: .refresh, size: 12)
-          }
-        }
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(AIMPressButtonStyle())
-      .background(refreshHovered ? AIMTheme.listHover : Color.clear)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      .disabled(store.snapshot.accounts.isEmpty || store.isRefreshingAll)
-      .onHover { hovered in
-        withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover)) {
-          refreshHovered = hovered && !store.snapshot.accounts.isEmpty
-        }
-      }
-      .help("Refresh account usage")
-      .accessibilityLabel("Refresh account usage")
-    }
-    .padding(.horizontal, 14)
-    .frame(height: Self.headerHeight)
-    .overlay(alignment: .bottom) { Divider().overlay(AIMTheme.lineSoft) }
   }
 
   private var columnHeader: some View {
@@ -262,11 +207,11 @@ struct MenuBarPopover: View {
           .frame(width: Self.quotaWidth, alignment: .trailing)
         Text(hasSecondaryUsage ? "Weekly" : "")
           .frame(width: Self.quotaWidth, alignment: .trailing)
-        Color.clear.frame(width: Self.statusWidth)
+        Text("Use").frame(width: Self.statusWidth)
       }
       .padding(.leading, 14)
       .padding(.trailing, 8)
-      Text("Use").frame(width: Self.trailingActionWidth, alignment: .center)
+      Color.clear.frame(width: Self.trailingActionWidth)
     }
     .font(AIMTheme.sans(8, weight: .medium))
     .foregroundStyle(AIMTheme.muted)
@@ -282,7 +227,7 @@ struct MenuBarPopover: View {
       VStack(spacing: 4) {
         Text("No accounts yet")
           .font(AIMTheme.sans(12, weight: .semibold))
-        Text("Add a Codex account to get started.")
+        Text("Open Switch to add an account.")
           .font(AIMTheme.sans(11))
           .foregroundStyle(AIMTheme.muted)
       }
@@ -315,7 +260,6 @@ struct MenuBarPopover: View {
     var hasher = Hasher()
     hasher.combine(store.switchingAccountID)
     hasher.combine(store.refreshingAccountID)
-    hasher.combine(store.isRefreshingAll)
     for (id, error) in store.rowErrors.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
       hasher.combine(id)
       hasher.combine(error)
@@ -324,36 +268,6 @@ struct MenuBarPopover: View {
   }
 
   private var footer: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 8) {
-        Image(systemName: "info.circle")
-          .font(.system(size: 11, weight: .regular))
-          .accessibilityHidden(true)
-        Text("Changes apply to new sessions. Running Codex sessions stay signed in.")
-          .font(AIMTheme.sans(10))
-          .foregroundStyle(AIMTheme.muted)
-          .lineLimit(2)
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 14)
-      .frame(height: 36)
-
-      MenuBarHoverButton(action: store.addAccount) {
-        HStack(spacing: 8) {
-          Image(systemName: "plus")
-            .font(.system(size: 11, weight: .semibold))
-            .accessibilityHidden(true)
-          Text("Add Account")
-            .font(AIMTheme.sans(12, weight: .medium))
-          Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 40)
-        .contentShape(Rectangle())
-      }
-
-      Divider().overlay(AIMTheme.lineSoft)
-
       HStack(spacing: 1) {
         MenuBarHoverButton(action: store.openMainWindow) {
           Text("Open Switch")
@@ -370,16 +284,9 @@ struct MenuBarPopover: View {
             .contentShape(Rectangle())
         }
       }
-      .frame(height: 43)
-    }
     .frame(height: Self.footerHeight)
     .background(AIMTheme.menuChrome)
     .overlay(alignment: .top) { Divider().overlay(AIMTheme.lineSoft) }
-  }
-
-  private var accountCountLabel: String {
-    let count = store.snapshot.accounts.count
-    return "\(count) account\(count == 1 ? "" : "s")"
   }
 
   private var hasPrimaryUsage: Bool {
@@ -462,7 +369,7 @@ private struct MenuBarAccountRow: View {
         .buttonStyle(AIMPressButtonStyle())
         .help("Copy error")
         .accessibilityLabel("Copy account error")
-    } else if account.usage == nil && account.isVerified {
+    } else if account.usage == nil && account.isVerified && account.showsUsage {
         Button(action: refresh) {
           Group {
             if isRefreshing {
