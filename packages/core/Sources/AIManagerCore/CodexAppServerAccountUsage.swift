@@ -308,6 +308,7 @@ public struct CodexAppServerAccountReader: Sendable {
                   let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any],
                   let id = integer(object["id"]) else { continue }
             if let error = object["error"] as? [String: Any] {
+                if id == 4 { continue }
                 let message = (error["message"] as? String).map { String($0.prefix(512)) }
                     ?? "Codex app-server request failed."
                 throw CodexAppServerError.rpcFailure(code: integer(error["code"]), message: message)
@@ -317,7 +318,7 @@ public struct CodexAppServerAccountReader: Sendable {
 
         guard let accountResult = results[2] else { throw CodexAppServerError.missingResponse("account/read") }
         guard let rateResult = results[3] else { throw CodexAppServerError.missingResponse("account/rateLimits/read") }
-        guard let usageResult = results[4] else { throw CodexAppServerError.missingResponse("account/usage/read") }
+        let usageResult = results[4]
 
         let accountObject = accountResult["account"] as? [String: Any]
         let account = accountObject.map {
@@ -339,7 +340,7 @@ public struct CodexAppServerAccountReader: Sendable {
             defaultBucket: defaultBucket,
             buckets: buckets
         )
-        let summaryObject = usageResult["summary"] as? [String: Any]
+        let summaryObject = usageResult?["summary"] as? [String: Any]
         let usage = summaryObject.map {
             CodexUsageSummarySnapshot(
                 lifetimeTokens: integer64($0["lifetimeTokens"]),
@@ -349,7 +350,7 @@ public struct CodexAppServerAccountReader: Sendable {
                 longestRunningTurnSeconds: integer64($0["longestRunningTurnSec"])
             )
         }
-        let dailyUsage = (usageResult["dailyUsageBuckets"] as? [[String: Any]] ?? []).map {
+        let dailyUsage = (usageResult?["dailyUsageBuckets"] as? [[String: Any]] ?? []).map {
             CodexDailyUsageSnapshot(startDate: $0["startDate"] as? String, tokens: integer64($0["tokens"]))
         }
         return CodexAccountUsageSnapshot(
@@ -479,6 +480,11 @@ public struct ProcessCodexAppServerRPCTransport: CodexAppServerRPCTransport {
                 throw CodexAppServerError.malformedResponse
             }
             guard let responseID = (object["id"] as? NSNumber)?.intValue else { continue }
+            if responseID == 4, object["error"] != nil {
+                records.append(line)
+                pending.remove(responseID)
+                continue
+            }
             try throwRPCError(from: object)
             records.append(line)
             pending.remove(responseID)
