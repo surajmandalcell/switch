@@ -75,6 +75,52 @@ public struct ChatThreadDetail: Sendable, Equatable {
     }
 }
 
+public struct ChatMessageSearchResult: Sendable, Equatable {
+    public let messages: [ChatMessage]
+    public let totalMessageCount: Int
+    public let matchingMessageCount: Int
+
+    public init(messages: [ChatMessage], totalMessageCount: Int, matchingMessageCount: Int) {
+        self.messages = messages
+        self.totalMessageCount = totalMessageCount
+        self.matchingMessageCount = matchingMessageCount
+    }
+}
+
+public enum ChatMessageSearch {
+    public static func search(
+        _ messages: [ChatMessage], query: String
+    ) async throws -> ChatMessageSearchResult {
+        let terms = query
+            .split(whereSeparator: \.isWhitespace)
+            .map { String($0).lowercased() }
+        guard !terms.isEmpty else {
+            return ChatMessageSearchResult(
+                messages: messages,
+                totalMessageCount: messages.count,
+                matchingMessageCount: messages.count)
+        }
+        let task = Task.detached(priority: .userInitiated) {
+            var matches: [ChatMessage] = []
+            matches.reserveCapacity(min(messages.count, 128))
+            for (index, message) in messages.enumerated() {
+                if index.isMultiple(of: 32) { try Task.checkCancellation() }
+                let text = message.text.lowercased()
+                if terms.allSatisfy(text.contains) { matches.append(message) }
+            }
+            return ChatMessageSearchResult(
+                messages: matches,
+                totalMessageCount: messages.count,
+                matchingMessageCount: matches.count)
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+}
+
 public struct ChatHistorySnapshot: Sendable, Equatable {
     public let threads: [ChatThreadSummary]
     public let libraryRevision: UInt64
