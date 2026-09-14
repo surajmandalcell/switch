@@ -367,7 +367,6 @@ public actor AccountManager {
                 throw AIManagerError.accountNotFound
             }
             try provider.validateManagedCredential(selected)
-            try await ensureWritersInactive([paths.defaultHome])
             return try performSwitch(to: accountID)
         }
     }
@@ -497,7 +496,6 @@ public actor AccountManager {
                 throw AIManagerError.accountNotFound
             }
             try provider.validateManagedCredential(selected)
-            try await ensureWritersInactive([paths.defaultHome])
             _ = try performSwitch(to: accountID, captureOutgoingCredential: false)
         }
     }
@@ -564,17 +562,16 @@ public actor AccountManager {
             let accountIDMatches = snapshot.rateLimits?.accountID.map {
                 $0 == account.identity.accountID
             } ?? true
-            let authenticated = snapshot.requiresOpenAIAuthentication != true
-                && accountIDMatches
-                && snapshot.account != nil
+            let authenticated = accountIDMatches && snapshot.account != nil
             let result: VerificationResult
-            if snapshot.requiresOpenAIAuthentication == true || !accountIDMatches {
+            if !accountIDMatches
+                || (snapshot.account == nil && snapshot.requiresOpenAIAuthentication == true) {
                 result = .init(
                     state: .needsSignIn,
                     checkedAt: snapshot.fetchedAt,
-                    detail: snapshot.requiresOpenAIAuthentication == true
-                        ? "Codex requires sign-in for this saved auth.json."
-                        : "Codex returned a different account for this saved auth.json."
+                    detail: !accountIDMatches
+                        ? "Codex returned a different account for this saved auth.json."
+                        : "Codex requires sign-in for this saved auth.json."
                 )
             } else if authenticated {
                 result = .init(
@@ -662,7 +659,6 @@ public actor AccountManager {
             let alreadyActive = registry.defaultAccountID == accountID
                 && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
             if !alreadyActive {
-                try await ensureWritersInactive([paths.defaultHome])
                 _ = try performSwitch(to: accountID)
             }
             let process = configuredProcess(

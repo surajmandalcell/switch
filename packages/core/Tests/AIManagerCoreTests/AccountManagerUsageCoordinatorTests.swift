@@ -372,6 +372,28 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         )
     }
 
+    func testCheckTreatsReturnedAccountAsSignedInWhenProviderRequiresOpenAIAuth() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAccount("provider-auth", manager: manager)
+        let transport = AccountCheckTransport(
+            accountEmail: "canonical@example.test",
+            accountID: account.identity.accountID,
+            requiresAuthentication: true
+        )
+
+        let result = await manager.checkAccount(
+            accountID: account.id,
+            reader: .init(transport: transport, environment: { [:] })
+        )
+
+        XCTAssertEqual(result.verification.state, .verifiedWithCodex)
+        XCTAssertEqual(result.usage?.account?.email, "canonical@example.test")
+        XCTAssertEqual(result.usage?.usage?.lifetimeTokens, 42)
+        let status = try await manager.status()
+        XCTAssertEqual(status.accounts.first?.verification.state, .verifiedWithCodex)
+        XCTAssertEqual(status.accounts.first?.identity.email, "canonical@example.test")
+    }
+
     func testCheckKeepsValidFileVerifiedWhenAppServerIsUnavailable() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let account = try await importAccount("offline", manager: manager)
