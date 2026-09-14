@@ -29,11 +29,68 @@ skip_if_native_writer_unknown() {
   return 1
 }
 
+"$binary" providers --json \
+  | jq -e '
+      map(.id) == ["codex", "claude-code", "gemini-cli", "antigravity-cli"]
+      and .[0].displayName == "Codex CLI"
+      and .[0].availability == "enabled"
+      and (.[1:] | all(.availability == "disabled"))
+    ' >/dev/null
+if "$binary" add claude-code --json >"$test_root/disabled-provider.json" 2>"$test_root/disabled-provider.log"; then
+  printf '%s\n' 'Expected a disabled provider to remain unavailable.' >&2
+  exit 1
+fi
+rg -F 'Claude Code account setup is not available yet.' "$test_root/disabled-provider.log" >/dev/null
+
+if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
+  printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2
+  exit 1
+fi
+rg -F 'repeat with --yes' "$test_root/unconfirmed-refresh.log" >/dev/null
+"$binary" refresh --yes --json \
+  | jq -e '.status.accounts == [] and .pendingLoginSessions == []' >/dev/null
+
+login_start="$test_root/login-start.json"
+"$binary" start-login codex --yes --json >"$login_start"
+login_id="$(jq -r '.session.id' "$login_start")"
+jq -e --arg root "$fixture" '
+    .session.providerID == "codex"
+    and .stagingHome == ("file://" + $root + "/application-support/account-login/" + .session.id + "/home/")
+    and (keys | sort) == ["session", "stagingHome"]
+  ' "$login_start" >/dev/null
+if rg -i 'access.token|refresh.token|openai.api.key|codex.access.token' "$login_start" >/dev/null; then
+  printf '%s\n' 'Login output exposed authentication or inherited environment names.' >&2
+  exit 1
+fi
+"$binary" check-login "$login_id" --yes --json \
+  | jq -e '.state == "waitingForLogin" and .account == null' >/dev/null
+login_home="$fixture/application-support/account-login/$login_id/home"
+cp "$fixture/source-two/auth.json" "$login_home/auth.json"
+chmod 600 "$login_home/auth.json"
+if ! "$binary" check-login "$login_id" --yes --json >"$test_root/login-check.json" 2>"$test_root/login-check.log"; then
+  skip_if_native_writer_unknown "$test_root/login-check.log" || true
+  cat "$test_root/login-check.log" >&2
+  exit 1
+fi
+jq -e '.state == "completed" and .account.identity.accountID == "account-two"' "$test_root/login-check.json" >/dev/null
+if rg -i 'access.token|refresh.token|synthetic\.' "$test_root/login-check.json" >/dev/null; then
+  printf '%s\n' 'Completed login output exposed authentication content.' >&2
+  exit 1
+fi
+
+cancel_start="$test_root/cancel-start.json"
+"$binary" add --yes --json >"$cancel_start"
+cancel_id="$(jq -r '.session.id' "$cancel_start")"
+"$binary" cancel-login "$cancel_id" --yes --json \
+  | jq -e --arg id "$cancel_id" '.sessionID == $id and .state == "cancelled"' >/dev/null
+[[ ! -e "$fixture/application-support/account-login/$cancel_id" ]]
+
 "$binary" discover "$fixture/source-one" --json \
   | jq -e '[.[] | select(.identity.workspaceID == "workspace-a")] | length == 1' >/dev/null
 
 interactive_result="$test_root/interactive-result.log"
-printf 'i\n%s\n2\nk\nn\nn\nq\n' "$fixture/source-one" | "$binary" interactive >"$interactive_result"
+printf 'm\n%s\n2\nk\nn\nn\nq\n' "$fixture/source-one" | "$binary" interactive >"$interactive_result"
+rg -F '[a] Add Account  [m] Advanced Import' "$interactive_result" >/dev/null
 rg -F 'Reviewed linked setting rules:' "$interactive_result" >/dev/null
 rg -e 'Target: .*/ai-manager-fixture/external-rules$' "$interactive_result" >/dev/null
 rg -e 'Size: [1-9][0-9]* bytes' "$interactive_result" >/dev/null
@@ -43,7 +100,7 @@ rg -F 'Import cancelled.' "$interactive_result" >/dev/null
 
 auth_result="$test_root/auth-result.json"
 auth_error="$test_root/auth-error.log"
-if ! "$binary" import "$fixture/source-two" --mode auth-only --yes --json >"$auth_result" 2>"$auth_error"; then
+if ! "$binary" advanced-import "$fixture/source-two" --mode auth-only --yes --json >"$auth_result" 2>"$auth_error"; then
   skip_if_native_writer_unknown "$auth_error" || true
   cat "$auth_error" >&2
   exit 1

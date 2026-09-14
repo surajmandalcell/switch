@@ -26,6 +26,15 @@ struct AIManagerCLI {
 
     static func run(_ input: CommandLineInput, manager: AccountManager) async throws {
         switch input.command {
+        case "providers": await output(AccountManager.providerCatalog, json: input.json)
+        case "refresh", "adopt": try await refreshAccounts(input, manager: manager)
+        case "add", "start-login": try await startLogin(input, manager: manager)
+        case "check-login": try await checkLogin(input, manager: manager)
+        case "cancel-login":
+            let id = try input.requiredLoginSessionID()
+            try confirm(input, "Cancel this account login and remove its isolated staging files?")
+            try await manager.cancelAccountLogin(id: id)
+            await output(LoginCancellationOutput(sessionID: id), json: input.json)
         case "status": await output(try await manager.status(), json: input.json)
         case "discover": await output(manager.discover(explicit: input.path), json: input.json)
         case "plan":
@@ -33,7 +42,7 @@ struct AIManagerCLI {
             var plan = try await manager.planImport(source: path, mode: input.mode)
             plan = try await reviewExternalSettings(plan, decisions: input.decisions, approvedPaths: input.externalReviews, manager: manager, report: false)
             await output(plan, json: input.json)
-        case "import": try await importAccount(input, manager: manager)
+        case "import", "advanced-import": try await importAccount(input, manager: manager)
         case "use":
             let id = try input.requiredAccountID()
             try confirm(input, "Use this account for new Codex sessions? Existing sessions will not change.")
@@ -101,6 +110,31 @@ struct AIManagerCLI {
         }
     }
 
+    static func refreshAccounts(_ input: CommandLineInput, manager: AccountManager) async throws {
+        let status = try await manager.status()
+        if !status.pendingRecovery.isEmpty || status.accounts.isEmpty {
+            try confirm(input, "Recover pending work and adopt a valid live Codex account if one is available?")
+        }
+        await output(SafeAccountSnapshot(try await manager.refreshAccounts()), json: input.json)
+    }
+
+    static func startLogin(_ input: CommandLineInput, manager: AccountManager) async throws {
+        let provider = try input.providerID()
+        guard AccountManager.providerCatalog.first(where: { $0.id == provider })?.availability == .enabled else {
+            let reason = AccountManager.providerCatalog.first(where: { $0.id == provider })?.unavailableReason
+            throw AIManagerError.unsupportedSource(reason ?? "This provider is unavailable.")
+        }
+        try confirm(input, "Start an isolated \(providerName(provider)) account login?")
+        await output(SafeLoginStart(try await manager.startAccountLogin(providerID: provider)), json: input.json)
+    }
+
+    static func checkLogin(_ input: CommandLineInput, manager: AccountManager) async throws {
+        let id = try input.requiredLoginSessionID()
+        try confirm(input, "Check this login and save the account if sign-in is complete?")
+        let checked = try await manager.checkAccountLogin(id: id, credentialChoice: input.loginCredentialChoice)
+        await output(SafeLoginCheck(checked), json: input.json)
+    }
+
     static func importAccount(_ input: CommandLineInput, manager: AccountManager) async throws {
         var plan = try await manager.planImport(source: try input.requiredPath(), mode: input.mode)
         if input.json && !input.confirmed { await output(plan, json: true); throw CLIError.confirmationRequired }
@@ -123,6 +157,15 @@ struct AIManagerCLI {
     }
 
     static func interactive(_ manager: AccountManager) async throws {
+        var pendingSessions: [AccountLoginSession] = []
+        let initial = try await manager.status()
+        if !initial.pendingRecovery.isEmpty || initial.accounts.isEmpty {
+            if askYes("Refresh accounts, recover pending work, and adopt valid live Codex access if available?") {
+                pendingSessions = try await manager.refreshAccounts().pendingLoginSessions
+            }
+        } else {
+            pendingSessions = try await manager.refreshAccounts().pendingLoginSessions
+        }
         while true {
             let status = try await manager.status()
             print("\nSwitch")
@@ -130,12 +173,42 @@ struct AIManagerCLI {
                 let marker = account.id == status.defaultAccountID ? "default" : account.verification.state.rawValue
                 print("  \(index + 1). \(displayName(account.identity)) [\(marker)]")
             }
-            print("\n[d] Discover  [i] Import  [u] Use by default  [o] Open  [v] Verify  [r] Recover  [q] Quit")
+            if !pendingSessions.isEmpty { print("  Pending account logins: \(pendingSessions.count)") }
+            print("\n[a] Add Account  [m] Advanced Import  [c] Check Login  [x] Cancel Login")
+            print("[d] Discover  [u] Use by default  [o] Open  [v] Verify  [r] Recover  [q] Quit")
             guard let choice = readLine(strippingNewline: true)?.lowercased() else { return }
             do {
                 switch choice {
+                case "a":
+                    if let session = try await interactiveAddAccount(manager) { pendingSessions.append(session) }
+                case "m", "i": try await interactiveImport(manager)
+                case "c":
+                    if let session = chooseLoginSession(pendingSessions) {
+                        var result = try await manager.checkAccountLogin(id: session.id)
+                        if result.state == .credentialChoiceRequired {
+                            print("Credential: [k] Keep saved  [l] Use this login:", terminator: " ")
+                            let credentialChoice: ConflictChoice?
+                            switch readLine()?.lowercased() {
+                            case "k": credentialChoice = .keepShared
+                            case "l": credentialChoice = .useImported
+                            default: credentialChoice = nil
+                            }
+                            if let credentialChoice {
+                                result = try await manager.checkAccountLogin(
+                                    id: session.id, credentialChoice: credentialChoice)
+                            }
+                        }
+                        await output(SafeLoginCheck(result), json: false)
+                        if result.state == .completed { pendingSessions.removeAll { $0.id == session.id } }
+                    }
+                case "x":
+                    if let session = chooseLoginSession(pendingSessions),
+                       askYes("Cancel this login and remove its isolated staging files?") {
+                        try await manager.cancelAccountLogin(id: session.id)
+                        pendingSessions.removeAll { $0.id == session.id }
+                        print("Account login cancelled.")
+                    }
                 case "d": await printDiscovery(manager.discover())
-                case "i": try await interactiveImport(manager)
                 case "u": if let account = chooseAccount(status.accounts) { await output(try await manager.switchDefault(to: account.id), json: false) }
                 case "o": if let account = chooseAccount(status.accounts) { _ = try await manager.activateAndRun(accountID: account.id) }
                 case "v": if let account = chooseAccount(status.accounts) { await output(manager.verifyLocal(accountID: account.id), json: false) }
@@ -147,6 +220,46 @@ struct AIManagerCLI {
                 print("Error: \(error.localizedDescription)")
             }
         }
+    }
+
+    static func interactiveAddAccount(_ manager: AccountManager) async throws -> AccountLoginSession? {
+        print("Add Account")
+        for (index, provider) in AccountManager.providerCatalog.enumerated() {
+            let availability = provider.availability == .enabled ? "Available" : "Unavailable"
+            print("  \(index + 1). \(providerName(provider.id)) [\(availability)]")
+        }
+        print("Provider number:", terminator: " ")
+        guard let value = readLine(), let index = Int(value),
+              AccountManager.providerCatalog.indices.contains(index - 1) else {
+            print("Invalid provider.")
+            return nil
+        }
+        let provider = AccountManager.providerCatalog[index - 1]
+        guard provider.availability == .enabled else {
+            print("Unavailable. \(provider.unavailableReason ?? "This provider cannot be added yet.")")
+            return nil
+        }
+        guard askYes("Start an isolated \(providerName(provider.id)) login?") else {
+            print("Account login cancelled.")
+            return nil
+        }
+        let started = try await manager.startAccountLogin(providerID: provider.id)
+        await output(SafeLoginStart(started), json: false)
+        print("Finish sign-in, then choose Check Login.")
+        return started.session
+    }
+
+    static func chooseLoginSession(_ sessions: [AccountLoginSession]) -> AccountLoginSession? {
+        guard !sessions.isEmpty else { print("No pending account logins."); return nil }
+        for (index, session) in sessions.enumerated() {
+            print("  \(index + 1). \(providerName(session.providerID)) \(session.id.uuidString)")
+        }
+        print("Login number:", terminator: " ")
+        guard let value = readLine(), let index = Int(value), sessions.indices.contains(index - 1) else {
+            print("Invalid login.")
+            return nil
+        }
+        return sessions[index - 1]
     }
 
     static func interactiveImport(_ manager: AccountManager) async throws {
@@ -271,6 +384,7 @@ struct AIManagerCLI {
 
     static func confirm(_ input: CommandLineInput, _ prompt: String) throws {
         if input.confirmed { return }
+        if input.json { throw CLIError.confirmationRequired }
         guard askYes(prompt) else { throw CLIError.cancelled }
     }
 
@@ -284,6 +398,7 @@ struct AIManagerCLI {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601
             let data: Data?
             switch value {
+            case let providers as [ProviderDescriptor]: data = try? encoder.encode(providers.map(SafeProvider.init))
             case let status as ManagerStatus: data = try? encoder.encode(StatusOutput(status))
             case let plan as ImportPlan: data = try? encoder.encode(PlanOutput(plan))
             case let result as ImportResult: data = try? encoder.encode(ImportOutput(result))
@@ -292,6 +407,23 @@ struct AIManagerCLI {
             if let data { print(String(decoding: data, as: UTF8.self)); return }
         }
         switch value {
+        case let providers as [ProviderDescriptor]:
+            for provider in providers {
+                let availability = provider.availability == .enabled ? "Available" : "Unavailable"
+                print("\(provider.id.rawValue)\t\(providerName(provider.id))\t\(availability)")
+            }
+        case let snapshot as SafeAccountSnapshot:
+            print("Accounts: \(snapshot.status.accounts.count)")
+            print("Pending account logins: \(snapshot.pendingLoginSessions.count)")
+            print("Discovered Codex homes: \(snapshot.discoveries.count)")
+        case let started as SafeLoginStart:
+            print("Login session: \(started.session.id.uuidString)")
+            if let stagingHome = started.stagingHome { print("Isolated staging home: \(stagingHome.path)") }
+        case let checked as SafeLoginCheck:
+            print("\(checked.state.rawValue): \(checked.message)")
+            if let account = checked.account { print("Saved \(displayName(account.identity)).") }
+        case let cancellation as LoginCancellationOutput:
+            print("Cancelled account login \(cancellation.sessionID.uuidString).")
         case let status as ManagerStatus:
             print("Shared settings: \(status.sharedRoot.path)")
             print("Default account: \(status.defaultAccountID?.uuidString ?? "none")")
@@ -331,13 +463,27 @@ struct AIManagerCLI {
         return identity.email ?? identity.accountID ?? "Unresolved account"
     }
 
+    static func providerName(_ id: ProviderID) -> String {
+        id == .codex
+            ? "Codex CLI"
+            : AccountManager.providerCatalog.first(where: { $0.id == id })?.displayName ?? id.rawValue
+    }
+
     static let usage = """
     Switch manages file-based Codex accounts without using Keychain.
 
     Usage:
+      ai-manager providers [--json]
+      ai-manager refresh [--yes] [--json]
+      ai-manager adopt [--yes] [--json]                     Alias for refresh
+      ai-manager add [codex] [--yes] [--json]
+      ai-manager start-login [codex] [--yes] [--json]       Alias for add
+      ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]
+      ai-manager cancel-login <session-uuid> [--yes] [--json]
       ai-manager status [--json]
       ai-manager discover [path] [--json]
       ai-manager plan <path> [--mode auth-only|full] [--use-imported path] [--review-external path] [--json]
+      ai-manager advanced-import <path> [import options]     Import existing Codex data
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
       ai-manager open <account-uuid> [-- codex arguments]
@@ -353,6 +499,77 @@ struct AIManagerCLI {
     AI_MANAGER_CREDENTIAL_STORE, AI_MANAGER_SHARED_ROOT,
     AI_MANAGER_CODEX_EXECUTABLE.
     """
+}
+
+private struct SafeProvider: Encodable {
+    let id: ProviderID
+    let displayName: String
+    let availability: ProviderAvailability
+    let unavailableReason: String?
+
+    init(_ provider: ProviderDescriptor) {
+        id = provider.id
+        displayName = AIManagerCLI.providerName(provider.id)
+        availability = provider.availability
+        unavailableReason = provider.unavailableReason
+    }
+}
+
+private struct SafeLoginSession: Encodable {
+    let id: UUID
+    let providerID: ProviderID
+    let createdAt: Date
+
+    init(_ session: AccountLoginSession) {
+        id = session.id
+        providerID = session.providerID
+        createdAt = session.createdAt
+    }
+}
+
+private struct SafeLoginStart: Encodable {
+    let session: SafeLoginSession
+    let stagingHome: URL?
+
+    init(_ start: AccountLoginStart) {
+        session = SafeLoginSession(start.session)
+        stagingHome = start.launchSpec.environment["CODEX_HOME"].map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+    }
+}
+
+private struct SafeLoginCheck: Encodable {
+    let session: SafeLoginSession
+    let state: AccountLoginState
+    let account: SafeAccount?
+    let message: String
+
+    init(_ check: AccountLoginCheck) {
+        session = SafeLoginSession(check.session)
+        state = check.state
+        account = check.account.map(SafeAccount.init)
+        message = check.message
+    }
+}
+
+private struct LoginCancellationOutput: Encodable {
+    let sessionID: UUID
+    let state = "cancelled"
+}
+
+private struct SafeAccountSnapshot: Encodable {
+    let status: StatusOutput
+    let providers: [SafeProvider]
+    let discoveries: [DiscoveredSource]
+    let pendingLoginSessions: [SafeLoginSession]
+
+    init(_ snapshot: AccountSnapshot) {
+        status = StatusOutput(snapshot.status)
+        providers = snapshot.providers.map(SafeProvider.init)
+        discoveries = snapshot.discoveries
+        pendingLoginSessions = snapshot.pendingLoginSessions.map(SafeLoginSession.init)
+    }
 }
 
 private struct SafeAccount: Encodable {
@@ -484,6 +701,7 @@ struct CommandLineInput {
     let decisions: [String: ConflictChoice]
     let externalReviews: Set<String>
     let recoveryChoice: RecoveryConflictChoice?
+    let loginCredentialChoice: ConflictChoice?
     let forwardedArguments: [String]
     let paths: ManagerPaths
 
@@ -508,6 +726,12 @@ struct CommandLineInput {
         }
         recoveryChoice = recoveryChoices.first == "--keep-current" ? .preserveCurrent
             : recoveryChoices.first == "--restore-backup" ? .restoreBackup : nil
+        let loginChoices = arguments.filter { ["--keep-saved", "--use-login"].contains($0) }
+        guard loginChoices.count <= 1 else {
+            throw CLIError.message("Choose at most one of --keep-saved or --use-login.")
+        }
+        loginCredentialChoice = loginChoices.first == "--keep-saved" ? .keepShared
+            : loginChoices.first == "--use-login" ? .useImported : nil
         forwardedArguments = arguments.firstIndex(of: "--").map { Array(arguments.dropFirst($0 + 1)) } ?? []
         paths = ManagerPaths.environment(environment)
     }
@@ -527,6 +751,14 @@ struct CommandLineInput {
     func requiredPath() throws -> URL { guard let path else { throw CLIError.message("A source path is required.") }; return path }
     func requiredAccountID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid account UUID is required.") }; return id }
     func requiredOperationID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid recovery operation UUID is required.") }; return id }
+    func requiredLoginSessionID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid login session UUID is required.") }; return id }
+    func providerID() throws -> ProviderID {
+        let value = positional.first ?? ProviderID.codex.rawValue
+        guard let provider = AccountManager.providerCatalog.first(where: { $0.id.rawValue == value }) else {
+            throw CLIError.message("Unknown provider '\(value)'. Run ai-manager providers.")
+        }
+        return provider.id
+    }
     func requiredRecoveryChoice() throws -> RecoveryConflictChoice {
         guard let recoveryChoice else { throw CLIError.message("Choose exactly one of --keep-current or --restore-backup.") }
         return recoveryChoice
@@ -548,7 +780,7 @@ enum CLIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .message(let value): value
-        case .confirmationRequired: "Review the plan, then repeat with --yes and explicit choices for every conflict."
+        case .confirmationRequired: "This command can change account data. Review it, then repeat with --yes and any required choices."
         case .cancelled: "Cancelled. No changes were made."
         }
     }

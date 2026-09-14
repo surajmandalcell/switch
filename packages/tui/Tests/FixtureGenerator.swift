@@ -79,6 +79,9 @@ if [ "$3 $4" = "login status" ] || [ "$4 $5" = "login status" ]; then
   printf '%s\n' 'Logged in using ChatGPT'
   exit 0
 fi
+if [ "$3" = "login" ]; then
+  exit 0
+fi
 printf '%s\\t%s\n' "$CODEX_HOME" "$*" >> '\(log)'
 """
 try write(fakeCodex, to: "fake-codex", permissions: 0o700)
