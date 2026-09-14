@@ -91,6 +91,29 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(recovered.totalThreadCount, 1)
     }
 
+    func testClearCacheRemovesOnlyTheIndexAndRebuildsFromTranscripts() async throws {
+        let transcriptURL = try transcript(
+            directory: "sessions/2026/09/14",
+            filename: "cached.jsonl",
+            records: standardRecords(id: "cached", prompt: "Rebuild the conversation index"))
+        let cacheFile = root.appending(path: "manager/cache/chat-history-v1.json")
+        let index = ChatHistoryIndex(home: root, cacheFile: cacheFile, maximumWorkerCount: 2)
+
+        let initial = try await index.refresh()
+        XCTAssertEqual(initial.reparsedFileCount, 1)
+        XCTAssertTrue(fileManager.fileExists(atPath: cacheFile.path))
+
+        try await index.clearCache()
+
+        XCTAssertFalse(fileManager.fileExists(atPath: cacheFile.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: transcriptURL.path))
+        let empty = await index.search(query: "")
+        XCTAssertEqual(empty.totalThreadCount, 0)
+        let rebuilt = try await index.refresh()
+        XCTAssertEqual(rebuilt.reparsedFileCount, 1)
+        XCTAssertEqual(rebuilt.totalThreadCount, 1)
+    }
+
     func testIndexSearchAndDetailUseCodexMessagesWithoutDuplicates() async throws {
         let active = try transcript(
             directory: "sessions/2026/09/13",
