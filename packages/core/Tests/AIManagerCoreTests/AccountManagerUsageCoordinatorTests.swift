@@ -44,15 +44,23 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         )
 
         XCTAssertTrue(transport.wasInvoked)
-        XCTAssertEqual(transport.capturedSource?.codexHome, paths.defaultHome)
+        let source = try XCTUnwrap(transport.capturedSource)
+        XCTAssertNotEqual(source.codexHome, paths.defaultHome)
+        XCTAssertTrue(CoreSupport.isContained(source.codexHome, by: usageReadsRoot))
+        XCTAssertEqual(transport.capturedAuth, savedBefore)
         XCTAssertEqual(try Data(contentsOf: account.credentialFile), savedBefore)
         XCTAssertEqual(try Data(contentsOf: registryURL), registryBefore)
         XCTAssertEqual(backupNames(), backupsBefore)
+        XCTAssertTrue(usageReadNames().isEmpty)
     }
 
-    func testRotatedLiveCredentialSynchronizesVaultAndRegistryDigest() async throws {
+    func testIsolatedTokenRotationDoesNotMutateLiveVaultOrRegistry() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let account = try await importAndSelect("primary", manager: manager)
+        let savedBefore = try Data(contentsOf: account.credentialFile)
+        let liveBefore = try Data(contentsOf: paths.defaultHome.appending(path: "auth.json"))
+        let registryURL = paths.applicationSupport.appending(path: "accounts.json")
+        let registryBefore = try Data(contentsOf: registryURL)
         let rotated = try authData(account: "primary", marker: "rotated")
         let transport = UsageTransport(rotation: rotated)
 
@@ -61,11 +69,58 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
             reader: .init(transport: transport, environment: { [:] })
         )
 
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile), savedBefore)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), liveBefore)
+        XCTAssertEqual(try Data(contentsOf: registryURL), registryBefore)
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testLegacyUsageCredentialRefreshJournalCompletesSafely() async throws {
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAndSelect("primary", manager: setup)
+        let previous = try Data(contentsOf: account.credentialFile)
+        let rotated = try authData(account: "primary", marker: "legacy-rotated")
+        let liveAuth = paths.defaultHome.appending(path: "auth.json")
+        try CoreSupport.atomicWrite(rotated, to: liveAuth, fileManager: fileManager)
+
+        let operationID = UUID()
+        let operation = RecoveryOperation(
+            id: operationID,
+            kind: "usage-credential-refresh",
+            phase: .published,
+            source: liveAuth,
+            destination: account.credentialFile,
+            backup: paths.applicationSupport.appending(
+                path: "backups/\(operationID.uuidString)", directoryHint: .isDirectory),
+            expectedDigest: CoreSupport.digest(rotated),
+            previousDigest: CoreSupport.digest(previous),
+            registryAccountID: account.id,
+            previousDefaultAccountID: account.id,
+            registryCredentialDigest: CoreSupport.digest(rotated),
+            previousAccount: account
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try CoreSupport.atomicWrite(
+            try encoder.encode(operation),
+            to: paths.applicationSupport.appending(
+                path: "transactions/\(operationID.uuidString).json"),
+            fileManager: fileManager
+        )
+
+        let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let results = try await recovering.recover()
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.operationID, operationID)
+        XCTAssertEqual(results.first?.outcome, .completed)
+        XCTAssertEqual(try Data(contentsOf: liveAuth), rotated)
         XCTAssertEqual(try Data(contentsOf: account.credentialFile), rotated)
-        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), rotated)
-        let status = try await manager.status()
-        let refreshed = try XCTUnwrap(status.accounts.first { $0.id == account.id })
-        XCTAssertEqual(refreshed.credentialDigest, CoreSupport.digest(rotated))
+        let status = try await recovering.status()
+        XCTAssertEqual(
+            status.accounts.first { $0.id == account.id }?.credentialDigest,
+            CoreSupport.digest(rotated)
+        )
         XCTAssertTrue(status.pendingRecovery.isEmpty)
     }
 
@@ -90,55 +145,130 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertFalse(transport.wasInvoked)
     }
 
-    func testActiveWriterIsRejectedBeforeTransport() async throws {
+    func testActiveCodexWriterStillReadsFromIsolatedHome() async throws {
         let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let account = try await importAndSelect("primary", manager: setup)
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .active })
         let transport = UsageTransport()
 
-        await XCTAssertThrowsUsageError(
+        _ = try await manager.readCodexAccountUsage(
+            accountID: account.id,
+            reader: .init(transport: transport, environment: { [:] })
+        )
+
+        XCTAssertTrue(transport.wasInvoked)
+        XCTAssertNotEqual(transport.capturedSource?.codexHome, paths.defaultHome)
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testSwitchCanProceedWhileUsageTransportIsSuspendedAndStaleReadFailsClosed() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let active = try await importAndSelect("active", manager: manager)
+        let inactive = try await importAccount("inactive", manager: manager)
+        let transport = SuspendingUsageTransport()
+        let read = Task {
+            try await manager.readCodexAccountUsage(
+                accountID: active.id,
+                reader: .init(transport: transport, environment: { [:] })
+            )
+        }
+        await transport.waitUntilStarted()
+
+        _ = try await manager.switchDefault(to: inactive.id)
+        await transport.resume()
+
+        await XCTAssertThrowsUsageError(try await read.value) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testAccountImportCanProceedWhileUsageTransportIsSuspended() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let active = try await importAndSelect("active", manager: manager)
+        let source = root.appending(path: "source-added", directoryHint: .isDirectory)
+        try privateDirectory(source)
+        try privateWrite(
+            try authData(account: "added", marker: "initial"),
+            to: source.appending(path: "auth.json")
+        )
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let transport = SuspendingUsageTransport()
+        let read = Task {
+            try await manager.readCodexAccountUsage(
+                accountID: active.id,
+                reader: .init(transport: transport, environment: { [:] })
+            )
+        }
+        await transport.waitUntilStarted()
+
+        let added = try await manager.importAccount(plan: plan).account
+        await transport.resume()
+
+        _ = try await read.value
+        XCTAssertEqual(added.identity.email, "added@example.test")
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testLiveCredentialChangeDuringReadFailsClosedAndCleansTemporaryHome() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAndSelect("primary", manager: manager)
+        let transport = SuspendingUsageTransport()
+        let read = Task {
             try await manager.readCodexAccountUsage(
                 accountID: account.id,
                 reader: .init(transport: transport, environment: { [:] })
             )
-        ) { error in
-            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
         }
-        XCTAssertFalse(transport.wasInvoked)
+        await transport.waitUntilStarted()
+        try privateWrite(
+            try authData(account: "primary", marker: "changed-live"),
+            to: paths.defaultHome.appending(path: "auth.json")
+        )
+        await transport.resume()
+
+        await XCTAssertThrowsUsageError(try await read.value) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        XCTAssertTrue(usageReadNames().isEmpty)
     }
 
-    func testRecoveryCompletesInterruptedRotatedCredentialSynchronization() async throws {
-        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
-        let account = try await importAndSelect("primary", manager: setup)
-        let rotated = try authData(account: "primary", marker: "rotated-before-crash")
-        let crashing = try AccountManager(
-            paths: paths,
-            writerCheck: { _ in .inactive },
-            faultInjector: { point in
-                if point == .afterTemporaryCopy { throw InjectedUsageFailure.crash }
-            }
+    func testVaultCredentialChangeDuringReadFailsClosedAndCleansTemporaryHome() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAndSelect("primary", manager: manager)
+        let transport = SuspendingUsageTransport()
+        let read = Task {
+            try await manager.readCodexAccountUsage(
+                accountID: account.id,
+                reader: .init(transport: transport, environment: { [:] })
+            )
+        }
+        await transport.waitUntilStarted()
+        try privateWrite(
+            try authData(account: "primary", marker: "changed-vault"),
+            to: account.credentialFile
         )
+        await transport.resume()
+
+        await XCTAssertThrowsUsageError(try await read.value) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testTransportFailureCleansTemporaryHome() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAndSelect("primary", manager: manager)
 
         await XCTAssertThrowsUsageError(
-            try await crashing.readCodexAccountUsage(
+            try await manager.readCodexAccountUsage(
                 accountID: account.id,
-                reader: .init(transport: UsageTransport(rotation: rotated), environment: { [:] })
+                reader: .init(transport: FailingUsageTransport(), environment: { [:] })
             )
         ) { error in
-            XCTAssertEqual(error as? InjectedUsageFailure, .crash)
+            XCTAssertEqual(error as? InjectedUsageFailure, .read)
         }
-        let interruptedStatus = try await crashing.status()
-        XCTAssertEqual(interruptedStatus.pendingRecovery.count, 1)
-
-        let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
-        let results = try await recovering.recover()
-
-        XCTAssertEqual(results.map(\.outcome), [.completed])
-        XCTAssertEqual(try Data(contentsOf: account.credentialFile), rotated)
-        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), rotated)
-        let status = try await recovering.status()
-        XCTAssertTrue(status.pendingRecovery.isEmpty)
-        XCTAssertEqual(status.accounts.first { $0.id == account.id }?.credentialDigest, CoreSupport.digest(rotated))
+        XCTAssertTrue(usageReadNames().isEmpty)
     }
 
     private func importAndSelect(_ name: String, manager: AccountManager) async throws -> AccountRecord {
@@ -192,10 +322,20 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         let entries = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
         return Set(entries.map(\.lastPathComponent))
     }
+
+    private var usageReadsRoot: URL {
+        paths.applicationSupport.appending(path: "usage-reads", directoryHint: .isDirectory)
+    }
+
+    private func usageReadNames() -> Set<String> {
+        let entries = (try? fileManager.contentsOfDirectory(
+            at: usageReadsRoot, includingPropertiesForKeys: nil)) ?? []
+        return Set(entries.map(\.lastPathComponent))
+    }
 }
 
 private enum InjectedUsageFailure: Error, Equatable {
-    case crash
+    case read
 }
 
 private final class UsageTransport: CodexAppServerRPCTransport, @unchecked Sendable {
@@ -203,6 +343,7 @@ private final class UsageTransport: CodexAppServerRPCTransport, @unchecked Senda
     private let lock = NSLock()
     private var invoked = false
     private var source: CodexAppServerSource?
+    private var auth: Data?
 
     init(rotation: Data? = nil) {
         self.rotation = rotation
@@ -210,6 +351,7 @@ private final class UsageTransport: CodexAppServerRPCTransport, @unchecked Senda
 
     var wasInvoked: Bool { lock.withLock { invoked } }
     var capturedSource: CodexAppServerSource? { lock.withLock { source } }
+    var capturedAuth: Data? { lock.withLock { auth } }
 
     func performAccountRead(
         launch: CodexAppServerLaunch,
@@ -218,6 +360,7 @@ private final class UsageTransport: CodexAppServerRPCTransport, @unchecked Senda
         lock.withLock {
             invoked = true
             source = launch.source
+            auth = try? Data(contentsOf: launch.source.authFile)
         }
         if let rotation {
             try CoreSupport.atomicWrite(rotation, to: launch.source.authFile, fileManager: .default)
@@ -231,6 +374,71 @@ private final class UsageTransport: CodexAppServerRPCTransport, @unchecked Senda
 
     private func response(id: Int, result: [String: Any]) -> Data {
         try! JSONSerialization.data(withJSONObject: ["id": id, "result": result], options: [.sortedKeys])
+    }
+}
+
+private final class SuspendingUsageTransport: CodexAppServerRPCTransport, @unchecked Sendable {
+    private let gate = UsageTransportGate()
+
+    func waitUntilStarted() async {
+        await gate.waitUntilStarted()
+    }
+
+    func resume() async {
+        await gate.resume()
+    }
+
+    func performAccountRead(
+        launch: CodexAppServerLaunch,
+        limits: CodexAppServerLimits
+    ) async throws -> [Data] {
+        await gate.suspend()
+        return usageResponses()
+    }
+}
+
+private actor UsageTransportGate {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var readContinuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func suspend() async {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        await withCheckedContinuation { readContinuation = $0 }
+    }
+
+    func resume() {
+        readContinuation?.resume()
+        readContinuation = nil
+    }
+}
+
+private struct FailingUsageTransport: CodexAppServerRPCTransport {
+    func performAccountRead(
+        launch: CodexAppServerLaunch,
+        limits: CodexAppServerLimits
+    ) async throws -> [Data] {
+        throw InjectedUsageFailure.read
+    }
+}
+
+private func usageResponses() -> [Data] {
+    [2, 3, 4].map { id in
+        try! JSONSerialization.data(
+            withJSONObject: [
+                "id": id,
+                "result": id == 2 ? ["requiresOpenaiAuth": false] : [:],
+            ],
+            options: [.sortedKeys]
+        )
     }
 }
 

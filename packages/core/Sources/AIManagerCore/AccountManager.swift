@@ -30,6 +30,15 @@ public actor AccountManager {
         var previousDigest: String?
     }
 
+    private struct UsageReadLease {
+        var accountID: UUID
+        var identity: AccountIdentity
+        var credentialDigest: String
+        var root: URL
+        var source: CodexAppServerSource
+        var executable: URL
+    }
+
     private let paths: ManagerPaths
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
@@ -381,46 +390,20 @@ public actor AccountManager {
         reader: CodexAppServerAccountReader = .init(),
         limits: CodexAppServerLimits = .init()
     ) async throws -> CodexAccountUsageSnapshot {
-        try await lock.withAsyncLock {
-            try ensureNoRecovery()
-            let registry = try loadRegistry()
-            guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
-                throw AIManagerError.accountNotFound
-            }
-            guard registry.defaultAccountID == accountID else {
-                throw AIManagerError.operationFailed("Use this account before refreshing usage.")
-            }
-            try provider.requireSupported(account.identity.providerID)
-            guard account.identity.isResolved else { throw AIManagerError.unresolvedIdentity }
-            try provider.validateManagedCredential(account)
-
-            let liveAuth = paths.defaultHome.appending(path: "auth.json")
-            try provider.validatePrivateCredentialFile(liveAuth)
-            let live = provider.inspect(home: paths.defaultHome)
-            guard live.support == .supportedChatGPT,
-                  let liveIdentity = live.identity,
-                  provider.sameIdentity(account.identity, liveIdentity),
-                  live.digest == account.credentialDigest else {
-                throw AIManagerError.credentialConflict
-            }
-            try await ensureWritersInactive([paths.defaultHome])
-            guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
-
-            let snapshot: CodexAccountUsageSnapshot
-            do {
-                snapshot = try await reader.read(
-                    executable: executable,
-                    source: .init(codexHome: paths.defaultHome, authFile: liveAuth),
-                    limits: limits
-                )
-            } catch {
-                let readError = error
-                try synchronizeUsageCredential(accountID: accountID, baselineDigest: live.digest)
-                throw readError
-            }
-            try synchronizeUsageCredential(accountID: accountID, baselineDigest: live.digest)
-            return snapshot
+        let lease = try lock.withLock {
+            try prepareUsageRead(accountID: accountID)
         }
+        defer { removeUsageRead(lease) }
+
+        let snapshot = try await reader.read(
+            executable: lease.executable,
+            source: lease.source,
+            limits: limits
+        )
+        try lock.withLock {
+            try validateUsageRead(lease)
+        }
+        return snapshot
     }
 
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
@@ -1536,61 +1519,115 @@ extension AccountManager {
         return .init(accountID: accountID, backup: backup, previousAccountID: previous)
     }
 
-    private func synchronizeUsageCredential(accountID: UUID, baselineDigest: String) throws {
-        var registry = try loadRegistry()
-        guard registry.defaultAccountID == accountID,
-              let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
-            throw AIManagerError.sourceChanged
+    private var usageReadsURL: URL {
+        paths.applicationSupport.appending(path: "usage-reads", directoryHint: .isDirectory)
+    }
+
+    private func prepareUsageRead(accountID: UUID) throws -> UsageReadLease {
+        try ensureNoRecovery()
+        let registry = try loadRegistry()
+        guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
         }
-        let account = registry.accounts[index]
+        guard registry.defaultAccountID == accountID else {
+            throw AIManagerError.operationFailed("Use this account before refreshing usage.")
+        }
+        try provider.requireSupported(account.identity.providerID)
+        guard account.identity.isResolved else { throw AIManagerError.unresolvedIdentity }
         try provider.validateManagedCredential(account)
-        guard account.credentialDigest == baselineDigest else { throw AIManagerError.sourceChanged }
 
         let liveAuth = paths.defaultHome.appending(path: "auth.json")
         try provider.validatePrivateCredentialFile(liveAuth)
         let live = provider.inspect(home: paths.defaultHome)
         guard live.support == .supportedChatGPT,
-              let identity = live.identity,
-              provider.sameIdentity(account.identity, identity) else {
+              let liveIdentity = live.identity,
+              provider.sameIdentity(account.identity, liveIdentity),
+              live.digest == account.credentialDigest else {
             throw AIManagerError.credentialConflict
         }
-        guard live.digest != baselineDigest else { return }
+        guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
 
-        let id = UUID()
-        let backup = paths.applicationSupport.appending(
-            path: "backups/\(id.uuidString)", directoryHint: .isDirectory)
-        var operation = RecoveryOperation(
-            id: id,
-            kind: "usage-credential-refresh",
-            phase: .prepared,
-            source: liveAuth,
-            destination: account.credentialFile,
-            backup: backup,
-            expectedDigest: live.digest,
-            touchedItems: [],
-            previousDigest: baselineDigest,
-            registryAccountID: accountID,
-            previousDefaultAccountID: accountID,
-            registryCredentialDigest: live.digest,
-            previousAccount: account
-        )
-        try saveOperation(operation)
-        try replaceRecoverably(
-            source: liveAuth,
-            destination: account.credentialFile,
-            operation: &operation,
-            backupName: "saved-credential.json"
-        )
-        try faultInjector(.afterDefaultCredentialPublication)
-        operation.phase = .published
-        try saveOperation(operation)
+        let root = usageReadsURL.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let home = root.appending(path: "home", directoryHint: .isDirectory)
+        guard CoreSupport.isContained(root, by: usageReadsURL) else {
+            throw AIManagerError.unsafePath("usage read escaped its private root")
+        }
+        do {
+            try CoreSupport.privateDirectory(usageReadsURL, fileManager: fileManager)
+            try CoreSupport.privateDirectory(root, fileManager: fileManager)
+            try CoreSupport.privateDirectory(home, fileManager: fileManager)
+            let auth = home.appending(path: "auth.json")
+            try CoreSupport.atomicWrite(live.data, to: auth, fileManager: fileManager)
+            try provider.validatePrivateCredentialFile(auth)
+            return .init(
+                accountID: accountID,
+                identity: account.identity,
+                credentialDigest: account.credentialDigest,
+                root: root,
+                source: .init(codexHome: home, authFile: auth),
+                executable: executable
+            )
+        } catch {
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
 
-        registry.accounts[index].credentialDigest = live.digest
-        try saveRegistry(registry)
-        try faultInjector(.afterRegistryCommit)
-        operation.phase = .registryCommitted
-        try saveOperation(operation)
-        try finishOperation(&operation)
+    private func validateUsageRead(_ lease: UsageReadLease) throws {
+        try ensureNoRecovery()
+        let registry = try loadRegistry()
+        guard registry.defaultAccountID == lease.accountID,
+              let account = registry.accounts.first(where: { $0.id == lease.accountID }),
+              account.identity == lease.identity,
+              account.credentialDigest == lease.credentialDigest else {
+            throw AIManagerError.sourceChanged
+        }
+
+        guard CoreSupport.isContained(lease.root, by: usageReadsURL) else {
+            throw AIManagerError.sourceChanged
+        }
+        do {
+            try provider.validatePrivateCredentialFile(lease.source.authFile)
+        } catch {
+            throw AIManagerError.sourceChanged
+        }
+        let isolated = provider.inspect(home: lease.source.codexHome)
+        guard isolated.support == .supportedChatGPT,
+              let isolatedIdentity = isolated.identity,
+              provider.sameIdentity(lease.identity, isolatedIdentity) else {
+            throw AIManagerError.sourceChanged
+        }
+
+        do {
+            try provider.validatePrivateCredentialFile(account.credentialFile)
+        } catch {
+            throw AIManagerError.sourceChanged
+        }
+        let saved = provider.inspect(credentialFile: account.credentialFile)
+        guard saved.support == .supportedChatGPT,
+              let savedIdentity = saved.identity,
+              provider.sameIdentity(lease.identity, savedIdentity),
+              saved.digest == lease.credentialDigest else {
+            throw AIManagerError.sourceChanged
+        }
+        let liveAuth = paths.defaultHome.appending(path: "auth.json")
+        do {
+            try provider.validatePrivateCredentialFile(liveAuth)
+        } catch {
+            throw AIManagerError.sourceChanged
+        }
+        let live = provider.inspect(home: paths.defaultHome)
+        guard live.support == .supportedChatGPT,
+              let liveIdentity = live.identity,
+              provider.sameIdentity(lease.identity, liveIdentity),
+              live.digest == lease.credentialDigest else {
+            throw AIManagerError.sourceChanged
+        }
+    }
+
+    private func removeUsageRead(_ lease: UsageReadLease) {
+        guard CoreSupport.isContained(lease.root, by: usageReadsURL) else { return }
+        try? fileManager.removeItem(at: lease.root)
     }
 
     private func credentialFingerprintIfPresent(_ credential: URL) throws -> String? {
