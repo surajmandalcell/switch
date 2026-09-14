@@ -131,7 +131,13 @@ public actor AccountManager {
             arguments: ["-c", "cli_auth_credentials_store=\"file\"", "login"],
             environment: environment
         )
-        try loginRunner.launch(session.id, spec)
+        do {
+            try loginRunner.launch(session.id, spec)
+        } catch {
+            _ = loginRunner.cancel(session.id)
+            try? fileManager.removeItem(at: loginRoot(session.id))
+            throw error
+        }
         return .init(session: session, launchSpec: spec)
     }
 
@@ -164,9 +170,12 @@ public actor AccountManager {
             )
         }
         let decisions = credentialChoice.map { ["auth.json": $0] } ?? [:]
+        let ownedLogin = loginRunner.cancel(id)
+        if !ownedLogin {
+            try await ensureWritersInactive([loginHome(id)])
+        }
         let result = try await importAccount(plan: plan, decisions: decisions)
-        try await switchDefaultIfUnset(to: result.account.id)
-        loginRunner.cancel(id)
+        try await activateLoginAccountIfNeeded(result.account.id)
         try fileManager.removeItem(at: loginRoot(id))
         return .init(
             session: session,
@@ -181,7 +190,9 @@ public actor AccountManager {
         guard try !pendingOperations().contains(where: {
             CoreSupport.isContained($0.source, by: loginRoot(id))
         }) else { throw AIManagerError.recoveryRequired }
-        loginRunner.cancel(id)
+        if !loginRunner.cancel(id) {
+            try await ensureWritersInactive([loginHome(id)])
+        }
         try fileManager.removeItem(at: loginRoot(id))
     }
 
@@ -221,6 +232,7 @@ public actor AccountManager {
         let registry = try loadRegistry()
         let existing = registry.accounts.first { provider.sameIdentity($0.identity, identity) }
         let id = existing?.id ?? UUID()
+        let operationID = UUID()
         let destination = existing?.home
             ?? paths.applicationSupport.appending(path: "accounts/\(id.uuidString)/home", directoryHint: .isDirectory)
         guard (allowApplicationSupportSource || !CoreSupport.isContained(source, by: paths.applicationSupport)),
@@ -258,9 +270,11 @@ public actor AccountManager {
         }
         return .init(
             id: id,
+            operationID: operationID,
             source: source,
             destination: destination,
-            backup: paths.applicationSupport.appending(path: "backups/\(id.uuidString)", directoryHint: .isDirectory),
+            backup: paths.applicationSupport.appending(
+                path: "backups/\(operationID.uuidString)", directoryHint: .isDirectory),
             mode: mode,
             identity: identity,
             sourceAuthDigest: inspection.digest,
@@ -346,17 +360,19 @@ public actor AccountManager {
         }
     }
 
-    private func switchDefaultIfUnset(to accountID: UUID) async throws {
+    private func activateLoginAccountIfNeeded(_ accountID: UUID) async throws {
         try await lock.withAsyncLock {
             try ensureNoRecovery()
             let registry = try loadRegistry()
-            guard registry.defaultAccountID == nil else { return }
+            guard registry.defaultAccountID == nil || registry.defaultAccountID == accountID else {
+                return
+            }
             guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
             }
             try provider.validateManagedCredential(selected)
             try await ensureWritersInactive([paths.defaultHome])
-            _ = try performSwitch(to: accountID)
+            _ = try performSwitch(to: accountID, captureOutgoingCredential: false)
         }
     }
 
@@ -1213,7 +1229,7 @@ extension AccountManager {
             ?? accountsRoot.appending(path: accountID.uuidString)
                 .appending(path: "home", directoryHint: .isDirectory)
         let expectedBackup = paths.applicationSupport
-            .appending(path: "backups/\(plan.id.uuidString)", directoryHint: .isDirectory)
+            .appending(path: "backups/\(plan.operationID.uuidString)", directoryHint: .isDirectory)
         guard accountID == plan.id,
               CoreSupport.sameLocation(plan.destination, expectedDestination),
               CoreSupport.sameLocation(plan.backup, expectedBackup),
@@ -1223,8 +1239,9 @@ extension AccountManager {
             throw AIManagerError.unsafePath("an import destination changed after review")
         }
         let destination = expectedDestination
-        let staging = paths.applicationSupport.appending(path: "staging/\(plan.id.uuidString)/home", directoryHint: .isDirectory)
-        var operation = RecoveryOperation(id: plan.id, kind: "import", phase: .prepared, source: plan.source, destination: destination, backup: plan.backup, touchedItems: [], registryAccountID: matching.map { registry.accounts[$0].id } ?? plan.id, previousDefaultAccountID: registry.defaultAccountID, registryCredentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest, previousAccount: matching.map { registry.accounts[$0] }, setsDefaultAccount: setsDefaultAccount)
+        let staging = paths.applicationSupport.appending(
+            path: "staging/\(plan.operationID.uuidString)/home", directoryHint: .isDirectory)
+        var operation = RecoveryOperation(id: plan.operationID, kind: "import", phase: .prepared, source: plan.source, destination: destination, backup: plan.backup, touchedItems: [], registryAccountID: matching.map { registry.accounts[$0].id } ?? plan.id, previousDefaultAccountID: registry.defaultAccountID, registryCredentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest, previousAccount: matching.map { registry.accounts[$0] }, setsDefaultAccount: setsDefaultAccount)
         try saveOperation(operation)
         try CoreSupport.privateDirectory(plan.backup, fileManager: fileManager)
         _ = try fileManager.contentsOfDirectory(atPath: plan.backup.path)
@@ -1410,7 +1427,10 @@ extension AccountManager {
         return .init(account: account, backup: plan.backup, importedFiles: importedFiles, importedChats: importedChats, unresolved: unresolved, verification: verification)
     }
 
-    private func performSwitch(to accountID: UUID) throws -> SwitchResult {
+    private func performSwitch(
+        to accountID: UUID,
+        captureOutgoingCredential: Bool = true
+    ) throws -> SwitchResult {
         var registry = try loadRegistry()
         guard let requested = registry.accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
@@ -1422,7 +1442,9 @@ extension AccountManager {
         let outgoingInspection = provider.inspect(home: paths.defaultHome)
         var registeredOutgoingIndex: Int?
         var registeredOutgoingInspection: AuthInspection?
-        if outgoingInspection.support == .supportedChatGPT, let identity = outgoingInspection.identity, identity.isResolved {
+        if captureOutgoingCredential,
+           outgoingInspection.support == .supportedChatGPT,
+           let identity = outgoingInspection.identity, identity.isResolved {
             if let currentID = registry.defaultAccountID,
                let index = registry.accounts.firstIndex(where: { $0.id == currentID }) {
                 guard provider.sameIdentity(registry.accounts[index].identity, identity) else { throw AIManagerError.credentialConflict }
@@ -1467,7 +1489,9 @@ extension AccountManager {
             }
             registry.defaultAccountID = registry.accounts[outgoingIndex].id
             try saveOperation(operation)
-        } else if outgoingInspection.support == .supportedChatGPT, let identity = outgoingInspection.identity, identity.isResolved {
+        } else if captureOutgoingCredential,
+                  outgoingInspection.support == .supportedChatGPT,
+                  let identity = outgoingInspection.identity, identity.isResolved {
                 let outgoingID = UUID()
                 let outgoingHome = paths.applicationSupport.appending(path: "accounts/\(outgoingID.uuidString)/home")
                 try createManagedHome(auth: outgoingInspection.data, at: outgoingHome)

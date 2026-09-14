@@ -98,6 +98,7 @@ final class AccountManagerContractTests: XCTestCase {
         var object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any]
         )
+        object.removeValue(forKey: "operationID")
         object.removeValue(forKey: "credentialDestination")
         object.removeValue(forKey: "sharedDestination")
 
@@ -106,6 +107,7 @@ final class AccountManagerContractTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: object)
         )
 
+        XCTAssertEqual(decoded.operationID, decoded.id)
         XCTAssertEqual(decoded.credentialDestination, destination.appending(path: "auth.json"))
         XCTAssertEqual(decoded.sharedDestination, destination)
     }
@@ -1235,7 +1237,7 @@ final class AccountManagerContractTests: XCTestCase {
         }
 
         let result = try await manager.resolveRecoveryConflict(
-            operationID: fixture.plan.id,
+            operationID: fixture.plan.operationID,
             choice: .preserveCurrent
         )
 
@@ -1279,7 +1281,7 @@ final class AccountManagerContractTests: XCTestCase {
         let recovered = try await manager.recover()
         XCTAssertEqual(recovered.first?.outcome, .conflict)
         let resolution = try await manager.resolveRecoveryConflict(
-            operationID: plan.id,
+            operationID: plan.operationID,
             choice: .preserveCurrent
         )
 
@@ -1355,7 +1357,7 @@ final class AccountManagerContractTests: XCTestCase {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
 
         let result = try await manager.resolveRecoveryConflict(
-            operationID: fixture.plan.id,
+            operationID: fixture.plan.operationID,
             choice: .restoreBackup
         )
 
@@ -1384,7 +1386,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(
             try await manager.resolveRecoveryConflict(
-                operationID: fixture.plan.id,
+                operationID: fixture.plan.operationID,
                 choice: .restoreBackup
             )
         ) { error in
@@ -1446,7 +1448,7 @@ final class AccountManagerContractTests: XCTestCase {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
 
         let result = try await manager.resolveRecoveryConflict(
-            operationID: fixture.plan.id,
+            operationID: fixture.plan.operationID,
             choice: .restoreBackup
         )
 
@@ -1484,7 +1486,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(
             try await manager.resolveRecoveryConflict(
-                operationID: plan.id, choice: .preserveCurrent)
+                operationID: plan.operationID, choice: .preserveCurrent)
         ) { error in
             XCTAssertTrue(error.localizedDescription.contains("not conflicted"))
         }
@@ -1496,7 +1498,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(
             try await manager.resolveRecoveryConflict(
-                operationID: fixture.plan.id, choice: .restoreBackup)
+                operationID: fixture.plan.operationID, choice: .restoreBackup)
         ) { error in
             XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
         }
@@ -1522,7 +1524,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(
             try await crashing.resolveRecoveryConflict(
-                operationID: fixture.plan.id, choice: .restoreBackup)
+                operationID: fixture.plan.operationID, choice: .restoreBackup)
         )
         let interruptedStatus = try await crashing.status()
         XCTAssertEqual(interruptedStatus.pendingRecovery.first?.phase, .conflicted)
@@ -1533,7 +1535,7 @@ final class AccountManagerContractTests: XCTestCase {
 
         let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let result = try await recovering.resolveRecoveryConflict(
-            operationID: fixture.plan.id,
+            operationID: fixture.plan.operationID,
             choice: .restoreBackup
         )
         XCTAssertEqual(result.outcome, .rolledBack)
@@ -1571,7 +1573,7 @@ final class AccountManagerContractTests: XCTestCase {
             published
         )
         let status = try await unknown.status()
-        XCTAssertEqual(status.pendingRecovery.first?.id, plan.id)
+        XCTAssertEqual(status.pendingRecovery.first?.id, plan.operationID)
     }
 
     func testRecoveryPreservesRecordedInterruptedTemporaryOutsideLiveSharedTree() async throws {
@@ -1604,14 +1606,16 @@ final class AccountManagerContractTests: XCTestCase {
         let plan = try await crashing.planImport(source: source, mode: .full)
         await XCTAssertThrowsErrorAsync(try await crashing.importAccount(plan: plan))
 
-        let itemRoot = paths.applicationSupport.appending(path: "transactions/\(plan.id.uuidString).items")
+        let itemRoot = paths.applicationSupport.appending(
+            path: "transactions/\(plan.operationID.uuidString).items")
         let itemFiles = try fm.contentsOfDirectory(at: itemRoot, includingPropertiesForKeys: nil).filter { $0.pathExtension == "json" }
         XCTAssertEqual(itemFiles.count, 40)
         for file in itemFiles {
             let item = try JSONDecoder().decode(RecoveryItem.self, from: Data(contentsOf: file))
             XCTAssertEqual(item.expectedDigest, try CoreSupport.digest(file: item.destination))
         }
-        let headerURL = paths.applicationSupport.appending(path: "transactions/\(plan.id.uuidString).json")
+        let headerURL = paths.applicationSupport.appending(
+            path: "transactions/\(plan.operationID.uuidString).json")
         let header = try JSONDecoder().decode(RecoveryOperation.self, from: Data(contentsOf: headerURL))
         XCTAssertEqual(header.expectedDigest, try localTreeDigest(header.destination))
         let recovering = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
