@@ -579,7 +579,7 @@ public actor AccountManager {
                 result = .init(
                     state: .verifiedWithCodex,
                     checkedAt: snapshot.fetchedAt,
-                    detail: "Codex verified the saved auth.json and returned account and usage data without a model request."
+                    detail: "Codex CLI returned account and usage data without a model request."
                 )
             } else {
                 result = .init(
@@ -1580,7 +1580,7 @@ extension AccountManager {
             throw AIManagerError.credentialConflict
         }
 
-        let verification = VerificationResult(state: .imported, checkedAt: Date(), detail: "Credential format and private destination were verified offline.")
+        let verification = VerificationResult(state: .imported, checkedAt: Date(), detail: "Credential format and private destination passed the offline check.")
         let account = AccountRecord(
             id: accountID,
             identity: plan.identity,
@@ -2619,7 +2619,7 @@ extension AccountManager {
         let verification = VerificationResult(
             state: .imported,
             checkedAt: Date(),
-            detail: "The current credential was retained during recovery and verified offline."
+            detail: "The current credential was retained during recovery and passed the offline check."
         )
         let savedCredential = credentialFile(for: accountID)
         if CoreSupport.entryExists(savedCredential) {
@@ -2721,7 +2721,7 @@ extension AccountManager {
         let verification = VerificationResult(
             state: .imported,
             checkedAt: Date(),
-            detail: "The current credential was retained during recovery and verified offline."
+            detail: "The current credential was retained during recovery and passed the offline check."
         )
         for target in try recoveryTargets(operation) {
             guard let index = registry.accounts.firstIndex(where: {

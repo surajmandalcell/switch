@@ -94,11 +94,6 @@ enum AIManagerNativeContract {
     expect(HistoryHeaderLayout.countWidth == 52, "Conversation count slot width changed")
     expect(HistoryHeaderLayout.warningWidth == 32, "Conversation warning slot width changed")
     expect(HistoryHeaderLayout.statusWidth == 20, "Conversation status slot width changed")
-    expect(MenuBarPopover.quotaWidth == 48, "Menu-bar quota columns changed width")
-    expect(MenuBarPopover.statusWidth == 18, "Menu-bar state slot changed width")
-    expect(MenuBarPopover.trailingActionWidth == 34, "Menu-bar trailing action slot width changed")
-    expect(MenuBarPopover.quotaText(nil).isEmpty, "Missing menu-bar quota uses a placeholder")
-    expect(MenuBarPopover.quotaText(0) == "0%", "Zero menu-bar quota is hidden")
     let weeklyOnly = MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 1)
     expect(
       weeklyOnly.usedPercentage == nil && weeklyOnly.secondaryUsedPercentage == 1
@@ -163,13 +158,6 @@ enum AIManagerNativeContract {
     if hiddenAccount.usage != nil {
       failures.append("A hidden account still publishes usage")
     }
-    let store = MenuBarPopoverStore(
-      snapshot: MenuBarSnapshot(accounts: [hiddenAccount], primaryUsedPercentage: nil),
-      actions: MenuBarPopoverActions(openMainWindow: {}, quit: {}, switchAccount: { _ in }))
-    store.refresh(hiddenAccount)
-    if store.refreshingAccountID != nil {
-      failures.append("A hidden account can start menu-bar usage refresh")
-    }
     return failures
   }
 
@@ -191,6 +179,12 @@ enum AIManagerNativeContract {
     if AIMIcon.Name.trash.symbol != "trash" {
       failures.append("The account delete control does not use the native trash symbol")
     }
+    if [ProviderID.codex, .claudeCode, .geminiCLI, .antigravityCLI].map(\.displayName)
+      != ["Codex CLI", "Claude Code", "Gemini CLI", "Antigravity CLI"]
+      || ProviderID(rawValue: "grok-build").displayName != "Grok Build"
+    {
+      failures.append("Provider names are not derived consistently")
+    }
     return failures
   }
 
@@ -202,38 +196,51 @@ enum AIManagerNativeContract {
 
     expect(MenuBarPopover.width == 384, "Menu-bar popover is not 384 points wide")
     expect(MenuBarPopover.minimumHeight == 124, "Menu-bar popover retains removed chrome space")
-    expect(MenuBarPopover.maximumHeight == 424, "Menu-bar popover maximum height includes removed chrome")
-    expect(MenuBarPopover.accountRowHeight == 60, "Menu-bar account rows are not 60 points high")
-    expect(MenuBarPopover.maximumVisibleRows == 6, "Menu-bar account list does not stop at six visible rows")
-
-    let empty = AIManagerStatusItemController.contentSize(accountCount: 0, visibleScreenHeight: 900)
-    let one = AIManagerStatusItemController.contentSize(accountCount: 1, visibleScreenHeight: 900)
-    let six = AIManagerStatusItemController.contentSize(accountCount: 6, visibleScreenHeight: 900)
-    let many = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 900)
-    let shortScreen = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 480)
-    for size in [empty, one, six, many, shortScreen] {
-      expect(size.width == 384, "Menu-bar popover width changes with its contents")
-      expect(size.height >= 124, "Menu-bar popover is shorter than its empty state")
-      expect(size.height <= 424, "Menu-bar popover is taller than six rows plus controls")
-    }
-    expect(empty.height == 124, "Empty menu-bar popover does not use its compact minimum height")
-    expect(one.height == 124, "One-row menu-bar popover has the wrong fixed-region geometry")
-    expect(six.height == 424 && many.height == six.height, "Menu-bar list does not scroll after six rows")
-    expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
+    expect(MenuBarPopover.maximumHeight == 440, "Menu-bar popover maximum height is not capped")
+    expect(MenuBarPopover.accountHeaderHeight == 58, "Menu-bar account header has the wrong height")
+    expect(MenuBarPopover.quotaRowHeight == 34, "Menu-bar quota rows have the wrong height")
 
     let snapshot = MenuBarPopoverPreviewData.snapshot
+    let hiddenAccount = MenuBarAccountSnapshot(
+      id: UUID(uuidString: "FEAA8B82-542D-4B4C-9079-1A6DA349CCAA")!,
+      identity: "hidden@example.test", detail: "Codex CLI · Personal",
+      isVerified: true, isActive: false,
+      usage: MenuBarUsageSnapshot(usedPercentage: 42), showsUsage: false)
+    let empty = AIManagerStatusItemController.contentSize(accounts: [], visibleScreenHeight: 900)
+    let hidden = AIManagerStatusItemController.contentSize(
+      accounts: [hiddenAccount], visibleScreenHeight: 900)
+    let one = AIManagerStatusItemController.contentSize(
+      accounts: Array(snapshot.accounts.prefix(1)), visibleScreenHeight: 900)
+    let two = AIManagerStatusItemController.contentSize(
+      accounts: Array(snapshot.accounts.prefix(2)), visibleScreenHeight: 900)
+    let many = AIManagerStatusItemController.contentSize(
+      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 900)
+    let shortScreen = AIManagerStatusItemController.contentSize(
+      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 480)
+    for size in [empty, hidden, one, two, many, shortScreen] {
+      expect(size.width == 384, "Menu-bar popover width changes with its contents")
+      expect(size.height >= 124, "Menu-bar popover is shorter than its empty state")
+      expect(size.height <= 440, "Menu-bar popover exceeds its height cap")
+    }
+    expect(empty.height == 124, "Empty menu-bar popover does not use its compact minimum height")
+    expect(hidden.height == 126, "Hidden usage leaves blank quota space")
+    expect(one.height == 229, "One usage card has the wrong geometry")
+    expect(two.height == 398, "Two usage cards have the wrong geometry")
+    expect(many.height == 440, "Menu-bar cards do not scroll at the height cap")
+    expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
+
     expect(snapshot.primaryUsedPercentage == 42, "Preview menu snapshot lacks cached primary usage")
     expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
     expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
     expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
     expect(snapshot.accounts.compactMap(\.usage).contains(where: {
-      $0.plan != nil && $0.resetDescription != nil
-    }), "Preview menu snapshot lacks cached plan and reset details")
+      $0.resetDescription != nil && $0.fetchedAt != nil
+    }), "Preview menu snapshot lacks cached reset details")
 
     let controller = AIManagerStatusItemController(
       snapshot: snapshot,
       actions: MenuBarPopoverActions(
-        openMainWindow: {}, quit: {}, switchAccount: { _ in }))
+        openMainWindow: {}, switchAccount: { _ in }))
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
     expect(controller.usesPopover, "Status item still uses a static menu")
     expect(controller.popoverContentSize.width == 384, "Hosted popover changed its fixed width")
@@ -252,7 +259,7 @@ enum AIManagerNativeContract {
     let copyStore = MenuBarPopoverStore(
       snapshot: snapshot,
       actions: MenuBarPopoverActions(
-        openMainWindow: {}, quit: {}, switchAccount: { _ in },
+        openMainWindow: {}, switchAccount: { _ in },
         copyText: { copiedError = $0 }))
     copyStore.copyError("Synthetic menu error")
     expect(copiedError == "Synthetic menu error", "Menu-bar errors do not expose a copy action")

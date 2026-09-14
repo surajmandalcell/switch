@@ -626,7 +626,7 @@ final class AccountViewModel: ObservableObject {
             current.accounts[index].verification = VerificationResult(
                 state: .verifiedWithCodex,
                 checkedAt: DemoData.now,
-                detail: "Demo verification passed without a network request."
+                detail: "Demo account check passed without a network request."
             )
             status = current
             notice = current.accounts[index].verification.detail
@@ -1369,9 +1369,9 @@ private enum DemoData {
     }
 
     static let accounts = [
-        account(id: "7A08CA5E-F528-4E45-B730-DAF68B0A3133", email: "suraj@example.com", workspace: "personal", state: .verifiedWithCodex, detail: "Verified with Codex at 10:15 AM."),
+        account(id: "7A08CA5E-F528-4E45-B730-DAF68B0A3133", email: "suraj@example.com", workspace: "personal", state: .verifiedWithCodex, detail: "Codex CLI account check completed at 10:15 AM."),
         account(id: "5EA89BE0-D9A1-4727-983B-91640279C396", email: "studio@example.com", workspace: "design-team", state: .needsSignIn, detail: "Sign in before this account can launch Codex."),
-        account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "studio@example.com", workspace: "research-team", state: .imported, detail: "Imported locally. Verification has not run."),
+        account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "studio@example.com", workspace: "research-team", state: .imported, detail: "Imported locally. The account check has not run."),
     ]
 
     static func usage(account: AccountRecord, offset: Int) -> CodexAccountUsageSnapshot {
@@ -1505,7 +1505,7 @@ private enum DemoData {
             id: plan.id, identity: plan.identity,
             credentialFile: plan.credentialDestination,
             home: plan.destination, source: plan.source, importedAt: now,
-            verification: VerificationResult(state: .imported, checkedAt: now, detail: "Demo import verified locally."),
+            verification: VerificationResult(state: .imported, checkedAt: now, detail: "Demo import passed the local account check."),
             credentialDigest: "demo-imported-credential"
         )
         return ImportResult(account: account, backup: plan.backup, importedFiles: plan.manifest.filter(\.selected).count,

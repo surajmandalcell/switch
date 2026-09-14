@@ -114,11 +114,16 @@ enum AIMTheme {
   }
 
   static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("Geist-\(weight.rawValue)", size: size, relativeTo: .body)
+    .custom("Inter-\(weight.rawValue)", size: size, relativeTo: .body)
+  }
+
+  static func display(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
+    .custom("Lora-\(weight.rawValue)", size: size, relativeTo: .title)
   }
 
   static func mono(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("GeistMono-\(weight.rawValue)", size: size, relativeTo: .body)
+    .custom("PTMono-Regular", size: size, relativeTo: .body)
+      .weight(weight.swiftUIWeight)
   }
 
   private static func dynamic(
@@ -128,6 +133,16 @@ enum AIMTheme {
     Color(AIMAdaptiveColor(
       light: light, dark: dark, lightHighContrast: lightHighContrast,
       darkHighContrast: darkHighContrast))
+  }
+}
+
+private extension AIMTheme.FontWeight {
+  var swiftUIWeight: Font.Weight {
+    switch self {
+    case .regular: .regular
+    case .medium: .medium
+    case .semibold: .semibold
+    }
   }
 }
 
@@ -176,7 +191,7 @@ struct AIMVisualEffect: NSViewRepresentable {
 struct AIMIcon: View {
   enum Name: CaseIterable {
     case account, settings, history, backup, search, plus, refresh, moon, sun, close, minimize
-    case chevron, check, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal
+    case chevron, check, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp
 
     var symbol: String {
       switch self {
@@ -193,6 +208,7 @@ struct AIMIcon: View {
       case .minimize: "minus"
       case .chevron: "chevron.right"
       case .terminal: "terminal"
+      case .openApp: "macwindow"
       case .check: "checkmark"
       case .square: "square"
       case .checkSquare: "checkmark.square.fill"
