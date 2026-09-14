@@ -2064,10 +2064,12 @@ with temporary synthetic homes before installation.
   caches migrate in place so the title repair does not trigger a multi-gigabyte rescan. A changed
   database name, title, preview, working directory, recency, or archive flag refreshes the library
   revision and selected detail while preserving the transcript cache.
-- The thread list presents one title, one preview line, and a quiet project/time line. It omits the
-  repeated per-row message count and uses a neutral selection surface that preserves the normal ink
-  color. The reader presents one title and one compact context line, shows a result count only for
-  an active message search, and removes the separate raw-ID/byte-count metadata card.
+- The thread list presents only the canonical title and its project or folder. It omits preview
+  excerpts, timestamps, archive labels, and per-row message counts. Restrained alternating row
+  surfaces separate adjacent conversations without adding borders or card shapes; hover and
+  selection remain visually dominant. The reader presents one title and one compact context line,
+  shows a result count only for an active message search, and removes the separate raw-ID/byte-count
+  metadata card.
 - Messages share one neutral reading surface with a bounded text measure, 13-point Geist body,
   generous line spacing, and restrained role labels. Full-width blue and gray message cards are
   removed. Long instruction-heavy conversations remain selectable, virtualized, and visually calm
