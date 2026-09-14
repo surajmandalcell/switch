@@ -2536,6 +2536,9 @@ with temporary synthetic homes before installation.
   and Open App at bottom right. Do not restore the removed header or Add Account action.
 - Verify the fresh preference default, explicit opt-out, stable card geometry, native Cleanup
   symbol, dark and light snapshots, and the installed tray percentage.
+- Verification: the fresh-default regression failed against the old code and passed after the
+  shared preference fix. System, Light, and Dark GUI contracts pass. Dark and Light menu renders
+  show both quota rows, equal compact actions, the footer timestamp, and Open App.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 

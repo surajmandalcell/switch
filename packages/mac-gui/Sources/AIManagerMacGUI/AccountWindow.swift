@@ -135,7 +135,7 @@ private extension AIManagerPage {
     case .accounts: .account
     case .backup: .backup
     case .history: .history
-    case .cleanup: .trash
+    case .cleanup: .cleanup
     case .settings: .settings
     }
   }

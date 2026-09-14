@@ -184,6 +184,11 @@ enum AIManagerNativeContract {
     if AIMIcon.Name.trash.symbol != "trash" {
       failures.append("The account delete control does not use the native trash symbol")
     }
+    if AIMIcon.Name.cleanup.symbol != "eraser"
+      || NSImage(systemSymbolName: AIMIcon.Name.cleanup.symbol, accessibilityDescription: nil) == nil
+    {
+      failures.append("The Cleanup rail does not use the native eraser symbol")
+    }
     if [ProviderID.codex, .claudeCode, .geminiCLI, .antigravityCLI].map(\.displayName)
       != ["Codex CLI", "Claude Code", "Gemini CLI", "Antigravity CLI"]
       || ProviderID(rawValue: "grok-build").displayName != "Grok Build"
@@ -203,9 +208,9 @@ enum AIManagerNativeContract {
     expect(MenuBarPopover.minimumHeight == 124, "Menu-bar popover retains removed chrome space")
     expect(MenuBarPopover.maximumHeight == 440, "Menu-bar popover maximum height is not capped")
     expect(MenuBarPopover.accountHeaderHeight == 58, "Menu-bar account header has the wrong height")
-    expect(MenuBarPopover.quotaRowHeight == 34, "Menu-bar quota rows have the wrong height")
-    expect(MenuBarPopover.accountActionWidth == 68, "Menu-bar account actions have different widths")
-    expect(MenuBarPopover.accountActionHeight == 26, "Menu-bar account actions are not compact")
+    expect(MenuBarPopover.quotaRowHeight == 44, "Menu-bar quota rows have the wrong height")
+    expect(MenuBarPopover.accountActionWidth == 64, "Menu-bar account actions have different widths")
+    expect(MenuBarPopover.accountActionHeight == 24, "Menu-bar account actions are not compact")
 
     let snapshot = MenuBarPopoverPreviewData.snapshot
     let hiddenAccount = MenuBarAccountSnapshot(
@@ -231,8 +236,8 @@ enum AIManagerNativeContract {
     }
     expect(empty.height == 124, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 126, "Hidden usage leaves blank quota space")
-    expect(one.height == 229, "One usage card has the wrong geometry")
-    expect(two.height == 398, "Two usage cards have the wrong geometry")
+    expect(one.height == 249, "One usage card has the wrong geometry")
+    expect(two.height == 438, "Two usage cards have the wrong geometry")
     expect(many.height == 440, "Menu-bar cards do not scroll at the height cap")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
 
