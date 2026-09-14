@@ -125,7 +125,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
         XCTAssertFalse(encoded.lowercased().contains("refresh_token"))
     }
 
-    func testReaderTreatsAbsentBackendFieldsAsUnavailable() async throws {
+    func testReaderPreservesAbsentBackendFieldsAsNil() async throws {
         let transport = SyntheticAccountTransport(records: [
             response(id: 2, result: ["requiresOpenaiAuth": false]),
             response(id: 3, result: [:]),
