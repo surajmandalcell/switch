@@ -907,10 +907,11 @@ private struct HistoryPage: View {
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-          AIMVirtualList(items: threadItems, rowSpacing: 2, fixedRowHeight: 62) { item in
+          AIMVirtualList(items: threadItems, rowSpacing: 0, fixedRowHeight: 50) { item in
             AnyView(ChatThreadRow(
               thread: item.thread,
-              selected: item.selected
+              selected: item.selected,
+              striped: item.striped
             ) { Task { await model.selectChat(item.id) } })
           }
         }
@@ -951,8 +952,11 @@ private struct HistoryPage: View {
   }
 
   private var threadItems: [ChatThreadListItem] {
-    model.chatHistory.threads.map {
-      ChatThreadListItem(thread: $0, selected: model.selectedChatID == $0.id)
+    model.chatHistory.threads.enumerated().map { index, thread in
+      ChatThreadListItem(
+        thread: thread,
+        selected: model.selectedChatID == thread.id,
+        striped: !index.isMultiple(of: 2))
     }
   }
 }
@@ -960,6 +964,7 @@ private struct HistoryPage: View {
 private struct ChatThreadListItem: Identifiable, Equatable {
   let thread: ChatThreadSummary
   let selected: Bool
+  let striped: Bool
   var id: String { thread.id }
 }
 
@@ -995,50 +1000,39 @@ private struct HistorySearchField: View {
 private struct ChatThreadRow: View {
   let thread: ChatThreadSummary
   let selected: Bool
+  let striped: Bool
   let action: () -> Void
   @State private var hovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-          Text(thread.title).font(AIMTheme.sans(11.5, weight: .semibold)).lineLimit(1)
-          Spacer(minLength: 4)
-          Text(relativeTime)
-            .font(AIMTheme.sans(8.5)).foregroundStyle(AIMTheme.faint)
-        }
-        Text(thread.preview).font(AIMTheme.sans(9.5)).lineLimit(1)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(thread.title)
+          .font(AIMTheme.sans(11.5, weight: .semibold))
+          .lineLimit(1)
+        Text(projectLabel)
+          .font(AIMTheme.sans(9.5, weight: .medium))
           .foregroundStyle(AIMTheme.muted)
-        HStack(spacing: 5) {
-          Text(projectLabel).font(AIMTheme.sans(8.5, weight: .medium)).lineLimit(1)
-          if thread.archived { Text("· Archived").font(AIMTheme.sans(8.5)) }
-          Spacer(minLength: 0)
-        }
-        .foregroundStyle(AIMTheme.faint)
+          .lineLimit(1)
       }
       .padding(.horizontal, 14)
-      .padding(.vertical, 8)
-      .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+      .padding(.vertical, 7)
+      .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
       .contentShape(Rectangle())
       .background(
-        selected ? AIMTheme.historySelection : (hovered ? AIMTheme.panel2.opacity(0.72) : Color.clear))
+        selected
+          ? AIMTheme.historySelection
+          : (hovered
+            ? AIMTheme.panel2.opacity(0.72)
+            : (striped ? AIMTheme.panel2.opacity(0.42) : Color.clear)))
       .foregroundStyle(AIMTheme.ink)
     }
     .buttonStyle(AIMPressButtonStyle())
     .onHover { hovered = $0 }
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hovered)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
-    .accessibilityLabel("\(thread.title), \(thread.messageCount) messages")
-  }
-
-  private var relativeTime: String {
-    let interval = max(0, Date().timeIntervalSince(thread.updatedAt))
-    if interval < 60 { return "Now" }
-    if interval < 3_600 { return "\(Int(interval / 60))m" }
-    if interval < 86_400 { return "\(Int(interval / 3_600))h" }
-    if interval < 604_800 { return "\(Int(interval / 86_400))d" }
-    return thread.updatedAt.formatted(.dateTime.month(.abbreviated).day())
+    .accessibilityLabel("\(thread.title), \(projectLabel)")
   }
 
   private var projectLabel: String {
