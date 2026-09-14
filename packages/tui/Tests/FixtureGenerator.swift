@@ -75,6 +75,24 @@ try write(try transcript(id: "thread-extended", events: ["first"]), to: "default
 let log = root.appending(path: "launch.log").path.replacingOccurrences(of: "'", with: "'\\''")
 let fakeCodex = """
 #!/bin/sh
+if [ "$1 $2" = "app-server --stdio" ]; then
+  account_id="$(jq -r '.tokens.account_id' "$CODEX_HOME/auth.json")"
+  case "$account_id" in
+    account-one) email='one@example.test' ;;
+    account-two) email='two@example.test' ;;
+    *) email='person@example.test' ;;
+  esac
+  IFS= read -r line
+  printf '%s\n' '{"id":1,"result":{"codexHome":"synthetic","platformFamily":"unix","platformOs":"test","userAgent":"test"}}'
+  IFS= read -r line
+  IFS= read -r line
+  IFS= read -r line
+  IFS= read -r line
+  printf '{"id":2,"result":{"account":{"type":"chatgpt","email":"%s","planType":"plus"},"requiresOpenaiAuth":false}}\n' "$email"
+  printf '{"id":3,"result":{"accountId":"%s","ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":{"usedPercent":25}}}}\n' "$account_id"
+  printf '%s\n' '{"id":4,"result":{"summary":{"lifetimeTokens":1200},"dailyUsageBuckets":[]}}'
+  exit 0
+fi
 if [ "$3 $4" = "login status" ] || [ "$4 $5" = "login status" ]; then
   printf '%s\n' 'Logged in using ChatGPT'
   exit 0

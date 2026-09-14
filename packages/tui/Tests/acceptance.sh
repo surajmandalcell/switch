@@ -43,6 +43,7 @@ fi
 rg -F 'Claude Code account setup is not available yet.' "$test_root/disabled-provider.log" >/dev/null
 "$binary" help >"$test_root/help.log"
 rg -F 'ai-manager add [codex]' "$test_root/help.log" >/dev/null
+rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
 rg -F 'Only Codex CLI is available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
@@ -177,8 +178,18 @@ expected_accounts=2
 
 "$binary" status --json \
   | jq -e --argjson expected "$expected_accounts" '(.accounts | length == $expected) and (.accounts | all(has("credentialDigest") | not))' >/dev/null
+verification_status=0
 "$binary" verify "$account_id" --json \
-  | jq -e '.state == "verifiedLocally"' >/dev/null
+  >"$test_root/verification.json" 2>"$test_root/verification.log" || verification_status=$?
+if [[ "$verification_status" -ne 0 ]]; then
+  cat "$test_root/verification.log" >&2
+  printf 'Verification command exited with status %s.\n' "$verification_status" >&2
+  exit 1
+fi
+if ! jq -e '.state == "verifiedWithCodex"' "$test_root/verification.json" >/dev/null; then
+  cat "$test_root/verification.json" >&2
+  exit 1
+fi
 if ! "$binary" open "$account_id" -- resume --all 2>"$test_root/open-error.log"; then
   skip_if_native_writer_unknown "$test_root/open-error.log" || true
   cat "$test_root/open-error.log" >&2
@@ -204,6 +215,27 @@ if "$binary" profile "$account_id" >"$test_root/profile.log" 2>&1; then
   exit 1
 fi
 rg -F 'Use saved-auth to print the saved auth file' "$test_root/profile.log" >/dev/null
+
+if "$binary" remove "$account_id" --json >"$test_root/unconfirmed-remove.json" 2>"$test_root/unconfirmed-remove.log"; then
+  printf '%s\n' 'Expected account removal to require confirmation.' >&2
+  exit 1
+fi
+rg -F 'repeat with --yes' "$test_root/unconfirmed-remove.log" >/dev/null
+"$binary" remove "$account_id" --yes --json \
+  | jq -e --arg id "$account_id" '
+      .accountID == $id
+      and .replacementDefaultAccountID == null
+      and .removedManagedHome
+      and .removedCredential
+    ' >/dev/null
+"$binary" status --json \
+  | jq -e --arg id "$account_id" '(.accounts | all(.id != $id))' >/dev/null
+
+human_remove_import="$test_root/human-remove-import.json"
+"$binary" advanced-import "$fixture/source-one" --mode auth-only --yes --json >"$human_remove_import"
+human_remove_id="$(jq -r '.account.id' "$human_remove_import")"
+"$binary" delete-account "$human_remove_id" --yes >"$test_root/human-remove.log"
+rg -F "Removed account $human_remove_id from Switch." "$test_root/human-remove.log" >/dev/null
 
 transactions="$fixture/application-support/transactions"
 mkdir -p "$transactions"
