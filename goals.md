@@ -2352,7 +2352,7 @@ with temporary synthetic homes before installation.
   session, and both operations resume safely after an app restart. A newly added account is saved
   without replacing an existing default until the user chooses Use for New Sessions.
 - The provider catalog is ready for additional adapters. Codex CLI is enabled; Claude Code,
-  Gemini CLI, and Antigravity CLI are present and explicitly unavailable. Advanced Import remains
+  Gemini CLI, and Antigravity CLI are present as WIP. Advanced Import remains
   available for an existing Codex folder or `auth.json` while the ordinary path stays focused on
   Add Account.
 - Account usage uses Codex app-server account APIs from a disposable private home containing a
@@ -2425,3 +2425,28 @@ with temporary synthetic homes before installation.
   compact wizard pixels, menu pixels, native scrolling, and single-instance behavior passed.
   Read-only unprivileged `linux/arm64` and `linux/amd64` Docker containers then passed the same
   152-contract inventory, release build, and full CLI/TUI acceptance from that commit.
+
+### Dark surfaces, conditional usage, and Settings acceptance (2026-09-14)
+
+- Dark mode now uses the neutral palette in `docs/specs/product.md`: rail `#141517`, canvas and
+  menu chrome `#18191B`, panel `#202124`, raised stripe `#27282B`, secondary raised surface
+  `#2F3034`, hover `#303238`, and selection `#393C43`. Semantic colors were raised for readable
+  contrast against those darker surfaces.
+- The menu popover passes its effective dark appearance through every native virtual row. Its
+  account, quota, state, and trailing-action slots share one fixed grid; missing quotas remain
+  blank while explicit zero remains visible. The conversation-list heading likewise reserves
+  centered count, warning, and status slots on one 40-point row.
+- Optional usage values render only when returned. Missing plan, credits, spend control,
+  secondary windows, summary statistics, and incomplete daily rows take no UI space. Explicit
+  zero and false values remain visible, while the unchecked, refresh-error, and no-rate-limit
+  states remain actionable.
+- The Settings page now contains App behavior and Data locations for the live Codex home and saved
+  account vault. The obsolete Shared Settings name and Linked entries inventory are gone from the
+  current interface. Legacy link repair remains an account-specific compatibility path only when
+  an existing migrated record needs action.
+- `scripts/check-native.sh` passed 152 discovered core contracts: 150 executed with zero failures
+  and the two authorized-private-copy integrations remained explicit opt-ins. Preview and
+  production models, Pixel artwork, System/Light/Dark window and menu contracts, single-instance
+  behavior, native scrolling, and focused presentation contracts passed. Dark Accounts, Settings,
+  Chat History, and menu renders were inspected under `/private/tmp/switch-dark-final.kBpUq7` and
+  `/private/tmp/switch-dark-review.8NJ9nS`.

@@ -287,6 +287,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.addAccountModalHeight == 480, "Add Account modal is not compact and stable")
     expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
+    failures.append(contentsOf: AIManagerNativeContract.presentationContractFailures())
     failures.append(contentsOf: AIManagerNativeContract.accountActionFailures())
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
     failures.append(contentsOf: AIManagerNativeContract.menuBarPopoverFailures())
