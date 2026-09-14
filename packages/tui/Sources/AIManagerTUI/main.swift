@@ -59,6 +59,24 @@ struct AIManagerCLI {
             let status = try await manager.status()
             guard let account = status.accounts.first(where: { $0.id == id }) else { throw AIManagerError.accountNotFound }
             print(account.credentialFile.path)
+        case "remove", "delete-account":
+            let id = try input.requiredAccountID()
+            let replacement = try input.optionalAccountID("--replacement")
+            let status = try await manager.status()
+            guard let account = status.accounts.first(where: { $0.id == id }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try confirm(
+                input,
+                "Remove \(displayName(account.identity)) from Switch and delete its private saved files?"
+            )
+            await output(
+                try await manager.deleteAccount(
+                    accountID: id,
+                    replacementDefaultAccountID: replacement
+                ),
+                json: input.json
+            )
         case "profile":
             throw CLIError.message("The profile command was removed. Use saved-auth to print the saved auth file, or open to start Codex.")
         case "verify":
@@ -444,6 +462,11 @@ struct AIManagerCLI {
             print("Backup: \(result.backup.path); files: \(result.importedFiles); chats: \(result.importedChats)")
             for item in result.unresolved { print("Unresolved: \(item)") }
         case let result as SwitchResult: print("Default account changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
+        case let result as AccountDeletionResult:
+            print("Removed account \(result.accountID.uuidString) from Switch.")
+            if let replacement = result.replacementDefaultAccountID {
+                print("Default account changed to \(replacement.uuidString).")
+            }
         case let result as VerificationResult: print("\(result.state.rawValue): \(result.detail)")
         case let results as [RecoveryResult]:
             if results.isEmpty { print("No recovery was needed.") }
@@ -497,6 +520,7 @@ struct AIManagerCLI {
       ai-manager use <account-uuid> [--yes] [--json]
       ai-manager open <account-uuid> [-- codex arguments]
       ai-manager saved-auth <account-uuid>
+      ai-manager remove <account-uuid> [--replacement <account-uuid>] [--yes] [--json]
       ai-manager verify <account-uuid> [--json]
       ai-manager recover [--yes] [--json]
       ai-manager resolve-recovery <operation-uuid> (--keep-current|--restore-backup) [--yes] [--json]
@@ -776,7 +800,7 @@ struct CommandLineInput {
         var result: [String] = []; var skip = false
         for value in values.prefix(while: { $0 != "--" }) {
             if skip { skip = false; continue }
-            if ["--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint"].contains(value) { skip = true; continue }
+            if ["--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement"].contains(value) { skip = true; continue }
             if value.hasPrefix("--") { continue }
             result.append(value)
         }
@@ -787,6 +811,16 @@ struct CommandLineInput {
     func requiredAccountID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid account UUID is required.") }; return id }
     func requiredOperationID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid recovery operation UUID is required.") }; return id }
     func requiredLoginSessionID() throws -> UUID { guard let value = positional.first, let id = UUID(uuidString: value) else { throw CLIError.message("A valid login session UUID is required.") }; return id }
+    func optionalAccountID(_ name: String) throws -> UUID? {
+        guard values.contains(name) else { return nil }
+        guard let value = option(name) else {
+            throw CLIError.message("A replacement account UUID is required after \(name).")
+        }
+        guard let id = UUID(uuidString: value) else {
+            throw CLIError.message("A valid replacement account UUID is required.")
+        }
+        return id
+    }
     func providerID() throws -> ProviderID {
         let value = positional.first ?? ProviderID.codex.rawValue
         guard let provider = AccountManager.providerCatalog.first(where: { $0.id.rawValue == value }) else {
