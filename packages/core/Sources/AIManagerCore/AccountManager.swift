@@ -72,7 +72,7 @@ public actor AccountManager {
     }
 
     public static let providerCatalog: [ProviderDescriptor] = [
-        .init(id: .codex, displayName: "Codex", availability: .enabled),
+        .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
         .init(
             id: .claudeCode, displayName: "Claude Code", availability: .disabled,
             unavailableReason: "Claude Code account setup is not available yet."),
@@ -84,7 +84,7 @@ public actor AccountManager {
             unavailableReason: "Antigravity CLI account setup is not available yet."),
     ]
 
-    public func refreshAccounts() async throws -> AccountSnapshot {
+    public func refreshAccounts(includeDiscoveries: Bool = true) async throws -> AccountSnapshot {
         if try !pendingOperations().isEmpty {
             _ = try await recover()
         }
@@ -101,7 +101,7 @@ public actor AccountManager {
         return .init(
             status: current,
             providers: Self.providerCatalog,
-            discoveries: await discover(),
+            discoveries: includeDiscoveries ? await discover() : [],
             pendingLoginSessions: try loadLoginSessions()
         )
     }
@@ -165,6 +165,7 @@ public actor AccountManager {
         }
         let decisions = credentialChoice.map { ["auth.json": $0] } ?? [:]
         let result = try await importAccount(plan: plan, decisions: decisions)
+        try await switchDefaultIfUnset(to: result.account.id)
         loginRunner.cancel(id)
         try fileManager.removeItem(at: loginRoot(id))
         return .init(
@@ -342,6 +343,20 @@ public actor AccountManager {
             try provider.validateManagedCredential(selected)
             try await ensureWritersInactive([paths.defaultHome])
             return try performSwitch(to: accountID)
+        }
+    }
+
+    private func switchDefaultIfUnset(to accountID: UUID) async throws {
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            let registry = try loadRegistry()
+            guard registry.defaultAccountID == nil else { return }
+            guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try provider.validateManagedCredential(selected)
+            try await ensureWritersInactive([paths.defaultHome])
+            _ = try performSwitch(to: accountID)
         }
     }
 

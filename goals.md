@@ -205,7 +205,8 @@ Antigravity CLI. Codex CLI is enabled. The other three rows are visibly disabled
 `Unavailable`; they have stable provider identifiers but no behavioral adapters, credential access,
 or process actions in this release. Selecting Codex creates a private versioned login session under
 the application-support staging root, with an isolated `CODEX_HOME` and file-backed credential
-storage. It opens the official Codex login in Terminal without changing the live home. **Check now**
+storage. It starts the official Codex browser login without changing the live home. The CLI opens
+the default browser itself; Switch keeps its output private and does not add a terminal window. **Check now**
 validates the staged regular `auth.json`, identifies the account, and commits it through the existing
 auth-only import transaction. Restarting Switch resumes a waiting or interrupted login session.
 Cancellation removes only app-owned staging after validation. Never put email addresses in vault or

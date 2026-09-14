@@ -38,9 +38,10 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertEqual(account.credentialFile.lastPathComponent, "\(account.id.uuidString).json")
         XCTAssertEqual(try Data(contentsOf: account.credentialFile), original)
 
-        let second = try await manager.refreshAccounts()
+        let second = try await manager.refreshAccounts(includeDiscoveries: false)
         XCTAssertEqual(second.status.accounts.count, 1)
         XCTAssertEqual(second.status.accounts.first?.id, account.id)
+        XCTAssertTrue(second.discoveries.isEmpty)
     }
 
     func testRefreshRecoversCommittedLiveAdoptionAfterInterruption() async throws {
@@ -98,6 +99,9 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertEqual(
             AccountManager.providerCatalog.map(\.id),
             [.codex, .claudeCode, .geminiCLI, .antigravityCLI])
+        XCTAssertEqual(
+            AccountManager.providerCatalog.map(\.displayName),
+            ["Codex CLI", "Claude Code", "Gemini CLI", "Antigravity CLI"])
         XCTAssertEqual(AccountManager.providerCatalog.map(\.availability), [.enabled, .disabled, .disabled, .disabled])
     }
 
@@ -133,9 +137,39 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertEqual(completed.state, .completed)
         XCTAssertEqual(account.credentialFile.lastPathComponent, "\(account.id.uuidString).json")
         let status = try await manager.status()
-        XCTAssertNil(status.defaultAccountID)
+        XCTAssertEqual(status.defaultAccountID, account.id)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
+            try Data(contentsOf: account.credentialFile))
         let refreshed = try await manager.refreshAccounts()
         XCTAssertTrue(refreshed.pendingLoginSessions.isEmpty)
+    }
+
+    func testAdditionalLoginDoesNotReplaceCurrentDefault() async throws {
+        let liveAuth = try writeAuth(
+            home: paths.defaultHome, account: "current", workspace: "personal")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            loginRunner: recorder.runner
+        )
+        let adopted = try await manager.refreshAccounts()
+        let currentID = try XCTUnwrap(adopted.status.defaultAccountID)
+
+        let started = try await manager.startAccountLogin(providerID: .codex)
+        let stagedHome = try XCTUnwrap(started.launchSpec.environment["CODEX_HOME"])
+        _ = try writeAuth(
+            home: URL(fileURLWithPath: stagedHome), account: "additional", workspace: "team")
+
+        let completed = try await manager.checkAccountLogin(id: started.session.id)
+        let addedID = try XCTUnwrap(completed.account?.id)
+        let status = try await manager.status()
+
+        XCTAssertNotEqual(addedID, currentID)
+        XCTAssertEqual(status.defaultAccountID, currentID)
+        XCTAssertEqual(status.accounts.count, 2)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), liveAuth)
     }
 
     func testStagedLoginSurvivesImportCrashAndCompletesAfterRecovery() async throws {
