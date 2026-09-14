@@ -2072,10 +2072,24 @@ with temporary synthetic homes before installation.
   generous line spacing, and restrained role labels. Full-width blue and gray message cards are
   removed. Long instruction-heavy conversations remain selectable, virtualized, and visually calm
   in both Light and Dark appearances.
-- [ ] Prove canonical SQLite naming, instruction-payload filtering, version-1 cache migration, and
+- [x] Prove canonical SQLite naming, instruction-payload filtering, version-1 cache migration, and
   metadata-only refresh with synthetic homes.
-- [ ] Capture and inspect the 1,717-thread stress page in Light and Dark appearances, then rerun the
+- [x] Capture and inspect the 1,717-thread stress page in Light and Dark appearances, then rerun the
   complete native and two-architecture Linux gates before installing the exact committed build.
+- Synthetic contracts prove explicit-name precedence, database-title fallback, bootstrap-context
+  removal from titles and visible messages, zero-reparse database renaming, and in-place migration
+  of a private version-1 summary cache to version 2. Markdown shaping for selected messages runs in
+  a cancellable detached task before the main actor publishes the detail.
+- Full-resolution Light and Dark stress renders at
+  `/private/tmp/switch-chat-redesign-review.dlmF6s/light/artifacts/window.png` and
+  `/private/tmp/switch-chat-redesign-review.dlmF6s/dark/artifacts/window.png` were inspected at
+  1120 by 740. Both show the neutral selected row, one-line conversation summaries, single reader
+  context line, bounded message measure, and card-free reading surface.
+- `scripts/check-native.sh` passed the 97-test core inventory with zero failures and only the two
+  authorized private-copy skips. Production and Preview model checks, Pixel icon, System/Light/Dark
+  window contracts, single-instance behavior, overlay scrollbars, and virtual history tables pass.
+  Read-only unprivileged `linux/arm64` and `linux/amd64` containers passed the same 97-test inventory
+  and complete release CLI acceptance.
 - `scripts/check-native.sh` discovered 94 core contracts: 92 executed without failure and the two
   authorized private-copy tests remained explicit opt-ins. Production and Preview model checks,
   System/Light/Dark window contracts, the Pixel-trace icon, fixed-window geometry, thin overlay
