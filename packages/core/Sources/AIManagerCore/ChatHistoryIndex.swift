@@ -371,6 +371,29 @@ public actor ChatHistoryIndex {
         return detail
     }
 
+    public func clearCache() throws {
+        cache.removeAll(keepingCapacity: false)
+        failedSignatures.removeAll(keepingCapacity: false)
+        detailCache.removeAll(keepingCapacity: false)
+        orderedCache.removeAll(keepingCapacity: false)
+        cachedUnreadableRecordCount = 0
+        orderedCacheIsDirty = false
+        loadedPersistentCache = true
+        persistentCacheNeedsMigration = false
+        libraryRevision &+= 1
+
+        guard let persistentCacheFile,
+              FileManager.default.fileExists(atPath: persistentCacheFile.path)
+        else { return }
+        let values = try persistentCacheFile.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw AIManagerError.unsafePath(
+                "conversation index is not a regular file: \(persistentCacheFile.path)")
+        }
+        try FileManager.default.removeItem(at: persistentCacheFile)
+    }
+
     private func makeSnapshot(
         query: String,
         limit: Int,
