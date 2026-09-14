@@ -38,13 +38,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     controller.present()
                     NSApp.activate(ignoringOtherApps: true)
                 },
-                quit: { NSApp.terminate(nil) },
                 switchAccount: { [weak self] accountID in
                     guard let self else { throw MenuBarActionError.appUnavailable }
                     try await self.switchAccountFromMenuBar(accountID)
-                },
-                refreshAccountUsage: { [weak self] accountID in
-                    await self?.model.refreshUsage(accountID: accountID)
                 }
             ))
         self.statusItemController = statusItemController
@@ -209,23 +205,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         return MenuBarUsageSnapshot(
             usedPercentage: used,
             secondaryUsedPercentage: secondaryUsed,
-            plan: snapshot.account?.plan?.capitalized
-                ?? bucket.plan?.capitalized,
             resetDescription: reset,
-            secondaryResetDescription: secondaryReset)
+            secondaryResetDescription: secondaryReset,
+            fetchedAt: snapshot.fetchedAt)
     }
 
     private static func accountDetail(_ account: AccountRecord) -> String {
         let workspace = account.identity.workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let verification: String
-        switch account.verification.state {
-        case .verifiedWithCodex: verification = "Verified"
-        case .verifiedLocally: verification = "Locally verified"
-        case .needsSignIn: verification = "Sign-in required"
-        case .imported: verification = "Check required"
-        case .unsupported: verification = "Unavailable"
-        }
-        return [workspace, verification]
+        return [account.identity.providerID.displayName, workspace]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value

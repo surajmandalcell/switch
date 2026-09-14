@@ -149,7 +149,7 @@ final class AIManagerStatusItemController: NSObject {
     popover.animates = false
     popover.contentViewController = NSHostingController(rootView: content)
     popover.contentSize = Self.contentSize(
-      accountCount: snapshot.accounts.count,
+      accounts: snapshot.accounts,
       visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? Self.fallbackScreenHeight)
 
     store.didSwitch = { [weak self] in self?.closePopover() }
@@ -168,7 +168,7 @@ final class AIManagerStatusItemController: NSObject {
     updateStatusLabel(snapshot.primaryUsedPercentage)
     if popover.isShown {
       popover.contentSize = Self.contentSize(
-        accountCount: snapshot.accounts.count,
+        accounts: snapshot.accounts,
         visibleScreenHeight: statusItem.button?.window?.screen?.visibleFrame.height
           ?? NSScreen.main?.visibleFrame.height
           ?? Self.fallbackScreenHeight)
@@ -180,11 +180,18 @@ final class AIManagerStatusItemController: NSObject {
     popover.contentViewController?.view.appearance = appearance
   }
 
-  static func contentSize(accountCount: Int, visibleScreenHeight: CGFloat) -> NSSize {
-    let visibleRows = min(max(accountCount, 0), MenuBarPopover.maximumVisibleRows)
-    let idealHeight = MenuBarPopover.footerHeight
-      + (accountCount > 0 ? MenuBarPopover.columnHeaderHeight : 0)
-      + CGFloat(visibleRows) * MenuBarPopover.accountRowHeight
+  static func contentSize(
+    accounts: [MenuBarAccountSnapshot], visibleScreenHeight: CGFloat
+  ) -> NSSize {
+    let listHeight: CGFloat
+    if accounts.isEmpty {
+      listHeight = MenuBarPopover.minimumHeight - MenuBarPopover.footerHeight
+    } else {
+      listHeight = MenuBarPopover.listInset * 2
+        + accounts.map(MenuBarPopover.accountRowHeight).reduce(0, +)
+        + CGFloat(max(0, accounts.count - 1)) * MenuBarPopover.cardSpacing
+    }
+    let idealHeight = MenuBarPopover.footerHeight + listHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, visibleScreenHeight - 96)
     let height = min(
       max(idealHeight, MenuBarPopover.minimumHeight),
@@ -226,7 +233,7 @@ final class AIManagerStatusItemController: NSObject {
     }
     guard let button = statusItem.button else { return }
     popover.contentSize = Self.contentSize(
-      accountCount: store.snapshot.accounts.count,
+      accounts: store.snapshot.accounts,
       visibleScreenHeight: button.window?.screen?.visibleFrame.height
         ?? NSScreen.main?.visibleFrame.height
         ?? Self.fallbackScreenHeight)

@@ -173,4 +173,18 @@ extension ProviderID {
     public static let claudeCode = ProviderID(rawValue: "claude-code")
     public static let geminiCLI = ProviderID(rawValue: "gemini-cli")
     public static let antigravityCLI = ProviderID(rawValue: "antigravity-cli")
+
+    public var displayName: String {
+        switch self {
+        case .codex: "Codex CLI"
+        case .claudeCode: "Claude Code"
+        case .geminiCLI: "Gemini CLI"
+        case .antigravityCLI: "Antigravity CLI"
+        default:
+            rawValue
+                .split(separator: "-")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }
 }

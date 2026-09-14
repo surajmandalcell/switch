@@ -185,7 +185,6 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                     controller.present()
                     NSApp.activate(ignoringOtherApps: true)
                 },
-                quit: {},
                 switchAccount: { [weak self] accountID in
                     guard let self else { return }
                     await self.model.switchDefault(to: accountID)
@@ -198,7 +197,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private func runContractOnly(in window: NSWindow?) async {
         await model.load()
         await configureAccountModal()
-        try? await Task.sleep(for: .milliseconds(100))
+        try? await Task.sleep(for: .milliseconds(220))
         window?.contentView?.layoutSubtreeIfNeeded()
         if !AcceptanceConfiguration.snapshotOnly {
             menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
@@ -349,8 +348,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             expect(window.appearance?.name == expected, "Persisted appearance was not applied to the window")
         }
     }
-    expect(NSFont(name: "Geist-Regular", size: 13) != nil, "Geist font is unavailable")
-    expect(NSFont(name: "GeistMono-Regular", size: 13) != nil, "Geist Mono font is unavailable")
+    expect(NSFont(name: "Inter-Regular", size: 13) != nil, "Inter font is unavailable")
+    expect(NSFont(name: "Lora-SemiBold", size: 13) != nil, "Lora font is unavailable")
+    expect(NSFont(name: "PTMono-Regular", size: 13) != nil, "PT Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
     failures.append(contentsOf: AIManagerNativeContract.menuFailures(
         in: NSApp.mainMenu,
@@ -586,13 +586,13 @@ private final class AcceptanceReceipts {
         let store = MenuBarPopoverStore(
             snapshot: snapshot,
             actions: MenuBarPopoverActions(
-                openMainWindow: {}, quit: {}, switchAccount: { _ in }))
+                openMainWindow: {}, switchAccount: { _ in }))
         let view = NSHostingView(rootView: MenuBarPopover(store: store))
         view.appearance = appearance
         view.frame = NSRect(
             origin: .zero,
             size: AIManagerStatusItemController.contentSize(
-                accountCount: snapshot.accounts.count,
+                accounts: snapshot.accounts,
                 visibleScreenHeight: 900))
         view.layoutSubtreeIfNeeded()
         writeSnapshot(of: view, filename: "menu-bar.png")

@@ -331,7 +331,7 @@ struct AccountWindow: View {
     ZStack {
       WindowDragRegion()
       HStack(alignment: .lastTextBaseline, spacing: 14) {
-        Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).tracking(-0.55).lineLimit(1)
+        Text(page.rawValue).font(AIMTheme.display(22, weight: .semibold)).tracking(-0.35).lineLimit(1)
         Text(page.subtitle).font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.muted).lineLimit(1)
         Spacer(minLength: 12)
       }
@@ -714,7 +714,7 @@ private struct AccountListRow: View {
         Spacer()
         if isDefault { AIMIcon(name: .check, size: 11) }
       }
-      Text(account.identity.workspaceID ?? account.verification.state.label).font(AIMTheme.mono(10))
+      Text(account.identity.providerID.displayName).font(AIMTheme.sans(10, weight: .medium))
         .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
     }.padding(.horizontal, 12).padding(.vertical, 6).frame(
       maxWidth: .infinity, minHeight: 44, alignment: .leading
@@ -740,7 +740,7 @@ private struct EmptyAccountView: View {
           }
         } else {
           VStack(alignment: .leading, spacing: 10) {
-            Text("Add your first account").font(AIMTheme.sans(18, weight: .semibold))
+            Text("Add your first account").font(AIMTheme.display(18, weight: .semibold))
             Text(
               "Switch found no saved account. Sign in to Codex or use Advanced Import for an existing folder."
             ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
@@ -774,7 +774,7 @@ private struct AccountDetail: View {
           VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
               VStack(alignment: .leading, spacing: 4) {
-                Text(account.identity.heroName).font(AIMTheme.sans(22, weight: .semibold))
+                Text(account.identity.heroName).font(AIMTheme.display(22, weight: .semibold))
                   .lineLimit(1).textSelection(.enabled)
                 Text(account.identity.workspaceID ?? "Personal workspace").font(AIMTheme.mono(10))
                   .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
@@ -783,7 +783,10 @@ private struct AccountDetail: View {
               if account.id == model.status?.defaultAccountID {
                 Badge(text: "Default", color: AIMTheme.green)
               }
-              Badge(text: account.verification.state.label, color: account.verification.state.color)
+              Badge(text: account.identity.providerID.displayName, color: account.verification.state.color)
+              if let attention = account.verification.state.attentionLabel {
+                Badge(text: attention, color: account.verification.state.color)
+              }
             }
             Text(account.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
               AIMTheme.muted
@@ -2551,28 +2554,28 @@ private struct AddAccountFlow: View {
         }
       }
       .disabled(model.isBusy)
-
-      ZStack {
-        if let error = model.errorMessage {
-          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-            model.errorMessage = nil
-          }
-        } else if model.isBusy {
-          HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("Checking account…")
-              .font(AIMTheme.sans(11))
-              .foregroundStyle(AIMTheme.muted)
-          }
-        }
-      }
-      .padding(.horizontal, AIMTheme.modalOuterInset)
-      .frame(height: 48)
     }
     .font(AIMTheme.sans(13))
     .foregroundStyle(AIMTheme.ink)
-    .background(AIMTheme.panel)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(AIMTheme.panel)
+    .overlay(alignment: .bottom) {
+      if let error = model.errorMessage {
+        ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+          model.errorMessage = nil
+        }
+        .padding(.horizontal, AIMTheme.modalOuterInset)
+        .padding(.bottom, 52)
+      } else if model.isBusy {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Checking account…")
+            .font(AIMTheme.sans(11))
+            .foregroundStyle(AIMTheme.muted)
+        }
+        .padding(.bottom, 58)
+      }
+    }
   }
 
   private var providerPage: some View {
@@ -2640,8 +2643,7 @@ private struct AddAccountFlow: View {
       }
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.top, 18)
-    .padding(.bottom, 12)
+    .padding(.vertical, 16)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -2658,7 +2660,7 @@ private struct AddAccountFlow: View {
               model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue)
             VStack(alignment: .leading, spacing: 5) {
               Text("Finish signing in to Codex")
-                .font(AIMTheme.sans(18, weight: .semibold))
+                .font(AIMTheme.display(18, weight: .semibold))
               Text(
                 "Sign in through a private temporary home. The saved account becomes available for new Codex sessions after you finish."
               )
@@ -2712,8 +2714,7 @@ private struct AddAccountFlow: View {
       }
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.top, 18)
-    .padding(.bottom, 12)
+    .padding(.vertical, 16)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -2724,7 +2725,7 @@ private struct AddAccountFlow: View {
           HStack(spacing: 10) {
             AIMIcon(name: .success, size: 22).foregroundStyle(AIMTheme.green)
             Text(model.selectedAccount?.identity.heroName ?? "Codex account")
-              .font(AIMTheme.sans(19, weight: .semibold))
+              .font(AIMTheme.display(19, weight: .semibold))
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
             .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
@@ -2751,8 +2752,7 @@ private struct AddAccountFlow: View {
       }
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.top, 18)
-    .padding(.bottom, 12)
+    .padding(.vertical, 16)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -2782,24 +2782,25 @@ private struct ImportFlow: View {
         }
       }
       .disabled(model.isBusy)
-
-      ZStack {
-        if let error = model.errorMessage {
-          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-            model.errorMessage = nil
-          }
-        } else if model.isBusy {
-          HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("Working…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-          }
-        }
-      }
-      .padding(.horizontal, AIMTheme.modalOuterInset)
-      .frame(height: 48)
-    }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel).frame(
+    }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).frame(
       maxWidth: .infinity, maxHeight: .infinity
     )
+    .background(AIMTheme.panel)
+    .overlay(alignment: .bottom) {
+      if let error = model.errorMessage {
+        ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+          model.errorMessage = nil
+        }
+        .padding(.horizontal, AIMTheme.modalOuterInset)
+        .padding(.bottom, 52)
+      } else if model.isBusy {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Working…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+        }
+        .padding(.bottom, 58)
+      }
+    }
   }
   private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
   private var title: String {
@@ -2819,14 +2820,13 @@ private struct ImportHeader: View {
   var body: some View {
     HStack(spacing: 0) {
       Text(title)
-        .font(AIMTheme.sans(22, weight: .semibold))
-        .tracking(-0.55)
+        .font(AIMTheme.display(22, weight: .semibold))
+        .tracking(-0.35)
         .lineLimit(1)
         .padding(.leading, AIMTheme.modalOuterInset)
       Spacer(minLength: AIMTheme.modalOuterInset)
       ImportSteps(step: step, labels: labels)
         .fixedSize(horizontal: true, vertical: true)
-        .padding(.trailing, 16)
       Button(action: close) {
         AIMIcon(name: .close, size: 15)
           .foregroundStyle(closeHovered && !closeDisabled ? Color.white : AIMTheme.ink)
@@ -2867,18 +2867,18 @@ private struct ImportSteps: View {
   let step: Int
   let labels: [String]
   var body: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: 1) {
       ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
         HStack(spacing: 5) {
           Text("\(index + 1)").font(AIMTheme.mono(9, weight: .semibold))
           Text(label).font(AIMTheme.sans(10, weight: .medium))
         }
         .foregroundStyle(index < step ? AIMTheme.activeInk : AIMTheme.muted)
-        .padding(.horizontal, 8)
-        .frame(height: 24)
+        .padding(.horizontal, 10)
+        .frame(height: AIMTheme.modalTitlebarHeight)
         .background(index < step ? AIMTheme.active : AIMTheme.control)
       }
-    }.clipShape(RoundedRectangle(cornerRadius: 3)).accessibilityElement(children: .ignore)
+    }.accessibilityElement(children: .ignore)
       .accessibilityLabel("Step \(step) of 3")
       .accessibilityIdentifier("import-modal-steps")
   }
@@ -2901,7 +2901,7 @@ private struct SourcePage: View {
             model.selectedProviderID = .codex
           }
           Spacer()
-        }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 8)
+        }.padding(.horizontal, 6).padding(.vertical, 8)
       }
       AIMPanel(title: "Source") {
         AIMScrollView {
@@ -2979,7 +2979,7 @@ private struct SourcePage: View {
             model.importMode = .full
           }
           Spacer()
-        }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 8)
+        }.padding(.horizontal, 6).padding(.vertical, 8)
       }
       Text(
         model.importMode == .authOnly
@@ -3000,7 +3000,7 @@ private struct SourcePage: View {
               != .supportedChatGPT
         ) { Task { await model.reviewImport() } }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24).frame(
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.vertical, 16).frame(
       maxHeight: .infinity, alignment: .top)
   }
 }
@@ -3123,7 +3123,7 @@ private struct ImportReviewPage: View {
           Task { await model.commitImport() }
         }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.vertical, 16)
   }
 }
 private struct ImportResultPage: View {
@@ -3141,7 +3141,7 @@ private struct ImportResultPage: View {
                   .foregroundStyle(AIMTheme.statusInk)
               }.frame(width: 48, height: 48)
               VStack(alignment: .leading, spacing: 3) {
-                Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
+                Text(result.account.identity.heroName).font(AIMTheme.display(18, weight: .semibold))
                 Text(result.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
                   AIMTheme.muted)
               }
@@ -3177,7 +3177,7 @@ private struct ImportResultPage: View {
           model.closeAccountModal()
         }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24)
+    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.vertical, 16)
   }
 }
 
@@ -3189,12 +3189,11 @@ extension AccountIdentity {
   }
 }
 extension VerificationState {
-  fileprivate var label: String {
+  fileprivate var attentionLabel: String? {
     switch self {
-    case .imported: "Imported"
+    case .imported: "Check required"
     case .needsSignIn: "Needs sign-in"
-    case .verifiedLocally: "Verified locally"
-    case .verifiedWithCodex: "Verified with Codex"
+    case .verifiedLocally, .verifiedWithCodex: nil
     case .unsupported: "Unsupported"
     }
   }
