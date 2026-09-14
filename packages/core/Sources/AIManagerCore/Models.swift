@@ -299,6 +299,7 @@ public struct SettingConflict: Identifiable, Codable, Sendable {
 
 public struct ImportPlan: Identifiable, Codable, Sendable {
     public var id: UUID
+    public var operationID: UUID
     public var source: URL
     public var destination: URL
     public var credentialDestination: URL
@@ -313,8 +314,9 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
     public var warnings: [String]
     public var requiredBytes: Int64
 
-    public init(id: UUID, source: URL, destination: URL, backup: URL, mode: ImportMode, identity: AccountIdentity, sourceAuthDigest: String, reviewedDataDigest: String, manifest: [ManifestEntry], conflicts: [SettingConflict], warnings: [String], requiredBytes: Int64, credentialDestination: URL? = nil, sharedDestination: URL? = nil) {
+    public init(id: UUID, operationID: UUID? = nil, source: URL, destination: URL, backup: URL, mode: ImportMode, identity: AccountIdentity, sourceAuthDigest: String, reviewedDataDigest: String, manifest: [ManifestEntry], conflicts: [SettingConflict], warnings: [String], requiredBytes: Int64, credentialDestination: URL? = nil, sharedDestination: URL? = nil) {
         self.id = id
+        self.operationID = operationID ?? id
         self.source = source
         self.destination = destination
         self.credentialDestination = credentialDestination ?? destination.appending(path: "auth.json")
@@ -331,7 +333,7 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, source, destination, credentialDestination, sharedDestination, backup, mode,
+        case id, operationID, source, destination, credentialDestination, sharedDestination, backup, mode,
              identity, sourceAuthDigest, reviewedDataDigest, manifest, conflicts, warnings,
              requiredBytes
     }
@@ -340,6 +342,7 @@ public struct ImportPlan: Identifiable, Codable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let destination = try values.decode(URL.self, forKey: .destination)
         self.id = try values.decode(UUID.self, forKey: .id)
+        self.operationID = try values.decodeIfPresent(UUID.self, forKey: .operationID) ?? id
         self.source = try values.decode(URL.self, forKey: .source)
         self.destination = destination
         self.credentialDestination = try values.decodeIfPresent(URL.self, forKey: .credentialDestination)

@@ -98,13 +98,13 @@ public struct AccountSnapshot: Sendable {
 }
 
 public struct AccountLoginRunner: @unchecked Sendable {
-    /// `cancel` must stop writes for the matching launch before it returns.
+    /// Returns whether this process still owns, or observed completion of, the matching launch.
     public let launch: @Sendable (UUID, LaunchSpec) throws -> Void
-    public let cancel: @Sendable (UUID) -> Void
+    public let cancel: @Sendable (UUID) -> Bool
 
     public init(
         launch: @escaping @Sendable (UUID, LaunchSpec) throws -> Void,
-        cancel: @escaping @Sendable (UUID) -> Void = { _ in }
+        cancel: @escaping @Sendable (UUID) -> Bool = { _ in false }
     ) {
         self.launch = launch
         self.cancel = cancel
@@ -121,6 +121,7 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
 
     private let lock = NSLock()
     private var processes: [UUID: Process] = [:]
+    private var completed: Set<UUID> = []
 
     func launch(id: UUID, spec: LaunchSpec) throws {
         let process = Process()
@@ -133,9 +134,11 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         process.terminationHandler = { [weak self] _ in
             self?.lock.lock()
             self?.processes.removeValue(forKey: id)
+            self?.completed.insert(id)
             self?.lock.unlock()
         }
         lock.lock()
+        completed.remove(id)
         processes[id] = process
         lock.unlock()
         do {
@@ -148,11 +151,13 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         }
     }
 
-    func cancel(id: UUID) {
+    func cancel(id: UUID) -> Bool {
         lock.lock()
         let process = processes.removeValue(forKey: id)
+        let observedCompletion = completed.remove(id) != nil
         lock.unlock()
-        guard let process, process.isRunning else { return }
+        guard let process else { return observedCompletion }
+        guard process.isRunning else { return true }
         process.terminate()
         let deadline = Date().addingTimeInterval(1)
         while process.isRunning, Date() < deadline {
@@ -160,6 +165,7 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         }
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         process.waitUntilExit()
+        return true
     }
 }
 

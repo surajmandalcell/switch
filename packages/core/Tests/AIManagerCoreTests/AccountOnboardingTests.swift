@@ -109,7 +109,7 @@ final class AccountOnboardingTests: XCTestCase {
         let recorder = LoginRunnerRecorder()
         let manager = try AccountManager(
             paths: paths,
-            writerCheck: { _ in .inactive },
+            writerCheck: { _ in recorder.cancelCount > 0 ? .inactive : .unknown },
             loginRunner: recorder.runner
         )
 
@@ -135,6 +135,7 @@ final class AccountOnboardingTests: XCTestCase {
         let completed = try await manager.checkAccountLogin(id: started.session.id)
         let account = try XCTUnwrap(completed.account)
         XCTAssertEqual(completed.state, .completed)
+        XCTAssertEqual(recorder.cancelCount, 1)
         XCTAssertEqual(account.credentialFile.lastPathComponent, "\(account.id.uuidString).json")
         let status = try await manager.status()
         XCTAssertEqual(status.defaultAccountID, account.id)
@@ -143,6 +144,88 @@ final class AccountOnboardingTests: XCTestCase {
             try Data(contentsOf: account.credentialFile))
         let refreshed = try await manager.refreshAccounts()
         XCTAssertTrue(refreshed.pendingLoginSessions.isEmpty)
+    }
+
+    func testFirstLoginReplacesUnregisteredSameIdentityWithoutLosingNewAccess() async throws {
+        let old = try writeAuth(
+            home: paths.defaultHome, account: "same", workspace: "personal", marker: "old")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(
+            paths: paths, writerCheck: { _ in .inactive }, loginRunner: recorder.runner)
+        let started = try await manager.startAccountLogin(providerID: .codex)
+        let stagedHome = try XCTUnwrap(started.launchSpec.environment["CODEX_HOME"])
+        let new = try writeAuth(
+            home: URL(fileURLWithPath: stagedHome),
+            account: "same", workspace: "personal", marker: "new")
+
+        let completed = try await manager.checkAccountLogin(id: started.session.id)
+        let account = try XCTUnwrap(completed.account)
+
+        XCTAssertNotEqual(old, new)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), new)
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile), new)
+        let status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountID, account.id)
+    }
+
+    func testRepeatedCurrentAccountLoginUsesFreshRecoveryLocations() async throws {
+        _ = try writeAuth(home: paths.defaultHome, account: "repeat", workspace: "personal")
+        let manager = try AccountManager(
+            paths: paths, writerCheck: { _ in .inactive }, loginRunner: LoginRunnerRecorder().runner)
+        let adopted = try await manager.refreshAccounts()
+        let accountID = try XCTUnwrap(adopted.status.defaultAccountID)
+        var expected = Data()
+
+        for index in 1...3 {
+            let started = try await manager.startAccountLogin(providerID: .codex)
+            let stagedHome = try XCTUnwrap(started.launchSpec.environment["CODEX_HOME"])
+            expected = try writeAuth(
+                home: URL(fileURLWithPath: stagedHome),
+                account: "repeat", workspace: "personal", marker: "refresh-\(index)")
+            _ = try await manager.checkAccountLogin(
+                id: started.session.id, credentialChoice: .useImported)
+        }
+
+        let status = try await manager.status()
+        let account = try XCTUnwrap(status.accounts.first { $0.id == accountID })
+        XCTAssertEqual(status.accounts.count, 1)
+        XCTAssertEqual(status.defaultAccountID, accountID)
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile), expected)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), expected)
+    }
+
+    func testLaunchFailureRemovesFalsePendingSession() async throws {
+        let manager = try AccountManager(
+            paths: paths,
+            loginRunner: AccountLoginRunner(launch: { _, _ in throw LoginRunnerFailure.failed })
+        )
+
+        await assertOnboardingThrows(try await manager.startAccountLogin(providerID: .codex))
+
+        let snapshot = try await manager.refreshAccounts(includeDiscoveries: false)
+        XCTAssertTrue(snapshot.pendingLoginSessions.isEmpty)
+        let entries = try fileManager.contentsOfDirectory(
+            at: paths.applicationSupport.appending(path: "account-login"),
+            includingPropertiesForKeys: nil)
+        XCTAssertTrue(entries.isEmpty)
+    }
+
+    func testUnknownRestartedLoginWriterPreventsUnsafeCancellation() async throws {
+        let manager = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .unknown },
+            loginRunner: AccountLoginRunner(
+                launch: { _, _ in }, cancel: { _ in false })
+        )
+        let started = try await manager.startAccountLogin(providerID: .codex)
+        let root = paths.applicationSupport.appending(
+            path: "account-login/\(started.session.id.uuidString)")
+
+        await assertOnboardingThrows(try await manager.cancelAccountLogin(id: started.session.id))
+
+        XCTAssertTrue(fileManager.fileExists(atPath: root.path))
+        let snapshot = try await manager.refreshAccounts(includeDiscoveries: false)
+        XCTAssertEqual(snapshot.pendingLoginSessions.map(\.id), [started.session.id])
     }
 
     func testAdditionalLoginDoesNotReplaceCurrentDefault() async throws {
@@ -220,7 +303,12 @@ final class AccountOnboardingTests: XCTestCase {
     }
 
     @discardableResult
-    private func writeAuth(home: URL, account: String, workspace: String) throws -> Data {
+    private func writeAuth(
+        home: URL,
+        account: String,
+        workspace: String,
+        marker: String = "base"
+    ) throws -> Data {
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         let claims: [String: Any] = [
             "email": "\(account)@example.test",
@@ -236,7 +324,7 @@ final class AccountOnboardingTests: XCTestCase {
             "tokens": [
                 "id_token": "e30.\(payload).signature",
                 "access_token": "e30.\(payload).signature",
-                "refresh_token": "synthetic",
+                "refresh_token": "synthetic-\(marker)",
                 "account_id": "account-\(account)",
             ]
         ])
@@ -245,6 +333,10 @@ final class AccountOnboardingTests: XCTestCase {
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         return auth
     }
+}
+
+private enum LoginRunnerFailure: Error {
+    case failed
 }
 
 private func assertOnboardingThrows<T>(
@@ -269,7 +361,7 @@ private final class LoginRunnerRecorder: @unchecked Sendable {
     var runner: AccountLoginRunner {
         AccountLoginRunner(
             launch: { [self] _, _ in lock.withLock { launches += 1 } },
-            cancel: { [self] _ in lock.withLock { cancels += 1 } }
+            cancel: { [self] _ in lock.withLock { cancels += 1 }; return true }
         )
     }
 }
