@@ -7,7 +7,71 @@ struct SQLiteImportSummary {
     var preservedProjection: Bool
 }
 
+struct SQLiteThreadMetadata: Sendable, Equatable {
+    let threadID: String
+    let rolloutPath: String
+    let name: String?
+    let title: String?
+    let preview: String?
+    let workingDirectory: String?
+    let updatedAt: Date?
+    let archived: Bool?
+}
+
 enum SQLiteSupport {
+    static func readThreadMetadata(database: URL) throws -> [SQLiteThreadMetadata] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            throw sqliteError(db, "Could not open Codex thread metadata")
+        }
+        defer { sqlite3_close(db) }
+
+        let columns = tableColumns(db, table: "threads")
+        guard columns.isSuperset(of: ["id", "rollout_path"]) else { return [] }
+        func column(_ name: String, fallback: String = "NULL") -> String {
+            columns.contains(name) ? name : fallback
+        }
+        let sql = """
+            SELECT id, rollout_path, \(column("name")), \(column("title")),
+                   \(column("preview")), \(column("cwd")),
+                   \(column("recency_at_ms")), \(column("updated_at_ms")),
+                   \(column("recency_at")), \(column("updated_at")),
+                   \(column("archived"))
+            FROM threads
+            WHERE rollout_path IS NOT NULL AND rollout_path <> ''
+            LIMIT 500000
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw sqliteError(db, "Could not read Codex thread metadata")
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var result: [SQLiteThreadMetadata] = []
+        result.reserveCapacity(2_000)
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let threadID = text(statement, column: 0),
+                  let rolloutPath = text(statement, column: 1)
+            else { continue }
+            let milliseconds = firstInteger(statement, columns: [6, 7])
+            let seconds = firstInteger(statement, columns: [8, 9])
+            let updatedAt = milliseconds.map { Date(timeIntervalSince1970: Double($0) / 1_000) }
+                ?? seconds.map { Date(timeIntervalSince1970: Double($0)) }
+            let archived = sqlite3_column_type(statement, 10) == SQLITE_NULL
+                ? nil : sqlite3_column_int(statement, 10) != 0
+            result.append(SQLiteThreadMetadata(
+                threadID: threadID,
+                rolloutPath: rolloutPath,
+                name: text(statement, column: 2),
+                title: text(statement, column: 3),
+                preview: text(statement, column: 4),
+                workingDirectory: text(statement, column: 5),
+                updatedAt: updatedAt,
+                archived: archived))
+        }
+        return result
+    }
+
     static func snapshot(source: URL, destination: URL) throws {
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
@@ -243,6 +307,24 @@ enum SQLiteSupport {
         guard sqlite3_prepare_v2(db, "PRAGMA quick_check", -1, &statement, nil) == SQLITE_OK else { return false }
         defer { sqlite3_finalize(statement) }
         return sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_text(statement, 0).map { String(cString: $0) == "ok" } == true
+    }
+
+    private static func text(_ statement: OpaquePointer?, column: Int32) -> String? {
+        guard sqlite3_column_type(statement, column) != SQLITE_NULL,
+              let value = sqlite3_column_text(statement, column)
+        else { return nil }
+        let string = String(cString: value).trimmingCharacters(in: .whitespacesAndNewlines)
+        return string.isEmpty ? nil : string
+    }
+
+    private static func firstInteger(
+        _ statement: OpaquePointer?, columns: [Int32]
+    ) -> Int64? {
+        for column in columns where sqlite3_column_type(statement, column) != SQLITE_NULL {
+            let value = sqlite3_column_int64(statement, column)
+            if value > 0 { return value }
+        }
+        return nil
     }
 
     private static func sqliteError(_ db: OpaquePointer?, _ prefix: String) -> AIManagerError {
