@@ -2111,6 +2111,25 @@ with temporary synthetic homes before installation.
   in `linux/arm64` and `linux/amd64` containers. Each architecture discovered 94 tests, executed 92
   without failure, skipped only the two protected-copy opt-ins, and passed the release CLI,
   discovery, import, activation, backup, SQLite, symlink, permission, and isolated-home checks.
+- The final thread rail uses compact 50-point rows with only the canonical title and the last
+  project or folder component. Preview excerpts, relative times, archive markers, and message
+  totals are absent. Zero row spacing creates a continuous table, and a 42% blend of the secondary
+  panel color gives alternate rows a restrained stripe beneath the stronger hover and selection
+  states.
+- Full-resolution Light and Dark 1,717-thread renders at
+  `/private/tmp/switch-striped-review.Bpe52E/light/artifacts/window.png` and
+  `/private/tmp/switch-striped-review.Bpe52E/dark/artifacts/window.png` were inspected at 1120 by
+  740. Both show two-line rows, uninterrupted zebra striping, distinct hover and selection layers,
+  and the unchanged bounded reading pane. `scripts/check-native.sh` passed all 97 discovered tests
+  with zero failures and the two authorized private-copy skips, plus both model checks, the Pixel
+  icon, every appearance contract, single-instance behavior, overlay scrollbars, and bounded table
+  realization.
+- The clean release from `44216d0b2925` passed local release readiness and is installed at
+  `/Applications/Switch.app`. The app executable SHA-256 is
+  `88aa2ae6bc036efa5bf72e0f778c12bcec29e93747b1c4a692ca2ca815cc2c28`; the installed CLI SHA-256
+  is `e305d1045a52ede984912eac0078b0ee3ff4a068fc6c8e4161cb768d1430eb03`. Both match the built
+  artifacts, strict signature checks pass, a double launch leaves exactly one process, and the
+  prior app is retained at `/private/tmp/Switch.previous.20260914133956.app`.
 
 ### Warning controls and rail-scale acceptance (2026-09-13, revised 2026-09-14)
 
