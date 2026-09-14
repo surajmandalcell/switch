@@ -119,6 +119,42 @@ final class CodexUsageStatisticsCacheTests: XCTestCase {
         XCTAssertNil(evicted)
     }
 
+    func testLatestForAccountsFiltersAndPreservesRequestedOrder() async throws {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let cache = try CodexUsageStatisticsCache(databaseURL: database)
+        try await cache.upsertSuccess(accountID: first, snapshot: snapshot(at: Date(timeIntervalSince1970: 10), used: 10))
+        try await cache.upsertSuccess(accountID: second, snapshot: snapshot(at: Date(timeIntervalSince1970: 20), used: 20))
+        try await cache.upsertSuccess(accountID: third, snapshot: snapshot(at: Date(timeIntervalSince1970: 30), used: 30))
+
+        let filtered = try await cache.latest(for: [third, first, UUID()])
+        XCTAssertEqual(filtered.map(\.accountID), [third, first])
+        XCTAssertEqual(filtered.map { $0.snapshot?.rateLimits?.defaultBucket?.primary?.usedPercent }, [30, 10])
+    }
+
+    func testLatestForAccountsReturnsImmediatelyForEmptyInput() async throws {
+        let cache = try CodexUsageStatisticsCache(databaseURL: database)
+        let latest = try await cache.latest(for: [])
+        XCTAssertTrue(latest.isEmpty)
+    }
+
+    func testLatestForAccountsCapsRequestedIDsToPolicyBound() async throws {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let cache = try CodexUsageStatisticsCache(
+            databaseURL: database,
+            policy: .init(maximumAccounts: 2)
+        )
+        try await cache.upsertSuccess(accountID: first, snapshot: snapshot(at: Date(timeIntervalSince1970: 10), used: 10))
+        try await cache.upsertSuccess(accountID: second, snapshot: snapshot(at: Date(timeIntervalSince1970: 20), used: 20))
+
+        let bounded = try await cache.latest(for: [first, second, third])
+        XCTAssertEqual(bounded.count, 2)
+        XCTAssertEqual(bounded.map(\.accountID), [first, second])
+    }
+
     func testUsesPrivateFilesAndNeverPersistsCallerErrorOrSecretMaterial() async throws {
         let cache = try CodexUsageStatisticsCache(databaseURL: database)
         let accountID = UUID()
