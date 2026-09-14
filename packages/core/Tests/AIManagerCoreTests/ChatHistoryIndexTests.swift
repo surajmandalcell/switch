@@ -33,6 +33,37 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(emptyQuery.messages, messages)
     }
 
+    func testMessageSearchFiltersRolesBeforeMatchingAndExportPreservesDisplayedOrder() async throws {
+        let timestamp = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-09-14T04:00:00Z"))
+        let messages = [
+            ChatMessage(id: "1", role: .user, text: "Inspect cache", timestamp: timestamp),
+            ChatMessage(id: "2", role: .assistant, text: "Cache is valid", timestamp: nil),
+            ChatMessage(id: "3", role: .tool, text: "read_file\ncache.json", timestamp: timestamp),
+            ChatMessage(id: "4", role: .other, text: "Checked the cache boundary", timestamp: nil),
+        ]
+
+        let result = try await ChatMessageSearch.search(
+            messages, query: "cache", filter: [.prompts, .tools])
+
+        XCTAssertEqual(result.totalMessageCount, 2)
+        XCTAssertEqual(result.matchingMessageCount, 2)
+        XCTAssertEqual(result.messages.map(\.id), ["1", "3"])
+        XCTAssertEqual(
+            ChatTranscriptExport.text(for: result.messages),
+            """
+            [Prompt | 2026-09-14T04:00:00.000Z]
+            Inspect cache
+
+            [Tool | 2026-09-14T04:00:00.000Z]
+            read_file
+            cache.json
+            """)
+        let none = try await ChatMessageSearch.search(messages, query: "", filter: [])
+        XCTAssertTrue(none.messages.isEmpty)
+        XCTAssertEqual(ChatTranscriptExport.text(for: none.messages), "")
+    }
+
     func testPersistentSummaryCacheSkipsUnchangedTranscriptBodies() async throws {
         _ = try transcript(
             directory: "sessions/2026/09/14",
@@ -110,6 +141,65 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(detail?.omittedMessageCount, 0)
     }
 
+    func testDetailClassifiesVisibleToolRecordsAndOnlyReasoningSummaries() async throws {
+        _ = try transcript(
+            directory: "sessions/2026/09/14",
+            filename: "classified.jsonl",
+            records: [
+                ["timestamp": "2026-09-14T04:00:00.000Z", "type": "session_meta", "payload": [
+                    "id": "classified", "cwd": "/Projects/Switch",
+                ]],
+                ["timestamp": "2026-09-14T04:00:01.000Z", "type": "event_msg", "payload": [
+                    "type": "user_message", "message": "Inspect the account cache",
+                ]],
+                ["timestamp": "2026-09-14T04:00:02.000Z", "type": "response_item", "payload": [
+                    "type": "message", "role": "assistant",
+                    "content": [["type": "output_text", "text": "I will inspect it."]],
+                ]],
+                ["timestamp": "2026-09-14T04:00:03.000Z", "type": "response_item", "payload": [
+                    "type": "function_call", "name": "read_file", "arguments": "{\"path\":\"cache.json\"}",
+                ]],
+                ["timestamp": "2026-09-14T04:00:04.000Z", "type": "response_item", "payload": [
+                    "type": "function_call_output", "output": "cache is valid",
+                ]],
+                ["timestamp": "2026-09-14T04:00:05.000Z", "type": "response_item", "payload": [
+                    "type": "custom_tool_call", "name": "review", "input": "account cache",
+                ]],
+                ["timestamp": "2026-09-14T04:00:06.000Z", "type": "response_item", "payload": [
+                    "type": "custom_tool_call_output", "output": "review passed",
+                ]],
+                ["timestamp": "2026-09-14T04:00:07.000Z", "type": "response_item", "payload": [
+                    "type": "local_shell_call", "action": ["command": ["cat", "cache.json"]],
+                ]],
+                ["timestamp": "2026-09-14T04:00:08.000Z", "type": "response_item", "payload": [
+                    "type": "web_search_call", "action": ["query": "Codex cache format"],
+                ]],
+                ["timestamp": "2026-09-14T04:00:09.000Z", "type": "response_item", "payload": [
+                    "type": "reasoning",
+                    "summary": [["type": "summary_text", "text": "Checked the visible cache fields."]],
+                    "content": [["type": "reasoning_text", "text": "raw-secret"]],
+                    "encrypted_content": "encrypted-secret",
+                ]],
+            ])
+
+        let index = ChatHistoryIndex(home: root)
+        let snapshot = try await index.refresh()
+        let detailID = try XCTUnwrap(snapshot.threads.first?.id)
+        let loadedDetail = try await index.detail(for: detailID)
+        let detail = try XCTUnwrap(loadedDetail)
+
+        XCTAssertEqual(
+            detail.messages.map(\.role),
+            [.user, .assistant, .tool, .tool, .tool, .tool, .tool, .tool, .other])
+        XCTAssertEqual(snapshot.threads.first?.messageCount, 9)
+        XCTAssertEqual(detail.messages[2].text, "read_file\n{\"path\":\"cache.json\"}")
+        XCTAssertEqual(detail.messages[6].text, "Shell command\ncat cache.json")
+        XCTAssertEqual(detail.messages[7].text, "Web search\nCodex cache format")
+        XCTAssertEqual(detail.messages.last?.text, "Checked the visible cache fields.")
+        XCTAssertFalse(detail.messages.contains { $0.text.contains("raw-secret") })
+        XCTAssertFalse(detail.messages.contains { $0.text.contains("encrypted-secret") })
+    }
+
     func testCanonicalDatabaseNameOverridesInjectedContextWithoutReparsing() async throws {
         let transcriptURL = try transcript(
             directory: "sessions/2026/09/14",
@@ -184,7 +274,7 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(detail?.messages.map(\.text), ["Use the actual conversation title"])
     }
 
-    func testVersionOneCacheMigratesWhileApplyingDatabaseName() async throws {
+    func testOlderCacheReparsesForMessageCategoriesAndAppliesDatabaseName() async throws {
         let transcriptURL = try transcript(
             directory: "sessions/2026/09/14",
             filename: "migration.jsonl",
@@ -209,9 +299,9 @@ final class ChatHistoryIndexTests: XCTestCase {
         let migratedObject = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: cacheFile)) as? [String: Any])
 
-        XCTAssertEqual(reopened.reparsedFileCount, 0)
+        XCTAssertEqual(reopened.reparsedFileCount, 1)
         XCTAssertEqual(reopened.threads.first?.title, "Migrated canonical name")
-        XCTAssertEqual(migratedObject["version"] as? Int, 2)
+        XCTAssertEqual(migratedObject["version"] as? Int, 3)
     }
 
     func testRefreshReparsesOnlyChangedFilesAndSkipsMalformedRecords() async throws {

@@ -3,6 +3,17 @@ import Foundation
 public enum ChatMessageRole: String, Sendable, Equatable {
     case user
     case assistant
+    case tool
+    case other
+
+    public var displayName: String {
+        switch self {
+        case .user: "Prompt"
+        case .assistant: "Response"
+        case .tool: "Tool"
+        case .other: "Other"
+        }
+    }
 }
 
 public struct ChatMessage: Identifiable, Sendable, Equatable {
@@ -16,6 +27,40 @@ public struct ChatMessage: Identifiable, Sendable, Equatable {
         self.role = role
         self.text = text
         self.timestamp = timestamp
+    }
+}
+
+public struct ChatMessageFilter: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let prompts = ChatMessageFilter(rawValue: 1 << 0)
+    public static let responses = ChatMessageFilter(rawValue: 1 << 1)
+    public static let tools = ChatMessageFilter(rawValue: 1 << 2)
+    public static let other = ChatMessageFilter(rawValue: 1 << 3)
+    public static let all: ChatMessageFilter = [.prompts, .responses, .tools, .other]
+
+    public func includes(_ role: ChatMessageRole) -> Bool {
+        switch role {
+        case .user: contains(.prompts)
+        case .assistant: contains(.responses)
+        case .tool: contains(.tools)
+        case .other: contains(.other)
+        }
+    }
+}
+
+public enum ChatTranscriptExport {
+    public static func text(for messages: [ChatMessage]) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return messages.map { message in
+            let timestamp = message.timestamp.map(formatter.string(from:)) ?? "Unknown time"
+            return "[\(message.role.displayName) | \(timestamp)]\n\(message.text)"
+        }.joined(separator: "\n\n")
     }
 }
 
@@ -89,28 +134,29 @@ public struct ChatMessageSearchResult: Sendable, Equatable {
 
 public enum ChatMessageSearch {
     public static func search(
-        _ messages: [ChatMessage], query: String
+        _ messages: [ChatMessage], query: String, filter: ChatMessageFilter = .all
     ) async throws -> ChatMessageSearchResult {
+        let selected = messages.filter { filter.includes($0.role) }
         let terms = query
             .split(whereSeparator: \.isWhitespace)
             .map { String($0).lowercased() }
         guard !terms.isEmpty else {
             return ChatMessageSearchResult(
-                messages: messages,
-                totalMessageCount: messages.count,
-                matchingMessageCount: messages.count)
+                messages: selected,
+                totalMessageCount: selected.count,
+                matchingMessageCount: selected.count)
         }
         let task = Task.detached(priority: .userInitiated) {
             var matches: [ChatMessage] = []
-            matches.reserveCapacity(min(messages.count, 128))
-            for (index, message) in messages.enumerated() {
+            matches.reserveCapacity(min(selected.count, 128))
+            for (index, message) in selected.enumerated() {
                 if index.isMultiple(of: 32) { try Task.checkCancellation() }
                 let text = message.text.lowercased()
                 if terms.allSatisfy(text.contains) { matches.append(message) }
             }
             return ChatMessageSearchResult(
                 messages: matches,
-                totalMessageCount: messages.count,
+                totalMessageCount: selected.count,
                 matchingMessageCount: matches.count)
         }
         return try await withTaskCancellationHandler {
@@ -375,12 +421,12 @@ public actor ChatHistoryIndex {
               permissions.intValue & 0o077 == 0,
               let data = try? Data(contentsOf: persistentCacheFile),
               let document = try? JSONDecoder().decode(PersistentDocument.self, from: data),
-              (1...2).contains(document.version),
+              document.version == 3,
               document.homePath == home.path,
               document.threads.count + document.failures.count <= 500_000
         else { return }
 
-        persistentCacheNeedsMigration = document.version < 2
+        persistentCacheNeedsMigration = false
 
         for item in document.threads where validPersistentPath(item.path) {
             guard item.path.count <= 4_096,
@@ -449,7 +495,7 @@ public actor ChatHistoryIndex {
                 modifiedAt: signature.modifiedAt)
         }
         let document = PersistentDocument(
-            version: 2, homePath: home.path, threads: threads, failures: failures)
+            version: 3, homePath: home.path, threads: threads, failures: failures)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(document) else { return }
@@ -680,9 +726,13 @@ private enum TranscriptParser {
         var responseUsers = MessageStats()
         var eventUsers = MessageStats()
         var assistants = MessageStats()
+        var tools = MessageStats()
+        var others = MessageStats()
         var responseUserMessages: [RawMessage] = []
         var eventUserMessages: [RawMessage] = []
         var assistantMessages: [RawMessage] = []
+        var toolMessages: [RawMessage] = []
+        var otherMessages: [RawMessage] = []
         var remainingDetailCharacters = 2_000_000
         var unreadableRecords = 0
         var sequence = 0
@@ -694,9 +744,9 @@ private enum TranscriptParser {
             if sequence == 1, record.starts(with: [0xEF, 0xBB, 0xBF]) {
                 record.removeFirst(3)
             }
+            guard record.count <= 4 * 1_024 * 1_024 else { continue }
             if record.count > 64 * 1_024, !mayContainVisibleMessage(record) { continue }
-            guard record.count <= 4 * 1_024 * 1_024,
-                  let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any]
+            guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any]
             else {
                 unreadableRecords += 1
                 continue
@@ -740,24 +790,47 @@ private enum TranscriptParser {
             } else {
                 messageObject = nil
             }
-            guard let messageObject,
-                  messageObject["type"] as? String == "message" || type == "message",
-                  let roleName = messageObject["role"] as? String,
-                  let role = ChatMessageRole(rawValue: roleName),
-                  let text = messageText(messageObject), !text.isEmpty
-            else { continue }
-            let message = RawMessage(
-                sequence: sequence, role: role, text: text, timestamp: timestamp)
-            switch role {
-            case .user:
-                responseUsers.record(message)
+            guard let messageObject else { continue }
+            let itemType = messageObject["type"] as? String ?? type
+            if itemType == "message" || type == "message" {
+                guard let roleName = messageObject["role"] as? String,
+                      let role = ChatMessageRole(rawValue: roleName),
+                      role == .user || role == .assistant,
+                      let text = messageText(messageObject), !text.isEmpty
+                else { continue }
+                let message = RawMessage(
+                    sequence: sequence, role: role, text: text, timestamp: timestamp)
+                switch role {
+                case .user:
+                    responseUsers.record(message)
+                    append(
+                        message, to: &responseUserMessages,
+                        remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
+                case .assistant:
+                    assistants.record(message)
+                    append(
+                        message, to: &assistantMessages,
+                        remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
+                case .tool, .other:
+                    break
+                }
+                continue
+            }
+            if let text = toolText(messageObject, type: itemType) {
+                let message = RawMessage(
+                    sequence: sequence, role: .tool, text: text, timestamp: timestamp)
+                tools.record(message)
                 append(
-                    message, to: &responseUserMessages,
+                    message, to: &toolMessages,
                     remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
-            case .assistant:
-                assistants.record(message)
+                continue
+            }
+            if itemType == "reasoning", let text = reasoningSummary(messageObject) {
+                let message = RawMessage(
+                    sequence: sequence, role: .other, text: text, timestamp: timestamp)
+                others.record(message)
                 append(
-                    message, to: &assistantMessages,
+                    message, to: &otherMessages,
                     remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
             }
         }
@@ -786,11 +859,11 @@ private enum TranscriptParser {
             workingDirectory: workingDirectory,
             updatedAt: latestDate,
             archived: candidate.archived,
-            messageCount: users.meaningfulCount + assistants.count,
+            messageCount: users.meaningfulCount + assistants.count + tools.count + others.count,
             fileByteCount: candidate.signature.byteCount,
             source: candidate.url,
             unreadableRecordCount: unreadableRecords)
-        let messages = (chosenUserMessages + assistantMessages)
+        let messages = (chosenUserMessages + assistantMessages + toolMessages + otherMessages)
             .sorted { $0.sequence < $1.sequence }
             .map {
                 ChatMessage(
@@ -830,6 +903,54 @@ private enum TranscriptParser {
         return pieces.isEmpty ? nil : pieces.joined(separator: "\n")
     }
 
+    private static func toolText(_ object: [String: Any], type: String?) -> String? {
+        let title: String
+        let body: String?
+        switch type {
+        case "function_call":
+            title = nonempty(object["name"] as? String) ?? "Function call"
+            body = nonempty(object["arguments"] as? String)
+        case "custom_tool_call":
+            title = nonempty(object["name"] as? String) ?? "Tool call"
+            body = nonempty(object["input"] as? String)
+        case "function_call_output", "custom_tool_call_output":
+            title = "Tool result"
+            body = nonempty(object["output"] as? String)
+        case "local_shell_call":
+            title = "Shell command"
+            guard let action = object["action"] as? [String: Any] else { return title }
+            if let command = nonempty(action["command"] as? String) {
+                body = command
+            } else if let command = action["command"] as? [String] {
+                body = nonempty(command.joined(separator: " "))
+            } else {
+                body = nil
+            }
+        case "web_search_call":
+            title = "Web search"
+            if let action = object["action"] as? [String: Any] {
+                body = nonempty(action["query"] as? String)
+                    ?? nonempty(action["url"] as? String)
+            } else {
+                body = nonempty(object["query"] as? String)
+            }
+        default:
+            return nil
+        }
+        return body.map { "\(title)\n\($0)" } ?? title
+    }
+
+    private static func reasoningSummary(_ object: [String: Any]) -> String? {
+        guard let summary = object["summary"] as? [[String: Any]] else { return nil }
+        let pieces = summary.compactMap { item -> String? in
+            guard let type = item["type"] as? String,
+                  type == "summary_text" || type == "text"
+            else { return nil }
+            return nonempty(item["text"] as? String)
+        }
+        return pieces.isEmpty ? nil : pieces.joined(separator: "\n")
+    }
+
     private static func parseDate(
         _ value: Any?,
         fractional: ISO8601DateFormatter?,
@@ -845,6 +966,11 @@ private enum TranscriptParser {
             Data(#""type":"user_message""#.utf8),
             Data(#""role":"user""#.utf8),
             Data(#""role":"assistant""#.utf8),
+            Data(#""function_call""#.utf8),
+            Data(#""custom_tool_call""#.utf8),
+            Data(#""local_shell_call""#.utf8),
+            Data(#""web_search_call""#.utf8),
+            Data(#""reasoning""#.utf8),
         ]
         return markers.contains { record.range(of: $0) != nil }
     }
