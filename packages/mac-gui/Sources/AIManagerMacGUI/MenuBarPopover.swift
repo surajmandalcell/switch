@@ -3,13 +3,23 @@ import SwiftUI
 
 struct MenuBarUsageSnapshot: Equatable, Sendable {
   let usedPercentage: Int
+  let secondaryUsedPercentage: Int?
   let plan: String?
   let resetDescription: String?
+  let secondaryResetDescription: String?
 
-  init(usedPercentage: Int, plan: String? = nil, resetDescription: String? = nil) {
+  init(
+    usedPercentage: Int,
+    secondaryUsedPercentage: Int? = nil,
+    plan: String? = nil,
+    resetDescription: String? = nil,
+    secondaryResetDescription: String? = nil
+  ) {
     self.usedPercentage = min(max(usedPercentage, 0), 100)
+    self.secondaryUsedPercentage = secondaryUsedPercentage.map { min(max($0, 0), 100) }
     self.plan = plan
     self.resetDescription = resetDescription
+    self.secondaryResetDescription = secondaryResetDescription
   }
 }
 
@@ -56,6 +66,8 @@ struct MenuBarPopoverActions {
   let addAccount: () -> Void
   let quit: () -> Void
   let switchAccount: (UUID) async throws -> Void
+  let refreshAccountUsage: (UUID) async -> Void
+  let refreshAllUsage: () async -> Void
   let copyText: ((String) -> Void)?
 
   init(
@@ -63,12 +75,16 @@ struct MenuBarPopoverActions {
     addAccount: @escaping () -> Void,
     quit: @escaping () -> Void,
     switchAccount: @escaping (UUID) async throws -> Void,
+    refreshAccountUsage: @escaping (UUID) async -> Void = { _ in },
+    refreshAllUsage: @escaping () async -> Void = {},
     copyText: ((String) -> Void)? = nil
   ) {
     self.openMainWindow = openMainWindow
     self.addAccount = addAccount
     self.quit = quit
     self.switchAccount = switchAccount
+    self.refreshAccountUsage = refreshAccountUsage
+    self.refreshAllUsage = refreshAllUsage
     self.copyText = copyText
   }
 }
@@ -77,6 +93,8 @@ struct MenuBarPopoverActions {
 final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var snapshot: MenuBarSnapshot
   @Published private(set) var switchingAccountID: UUID?
+  @Published private(set) var refreshingAccountID: UUID?
+  @Published private(set) var isRefreshingAll = false
   @Published private(set) var rowErrors: [UUID: String] = [:]
 
   let actions: MenuBarPopoverActions
@@ -121,7 +139,7 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   func select(_ account: MenuBarAccountSnapshot) {
-    guard switchingAccountID == nil,
+    guard switchingAccountID == nil, refreshingAccountID == nil, !isRefreshingAll,
       account.isVerified,
       !account.isActive
     else { return }
@@ -140,14 +158,36 @@ final class MenuBarPopoverStore: ObservableObject {
       }
     }
   }
+
+  func refresh(_ account: MenuBarAccountSnapshot) {
+    guard switchingAccountID == nil, refreshingAccountID == nil, !isRefreshingAll,
+      account.isVerified else { return }
+    refreshingAccountID = account.id
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await actions.refreshAccountUsage(account.id)
+      refreshingAccountID = nil
+    }
+  }
+
+  func refreshAll() {
+    guard switchingAccountID == nil, refreshingAccountID == nil, !isRefreshingAll else { return }
+    isRefreshingAll = true
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await actions.refreshAllUsage()
+      isRefreshingAll = false
+    }
+  }
 }
 
 struct MenuBarPopover: View {
-  static let width: CGFloat = 360
+  static let width: CGFloat = 384
   static let minimumHeight: CGFloat = 192
-  static let maximumHeight: CGFloat = 536
-  static let headerHeight: CGFloat = 48
-  static let footerHeight: CGFloat = 128
+  static let maximumHeight: CGFloat = 548
+  static let headerHeight: CGFloat = 44
+  static let columnHeaderHeight: CGFloat = 24
+  static let footerHeight: CGFloat = 120
   static let accountRowHeight: CGFloat = 60
   static let maximumVisibleRows = 6
 
@@ -156,6 +196,7 @@ struct MenuBarPopover: View {
   var body: some View {
     VStack(spacing: 0) {
       header
+      if !store.snapshot.accounts.isEmpty { columnHeader }
       accountList
       footer
     }
@@ -166,27 +207,48 @@ struct MenuBarPopover: View {
   }
 
   private var header: some View {
-    MenuBarHoverButton(action: store.openMainWindow) {
-      HStack(spacing: 10) {
-        Image(systemName: "person.2")
-          .font(.system(size: 15, weight: .medium))
-          .frame(width: 18, height: 18)
-          .accessibilityHidden(true)
-        Text("Switch")
-          .font(AIMTheme.sans(13, weight: .semibold))
-        Spacer(minLength: 8)
-        Text(accountCountLabel)
-          .font(AIMTheme.sans(11, weight: .medium))
-          .foregroundStyle(AIMTheme.muted)
-        Image(systemName: "arrow.up.forward")
-          .font(.system(size: 10, weight: .semibold))
-          .accessibilityHidden(true)
+    HStack(spacing: 8) {
+      Text("Switch")
+        .font(AIMTheme.sans(13, weight: .semibold))
+      Text(accountCountLabel.uppercased())
+        .font(AIMTheme.sans(9, weight: .medium))
+        .foregroundStyle(AIMTheme.muted)
+      Spacer(minLength: 8)
+      Button { store.refreshAll() } label: {
+        Group {
+          if store.isRefreshingAll {
+            ProgressView().controlSize(.small)
+          } else {
+            AIMIcon(name: .refresh, size: 12)
+          }
+        }
+        .frame(width: 28, height: 28)
+        .contentShape(Rectangle())
       }
-      .padding(.horizontal, 14)
-      .frame(height: Self.headerHeight)
-      .contentShape(Rectangle())
+      .buttonStyle(AIMPressButtonStyle())
+      .disabled(store.snapshot.accounts.isEmpty || store.isRefreshingAll)
+      .help("Refresh account usage")
+      .accessibilityLabel("Refresh account usage")
     }
-    .accessibilityLabel("Open Switch")
+    .padding(.horizontal, 14)
+    .frame(height: Self.headerHeight)
+    .overlay(alignment: .bottom) { Divider().overlay(AIMTheme.lineSoft) }
+  }
+
+  private var columnHeader: some View {
+    HStack(spacing: 8) {
+      Text("Account")
+        .frame(maxWidth: .infinity, alignment: .leading)
+      Text("5 hour").frame(width: 48, alignment: .trailing)
+      Text("Weekly").frame(width: 48, alignment: .trailing)
+      Text("Use").frame(width: 28, alignment: .trailing)
+    }
+    .font(AIMTheme.sans(8, weight: .medium))
+    .foregroundStyle(AIMTheme.muted)
+    .textCase(.uppercase)
+    .padding(.horizontal, 14)
+    .frame(height: Self.columnHeaderHeight)
+    .background(AIMTheme.panel2)
     .overlay(alignment: .bottom) { Divider().overlay(AIMTheme.lineSoft) }
   }
 
@@ -214,8 +276,10 @@ struct MenuBarPopover: View {
             account: account,
             isStriped: index.isMultiple(of: 2) == false,
             isSwitching: store.switchingAccountID == account.id,
+            isRefreshing: store.refreshingAccountID == account.id,
             error: store.rowErrors[account.id],
             copyError: { store.copyError($0) },
+            refresh: { store.refresh(account) },
             action: { store.select(account) }
           )
         )
@@ -226,6 +290,8 @@ struct MenuBarPopover: View {
   private var rowContentRevision: Int {
     var hasher = Hasher()
     hasher.combine(store.switchingAccountID)
+    hasher.combine(store.refreshingAccountID)
+    hasher.combine(store.isRefreshingAll)
     for (id, error) in store.rowErrors.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
       hasher.combine(id)
       hasher.combine(error)
@@ -246,7 +312,7 @@ struct MenuBarPopover: View {
         Spacer(minLength: 0)
       }
       .padding(.horizontal, 14)
-      .frame(height: 44)
+      .frame(height: 36)
 
       MenuBarHoverButton(action: store.addAccount) {
         HStack(spacing: 8) {
@@ -297,8 +363,10 @@ private struct MenuBarAccountRow: View {
   let account: MenuBarAccountSnapshot
   let isStriped: Bool
   let isSwitching: Bool
+  let isRefreshing: Bool
   let error: String?
   let copyError: (String) -> Void
+  let refresh: () -> Void
   let action: () -> Void
 
   @State private var isHovered = false
@@ -307,12 +375,12 @@ private struct MenuBarAccountRow: View {
   var body: some View {
     HStack(spacing: 0) {
       Button(action: action) {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
           VStack(alignment: .leading, spacing: 3) {
             Text(account.identity)
               .font(AIMTheme.sans(12, weight: .medium))
               .lineLimit(1)
-            Text(error ?? account.detail)
+            Text(error ?? rowDetail)
               .font(AIMTheme.sans(10))
               .foregroundStyle(error == nil ? AIMTheme.muted : AIMTheme.red)
               .lineLimit(1)
@@ -320,26 +388,16 @@ private struct MenuBarAccountRow: View {
           }
           .frame(maxWidth: .infinity, alignment: .leading)
 
-          if let usage = account.usage {
-            VStack(alignment: .trailing, spacing: 2) {
-              Text("\(usage.usedPercentage)%")
-                .font(AIMTheme.mono(12, weight: .semibold))
-              if let detail = usageDetail(usage) {
-                Text(detail)
-                  .font(AIMTheme.sans(9))
-                  .foregroundStyle(AIMTheme.muted)
-                  .lineLimit(1)
-              }
-            }
-          }
+          quota(account.usage?.usedPercentage)
+          quota(account.usage?.secondaryUsedPercentage)
 
-          if error == nil {
+          if error == nil && account.usage != nil {
             statusAccessory
               .frame(width: 18, height: 18)
           }
         }
         .padding(.leading, 14)
-        .padding(.trailing, error == nil ? 14 : 8)
+        .padding(.trailing, error == nil ? 8 : 6)
         .frame(height: MenuBarPopover.accountRowHeight)
         .contentShape(Rectangle())
       }
@@ -356,6 +414,22 @@ private struct MenuBarAccountRow: View {
         .buttonStyle(AIMPressButtonStyle())
         .help("Copy error")
         .accessibilityLabel("Copy account error")
+      } else if account.usage == nil && account.isVerified {
+        Button(action: refresh) {
+          Group {
+            if isRefreshing {
+              ProgressView().controlSize(.small)
+            } else {
+              AIMIcon(name: .refresh, size: 11)
+            }
+          }
+          .frame(width: 34, height: MenuBarPopover.accountRowHeight)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(AIMPressButtonStyle())
+        .disabled(isRefreshing || isSwitching)
+        .help("Refresh usage")
+        .accessibilityLabel("Refresh usage for \(account.identity)")
       }
     }
     .background(rowBackground)
@@ -391,6 +465,13 @@ private struct MenuBarAccountRow: View {
     }
   }
 
+  private func quota(_ percentage: Int?) -> some View {
+    Text(percentage.map { "\($0)%" } ?? "—")
+      .font(AIMTheme.mono(11, weight: percentage == nil ? .regular : .semibold))
+      .foregroundStyle(percentage == nil ? AIMTheme.faint : AIMTheme.ink)
+      .frame(width: 48, alignment: .trailing)
+  }
+
   private var rowBackground: some ShapeStyle {
     if account.isActive { return AnyShapeStyle(AIMTheme.listSelection) }
     if isSwitching { return AnyShapeStyle(AIMTheme.controlHover) }
@@ -399,10 +480,17 @@ private struct MenuBarAccountRow: View {
   }
 
   private func usageDetail(_ usage: MenuBarUsageSnapshot) -> String? {
-    [usage.plan, usage.resetDescription].compactMap { value in
+    [usage.plan, usage.resetDescription, usage.secondaryResetDescription].compactMap { value in
       guard let value, !value.isEmpty else { return nil }
       return value
     }.joined(separator: " · ").nilIfEmpty
+  }
+
+  private var rowDetail: String {
+    [account.detail, account.usage.flatMap(usageDetail)].compactMap { value in
+      guard let value, !value.isEmpty else { return nil }
+      return value
+    }.joined(separator: " · ")
   }
 
   private var accessibilityLabel: String {
@@ -449,13 +537,15 @@ enum MenuBarPopoverPreviewData {
         identity: "suraj@example.test", detail: "Personal · Verified",
         isVerified: true, isActive: true,
         usage: MenuBarUsageSnapshot(
-          usedPercentage: 42, plan: "Plus", resetDescription: "Resets in 2h")),
+          usedPercentage: 42, secondaryUsedPercentage: 68,
+          plan: "Plus", resetDescription: "Resets in 2h", secondaryResetDescription: "Monday")),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "15431467-BF10-4BCB-9300-C785336CB1D1")!,
         identity: "studio@example.test", detail: "Studio · Verified",
         isVerified: true, isActive: false,
         usage: MenuBarUsageSnapshot(
-          usedPercentage: 18, plan: "Team", resetDescription: "Resets tomorrow")),
+          usedPercentage: 18, secondaryUsedPercentage: 37,
+          plan: "Team", resetDescription: "Resets tomorrow")),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "DB9AB65A-F894-426D-8A16-86772A8F054D")!,
         identity: "needs-sign-in@example.test", detail: "Sign-in required",

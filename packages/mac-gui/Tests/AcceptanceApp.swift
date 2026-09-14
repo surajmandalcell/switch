@@ -284,6 +284,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
     expect(AIMTheme.modalTitlebarHeight == 48, "Modal titlebar is not 48 points high")
     expect(AIMTheme.modalHeight == 648, "Modal height does not preserve the source-row rhythm")
+    expect(AIMTheme.addAccountModalHeight == 480, "Add Account modal is not compact and stable")
     expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
     failures.append(contentsOf: AIManagerNativeContract.accountActionFailures())
@@ -392,6 +393,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         )
         if stage == "after-load" || stage == "contract-only" {
             receipts.writeSnapshot(of: contentView)
+            receipts.writeMenuBarSnapshot(appearance: window.effectiveAppearance)
             expect(
                 AIManagerNativeContract.focusPolicyMatches(in: contentView, indicatorsEnabled: false),
                 "Acceptance host focus policy is not disabled at startup"
@@ -570,11 +572,8 @@ private final class AcceptanceReceipts {
     }
 
     func writeSnapshot(of view: NSView) {
-        guard let directory,
-              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
-        try? data.write(to: directory.appending(path: "window.png"), options: .atomic)
+        writeSnapshot(of: view, filename: "window.png")
+        guard let directory else { return }
         let hierarchy = AIManagerNativeContract.hierarchySnapshot(in: view)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -582,6 +581,31 @@ private final class AcceptanceReceipts {
             try? hierarchyData.write(
                 to: directory.appending(path: "window-hierarchy.json"), options: .atomic)
         }
+    }
+
+    func writeMenuBarSnapshot(appearance: NSAppearance) {
+        let snapshot = MenuBarPopoverPreviewData.snapshot
+        let store = MenuBarPopoverStore(
+            snapshot: snapshot,
+            actions: MenuBarPopoverActions(
+                openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in }))
+        let view = NSHostingView(rootView: MenuBarPopover(store: store))
+        view.appearance = appearance
+        view.frame = NSRect(
+            origin: .zero,
+            size: AIManagerStatusItemController.contentSize(
+                accountCount: snapshot.accounts.count,
+                visibleScreenHeight: 900))
+        view.layoutSubtreeIfNeeded()
+        writeSnapshot(of: view, filename: "menu-bar.png")
+    }
+
+    private func writeSnapshot(of view: NSView, filename: String) {
+        guard let directory,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: directory.appending(path: filename), options: .atomic)
     }
 
     func report(failures: [String]) {
@@ -594,7 +618,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "menu-bar.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }

@@ -44,9 +44,9 @@ enum AIManagerNativeContract {
       if !condition() { failures.append(message) }
     }
 
-    expect(MenuBarPopover.width == 360, "Menu-bar popover is not 360 points wide")
+    expect(MenuBarPopover.width == 384, "Menu-bar popover is not 384 points wide")
     expect(MenuBarPopover.minimumHeight == 192, "Menu-bar popover minimum height is not 192 points")
-    expect(MenuBarPopover.maximumHeight == 536, "Menu-bar popover maximum height is not 536 points")
+    expect(MenuBarPopover.maximumHeight == 548, "Menu-bar popover maximum height is not 548 points")
     expect(MenuBarPopover.accountRowHeight == 60, "Menu-bar account rows are not 60 points high")
     expect(MenuBarPopover.maximumVisibleRows == 6, "Menu-bar account list does not stop at six visible rows")
 
@@ -56,13 +56,13 @@ enum AIManagerNativeContract {
     let many = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 900)
     let shortScreen = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 480)
     for size in [empty, one, six, many, shortScreen] {
-      expect(size.width == 360, "Menu-bar popover width changes with its contents")
+      expect(size.width == 384, "Menu-bar popover width changes with its contents")
       expect(size.height >= 192, "Menu-bar popover is shorter than 192 points")
-      expect(size.height <= 536, "Menu-bar popover is taller than 536 points")
+      expect(size.height <= 548, "Menu-bar popover is taller than 548 points")
     }
     expect(empty.height == 192, "Empty menu-bar popover does not use its compact minimum height")
-    expect(one.height == 236, "One-row menu-bar popover has the wrong fixed-region geometry")
-    expect(six.height == 536 && many.height == six.height, "Menu-bar list does not scroll after six rows")
+    expect(one.height == 248, "One-row menu-bar popover has the wrong fixed-region geometry")
+    expect(six.height == 548 && many.height == six.height, "Menu-bar list does not scroll after six rows")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
 
     let snapshot = MenuBarPopoverPreviewData.snapshot
@@ -80,7 +80,7 @@ enum AIManagerNativeContract {
         openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in }))
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
     expect(controller.usesPopover, "Status item still uses a static menu")
-    expect(controller.popoverContentSize.width == 360, "Hosted popover changed its fixed width")
+    expect(controller.popoverContentSize.width == 384, "Hosted popover changed its fixed width")
     expect(controller.statusTitle == "42%", "Status item does not show cached primary usage")
     let originalSize = controller.popoverContentSize
     controller.updateAppearance(NSAppearance(named: .darkAqua))
@@ -174,6 +174,27 @@ enum AIManagerNativeContract {
       }
     } catch {
       failures.append("Chat presentation could not apply its content bounds: \(error)")
+    }
+
+    let suiteName = "Switch.ChatFilterContract.\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: suiteName) {
+      defer { defaults.removePersistentDomain(forName: suiteName) }
+      let selected: ChatMessageFilter = [.prompts, .tools]
+      ChatFilterPersistence.save(selected, to: defaults)
+      if ChatFilterPersistence.load(from: defaults) != selected {
+        failures.append("Chat message filters do not persist their multi-selection")
+      }
+      defaults.set(Int.max, forKey: ChatFilterPersistence.defaultsKey)
+      if ChatFilterPersistence.load(from: defaults) != .all {
+        failures.append("Chat message filters do not discard unsupported saved bits")
+      }
+    } else {
+      failures.append("Chat message filter persistence test store is unavailable")
+    }
+
+    let roles: [ChatMessageRole] = [.user, .assistant, .tool, .other]
+    if roles.map(\.displayName) != ["Prompt", "Response", "Tool", "Other"] {
+      failures.append("Chat message category labels are unstable")
     }
     return failures
   }
@@ -306,7 +327,8 @@ enum AIManagerNativeContract {
     let size = AIMTheme.windowControlSize
     return size == 48 && AIMTheme.railWidth == size
       && AIMTheme.topbarHeight == size && AIMTheme.modalTitlebarHeight == size
-      && AIMTheme.modalHeight == 648 && AIMTheme.modalOuterInset == 24
+      && AIMTheme.modalHeight == 648 && AIMTheme.addAccountModalHeight == 480
+      && AIMTheme.modalOuterInset == 24
       && AIMTheme.modalSectionSpacing == 16
   }
 

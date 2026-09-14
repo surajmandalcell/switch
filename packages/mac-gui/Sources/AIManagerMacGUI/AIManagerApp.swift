@@ -43,6 +43,15 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 switchAccount: { [weak self] accountID in
                     guard let self else { throw MenuBarActionError.appUnavailable }
                     try await self.switchAccountFromMenuBar(accountID)
+                },
+                refreshAccountUsage: { [weak self] accountID in
+                    await self?.model.refreshUsage(accountID: accountID)
+                },
+                refreshAllUsage: { [weak self] in
+                    guard let self else { return }
+                    for account in self.model.status?.accounts ?? [] where account.identity.providerID == .codex {
+                        await self.model.refreshUsage(accountID: account.id)
+                    }
                 }
             ))
         self.statusItemController = statusItemController
@@ -166,14 +175,20 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private func menuBarUsage(for accountID: UUID) -> MenuBarUsageSnapshot? {
         guard let snapshot = model.usage(for: accountID),
               let used = snapshot.rateLimits?.defaultBucket?.primary?.usedPercent else { return nil }
-        let reset = snapshot.rateLimits?.defaultBucket?.primary?.resetsAt.map {
+        let bucket = snapshot.rateLimits?.defaultBucket
+        let reset = bucket?.primary?.resetsAt.map {
+            "resets \($0.formatted(.relative(presentation: .named)))"
+        }
+        let secondaryReset = bucket?.secondary?.resetsAt.map {
             "resets \($0.formatted(.relative(presentation: .named)))"
         }
         return MenuBarUsageSnapshot(
             usedPercentage: used,
+            secondaryUsedPercentage: bucket?.secondary?.usedPercent,
             plan: snapshot.account?.plan?.capitalized
-                ?? snapshot.rateLimits?.defaultBucket?.plan?.capitalized,
-            resetDescription: reset)
+                ?? bucket?.plan?.capitalized,
+            resetDescription: reset,
+            secondaryResetDescription: secondaryReset)
     }
 
     private static func accountDetail(_ account: AccountRecord) -> String {

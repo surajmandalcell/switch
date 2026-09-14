@@ -236,7 +236,11 @@ struct AccountWindow: View {
           }
             .frame(
               width: min(780, geometry.size.width - 48),
-              height: min(AIMTheme.modalHeight, geometry.size.height - 48)
+              height: min(
+                model.accountModalMode == .add
+                  ? AIMTheme.addAccountModalHeight : AIMTheme.modalHeight,
+                geometry.size.height - 48
+              )
             )
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .shadow(color: .black.opacity(dark ? 0.22 : 0.1), radius: 34, y: 14)
@@ -881,7 +885,6 @@ private struct AccountUsagePanel: View {
 
   private var snapshot: CodexAccountUsageSnapshot? { model.usage(for: account.id) }
   private var cached: CachedCodexAccountUsage? { model.cachedUsage(for: account.id) }
-  private var isActive: Bool { account.id == model.status?.defaultAccountID }
   private var isRefreshing: Bool { model.usageRefreshAccountID == account.id }
   private var usageFailure: String? {
     model.usageError(for: account.id) ?? cached?.failureMessage
@@ -996,17 +999,13 @@ private struct AccountUsagePanel: View {
           HStack(spacing: 12) {
             AIMIcon(name: .info, size: 15).foregroundStyle(AIMTheme.muted)
             VStack(alignment: .leading, spacing: 3) {
-              Text(isActive ? "Usage has not been checked" : "No cached usage for this account")
+              Text("Usage has not been checked")
                 .font(AIMTheme.sans(12, weight: .semibold))
-              Text(
-                isActive
-                  ? "Refresh to read the current Codex limits."
-                  : "Usage is updated while an account is active."
-              )
+              Text("Refresh this saved account without changing the default account.")
               .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
             }
             Spacer()
-            if isActive { refreshButton }
+            refreshButton
           }
           .padding(16)
         }
@@ -1028,7 +1027,7 @@ private struct AccountUsagePanel: View {
         Text(fetchedAt.formatted(date: .omitted, time: .shortened))
           .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
       }
-      if isActive { refreshButton }
+      refreshButton
     }
   }
 
@@ -1038,7 +1037,7 @@ private struct AccountUsagePanel: View {
       icon: .refresh,
       disabled: isRefreshing || model.isBusy
     ) {
-      Task { await model.refreshDefaultUsage() }
+      Task { await model.refreshUsage(accountID: account.id) }
     }
   }
 
@@ -1506,14 +1505,37 @@ private struct ChatThreadRow: View {
   }
 }
 
+enum ChatFilterPersistence {
+  static let defaultsKey = "chat.messageFilterMask"
+
+  static func load(from defaults: UserDefaults = .standard) -> ChatMessageFilter {
+    guard defaults.object(forKey: defaultsKey) != nil else { return .all }
+    return normalized(defaults.integer(forKey: defaultsKey))
+  }
+
+  static func save(_ filter: ChatMessageFilter, to defaults: UserDefaults = .standard) {
+    defaults.set(normalized(filter.rawValue).rawValue, forKey: defaultsKey)
+  }
+
+  static func normalized(_ rawValue: Int) -> ChatMessageFilter {
+    ChatMessageFilter(rawValue: rawValue & ChatMessageFilter.all.rawValue)
+  }
+}
+
 private struct ChatDetailPane: View {
   @ObservedObject var model: AccountViewModel
   @State private var messageQuery = ""
+  @State private var messageFilter: ChatMessageFilter
   @State private var messageSearchResult = ChatMessageSearchResult(
     messages: [], totalMessageCount: 0, matchingMessageCount: 0)
   @State private var isSearching = false
   @State private var presentations: [String: ChatMessagePresentation] = [:]
   @State private var presentationRevision = 0
+
+  init(model: AccountViewModel) {
+    self.model = model
+    _messageFilter = State(initialValue: ChatFilterPersistence.load())
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -1533,20 +1555,42 @@ private struct ChatDetailPane: View {
         Color.clear.frame(height: 58).background(AIMTheme.panel2)
       }
 
-      HStack(spacing: 10) {
-        HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
-        if isSearching {
-          ProgressView().controlSize(.small)
-        } else if let detail = model.selectedChat,
-                  !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          Text(messageCountText(detail))
-            .font(AIMTheme.sans(9.5))
-            .foregroundStyle(AIMTheme.muted)
-            .contentTransition(.numericText())
+      VStack(spacing: 0) {
+        HStack(spacing: 10) {
+          HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
+          if isSearching {
+            ProgressView().controlSize(.small).frame(width: 24, height: 24)
+          } else if let detail = model.selectedChat {
+            Text(messageCountText(detail))
+              .font(AIMTheme.sans(9.5))
+              .foregroundStyle(AIMTheme.muted)
+              .contentTransition(.numericText())
+          }
+          if let detail = model.selectedChat {
+            ChatFilteredCopyButton(messages: displayedMessages(detail))
+          }
         }
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+
+        HStack(spacing: 6) {
+          Text("Show")
+            .font(AIMTheme.sans(9.5, weight: .medium))
+            .foregroundStyle(AIMTheme.muted)
+          ForEach(ChatFilterChoice.allCases) { choice in
+            ChatFilterButton(
+              choice: choice,
+              selected: messageFilter.contains(choice.filter)) {
+                toggleFilter(choice.filter)
+              }
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .overlay(alignment: .top) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
       }
-      .padding(.horizontal, 12)
-      .frame(height: 46)
+      .background(AIMTheme.panel)
 
       if model.isChatLoading {
         VStack(spacing: 10) {
@@ -1576,6 +1620,9 @@ private struct ChatDetailPane: View {
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     .task(id: searchKey) { await updateMessageSearch() }
     .task(id: presentationKey) { await updatePresentations() }
+    .onChange(of: messageFilter.rawValue) { _, _ in
+      ChatFilterPersistence.save(messageFilter)
+    }
   }
 
   private var selectedSummary: ChatThreadSummary? {
@@ -1587,6 +1634,7 @@ private struct ChatDetailPane: View {
     ChatMessageSearchKey(
       threadID: model.selectedChatID,
       query: messageQuery,
+      filterMask: messageFilter.rawValue,
       fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0)
   }
 
@@ -1598,7 +1646,19 @@ private struct ChatDetailPane: View {
 
   private func displayedMessages(_ detail: ChatThreadDetail) -> [ChatMessage] {
     messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? detail.messages : messageSearchResult.messages
+      ? filteredMessages(detail.messages) : messageSearchResult.messages
+  }
+
+  private func filteredMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
+    messages.filter { messageFilter.includes($0.role) }
+  }
+
+  private func toggleFilter(_ filter: ChatMessageFilter) {
+    if messageFilter.contains(filter) {
+      messageFilter.remove(filter)
+    } else {
+      messageFilter.insert(filter)
+    }
   }
 
   private func detailItems(_ detail: ChatThreadDetail) -> [ChatDetailListItem] {
@@ -1607,10 +1667,11 @@ private struct ChatDetailPane: View {
       items.append(.notice(
         "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast."))
     }
-    if !messageQuery.isEmpty && messageSearchResult.messages.isEmpty && !isSearching {
-      items.append(.emptySearch)
+    let messages = displayedMessages(detail)
+    if messages.isEmpty && !isSearching {
+      let hasQuery = !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      items.append(.empty(hasQuery ? "No matching messages" : "No messages in this filter"))
     } else {
-      let messages = displayedMessages(detail)
       items.append(contentsOf: messages.enumerated().map { index, message in
         .message(
           message,
@@ -1637,10 +1698,10 @@ private struct ChatDetailPane: View {
         presentation: presentations[message.id],
         fallbackText: model.renderedChatMessages[message.id] ?? AttributedString(message.text),
         separated: separated)
-    case .emptySearch:
+    case let .empty(text):
       VStack(spacing: 6) {
         AIMIcon(name: .search, size: 16).foregroundStyle(AIMTheme.muted)
-        Text("No matching messages").font(AIMTheme.sans(10, weight: .medium))
+        Text(text).font(AIMTheme.sans(10, weight: .medium))
       }
       .frame(maxWidth: .infinity, minHeight: 120)
       .padding(.horizontal, 12)
@@ -1651,7 +1712,10 @@ private struct ChatDetailPane: View {
 
   private func messageCountText(_ detail: ChatThreadDetail) -> String {
     if messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return "\(detail.messages.count.formatted()) messages"
+      let count = filteredMessages(detail.messages).count
+      return messageFilter == .all
+        ? "\(count.formatted()) messages"
+        : "\(count.formatted()) shown"
     }
     return "\(messageSearchResult.matchingMessageCount.formatted()) matches"
   }
@@ -1701,10 +1765,11 @@ private struct ChatDetailPane: View {
       .split(whereSeparator: \.isWhitespace)
       .map { String($0).lowercased() }
     guard !terms.isEmpty else {
+      let messages = filteredMessages(detail.messages)
       messageSearchResult = ChatMessageSearchResult(
-        messages: [],
-        totalMessageCount: detail.messages.count,
-        matchingMessageCount: detail.messages.count)
+        messages: messages,
+        totalMessageCount: messages.count,
+        matchingMessageCount: messages.count)
       isSearching = false
       return
     }
@@ -1712,7 +1777,8 @@ private struct ChatDetailPane: View {
     do { try await Task.sleep(for: .milliseconds(120)) }
     catch { return }
     do {
-      let result = try await ChatMessageSearch.search(detail.messages, query: messageQuery)
+      let result = try await ChatMessageSearch.search(
+        detail.messages, query: messageQuery, filter: messageFilter)
       guard !Task.isCancelled else { return }
       messageSearchResult = result
       isSearching = false
@@ -1731,14 +1797,14 @@ private struct ChatDetailPane: View {
 private enum ChatDetailListItem: Identifiable, Equatable {
   case notice(String)
   case message(ChatMessage, separated: Bool)
-  case emptySearch
+  case empty(String)
   case bottomSpace
 
   var id: String {
     switch self {
     case let .notice(text): "notice:\(text)"
     case let .message(message, _): "message:\(message.id)"
-    case .emptySearch: "empty-search"
+    case let .empty(text): "empty:\(text)"
     case .bottomSpace: "bottom-space"
     }
   }
@@ -1747,12 +1813,98 @@ private enum ChatDetailListItem: Identifiable, Equatable {
 private struct ChatMessageSearchKey: Hashable {
   let threadID: String?
   let query: String
+  let filterMask: Int
   let fileByteCount: Int64
 }
 
 private struct ChatPresentationKey: Hashable {
   let threadID: String?
   let fileByteCount: Int64
+}
+
+private enum ChatFilterChoice: String, CaseIterable, Identifiable {
+  case prompts = "Prompts"
+  case responses = "Responses"
+  case tools = "Tools"
+  case other = "Other"
+
+  var id: String { rawValue }
+
+  var filter: ChatMessageFilter {
+    switch self {
+    case .prompts: .prompts
+    case .responses: .responses
+    case .tools: .tools
+    case .other: .other
+    }
+  }
+}
+
+private struct ChatFilterButton: View {
+  let choice: ChatFilterChoice
+  let selected: Bool
+  let action: () -> Void
+  @State private var hovered = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 5) {
+        Image(systemName: selected ? "checkmark" : "circle")
+          .font(.system(size: 8.5, weight: .semibold))
+        Text(choice.rawValue).font(AIMTheme.sans(9.5, weight: .medium))
+      }
+      .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
+      .padding(.horizontal, 8)
+      .frame(height: 24)
+      .background(
+        selected ? AIMTheme.active : (hovered ? AIMTheme.controlHover : AIMTheme.control))
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .onHover { hovered = $0 }
+    .accessibilityLabel("Show \(choice.rawValue.lowercased())")
+    .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+}
+
+private struct ChatFilteredCopyButton: View {
+  let messages: [ChatMessage]
+  @State private var copied = false
+  @State private var hovered = false
+
+  var body: some View {
+    Button {
+      let text = ChatTranscriptExport.text(for: messages)
+      #if !AI_MANAGER_PREVIEW
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(text, forType: .string)
+      #endif
+      copied = true
+      Task { @MainActor in
+        try? await Task.sleep(for: .seconds(1.2))
+        copied = false
+      }
+    } label: {
+      HStack(spacing: 6) {
+        AIMIcon(name: copied ? .check : .copy, size: 10)
+        Text(copied ? "Copied" : "Copy shown")
+          .font(AIMTheme.sans(9.5, weight: .medium))
+      }
+      .foregroundStyle(copied ? AIMTheme.green : AIMTheme.ink)
+      .padding(.horizontal, 9)
+      .frame(height: 28)
+      .background(hovered ? AIMTheme.controlHover : AIMTheme.control)
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .disabled(messages.isEmpty)
+    .opacity(messages.isEmpty ? 0.45 : 1)
+    .onHover { hovered = $0 }
+    .help("Copy the messages currently shown")
+    .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
+  }
 }
 
 private struct ChatMessageRow: View {
@@ -1765,7 +1917,7 @@ private struct ChatMessageRow: View {
   var body: some View {
     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
       HStack(spacing: 5) {
-        Text(message.role == .user ? "You" : "Codex")
+        Text(message.role.displayName)
           .font(AIMTheme.sans(9.5, weight: .semibold))
         if let timestamp = message.timestamp {
           Text("·")
@@ -1776,20 +1928,39 @@ private struct ChatMessageRow: View {
       .font(AIMTheme.sans(9.5))
       .foregroundStyle(AIMTheme.muted)
 
-      if message.role == .user {
+      switch message.role {
+      case .user:
         ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
           .padding(.horizontal, 12)
           .padding(.vertical, 10)
           .frame(maxWidth: 460, alignment: .leading)
           .background(AIMTheme.chatUserSurface)
           .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      } else {
+      case .assistant:
         HStack(alignment: .top, spacing: 12) {
           Rectangle().fill(AIMTheme.titleArt).frame(width: 2)
           ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 12)
+        .frame(maxWidth: 620, alignment: .leading)
+      case .tool:
+        HStack(alignment: .top, spacing: 10) {
+          Rectangle().fill(AIMTheme.amber).frame(width: 2)
+          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .frame(maxWidth: 620, alignment: .leading)
+        .background(AIMTheme.chatCodeSurface)
+        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      case .other:
+        HStack(alignment: .top, spacing: 10) {
+          Rectangle().fill(AIMTheme.muted).frame(width: 2)
+          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 10)
         .frame(maxWidth: 620, alignment: .leading)
       }
     }
@@ -2256,102 +2427,87 @@ private struct AddAccountFlow: View {
         model.closeAccountModal()
       }
       Group {
-        if let error = model.errorMessage {
-          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-            model.errorMessage = nil
-          }
-          .padding(.horizontal, 24).padding(.top, 12)
-          .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
-        }
-      }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.errorMessage)
-
-      Group {
         switch step {
         case 1: providerPage
         case 2: signInPage
         default: completedPage
         }
       }
-      .id(step)
-      .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 3)))
       .disabled(model.isBusy)
 
-      if model.isBusy {
-        HStack(spacing: 8) {
-          ProgressView().controlSize(.small)
-          Text("Checking account…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+      ZStack {
+        if let error = model.errorMessage {
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
+          }
+        } else if model.isBusy {
+          HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Checking account…")
+              .font(AIMTheme.sans(11))
+              .foregroundStyle(AIMTheme.muted)
+          }
         }
-        .padding(10)
-        .transition(reduceMotion ? .identity : .opacity)
       }
+      .padding(.horizontal, AIMTheme.modalOuterInset)
+      .frame(height: 48)
     }
     .font(AIMTheme.sans(13))
     .foregroundStyle(AIMTheme.ink)
     .background(AIMTheme.panel)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.navigation), value: step)
   }
 
   private var providerPage: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Choose the tool you want to add.")
-          .font(AIMTheme.sans(14, weight: .medium))
-        Text("Your current Codex login is saved automatically when Switch first opens.")
-          .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-
-      AIMPanel(title: "Providers") {
-        VStack(spacing: 0) {
-          ForEach(Array(model.providers.enumerated()), id: \.element.id) { index, provider in
-            let available = provider.availability == .enabled
-            let selected = model.selectedProviderID == provider.id
-            Button {
-              model.selectedProviderID = provider.id
-            } label: {
-              HStack(spacing: 12) {
-                ProviderIcon(providerID: provider.id)
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(provider.displayName).font(AIMTheme.sans(12, weight: .semibold))
-                  Text(available ? "Account switching and usage are supported." : unavailableCopy(provider))
-                    .font(AIMTheme.sans(10))
-                    .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.74) : AIMTheme.muted)
-                    .lineLimit(1)
-                }
-                Spacer()
-                if available {
-                  AIMIcon(name: selected ? .checkSquare : .square, size: 14)
-                } else {
-                  Badge(
-                    text: "Unavailable", color: AIMTheme.disabledControl,
-                    ink: AIMTheme.disabledInk)
-                }
+    VStack(spacing: 0) {
+      VStack(spacing: 0) {
+        ForEach(Array(model.providers.enumerated()), id: \.element.id) { index, provider in
+          let available = provider.availability == .enabled
+          let selected = model.selectedProviderID == provider.id
+          Button {
+            model.selectedProviderID = provider.id
+          } label: {
+            HStack(spacing: 12) {
+              ProviderIcon(providerID: provider.id)
+              VStack(alignment: .leading, spacing: 3) {
+                Text(provider.displayName).font(AIMTheme.sans(12, weight: .semibold))
+                Text(available ? "Account switching and usage are supported." : unavailableCopy(provider))
+                  .font(AIMTheme.sans(10))
+                  .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.74) : AIMTheme.muted)
+                  .lineLimit(1)
               }
-              .padding(.horizontal, AIMTheme.panelContentInset)
-              .frame(height: 62)
-              .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
-              .background(
-                selected
-                  ? AIMTheme.active
-                  : (hoveredProviderID == provider.id
-                    ? AIMTheme.listHover
-                    : (index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe))
-              )
-              .contentShape(Rectangle())
+              Spacer()
+              if available {
+                AIMIcon(name: selected ? .checkSquare : .square, size: 14)
+              } else {
+                Badge(text: "WIP", color: AIMTheme.disabledControl, ink: AIMTheme.disabledInk)
+              }
             }
-            .buttonStyle(AIMPressButtonStyle())
-            .disabled(!available)
-            .opacity(available ? 1 : 0.64)
-            .onHover { hoveredProviderID = $0 && available ? provider.id : nil }
-            .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hoveredProviderID)
-            .accessibilityLabel(provider.displayName)
-            .accessibilityHint(available ? "Available" : unavailableCopy(provider))
+            .padding(.horizontal, AIMTheme.panelContentInset)
+            .frame(height: 62)
+            .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
+            .background(
+              selected
+                ? AIMTheme.active
+                : (hoveredProviderID == provider.id
+                  ? AIMTheme.listHover
+                  : (index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe))
+            )
+            .contentShape(Rectangle())
           }
+          .buttonStyle(AIMPressButtonStyle())
+          .disabled(!available)
+          .opacity(available ? 1 : 0.64)
+          .onHover { hoveredProviderID = $0 && available ? provider.id : nil }
+          .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hoveredProviderID)
+          .accessibilityLabel(provider.displayName)
+          .accessibilityHint(available ? "Available" : unavailableCopy(provider))
         }
       }
-      .frame(maxHeight: .infinity)
+      .background(AIMTheme.panel2)
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+
+      Spacer(minLength: AIMTheme.modalSectionSpacing)
 
       HStack(spacing: 6) {
         AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
@@ -2368,7 +2524,7 @@ private struct AddAccountFlow: View {
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 18)
-    .padding(.bottom, 24)
+    .padding(.bottom, 12)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -2387,41 +2543,44 @@ private struct AddAccountFlow: View {
               Text("Finish signing in to Codex")
                 .font(AIMTheme.sans(18, weight: .semibold))
               Text(
-                "Codex is using a private temporary home. Your current account, settings, and chats stay unchanged while you sign in."
+                "Sign in through a private temporary home. The saved account becomes available for new Codex sessions after you finish."
               )
               .font(AIMTheme.sans(12))
               .foregroundStyle(AIMTheme.muted)
               .fixedSize(horizontal: false, vertical: true)
             }
           }
-          if let message = model.accountLoginMessage {
-            Notice(
-              text: message,
-              tone: model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue
-            )
-          }
-          if model.accountLoginState == .credentialChoiceRequired {
-            VStack(alignment: .leading, spacing: 8) {
-              Text("This account is already saved with different access.")
-                .font(AIMTheme.sans(12, weight: .semibold))
-              HStack(spacing: 6) {
-                AIMButton(title: "Use new sign-in", tone: .primary) {
-                  Task { await model.checkAccountLogin(credentialChoice: .useImported) }
-                }
-                AIMButton(title: "Keep saved access") {
-                  Task { await model.checkAccountLogin(credentialChoice: .keepShared) }
+          Notice(
+            text: model.accountLoginMessage
+              ?? "Finish signing in to Codex, then return here and choose Check Now.",
+            tone: model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue
+          )
+          Group {
+            if model.accountLoginState == .credentialChoiceRequired {
+              VStack(alignment: .leading, spacing: 8) {
+                Text("This account is already saved with different access.")
+                  .font(AIMTheme.sans(12, weight: .semibold))
+                HStack(spacing: 6) {
+                  AIMButton(title: "Use new sign-in", tone: .primary) {
+                    Task { await model.checkAccountLogin(credentialChoice: .useImported) }
+                  }
+                  AIMButton(title: "Keep saved access") {
+                    Task { await model.checkAccountLogin(credentialChoice: .keepShared) }
+                  }
                 }
               }
+            } else {
+              Text("When the browser reports success, return to Switch and check the account.")
+                .font(AIMTheme.sans(11))
+                .foregroundStyle(AIMTheme.muted)
             }
-          } else {
-            Text("When the browser says sign-in is complete, return to Switch and check the account.")
-              .font(AIMTheme.sans(11))
-              .foregroundStyle(AIMTheme.muted)
           }
+          .frame(minHeight: 52, alignment: .topLeading)
         }
         .padding(20)
       }
-      .frame(maxHeight: .infinity)
+
+      Spacer(minLength: AIMTheme.modalSectionSpacing)
 
       HStack(spacing: 6) {
         AIMButton(title: "Cancel sign-in") {
@@ -2437,7 +2596,7 @@ private struct AddAccountFlow: View {
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 18)
-    .padding(.bottom, 24)
+    .padding(.bottom, 12)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -2452,7 +2611,7 @@ private struct AddAccountFlow: View {
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
             .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-          Text("Switch preserved the current settings and chat library.")
+          Text("The account is ready for new Codex sessions. Shared settings and chats stay in place.")
             .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
         }
         .padding(20)
@@ -2461,6 +2620,11 @@ private struct AddAccountFlow: View {
       HStack {
         AIMButton(title: "Use for new Codex sessions", tone: .primary, disabled: model.isBusy) {
           Task { await model.switchDefault() }
+        }
+        if let accountID = model.selectedAccountID {
+          AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
+            Task { await model.refreshUsage(accountID: accountID) }
+          }
         }
         AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
           Task { await model.openAccount() }
@@ -2471,7 +2635,7 @@ private struct AddAccountFlow: View {
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 18)
-    .padding(.bottom, 24)
+    .padding(.bottom, 12)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -2482,7 +2646,6 @@ private struct AddAccountFlow: View {
 
 private struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
       ImportHeader(
@@ -2493,16 +2656,6 @@ private struct ImportFlow: View {
         model.closeAccountModal()
       }
       Group {
-        if let error = model.errorMessage {
-          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-            model.errorMessage = nil
-          }
-          .padding(.horizontal, 24).padding(.top, 12)
-            .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
-        }
-      }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.errorMessage)
-      Group {
         if let result = model.importResult {
           ImportResultPage(result: result, model: model)
         } else if let plan = model.importPlan {
@@ -2511,22 +2664,25 @@ private struct ImportFlow: View {
           SourcePage(model: model)
         }
       }
-      .id(step)
-      .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 3)))
       .disabled(model.isBusy)
-      Group {
-        if model.isBusy {
+
+      ZStack {
+        if let error = model.errorMessage {
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
+          }
+        } else if model.isBusy {
           HStack(spacing: 8) {
             ProgressView().controlSize(.small)
             Text("Working…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-          }.padding(10).transition(reduceMotion ? .identity : .opacity)
+          }
         }
       }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
+      .padding(.horizontal, AIMTheme.modalOuterInset)
+      .frame(height: 48)
     }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel).frame(
       maxWidth: .infinity, maxHeight: .infinity
     )
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.navigation), value: step)
   }
   private var step: Int { model.importResult != nil ? 3 : model.importPlan != nil ? 2 : 1 }
   private var title: String {
@@ -2896,6 +3052,9 @@ private struct ImportResultPage: View {
         }
       }
       HStack {
+        AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
+          Task { await model.refreshUsage(accountID: result.account.id) }
+        }
         Spacer()
         AIMButton(title: "Done", tone: .primary) {
           model.closeAccountModal()

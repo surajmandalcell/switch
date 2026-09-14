@@ -146,7 +146,7 @@ final class AIManagerStatusItemController: NSObject {
 
     let content = MenuBarPopover(store: store)
     popover.behavior = .transient
-    popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    popover.animates = false
     popover.contentViewController = NSHostingController(rootView: content)
     popover.contentSize = Self.contentSize(
       accountCount: snapshot.accounts.count,
@@ -184,6 +184,7 @@ final class AIManagerStatusItemController: NSObject {
     let visibleRows = min(max(accountCount, 0), MenuBarPopover.maximumVisibleRows)
     let idealHeight = MenuBarPopover.headerHeight
       + MenuBarPopover.footerHeight
+      + (accountCount > 0 ? MenuBarPopover.columnHeaderHeight : 0)
       + CGFloat(visibleRows) * MenuBarPopover.accountRowHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, visibleScreenHeight - 96)
     let height = min(

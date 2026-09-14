@@ -347,9 +347,7 @@ final class AccountViewModel: ObservableObject {
                         ? "New Codex sessions will use \(name)."
                         : "\(name) was saved. Choose Use for New Sessions when you want to switch."
                     await loadCachedUsage()
-                    if shouldRefreshDefaultUsage {
-                        Task { await self.refreshDefaultUsage() }
-                    }
+                    Task { await self.refreshUsage(accountID: account.id) }
                 }
             }
             return
@@ -508,6 +506,9 @@ final class AccountViewModel: ObservableObject {
                 try await reloadStatus(using: manager)
                 selectedAccountID = importResult?.account.id
             }
+            if let accountID = importResult?.account.id {
+                Task { await self.refreshUsage(accountID: accountID) }
+            }
             return
         }
         #if AI_MANAGER_PREVIEW
@@ -571,7 +572,7 @@ final class AccountViewModel: ObservableObject {
             guard let id = requestedID ?? selectedAccountID else { return }
             await perform(
                 failure: "Couldn’t change the default account.",
-                recovery: "Close running Codex sessions, resolve Backup items, then retry."
+                recovery: "Resolve any item in Backup, then try again."
             ) {
                 let result = try await manager.switchDefault(to: id)
                 try await reloadStatus(using: manager)
@@ -644,7 +645,7 @@ final class AccountViewModel: ObservableObject {
             guard let id = requestedID ?? selectedAccountID else { return }
             await perform(
                 failure: "Couldn’t open Codex.",
-                recovery: "Close running Codex sessions, then try again."
+                recovery: "Check the saved account, then try again."
             ) {
                 if status?.defaultAccountID != id {
                     _ = try await manager.switchDefault(to: id)
@@ -893,7 +894,10 @@ final class AccountViewModel: ObservableObject {
     }
 
     func usage(for accountID: UUID) -> CodexAccountUsageSnapshot? {
-        usageSnapshots[accountID]
+        if status?.accounts.first(where: { $0.id == accountID })?.verification.state == .needsSignIn {
+            return nil
+        }
+        return usageSnapshots[accountID]
     }
 
     func cachedUsage(for accountID: UUID) -> CachedCodexAccountUsage? {
@@ -920,10 +924,14 @@ final class AccountViewModel: ObservableObject {
     }
 
     func refreshDefaultUsage() async {
+        guard let accountID = status?.defaultAccountID else { return }
+        await refreshUsage(accountID: accountID)
+    }
+
+    func refreshUsage(accountID: UUID) async {
         guard paths.isolationRoot == nil,
               usageRefreshAccountID == nil,
               let manager,
-              let accountID = status?.defaultAccountID,
               status?.accounts.contains(where: {
                   $0.id == accountID && $0.identity.providerID == .codex
               }) == true else { return }
@@ -931,21 +939,18 @@ final class AccountViewModel: ObservableObject {
         usageError = nil
         usageErrorAccountID = nil
         defer { usageRefreshAccountID = nil }
-        let snapshot: CodexAccountUsageSnapshot
-        do {
-            snapshot = try await manager.readCodexAccountUsage(accountID: accountID)
-        } catch is CancellationError {
-            return
-        } catch {
-            let failure = usageFailure(for: error)
-            try? await recordUsageFailure(failure, accountID: accountID)
-            usageError = failure.message
+        let result = await manager.checkAccount(accountID: accountID)
+        try? await reloadStatus(using: manager)
+        if result.verification.state == .needsSignIn {
+            usageSnapshots.removeValue(forKey: accountID)
+            try? await recordUsageFailure(.authenticationRequired, accountID: accountID)
+            usageError = CodexUsageStatisticsFailure.authenticationRequired.message
             usageErrorAccountID = accountID
             return
         }
-        if snapshot.requiresOpenAIAuthentication == true, snapshot.account == nil {
-            try? await recordUsageFailure(.authenticationRequired, accountID: accountID)
-            usageError = CodexUsageStatisticsFailure.authenticationRequired.message
+        guard let snapshot = result.usage else {
+            try? await recordUsageFailure(.unavailable, accountID: accountID)
+            usageError = CodexUsageStatisticsFailure.unavailable.message
             usageErrorAccountID = accountID
             return
         }
@@ -997,23 +1002,6 @@ final class AccountViewModel: ObservableObject {
         guard let usageCache else { return }
         try await usageCache.recordFailure(accountID: accountID, failure: failure)
         await loadCachedUsage()
-    }
-
-    private func usageFailure(for error: Error) -> CodexUsageStatisticsFailure {
-        switch error {
-        case CodexAppServerError.timedOut:
-            return .timedOut
-        case CodexAppServerError.malformedResponse,
-             CodexAppServerError.missingResponse,
-             CodexAppServerError.outputLimitExceeded:
-            return .invalidResponse
-        case CodexAppServerError.rpcFailure:
-            return .backendRejectedRequest
-        case CodexAppServerError.invalidSource:
-            return .authenticationRequired
-        default:
-            return .unavailable
-        }
     }
 
     func watchChatHistory() async {
@@ -1319,7 +1307,7 @@ private enum DemoData {
             id: "demo-chat-accounts", threadID: "019f4b6d-accounts",
             title: "Polish the account import flow",
             preview: "The source rows now stay aligned and the review step is ready.",
-            project: "/Projects/Switch", minutesAgo: 8, messages: 4),
+            project: "/Projects/Switch", minutesAgo: 8, messages: 6),
         chatThread(
             id: "demo-chat-linux", threadID: "019f4b6d-linux",
             title: "Verify the Linux release matrix",
@@ -1351,6 +1339,8 @@ private enum DemoData {
             copy = [
                 (.user, "Make the Codex account import flow compact and easy to scan."),
                 (.assistant, "I aligned the provider, source, and scope sections to one grid."),
+                (.tool, "read_file\nAccountWindow.swift"),
+                (.other, "Checked the modal grid and row spacing."),
                 (.user, "Keep every source row visible and give the groups more breathing room."),
                 (.assistant, "The source rows now stay aligned and the review step is ready."),
             ]
