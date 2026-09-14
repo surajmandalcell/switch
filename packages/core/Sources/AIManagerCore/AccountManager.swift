@@ -183,12 +183,13 @@ public actor AccountManager {
         }
         let decisions = credentialChoice.map { ["auth.json": $0] } ?? [:]
         let ownedLogin = loginRunner.cancel(id)
-        if !ownedLogin {
-            try await ensureWritersInactive([loginHome(id)])
-        }
         let result = try await importAccount(plan: plan, decisions: decisions)
         try await activateLoginAccountIfNeeded(result.account.id)
-        try fileManager.removeItem(at: loginRoot(id))
+        if ownedLogin {
+            try fileManager.removeItem(at: loginRoot(id))
+        } else {
+            try retireLoginSession(id)
+        }
         return .init(
             session: session,
             state: .completed,
@@ -202,10 +203,11 @@ public actor AccountManager {
         guard try !pendingOperations().contains(where: {
             CoreSupport.isContained($0.source, by: loginRoot(id))
         }) else { throw AIManagerError.recoveryRequired }
-        if !loginRunner.cancel(id) {
-            try await ensureWritersInactive([loginHome(id)])
+        if loginRunner.cancel(id) {
+            try fileManager.removeItem(at: loginRoot(id))
+        } else {
+            try retireLoginSession(id)
         }
-        try fileManager.removeItem(at: loginRoot(id))
     }
 
     public func discover(explicit: URL? = nil) async -> [DiscoveredSource] {
@@ -951,6 +953,14 @@ extension AccountManager {
     }
 
     private func loadLoginSession(_ id: UUID) throws -> AccountLoginSession {
+        let record = try loadLoginSessionRecord(id)
+        guard record.retiredAt == nil else {
+            throw AIManagerError.invalidSource("Account login session is no longer active.")
+        }
+        return record.session
+    }
+
+    private func loadLoginSessionRecord(_ id: UUID) throws -> VersionedLoginSession {
         let root = loginRoot(id)
         guard CoreSupport.isContained(root, by: loginSessionsURL) else {
             throw AIManagerError.unsafePath(root.path)
@@ -969,7 +979,18 @@ extension AccountManager {
         guard record.version == 1, record.session.id == id else {
             throw AIManagerError.invalidSource("Account login session version or identity is invalid.")
         }
-        return record.session
+        return record
+    }
+
+    private func retireLoginSession(_ id: UUID) throws {
+        var record = try loadLoginSessionRecord(id)
+        guard record.retiredAt == nil else {
+            throw AIManagerError.invalidSource("Account login session is no longer active.")
+        }
+        record.retiredAt = Date()
+        try CoreSupport.atomicWrite(
+            try encoder.encode(record), to: loginSessionURL(id), fileManager: fileManager)
+        // ponytail: unowned login homes are retained indefinitely; delete them only after durable process-exit ownership can be verified.
     }
 
     private func loadLoginSessions() throws -> [AccountLoginSession] {
@@ -985,7 +1006,8 @@ extension AccountManager {
             options: [.skipsHiddenFiles]
         ).compactMap { url in
             guard let id = UUID(uuidString: url.lastPathComponent) else { return nil }
-            return try loadLoginSession(id)
+            let record = try loadLoginSessionRecord(id)
+            return record.retiredAt == nil ? record.session : nil
         }.sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -3042,4 +3064,5 @@ extension AccountManager {
 private struct VersionedLoginSession: Codable {
     var version: Int
     var session: AccountLoginSession
+    var retiredAt: Date? = nil
 }
