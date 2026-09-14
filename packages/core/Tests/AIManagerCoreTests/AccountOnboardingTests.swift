@@ -210,7 +210,7 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertTrue(entries.isEmpty)
     }
 
-    func testUnknownRestartedLoginWriterPreventsUnsafeCancellation() async throws {
+    func testUnknownRestartedLoginIsRetiredWithoutDeletingItsHome() async throws {
         let manager = try AccountManager(
             paths: paths,
             writerCheck: { _ in .unknown },
@@ -221,11 +221,47 @@ final class AccountOnboardingTests: XCTestCase {
         let root = paths.applicationSupport.appending(
             path: "account-login/\(started.session.id.uuidString)")
 
-        await assertOnboardingThrows(try await manager.cancelAccountLogin(id: started.session.id))
+        try await manager.cancelAccountLogin(id: started.session.id)
 
         XCTAssertTrue(fileManager.fileExists(atPath: root.path))
         let snapshot = try await manager.refreshAccounts(includeDiscoveries: false)
-        XCTAssertEqual(snapshot.pendingLoginSessions.map(\.id), [started.session.id])
+        XCTAssertTrue(snapshot.pendingLoginSessions.isEmpty)
+        await assertOnboardingThrows(try await manager.cancelAccountLogin(id: started.session.id))
+        await assertOnboardingThrows(try await manager.checkAccountLogin(id: started.session.id))
+    }
+
+    func testRestartedCompletedLoginIgnoresUnrelatedUnknownWriter() async throws {
+        let liveAuth = try writeAuth(
+            home: paths.defaultHome, account: "current", workspace: "personal")
+        let config = paths.defaultHome.appending(path: "config.toml")
+        let configData = Data("model = \"shared\"".utf8)
+        try configData.write(to: config)
+        let runner = AccountLoginRunner(launch: { _, _ in }, cancel: { _ in false })
+        let setup = try AccountManager(
+            paths: paths, writerCheck: { _ in .inactive }, loginRunner: runner)
+        let adopted = try await setup.refreshAccounts()
+        let currentID = try XCTUnwrap(adopted.status.defaultAccountID)
+        let started = try await setup.startAccountLogin(providerID: .codex)
+        let stagedHome = try XCTUnwrap(started.launchSpec.environment["CODEX_HOME"])
+        _ = try writeAuth(
+            home: URL(fileURLWithPath: stagedHome), account: "added", workspace: "team")
+
+        let restarted = try AccountManager(
+            paths: paths, writerCheck: { _ in .unknown }, loginRunner: runner)
+        let completed = try await restarted.checkAccountLogin(id: started.session.id)
+
+        XCTAssertEqual(completed.state, .completed)
+        XCTAssertEqual(completed.account?.identity.accountID, "account-added")
+        let status = try await restarted.refreshAccounts(includeDiscoveries: false)
+        XCTAssertEqual(status.status.defaultAccountID, currentID)
+        XCTAssertEqual(status.status.accounts.count, 2)
+        XCTAssertTrue(status.pendingLoginSessions.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), liveAuth)
+        XCTAssertEqual(try Data(contentsOf: config), configData)
+        XCTAssertTrue(fileManager.fileExists(
+            atPath: paths.applicationSupport.appending(
+                path: "account-login/\(started.session.id.uuidString)/home").path))
+        await assertOnboardingThrows(try await restarted.checkAccountLogin(id: started.session.id))
     }
 
     func testAdditionalLoginDoesNotReplaceCurrentDefault() async throws {

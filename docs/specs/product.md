@@ -28,6 +28,13 @@ Temporary or managed homes used for sign-in, verification, import, migration, or
 are implementation details. Legacy internal links may still be repaired for compatibility,
 but the interface must not describe linked entries as part of the product's everyday model.
 
+After a restart, checking a completed sign-in reads the private staged credential and uses
+the same identity, digest, and transaction checks as an auth-only import. An unrelated
+running Codex process must not block that check. If Switch no longer owns the sign-in
+process, it retires the session metadata and retains the staging home. Cancellation follows
+the same rule: stop only a process Switch owns, and preserve a home whose writer is unknown.
+Retired sessions do not reappear as pending or allow another import through their old ID.
+
 ## 2. Navigation and Settings
 
 The rail and View menu use this order: Accounts, Backup, Chat History, Settings. Command+,

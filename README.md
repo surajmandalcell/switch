@@ -4,8 +4,8 @@ Switch is a native macOS app for managing Codex accounts. It saves each
 account credential under `~/.switch/codex`, keeps one live `~/.codex` home for
 configuration and chat history, and activates an account before opening Codex.
 
-The normal app and CLI use the same production account manager. The separately
-named Preview app uses in-memory sample data for design review.
+The app and CLI use the same production account manager. The optional preview
+build uses in-memory sample data and is never installed over the production app.
 
 The repository contains one Swift package with three products:
 
@@ -71,8 +71,8 @@ scripts/launch-switch.sh --preview
 
 This builds an uninstalled `Switch.app` under
 `/private/tmp/ai-manager-build/preview` with the `AI_MANAGER_PREVIEW` compiler
-condition, then opens it. Use Import Account
-to explore source selection, both import modes, conflict review, and results.
+condition, then opens it. Use Add Account to explore sign-in, or Advanced Import
+to review an existing folder, import scope, conflicts, and results.
 The demo includes shared settings, chats, activity, errors, and recovery states.
 All changes stay in memory and reset on the next launch. No credentials,
 Codex homes, or backups are created. The production target never defines that

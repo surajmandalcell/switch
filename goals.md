@@ -2467,3 +2467,32 @@ with temporary synthetic homes before installation.
   System/Light/Dark window and menu contracts, single-instance behavior, and native scrolling.
   Preference checks cover inheritance, explicit overrides, Use default, reopening the preference
   store, hiding cached limits, and rejecting menu refresh for hidden usage.
+
+### Resumed login and protected-copy audit (2026-09-14)
+
+- The completion audit reproduced a CLI failure after process restart: Check Now rejected a
+  completed private login when an unrelated Codex process existed. Two new regression tests
+  failed with `writerStateUnknown` before the fix and all 14 onboarding tests passed afterward.
+- Completed unowned logins now import through the existing identity/digest transaction and retire
+  their private session metadata. Cancellation also retires an unowned session. Both retain the
+  staging home because its process may still be using it. Retired IDs cannot be reused and do not
+  reappear as pending. Owned processes retain the existing stop-and-clean-up behavior.
+- The installed CLI acceptance exposed this defect instead of proving the entire Mac mutation
+  flow. The corrected CLI explicitly passes resumed login and cancellation on this Mac; its
+  later full-import stage still reports a writer-ownership skip. Full import remains covered by
+  isolated production-model, core, protected-copy, and Linux tests without weakening its guard.
+- Both opt-in integrations passed against the existing protected 26 GB Codex-home copy in
+  318.697 seconds. All 1,604 transcripts were accounted for, 1,257 imported, and source auth stayed
+  byte-identical. Peak RSS was 628,916,224 bytes. Logs remain in
+  `/private/tmp/ai-manager-validation/current-core-test.log` and `evidence-current-core/`.
+  The disposable imported output was removed; the original protected source remains untouched.
+- The full native gate passed 153 discovered core contracts: 151 executed successfully and the
+  two separately verified protected-copy tests remained opt-in. Production and Preview models,
+  System/Light/Dark native contracts, icon assets, scrolling, and single-instance checks passed.
+- Read-only, unprivileged ARM64 and AMD64 Docker containers passed the same 153-contract inventory,
+  release CLI build, and complete CLI acceptance, including resumed login, cancellation, full
+  import, switching, launch, and recovery. Their tested core and CLI sources match this checkpoint;
+  logs are `/private/tmp/ai-manager-build/linux-{arm64,amd64}-current.log`.
+- Two safety deferrals remain in `AccountManager.swift`: legacy mutation checks need a reliable
+  home-scoped Codex lock/probe; automatic cleanup of unowned login homes needs durable proof that
+  their process exited. Neither trigger is available. There are no markers without a trigger.

@@ -84,7 +84,6 @@ login_home="$fixture/application-support/account-login/$login_id/home"
 cp "$fixture/source-two/auth.json" "$login_home/auth.json"
 chmod 600 "$login_home/auth.json"
 if ! "$binary" check-login "$login_id" --yes --json >"$test_root/login-check.json" 2>"$test_root/login-check.log"; then
-  skip_if_native_writer_unknown "$test_root/login-check.log" || true
   cat "$test_root/login-check.log" >&2
   exit 1
 fi
@@ -101,7 +100,15 @@ cancel_start="$test_root/cancel-start.json"
 cancel_id="$(jq -r '.session.id' "$cancel_start")"
 "$binary" cancel-login "$cancel_id" --yes --json \
   | jq -e --arg id "$cancel_id" '.sessionID == $id and .state == "cancelled"' >/dev/null
-[[ ! -e "$fixture/application-support/account-login/$cancel_id" ]]
+[[ -d "$fixture/application-support/account-login/$cancel_id/home" ]]
+jq -e '.retiredAt != null' "$fixture/application-support/account-login/$cancel_id/session.json" >/dev/null
+"$binary" status --json \
+  | jq -e --arg id "$cancel_id" '(.pendingLoginSessions | map(.id) | index($id)) == null' >/dev/null
+if "$binary" check-login "$cancel_id" --yes --json >"$test_root/retired-check.json" 2>"$test_root/retired-check.log"; then
+  printf '%s\n' 'Retired login unexpectedly allowed another check.' >&2
+  exit 1
+fi
+printf '%s\n' 'CLI resumed login and cancellation passed.'
 
 adopt_fixture="$test_root/auto-adopt-fixture"
 swift "$(dirname "$0")/FixtureGenerator.swift" "$adopt_fixture" >/dev/null
