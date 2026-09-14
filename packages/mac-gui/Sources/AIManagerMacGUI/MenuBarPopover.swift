@@ -2,25 +2,26 @@ import AppKit
 import SwiftUI
 
 struct MenuBarUsageSnapshot: Equatable, Sendable {
-  let usedPercentage: Int
+  let usedPercentage: Int?
   let secondaryUsedPercentage: Int?
   let plan: String?
   let resetDescription: String?
   let secondaryResetDescription: String?
 
   init(
-    usedPercentage: Int,
+    usedPercentage: Int?,
     secondaryUsedPercentage: Int? = nil,
     plan: String? = nil,
     resetDescription: String? = nil,
     secondaryResetDescription: String? = nil
   ) {
-    self.usedPercentage = min(max(usedPercentage, 0), 100)
+    self.usedPercentage = usedPercentage.map { min(max($0, 0), 100) }
     self.secondaryUsedPercentage = secondaryUsedPercentage.map { min(max($0, 0), 100) }
     self.plan = plan
     self.resetDescription = resetDescription
     self.secondaryResetDescription = secondaryResetDescription
   }
+
 }
 
 struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
@@ -290,7 +291,7 @@ struct MenuBarPopover: View {
   }
 
   private var hasPrimaryUsage: Bool {
-    store.snapshot.accounts.contains { $0.usage != nil }
+    store.snapshot.accounts.contains { $0.usage?.usedPercentage != nil }
   }
 
   private var hasSecondaryUsage: Bool {
@@ -444,7 +445,12 @@ private struct MenuBarAccountRow: View {
   private var accessibilityLabel: String {
     var parts = [account.identity, error ?? account.detail]
     if let usage = account.usage {
-      parts.append("\(usage.usedPercentage) percent used")
+      if let usedPercentage = usage.usedPercentage {
+        parts.append("\(usedPercentage) percent used")
+      }
+      if let secondaryUsedPercentage = usage.secondaryUsedPercentage {
+        parts.append("\(secondaryUsedPercentage) percent weekly used")
+      }
       if let detail = usageDetail(usage) { parts.append(detail) }
     }
     return parts.joined(separator: ", ")

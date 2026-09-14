@@ -99,6 +99,11 @@ enum AIManagerNativeContract {
     expect(MenuBarPopover.trailingActionWidth == 34, "Menu-bar trailing action slot width changed")
     expect(MenuBarPopover.quotaText(nil).isEmpty, "Missing menu-bar quota uses a placeholder")
     expect(MenuBarPopover.quotaText(0) == "0%", "Zero menu-bar quota is hidden")
+    let weeklyOnly = MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 1)
+    expect(
+      weeklyOnly.usedPercentage == nil && weeklyOnly.secondaryUsedPercentage == 1
+        && (weeklyOnly.usedPercentage ?? weeklyOnly.secondaryUsedPercentage) == 1,
+      "Weekly-only usage is discarded or missing from the status item")
     failures.append(contentsOf: menuBarUsagePreferenceFailures())
     return failures
   }

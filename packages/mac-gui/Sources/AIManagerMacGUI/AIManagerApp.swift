@@ -185,7 +185,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                         : nil,
                     showsUsage: showsUsage)
             },
-            primaryUsedPercentage: activeUsage?.usedPercentage)
+            primaryUsedPercentage: activeUsage?.usedPercentage
+                ?? activeUsage?.secondaryUsedPercentage)
     }
 
     private func menuBarUsage(
@@ -195,19 +196,21 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     ) -> MenuBarUsageSnapshot? {
         guard status.accounts.first(where: { $0.id == accountID })?.verification.state != .needsSignIn,
               let snapshot = usageSnapshots[accountID],
-              let used = snapshot.rateLimits?.defaultBucket?.primary?.usedPercent else { return nil }
-        let bucket = snapshot.rateLimits?.defaultBucket
-        let reset = bucket?.primary?.resetsAt.map {
+              let bucket = snapshot.rateLimits?.defaultBucket else { return nil }
+        let used = bucket.primary?.usedPercent
+        let secondaryUsed = bucket.secondary?.usedPercent
+        guard used != nil || secondaryUsed != nil else { return nil }
+        let reset = bucket.primary?.resetsAt.map {
             "resets \($0.formatted(.relative(presentation: .named)))"
         }
-        let secondaryReset = bucket?.secondary?.resetsAt.map {
+        let secondaryReset = bucket.secondary?.resetsAt.map {
             "resets \($0.formatted(.relative(presentation: .named)))"
         }
         return MenuBarUsageSnapshot(
             usedPercentage: used,
-            secondaryUsedPercentage: bucket?.secondary?.usedPercent,
+            secondaryUsedPercentage: secondaryUsed,
             plan: snapshot.account?.plan?.capitalized
-                ?? bucket?.plan?.capitalized,
+                ?? bucket.plan?.capitalized,
             resetDescription: reset,
             secondaryResetDescription: secondaryReset)
     }
