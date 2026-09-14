@@ -43,6 +43,10 @@ struct MockAccountViewModelCheck {
         await model.beginAddAccount()
         precondition(model.showImport)
         precondition(model.accountModalMode == .add)
+        let modalAccountCount = model.status?.accounts.count
+        await model.reloadAfterActivation()
+        precondition(model.showImport, "Returning to the app dismissed or reloaded the account dialog")
+        precondition(model.status?.accounts.count == modalAccountCount)
         precondition(model.providers.map(\.id) == [.codex, .claudeCode, .geminiCLI, .antigravityCLI])
         precondition(model.providers.map(\.availability) == [.enabled, .disabled, .disabled, .disabled])
         await model.startAccountLogin()
@@ -122,6 +126,18 @@ struct MockAccountViewModelCheck {
         precondition(model.status?.pendingRecovery.count == 1)
         await model.recover()
         precondition(model.status?.pendingRecovery.isEmpty == true)
+
+        guard let defaultAccountID = model.status?.defaultAccountID,
+              let deletableAccount = model.status?.accounts.first(where: {
+                $0.id != defaultAccountID && $0.verification.state != .needsSignIn
+              }) else {
+            preconditionFailure("Missing a non-default demo account to delete")
+        }
+        let countBeforeDeletion = model.status?.accounts.count
+        await model.deleteAccount(deletableAccount.id)
+        precondition(model.status?.accounts.contains(where: { $0.id == deletableAccount.id }) == false)
+        precondition(model.status?.accounts.count == countBeforeDeletion.map { $0 - 1 })
+        precondition(model.status?.defaultAccountID == defaultAccountID)
         model.showDemoError()
         precondition(model.errorMessage?.contains("needs sign-in") == true)
 

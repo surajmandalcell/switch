@@ -19,10 +19,33 @@ mkdir -p "$expected" "$actual" "$iconset"
 
 for svg in \
   AppIcon.svg AppIconLight.svg AppIconDark.svg ManagerMark.svg \
-  SwitchMarkMenubar.svg SwitchMarkPixelTrace.svg
+  SwitchMarkMenubar.svg SwitchMarkPixelTrace.svg \
+  ProviderClaudeCode.svg ProviderGeminiCLI.svg
 do
   xmllint --noout "$icons/$svg"
 done
+
+for asset in \
+  ProviderCodex.png ProviderClaudeCode.svg ProviderGeminiCLI.svg ProviderAntigravityCLI.png
+do
+  test -s "$icons/$asset"
+done
+
+[[ "$(shasum -a 256 "$icons/ProviderCodex.png" | awk '{print $1}')" == \
+  "6025a4347a8eaed17e31eaebf7834e33ec4af26cc7f59be586ac59ba5157fa1c" ]]
+[[ "$(shasum -a 256 "$icons/ProviderClaudeCode.svg" | awk '{print $1}')" == \
+  "6d53db4be375e899c937c26cf16684a80d6e869b1928d72b37748bef2560e219" ]]
+[[ "$(shasum -a 256 "$icons/ProviderGeminiCLI.svg" | awk '{print $1}')" == \
+  "f56df33f86dc0c0257da337c63bf7ad68c0a1b27b796ec707e147984351bccb3" ]]
+[[ "$(shasum -a 256 "$icons/ProviderAntigravityCLI.png" | awk '{print $1}')" == \
+  "e0cd08ccd10cd8d08ccf0ba449823ee88495825c0841619618100d3ab089f51e" ]]
+
+if rg -i -q '<script|onload=|xlink:href="https?://' \
+  "$icons/ProviderClaudeCode.svg" "$icons/ProviderGeminiCLI.svg"
+then
+  printf '%s\n' 'Provider SVG contains executable or remotely loaded content.' >&2
+  exit 1
+fi
 
 if rg -q 'SwitchMarkBalanced|balanced-mark|optical version' \
   "$icons" "$repo_root/scripts/build-icons.sh"

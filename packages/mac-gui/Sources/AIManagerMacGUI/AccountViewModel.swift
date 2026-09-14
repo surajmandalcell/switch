@@ -170,6 +170,11 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    func reloadAfterActivation() async {
+        guard !showImport else { return }
+        await load()
+    }
+
     func refresh() async {
         if let manager {
             await perform(failure: "Couldn’t refresh accounts.", recovery: "Try Refresh again.") {
@@ -595,13 +600,20 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
-    func verify() async {
+    func checkAccount(_ requestedID: UUID? = nil) async {
         if let manager {
-            guard let id = selectedAccountID else { return }
+            guard let id = requestedID ?? selectedAccountID else { return }
             await perform(failure: "Couldn’t check the account files.", recovery: "Try the check again.") {
-                let result = await manager.verifyLocal(accountID: id)
-                notice = result.detail
+                let result = await manager.checkAccount(accountID: id)
                 try await reloadStatus(using: manager)
+                selectedAccountID = id
+                notice = result.verification.detail
+                if let usage = result.usage {
+                    usageSnapshots[id] = usage
+                    await prepareUsageCache()
+                    try await usageCache?.upsertSuccess(accountID: id, snapshot: usage)
+                    await loadCachedUsage()
+                }
             }
             return
         }
@@ -623,34 +635,46 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
-    func openAccount() async {
+    func verify() async {
+        await checkAccount()
+    }
+
+    func openAccount(_ requestedID: UUID? = nil) async {
         if let manager {
-            guard let id = selectedAccountID else { return }
+            guard let id = requestedID ?? selectedAccountID else { return }
             await perform(
                 failure: "Couldn’t open Codex.",
-                recovery: "Run ai-manager open \(id.uuidString) in a terminal."
+                recovery: "Close running Codex sessions, then try again."
             ) {
-                if paths.isolationRoot != nil {
+                if status?.defaultAccountID != id {
                     _ = try await manager.switchDefault(to: id)
-                    let spec = try await manager.launchSpec(accountID: id)
                     try await reloadStatus(using: manager)
+                    selectedAccountID = id
+                }
+                let spec = try await manager.launchSpec(accountID: id)
+                if paths.isolationRoot != nil {
                     _ = try makeLaunchArtifact(spec)
                     notice = "Account launch file prepared for isolated validation. Terminal was not opened."
                     return
                 }
-                let script = try makeCoordinatedLaunchArtifact(accountID: id)
+                let script = try makeLaunchArtifact(spec)
                 guard NSWorkspace.shared.open(script) else {
                     throw AIManagerError.operationFailed(
-                        "Terminal could not open the account launch file. Run ai-manager open \(id.uuidString) in a terminal.")
+                        "Terminal could not open the Codex launch file.")
                 }
-                notice = "Terminal accepted the launch request. Account activation and any startup error appear there."
+                notice = "Terminal accepted the Codex launch request."
             }
             return
         }
         #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
-            guard selectedAccount != nil else { return }
+            guard let id = requestedID ?? selectedAccountID,
+                  var current = status,
+                  current.accounts.contains(where: { $0.id == id }) else { return }
+            current.defaultAccountID = id
+            status = current
+            selectedAccountID = id
             notice = "Demo account opened. No Terminal process was started."
         }
         #else
@@ -687,9 +711,64 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
-    func copySavedAuthPath() {
+    func canDeleteAccount(_ accountID: UUID) -> Bool {
+        guard let current = status,
+              current.accounts.contains(where: { $0.id == accountID }) else { return false }
+        return current.defaultAccountID != accountID
+    }
+
+    func deleteAccount(_ accountID: UUID) async {
+        guard let account = status?.accounts.first(where: { $0.id == accountID }) else { return }
+        guard canDeleteAccount(accountID) else {
+            errorMessage = "Use another account for new Codex sessions before deleting the default account."
+            return
+        }
+        if let manager {
+            await perform(
+                failure: "Couldn’t delete the account.",
+                recovery: "Refresh accounts, then try again."
+            ) {
+                _ = try await manager.deleteAccount(
+                    accountID: accountID,
+                    replacementDefaultAccountID: nil)
+                try await reloadStatus(using: manager)
+                accountUsage[accountID] = nil
+                usageSnapshots[accountID] = nil
+                if usageErrorAccountID == accountID {
+                    usageError = nil
+                    usageErrorAccountID = nil
+                }
+                selectedAccountID = status?.defaultAccountID
+                    ?? status?.accounts.first?.id
+                let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
+                notice = "\(accountName) was deleted from Switch."
+            }
+            return
+        }
+        #if AI_MANAGER_PREVIEW
+        guard isDemo else { reportUnavailable(); return }
+        await perform {
+            guard var current = status else { return }
+            current.accounts.removeAll { $0.id == accountID }
+            current.linkedSettingsDivergences.removeAll { $0.accountID == accountID }
+            status = current
+            accountHistory[accountID] = nil
+            accountUsage[accountID] = nil
+            usageSnapshots[accountID] = nil
+            selectedAccountID = current.defaultAccountID
+                ?? current.accounts.first?.id
+            let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
+            notice = "\(accountName) was deleted from the demo."
+        }
+        #else
+        reportUnavailable()
+        #endif
+    }
+
+    func copySavedAuthPath(for requestedID: UUID? = nil) {
         guard !isUnavailable else { reportUnavailable(); return }
-        guard let credential = selectedAccount?.credentialFile.path else { return }
+        let account = status?.accounts.first { $0.id == (requestedID ?? selectedAccountID) }
+        guard let credential = account?.credentialFile.path else { return }
         #if AI_MANAGER_PREVIEW
         if isDemo {
             notice = "Demo saved auth path ready. The clipboard was not changed."
@@ -1209,30 +1288,6 @@ final class AccountViewModel: ObservableObject {
             ["#!/bin/zsh", "set -e", "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN"]
                 + exports + [workingDirectory + "exec \(command)"]
         ).joined(separator: "\n") + "\n"
-        try contents.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-        return url
-    }
-
-    func makeCoordinatedLaunchArtifact(accountID: UUID, helper suppliedHelper: URL? = nil) throws -> URL {
-        let helper = suppliedHelper ?? Bundle.main.bundleURL
-            .appending(path: "Contents/Helpers/ai-manager")
-        guard FileManager.default.isExecutableFile(atPath: helper.path) else {
-            throw AIManagerError.operationFailed(
-                "The bundled account launcher is missing. Reinstall Switch or run ai-manager open \(accountID.uuidString) in a terminal.")
-        }
-        let directory = paths.applicationSupport.appending(path: "Launch", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(
-            at: directory, withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
-        let url = directory.appending(path: "Open Switch Account.command")
-        let command = [helper.path, "open", accountID.uuidString].map(shellQuote).joined(separator: " ")
-        let contents = [
-            "#!/bin/zsh",
-            "set -e",
-            "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN",
-            "exec \(command)",
-        ].joined(separator: "\n") + "\n"
         try contents.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         return url

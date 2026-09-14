@@ -163,7 +163,7 @@ struct AIMVisualEffect: NSViewRepresentable {
 struct AIMIcon: View {
   enum Name: CaseIterable {
     case account, settings, history, backup, search, plus, refresh, moon, sun, close, minimize
-    case chevron, check, square, checkSquare, folder, play, copy, warning, info, success, terminal
+    case chevron, check, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal
 
     var symbol: String {
       switch self {
@@ -186,6 +186,7 @@ struct AIMIcon: View {
       case .folder: "folder"
       case .play: "play"
       case .copy: "doc.on.doc"
+      case .trash: "trash"
       case .warning: "exclamationmark.triangle"
       case .info: "info.circle"
       case .success: "checkmark.circle"

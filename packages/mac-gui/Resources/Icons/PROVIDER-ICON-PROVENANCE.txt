@@ -1,0 +1,26 @@
+Provider icon provenance
+Retrieved: 2026-09-14
+
+ProviderCodex.png
+Source: https://avatars.githubusercontent.com/u/14957082?s=256&v=4
+Official owner page: https://github.com/openai
+Brand guidance: https://openai.com/brand/
+SHA-256: 6025a4347a8eaed17e31eaebf7834e33ec4af26cc7f59be586ac59ba5157fa1c
+Note: OpenAI does not publish a separate Codex CLI product icon in its brand kit. Switch uses the official OpenAI organization mark to identify Codex CLI.
+
+ProviderClaudeCode.svg
+Source archive: https://www.anthropic.com/press-kit
+Archive member: Anthropic media resources/Anthropic logos/Claude logos/3 Claude Spark/SVG/Claude Spark - Clay.svg
+SHA-256: 6d53db4be375e899c937c26cf16684a80d6e869b1928d72b37748bef2560e219
+
+ProviderGeminiCLI.svg
+Source: https://www.gstatic.com/lamda/images/gemini_sparkle_aurora_33f86dc0c0257da337c63.svg
+Official owner page: https://gemini.google.com/
+SHA-256: f56df33f86dc0c0257da337c63bf7ad68c0a1b27b796ec707e147984351bccb3
+
+ProviderAntigravityCLI.png
+Source: https://antigravity.google/assets/image/brand/antigravity-icon__full-color.png
+Official press page: https://antigravity.google/press
+SHA-256: e0cd08ccd10cd8d08ccf0ba449823ee88495825c0841619618100d3ab089f51e
+
+These assets remain trademarks and copyrighted material of their respective owners. They are packaged only to identify the corresponding provider in Switch.

@@ -1,3 +1,4 @@
+import AIManagerCore
 import AppKit
 import SwiftUI
 
@@ -36,6 +37,32 @@ enum AIManagerBrand {
     return image
   }
 
+  struct ProviderArtwork: Equatable {
+    let providerID: ProviderID
+    let resourceName: String
+    let fileExtension: String
+  }
+
+  static let providerArtwork: [ProviderArtwork] = [
+    .init(providerID: .codex, resourceName: "ProviderCodex", fileExtension: "png"),
+    .init(providerID: .claudeCode, resourceName: "ProviderClaudeCode", fileExtension: "svg"),
+    .init(providerID: .geminiCLI, resourceName: "ProviderGeminiCLI", fileExtension: "svg"),
+    .init(
+      providerID: .antigravityCLI,
+      resourceName: "ProviderAntigravityCLI",
+      fileExtension: "png"),
+  ]
+
+  static func providerImage(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage? {
+    guard let artwork = providerArtwork.first(where: { $0.providerID == providerID }) else {
+      return nil
+    }
+    return image(
+      named: artwork.resourceName,
+      extension: artwork.fileExtension,
+      bundle: bundle)
+  }
+
   static func acceptanceFailures(in bundle: Bundle = .main) -> [String] {
     var failures: [String] = []
     for (name, fileExtension) in [
@@ -46,6 +73,13 @@ enum AIManagerBrand {
       ("TrayTemplate", "png"), ("TrayTemplate@2x", "png"),
     ] where resourceURL(named: name, extension: fileExtension, bundle: bundle) == nil {
       failures.append("Brand asset \(name).\(fileExtension) is unavailable")
+    }
+    for artwork in providerArtwork {
+      guard providerImage(for: artwork.providerID, in: bundle) != nil else {
+        failures.append(
+          "Provider asset \(artwork.resourceName).\(artwork.fileExtension) did not load")
+        continue
+      }
     }
     for name in ["AppIcon", "AppIconLight", "AppIconDark"] {
       guard let url = resourceURL(named: name, extension: "png", bundle: bundle),
