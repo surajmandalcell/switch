@@ -182,7 +182,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     showsUsage: showsUsage)
             },
             primaryUsedPercentage: activeUsage?.usedPercentage
-                ?? activeUsage?.secondaryUsedPercentage)
+                ?? activeUsage?.secondaryUsedPercentage,
+            lastRefreshedAt: usageSnapshots.values.map(\.fetchedAt).max())
     }
 
     private func menuBarUsage(

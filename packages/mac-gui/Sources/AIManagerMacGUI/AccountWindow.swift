@@ -135,6 +135,7 @@ private extension AIManagerPage {
     case .accounts: .account
     case .backup: .backup
     case .history: .history
+    case .cleanup: .trash
     case .settings: .settings
     }
   }
@@ -146,6 +147,7 @@ private extension AIManagerPage {
     case .accounts: "Import, verify, and switch accounts"
     case .backup: "Snapshots and interrupted operations"
     case .history: "The merged resume library"
+    case .cleanup: "Remove rebuildable app data"
     case .settings: "App behavior and data locations"
     }
   }
@@ -195,6 +197,7 @@ struct AccountWindow: View {
               case .accounts: AccountsPage(model: model)
               case .backup: BackupPage(model: model)
               case .history: HistoryPage(model: model)
+              case .cleanup: CleanupPage(model: model)
               case .settings:
                 SettingsPage(model: model, showFocusIndicators: $showFocusIndicators)
               }
@@ -331,7 +334,7 @@ struct AccountWindow: View {
     ZStack {
       WindowDragRegion()
       HStack(alignment: .lastTextBaseline, spacing: 14) {
-        Text(page.rawValue).font(AIMTheme.display(22, weight: .semibold)).tracking(-0.35).lineLimit(1)
+        Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).tracking(-0.35).lineLimit(1)
         Text(page.subtitle).font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.muted).lineLimit(1)
         Spacer(minLength: 12)
       }
@@ -740,7 +743,7 @@ private struct EmptyAccountView: View {
           }
         } else {
           VStack(alignment: .leading, spacing: 10) {
-            Text("Add your first account").font(AIMTheme.display(18, weight: .semibold))
+            Text("Add your first account").font(AIMTheme.sans(18, weight: .semibold))
             Text(
               "Switch found no saved account. Sign in to Codex or use Advanced Import for an existing folder."
             ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
@@ -774,7 +777,7 @@ private struct AccountDetail: View {
           VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
               VStack(alignment: .leading, spacing: 4) {
-                Text(account.identity.heroName).font(AIMTheme.display(22, weight: .semibold))
+                Text(account.identity.heroName).font(AIMTheme.sans(22, weight: .semibold))
                   .lineLimit(1).textSelection(.enabled)
                 Text(account.identity.workspaceID ?? "Personal workspace").font(AIMTheme.mono(10))
                   .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
@@ -889,10 +892,10 @@ enum UsagePresentation {
     var id: String { label }
   }
 
-  struct DailyRow: Identifiable, Equatable {
-    let startDate: String
-    let tokens: String
-    var id: String { "\(startDate):\(tokens)" }
+  struct ActivityDay: Identifiable, Equatable {
+    let date: Date
+    let tokens: Int64
+    var id: Date { date }
   }
 
   static func accountFacts(_ snapshot: CodexAccountUsageSnapshot) -> [Fact] {
@@ -951,11 +954,36 @@ enum UsagePresentation {
       || spendControl(bucket.spendControlReached) != nil
   }
 
-  static func dailyRows(_ rows: [CodexDailyUsageSnapshot]) -> [DailyRow] {
-    rows.compactMap { row in
-      guard let startDate = nonempty(row.startDate), let tokens = row.tokens else { return nil }
-      return DailyRow(startDate: startDate, tokens: formatTokens(tokens))
+  static func activityDays(
+    _ rows: [CodexDailyUsageSnapshot],
+    endingAt endDate: Date,
+    dayCount: Int
+  ) -> [ActivityDay] {
+    let calendar = activityCalendar
+    let end = calendar.startOfDay(for: endDate)
+    let count = min(max(dayCount, 1), 366)
+    let start = calendar.date(byAdding: .day, value: -(count - 1), to: end) ?? end
+    var tokensByDay: [Date: Int64] = [:]
+    for row in rows {
+      guard let startDate = nonempty(row.startDate),
+            let date = activityDate(startDate),
+            let tokens = row.tokens,
+            date >= start,
+            date <= end
+      else { continue }
+      let value = max(0, tokens)
+      let current = tokensByDay[date, default: 0]
+      let (sum, overflow) = current.addingReportingOverflow(value)
+      tokensByDay[date] = overflow ? Int64.max : sum
     }
+    return (0..<count).compactMap { offset in
+      guard let date = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
+      return ActivityDay(date: date, tokens: tokensByDay[date, default: 0])
+    }
+  }
+
+  static func exactTokens(_ value: Int64) -> String {
+    value.formatted(.number)
   }
 
   static func nonempty(_ value: String?) -> String? {
@@ -975,6 +1003,185 @@ enum UsagePresentation {
   private static func formatDuration(_ seconds: Int64) -> String {
     Duration.seconds(seconds).formatted(
       .units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
+  }
+
+  private static let activityCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.locale = Locale(identifier: "en_US_POSIX")
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    return calendar
+  }()
+
+  private static func activityDate(_ value: String) -> Date? {
+    let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+    guard parts.count == 3,
+          let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
+          let date = activityCalendar.date(from: DateComponents(
+            calendar: activityCalendar, timeZone: activityCalendar.timeZone,
+            year: year, month: month, day: day))
+    else { return nil }
+    let components = activityCalendar.dateComponents([.year, .month, .day], from: date)
+    return components.year == year && components.month == month && components.day == day
+      ? date : nil
+  }
+}
+
+private enum UsageActivityRange: String, CaseIterable, Identifiable {
+  case week = "7 days"
+  case month = "1 month"
+  case year = "1 year"
+
+  var id: Self { self }
+  var dayCount: Int {
+    switch self {
+    case .week: 7
+    case .month: 30
+    case .year: 365
+    }
+  }
+}
+
+private struct UsageActivityCalendar: View {
+  let rows: [CodexDailyUsageSnapshot]
+  @State private var range: UsageActivityRange = .month
+  @State private var selectedDate: Date?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var days: [UsagePresentation.ActivityDay] {
+    UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: range.dayCount)
+  }
+  private var maximumTokens: Int64 { days.map(\.tokens).max() ?? 0 }
+  private var selectedDay: UsagePresentation.ActivityDay? {
+    guard let selectedDate else { return nil }
+    return days.first { $0.date == selectedDate }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Text("Daily activity").font(AIMTheme.sans(11, weight: .semibold))
+        if let selectedDay {
+          Text(selectedDay.date.formatted(date: .abbreviated, time: .omitted))
+            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          Text("\(UsagePresentation.exactTokens(selectedDay.tokens)) tokens")
+            .font(AIMTheme.mono(10, weight: .semibold))
+        }
+        Spacer()
+        HStack(spacing: 2) {
+          ForEach(UsageActivityRange.allCases) { option in
+            Button {
+              range = option
+              if selectedDay == nil { selectedDate = nil }
+            } label: {
+              Text(option.rawValue)
+                .font(AIMTheme.sans(9, weight: .medium))
+                .foregroundStyle(range == option ? AIMTheme.activeInk : AIMTheme.muted)
+                .padding(.horizontal, 9)
+                .frame(height: 24)
+                .background(range == option ? AIMTheme.active : AIMTheme.control.opacity(0.55))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(AIMPressButtonStyle())
+            .accessibilityLabel("Show \(option.rawValue) of activity")
+          }
+        }
+      }
+      if range == .week {
+        HStack(spacing: 6) {
+          ForEach(days) { day in
+            VStack(spacing: 5) {
+              Text(day.date.formatted(.dateTime.weekday(.narrow)))
+                .font(AIMTheme.sans(8, weight: .medium)).foregroundStyle(AIMTheme.faint)
+              ActivityCell(
+                day: day, maximumTokens: maximumTokens,
+                selected: selectedDate == day.date, size: 18
+              ) { selectedDate = day.date }
+            }
+          }
+          Spacer()
+        }
+      } else {
+        HStack(alignment: .top, spacing: 5) {
+          VStack(spacing: 3) {
+            ForEach(0..<7, id: \.self) { weekday in
+              Text(weekday == 1 ? "M" : weekday == 3 ? "W" : weekday == 5 ? "F" : "")
+                .font(AIMTheme.sans(7, weight: .medium)).foregroundStyle(AIMTheme.faint)
+                .frame(width: 10, height: cellSize)
+            }
+          }
+          HStack(alignment: .top, spacing: 3) {
+            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+              VStack(spacing: 3) {
+                ForEach(Array(week.enumerated()), id: \.offset) { _, day in
+                  if let day {
+                    ActivityCell(
+                      day: day, maximumTokens: maximumTokens,
+                      selected: selectedDate == day.date, size: cellSize
+                    ) { selectedDate = day.date }
+                  } else {
+                    Color.clear.frame(width: cellSize, height: cellSize)
+                  }
+                }
+              }
+            }
+          }
+          Spacer(minLength: 0)
+        }
+      }
+    }
+    .padding(.top, 14)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: range)
+  }
+
+  private var cellSize: CGFloat { range == .year ? 9 : 13 }
+
+  private var weeks: [[UsagePresentation.ActivityDay?]] {
+    guard let first = days.first else { return [] }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let weekday = calendar.component(.weekday, from: first.date)
+    let leading = (weekday + 5) % 7
+    var padded = Array(repeating: Optional<UsagePresentation.ActivityDay>.none, count: leading)
+    padded.append(contentsOf: days.map(Optional.some))
+    while !padded.count.isMultiple(of: 7) { padded.append(nil) }
+    return stride(from: 0, to: padded.count, by: 7).map {
+      Array(padded[$0..<min($0 + 7, padded.count)])
+    }
+  }
+}
+
+private struct ActivityCell: View {
+  let day: UsagePresentation.ActivityDay
+  let maximumTokens: Int64
+  let selected: Bool
+  let size: CGFloat
+  let select: () -> Void
+  @State private var hovered = false
+
+  private var fill: AnyShapeStyle {
+    guard day.tokens > 0, maximumTokens > 0 else {
+      return AnyShapeStyle(hovered ? AIMTheme.controlHover : AIMTheme.control.opacity(0.58))
+    }
+    let intensity = 0.24 + 0.70 * sqrt(Double(day.tokens) / Double(maximumTokens))
+    return AnyShapeStyle(AIMTheme.green.opacity(hovered ? min(1, intensity + 0.10) : intensity))
+  }
+
+  var body: some View {
+    Button(action: select) {
+      RoundedRectangle(cornerRadius: max(1, size * 0.18))
+        .fill(fill)
+        .overlay {
+          RoundedRectangle(cornerRadius: max(1, size * 0.18))
+            .stroke(selected ? AIMTheme.ink : AIMTheme.lineSoft.opacity(0.55), lineWidth: 1)
+        }
+        .frame(width: size, height: size)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .onHover { hovered = $0 }
+    .help("\(day.date.formatted(date: .complete, time: .omitted)): \(UsagePresentation.exactTokens(day.tokens)) tokens")
+    .accessibilityLabel(day.date.formatted(date: .complete, time: .omitted))
+    .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
   }
 }
 
@@ -1069,29 +1276,8 @@ private struct AccountUsagePanel: View {
               .padding(.top, 14)
             }
 
-            let dailyRows = UsagePresentation.dailyRows(snapshot.dailyUsage)
-            if !dailyRows.isEmpty {
-              VStack(spacing: 0) {
-                HStack {
-                  Text("Daily activity").font(AIMTheme.sans(11, weight: .semibold))
-                  Spacer()
-                  Text("Tokens").font(AIMTheme.sans(9, weight: .medium))
-                    .foregroundStyle(AIMTheme.muted)
-                }
-                .padding(.horizontal, 12).frame(height: 32)
-                ForEach(Array(dailyRows.enumerated()), id: \.element.id) { index, day in
-                  HStack(spacing: 12) {
-                    Text(day.startDate)
-                      .font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
-                    Spacer()
-                    Text(day.tokens)
-                      .font(AIMTheme.mono(10, weight: .semibold))
-                  }
-                  .padding(.horizontal, 12).frame(height: 30)
-                  .background(index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe)
-                }
-              }
-              .padding(.top, 14)
+            if !snapshot.dailyUsage.isEmpty {
+              UsageActivityCalendar(rows: snapshot.dailyUsage)
             }
           }
           .padding(16)
@@ -1296,6 +1482,105 @@ private struct DetailRow: View {
       Spacer()
     }.padding(.horizontal, 16).frame(minHeight: 40).background(
       zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
+  }
+}
+
+private struct CleanupPage: View {
+  @ObservedObject var model: AccountViewModel
+  @State private var sizes = RebuildableCacheSizes(usageBytes: 0, conversationBytes: 0)
+  @State private var isReadingSizes = true
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    AIMScrollView {
+      VStack(spacing: 8) {
+        AIMPanel(title: "Rebuildable data") {
+          VStack(spacing: 0) {
+            CacheCleanupRow(
+              title: "Account usage cache",
+              detail: "Cached limits and daily activity. Refresh an account to fetch it again.",
+              size: sizeText(sizes.usageBytes),
+              zebra: false,
+              disabled: model.isBusy
+            ) {
+              Task {
+                await model.clearUsageCache()
+                await refreshSizes()
+              }
+            }
+            CacheCleanupRow(
+              title: "Conversation index",
+              detail: "Search metadata only. Your conversation files remain in the Codex home.",
+              size: sizeText(sizes.conversationBytes),
+              zebra: true,
+              disabled: model.isBusy
+            ) {
+              Task {
+                await model.clearConversationIndex()
+                await refreshSizes()
+              }
+            }
+          }
+        }
+        HStack(spacing: 10) {
+          AIMIcon(name: .info, size: 14).foregroundStyle(AIMTheme.blue)
+          Text("Cleanup keeps accounts, saved auth, settings, and conversations.")
+            .font(AIMTheme.sans(11))
+            .foregroundStyle(AIMTheme.muted)
+          Spacer()
+          if isReadingSizes { ProgressView().controlSize(.small) }
+        }
+        .padding(12)
+        .background(AIMTheme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        Group {
+          if let notice = model.notice {
+            Notice(text: notice, tone: AIMTheme.blue)
+              .transition(reduceMotion ? .identity : .opacity)
+          }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
+      }
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset)
+    .padding(.top, 12)
+    .padding(.bottom, 24)
+    .task { await refreshSizes() }
+  }
+
+  private func refreshSizes() async {
+    isReadingSizes = true
+    sizes = await model.rebuildableCacheSizes()
+    isReadingSizes = false
+  }
+
+  private func sizeText(_ bytes: Int64) -> String {
+    bytes == 0 ? "0 KB" : ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+  }
+}
+
+private struct CacheCleanupRow: View {
+  let title: String
+  let detail: String
+  let size: String
+  let zebra: Bool
+  let disabled: Bool
+  let clear: () -> Void
+
+  var body: some View {
+    HStack(spacing: 16) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title).font(AIMTheme.sans(11, weight: .semibold))
+        Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 20)
+      Text(size).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+        .frame(minWidth: 64, alignment: .trailing)
+      AIMButton(title: "Clear", icon: .trash, disabled: disabled, action: clear)
+    }
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
 
@@ -2660,7 +2945,7 @@ private struct AddAccountFlow: View {
               model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue)
             VStack(alignment: .leading, spacing: 5) {
               Text("Finish signing in to Codex")
-                .font(AIMTheme.display(18, weight: .semibold))
+                .font(AIMTheme.sans(18, weight: .semibold))
               Text(
                 "Sign in through a private temporary home. The saved account becomes available for new Codex sessions after you finish."
               )
@@ -2725,7 +3010,7 @@ private struct AddAccountFlow: View {
           HStack(spacing: 10) {
             AIMIcon(name: .success, size: 22).foregroundStyle(AIMTheme.green)
             Text(model.selectedAccount?.identity.heroName ?? "Codex account")
-              .font(AIMTheme.display(19, weight: .semibold))
+              .font(AIMTheme.sans(19, weight: .semibold))
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
             .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
@@ -2820,7 +3105,7 @@ private struct ImportHeader: View {
   var body: some View {
     HStack(spacing: 0) {
       Text(title)
-        .font(AIMTheme.display(22, weight: .semibold))
+        .font(AIMTheme.sans(22, weight: .semibold))
         .tracking(-0.35)
         .lineLimit(1)
         .padding(.leading, AIMTheme.modalOuterInset)
@@ -2875,7 +3160,7 @@ private struct ImportSteps: View {
         }
         .foregroundStyle(index < step ? AIMTheme.activeInk : AIMTheme.muted)
         .padding(.horizontal, 10)
-        .frame(height: AIMTheme.modalTitlebarHeight)
+        .frame(height: AIMTheme.modalStepHeight)
         .background(index < step ? AIMTheme.active : AIMTheme.control)
       }
     }.accessibilityElement(children: .ignore)
@@ -3141,7 +3426,7 @@ private struct ImportResultPage: View {
                   .foregroundStyle(AIMTheme.statusInk)
               }.frame(width: 48, height: 48)
               VStack(alignment: .leading, spacing: 3) {
-                Text(result.account.identity.heroName).font(AIMTheme.display(18, weight: .semibold))
+                Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
                 Text(result.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
                   AIMTheme.muted)
               }

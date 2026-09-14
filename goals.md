@@ -62,9 +62,9 @@ corners, panel/list structure, exact light/dark tokens, and interaction styling.
 Preserve native custom close/minimize controls and safe window lifecycle. Adapt
 the reference to account-management content.
 
-Typography refinement (2026-09-15): use bundled Inter for interface and reading text,
-Lora for display titles, and PT Mono for paths, identifiers, and measurements. This
-supersedes the earlier Geist typography requirement.
+Typography refinement (2026-09-15): use bundled Inter for interface, reading, and display
+text, and PT Mono only for paths, identifiers, and measurements. This supersedes the earlier
+Geist and Lora typography requirements.
 
 Latest refinement (2026-09-12): the window is fixed at 1120x740, without resize
 or maximize. Its custom title region must drag reliably. Light/dark switching
@@ -2492,6 +2492,22 @@ with temporary synthetic homes before installation.
   settled light modal renders were inspected at full resolution in the canonical build cache.
 - The Ponytail debt audit finds two existing safety deferrals in `AccountManager.swift`, each with
   an explicit upgrade trigger; this work adds no marker and leaves no marker without a trigger.
+
+### Cleanup, activity calendar, and compact-control refinement (2026-09-15)
+
+- Remove Lora. Inter owns all interface, reading, and display text; PT Mono remains limited to
+  technical values.
+- Center 28-point step tabs against the modal title instead of stretching them to 48 points.
+- Match Active, Switch, and Sign in as compact ghost controls. Show the newest cache refresh time
+  at the footer's left edge even when an account hides its usage.
+- Replace the Daily activity date table with a selectable activity calendar for 7 days, 1 month,
+  and 1 year. Selecting a day reveals its exact token count.
+- Add Cleanup as a native page for clearing the rebuildable usage cache and conversation index.
+  It must never remove accounts, saved auth, settings, or conversation files.
+- Verification (2026-09-15): all 154 native tests pass with only the two explicit protected-copy
+  fixture skips. Pixel-trace icon, mock/production view-model, system/light/dark GUI, single-instance,
+  and native-scroll contracts pass. Visual inspection covered Accounts, Add Account, Cleanup, the
+  menu popover, and activity-cell selection with its exact token count.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 

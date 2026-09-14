@@ -13,6 +13,7 @@ private actor CountingChatHistoryProvider: ChatHistoryProviding {
 
     func search(query: String) async -> ChatHistorySnapshot { ChatHistorySnapshot() }
     func detail(for id: String) async throws -> ChatThreadDetail? { nil }
+    func clearCache() async throws {}
     func refreshCount() -> Int { refreshes }
 }
 

@@ -56,6 +56,7 @@ enum AIMTheme {
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48
   static let modalTitlebarHeight: CGFloat = 48
+  static let modalStepHeight: CGFloat = 28
   static let modalHeight: CGFloat = 648
   static let addAccountModalHeight: CGFloat = 480
   static let modalOuterInset: CGFloat = 24
@@ -115,10 +116,6 @@ enum AIMTheme {
 
   static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
     .custom("Inter-\(weight.rawValue)", size: size, relativeTo: .body)
-  }
-
-  static func display(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("Lora-\(weight.rawValue)", size: size, relativeTo: .title)
   }
 
   static func mono(_ size: CGFloat, weight: FontWeight = .regular) -> Font {

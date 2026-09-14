@@ -4,6 +4,7 @@ enum AIManagerPage: String, CaseIterable {
   case accounts = "Accounts"
   case backup = "Backup"
   case history = "Chat History"
+  case cleanup = "Cleanup"
   case settings = "Settings"
 }
 
@@ -61,6 +62,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   @objc func showAccounts(_ sender: Any?) { navigate(to: .accounts) }
   @objc func showBackup(_ sender: Any?) { navigate(to: .backup) }
   @objc func showChatHistory(_ sender: Any?) { navigate(to: .history) }
+  @objc func showCleanup(_ sender: Any?) { navigate(to: .cleanup) }
   @objc func performAddAccount(_ sender: Any?) { addAccount() }
   @objc func performAdvancedImport(_ sender: Any?) { advancedImport() }
   @objc func performClose(_ sender: Any?) { closeWindow() }
@@ -131,7 +133,8 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
       item("Accounts", #selector(showAccounts(_:)), key: "1", target: self),
       item("Backup", #selector(showBackup(_:)), key: "2", target: self),
       item("Chat History", #selector(showChatHistory(_:)), key: "3", target: self),
-      item("Settings", #selector(showSettings(_:)), key: "4", target: self),
+      item("Cleanup", #selector(showCleanup(_:)), key: "4", target: self),
+      item("Settings", #selector(showSettings(_:)), key: "5", target: self),
     ]
   }
 
