@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 enum AIManagerBrand {
@@ -90,32 +91,37 @@ enum AIManagerBrand {
 @MainActor
 final class AIManagerStatusItemController: NSObject {
   var isPresent: Bool { statusItem.button?.image?.isTemplate == true }
+  var usesPopover: Bool { statusItem.menu == nil && popover.behavior == .transient }
+  var popoverContentSize: NSSize { popover.contentSize }
+  var statusTitle: String { statusItem.button?.title ?? "" }
 
   private let statusItem: NSStatusItem
-  private let showWindow: () -> Void
+  private let popover = NSPopover()
+  private let store: MenuBarPopoverStore
+  private let bundle: Bundle
 
   init(
     bundle: Bundle = .main,
-    showWindow: @escaping () -> Void
+    snapshot: MenuBarSnapshot = .empty,
+    actions: MenuBarPopoverActions
   ) {
-    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    self.showWindow = showWindow
+    self.bundle = bundle
+    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    store = MenuBarPopoverStore(snapshot: snapshot, actions: actions)
     super.init()
 
-    statusItem.button?.image = AIManagerBrand.trayImage(in: bundle)
-    statusItem.button?.imagePosition = .imageOnly
-    let title = AIManagerBrand.bundleDisplayName(in: bundle)
-    statusItem.button?.toolTip = title
-    statusItem.button?.setAccessibilityLabel(title)
+    let content = MenuBarPopover(store: store)
+    popover.behavior = .transient
+    popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    popover.contentViewController = NSHostingController(rootView: content)
+    popover.contentSize = Self.contentSize(
+      accountCount: snapshot.accounts.count,
+      visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? Self.fallbackScreenHeight)
 
-    let menu = NSMenu()
-    let showItem = NSMenuItem(title: "Show \(title)", action: #selector(show), keyEquivalent: "")
-    showItem.target = self
-    menu.addItem(showItem)
-    let quitItem = NSMenuItem(title: "Quit", action: #selector(terminate), keyEquivalent: "")
-    quitItem.target = self
-    menu.addItem(quitItem)
-    statusItem.menu = menu
+    store.didSwitch = { [weak self] in self?.closePopover() }
+    store.didRequestDismissal = { [weak self] in self?.closePopover() }
+    configureButton()
+    update(snapshot: snapshot)
   }
 
   deinit {
@@ -123,6 +129,72 @@ final class AIManagerStatusItemController: NSObject {
     Task { @MainActor in NSStatusBar.system.removeStatusItem(item) }
   }
 
-  @objc private func show() { showWindow() }
-  @objc private func terminate() { NSApp.terminate(nil) }
+  func update(snapshot: MenuBarSnapshot) {
+    store.update(snapshot: snapshot)
+    updateStatusLabel(snapshot.primaryUsedPercentage)
+    if popover.isShown {
+      popover.contentSize = Self.contentSize(
+        accountCount: snapshot.accounts.count,
+        visibleScreenHeight: statusItem.button?.window?.screen?.visibleFrame.height
+          ?? NSScreen.main?.visibleFrame.height
+          ?? Self.fallbackScreenHeight)
+    }
+  }
+
+  static func contentSize(accountCount: Int, visibleScreenHeight: CGFloat) -> NSSize {
+    let visibleRows = min(max(accountCount, 0), MenuBarPopover.maximumVisibleRows)
+    let idealHeight = MenuBarPopover.headerHeight
+      + MenuBarPopover.footerHeight
+      + CGFloat(visibleRows) * MenuBarPopover.accountRowHeight
+    let screenMaximum = max(MenuBarPopover.minimumHeight, visibleScreenHeight - 96)
+    let height = min(
+      max(idealHeight, MenuBarPopover.minimumHeight),
+      min(MenuBarPopover.maximumHeight, screenMaximum))
+    return NSSize(width: MenuBarPopover.width, height: height)
+  }
+
+  private static let fallbackScreenHeight: CGFloat = 900
+
+  private func configureButton() {
+    guard let button = statusItem.button else { return }
+    button.image = AIManagerBrand.trayImage(in: bundle)
+    button.imagePosition = .imageOnly
+    button.target = self
+    button.action = #selector(togglePopover)
+    button.sendAction(on: [.leftMouseUp])
+  }
+
+  private func updateStatusLabel(_ usedPercentage: Int?) {
+    guard let button = statusItem.button else { return }
+    let applicationName = AIManagerBrand.bundleDisplayName(in: bundle)
+    if let usedPercentage {
+      button.title = "\(usedPercentage)%"
+      button.imagePosition = .imageLeading
+      button.toolTip = "\(applicationName) — \(usedPercentage)% used quota"
+      button.setAccessibilityLabel("\(applicationName), \(usedPercentage) percent used quota")
+    } else {
+      button.title = ""
+      button.imagePosition = .imageOnly
+      button.toolTip = applicationName
+      button.setAccessibilityLabel(applicationName)
+    }
+  }
+
+  @objc private func togglePopover() {
+    if popover.isShown {
+      closePopover()
+      return
+    }
+    guard let button = statusItem.button else { return }
+    popover.contentSize = Self.contentSize(
+      accountCount: store.snapshot.accounts.count,
+      visibleScreenHeight: button.window?.screen?.visibleFrame.height
+        ?? NSScreen.main?.visibleFrame.height
+        ?? Self.fallbackScreenHeight)
+    popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+  }
+
+  private func closePopover() {
+    popover.performClose(nil)
+  }
 }
