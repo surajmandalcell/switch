@@ -9,6 +9,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: AIManagerStatusItemController?
     private var menuController: AIManagerMenuController?
     private var instanceActivationObserver: NSObjectProtocol?
+    private var appearanceObserver: NSObjectProtocol?
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -45,7 +46,21 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 }
             ))
         self.statusItemController = statusItemController
+        applyAppearance()
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.applyAppearance() }
+        }
         model.$status
+            .sink { [weak self, weak statusItemController] _ in
+                guard let self else { return }
+                statusItemController?.update(snapshot: self.menuBarSnapshot())
+            }
+            .store(in: &modelObservers)
+        model.$usageSnapshots
             .sink { [weak self, weak statusItemController] _ in
                 guard let self else { return }
                 statusItemController?.update(snapshot: self.menuBarSnapshot())
@@ -53,13 +68,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
             applicationName: AIManagerBrand.bundleDisplayName(),
-            importAccount: { [weak self] in self?.importAccount() },
+            addAccount: { [weak self] in self?.addAccountFromMenuBar() },
+            advancedImport: { [weak self] in self?.advancedImport() },
             closeWindow: { [weak self] in self?.windowController?.window?.close() },
             minimizeWindow: { [weak self] in
                 AIManagerWindowBehavior.minimize(self?.windowController?.window)
             },
             presentWindow: { [weak self] in self?.windowController?.present() },
-            canImport: { [weak self] in self?.model.isBusy == false }
+            canChangeAccounts: { [weak self] in self?.model.isBusy == false }
         )
         self.menuController = menuController
         menuController.install()
@@ -83,11 +99,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         if let instanceActivationObserver {
             DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
         }
+        if let appearanceObserver {
+            NotificationCenter.default.removeObserver(appearanceObserver)
+        }
     }
 
-    private func importAccount() {
+    private func advancedImport() {
         guard !model.isBusy else { return }
-        Task { await model.beginImport() }
+        Task { await model.beginAdvancedImport() }
     }
 
     private func addAccountFromMenuBar() {
@@ -95,9 +114,29 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         Task { await model.beginAddAccount() }
     }
 
+    private func applyAppearance() {
+        let mode = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
+        let appearance: NSAppearance?
+        let usesDarkIcon: Bool?
+        switch mode {
+        case "light":
+            appearance = NSAppearance(named: .aqua)
+            usesDarkIcon = false
+        case "dark":
+            appearance = NSAppearance(named: .darkAqua)
+            usesDarkIcon = true
+        default:
+            appearance = nil
+            usesDarkIcon = nil
+        }
+        NSApp.appearance = appearance
+        statusItemController?.updateAppearance(appearance)
+        AIManagerBrand.installApplicationIcon(dark: usesDarkIcon)
+    }
+
     private func switchAccountFromMenuBar(_ accountID: UUID) async throws {
         guard model.status?.accounts.contains(where: {
-            $0.id == accountID && $0.verification.state == .verifiedWithCodex
+            $0.id == accountID && Self.canSwitch($0)
         }) == true else {
             throw MenuBarActionError.accountUnavailable
         }
@@ -110,16 +149,31 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     private func menuBarSnapshot() -> MenuBarSnapshot {
         guard let status = model.status else { return .empty }
+        let activeUsage = status.defaultAccountID.flatMap { menuBarUsage(for: $0) }
         return MenuBarSnapshot(
             accounts: status.accounts.map { account in
                 MenuBarAccountSnapshot(
                     id: account.id,
                     identity: account.identity.email ?? "Codex account",
                     detail: Self.accountDetail(account),
-                    isVerified: account.verification.state == .verifiedWithCodex,
-                    isActive: account.id == status.defaultAccountID)
+                    isVerified: Self.canSwitch(account),
+                    isActive: account.id == status.defaultAccountID,
+                    usage: menuBarUsage(for: account.id))
             },
-            primaryUsedPercentage: nil)
+            primaryUsedPercentage: activeUsage?.usedPercentage)
+    }
+
+    private func menuBarUsage(for accountID: UUID) -> MenuBarUsageSnapshot? {
+        guard let snapshot = model.usage(for: accountID),
+              let used = snapshot.rateLimits?.defaultBucket?.primary?.usedPercent else { return nil }
+        let reset = snapshot.rateLimits?.defaultBucket?.primary?.resetsAt.map {
+            "resets \($0.formatted(.relative(presentation: .named)))"
+        }
+        return MenuBarUsageSnapshot(
+            usedPercentage: used,
+            plan: snapshot.account?.plan?.capitalized
+                ?? snapshot.rateLimits?.defaultBucket?.plan?.capitalized,
+            resetDescription: reset)
     }
 
     private static func accountDetail(_ account: AccountRecord) -> String {
@@ -138,6 +192,13 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 return value
             }
             .joined(separator: " · ")
+    }
+
+    private static func canSwitch(_ account: AccountRecord) -> Bool {
+        switch account.verification.state {
+        case .imported, .verifiedLocally, .verifiedWithCodex: return true
+        case .needsSignIn, .unsupported: return false
+        }
     }
 
 }

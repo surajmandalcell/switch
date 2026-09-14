@@ -236,10 +236,7 @@ struct AccountWindow: View {
           }
             .frame(
               width: min(780, geometry.size.width - 48),
-              height: min(
-                model.accountModalMode == .add ? 540 : AIMTheme.modalHeight,
-                geometry.size.height - 48
-              )
+              height: min(AIMTheme.modalHeight, geometry.size.height - 48)
             )
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .shadow(color: .black.opacity(dark ? 0.22 : 0.1), radius: 34, y: 14)
@@ -350,7 +347,8 @@ struct AccountWindow: View {
       .accessibilityLabel(refreshAccessibilityLabel)
       .accessibilityHint(refreshHelp)
       .frame(maxWidth: .infinity, alignment: .trailing)
-    }.padding(.horizontal, AIMTheme.modalOuterInset)
+    }
+      .padding(.horizontal, AIMTheme.modalOuterInset)
       .frame(height: AIMTheme.topbarHeight)
       .background(AIMTheme.canvas.opacity(reduceTransparency ? 1 : 0.92))
       .overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.railLine).frame(height: 1) }
@@ -517,9 +515,10 @@ private struct AIMButton: View {
 }
 private struct Badge: View {
   let text: String, color: Color
+  var ink: Color = AIMTheme.statusInk
   var body: some View {
     Text(text.uppercased()).font(AIMTheme.sans(10, weight: .semibold)).padding(.horizontal, 6)
-      .frame(height: 18).foregroundStyle(AIMTheme.statusInk).background(color).clipShape(
+      .frame(height: 18).foregroundStyle(ink).background(color).clipShape(
         RoundedRectangle(cornerRadius: 3))
   }
 }
@@ -670,6 +669,7 @@ private struct AccountDetail: View {
             }
           }.padding(16)
         }
+        AccountUsagePanel(account: account, model: model)
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
             DetailRow(label: "Saved auth", value: account.credentialFile.path)
@@ -738,6 +738,316 @@ private struct AccountDetail: View {
     AIMButton(title: "Copy saved auth path", icon: .copy) { model.copySavedAuthPath() }
   }
 }
+
+private struct AccountUsagePanel: View {
+  let account: AccountRecord
+  @ObservedObject var model: AccountViewModel
+
+  private var snapshot: CodexAccountUsageSnapshot? { model.usage(for: account.id) }
+  private var cached: CachedCodexAccountUsage? { model.cachedUsage(for: account.id) }
+  private var isActive: Bool { account.id == model.status?.defaultAccountID }
+  private var isRefreshing: Bool { model.usageRefreshAccountID == account.id }
+  private var usageFailure: String? {
+    model.usageError(for: account.id) ?? cached?.failureMessage
+  }
+
+  private var limitBuckets: [(key: String, value: CodexRateLimitBucketSnapshot)] {
+    guard let limits = snapshot?.rateLimits else { return [] }
+    var result: [(String, CodexRateLimitBucketSnapshot)] = []
+    var seen = Set<String>()
+    if let bucket = limits.defaultBucket {
+      let key = bucket.id ?? "default"
+      seen.insert(key)
+      result.append((key, bucket))
+    }
+    for (key, bucket) in limits.buckets.sorted(by: { $0.key.localizedStandardCompare($1.key) == .orderedAscending }) {
+      let identity = bucket.id ?? key
+      guard seen.insert(identity).inserted else { continue }
+      result.append((key, bucket))
+    }
+    return result
+  }
+
+  var body: some View {
+    AIMPanel(title: "Usage") {
+      VStack(spacing: 0) {
+        if let snapshot {
+          VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+              Text(snapshot.account?.plan?.capitalized ?? "Codex usage")
+                .font(AIMTheme.sans(13, weight: .semibold))
+              Spacer()
+              usageStatus
+            }
+            .padding(.bottom, 14)
+
+            HStack(spacing: 18) {
+              UsageFact(
+                label: "Ordinary usage",
+                value: formatAvailability(snapshot.rateLimits?.ordinaryUsageAllowed)
+              )
+              UsageFact(
+                label: "Authentication",
+                value: authenticationCopy(snapshot)
+              )
+              Spacer()
+            }
+            .padding(.bottom, 14)
+
+            ForEach(Array(limitBuckets.enumerated()), id: \.element.key) { index, item in
+              UsageBucket(
+                bucket: item.value,
+                fallbackName: item.key,
+                windowLabel: windowLabel
+              )
+              .padding(.vertical, 12)
+              .padding(.horizontal, 12)
+              .background(index.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
+            }
+
+            if limitBuckets.isEmpty {
+              UsageUnavailableRow(text: "Rate limits unavailable")
+            }
+
+            HStack(spacing: 20) {
+              UsageFact(label: "Lifetime", value: formatTokens(snapshot.usage?.lifetimeTokens))
+              UsageFact(label: "Peak day", value: formatTokens(snapshot.usage?.peakDailyTokens))
+              UsageFact(
+                label: "Current streak",
+                value: formatDays(snapshot.usage?.currentStreakDays)
+              )
+              UsageFact(
+                label: "Longest streak",
+                value: formatDays(snapshot.usage?.longestStreakDays)
+              )
+              UsageFact(
+                label: "Longest turn",
+                value: formatDuration(snapshot.usage?.longestRunningTurnSeconds)
+              )
+              Spacer()
+            }
+            .padding(.top, 14)
+
+            if !snapshot.dailyUsage.isEmpty {
+              VStack(spacing: 0) {
+                HStack {
+                  Text("Daily activity").font(AIMTheme.sans(11, weight: .semibold))
+                  Spacer()
+                  Text("Tokens").font(AIMTheme.sans(9, weight: .medium))
+                    .foregroundStyle(AIMTheme.muted)
+                }
+                .padding(.horizontal, 12).frame(height: 32)
+                ForEach(Array(snapshot.dailyUsage.enumerated()), id: \.offset) { index, day in
+                  HStack(spacing: 12) {
+                    Text(day.startDate ?? "Date unavailable")
+                      .font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+                    Spacer()
+                    Text(formatTokens(day.tokens))
+                      .font(AIMTheme.mono(10, weight: .semibold))
+                  }
+                  .padding(.horizontal, 12).frame(height: 30)
+                  .background(index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe)
+                }
+              }
+              .padding(.top, 14)
+            } else {
+              UsageUnavailableRow(text: "Daily activity unavailable")
+                .padding(.top, 10)
+            }
+          }
+          .padding(16)
+        } else {
+          HStack(spacing: 12) {
+            AIMIcon(name: .info, size: 15).foregroundStyle(AIMTheme.muted)
+            VStack(alignment: .leading, spacing: 3) {
+              Text(isActive ? "Usage has not been checked" : "No cached usage for this account")
+                .font(AIMTheme.sans(12, weight: .semibold))
+              Text(
+                isActive
+                  ? "Refresh to read the current Codex limits."
+                  : "Usage is updated while an account is active."
+              )
+              .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            }
+            Spacer()
+            if isActive { refreshButton }
+          }
+          .padding(16)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private var usageStatus: some View {
+    HStack(spacing: 8) {
+      if let failure = usageFailure {
+        Text(failure).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber).lineLimit(1)
+          .help(failure)
+        WarningCopyButton(label: "Copy usage error") {
+          model.copyWarnings([failure])
+        }
+      } else if let fetchedAt = snapshot?.fetchedAt {
+        Text(cached?.isStale == true ? "Cached" : "Updated")
+          .font(AIMTheme.sans(10, weight: .medium)).foregroundStyle(AIMTheme.muted)
+        Text(fetchedAt.formatted(date: .omitted, time: .shortened))
+          .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+      }
+      if isActive { refreshButton }
+    }
+  }
+
+  private var refreshButton: some View {
+    AIMButton(
+      title: isRefreshing ? "Refreshing" : "Refresh usage",
+      icon: .refresh,
+      disabled: isRefreshing || model.isBusy
+    ) {
+      Task { await model.refreshDefaultUsage() }
+    }
+  }
+
+  private func windowLabel(
+    _ window: CodexRateLimitWindowSnapshot?,
+    fallback: String
+  ) -> String {
+    guard let minutes = window?.windowDurationMinutes else { return fallback }
+    if minutes >= 10_080 { return "Weekly window" }
+    if minutes.isMultiple(of: 60) { return "\(minutes / 60)-hour window" }
+    return "\(minutes)-minute window"
+  }
+
+  private func formatTokens(_ value: Int64?) -> String {
+    guard let value else { return "Unavailable" }
+    return value.formatted(.number.notation(.compactName))
+  }
+
+  private func formatDays(_ value: Int64?) -> String {
+    guard let value else { return "Unavailable" }
+    return "\(value) day\(value == 1 ? "" : "s")"
+  }
+
+  private func formatDuration(_ seconds: Int64?) -> String {
+    guard let seconds else { return "Unavailable" }
+    return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
+  }
+
+  private func formatAvailability(_ value: Bool?) -> String {
+    guard let value else { return "Unavailable" }
+    return value ? "Available" : "Restricted"
+  }
+
+  private func authenticationCopy(_ snapshot: CodexAccountUsageSnapshot) -> String {
+    if snapshot.account != nil { return "Signed in" }
+    guard let required = snapshot.requiresOpenAIAuthentication else { return "Unavailable" }
+    return required ? "Sign-in required" : "Not required"
+  }
+}
+
+private struct UsageBucket: View {
+  let bucket: CodexRateLimitBucketSnapshot
+  let fallbackName: String
+  let windowLabel: (CodexRateLimitWindowSnapshot?, String) -> String
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 12) {
+        Text(bucket.name ?? fallbackName)
+          .font(AIMTheme.sans(11, weight: .semibold)).lineLimit(1)
+        if let model = bucket.model, !model.isEmpty {
+          Text(model).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+        }
+        Spacer()
+        Text(bucket.plan?.capitalized ?? "Plan unavailable")
+          .font(AIMTheme.sans(9, weight: .medium)).foregroundStyle(AIMTheme.muted)
+      }
+      HStack(spacing: 20) {
+        UsageMeter(title: windowLabel(bucket.primary, "Current window"), window: bucket.primary)
+        UsageMeter(title: windowLabel(bucket.secondary, "Secondary window"), window: bucket.secondary)
+      }
+      HStack(spacing: 20) {
+        UsageFact(label: "Credits", value: creditsCopy)
+        UsageFact(label: "Spend control", value: spendControlCopy)
+        Spacer()
+      }
+    }
+  }
+
+  private var creditsCopy: String {
+    guard let credits = bucket.credits else { return "Unavailable" }
+    if credits.unlimited == true { return "Unlimited" }
+    if let balance = credits.balance, !balance.isEmpty { return balance }
+    if let hasCredits = credits.hasCredits { return hasCredits ? "Available" : "None" }
+    return "Unavailable"
+  }
+
+  private var spendControlCopy: String {
+    guard let reached = bucket.spendControlReached else { return "Unavailable" }
+    return reached ? "Reached" : "Available"
+  }
+}
+
+private struct UsageUnavailableRow: View {
+  let text: String
+  var body: some View {
+    HStack(spacing: 8) {
+      AIMIcon(name: .info, size: 12).foregroundStyle(AIMTheme.muted)
+      Text(text).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      Spacer()
+    }
+    .padding(.horizontal, 12).frame(height: 34).background(AIMTheme.panel2)
+  }
+}
+
+private struct UsageMeter: View {
+  let title: String
+  let window: CodexRateLimitWindowSnapshot?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var used: Int? { window?.usedPercent.map { min(max($0, 0), 100) } }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(title).font(AIMTheme.sans(11, weight: .medium))
+        Spacer()
+        Text(used.map { "\($0)% used" } ?? "Unavailable")
+          .font(AIMTheme.mono(10, weight: .semibold))
+      }
+      GeometryReader { geometry in
+        ZStack(alignment: .leading) {
+          Rectangle().fill(AIMTheme.control)
+          if let used {
+            Rectangle()
+              .fill(used >= 90 ? AIMTheme.red : (used >= 70 ? AIMTheme.amber : AIMTheme.blue))
+              .frame(width: geometry.size.width * CGFloat(used) / 100)
+          }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+      }
+      .frame(height: 5)
+      Text(resetCopy).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+    }
+    .frame(maxWidth: .infinity)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: used)
+  }
+
+  private var resetCopy: String {
+    guard let reset = window?.resetsAt else { return "Reset time unavailable" }
+    return "Resets \(reset.formatted(.relative(presentation: .named)))"
+  }
+}
+
+private struct UsageFact: View {
+  let label: String
+  let value: String
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(label).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+      Text(value).font(AIMTheme.mono(11, weight: .semibold))
+    }
+  }
+}
+
 private struct DetailRow: View {
   let label: String, value: String
   var zebra = false
@@ -1857,7 +2167,9 @@ private struct AddAccountFlow: View {
                 if available {
                   AIMIcon(name: selected ? .checkSquare : .square, size: 14)
                 } else {
-                  Badge(text: "Coming later", color: AIMTheme.panel3)
+                  Badge(
+                    text: "Unavailable", color: AIMTheme.disabledControl,
+                    ink: AIMTheme.disabledInk)
                 }
               }
               .padding(.horizontal, AIMTheme.panelContentInset)
@@ -1990,8 +2302,14 @@ private struct AddAccountFlow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
       HStack {
+        AIMButton(title: "Use for new Codex sessions", tone: .primary, disabled: model.isBusy) {
+          Task { await model.switchDefault() }
+        }
+        AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
+          Task { await model.openAccount() }
+        }
         Spacer()
-        AIMButton(title: "Done", tone: .primary) { model.closeAccountModal() }
+        AIMButton(title: "Done") { model.closeAccountModal() }
       }
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)

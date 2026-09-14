@@ -137,7 +137,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                     guard !AcceptanceConfiguration.contractOnly else { return }
                     receipts.observeWindowEvents()
                     await model.load()
-                    await configureAccountModal()
+                    await self.configureAccountModal()
                     try? await Task.sleep(for: .milliseconds(300))
                     checkWindowContract(receipts: receipts, stage: "after-load")
                 }
@@ -151,13 +151,14 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         windowController = controller
         let menuController = AIManagerMenuController(
             applicationName: title,
-            importAccount: { [weak self] in self?.importAccount() },
+            addAccount: { [weak self] in self?.addAccount() },
+            advancedImport: { [weak self] in self?.importAccount() },
             closeWindow: { [weak self] in self?.windowController?.window?.close() },
             minimizeWindow: { [weak self] in
                 AIManagerWindowBehavior.minimize(self?.windowController?.window)
             },
             presentWindow: { [weak self] in self?.windowController?.present() },
-            canImport: { [weak self] in self?.model.isBusy == false }
+            canChangeAccounts: { [weak self] in self?.model.isBusy == false }
         )
         self.menuController = menuController
         menuController.install()
@@ -211,7 +212,12 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 
     private func importAccount() {
         guard !model.isBusy else { return }
-        Task { await model.beginImport() }
+        Task { await model.beginAdvancedImport() }
+    }
+
+    private func addAccount() {
+        guard !model.isBusy else { return }
+        Task { await model.beginAddAccount() }
     }
 
     private func configureAccountModal() async {

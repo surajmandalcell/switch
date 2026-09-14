@@ -57,6 +57,10 @@ final class AccountViewModel: ObservableObject {
     @Published var conflictChoices: [String: ConflictChoice] = [:]
     @Published var importResult: ImportResult?
     @Published var accountHistory: [UUID: HistorySummary] = [:]
+    @Published private(set) var accountUsage: [UUID: CachedCodexAccountUsage] = [:]
+    @Published private(set) var usageSnapshots: [UUID: CodexAccountUsageSnapshot] = [:]
+    @Published private(set) var usageRefreshAccountID: UUID?
+    @Published private(set) var usageError: String?
     @Published private(set) var chatHistory = ChatHistorySnapshot()
     @Published private(set) var selectedChatID: String?
     @Published private(set) var selectedChat: ChatThreadDetail?
@@ -69,6 +73,10 @@ final class AccountViewModel: ObservableObject {
 
     let paths: ManagerPaths
     private let manager: AccountManager?
+    private var usageCache: CodexUsageStatisticsCache?
+    private let usageDatabaseURL: URL?
+    private var didPrepareUsageCache = false
+    private var usageErrorAccountID: UUID?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
     private let chatHistoryMonitor: (any ChatHistoryMonitoring)?
     #if AI_MANAGER_PREVIEW
@@ -89,6 +97,8 @@ final class AccountViewModel: ObservableObject {
         chatHistoryMonitor injectedChatHistoryMonitor: (any ChatHistoryMonitoring)? = nil
     ) {
         self.paths = paths
+        usageCache = nil
+        usageDatabaseURL = paths.applicationSupport.appending(path: "cache/account-usage.sqlite")
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
             chatHistoryProvider = injectedChatHistoryProvider
@@ -113,6 +123,9 @@ final class AccountViewModel: ObservableObject {
     init(scenario: Scenario = .demo, demoPaths: ManagerPaths? = nil) {
         paths = demoPaths ?? DemoData.paths
         manager = nil
+        usageCache = nil
+        usageDatabaseURL = nil
+        didPrepareUsageCache = true
         chatHistoryProvider = nil
         chatHistoryMonitor = nil
         self.scenario = scenario
@@ -144,22 +157,28 @@ final class AccountViewModel: ObservableObject {
             if hasLoaded {
                 try await reloadStatus(using: manager)
             } else {
-                apply(try await manager.refreshAccounts())
+                apply(try await manager.refreshAccounts(includeDiscoveries: false))
             }
             let newStatus = status!
             if selectedAccountID == nil {
                 selectedAccountID = newStatus.defaultAccountID ?? newStatus.accounts.first?.id
             }
         }
+        await loadCachedUsage()
+        if shouldRefreshDefaultUsage {
+            Task { await self.refreshDefaultUsage() }
+        }
     }
 
     func refresh() async {
         if let manager {
             await perform(failure: "Couldn’t refresh accounts.", recovery: "Try Refresh again.") {
-                apply(try await manager.refreshAccounts())
+                apply(try await manager.refreshAccounts(includeDiscoveries: false))
                 refreshedAt = Date()
                 notice = "Accounts, sign-ins, and backup state refreshed."
             }
+            await loadCachedUsage()
+            await refreshDefaultUsage()
             return
         }
         #if AI_MANAGER_PREVIEW
@@ -209,6 +228,13 @@ final class AccountViewModel: ObservableObject {
         accountHistory = Dictionary(uniqueKeysWithValues: accounts.map {
             ($0.id, HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true))
         })
+        usageSnapshots = Dictionary(uniqueKeysWithValues: accounts.enumerated().map { index, account in
+            (account.id, DemoData.usage(account: account, offset: index))
+        })
+        accountUsage = [:]
+        usageRefreshAccountID = nil
+        usageError = nil
+        usageErrorAccountID = nil
         let demoThreads = scenario == .empty
             ? [] : (scenario == .historyStress ? DemoData.stressChatThreads : DemoData.chatThreads)
         chatHistory = ChatHistorySnapshot(
@@ -312,7 +338,13 @@ final class AccountViewModel: ObservableObject {
                     selectedAccountID = account.id
                     pendingLoginSessions.removeAll { $0.id == session.id }
                     let name = account.identity.email ?? account.identity.accountID ?? "The account"
-                    notice = "\(name) is ready for new Codex sessions."
+                    notice = status?.defaultAccountID == account.id
+                        ? "New Codex sessions will use \(name)."
+                        : "\(name) was saved. Choose Use for New Sessions when you want to switch."
+                    await loadCachedUsage()
+                    if shouldRefreshDefaultUsage {
+                        Task { await self.refreshDefaultUsage() }
+                    }
                 }
             }
             return
@@ -540,6 +572,12 @@ final class AccountViewModel: ObservableObject {
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
                 notice = "New Codex sessions will use this account. Backup: \(result.backup.path)"
+            }
+            if status?.defaultAccountID == id {
+                await loadCachedUsage()
+                if shouldRefreshDefaultUsage {
+                    Task { await self.refreshDefaultUsage() }
+                }
             }
             return
         }
@@ -773,6 +811,130 @@ final class AccountViewModel: ObservableObject {
 
     func history(for account: AccountRecord) -> HistorySummary {
         accountHistory[account.id] ?? HistorySummary()
+    }
+
+    func usage(for accountID: UUID) -> CodexAccountUsageSnapshot? {
+        usageSnapshots[accountID]
+    }
+
+    func cachedUsage(for accountID: UUID) -> CachedCodexAccountUsage? {
+        accountUsage[accountID]
+    }
+
+    func usageError(for accountID: UUID) -> String? {
+        if usageErrorAccountID == nil || usageErrorAccountID == accountID {
+            if let usageError { return usageError }
+        }
+        guard let cached = accountUsage[accountID], let failure = cached.failure else { return nil }
+        return cached.failureMessage ?? failure.message
+    }
+
+    var shouldRefreshDefaultUsage: Bool {
+        guard paths.isolationRoot == nil else { return false }
+        guard let id = status?.defaultAccountID else { return false }
+        guard let cached = accountUsage[id] else { return true }
+        if cached.failure != nil, let attemptedAt = cached.lastAttemptAt,
+           Date().timeIntervalSince(attemptedAt) < 5 * 60 {
+            return false
+        }
+        return cached.snapshot == nil || cached.isStale
+    }
+
+    func refreshDefaultUsage() async {
+        guard paths.isolationRoot == nil,
+              usageRefreshAccountID == nil,
+              let manager,
+              let accountID = status?.defaultAccountID,
+              status?.accounts.contains(where: {
+                  $0.id == accountID && $0.identity.providerID == .codex
+              }) == true else { return }
+        usageRefreshAccountID = accountID
+        usageError = nil
+        usageErrorAccountID = nil
+        defer { usageRefreshAccountID = nil }
+        let snapshot: CodexAccountUsageSnapshot
+        do {
+            snapshot = try await manager.readCodexAccountUsage(accountID: accountID)
+        } catch is CancellationError {
+            return
+        } catch {
+            let failure = usageFailure(for: error)
+            try? await recordUsageFailure(failure, accountID: accountID)
+            usageError = failure.message
+            usageErrorAccountID = accountID
+            return
+        }
+        if snapshot.requiresOpenAIAuthentication == true, snapshot.account == nil {
+            try? await recordUsageFailure(.authenticationRequired, accountID: accountID)
+            usageError = CodexUsageStatisticsFailure.authenticationRequired.message
+            usageErrorAccountID = accountID
+            return
+        }
+        usageSnapshots[accountID] = snapshot
+        guard let usageCache else { return }
+        do {
+            try await usageCache.upsertSuccess(accountID: accountID, snapshot: snapshot)
+            await loadCachedUsage()
+        } catch {
+            usageError = CodexUsageStatisticsFailure.storageUnavailable.message
+            usageErrorAccountID = nil
+        }
+    }
+
+    private func loadCachedUsage() async {
+        await prepareUsageCache()
+        guard let usageCache else { return }
+        do {
+            let accountIDs = status?.accounts.map(\.id) ?? []
+            let cached = try await usageCache.latest(for: accountIDs)
+            accountUsage = Dictionary(uniqueKeysWithValues: cached.map { ($0.accountID, $0) })
+            usageSnapshots = Dictionary(uniqueKeysWithValues: cached.compactMap { entry in
+                entry.snapshot.map { (entry.accountID, $0) }
+            })
+        } catch {
+            usageError = CodexUsageStatisticsFailure.storageUnavailable.message
+            usageErrorAccountID = nil
+        }
+    }
+
+    private func prepareUsageCache() async {
+        guard !didPrepareUsageCache, let usageDatabaseURL else { return }
+        didPrepareUsageCache = true
+        do {
+            usageCache = try await Task.detached(priority: .utility) {
+                try CodexUsageStatisticsCache(databaseURL: usageDatabaseURL)
+            }.value
+        } catch {
+            usageError = "Usage history is unavailable. \(error.localizedDescription)"
+            usageErrorAccountID = nil
+        }
+    }
+
+    private func recordUsageFailure(
+        _ failure: CodexUsageStatisticsFailure,
+        accountID: UUID
+    ) async throws {
+        await prepareUsageCache()
+        guard let usageCache else { return }
+        try await usageCache.recordFailure(accountID: accountID, failure: failure)
+        await loadCachedUsage()
+    }
+
+    private func usageFailure(for error: Error) -> CodexUsageStatisticsFailure {
+        switch error {
+        case CodexAppServerError.timedOut:
+            return .timedOut
+        case CodexAppServerError.malformedResponse,
+             CodexAppServerError.missingResponse,
+             CodexAppServerError.outputLimitExceeded:
+            return .invalidResponse
+        case CodexAppServerError.rpcFailure:
+            return .backendRejectedRequest
+        case CodexAppServerError.invalidSource:
+            return .authenticationRequired
+        default:
+            return .unavailable
+        }
     }
 
     func watchChatHistory() async {
@@ -1166,6 +1328,73 @@ private enum DemoData {
         account(id: "5EA89BE0-D9A1-4727-983B-91640279C396", email: "studio@example.com", workspace: "design-team", state: .needsSignIn, detail: "Sign in before this account can launch Codex."),
         account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "studio@example.com", workspace: "research-team", state: .imported, detail: "Imported locally. Verification has not run."),
     ]
+
+    static func usage(account: AccountRecord, offset: Int) -> CodexAccountUsageSnapshot {
+        let used = [42, 68, 17][offset % 3]
+        return CodexAccountUsageSnapshot(
+            account: CodexAccountDetailsSnapshot(
+                kind: "chatgpt",
+                email: account.identity.email,
+                plan: offset == 1 ? "Team" : "Plus"
+            ),
+            requiresOpenAIAuthentication: true,
+            rateLimits: CodexRateLimitsSnapshot(
+                accountID: account.identity.accountID,
+                ordinaryUsageAllowed: offset != 2,
+                defaultBucket: CodexRateLimitBucketSnapshot(
+                    id: "codex",
+                    name: "Codex",
+                    plan: offset == 1 ? "Team" : "Plus",
+                    model: "gpt-5.6-sol",
+                    primary: CodexRateLimitWindowSnapshot(
+                        usedPercent: used,
+                        windowDurationMinutes: 300,
+                        resetsAt: now.addingTimeInterval(Double(75 + offset * 20) * 60)
+                    ),
+                    secondary: CodexRateLimitWindowSnapshot(
+                        usedPercent: min(used + 11, 100),
+                        windowDurationMinutes: 10_080,
+                        resetsAt: now.addingTimeInterval(Double(2 + offset) * 86_400)
+                    ),
+                    credits: CodexCreditsSnapshot(
+                        hasCredits: true,
+                        unlimited: offset == 1,
+                        balance: offset == 1 ? nil : "12.50"
+                    ),
+                    spendControlReached: offset == 2
+                ),
+                buckets: [
+                    "codex-mini": CodexRateLimitBucketSnapshot(
+                        id: "codex-mini",
+                        name: "Fast models",
+                        plan: offset == 1 ? "Team" : "Plus",
+                        model: "gpt-5.6-luna",
+                        primary: CodexRateLimitWindowSnapshot(
+                            usedPercent: min(used + 8, 100),
+                            windowDurationMinutes: 1_440,
+                            resetsAt: now.addingTimeInterval(Double(12 + offset) * 3_600)
+                        ),
+                        secondary: nil,
+                        credits: nil,
+                        spendControlReached: false
+                    )
+                ]
+            ),
+            usage: CodexUsageSummarySnapshot(
+                lifetimeTokens: Int64(2_840_000 + offset * 490_000),
+                peakDailyTokens: Int64(184_000 + offset * 23_000),
+                currentStreakDays: Int64(4 + offset),
+                longestStreakDays: 12,
+                longestRunningTurnSeconds: 214
+            ),
+            dailyUsage: [
+                CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: Int64(42_000 + offset * 5_000)),
+                CodexDailyUsageSnapshot(startDate: "2026-09-13", tokens: Int64(31_000 + offset * 4_000)),
+                CodexDailyUsageSnapshot(startDate: "2026-09-12", tokens: Int64(18_000 + offset * 3_000)),
+            ],
+            fetchedAt: now.addingTimeInterval(Double(-offset * 480))
+        )
+    }
 
     static let discoveries = [
         source(id: "default-home", path: "/Demo/Sources/.codex", email: "new@example.com", workspace: "personal", settings: ["config.toml", "AGENTS.md", "rules", "skills"], active: 248, archived: 19),

@@ -61,6 +61,25 @@ enum AIManagerNativeContract {
     expect(controller.usesPopover, "Status item still uses a static menu")
     expect(controller.popoverContentSize.width == 360, "Hosted popover changed its fixed width")
     expect(controller.statusTitle == "42%", "Status item does not show cached primary usage")
+    let originalSize = controller.popoverContentSize
+    controller.updateAppearance(NSAppearance(named: .darkAqua))
+    expect(
+      controller.popoverContentSize == originalSize,
+      "Dark appearance changed the menu-bar popover geometry")
+    controller.updateAppearance(NSAppearance(named: .aqua))
+    expect(
+      controller.popoverContentSize == originalSize,
+      "Light appearance changed the menu-bar popover geometry")
+
+    var copiedError: String?
+    let copyStore = MenuBarPopoverStore(
+      snapshot: snapshot,
+      actions: MenuBarPopoverActions(
+        openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in },
+        copyText: { copiedError = $0 }))
+    copyStore.copyError("Synthetic menu error")
+    expect(copiedError == "Synthetic menu error", "Menu-bar errors do not expose a copy action")
+
     controller.update(snapshot: .empty)
     expect(controller.statusTitle.isEmpty, "Status item is not icon-only when usage is unavailable")
     return failures
@@ -175,7 +194,8 @@ enum AIManagerNativeContract {
     }
     command(applicationName, "Settings…", key: ",")
     command(applicationName, "Quit \(applicationName)", key: "q")
-    command("File", "Import Account…", key: "i")
+    command("File", "Add Account…", key: "n")
+    command("File", "Advanced Import…", key: "i", modifiers: [.command, .shift])
     command("File", "Close Window", key: "w")
     command("Window", "Minimize", key: "m")
     for (index, page) in AIManagerPage.allCases.enumerated() {
