@@ -17,6 +17,91 @@ struct AIManagerNativeViewSnapshot: Codable {
 
 @MainActor
 enum AIManagerNativeContract {
+  static func presentationContractFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+
+    expect(AIMTheme.Dark.rail == 0x141517, "Dark rail color changed")
+    expect(AIMTheme.Dark.canvas == 0x18191B, "Dark canvas color changed")
+    expect(AIMTheme.Dark.panel == 0x202124, "Dark panel color changed")
+    expect(AIMTheme.Dark.raised == 0x27282B, "Dark raised color changed")
+    expect(AIMTheme.Dark.raisedSecondary == 0x2F3034, "Dark secondary raised color changed")
+    expect(AIMTheme.Dark.hover == 0x303238, "Dark hover color changed")
+    expect(AIMTheme.Dark.selection == 0x393C43, "Dark selection color changed")
+    expect(AIMTheme.Dark.menuChrome == 0x18191B, "Dark menu chrome color changed")
+
+    expect(UsagePresentation.credits(nil) == nil, "Missing credits are visible")
+    expect(
+      UsagePresentation.credits(CodexCreditsSnapshot(
+        hasCredits: nil, unlimited: nil, balance: "  ")) == nil,
+      "Empty credits are visible")
+    expect(
+      UsagePresentation.credits(CodexCreditsSnapshot(
+        hasCredits: false, unlimited: nil, balance: nil)) == "None",
+      "Explicit false credits are hidden")
+    expect(UsagePresentation.spendControl(nil) == nil, "Missing spend control is visible")
+    expect(UsagePresentation.spendControl(false) == "Not reached", "Explicit false spend control is hidden")
+    let missingAccountFields = CodexAccountUsageSnapshot(
+      account: nil, requiresOpenAIAuthentication: nil, rateLimits: nil, usage: nil,
+      dailyUsage: [], fetchedAt: Date(timeIntervalSince1970: 0))
+    expect(
+      UsagePresentation.accountFacts(missingAccountFields).isEmpty,
+      "Missing account facts are visible")
+    expect(UsagePresentation.summaryFacts(nil).isEmpty, "Missing usage summary is visible")
+    let falseAccountFields = CodexAccountUsageSnapshot(
+      account: nil, requiresOpenAIAuthentication: false,
+      rateLimits: CodexRateLimitsSnapshot(
+        accountID: nil, ordinaryUsageAllowed: false, defaultBucket: nil, buckets: [:]),
+      usage: nil, dailyUsage: [], fetchedAt: Date(timeIntervalSince1970: 0))
+    expect(
+      UsagePresentation.accountFacts(falseAccountFields) == [
+        UsagePresentation.Fact(label: "Ordinary usage", value: "Restricted"),
+        UsagePresentation.Fact(label: "Authentication", value: "Not required"),
+      ],
+      "Explicit false account facts are hidden")
+
+    let emptyBucket = CodexRateLimitBucketSnapshot(
+      id: "empty", name: "Empty", plan: "Plus", model: nil,
+      primary: nil, secondary: nil, credits: nil, spendControlReached: nil)
+    expect(!UsagePresentation.hasContent(emptyBucket), "A bucket with no metrics is visible")
+    let zeroWindow = CodexRateLimitWindowSnapshot(
+      usedPercent: 0, windowDurationMinutes: nil, resetsAt: nil)
+    expect(UsagePresentation.hasWindow(zeroWindow), "A zero-percent quota window is hidden")
+    let zeroBucket = CodexRateLimitBucketSnapshot(
+      id: "zero", name: "Zero", plan: nil, model: nil,
+      primary: zeroWindow, secondary: nil, credits: nil, spendControlReached: false)
+    expect(UsagePresentation.hasContent(zeroBucket), "A bucket with explicit zero values is hidden")
+
+    let zeroSummary = CodexUsageSummarySnapshot(
+      lifetimeTokens: 0, peakDailyTokens: nil, currentStreakDays: 0,
+      longestStreakDays: nil, longestRunningTurnSeconds: nil)
+    expect(
+      UsagePresentation.summaryFacts(zeroSummary).map(\.label) == ["Lifetime", "Current streak"],
+      "Usage summary does not preserve explicit zero values")
+    let dailyRows = UsagePresentation.dailyRows([
+      CodexDailyUsageSnapshot(startDate: nil, tokens: 12),
+      CodexDailyUsageSnapshot(startDate: "  ", tokens: 12),
+      CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: nil),
+      CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 0),
+    ])
+    expect(
+      dailyRows == [UsagePresentation.DailyRow(startDate: "2026-09-14", tokens: "0")],
+      "Daily usage does not omit incomplete rows or preserve zero tokens")
+
+    expect(HistoryHeaderLayout.height == 40, "Conversation header height changed")
+    expect(HistoryHeaderLayout.countWidth == 52, "Conversation count slot width changed")
+    expect(HistoryHeaderLayout.warningWidth == 32, "Conversation warning slot width changed")
+    expect(HistoryHeaderLayout.statusWidth == 20, "Conversation status slot width changed")
+    expect(MenuBarPopover.quotaWidth == 48, "Menu-bar quota columns changed width")
+    expect(MenuBarPopover.statusWidth == 18, "Menu-bar state slot changed width")
+    expect(MenuBarPopover.trailingActionWidth == 34, "Menu-bar trailing action slot width changed")
+    expect(MenuBarPopover.quotaText(nil).isEmpty, "Missing menu-bar quota uses a placeholder")
+    expect(MenuBarPopover.quotaText(0) == "0%", "Zero menu-bar quota is hidden")
+    return failures
+  }
+
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
     if AccountActionCopy.copyAuthPath != "Copy auth path" {
@@ -202,7 +287,7 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Accounts", "Backup", "Chat History", "Shared Settings"]
+    let expectedPages = ["Accounts", "Backup", "Chat History", "Settings"]
     if AIManagerPage.allCases.map(\.rawValue) != expectedPages {
       failures.append("The rail and View menu page order is incorrect")
     }
@@ -295,7 +380,7 @@ enum AIManagerNativeContract {
       failures.append("Command+, could not resolve its menu item")
     }
     if !window.isVisible { failures.append("Command+, did not bring the main window forward") }
-    if shownPages.last != .settings { failures.append("Command+, did not navigate to Shared Settings") }
+    if shownPages.last != .settings { failures.append("Command+, did not navigate to Settings") }
 
     for page in AIManagerPage.allCases {
       guard let item = mainMenu.item(withTitle: "View")?.submenu?.item(withTitle: page.rawValue),
