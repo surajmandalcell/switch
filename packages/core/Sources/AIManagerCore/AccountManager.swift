@@ -345,6 +345,53 @@ public actor AccountManager {
         }
     }
 
+    public func readCodexAccountUsage(
+        accountID: UUID,
+        reader: CodexAppServerAccountReader = .init(),
+        limits: CodexAppServerLimits = .init()
+    ) async throws -> CodexAccountUsageSnapshot {
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            let registry = try loadRegistry()
+            guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            guard registry.defaultAccountID == accountID else {
+                throw AIManagerError.operationFailed("Use this account before refreshing usage.")
+            }
+            try provider.requireSupported(account.identity.providerID)
+            guard account.identity.isResolved else { throw AIManagerError.unresolvedIdentity }
+            try provider.validateManagedCredential(account)
+
+            let liveAuth = paths.defaultHome.appending(path: "auth.json")
+            try provider.validatePrivateCredentialFile(liveAuth)
+            let live = provider.inspect(home: paths.defaultHome)
+            guard live.support == .supportedChatGPT,
+                  let liveIdentity = live.identity,
+                  provider.sameIdentity(account.identity, liveIdentity),
+                  live.digest == account.credentialDigest else {
+                throw AIManagerError.credentialConflict
+            }
+            try await ensureWritersInactive([paths.defaultHome])
+            guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
+
+            let snapshot: CodexAccountUsageSnapshot
+            do {
+                snapshot = try await reader.read(
+                    executable: executable,
+                    source: .init(codexHome: paths.defaultHome, authFile: liveAuth),
+                    limits: limits
+                )
+            } catch {
+                let readError = error
+                try synchronizeUsageCredential(accountID: accountID, baselineDigest: live.digest)
+                throw readError
+            }
+            try synchronizeUsageCredential(accountID: accountID, baselineDigest: live.digest)
+            return snapshot
+        }
+    }
+
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
         try ensureNoRecovery()
         let registry = try loadRegistry()
@@ -1450,6 +1497,63 @@ extension AccountManager {
         return .init(accountID: accountID, backup: backup, previousAccountID: previous)
     }
 
+    private func synchronizeUsageCredential(accountID: UUID, baselineDigest: String) throws {
+        var registry = try loadRegistry()
+        guard registry.defaultAccountID == accountID,
+              let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
+            throw AIManagerError.sourceChanged
+        }
+        let account = registry.accounts[index]
+        try provider.validateManagedCredential(account)
+        guard account.credentialDigest == baselineDigest else { throw AIManagerError.sourceChanged }
+
+        let liveAuth = paths.defaultHome.appending(path: "auth.json")
+        try provider.validatePrivateCredentialFile(liveAuth)
+        let live = provider.inspect(home: paths.defaultHome)
+        guard live.support == .supportedChatGPT,
+              let identity = live.identity,
+              provider.sameIdentity(account.identity, identity) else {
+            throw AIManagerError.credentialConflict
+        }
+        guard live.digest != baselineDigest else { return }
+
+        let id = UUID()
+        let backup = paths.applicationSupport.appending(
+            path: "backups/\(id.uuidString)", directoryHint: .isDirectory)
+        var operation = RecoveryOperation(
+            id: id,
+            kind: "usage-credential-refresh",
+            phase: .prepared,
+            source: liveAuth,
+            destination: account.credentialFile,
+            backup: backup,
+            expectedDigest: live.digest,
+            touchedItems: [],
+            previousDigest: baselineDigest,
+            registryAccountID: accountID,
+            previousDefaultAccountID: accountID,
+            registryCredentialDigest: live.digest,
+            previousAccount: account
+        )
+        try saveOperation(operation)
+        try replaceRecoverably(
+            source: liveAuth,
+            destination: account.credentialFile,
+            operation: &operation,
+            backupName: "saved-credential.json"
+        )
+        try faultInjector(.afterDefaultCredentialPublication)
+        operation.phase = .published
+        try saveOperation(operation)
+
+        registry.accounts[index].credentialDigest = live.digest
+        try saveRegistry(registry)
+        try faultInjector(.afterRegistryCommit)
+        operation.phase = .registryCommitted
+        try saveOperation(operation)
+        try finishOperation(&operation)
+    }
+
     private func credentialFingerprintIfPresent(_ credential: URL) throws -> String? {
         guard CoreSupport.entryExists(credential) else { return nil }
         try provider.validatePrivateCredentialFile(
@@ -1974,7 +2078,7 @@ extension AccountManager {
     }
 
     private func affectedRecoveryHomes(_ operation: RecoveryOperation) throws -> [URL] {
-        guard ["import", "switch", "settings-link-repair"].contains(operation.kind),
+        guard ["import", "switch", "settings-link-repair", "usage-credential-refresh"].contains(operation.kind),
               CoreSupport.isContained(operation.backup, by: paths.applicationSupport) else {
             throw AIManagerError.invalidSource("Unknown or unsafe recovery operation.")
         }
@@ -2012,6 +2116,17 @@ extension AccountManager {
                 && CoreSupport.settings.contains(destinationParts.dropFirst(accountParts.count).joined(separator: "/"))
             guard isLocalSetting else { throw AIManagerError.unsafePath(operation.destination.path) }
             homes += [account.home, paths.sharedRoot]
+        case "usage-credential-refresh":
+            guard let accountID = operation.registryAccountID,
+                  let account = registry.accounts.first(where: { $0.id == accountID }),
+                  registry.defaultAccountID == accountID,
+                  CoreSupport.sameLocation(operation.destination, account.credentialFile),
+                  CoreSupport.isContained(operation.destination, by: paths.credentialStore),
+                  CoreSupport.sameLocation(
+                    operation.source, paths.defaultHome.appending(path: "auth.json")) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+            homes.append(paths.defaultHome)
         default:
             throw AIManagerError.invalidSource("Unknown recovery operation kind.")
         }
@@ -2049,7 +2164,7 @@ extension AccountManager {
                 previousDigest: item.previousDigest
             ))
         }
-        if operation.expectedDigest != nil {
+        if operation.expectedDigest != nil && operation.kind != "usage-credential-refresh" {
             let path = operation.destination.standardizedFileURL.path
             if seen.insert(path).inserted {
                 let prior: URL
@@ -2341,6 +2456,9 @@ extension AccountManager {
     }
 
     private func recoverOperation(_ operation: RecoveryOperation) throws -> RecoveryResult {
+        if operation.kind == "usage-credential-refresh" {
+            return try recoverUsageCredentialRefresh(operation)
+        }
         var operation = operation
         var registry = try loadRegistry()
         let registryCommitted = registryCommitted(operation, registry: registry)
@@ -2412,6 +2530,74 @@ extension AccountManager {
         try saveOperation(operation)
         try? fileManager.removeItem(at: operationItemsURL(operation.id))
         return .init(operationID: operation.id, outcome: .rolledBack, message: "The incomplete operation was rolled back.")
+    }
+
+    private func recoverUsageCredentialRefresh(
+        _ pending: RecoveryOperation
+    ) throws -> RecoveryResult {
+        var operation = pending
+        guard let accountID = operation.registryAccountID,
+              let expectedDigest = operation.expectedDigest,
+              let previousDigest = operation.previousDigest else {
+            throw AIManagerError.invalidSource("Usage credential recovery is incomplete.")
+        }
+        var registry = try loadRegistry()
+        guard registry.defaultAccountID == accountID,
+              let index = registry.accounts.firstIndex(where: { $0.id == accountID }),
+              [previousDigest, expectedDigest].contains(registry.accounts[index].credentialDigest) else {
+            throw AIManagerError.credentialConflict
+        }
+        let account = registry.accounts[index]
+        let liveAuth = paths.defaultHome.appending(path: "auth.json")
+        try provider.validatePrivateCredentialFile(liveAuth)
+        let live = provider.inspect(home: paths.defaultHome)
+        guard live.support == .supportedChatGPT,
+              let liveIdentity = live.identity,
+              provider.sameIdentity(account.identity, liveIdentity),
+              live.digest == expectedDigest else {
+            operation.phase = .conflicted
+            try saveOperation(operation)
+            return .init(
+                operationID: operation.id,
+                outcome: .conflict,
+                message: "The live credential changed again; recovery preserved every version."
+            )
+        }
+
+        let saved = provider.inspect(credentialFile: account.credentialFile)
+        guard saved.support == .supportedChatGPT,
+              let savedIdentity = saved.identity,
+              provider.sameIdentity(account.identity, savedIdentity),
+              [previousDigest, expectedDigest].contains(saved.digest) else {
+            operation.phase = .conflicted
+            try saveOperation(operation)
+            return .init(
+                operationID: operation.id,
+                outcome: .conflict,
+                message: "The saved credential changed; recovery preserved every version."
+            )
+        }
+        if saved.digest != expectedDigest {
+            try CoreSupport.atomicWrite(
+                live.data, to: account.credentialFile, fileManager: fileManager)
+        }
+        try provider.validatePrivateCredentialFile(account.credentialFile)
+        guard provider.inspect(credentialFile: account.credentialFile).digest == expectedDigest else {
+            throw AIManagerError.credentialConflict
+        }
+        registry.accounts[index].credentialDigest = expectedDigest
+        try saveRegistry(registry)
+        for item in operation.touchedItems ?? [] {
+            if let temporary = item.temporary, CoreSupport.entryExists(temporary) {
+                try? fileManager.removeItem(at: temporary)
+            }
+        }
+        try finishOperation(&operation)
+        return .init(
+            operationID: operation.id,
+            outcome: .completed,
+            message: "Recovery saved the refreshed live credential."
+        )
     }
 }
 
