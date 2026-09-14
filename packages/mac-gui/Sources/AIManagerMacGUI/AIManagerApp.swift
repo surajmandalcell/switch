@@ -239,7 +239,7 @@ private enum MenuBarActionError: LocalizedError {
         case .appUnavailable:
             return "Switch is unavailable."
         case .accountUnavailable:
-            return "This account must be verified before switching."
+            return "Check this account before switching."
         case .switchFailed(let detail):
             return detail ?? "Switch could not change the account."
         }
