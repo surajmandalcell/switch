@@ -136,6 +136,26 @@ public actor CodexUsageStatisticsCache {
         }
     }
 
+    /// Reads only the requested account rows. The request is capped before any
+    /// SQLite statement is built, so callers cannot turn this into an unbounded
+    /// placeholder list or make the cache scan every retained account.
+    public func latest(for accountIDs: [UUID]) throws -> [CachedCodexAccountUsage] {
+        let maximumRequestedAccounts = min(policy.maximumAccounts, Self.maximumRequestedAccounts)
+        var seen = Set<String>()
+        var requestedIDs: [String] = []
+        requestedIDs.reserveCapacity(min(accountIDs.count, maximumRequestedAccounts))
+        for accountID in accountIDs where requestedIDs.count < maximumRequestedAccounts {
+            let rawID = accountID.uuidString.lowercased()
+            if seen.insert(rawID).inserted { requestedIDs.append(rawID) }
+        }
+        guard !requestedIDs.isEmpty else { return [] }
+
+        return try Self.withDatabase(at: databaseURL) { database in
+            try Self.readLatest(database, accountIDs: requestedIDs, decoder: decoder,
+                                staleAfter: policy.staleAfter, now: now())
+        }
+    }
+
     public func allLatest() throws -> [CachedCodexAccountUsage] {
         try Self.withDatabase(at: databaseURL) { database in
             let ids = try Self.accountIDs(database)
@@ -265,6 +285,7 @@ public actor CodexUsageStatisticsCache {
     }
 
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    private static let maximumRequestedAccounts = 512
 
     private static func prepareLocation(_ databaseURL: URL) throws {
         guard databaseURL.isFileURL, databaseURL.path.hasPrefix("/") else {
@@ -417,6 +438,56 @@ public actor CodexUsageStatisticsCache {
             failureAt: optionalDate(statement, column: 4),
             isStale: fetchedAt.map { now.timeIntervalSince($0) >= staleAfter } ?? true
         )
+    }
+
+    private static func readLatest(
+        _ database: OpaquePointer,
+        accountIDs: [String],
+        decoder: JSONDecoder,
+        staleAfter: TimeInterval,
+        now: Date
+    ) throws -> [CachedCodexAccountUsage] {
+        let placeholders = accountIDs.indices.map { "?\($0 + 1)" }.joined(separator: ", ")
+        let statement = try prepare(database, """
+            SELECT a.account_id, s.snapshot, s.fetched_at, a.last_attempt_at, a.failure_code, a.failure_at
+            FROM usage_accounts a
+            LEFT JOIN usage_samples s ON s.id = (
+                SELECT id FROM usage_samples
+                WHERE account_id = a.account_id
+                ORDER BY fetched_at DESC, id DESC LIMIT 1
+            )
+            WHERE a.account_id IN (\(placeholders))
+            """)
+        defer { sqlite3_finalize(statement) }
+        for (index, accountID) in accountIDs.enumerated() {
+            bind(accountID, to: statement, at: Int32(index + 1))
+        }
+
+        var result: [CachedCodexAccountUsage] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let rawID = text(statement, column: 0), let accountID = UUID(uuidString: rawID) else {
+                continue
+            }
+            let snapshot = sqlite3_column_type(statement, 1) == SQLITE_NULL
+                ? nil : try decodeSnapshot(statement, column: 1, decoder: decoder)
+            let fetchedAt = optionalDate(statement, column: 2)
+            let failure = text(statement, column: 4).flatMap(CodexUsageStatisticsFailure.init(rawValue:))
+            result.append(CachedCodexAccountUsage(
+                accountID: accountID,
+                snapshot: snapshot,
+                fetchedAt: fetchedAt,
+                lastAttemptAt: optionalDate(statement, column: 3),
+                failure: failure,
+                failureMessage: failure?.message,
+                failureAt: optionalDate(statement, column: 5),
+                isStale: fetchedAt.map { now.timeIntervalSince($0) >= staleAfter } ?? true
+            ))
+        }
+        guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+            throw databaseError(database, "Could not read cached usage")
+        }
+        let order = Dictionary(uniqueKeysWithValues: accountIDs.enumerated().map { ($1, $0) })
+        return result.sorted { (order[$0.accountID.uuidString.lowercased()] ?? .max) < (order[$1.accountID.uuidString.lowercased()] ?? .max) }
     }
 
     private static func accountIDs(_ database: OpaquePointer) throws -> [UUID] {
