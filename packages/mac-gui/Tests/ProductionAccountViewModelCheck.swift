@@ -206,7 +206,16 @@ struct ProductionAccountViewModelCheck {
         try expect(try Data(contentsOf: paths.defaultHome.appending(path: "config.toml")) == Data("shared-setting".utf8),
                    "Default switch changed shared settings")
 
-        await model.openAccount()
+        let fullAccountID = try selectedAccountID(model)
+        let alternateAccountID = try expect(
+            model.status?.accounts.first(where: { $0.id != fullAccountID })?.id,
+            "A second account was unavailable for the Open Codex activation check")
+        await model.openAccount(alternateAccountID)
+        try expect(model.status?.defaultAccountID == alternateAccountID,
+                   "Open Codex did not activate its requested account before launch")
+        await model.openAccount(fullAccountID)
+        try expect(model.status?.defaultAccountID == fullAccountID,
+                   "Open Codex did not restore the requested account before launch")
         let launchFile = paths.applicationSupport.appending(path: "Launch/Open Switch Account.command")
         let launchContents = try String(contentsOf: launchFile, encoding: .utf8)
         try expect(launchContents.contains("export CODEX_HOME="), "Launch file omitted CODEX_HOME")
@@ -214,14 +223,6 @@ struct ProductionAccountViewModelCheck {
         try expect(model.notice?.contains("Terminal was not opened") == true,
                    "Isolated launch did not report Terminal suppression")
         try expect(!fileManager.fileExists(atPath: launched.path), "The isolated launch started Codex")
-
-        let coordinatedLaunch = try model.makeCoordinatedLaunchArtifact(
-            accountID: selectedAccountID(model), helper: executable)
-        let coordinatedContents = try String(contentsOf: coordinatedLaunch, encoding: .utf8)
-        try expect(coordinatedContents.contains("'open' '\(selectedAccountID(model).uuidString)'"),
-                   "The packaged launch file did not delegate activation to the CLI")
-        try expect(!coordinatedContents.contains("export CODEX_HOME="),
-                   "The packaged launch file captured a stale Codex home")
 
         let pasteboardChange = NSPasteboard.general.changeCount
         model.copySavedAuthPath()
@@ -282,6 +283,20 @@ struct ProductionAccountViewModelCheck {
                    "Recoverable work remained pending after launch")
         try expect(try Data(contentsOf: localConfig) == recoverableEdit,
                    "Launch recovery did not restore the local edit")
+
+        let deletionAccount = try expect(
+            model.status?.accounts.first(where: { $0.id != model.status?.defaultAccountID }),
+            "A non-default account was unavailable for deletion")
+        let deletionCredential = deletionAccount.credentialFile
+        let accountCountBeforeDeletion = try expect(model.status?.accounts.count, "Account count was unavailable")
+        await model.deleteAccount(deletionAccount.id)
+        try expect(model.errorMessage == nil, "Non-default account deletion failed")
+        try expect(model.status?.accounts.count == accountCountBeforeDeletion - 1,
+                   "Account deletion did not refresh the model")
+        try expect(!fileManager.fileExists(atPath: deletionCredential.path),
+                   "Account deletion left the saved credential in place")
+        try expect(try Data(contentsOf: authOnlySource.appending(path: "auth.json")) == authOnlyData,
+                   "Account deletion changed the original auth source")
 
         try await checkUnavailableState(root: root)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")

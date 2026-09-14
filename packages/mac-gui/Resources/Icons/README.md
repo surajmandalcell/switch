@@ -20,3 +20,7 @@ checked-in outputs and need neither SVG parsing nor an icon dependency at runtim
 
 `SWITCH-MARK-PROVENANCE.txt` records the supplied reference digest, tracing
 settings, and measured fidelity.
+
+The `Provider*` files are unchanged official provider marks used in the Add
+Account catalog. `PROVIDER-ICON-PROVENANCE.txt` records their primary sources,
+retrieval date, exact digests, and ownership notice.

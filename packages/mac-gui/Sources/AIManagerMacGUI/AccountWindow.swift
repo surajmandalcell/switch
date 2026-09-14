@@ -280,7 +280,9 @@ struct AccountWindow: View {
       page = requestedPage
       NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: requestedPage)
     }
-    .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.load() } } }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { Task { await model.reloadAfterActivation() } }
+    }
   }
 
   private func applyAppearance(to window: NSWindow) {
@@ -513,6 +515,53 @@ private struct AIMButton: View {
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
   }
 }
+private struct AIMIconButton: View {
+  let icon: AIMIcon.Name
+  let label: String
+  var tone: ButtonTone = .normal
+  var disabled = false
+  let action: () -> Void
+  @State private var hover = false
+  @FocusState private var focused: Bool
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
+  private var unavailable: Bool { disabled || !isEnabled }
+
+  var body: some View {
+    Button(action: action) {
+      AIMIcon(name: icon, size: 13)
+        .frame(width: 30, height: 30)
+        .foregroundStyle(
+          unavailable
+            ? AIMTheme.disabledInk
+            : (tone == .danger ? AIMTheme.statusInk : AIMTheme.ink)
+        )
+        .background(
+          unavailable
+            ? AIMTheme.disabledControl
+            : (tone == .danger
+              ? AIMTheme.red
+              : (hover ? AIMTheme.controlHover : AIMTheme.control))
+        )
+        .overlay {
+          if focused, focusIndicatorsEnabled {
+            RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
+          }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .focused($focused)
+    .disabled(disabled)
+    .onHover { hover = $0 && !unavailable }
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hover)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
+    .help(label)
+    .accessibilityLabel(label)
+  }
+}
 private struct Badge: View {
   let text: String, color: Color
   var ink: Color = AIMTheme.statusInk
@@ -523,9 +572,24 @@ private struct Badge: View {
   }
 }
 
+enum AccountActionCopy {
+  static let use = "Use for new Codex sessions"
+  static let open = "Open Codex"
+  static let useAndOpen = "Use & Open Codex"
+  static let check = "Check account files"
+  static let copyAuthPath = "Copy auth path"
+  static let delete = "Delete account"
+}
+
+private struct PendingAccountDeletion: Identifiable {
+  let account: AccountRecord
+  var id: UUID { account.id }
+}
+
 private struct AccountsPage: View {
   @ObservedObject var model: AccountViewModel
   @State private var importHovered = false
+  @State private var pendingDeletion: PendingAccountDeletion?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
@@ -540,7 +604,11 @@ private struct AccountsPage: View {
                   AccountListRow(
                     account: account, selected: account.id == model.selectedAccountID,
                     isDefault: account.id == model.status?.defaultAccountID)
-                }.buttonStyle(AIMPressButtonStyle())
+                }
+                .buttonStyle(AIMPressButtonStyle())
+                .contextMenu {
+                  accountContextMenu(for: account)
+                }
               }
               if !model.hasLoaded {
                 HStack(spacing: 8) {
@@ -572,11 +640,63 @@ private struct AccountsPage: View {
         }
       }.frame(width: AIMTheme.listWidth)
       if let account = model.selectedAccount {
-        AccountDetail(account: account, model: model)
+        AccountDetail(account: account, model: model) {
+          prepareDeletion(of: account)
+        }
       } else {
         EmptyAccountView(model: model)
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    .alert(item: $pendingDeletion) { deletion in
+      let accountName = deletion.account.identity.heroName
+      return Alert(
+        title: Text("Delete \(accountName)?"),
+        message: Text("Switch will remove \(accountName)'s saved auth.json. The original source stays unchanged."),
+        primaryButton: .destructive(Text("Delete account")) {
+          Task { await model.deleteAccount(deletion.account.id) }
+        },
+        secondaryButton: .cancel())
+    }
+  }
+
+  @ViewBuilder
+  private func accountContextMenu(for account: AccountRecord) -> some View {
+    let isDefault = account.id == model.status?.defaultAccountID
+    Button(AccountActionCopy.use) {
+      Task { await model.switchDefault(to: account.id) }
+    }
+    .disabled(model.isBusy || isDefault)
+    Button(isDefault ? AccountActionCopy.open : AccountActionCopy.useAndOpen) {
+      Task { await model.openAccount(account.id) }
+    }
+    .disabled(model.isBusy)
+    Button(AccountActionCopy.check) {
+      Task { await model.checkAccount(account.id) }
+    }
+    .disabled(model.isBusy)
+    Button(AccountActionCopy.copyAuthPath) {
+      model.copySavedAuthPath(for: account.id)
+    }
+    Divider()
+    Button(deleteActionLabel(for: account), role: .destructive) {
+      prepareDeletion(of: account)
+    }
+    .disabled(model.isBusy || !model.canDeleteAccount(account.id))
+  }
+
+  private func prepareDeletion(of account: AccountRecord) {
+    guard model.canDeleteAccount(account.id) else {
+      model.errorMessage = "Use another account for new Codex sessions before deleting the default account."
+      return
+    }
+    pendingDeletion = PendingAccountDeletion(account: account)
+  }
+
+  private func deleteActionLabel(for account: AccountRecord) -> String {
+    account.id == model.status?.defaultAccountID
+      ? "Use another account before deleting the default account"
+      : AccountActionCopy.delete
   }
 }
 private struct AccountListRow: View {
@@ -638,6 +758,7 @@ private struct EmptyAccountView: View {
 private struct AccountDetail: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
+  let delete: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var issues: [LinkedSettingsDivergence] {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
@@ -726,16 +847,31 @@ private struct AccountDetail: View {
   }
   @ViewBuilder private var actions: some View {
     AIMButton(
-      title: "Use for new Codex sessions", tone: .primary,
+      title: AccountActionCopy.use, tone: .primary,
       disabled: model.isBusy
     ) { Task { await model.switchDefault() } }
-    AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
-      Task { await model.openAccount() }
+    AIMButton(
+      title: account.id == model.status?.defaultAccountID
+        ? AccountActionCopy.open : AccountActionCopy.useAndOpen,
+      icon: .play,
+      disabled: model.isBusy
+    ) {
+      Task { await model.openAccount(account.id) }
     }
-    AIMButton(title: "Check account files", icon: .check, disabled: model.isBusy) {
-      Task { await model.verify() }
+    AIMButton(title: AccountActionCopy.check, icon: .check, disabled: model.isBusy) {
+      Task { await model.checkAccount(account.id) }
     }
-    AIMButton(title: "Copy saved auth path", icon: .copy) { model.copySavedAuthPath() }
+    AIMButton(title: AccountActionCopy.copyAuthPath, icon: .copy) {
+      model.copySavedAuthPath(for: account.id)
+    }
+    AIMIconButton(
+      icon: .trash,
+      label: account.id == model.status?.defaultAccountID
+        ? "Use another account before deleting the default account"
+        : AccountActionCopy.delete,
+      tone: .danger,
+      disabled: model.isBusy || !model.canDeleteAccount(account.id),
+      action: delete)
   }
 }
 
@@ -2073,6 +2209,28 @@ private struct ErrorBar: View {
   }
 }
 
+private struct ProviderIcon: View {
+  let providerID: ProviderID
+
+  var body: some View {
+    Group {
+      if let image = AIManagerBrand.providerImage(for: providerID) {
+        Image(nsImage: image)
+          .resizable()
+          .scaledToFit()
+          .padding(3)
+      } else {
+        AIMIcon(name: .terminal, size: 15)
+          .foregroundStyle(AIMTheme.muted)
+      }
+    }
+    .frame(width: 24, height: 24)
+    .background(Color.white)
+    .clipShape(RoundedRectangle(cornerRadius: 3))
+    .accessibilityHidden(true)
+  }
+}
+
 private struct AddAccountFlow: View {
   @ObservedObject var model: AccountViewModel
   @State private var hoveredProviderID: ProviderID?
@@ -2154,8 +2312,7 @@ private struct AddAccountFlow: View {
               model.selectedProviderID = provider.id
             } label: {
               HStack(spacing: 12) {
-                AIMIcon(name: .terminal, size: 15)
-                  .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.muted)
+                ProviderIcon(providerID: provider.id)
                 VStack(alignment: .leading, spacing: 3) {
                   Text(provider.displayName).font(AIMTheme.sans(12, weight: .semibold))
                   Text(available ? "Account switching and usage are supported." : unavailableCopy(provider))

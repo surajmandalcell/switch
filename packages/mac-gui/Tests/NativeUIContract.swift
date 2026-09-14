@@ -17,6 +17,27 @@ struct AIManagerNativeViewSnapshot: Codable {
 
 @MainActor
 enum AIManagerNativeContract {
+  static func accountActionFailures() -> [String] {
+    var failures: [String] = []
+    if AccountActionCopy.copyAuthPath != "Copy auth path" {
+      failures.append("Account auth-path action uses stale copy")
+    }
+    if AccountActionCopy.useAndOpen != "Use & Open Codex"
+      || AccountActionCopy.delete != "Delete account"
+    {
+      failures.append("Account context actions use unexpected copy")
+    }
+    if AIManagerBrand.providerArtwork.map(\.providerID)
+      != [.codex, .claudeCode, .geminiCLI, .antigravityCLI]
+    {
+      failures.append("The Add Account catalog does not map every provider to local artwork")
+    }
+    if AIMIcon.Name.trash.symbol != "trash" {
+      failures.append("The account delete control does not use the native trash symbol")
+    }
+    return failures
+  }
+
   @MainActor static func menuBarPopoverFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
