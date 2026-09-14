@@ -69,6 +69,8 @@ active account's percentage beside the menu-bar icon. All accounts remain listed
 switchable. Disabled usage has no refresh action or placeholder; enabling display does
 not activate an account. Preferences persist by account UUID and update the menu at once.
 Main-window usage and its cache remain available regardless of this display preference.
+If Codex returns only a weekly limit, show it without inventing a 5-hour value. The tray
+percentage uses the 5-hour limit when available, otherwise the weekly limit.
 
 The ledger keeps quota columns aligned and blank where an account hides usage. Missing
 percentages are never fabricated. The popover is 384 points wide, shows at most six
