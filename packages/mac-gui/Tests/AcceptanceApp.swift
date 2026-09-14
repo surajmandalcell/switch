@@ -90,7 +90,8 @@ private enum AcceptanceConfiguration {
         if CommandLine.arguments.contains("--backup")
             || CommandLine.arguments.contains("--recovery") { return 1 }
         if CommandLine.arguments.contains("--history") { return 2 }
-        if CommandLine.arguments.contains("--settings") { return 3 }
+        if CommandLine.arguments.contains("--cleanup") { return 3 }
+        if CommandLine.arguments.contains("--settings") { return 4 }
         return 0
     }
 }
@@ -349,7 +350,6 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         }
     }
     expect(NSFont(name: "Inter-Regular", size: 13) != nil, "Inter font is unavailable")
-    expect(NSFont(name: "Lora-SemiBold", size: 13) != nil, "Lora font is unavailable")
     expect(NSFont(name: "PTMono-Regular", size: 13) != nil, "PT Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
     failures.append(contentsOf: AIManagerNativeContract.menuFailures(

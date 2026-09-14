@@ -55,16 +55,18 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
 struct MenuBarSnapshot: Equatable, Sendable {
   let accounts: [MenuBarAccountSnapshot]
   let primaryUsedPercentage: Int?
+  let lastRefreshedAt: Date?
 
-  static let empty = MenuBarSnapshot(accounts: [], primaryUsedPercentage: nil)
+  static let empty = MenuBarSnapshot(
+    accounts: [], primaryUsedPercentage: nil, lastRefreshedAt: nil)
 
-  init(accounts: [MenuBarAccountSnapshot], primaryUsedPercentage: Int?) {
+  init(
+    accounts: [MenuBarAccountSnapshot], primaryUsedPercentage: Int?,
+    lastRefreshedAt: Date? = nil
+  ) {
     self.accounts = accounts
     self.primaryUsedPercentage = primaryUsedPercentage.map { min(max($0, 0), 100) }
-  }
-
-  var lastUpdatedAt: Date? {
-    accounts.compactMap(\.usage?.fetchedAt).max()
+    self.lastRefreshedAt = lastRefreshedAt ?? accounts.compactMap(\.usage?.fetchedAt).max()
   }
 }
 
@@ -154,6 +156,8 @@ struct MenuBarPopover: View {
   static let cardSpacing: CGFloat = 8
   static let accountHeaderHeight: CGFloat = 58
   static let quotaRowHeight: CGFloat = 34
+  static let accountActionWidth: CGFloat = 68
+  static let accountActionHeight: CGFloat = 26
 
   static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     let quotaCount = [account.usage?.secondaryUsedPercentage, account.usage?.usedPercentage]
@@ -186,7 +190,7 @@ struct MenuBarPopover: View {
     if store.snapshot.accounts.isEmpty {
       VStack(spacing: 4) {
         Text("No accounts yet")
-          .font(AIMTheme.display(14, weight: .semibold))
+          .font(AIMTheme.sans(14, weight: .semibold))
         Text("Open the app to add an account.")
           .font(AIMTheme.sans(11))
           .foregroundStyle(AIMTheme.muted)
@@ -226,8 +230,8 @@ struct MenuBarPopover: View {
 
   private var footer: some View {
     HStack(spacing: 12) {
-      if let updatedAt = store.snapshot.lastUpdatedAt {
-        Text("Updated \(updatedAt.formatted(.relative(presentation: .numeric)))")
+      if let refreshedAt = store.snapshot.lastRefreshedAt {
+        Text("Refreshed \(refreshedAt.formatted(.relative(presentation: .numeric)))")
           .font(AIMTheme.sans(10))
           .foregroundStyle(AIMTheme.muted)
           .lineLimit(1)
@@ -338,27 +342,37 @@ private struct MenuBarAccountRow: View {
     if isSwitching {
       ProgressView()
         .controlSize(.small)
-        .frame(width: 80, height: 32)
-        .background(AIMTheme.control)
+        .frame(width: MenuBarPopover.accountActionWidth, height: MenuBarPopover.accountActionHeight)
+        .background(AIMTheme.control.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
         .accessibilityLabel("Switching account")
     } else if account.isActive {
       Text("Active")
-        .font(AIMTheme.sans(10, weight: .semibold))
+        .font(AIMTheme.sans(9, weight: .semibold))
         .textCase(.uppercase)
         .foregroundStyle(AIMTheme.green)
-        .padding(.horizontal, 12)
-        .frame(height: 32)
-        .background(AIMTheme.green.opacity(0.14))
+        .frame(
+          width: MenuBarPopover.accountActionWidth,
+          height: MenuBarPopover.accountActionHeight)
+        .background(AIMTheme.green.opacity(0.08))
+        .overlay {
+          RoundedRectangle(cornerRadius: AIMTheme.radius)
+            .stroke(AIMTheme.green.opacity(0.22), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     } else if !account.isVerified {
       Text("Sign in")
-        .font(AIMTheme.sans(10, weight: .semibold))
+        .font(AIMTheme.sans(9, weight: .semibold))
         .textCase(.uppercase)
         .foregroundStyle(AIMTheme.amber)
-        .padding(.horizontal, 10)
-        .frame(height: 32)
-        .background(AIMTheme.amber.opacity(0.12))
+        .frame(
+          width: MenuBarPopover.accountActionWidth,
+          height: MenuBarPopover.accountActionHeight)
+        .background(AIMTheme.amber.opacity(0.08))
+        .overlay {
+          RoundedRectangle(cornerRadius: AIMTheme.radius)
+            .stroke(AIMTheme.amber.opacity(0.22), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     } else {
       MenuBarSwitchButton(action: action)
@@ -431,10 +445,12 @@ private struct MenuBarSwitchButton: View {
   var body: some View {
     Button(action: action) {
       Text("Switch")
-        .font(AIMTheme.sans(11, weight: .semibold))
-        .foregroundStyle(isHovered ? AIMTheme.activeInk : AIMTheme.ink)
-        .frame(width: 80, height: 32)
-        .background(isHovered ? AIMTheme.active : AIMTheme.control)
+        .font(AIMTheme.sans(10, weight: .semibold))
+        .foregroundStyle(AIMTheme.ink)
+        .frame(
+          width: MenuBarPopover.accountActionWidth,
+          height: MenuBarPopover.accountActionHeight)
+        .background(isHovered ? AIMTheme.controlHover : AIMTheme.control.opacity(0.45))
         .overlay {
           RoundedRectangle(cornerRadius: AIMTheme.radius)
             .stroke(AIMTheme.lineSoft, lineWidth: 1)

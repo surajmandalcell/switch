@@ -80,15 +80,20 @@ enum AIManagerNativeContract {
     expect(
       UsagePresentation.summaryFacts(zeroSummary).map(\.label) == ["Lifetime", "Current streak"],
       "Usage summary does not preserve explicit zero values")
-    let dailyRows = UsagePresentation.dailyRows([
+    let activityEnd = ISO8601DateFormatter().date(from: "2026-09-15T12:00:00Z")!
+    let activityDays = UsagePresentation.activityDays([
       CodexDailyUsageSnapshot(startDate: nil, tokens: 12),
       CodexDailyUsageSnapshot(startDate: "  ", tokens: 12),
       CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: nil),
-      CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 0),
-    ])
+      CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 5),
+      CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 3),
+      CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: 0),
+      CodexDailyUsageSnapshot(startDate: "2026-09-08", tokens: 99),
+      CodexDailyUsageSnapshot(startDate: "2026-02-30", tokens: 99),
+    ], endingAt: activityEnd, dayCount: 7)
     expect(
-      dailyRows == [UsagePresentation.DailyRow(startDate: "2026-09-14", tokens: "0")],
-      "Daily usage does not omit incomplete rows or preserve zero tokens")
+      activityDays.map(\.tokens) == [0, 0, 0, 0, 0, 8, 0],
+      "Activity calendar does not fill, filter, or aggregate daily usage")
 
     expect(HistoryHeaderLayout.height == 40, "Conversation header height changed")
     expect(HistoryHeaderLayout.countWidth == 52, "Conversation count slot width changed")
@@ -199,6 +204,8 @@ enum AIManagerNativeContract {
     expect(MenuBarPopover.maximumHeight == 440, "Menu-bar popover maximum height is not capped")
     expect(MenuBarPopover.accountHeaderHeight == 58, "Menu-bar account header has the wrong height")
     expect(MenuBarPopover.quotaRowHeight == 34, "Menu-bar quota rows have the wrong height")
+    expect(MenuBarPopover.accountActionWidth == 68, "Menu-bar account actions have different widths")
+    expect(MenuBarPopover.accountActionHeight == 26, "Menu-bar account actions are not compact")
 
     let snapshot = MenuBarPopoverPreviewData.snapshot
     let hiddenAccount = MenuBarAccountSnapshot(
@@ -365,7 +372,7 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Accounts", "Backup", "Chat History", "Settings"]
+    let expectedPages = ["Accounts", "Backup", "Chat History", "Cleanup", "Settings"]
     if AIManagerPage.allCases.map(\.rawValue) != expectedPages {
       failures.append("The rail and View menu page order is incorrect")
     }

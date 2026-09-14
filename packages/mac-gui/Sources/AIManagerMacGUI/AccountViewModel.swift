@@ -7,6 +7,7 @@ protocol ChatHistoryProviding: Sendable {
     func refresh(query: String) async throws -> ChatHistorySnapshot
     func search(query: String) async -> ChatHistorySnapshot
     func detail(for id: String) async throws -> ChatThreadDetail?
+    func clearCache() async throws
 }
 
 private struct IndexedChatHistoryProvider: ChatHistoryProviding {
@@ -23,6 +24,15 @@ private struct IndexedChatHistoryProvider: ChatHistoryProviding {
     func detail(for id: String) async throws -> ChatThreadDetail? {
         try await index.detail(for: id)
     }
+
+    func clearCache() async throws {
+        try await index.clearCache()
+    }
+}
+
+struct RebuildableCacheSizes: Equatable, Sendable {
+    let usageBytes: Int64
+    let conversationBytes: Int64
 }
 
 enum AccountModalMode {
@@ -1002,6 +1012,61 @@ final class AccountViewModel: ObservableObject {
         guard let usageCache else { return }
         try await usageCache.recordFailure(accountID: accountID, failure: failure)
         await loadCachedUsage()
+    }
+
+    func rebuildableCacheSizes() async -> RebuildableCacheSizes {
+        let usageURL = usageDatabaseURL
+        let conversationURL = paths.applicationSupport.appending(path: "cache/chat-history-v1.json")
+        return await Task.detached(priority: .utility) {
+            let usageBytes = usageURL.map { databaseURL in
+                ["", "-wal", "-shm"].reduce(Int64(0)) { total, suffix in
+                    total + Self.regularFileSize(
+                        at: URL(fileURLWithPath: databaseURL.path + suffix))
+                }
+            } ?? 0
+            return RebuildableCacheSizes(
+                usageBytes: usageBytes,
+                conversationBytes: Self.regularFileSize(at: conversationURL))
+        }.value
+    }
+
+    func clearUsageCache() async {
+        await perform(failure: "Couldn’t clear the usage cache.") {
+            await prepareUsageCache()
+            try await usageCache?.purgeAll()
+            accountUsage.removeAll()
+            usageSnapshots.removeAll()
+            usageError = nil
+            usageErrorAccountID = nil
+            notice = "Usage cache cleared. Refresh an account to fetch it again."
+        }
+    }
+
+    func clearConversationIndex() async {
+        await perform(failure: "Couldn’t clear the conversation index.") {
+            chatDetailTask?.cancel()
+            chatSelectionGeneration += 1
+            try await chatHistoryProvider?.clearCache()
+            hasScannedChatHistory = false
+            appliedChatHistoryQuery = nil
+            chatHistory = ChatHistorySnapshot()
+            selectedChatID = nil
+            selectedChat = nil
+            renderedChatMessages = [:]
+            isChatHistoryLoading = false
+            isChatLoading = false
+            chatHistoryError = nil
+            notice = "Conversation index cleared. It will rebuild when Chat History opens."
+        }
+    }
+
+    nonisolated private static func regularFileSize(at url: URL) -> Int64 {
+        guard let values = try? url.resourceValues(
+            forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true
+        else { return 0 }
+        return Int64(values.fileSize ?? 0)
     }
 
     func watchChatHistory() async {
