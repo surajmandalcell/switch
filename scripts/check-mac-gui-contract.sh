@@ -49,5 +49,23 @@ for appearance in system light dark; do
     /usr/bin/plutil -p "$receipt" >&2
     exit 1
   fi
+
+  history_artifacts="$run_root/history-artifacts"
+  history_receipt="$history_artifacts/window-contract.json"
+  mkdir -p "$history_artifacts"
+  HOME="$run_root/home" \
+  CFFIXED_USER_HOME="$run_root/home" \
+  CODEX_HOME="$run_root/codex-home" \
+  AI_MANAGER_ROOT="$run_root/manager" \
+  AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \
+  AI_MANAGER_CODEX_EXECUTABLE="/usr/bin/false" \
+  AI_MANAGER_ACCEPTANCE_ARTIFACTS="$history_artifacts" \
+  TMPDIR="$run_root/tmp" \
+    "$executable" --contract-only --snapshot-only --history --history-stress "--persisted-$appearance"
+  if [[ ! -f "$history_receipt" \
+      || "$(/usr/bin/plutil -extract passed raw -o - "$history_receipt")" != "true" ]]; then
+    /usr/bin/plutil -p "$history_receipt" >&2
+    exit 1
+  fi
   printf 'MAC_GUI_CONTRACT_PASS %s\n' "$appearance"
 done

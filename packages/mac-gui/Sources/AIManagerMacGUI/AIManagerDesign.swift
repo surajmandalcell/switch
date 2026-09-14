@@ -40,7 +40,7 @@ enum AIMTheme {
   static let radius: CGFloat = 3
   static let railWidth: CGFloat = 48
   static let railIconSize: CGFloat = 17
-  static let historyRailIconSize: CGFloat = railIconSize * 0.85
+  static let historyRailIconSize: CGFloat = railIconSize * 0.75
   static let topbarHeight: CGFloat = 48
   static let listWidth: CGFloat = 200
   static let windowControlSize: CGFloat = 48
@@ -294,6 +294,152 @@ struct AIMScrollView<Content: View>: View {
           .foregroundStyle(AIMTheme.ink)
           .focusEffectDisabled(!focusIndicatorsEnabled)))
   }
+}
+
+struct AIMVirtualList<Item: Identifiable & Equatable>: NSViewRepresentable
+where Item.ID: Hashable {
+  let items: [Item]
+  let rowSpacing: CGFloat
+  let fixedRowHeight: CGFloat?
+  let rowContent: (Item) -> AnyView
+  @Environment(\.aimDarkMode) private var darkMode
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+
+  init(
+    items: [Item], rowSpacing: CGFloat = 0, fixedRowHeight: CGFloat? = nil,
+    rowContent: @escaping (Item) -> AnyView
+  ) {
+    self.items = items
+    self.rowSpacing = rowSpacing
+    self.fixedRowHeight = fixedRowHeight
+    self.rowContent = rowContent
+  }
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeNSView(context: Context) -> AIMOwnedScrollView {
+    let scrollView = AIMOwnedScrollView(frame: .zero)
+    let tableView = AIMVirtualTableView(frame: .zero)
+    let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
+    column.resizingMask = .autoresizingMask
+    tableView.addTableColumn(column)
+    tableView.headerView = nil
+    tableView.backgroundColor = .clear
+    tableView.style = .plain
+    tableView.selectionHighlightStyle = .none
+    tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+    tableView.focusRingType = .none
+    tableView.delegate = context.coordinator
+    tableView.dataSource = context.coordinator
+    scrollView.documentView = tableView
+    context.coordinator.tableView = tableView
+    updateCoordinator(context.coordinator)
+    tableView.reloadData()
+    return scrollView
+  }
+
+  func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
+    updateCoordinator(context.coordinator)
+    if let tableView = context.coordinator.tableView,
+       let column = tableView.tableColumns.first {
+      column.width = scrollView.contentSize.width
+    }
+  }
+
+  private func updateCoordinator(_ coordinator: Coordinator) {
+    coordinator.update(
+      items: items,
+      rowSpacing: rowSpacing,
+      fixedRowHeight: fixedRowHeight,
+      rowContent: rowContent,
+      darkMode: darkMode,
+      focusIndicatorsEnabled: focusIndicatorsEnabled)
+  }
+
+  @MainActor
+  final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    weak var tableView: NSTableView?
+    private var items: [Item] = []
+    private var fixedRowHeight: CGFloat?
+    private var rowContent: ((Item) -> AnyView)?
+    private var darkMode = false
+    private var focusIndicatorsEnabled = false
+
+    func update(
+      items nextItems: [Item], rowSpacing: CGFloat, fixedRowHeight: CGFloat?,
+      rowContent: @escaping (Item) -> AnyView,
+      darkMode: Bool, focusIndicatorsEnabled: Bool
+    ) {
+      let appearanceChanged = self.darkMode != darkMode
+        || self.focusIndicatorsEnabled != focusIndicatorsEnabled
+      let oldItems = items
+      items = nextItems
+      self.fixedRowHeight = fixedRowHeight
+      self.rowContent = rowContent
+      self.darkMode = darkMode
+      self.focusIndicatorsEnabled = focusIndicatorsEnabled
+      guard let tableView else { return }
+      tableView.intercellSpacing = NSSize(width: 0, height: rowSpacing)
+      tableView.usesAutomaticRowHeights = fixedRowHeight == nil
+      if let fixedRowHeight { tableView.rowHeight = fixedRowHeight }
+      let sameIDs = oldItems.map(\.id) == nextItems.map(\.id)
+      if sameIDs, !appearanceChanged {
+        let changed = IndexSet(nextItems.indices.filter { oldItems[$0] != nextItems[$0] })
+        if !changed.isEmpty {
+          tableView.reloadData(
+            forRowIndexes: changed,
+            columnIndexes: IndexSet(integer: 0))
+          tableView.noteHeightOfRows(withIndexesChanged: changed)
+        }
+      } else {
+        tableView.reloadData()
+      }
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+      fixedRowHeight ?? -1
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+      guard items.indices.contains(row), let rowContent else { return nil }
+      let identifier = NSUserInterfaceItemIdentifier("AIMVirtualCell")
+      let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? AIMVirtualCell
+        ?? AIMVirtualCell(identifier: identifier)
+      cell.host.rootView = AnyView(
+        rowContent(items[row])
+          .environment(\.colorScheme, darkMode ? .dark : .light)
+          .environment(\.aimDarkMode, darkMode)
+          .environment(\.aimFocusIndicatorsEnabled, focusIndicatorsEnabled)
+          .foregroundStyle(AIMTheme.ink)
+          .focusEffectDisabled(!focusIndicatorsEnabled))
+      return cell
+    }
+  }
+}
+
+final class AIMVirtualTableView: NSTableView {}
+
+private final class AIMVirtualCell: NSTableCellView {
+  let host = NSHostingView(rootView: AnyView(EmptyView()))
+
+  init(identifier: NSUserInterfaceItemIdentifier) {
+    super.init(frame: .zero)
+    self.identifier = identifier
+    focusRingType = .none
+    host.translatesAutoresizingMaskIntoConstraints = false
+    host.focusRingType = .none
+    addSubview(host)
+    NSLayoutConstraint.activate([
+      host.leadingAnchor.constraint(equalTo: leadingAnchor),
+      host.trailingAnchor.constraint(equalTo: trailingAnchor),
+      host.topAnchor.constraint(equalTo: topAnchor),
+      host.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }
 
 final class AIMThinScroller: NSScroller {

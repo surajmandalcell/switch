@@ -857,125 +857,82 @@ private struct SharedSettingsPage: View {
 
 private struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
-  @State private var query = ""
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+  @State private var threadQuery = ""
 
   var body: some View {
-    VStack(spacing: 8) {
-      HStack(spacing: 12) {
-        HStack(spacing: 9) {
-          AIMIcon(name: .search, size: 13).foregroundStyle(AIMTheme.muted)
-          TextField("Search chats", text: $query)
-            .textFieldStyle(.plain)
-            .font(AIMTheme.sans(11))
-            .focusEffectDisabled(!focusIndicatorsEnabled)
-          if !query.isEmpty {
-            Button { query = "" } label: {
-              AIMIcon(name: .close, size: 9).foregroundStyle(AIMTheme.muted)
-                .frame(width: 22, height: 22).contentShape(Rectangle())
+    HStack(spacing: 8) {
+      VStack(spacing: 0) {
+        HStack(spacing: 8) {
+          Text("Chats").font(AIMTheme.sans(12, weight: .semibold))
+          Spacer(minLength: 4)
+          Text(historyCountText)
+            .font(AIMTheme.sans(9))
+            .foregroundStyle(AIMTheme.muted)
+            .contentTransition(.numericText())
+          if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
+            WarningCopyButton(label: "Copy history warning") {
+              model.copyWarnings([historyIssueText])
             }
-            .buttonStyle(AIMPressButtonStyle())
-            .help("Clear search")
-            .accessibilityLabel("Clear search")
+            .help(historyIssueText)
           }
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 310, height: 32)
-        .background(AIMTheme.control.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-
-        Text(historyCountText)
-          .font(AIMTheme.sans(10))
-          .foregroundStyle(AIMTheme.muted)
-          .contentTransition(.numericText())
-        Spacer(minLength: 8)
-        if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
-          WarningCopyButton(label: "Copy history warning") {
-            model.copyWarnings([historyIssueText])
-          }
-          .help(historyIssueText)
-        }
-        if let error = model.chatHistoryError {
-          HStack(spacing: 5) {
+          if let error = model.chatHistoryError {
             Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
-            Text("Update paused").font(AIMTheme.sans(10, weight: .medium))
+              .help(error)
+              .accessibilityLabel(error)
+          } else if model.isChatHistoryLoading {
+            ProgressView().controlSize(.small)
           }
-          .foregroundStyle(AIMTheme.red)
-          .help(error)
-          .accessibilityLabel(error)
-        } else if model.isChatHistoryLoading {
-          ProgressView().controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background(AIMTheme.panel2)
+
+        HistorySearchField(text: $threadQuery, placeholder: "Search chats")
+          .padding(.horizontal, 10)
+          .frame(height: 48)
+
+        if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
+          VStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("Reading chat library").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.chatHistory.threads.isEmpty {
+          VStack(spacing: 7) {
+            AIMIcon(name: .history, size: 18).foregroundStyle(AIMTheme.muted)
+            Text(threadQuery.isEmpty ? "No chats yet" : "No matching chats")
+              .font(AIMTheme.sans(11, weight: .medium))
+            Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
+              .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-          HStack(spacing: 5) {
-            Circle().fill(AIMTheme.green).frame(width: 6, height: 6)
-            Text("Live").font(AIMTheme.sans(10, weight: .medium))
+          AIMVirtualList(items: threadItems, fixedRowHeight: 68) { item in
+            AnyView(ChatThreadRow(
+              thread: item.thread,
+              selected: item.selected
+            ) { Task { await model.selectChat(item.id) } })
           }
-          .foregroundStyle(AIMTheme.muted)
-          .transition(reduceMotion ? .identity : .opacity)
         }
       }
-      .padding(.horizontal, 12)
-      .frame(height: 48)
+      .frame(width: 310)
       .background(AIMTheme.panel)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
 
-      HStack(spacing: 8) {
-        VStack(spacing: 0) {
-          HStack {
-            Text("Chats").font(AIMTheme.sans(12, weight: .semibold))
-            Spacer()
-            Text("Newest first").font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
-          }
-          .padding(.horizontal, 14)
-          .frame(height: 40)
-          .background(AIMTheme.panel2)
-
-          if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
-            VStack(spacing: 10) {
-              ProgressView().controlSize(.small)
-              Text("Reading chat library").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-          } else if model.chatHistory.threads.isEmpty {
-            VStack(spacing: 7) {
-              AIMIcon(name: .history, size: 18).foregroundStyle(AIMTheme.muted)
-              Text(query.isEmpty ? "No chats yet" : "No matching chats")
-                .font(AIMTheme.sans(11, weight: .medium))
-              Text(query.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
-                .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-          } else {
-            AIMScrollView {
-              LazyVStack(spacing: 0) {
-                ForEach(model.chatHistory.threads) { thread in
-                  ChatThreadRow(
-                    thread: thread,
-                    selected: model.selectedChatID == thread.id
-                  ) { Task { await model.selectChat(thread.id) } }
-                }
-              }
-            }
-          }
-        }
-        .frame(width: 310)
-        .background(AIMTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-
-        ChatDetailPane(model: model)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      ChatDetailPane(model: model)
+        .id(model.selectedChatID)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 12)
     .padding(.bottom, 24)
-    .task(id: query) { await model.watchChatHistory(query: query) }
+    .task { await model.watchChatHistory() }
+    .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
   }
 
   private var historyCountText: String {
     let result = model.chatHistory
-    if query.isEmpty { return "\(result.totalThreadCount) chats" }
+    if threadQuery.isEmpty { return "\(result.totalThreadCount) chats" }
     return "\(result.matchingThreadCount) of \(result.totalThreadCount) chats"
   }
 
@@ -991,6 +948,47 @@ private struct HistoryPage: View {
         "\(result.unreadableRecordCount) oversized or malformed record\(result.unreadableRecordCount == 1 ? " was" : "s were") skipped")
     }
     return parts.joined(separator: "; ") + "."
+  }
+
+  private var threadItems: [ChatThreadListItem] {
+    model.chatHistory.threads.map {
+      ChatThreadListItem(thread: $0, selected: model.selectedChatID == $0.id)
+    }
+  }
+}
+
+private struct ChatThreadListItem: Identifiable, Equatable {
+  let thread: ChatThreadSummary
+  let selected: Bool
+  var id: String { thread.id }
+}
+
+private struct HistorySearchField: View {
+  @Binding var text: String
+  let placeholder: String
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+
+  var body: some View {
+    HStack(spacing: 8) {
+      AIMIcon(name: .search, size: 12).foregroundStyle(AIMTheme.muted)
+      TextField(placeholder, text: $text)
+        .textFieldStyle(.plain)
+        .font(AIMTheme.sans(10))
+        .focusEffectDisabled(!focusIndicatorsEnabled)
+      if !text.isEmpty {
+        Button { text = "" } label: {
+          AIMIcon(name: .close, size: 8).foregroundStyle(AIMTheme.muted)
+            .frame(width: 20, height: 20).contentShape(Rectangle())
+        }
+        .buttonStyle(AIMPressButtonStyle())
+        .help("Clear search")
+        .accessibilityLabel("Clear search")
+      }
+    }
+    .padding(.horizontal, 9)
+    .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
+    .background(AIMTheme.control.opacity(0.62))
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
   }
 }
 
@@ -1048,6 +1046,10 @@ private struct ChatThreadRow: View {
 
 private struct ChatDetailPane: View {
   @ObservedObject var model: AccountViewModel
+  @State private var messageQuery = ""
+  @State private var messageSearchResult = ChatMessageSearchResult(
+    messages: [], totalMessageCount: 0, matchingMessageCount: 0)
+  @State private var isSearching = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -1066,6 +1068,20 @@ private struct ChatDetailPane: View {
         Color.clear.frame(height: 40).background(AIMTheme.panel2)
       }
 
+      HStack(spacing: 10) {
+        HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
+        if isSearching {
+          ProgressView().controlSize(.small)
+        } else if let detail = model.selectedChat {
+          Text(messageCountText(detail))
+            .font(AIMTheme.sans(9))
+            .foregroundStyle(AIMTheme.muted)
+            .contentTransition(.numericText())
+        }
+      }
+      .padding(.horizontal, 10)
+      .frame(height: 48)
+
       if model.isChatLoading {
         VStack(spacing: 10) {
           ProgressView().controlSize(.small)
@@ -1073,24 +1089,8 @@ private struct ChatDetailPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let detail = model.selectedChat {
-        AIMScrollView {
-          LazyVStack(alignment: .leading, spacing: 8) {
-            ChatThreadMetadata(thread: detail.thread)
-            if detail.omittedMessageCount > 0 {
-              Notice(
-                text: "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast.",
-                tone: AIMTheme.amber, icon: .warning,
-                copy: {
-                  model.copyWarnings([
-                    "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast."
-                  ])
-                })
-            }
-            ForEach(detail.messages) { message in
-              ChatMessageRow(message: message)
-            }
-          }
-          .padding(12)
+        AIMVirtualList(items: detailItems(detail), rowSpacing: 8) { item in
+          AnyView(detailRow(item))
         }
       } else {
         VStack(spacing: 7) {
@@ -1105,11 +1105,138 @@ private struct ChatDetailPane: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(AIMTheme.panel)
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .task(id: searchKey) { await updateMessageSearch() }
   }
 
   private var selectedSummary: ChatThreadSummary? {
-    model.chatHistory.threads.first { $0.id == model.selectedChatID }
+    model.selectedChat?.thread
+      ?? model.chatHistory.threads.first { $0.id == model.selectedChatID }
   }
+
+  private var searchKey: ChatMessageSearchKey {
+    ChatMessageSearchKey(
+      threadID: model.selectedChatID,
+      query: messageQuery,
+      fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0)
+  }
+
+  private func displayedMessages(_ detail: ChatThreadDetail) -> [ChatMessage] {
+    messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? detail.messages : messageSearchResult.messages
+  }
+
+  private func detailItems(_ detail: ChatThreadDetail) -> [ChatDetailListItem] {
+    var items: [ChatDetailListItem] = [.metadata(detail.thread)]
+    if detail.omittedMessageCount > 0 {
+      items.append(.notice(
+        "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast."))
+    }
+    if !messageQuery.isEmpty && messageSearchResult.messages.isEmpty && !isSearching {
+      items.append(.emptySearch)
+    } else {
+      items.append(contentsOf: displayedMessages(detail).map(ChatDetailListItem.message))
+    }
+    items.append(.bottomSpace)
+    return items
+  }
+
+  @ViewBuilder
+  private func detailRow(_ item: ChatDetailListItem) -> some View {
+    switch item {
+    case let .metadata(thread):
+      ChatThreadMetadata(thread: thread)
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+    case let .notice(text):
+      Notice(
+        text: text,
+        tone: AIMTheme.amber,
+        icon: .warning,
+        copy: { model.copyWarnings([text]) })
+        .padding(.horizontal, 12)
+    case let .message(message):
+      ChatMessageRow(message: message)
+        .padding(.horizontal, 12)
+    case .emptySearch:
+      VStack(spacing: 6) {
+        AIMIcon(name: .search, size: 16).foregroundStyle(AIMTheme.muted)
+        Text("No matching messages").font(AIMTheme.sans(10, weight: .medium))
+      }
+      .frame(maxWidth: .infinity, minHeight: 120)
+      .padding(.horizontal, 12)
+    case .bottomSpace:
+      Color.clear.frame(height: 4)
+    }
+  }
+
+  private func messageCountText(_ detail: ChatThreadDetail) -> String {
+    if messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return "\(detail.messages.count) messages"
+    }
+    return "\(messageSearchResult.matchingMessageCount) of \(detail.messages.count)"
+  }
+
+  @MainActor
+  private func updateMessageSearch() async {
+    guard let detail = model.selectedChat else {
+      messageSearchResult = ChatMessageSearchResult(
+        messages: [], totalMessageCount: 0, matchingMessageCount: 0)
+      isSearching = false
+      return
+    }
+    let terms = messageQuery
+      .split(whereSeparator: \.isWhitespace)
+      .map { String($0).lowercased() }
+    guard !terms.isEmpty else {
+      messageSearchResult = ChatMessageSearchResult(
+        messages: [],
+        totalMessageCount: detail.messages.count,
+        matchingMessageCount: detail.messages.count)
+      isSearching = false
+      return
+    }
+    isSearching = true
+    do { try await Task.sleep(for: .milliseconds(120)) }
+    catch { return }
+    do {
+      let result = try await ChatMessageSearch.search(detail.messages, query: messageQuery)
+      guard !Task.isCancelled else { return }
+      messageSearchResult = result
+      isSearching = false
+    } catch is CancellationError {
+      return
+    } catch {
+      messageSearchResult = ChatMessageSearchResult(
+        messages: [],
+        totalMessageCount: detail.messages.count,
+        matchingMessageCount: 0)
+      isSearching = false
+    }
+  }
+}
+
+private enum ChatDetailListItem: Identifiable, Equatable {
+  case metadata(ChatThreadSummary)
+  case notice(String)
+  case message(ChatMessage)
+  case emptySearch
+  case bottomSpace
+
+  var id: String {
+    switch self {
+    case let .metadata(thread): "metadata:\(thread.id)"
+    case let .notice(text): "notice:\(text)"
+    case let .message(message): "message:\(message.id)"
+    case .emptySearch: "empty-search"
+    case .bottomSpace: "bottom-space"
+    }
+  }
+}
+
+private struct ChatMessageSearchKey: Hashable {
+  let threadID: String?
+  let query: String
+  let fileByteCount: Int64
 }
 
 private struct ChatThreadMetadata: View {
@@ -1197,7 +1324,7 @@ private struct BackupPage: View {
                   }.padding(.horizontal, 16).frame(minHeight: 44)
                   if item.phase == .conflicted {
                     HStack(spacing: 6) {
-                      Text("Both versions are protected. Choose which version stays live.")
+                      Text("Both versions are protected. Choose which version to keep.")
                         .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
                       Spacer()
                       AIMButton(title: "Keep current", disabled: model.isBusy) {
@@ -1639,7 +1766,7 @@ private struct SourcePage: View {
       }
       Text(
         model.importMode == .authOnly
-          ? "Saves account access. Settings and chats stay in the live Codex home. The source stays unchanged."
+          ? "Saves account access. Settings and chats stay in the current Codex home. The source stays unchanged."
           : "Reviews shared settings conflicts and adds source chats to the merged library. Everything affected is backed up first."
       ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
         maxWidth: .infinity, alignment: .leading)

@@ -1852,7 +1852,7 @@ extension AccountManager {
             return .init(
                 operationID: operation.id,
                 outcome: .completed,
-                message: "Current live files were kept. The protected backup remains at \(operation.backup.path)."
+                message: "Current files were kept. The protected backup remains at \(operation.backup.path)."
             )
         case .restoreBackup:
             let targets = try recoveryTargets(operation)
@@ -1885,7 +1885,7 @@ extension AccountManager {
             return .init(
                 operationID: operation.id,
                 outcome: .rolledBack,
-                message: "The protected backup was restored. Replaced live files remain under \(operation.backup.path)/recovery-conflict."
+                message: "The protected backup was restored. Replaced files remain under \(operation.backup.path)/recovery-conflict."
             )
         }
     }
