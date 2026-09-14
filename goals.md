@@ -2090,6 +2090,13 @@ with temporary synthetic homes before installation.
   window contracts, single-instance behavior, overlay scrollbars, and virtual history tables pass.
   Read-only unprivileged `linux/arm64` and `linux/amd64` containers passed the same 97-test inventory
   and complete release CLI acceptance.
+- The clean release candidate from `ab0181b6c4ce` passed local release readiness and is installed at
+  `/Applications/Switch.app`; its main executable SHA-256 is
+  `523fd0744e1a8b10fe39ef45e73c373f4af82157357642ab5587156902eb5d3c`. The matching CLI is installed
+  at `~/.local/bin/ai-manager` with SHA-256
+  `f0a3f339b3c836a81a52707f4102e6a00b4be11758fc5cdb809933812fb26e31`. Both hashes match the built
+  artifacts, strict signature checks pass, a double launch leaves one process, and the installed
+  app remains alive after startup.
 - `scripts/check-native.sh` discovered 94 core contracts: 92 executed without failure and the two
   authorized private-copy tests remained explicit opt-ins. Production and Preview model checks,
   System/Light/Dark window contracts, the Pixel-trace icon, fixed-window geometry, thin overlay
