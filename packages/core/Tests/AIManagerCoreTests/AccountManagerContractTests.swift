@@ -553,6 +553,63 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(finalStatus.defaultAccountID, account.id)
     }
 
+    func testActivateAndRunAllowsRefreshedDefaultWhileAnotherCodexProcessExists() async throws {
+        let source = root.appending(path: "refreshed-default-source")
+        try writeAuth(home: source, account: "refreshed", workspace: "workspace")
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await setup.planImport(source: source, mode: .authOnly)
+        let account = try await setup.importAccount(plan: plan).account
+        _ = try await setup.switchDefault(to: account.id)
+
+        let refreshed = try refreshedAuth(
+            account: "refreshed", workspace: "workspace", marker: "live-token-refresh")
+        try refreshed.write(to: paths.defaultHome.appending(path: "auth.json"))
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
+
+        let status = try await manager.activateAndRun(
+            accountID: account.id,
+            arguments: ["--version"]
+        )
+
+        XCTAssertEqual(status, 0)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
+            refreshed
+        )
+        XCTAssertNotEqual(
+            try Data(contentsOf: account.credentialFile),
+            refreshed
+        )
+    }
+
+    func testActivateAndRunRequiresWriterCertaintyToChangeAccounts() async throws {
+        let firstSource = root.appending(path: "launch-first-source")
+        let secondSource = root.appending(path: "launch-second-source")
+        try writeAuth(home: firstSource, account: "first", workspace: "workspace")
+        try writeAuth(home: secondSource, account: "second", workspace: "workspace")
+        let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let firstPlan = try await setup.planImport(source: firstSource, mode: .authOnly)
+        let first = try await setup.importAccount(plan: firstPlan).account
+        let secondPlan = try await setup.planImport(source: secondSource, mode: .authOnly)
+        let second = try await setup.importAccount(plan: secondPlan).account
+        _ = try await setup.switchDefault(to: first.id)
+        let originalLive = try Data(contentsOf: paths.defaultHome.appending(path: "auth.json"))
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
+
+        await XCTAssertThrowsErrorAsync(
+            try await manager.activateAndRun(accountID: second.id, arguments: ["--version"])
+        ) { error in
+            XCTAssertEqual(error as? AIManagerError, .writerStateUnknown)
+        }
+
+        XCTAssertEqual(
+            try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
+            originalLive
+        )
+        let finalStatus = try await manager.status()
+        XCTAssertEqual(finalStatus.defaultAccountID, first.id)
+    }
+
     func testLaunchRefusesTamperedSavedAuth() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
@@ -577,6 +634,23 @@ final class AccountManagerContractTests: XCTestCase {
         _ = try await manager.switchDefault(to: account.id)
         let auth = account.credentialFile
         let target = root.appending(path: "linked-auth.json")
+        try fm.moveItem(at: auth, to: target)
+        try fm.createSymbolicLink(at: auth, withDestinationURL: target)
+
+        await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .credentialConflict)
+        }
+    }
+
+    func testLaunchRefusesSymlinkedLiveAuth() async throws {
+        let source = root.appending(path: "live-source")
+        try writeAuth(home: source, account: "account", workspace: "workspace")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let account = try await manager.importAccount(plan: plan).account
+        _ = try await manager.switchDefault(to: account.id)
+        let auth = paths.defaultHome.appending(path: "auth.json")
+        let target = root.appending(path: "linked-live-auth.json")
         try fm.moveItem(at: auth, to: target)
         try fm.createSymbolicLink(at: auth, withDestinationURL: target)
 
@@ -1656,9 +1730,9 @@ final class AccountManagerContractTests: XCTestCase {
         let started = Date()
         let result = await manager.verifyLocal(accountID: account.id)
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
-        XCTAssertEqual(result.state, .needsSignIn)
+        XCTAssertEqual(result.state, .verifiedLocally)
         let status = try await manager.status()
-        XCTAssertEqual(status.accounts.first?.verification.state, .needsSignIn)
+        XCTAssertEqual(status.accounts.first?.verification.state, .verifiedLocally)
     }
 
     func testCorruptRecoveryJournalBlocksMutation() async throws {
