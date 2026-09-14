@@ -35,7 +35,9 @@ struct AIManagerCLI {
             try confirm(input, "Cancel this account login and remove its isolated staging files?")
             try await manager.cancelAccountLogin(id: id)
             await output(LoginCancellationOutput(sessionID: id), json: input.json)
-        case "status": await output(try await manager.status(), json: input.json)
+        case "status":
+            let snapshot = try await manager.refreshAccounts(includeDiscoveries: false)
+            await output(SafeStatusSnapshot(snapshot), json: input.json)
         case "discover": await output(manager.discover(explicit: input.path), json: input.json)
         case "plan":
             let path = try input.requiredPath()
@@ -157,15 +159,7 @@ struct AIManagerCLI {
     }
 
     static func interactive(_ manager: AccountManager) async throws {
-        var pendingSessions: [AccountLoginSession] = []
-        let initial = try await manager.status()
-        if !initial.pendingRecovery.isEmpty || initial.accounts.isEmpty {
-            if askYes("Refresh accounts, recover pending work, and adopt valid live Codex access if available?") {
-                pendingSessions = try await manager.refreshAccounts().pendingLoginSessions
-            }
-        } else {
-            pendingSessions = try await manager.refreshAccounts().pendingLoginSessions
-        }
+        var pendingSessions = try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
         while true {
             let status = try await manager.status()
             print("\nSwitch")
@@ -417,8 +411,11 @@ struct AIManagerCLI {
             print("Pending account logins: \(snapshot.pendingLoginSessions.count)")
             print("Discovered Codex homes: \(snapshot.discoveries.count)")
         case let started as SafeLoginStart:
+            print("Browser sign-in started for \(providerName(started.session.providerID)).")
             print("Login session: \(started.session.id.uuidString)")
-            if let stagingHome = started.stagingHome { print("Isolated staging home: \(stagingHome.path)") }
+            print("Check when sign-in finishes: \(started.checkCommand)")
+            print("Cancel this login: \(started.cancelCommand)")
+            print("Both commands keep working after Switch restarts.")
         case let checked as SafeLoginCheck:
             print("\(checked.state.rawValue): \(checked.message)")
             if let account = checked.account { print("Saved \(displayName(account.identity)).") }
@@ -429,6 +426,18 @@ struct AIManagerCLI {
             print("Default account: \(status.defaultAccountID?.uuidString ?? "none")")
             for account in status.accounts { print("\(account.id.uuidString)\t\(displayName(account.identity))\t\(account.verification.state.rawValue)") }
             if !status.pendingRecovery.isEmpty { print("Pending recovery: \(status.pendingRecovery.count)") }
+        case let snapshot as SafeStatusSnapshot:
+            print("Shared settings: \(snapshot.sharedRoot.path)")
+            print("Default account: \(snapshot.defaultAccountID?.uuidString ?? "none")")
+            for account in snapshot.accounts {
+                print("\(account.id.uuidString)\t\(displayName(account.identity))\t\(account.verification.state.rawValue)")
+            }
+            for session in snapshot.pendingLoginSessions {
+                print("Pending \(providerName(session.providerID)) login: \(session.id.uuidString)")
+                print("  Check: ai-manager check-login \(session.id.uuidString) --yes")
+                print("  Cancel: ai-manager cancel-login \(session.id.uuidString) --yes")
+            }
+            if !snapshot.pendingRecovery.isEmpty { print("Pending recovery: \(snapshot.pendingRecovery.count)") }
         case let sources as [DiscoveredSource]: printDiscovery(sources)
         case let result as ImportResult:
             print("Saved \(displayName(result.account.identity)) at \(result.account.credentialFile.path).")
@@ -476,14 +485,14 @@ struct AIManagerCLI {
       ai-manager providers [--json]
       ai-manager refresh [--yes] [--json]
       ai-manager adopt [--yes] [--json]                     Alias for refresh
-      ai-manager add [codex] [--yes] [--json]
+      ai-manager add [codex] [--yes] [--json]               Start isolated browser sign-in
       ai-manager start-login [codex] [--yes] [--json]       Alias for add
       ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]
       ai-manager cancel-login <session-uuid> [--yes] [--json]
-      ai-manager status [--json]
+      ai-manager status [--json]                            Adopt first live account; list pending logins
       ai-manager discover [path] [--json]
       ai-manager plan <path> [--mode auth-only|full] [--use-imported path] [--review-external path] [--json]
-      ai-manager advanced-import <path> [import options]     Import existing Codex data
+      ai-manager advanced-import <path> [import options]     Import an existing Codex folder or auth.json
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
       ai-manager open <account-uuid> [-- codex arguments]
@@ -498,6 +507,10 @@ struct AIManagerCLI {
     Isolation overrides: AI_MANAGER_ROOT, AI_MANAGER_DEFAULT_HOME,
     AI_MANAGER_CREDENTIAL_STORE, AI_MANAGER_SHARED_ROOT,
     AI_MANAGER_CODEX_EXECUTABLE.
+
+    Provider IDs: codex, claude-code, gemini-cli, antigravity-cli.
+    Only Codex CLI is available in this release. Login sessions survive restarts;
+    use status to recover their IDs, then check-login or cancel-login.
     """
 }
 
@@ -530,12 +543,16 @@ private struct SafeLoginSession: Encodable {
 private struct SafeLoginStart: Encodable {
     let session: SafeLoginSession
     let stagingHome: URL?
+    let checkCommand: String
+    let cancelCommand: String
 
     init(_ start: AccountLoginStart) {
         session = SafeLoginSession(start.session)
         stagingHome = start.launchSpec.environment["CODEX_HOME"].map {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
+        checkCommand = "ai-manager check-login \(start.session.id.uuidString) --yes"
+        cancelCommand = "ai-manager cancel-login \(start.session.id.uuidString) --yes"
     }
 }
 
@@ -568,6 +585,24 @@ private struct SafeAccountSnapshot: Encodable {
         status = StatusOutput(snapshot.status)
         providers = snapshot.providers.map(SafeProvider.init)
         discoveries = snapshot.discoveries
+        pendingLoginSessions = snapshot.pendingLoginSessions.map(SafeLoginSession.init)
+    }
+}
+
+private struct SafeStatusSnapshot: Encodable {
+    let accounts: [SafeAccount]
+    let defaultAccountID: UUID?
+    let sharedRoot: URL
+    let pendingRecovery: [SafeRecoveryOperation]
+    let linkedSettingsDivergences: [LinkedSettingsDivergence]
+    let pendingLoginSessions: [SafeLoginSession]
+
+    init(_ snapshot: AccountSnapshot) {
+        accounts = snapshot.status.accounts.map(SafeAccount.init)
+        defaultAccountID = snapshot.status.defaultAccountID
+        sharedRoot = snapshot.status.sharedRoot
+        pendingRecovery = snapshot.status.pendingRecovery.map(SafeRecoveryOperation.init)
+        linkedSettingsDivergences = snapshot.status.linkedSettingsDivergences
         pendingLoginSessions = snapshot.pendingLoginSessions.map(SafeLoginSession.init)
     }
 }

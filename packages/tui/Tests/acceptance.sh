@@ -41,6 +41,10 @@ if "$binary" add claude-code --json >"$test_root/disabled-provider.json" 2>"$tes
   exit 1
 fi
 rg -F 'Claude Code account setup is not available yet.' "$test_root/disabled-provider.log" >/dev/null
+"$binary" help >"$test_root/help.log"
+rg -F 'ai-manager add [codex]' "$test_root/help.log" >/dev/null
+rg -F 'Only Codex CLI is available in this release.' "$test_root/help.log" >/dev/null
+rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
 if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
   printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2
@@ -56,12 +60,23 @@ login_id="$(jq -r '.session.id' "$login_start")"
 jq -e --arg root "$fixture" '
     .session.providerID == "codex"
     and .stagingHome == ("file://" + $root + "/application-support/account-login/" + .session.id + "/home/")
-    and (keys | sort) == ["session", "stagingHome"]
+    and .checkCommand == ("ai-manager check-login " + .session.id + " --yes")
+    and .cancelCommand == ("ai-manager cancel-login " + .session.id + " --yes")
+    and (keys | sort) == ["cancelCommand", "checkCommand", "session", "stagingHome"]
   ' "$login_start" >/dev/null
 if rg -i 'access.token|refresh.token|openai.api.key|codex.access.token' "$login_start" >/dev/null; then
   printf '%s\n' 'Login output exposed authentication or inherited environment names.' >&2
   exit 1
 fi
+"$binary" status --json \
+  | jq -e --arg id "$login_id" '
+      (.pendingLoginSessions | map(.id) | index($id)) != null
+      and .accounts == []
+    ' >/dev/null
+"$binary" status >"$test_root/pending-status.log"
+rg -F "Pending Codex CLI login: $login_id" "$test_root/pending-status.log" >/dev/null
+rg -F "Check: ai-manager check-login $login_id --yes" "$test_root/pending-status.log" >/dev/null
+rg -F "Cancel: ai-manager cancel-login $login_id --yes" "$test_root/pending-status.log" >/dev/null
 "$binary" check-login "$login_id" --yes --json \
   | jq -e '.state == "waitingForLogin" and .account == null' >/dev/null
 login_home="$fixture/application-support/account-login/$login_id/home"
@@ -73,6 +88,8 @@ if ! "$binary" check-login "$login_id" --yes --json >"$test_root/login-check.jso
   exit 1
 fi
 jq -e '.state == "completed" and .account.identity.accountID == "account-two"' "$test_root/login-check.json" >/dev/null
+"$binary" status --json \
+  | jq -e --arg id "$login_id" '(.pendingLoginSessions | map(.id) | index($id)) == null' >/dev/null
 if rg -i 'access.token|refresh.token|synthetic\.' "$test_root/login-check.json" >/dev/null; then
   printf '%s\n' 'Completed login output exposed authentication content.' >&2
   exit 1
@@ -84,6 +101,27 @@ cancel_id="$(jq -r '.session.id' "$cancel_start")"
 "$binary" cancel-login "$cancel_id" --yes --json \
   | jq -e --arg id "$cancel_id" '.sessionID == $id and .state == "cancelled"' >/dev/null
 [[ ! -e "$fixture/application-support/account-login/$cancel_id" ]]
+
+adopt_fixture="$test_root/auto-adopt-fixture"
+swift "$(dirname "$0")/FixtureGenerator.swift" "$adopt_fixture" >/dev/null
+cp "$adopt_fixture/source-one/auth.json" "$adopt_fixture/default-home/auth.json"
+chmod 600 "$adopt_fixture/default-home/auth.json"
+if ! AI_MANAGER_ROOT="$adopt_fixture" \
+  AI_MANAGER_CODEX_EXECUTABLE="$adopt_fixture/fake-codex" \
+  "$binary" status --json >"$test_root/auto-adopt-status.json" 2>"$test_root/auto-adopt-status.log"; then
+  skip_if_native_writer_unknown "$test_root/auto-adopt-status.log" || true
+  cat "$test_root/auto-adopt-status.log" >&2
+  exit 1
+fi
+jq -e '
+    (.accounts | length) == 1
+    and .accounts[0].identity.accountID == "account-one"
+    and .defaultAccountID == .accounts[0].id
+    and .pendingLoginSessions == []
+  ' "$test_root/auto-adopt-status.json" >/dev/null
+adopted_credential="$(jq -r '.accounts[0].credentialFile | sub("^file://"; "")' "$test_root/auto-adopt-status.json")"
+cmp "$adopt_fixture/source-one/auth.json" "$adopt_fixture/default-home/auth.json"
+cmp "$adopt_fixture/default-home/auth.json" "$adopted_credential"
 
 "$binary" discover "$fixture/source-one" --json \
   | jq -e '[.[] | select(.identity.workspaceID == "workspace-a")] | length == 1' >/dev/null
