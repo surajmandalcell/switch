@@ -28,8 +28,8 @@ enum AIManagerNativeContract {
     {
       failures.append("Chat History does not use the required system chat symbol")
     }
-    if abs(AIMTheme.historyRailIconSize - (AIMTheme.railIconSize * 0.85)) > 0.001 {
-      failures.append("The Chat History rail symbol is not 15 percent smaller")
+    if abs(AIMTheme.historyRailIconSize - (AIMTheme.railIconSize * 0.75)) > 0.001 {
+      failures.append("The Chat History rail symbol is not 25 percent smaller")
     }
     let expectedMenus = [applicationName, "File", "Edit", "View", "Window", "Help"]
     if mainMenu.items.map(\.title) != expectedMenus {
@@ -238,9 +238,25 @@ enum AIManagerNativeContract {
 
   static func configuredScrollViewCount(in root: NSView) -> Int {
     views(in: root).compactMap { $0 as? NSScrollView }.filter {
-      $0.scrollerStyle == .overlay && $0.autohidesScrollers
-        && $0.verticalScroller is AIMThinScroller
+      $0.autohidesScrollers && $0.verticalScroller is AIMThinScroller
+        && ($0.scrollerStyle == .overlay
+          || abs($0.contentView.frame.width - $0.bounds.width) < 1)
     }.count
+  }
+
+  static func historySearchFieldsMatch(in root: NSView) -> Bool {
+    let placeholders = Set(views(in: root).compactMap {
+      ($0 as? NSTextField)?.placeholderString
+    })
+    return placeholders.contains("Search chats") && placeholders.contains("Search this chat")
+  }
+
+  static func virtualHistoryScrollCount(in root: NSView) -> Int {
+    views(in: root).filter { $0 is AIMVirtualTableView }.count
+  }
+
+  static func realizedVirtualRowCount(in root: NSView) -> Int {
+    views(in: root).filter { $0 is NSTableRowView }.count
   }
 
   static func scrollAppearancesMatch(in root: NSView, appearance: NSAppearance) -> Bool {

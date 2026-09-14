@@ -80,7 +80,10 @@ final class AccountViewModel: ObservableObject {
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
             chatHistoryProvider = injectedChatHistoryProvider
-                ?? IndexedChatHistoryProvider(index: ChatHistoryIndex(home: paths.sharedRoot))
+                ?? IndexedChatHistoryProvider(index: ChatHistoryIndex(
+                    home: paths.sharedRoot,
+                    cacheFile: paths.applicationSupport.appending(
+                        path: "cache/chat-history-v1.json")))
             chatHistoryMonitor = injectedChatHistoryMonitor
                 ?? FSEventChatHistoryMonitor(home: paths.sharedRoot)
         } catch {

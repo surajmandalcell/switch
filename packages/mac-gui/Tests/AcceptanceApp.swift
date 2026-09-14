@@ -81,6 +81,7 @@ private enum AcceptanceConfiguration {
     }
     static var opensImport: Bool { CommandLine.arguments.contains("--import") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
+    static var stressesHistory: Bool { CommandLine.arguments.contains("--history-stress") }
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--backup")
             || CommandLine.arguments.contains("--recovery") { return 1 }
@@ -94,7 +95,9 @@ private enum AcceptanceConfiguration {
 private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private let receipts = AcceptanceReceipts()
     private let model = AccountViewModel(
-        scenario: AcceptanceConfiguration.showsAllStates ? .allStates : .demo)
+        scenario: AcceptanceConfiguration.stressesHistory
+            ? .historyStress
+            : (AcceptanceConfiguration.showsAllStates ? .allStates : .demo))
     private var windowController: AIManagerWindowController<AnyView>?
     private var statusItemController: AIManagerStatusItemController?
     private var menuController: AIManagerMenuController?
@@ -365,6 +368,27 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             AIManagerNativeContract.scrollAppearancesMatch(in: contentView, appearance: window.effectiveAppearance),
             "Acceptance scroll content appearance differs from the window"
         )
+        if AcceptanceConfiguration.initialPageIndex == 2 {
+            expect(
+                AIManagerNativeContract.historySearchFieldsMatch(in: contentView),
+                "Chat History does not expose separate thread and message search fields"
+            )
+            expect(
+                AIManagerNativeContract.virtualHistoryScrollCount(in: contentView) == 2,
+                "Chat History does not use two virtual scroll surfaces"
+            )
+            if AcceptanceConfiguration.stressesHistory {
+                expect(
+                    receipts.model?.chatHistory.threads.count == 1_717,
+                    "Chat History stress fixture did not contain 1,717 threads"
+                )
+                let realizedRows = AIManagerNativeContract.realizedVirtualRowCount(in: contentView)
+                expect(
+                    realizedRows > 0 && realizedRows < 40,
+                    "Chat History realized \(realizedRows) rows for the 1,717-thread fixture"
+                )
+            }
+        }
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
             expect(
                 AIManagerNativeContract.hasVisualEffect(in: contentView),
