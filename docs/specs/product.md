@@ -51,9 +51,16 @@ Settings never lists files as “Linked entries,” never implies that each acco
 separate configuration or chat library, and never exposes internal managed-home topology.
 An account-specific legacy repair may appear on that account only when action is required.
 
-Cleanup is a separate page for rebuildable app data. It reports the current usage-cache and
-conversation-index sizes and can clear either cache without deleting accounts, saved auth,
-settings, or conversation files. The conversation index rebuilds when Chat History opens again.
+Cleanup is deferred. The current basic page is a frozen prototype and is not the accepted feature
+design. Do not continue Cleanup implementation until the user explicitly resumes it.
+
+When resumed, Cleanup uses a disclosure tree rather than a flat pair of actions. The hierarchy
+groups rebuildable data by provider, account, and cache type while keeping shared indexes distinct.
+It supports Chrome-style time ranges (last hour, last 24 hours, last 7 days, last 4 weeks, all time)
+and a custom date interval where the underlying data has timestamps. Before clearing, it reports
+the selected item count and estimated size, then shows one exact review summary. Accounts, saved
+auth, settings, and source conversations remain excluded from Cleanup unless a future specification
+adds a separate, explicitly destructive flow.
 
 ## 3. Usage presentation
 

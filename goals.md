@@ -2502,12 +2502,26 @@ with temporary synthetic homes before installation.
   at the footer's left edge even when an account hides its usage.
 - Replace the Daily activity date table with a selectable activity calendar for 7 days, 1 month,
   and 1 year. Selecting a day reveals its exact token count.
-- Add Cleanup as a native page for clearing the rebuildable usage cache and conversation index.
-  It must never remove accounts, saved auth, settings, or conversation files.
+- The basic Cleanup page was implemented and verified during this checkpoint, but the deferred
+  Cleanup specification below supersedes it as an acceptance target.
 - Verification (2026-09-15): all 154 native tests pass with only the two explicit protected-copy
   fixture skips. Pixel-trace icon, mock/production view-model, system/light/dark GUI, single-instance,
   and native-scroll contracts pass. Visual inspection covered Accounts, Add Account, Cleanup, the
   menu popover, and activity-cell selection with its exact token count.
+
+### Deferred advanced Cleanup (2026-09-15)
+
+- Pause Cleanup development. The existing basic page is a frozen prototype, not a finished or
+  release-accepted Cleanup experience. Resume only after an explicit user request.
+- Replace the flat cache actions with a disclosure tree grouped by provider, account, and cache
+  type. Keep shared indexes in their own branch and leave room for future providers.
+- Add Chrome-style time ranges: last hour, last 24 hours, last 7 days, last 4 weeks, and all time.
+  Add a custom start/end interval for cache records that carry timestamps.
+- Calculate the selected item count and estimated reclaimed size without blocking the UI. Show the
+  exact tree selection and time range in a final review before clearing, plus a completion receipt.
+- Keep accounts, saved auth, settings, and source conversations outside Cleanup. Any future action
+  that can remove durable user data requires a separate explicit design and confirmation flow.
+- No implementation work is authorized for this deferred milestone yet.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 
