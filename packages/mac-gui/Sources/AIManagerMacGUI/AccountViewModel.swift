@@ -28,7 +28,7 @@ private struct IndexedChatHistoryProvider: ChatHistoryProviding {
 @MainActor
 final class AccountViewModel: ObservableObject {
     #if AI_MANAGER_PREVIEW
-    enum Scenario { case demo, empty, allStates }
+    enum Scenario { case demo, empty, allStates, historyStress }
     #endif
 
     @Published var status: ManagerStatus?
@@ -58,6 +58,7 @@ final class AccountViewModel: ObservableObject {
     let paths: ManagerPaths
     private let manager: AccountManager?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
+    private let chatHistoryMonitor: (any ChatHistoryMonitoring)?
     #if AI_MANAGER_PREVIEW
     private var scenario: Scenario?
     #endif
@@ -65,21 +66,27 @@ final class AccountViewModel: ObservableObject {
     private var actionGeneration = 0
     private var chatSelectionGeneration = 0
     private var hasScannedChatHistory = false
+    private var requestedChatHistoryQuery = ""
+    private var appliedChatHistoryQuery: String?
     private var chatDetailTask: Task<ChatThreadDetail?, Error>?
 
     init(
         paths: ManagerPaths,
         manager injectedManager: AccountManager? = nil,
-        chatHistoryProvider injectedChatHistoryProvider: (any ChatHistoryProviding)? = nil
+        chatHistoryProvider injectedChatHistoryProvider: (any ChatHistoryProviding)? = nil,
+        chatHistoryMonitor injectedChatHistoryMonitor: (any ChatHistoryMonitoring)? = nil
     ) {
         self.paths = paths
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
             chatHistoryProvider = injectedChatHistoryProvider
                 ?? IndexedChatHistoryProvider(index: ChatHistoryIndex(home: paths.sharedRoot))
+            chatHistoryMonitor = injectedChatHistoryMonitor
+                ?? FSEventChatHistoryMonitor(home: paths.sharedRoot)
         } catch {
             manager = nil
             chatHistoryProvider = nil
+            chatHistoryMonitor = nil
             isUnavailable = true
             hasLoaded = true
             unavailableReason = "Switch could not open its private data folder. \(error.localizedDescription)"
@@ -92,6 +99,7 @@ final class AccountViewModel: ObservableObject {
         paths = demoPaths ?? DemoData.paths
         manager = nil
         chatHistoryProvider = nil
+        chatHistoryMonitor = nil
         self.scenario = scenario
         reset(to: scenario)
     }
@@ -176,7 +184,8 @@ final class AccountViewModel: ObservableObject {
         accountHistory = Dictionary(uniqueKeysWithValues: accounts.map {
             ($0.id, HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true))
         })
-        let demoThreads = scenario == .empty ? [] : DemoData.chatThreads
+        let demoThreads = scenario == .empty
+            ? [] : (scenario == .historyStress ? DemoData.stressChatThreads : DemoData.chatThreads)
         chatHistory = ChatHistorySnapshot(
             threads: demoThreads,
             totalThreadCount: demoThreads.count,
@@ -613,38 +622,61 @@ final class AccountViewModel: ObservableObject {
         accountHistory[account.id] ?? HistorySummary()
     }
 
-    func watchChatHistory(query: String) async {
+    func watchChatHistory() async {
+        await refreshChatHistory(query: requestedChatHistoryQuery)
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return }
+        #endif
+        guard let chatHistoryMonitor else { return }
+        for await _ in chatHistoryMonitor.changes() {
+            guard !Task.isCancelled else { return }
+            await refreshChatHistory(query: requestedChatHistoryQuery)
+        }
+    }
+
+    func searchChatHistory(query: String) async {
         if !query.isEmpty {
             do { try await Task.sleep(for: .milliseconds(120)) }
             catch { return }
         }
-        while !Task.isCancelled {
+        guard !Task.isCancelled else { return }
+        requestedChatHistoryQuery = query
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
             await refreshChatHistory(query: query)
-            do { try await Task.sleep(for: .milliseconds(750)) }
-            catch { return }
+            return
         }
+        #endif
+        guard hasScannedChatHistory, let chatHistoryProvider else { return }
+        let snapshot = await chatHistoryProvider.search(query: query)
+        guard !Task.isCancelled, requestedChatHistoryQuery == query else { return }
+        applyChatHistory(snapshot, query: query)
+        await selectVisibleChat()
     }
 
     func refreshChatHistory(query: String) async {
+        requestedChatHistoryQuery = query
         #if AI_MANAGER_PREVIEW
         if isDemo {
             let terms = query.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }
-            let all = scenario == .empty ? [] : DemoData.chatThreads
+            let all = scenario == .empty
+                ? [] : (scenario == .historyStress ? DemoData.stressChatThreads : DemoData.chatThreads)
             let matches = terms.isEmpty ? all : all.filter { thread in
                 let text = [thread.title, thread.preview, thread.workingDirectory, thread.threadID]
                     .compactMap { $0 }.joined(separator: "\n").lowercased()
                 return terms.allSatisfy(text.contains)
             }
-            chatHistory = ChatHistorySnapshot(
+            applyChatHistory(ChatHistorySnapshot(
                 threads: matches,
                 totalThreadCount: all.count,
-                matchingThreadCount: matches.count)
+                matchingThreadCount: matches.count), query: query)
             await selectVisibleChat()
             return
         }
         #endif
         guard let chatHistoryProvider else {
-            chatHistoryError = unavailableReason ?? "The chat library is unavailable."
+            let message = unavailableReason ?? "The chat library is unavailable."
+            if chatHistoryError != message { chatHistoryError = message }
             return
         }
         let showsInitialLoader = !hasScannedChatHistory
@@ -654,15 +686,28 @@ final class AccountViewModel: ObservableObject {
             let snapshot = try await chatHistoryProvider.refresh(query: query)
             guard !Task.isCancelled else { return }
             hasScannedChatHistory = true
-            if snapshot != chatHistory { chatHistory = snapshot }
-            chatHistoryError = nil
+            applyChatHistory(snapshot, query: query)
+            if chatHistoryError != nil { chatHistoryError = nil }
             await selectVisibleChat()
         } catch is CancellationError {
             return
         } catch {
             hasScannedChatHistory = true
-            chatHistoryError = "The chat library could not refresh. \(error.localizedDescription)"
+            let message = "The chat library could not refresh. \(error.localizedDescription)"
+            if chatHistoryError != message { chatHistoryError = message }
         }
+    }
+
+    private func applyChatHistory(_ snapshot: ChatHistorySnapshot, query: String) {
+        guard appliedChatHistoryQuery != query
+                || snapshot.libraryRevision != chatHistory.libraryRevision
+                || snapshot.totalThreadCount != chatHistory.totalThreadCount
+                || snapshot.matchingThreadCount != chatHistory.matchingThreadCount
+                || snapshot.skippedFileCount != chatHistory.skippedFileCount
+                || snapshot.unreadableRecordCount != chatHistory.unreadableRecordCount
+        else { return }
+        chatHistory = snapshot
+        appliedChatHistoryQuery = query
     }
 
     func selectChat(_ id: String) async {
@@ -674,16 +719,18 @@ final class AccountViewModel: ObservableObject {
 
     private func selectVisibleChat() async {
         let visible = chatHistory.threads
-        guard !visible.isEmpty else {
-            selectedChatID = nil
-            selectedChat = nil
+        if let selectedChatID {
+            if let summary = visible.first(where: { $0.id == selectedChatID }),
+               selectedChat?.thread != summary {
+                await loadSelectedChat(selectedChatID)
+            }
             return
         }
-        let nextID = visible.contains { $0.id == selectedChatID }
-            ? selectedChatID! : visible[0].id
+        guard !visible.isEmpty else {
+            return
+        }
+        let nextID = visible[0].id
         selectedChatID = nextID
-        guard selectedChat?.thread != visible.first(where: { $0.id == nextID }) else { return }
-        selectedChat = nil
         await loadSelectedChat(nextID)
     }
 
@@ -691,9 +738,10 @@ final class AccountViewModel: ObservableObject {
         chatDetailTask?.cancel()
         chatSelectionGeneration += 1
         let generation = chatSelectionGeneration
-        isChatLoading = true
+        let showsLoader = selectedChat == nil
+        if showsLoader { isChatLoading = true }
         defer {
-            if generation == chatSelectionGeneration { isChatLoading = false }
+            if showsLoader, generation == chatSelectionGeneration { isChatLoading = false }
         }
         #if AI_MANAGER_PREVIEW
         if isDemo {
@@ -713,14 +761,15 @@ final class AccountViewModel: ObservableObject {
             guard !Task.isCancelled,
                   generation == chatSelectionGeneration,
                   selectedChatID == id else { return }
-            selectedChat = detail
+            if detail != selectedChat { selectedChat = detail }
             chatDetailTask = nil
         } catch is CancellationError {
             return
         } catch {
             guard generation == chatSelectionGeneration else { return }
             chatDetailTask = nil
-            chatHistoryError = "The selected chat could not open. \(error.localizedDescription)"
+            let message = "The selected chat could not open. \(error.localizedDescription)"
+            if chatHistoryError != message { chatHistoryError = message }
         }
     }
 
@@ -852,6 +901,17 @@ private enum DemoData {
             preview: "The approved pixel trace is packaged for light and dark appearances.",
             project: "/Projects/Switch", minutesAgo: 1_460, messages: 4, archived: true),
     ]
+
+    static let stressChatThreads: [ChatThreadSummary] = chatThreads + (chatThreads.count..<1_717).map {
+        chatThread(
+            id: "stress-chat-\($0)",
+            threadID: "synthetic-\($0)",
+            title: "Synthetic chat \(String(format: "%04d", $0))",
+            preview: "A bounded synthetic row used to verify virtual chat rendering.",
+            project: "/Tests/Chat History",
+            minutesAgo: $0 + 1,
+            messages: 8)
+    }
 
     static func chatDetail(_ id: String) -> ChatThreadDetail? {
         guard let thread = chatThreads.first(where: { $0.id == id }) else { return nil }

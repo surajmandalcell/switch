@@ -1,6 +1,24 @@
 import AppKit
+import Combine
 import Foundation
 import AIManagerCore
+
+private actor CountingChatHistoryProvider: ChatHistoryProviding {
+    private var refreshes = 0
+
+    func refresh(query: String) async throws -> ChatHistorySnapshot {
+        refreshes += 1
+        return ChatHistorySnapshot()
+    }
+
+    func search(query: String) async -> ChatHistorySnapshot { ChatHistorySnapshot() }
+    func detail(for id: String) async throws -> ChatThreadDetail? { nil }
+    func refreshCount() -> Int { refreshes }
+}
+
+private struct SilentChatHistoryMonitor: ChatHistoryMonitoring {
+    func changes() -> AsyncStream<Void> { AsyncStream { _ in } }
+}
 
 @main
 struct ProductionAccountViewModelCheck {
@@ -60,6 +78,52 @@ struct ProductionAccountViewModelCheck {
             .write(to: fullSessions.appending(path: "full.jsonl"))
 
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let countingHistory = CountingChatHistoryProvider()
+        let stableHistoryModel = AccountViewModel(
+            paths: paths,
+            manager: manager,
+            chatHistoryProvider: countingHistory,
+            chatHistoryMonitor: SilentChatHistoryMonitor())
+        let historyWatch = Task { await stableHistoryModel.watchChatHistory() }
+        for _ in 0..<100 where await countingHistory.refreshCount() == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let initialRefreshCount = await countingHistory.refreshCount()
+        try expect(initialRefreshCount == 1,
+                   "Chat History did not perform its initial scan")
+        try await Task.sleep(for: .milliseconds(40))
+        var idlePublicationCount = 0
+        let idlePublication = stableHistoryModel.objectWillChange.sink {
+            idlePublicationCount += 1
+        }
+        try await Task.sleep(for: .milliseconds(1_600))
+        historyWatch.cancel()
+        await historyWatch.value
+        let idleRefreshCount = await countingHistory.refreshCount()
+        try expect(idleRefreshCount == 1,
+                   "Chat History refreshed an unchanged library on a timer")
+        try expect(idlePublicationCount == 0,
+                   "Chat History republished its view while the library was unchanged")
+        withExtendedLifetime(idlePublication) {}
+
+        let eventHistory = CountingChatHistoryProvider()
+        let eventHistoryModel = AccountViewModel(
+            paths: paths, manager: manager, chatHistoryProvider: eventHistory)
+        let eventWatch = Task { await eventHistoryModel.watchChatHistory() }
+        for _ in 0..<100 where await eventHistory.refreshCount() == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(350))
+        try Data("event".utf8).write(to: paths.sharedRoot.appending(path: "history-event-probe"))
+        for _ in 0..<200 where await eventHistory.refreshCount() < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let eventRefreshCount = await eventHistory.refreshCount()
+        eventWatch.cancel()
+        await eventWatch.value
+        try expect(eventRefreshCount >= 2,
+                   "Chat History did not refresh after a file-system change")
+
         let model = AccountViewModel(paths: paths, manager: manager)
         try expect(!model.isUnavailable, "Production model was unavailable")
         try expect(model.selectedProviderID == .codex, "Codex was not the selected provider")

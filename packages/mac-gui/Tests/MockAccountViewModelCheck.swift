@@ -26,14 +26,17 @@ struct MockAccountViewModelCheck {
         precondition(model.status?.accounts.count == 3)
         precondition(model.status?.pendingRecovery.count == 2)
         precondition(model.status?.linkedSettingsDivergences.count == 1)
-        await model.refreshChatHistory(query: "account import")
+        await model.refreshChatHistory(query: "")
         precondition(model.chatHistory.totalThreadCount == 3)
+        let initialChatID = model.selectedChatID
+        await model.searchChatHistory(query: "account import")
         precondition(model.chatHistory.matchingThreadCount == 1)
         precondition(model.selectedChat?.messages.count == 4)
-        await model.refreshChatHistory(query: "no-such-chat")
+        await model.searchChatHistory(query: "no-such-chat")
         precondition(model.chatHistory.matchingThreadCount == 0)
-        precondition(model.selectedChat == nil)
-        await model.refreshChatHistory(query: "")
+        precondition(model.selectedChatID == initialChatID)
+        precondition(model.selectedChat != nil)
+        await model.searchChatHistory(query: "")
         precondition(model.selectedChat != nil)
 
         model.isBusy = true
