@@ -146,7 +146,7 @@ private extension AIManagerPage {
     case .accounts: "Import, verify, and switch accounts"
     case .backup: "Snapshots and interrupted operations"
     case .history: "The merged resume library"
-    case .settings: "One configuration across every account"
+    case .settings: "App behavior and data locations"
     }
   }
 }
@@ -196,7 +196,7 @@ struct AccountWindow: View {
               case .backup: BackupPage(model: model)
               case .history: HistoryPage(model: model)
               case .settings:
-                SharedSettingsPage(model: model, showFocusIndicators: $showFocusIndicators)
+                SettingsPage(model: model, showFocusIndicators: $showFocusIndicators)
               }
             }
             .id(page)
@@ -799,7 +799,7 @@ private struct AccountDetail: View {
           VStack(spacing: 0) {
             DetailRow(label: "Saved auth", value: account.credentialFile.path)
             DetailRow(label: "Source", value: account.source.path, zebra: true)
-            DetailRow(label: "Shared settings", value: model.paths.sharedRoot.path)
+            DetailRow(label: "Codex home", value: model.paths.defaultHome.path)
             DetailRow(
               label: "Imported",
               value: account.importedAt.formatted(date: .abbreviated, time: .shortened), zebra: true
@@ -811,7 +811,7 @@ private struct AccountDetail: View {
           }
         }
         if !issues.isEmpty {
-          AIMPanel(title: "Shared settings need repair") {
+          AIMPanel(title: "Account data needs repair") {
             VStack(spacing: 0) {
               ForEach(issues) { issue in
                 HStack(spacing: 12) {
@@ -826,7 +826,7 @@ private struct AccountDetail: View {
                   Spacer()
                   WarningCopyButton(label: "Copy repair warning") {
                     model.copyWarnings([
-                      "Shared setting needs repair: \(issue.relativePath)\nLocation: \(issue.localPath.path)"
+                      "Account data needs repair: \(issue.relativePath)\nLocation: \(issue.localPath.path)"
                     ])
                   }
                   AIMButton(title: "Back up and repair", tone: .danger, disabled: model.isBusy) {
@@ -879,6 +879,102 @@ private struct AccountDetail: View {
   }
 }
 
+enum UsagePresentation {
+  struct Fact: Identifiable, Equatable {
+    let label: String
+    let value: String
+    var id: String { label }
+  }
+
+  struct DailyRow: Identifiable, Equatable {
+    let startDate: String
+    let tokens: String
+    var id: String { "\(startDate):\(tokens)" }
+  }
+
+  static func accountFacts(_ snapshot: CodexAccountUsageSnapshot) -> [Fact] {
+    var facts: [Fact] = []
+    if let allowed = snapshot.rateLimits?.ordinaryUsageAllowed {
+      facts.append(Fact(label: "Ordinary usage", value: allowed ? "Available" : "Restricted"))
+    }
+    if snapshot.account != nil {
+      facts.append(Fact(label: "Authentication", value: "Signed in"))
+    } else if let required = snapshot.requiresOpenAIAuthentication {
+      facts.append(Fact(
+        label: "Authentication", value: required ? "Sign-in required" : "Not required"))
+    }
+    return facts
+  }
+
+  static func summaryFacts(_ summary: CodexUsageSummarySnapshot?) -> [Fact] {
+    guard let summary else { return [] }
+    var facts: [Fact] = []
+    if let value = summary.lifetimeTokens {
+      facts.append(Fact(label: "Lifetime", value: formatTokens(value)))
+    }
+    if let value = summary.peakDailyTokens {
+      facts.append(Fact(label: "Peak day", value: formatTokens(value)))
+    }
+    if let value = summary.currentStreakDays {
+      facts.append(Fact(label: "Current streak", value: formatDays(value)))
+    }
+    if let value = summary.longestStreakDays {
+      facts.append(Fact(label: "Longest streak", value: formatDays(value)))
+    }
+    if let value = summary.longestRunningTurnSeconds {
+      facts.append(Fact(label: "Longest turn", value: formatDuration(value)))
+    }
+    return facts
+  }
+
+  static func credits(_ credits: CodexCreditsSnapshot?) -> String? {
+    guard let credits else { return nil }
+    if credits.unlimited == true { return "Unlimited" }
+    if let balance = nonempty(credits.balance) { return balance }
+    if let hasCredits = credits.hasCredits { return hasCredits ? "Available" : "None" }
+    return nil
+  }
+
+  static func spendControl(_ reached: Bool?) -> String? {
+    reached.map { $0 ? "Reached" : "Not reached" }
+  }
+
+  static func hasWindow(_ window: CodexRateLimitWindowSnapshot?) -> Bool {
+    window?.usedPercent != nil
+  }
+
+  static func hasContent(_ bucket: CodexRateLimitBucketSnapshot) -> Bool {
+    hasWindow(bucket.primary) || hasWindow(bucket.secondary) || credits(bucket.credits) != nil
+      || spendControl(bucket.spendControlReached) != nil
+  }
+
+  static func dailyRows(_ rows: [CodexDailyUsageSnapshot]) -> [DailyRow] {
+    rows.compactMap { row in
+      guard let startDate = nonempty(row.startDate), let tokens = row.tokens else { return nil }
+      return DailyRow(startDate: startDate, tokens: formatTokens(tokens))
+    }
+  }
+
+  static func nonempty(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return result.isEmpty ? nil : result
+  }
+
+  private static func formatTokens(_ value: Int64) -> String {
+    value.formatted(.number.notation(.compactName))
+  }
+
+  private static func formatDays(_ value: Int64) -> String {
+    "\(value) day\(value == 1 ? "" : "s")"
+  }
+
+  private static func formatDuration(_ seconds: Int64) -> String {
+    Duration.seconds(seconds).formatted(
+      .units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
+  }
+}
+
 private struct AccountUsagePanel: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
@@ -896,13 +992,15 @@ private struct AccountUsagePanel: View {
     var seen = Set<String>()
     if let bucket = limits.defaultBucket {
       let key = bucket.id ?? "default"
-      seen.insert(key)
-      result.append((key, bucket))
+      if UsagePresentation.hasContent(bucket) {
+        seen.insert(key)
+        result.append((key, bucket))
+      }
     }
     for (key, bucket) in limits.buckets.sorted(by: { $0.key.localizedStandardCompare($1.key) == .orderedAscending }) {
       let identity = bucket.id ?? key
       guard seen.insert(identity).inserted else { continue }
-      result.append((key, bucket))
+      if UsagePresentation.hasContent(bucket) { result.append((key, bucket)) }
     }
     return result
   }
@@ -920,18 +1018,16 @@ private struct AccountUsagePanel: View {
             }
             .padding(.bottom, 14)
 
-            HStack(spacing: 18) {
-              UsageFact(
-                label: "Ordinary usage",
-                value: formatAvailability(snapshot.rateLimits?.ordinaryUsageAllowed)
-              )
-              UsageFact(
-                label: "Authentication",
-                value: authenticationCopy(snapshot)
-              )
-              Spacer()
+            let accountFacts = UsagePresentation.accountFacts(snapshot)
+            if !accountFacts.isEmpty {
+              HStack(spacing: 18) {
+                ForEach(accountFacts) { fact in
+                  UsageFact(label: fact.label, value: fact.value)
+                }
+                Spacer()
+              }
+              .padding(.bottom, 14)
             }
-            .padding(.bottom, 14)
 
             ForEach(Array(limitBuckets.enumerated()), id: \.element.key) { index, item in
               UsageBucket(
@@ -948,26 +1044,19 @@ private struct AccountUsagePanel: View {
               UsageUnavailableRow(text: "Rate limits unavailable")
             }
 
-            HStack(spacing: 20) {
-              UsageFact(label: "Lifetime", value: formatTokens(snapshot.usage?.lifetimeTokens))
-              UsageFact(label: "Peak day", value: formatTokens(snapshot.usage?.peakDailyTokens))
-              UsageFact(
-                label: "Current streak",
-                value: formatDays(snapshot.usage?.currentStreakDays)
-              )
-              UsageFact(
-                label: "Longest streak",
-                value: formatDays(snapshot.usage?.longestStreakDays)
-              )
-              UsageFact(
-                label: "Longest turn",
-                value: formatDuration(snapshot.usage?.longestRunningTurnSeconds)
-              )
-              Spacer()
+            let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
+            if !summaryFacts.isEmpty {
+              HStack(spacing: 20) {
+                ForEach(summaryFacts) { fact in
+                  UsageFact(label: fact.label, value: fact.value)
+                }
+                Spacer()
+              }
+              .padding(.top, 14)
             }
-            .padding(.top, 14)
 
-            if !snapshot.dailyUsage.isEmpty {
+            let dailyRows = UsagePresentation.dailyRows(snapshot.dailyUsage)
+            if !dailyRows.isEmpty {
               VStack(spacing: 0) {
                 HStack {
                   Text("Daily activity").font(AIMTheme.sans(11, weight: .semibold))
@@ -976,12 +1065,12 @@ private struct AccountUsagePanel: View {
                     .foregroundStyle(AIMTheme.muted)
                 }
                 .padding(.horizontal, 12).frame(height: 32)
-                ForEach(Array(snapshot.dailyUsage.enumerated()), id: \.offset) { index, day in
+                ForEach(Array(dailyRows.enumerated()), id: \.element.id) { index, day in
                   HStack(spacing: 12) {
-                    Text(day.startDate ?? "Date unavailable")
+                    Text(day.startDate)
                       .font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
                     Spacer()
-                    Text(formatTokens(day.tokens))
+                    Text(day.tokens)
                       .font(AIMTheme.mono(10, weight: .semibold))
                   }
                   .padding(.horizontal, 12).frame(height: 30)
@@ -989,9 +1078,6 @@ private struct AccountUsagePanel: View {
                 }
               }
               .padding(.top, 14)
-            } else {
-              UsageUnavailableRow(text: "Daily activity unavailable")
-                .padding(.top, 10)
             }
           }
           .padding(16)
@@ -1051,31 +1137,6 @@ private struct AccountUsagePanel: View {
     return "\(minutes)-minute window"
   }
 
-  private func formatTokens(_ value: Int64?) -> String {
-    guard let value else { return "Unavailable" }
-    return value.formatted(.number.notation(.compactName))
-  }
-
-  private func formatDays(_ value: Int64?) -> String {
-    guard let value else { return "Unavailable" }
-    return "\(value) day\(value == 1 ? "" : "s")"
-  }
-
-  private func formatDuration(_ seconds: Int64?) -> String {
-    guard let seconds else { return "Unavailable" }
-    return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
-  }
-
-  private func formatAvailability(_ value: Bool?) -> String {
-    guard let value else { return "Unavailable" }
-    return value ? "Available" : "Restricted"
-  }
-
-  private func authenticationCopy(_ snapshot: CodexAccountUsageSnapshot) -> String {
-    if snapshot.account != nil { return "Signed in" }
-    guard let required = snapshot.requiresOpenAIAuthentication else { return "Unavailable" }
-    return required ? "Sign-in required" : "Not required"
-  }
 }
 
 private struct UsageBucket: View {
@@ -1092,32 +1153,31 @@ private struct UsageBucket: View {
           Text(model).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted).lineLimit(1)
         }
         Spacer()
-        Text(bucket.plan?.capitalized ?? "Plan unavailable")
-          .font(AIMTheme.sans(9, weight: .medium)).foregroundStyle(AIMTheme.muted)
+        if let plan = UsagePresentation.nonempty(bucket.plan) {
+          Text(plan.capitalized)
+            .font(AIMTheme.sans(9, weight: .medium)).foregroundStyle(AIMTheme.muted)
+        }
       }
-      HStack(spacing: 20) {
-        UsageMeter(title: windowLabel(bucket.primary, "Current window"), window: bucket.primary)
-        UsageMeter(title: windowLabel(bucket.secondary, "Secondary window"), window: bucket.secondary)
+      if UsagePresentation.hasWindow(bucket.primary) || UsagePresentation.hasWindow(bucket.secondary) {
+        HStack(spacing: 20) {
+          if let primary = bucket.primary, UsagePresentation.hasWindow(primary) {
+            UsageMeter(title: windowLabel(primary, "Current window"), window: primary)
+          }
+          if let secondary = bucket.secondary, UsagePresentation.hasWindow(secondary) {
+            UsageMeter(title: windowLabel(secondary, "Secondary window"), window: secondary)
+          }
+        }
       }
-      HStack(spacing: 20) {
-        UsageFact(label: "Credits", value: creditsCopy)
-        UsageFact(label: "Spend control", value: spendControlCopy)
-        Spacer()
+      let credits = UsagePresentation.credits(bucket.credits)
+      let spendControl = UsagePresentation.spendControl(bucket.spendControlReached)
+      if credits != nil || spendControl != nil {
+        HStack(spacing: 20) {
+          if let credits { UsageFact(label: "Credits", value: credits) }
+          if let spendControl { UsageFact(label: "Spend control", value: spendControl) }
+          Spacer()
+        }
       }
     }
-  }
-
-  private var creditsCopy: String {
-    guard let credits = bucket.credits else { return "Unavailable" }
-    if credits.unlimited == true { return "Unlimited" }
-    if let balance = credits.balance, !balance.isEmpty { return balance }
-    if let hasCredits = credits.hasCredits { return hasCredits ? "Available" : "None" }
-    return "Unavailable"
-  }
-
-  private var spendControlCopy: String {
-    guard let reached = bucket.spendControlReached else { return "Unavailable" }
-    return reached ? "Reached" : "Available"
   }
 }
 
@@ -1135,41 +1195,38 @@ private struct UsageUnavailableRow: View {
 
 private struct UsageMeter: View {
   let title: String
-  let window: CodexRateLimitWindowSnapshot?
+  let window: CodexRateLimitWindowSnapshot
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-  private var used: Int? { window?.usedPercent.map { min(max($0, 0), 100) } }
+  private var used: Int { min(max(window.usedPercent ?? 0, 0), 100) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(alignment: .firstTextBaseline) {
         Text(title).font(AIMTheme.sans(11, weight: .medium))
         Spacer()
-        Text(used.map { "\($0)% used" } ?? "Unavailable")
+        Text("\(used)% used")
           .font(AIMTheme.mono(10, weight: .semibold))
       }
       GeometryReader { geometry in
         ZStack(alignment: .leading) {
           Rectangle().fill(AIMTheme.control)
-          if let used {
-            Rectangle()
-              .fill(used >= 90 ? AIMTheme.red : (used >= 70 ? AIMTheme.amber : AIMTheme.blue))
-              .frame(width: geometry.size.width * CGFloat(used) / 100)
-          }
+          Rectangle()
+            .fill(used >= 90 ? AIMTheme.red : (used >= 70 ? AIMTheme.amber : AIMTheme.blue))
+            .frame(width: geometry.size.width * CGFloat(used) / 100)
         }
         .clipShape(RoundedRectangle(cornerRadius: 3))
       }
       .frame(height: 5)
-      Text(resetCopy).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+      if let reset = window.resetsAt {
+        Text("Resets \(reset.formatted(.relative(presentation: .named)))")
+          .font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+      }
     }
     .frame(maxWidth: .infinity)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: used)
   }
 
-  private var resetCopy: String {
-    guard let reset = window?.resetsAt else { return "Reset time unavailable" }
-    return "Resets \(reset.formatted(.relative(presentation: .named)))"
-  }
 }
 
 private struct UsageFact: View {
@@ -1197,29 +1254,17 @@ private struct DetailRow: View {
   }
 }
 
-private struct SharedSettingsPage: View {
+private struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
   @Binding var showFocusIndicators: Bool
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private let shared = [
-    "config.toml", "AGENTS.md", "agents", "rules", "context", "skills", "plugins", "hooks.json",
-    "sessions", "archived_sessions",
-  ]
-  private var visibleShared: [String] {
-    #if AI_MANAGER_PREVIEW
-    if model.isDemo { return shared }
-    #endif
-    return shared.filter {
-      FileManager.default.fileExists(atPath: model.paths.sharedRoot.appending(path: $0).path)
-    }
-  }
   var body: some View {
     AIMScrollView {
       VStack(spacing: 8) {
         AIMPanel(title: "App behavior") {
           VStack(spacing: 0) {
-            settingRow(isOn: $minimizeToTray, title: "Minimize to tray") {
+            settingRow(isOn: $minimizeToTray, title: "Minimize to menu bar") {
               Text("Hide the window and keep Switch available from its menu-bar icon.")
             }
             settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
@@ -1243,47 +1288,24 @@ private struct SharedSettingsPage: View {
           }
         }
         #endif
-        AIMPanel(title: "Shared root") {
+        AIMPanel(title: "Data locations") {
           VStack(spacing: 0) {
-            DetailRow(label: "Location", value: model.paths.sharedRoot.path)
-            HStack {
-              Text("Every managed account uses this configuration and merged chat library.").font(
-                AIMTheme.sans(11)
-              ).foregroundStyle(AIMTheme.muted)
-              Spacer()
-              AIMButton(title: "Show in Finder", icon: .folder) { model.showSharedRoot() }
-            }.padding(16).background(AIMTheme.panel2.opacity(0.55))
-          }
-        }
-        AIMPanel(title: "Linked entries") {
-          VStack(spacing: 0) {
-            ForEach(Array(visibleShared.enumerated()), id: \.element) { index, item in
-              HStack {
-                Text(item).font(AIMTheme.mono(11))
-                Spacer()
-                Text(item.contains("session") ? "Merged history" : "Shared").font(AIMTheme.sans(10))
-                  .foregroundStyle(AIMTheme.muted)
-                AIMIcon(name: .check, size: 12).foregroundStyle(AIMTheme.green)
-              }.padding(.horizontal, 16).frame(height: 40).background(
-                index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
+            DataLocationRow(
+              title: "Codex home",
+              detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
+              path: model.paths.defaultHome.path
+            ) {
+              model.showDataLocation(model.paths.defaultHome, name: "Codex home")
             }
-            if visibleShared.isEmpty {
-              Text("No shared settings or history entries are present yet.")
-                .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            DataLocationRow(
+              title: "Saved account vault",
+              detail: "Switch keeps one private auth.json snapshot per saved account.",
+              path: model.paths.credentialStore.path,
+              zebra: true
+            ) {
+              model.showDataLocation(model.paths.credentialStore, name: "Saved account vault")
             }
           }
-        }
-        if let issues = model.status?.linkedSettingsDivergences, !issues.isEmpty {
-          Notice(
-            text:
-              "\(issues.count) linked setting\(issues.count == 1 ? "" : "s") need review on the Accounts page.",
-            tone: AIMTheme.amber, icon: .warning,
-            copy: {
-              model.copyWarnings([
-                "\(issues.count) linked setting\(issues.count == 1 ? "" : "s") need review on the Accounts page."
-              ])
-            })
         }
         Group {
           if let notice = model.notice {
@@ -1315,6 +1337,37 @@ private struct SharedSettingsPage: View {
   }
 }
 
+private struct DataLocationRow: View {
+  let title: String
+  let detail: String
+  let path: String
+  var zebra = false
+  let reveal: () -> Void
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 16) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title).font(AIMTheme.sans(11, weight: .semibold))
+        Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        Text(path).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.faint)
+          .lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(path)
+      }
+      Spacer(minLength: 20)
+      AIMButton(title: "Reveal", icon: .folder, action: reveal)
+    }
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
+  }
+}
+
+enum HistoryHeaderLayout {
+  static let height: CGFloat = 40
+  static let countWidth: CGFloat = 52
+  static let warningWidth: CGFloat = 32
+  static let statusWidth: CGFloat = 20
+}
+
 private struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
   @State private var threadQuery = ""
@@ -1322,29 +1375,45 @@ private struct HistoryPage: View {
   var body: some View {
     HStack(spacing: 8) {
       VStack(spacing: 0) {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
           Text("Conversations").font(AIMTheme.sans(12, weight: .semibold))
-          Spacer(minLength: 4)
+          Spacer(minLength: 8)
           Text(historyCountText)
             .font(AIMTheme.sans(9))
             .foregroundStyle(AIMTheme.muted)
+            .monospacedDigit()
             .contentTransition(.numericText())
-          if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
-            WarningCopyButton(label: "Copy history warning") {
-              model.copyWarnings([historyIssueText])
+            .frame(
+              width: HistoryHeaderLayout.countWidth,
+              height: HistoryHeaderLayout.height,
+              alignment: .trailing)
+          Group {
+            if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
+              WarningCopyButton(label: "Copy history warning") {
+                model.copyWarnings([historyIssueText])
+              }
+              .help(historyIssueText)
+            } else {
+              Color.clear
             }
-            .help(historyIssueText)
           }
-          if let error = model.chatHistoryError {
-            Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
-              .help(error)
-              .accessibilityLabel(error)
-          } else if model.isChatHistoryLoading {
-            ProgressView().controlSize(.small)
+          .frame(width: HistoryHeaderLayout.warningWidth, height: HistoryHeaderLayout.height)
+          Group {
+            if let error = model.chatHistoryError {
+              Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
+                .help(error)
+                .accessibilityLabel(error)
+            } else if model.isChatHistoryLoading {
+              ProgressView().controlSize(.small)
+            } else {
+              Color.clear
+            }
           }
+          .frame(width: HistoryHeaderLayout.statusWidth, height: HistoryHeaderLayout.height)
         }
-        .padding(.horizontal, 14)
-        .frame(height: 40)
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .frame(height: HistoryHeaderLayout.height)
         .background(AIMTheme.panel2)
 
         HistorySearchField(text: $threadQuery, placeholder: "Search conversations")
@@ -2867,7 +2936,7 @@ private struct SourcePage: View {
       Text(
         model.importMode == .authOnly
           ? "Saves account access. Settings and chats stay in the current Codex home. The source stays unchanged."
-          : "Reviews shared settings conflicts and adds source chats to the merged library. Everything affected is backed up first."
+          : "Reviews Codex-home conflicts and adds source chats to the merged library. Everything affected is backed up first."
       ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
         maxWidth: .infinity, alignment: .leading)
       HStack(spacing: 4) {

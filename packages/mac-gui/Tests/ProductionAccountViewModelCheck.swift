@@ -235,7 +235,7 @@ struct ProductionAccountViewModelCheck {
                    "The isolated warning action changed the clipboard")
         try expect(model.notice == "2 warnings validated in isolation. The clipboard was not changed.",
                    "Warning clipboard suppression was not reported")
-        model.showSharedRoot()
+        model.showDataLocation(model.paths.defaultHome, name: "Codex home")
         try expect(model.notice?.contains("Finder was not opened") == true,
                    "Finder suppression was not reported")
 
@@ -321,7 +321,7 @@ struct ProductionAccountViewModelCheck {
         await unavailable.beginImport()
         await unavailable.openAccount()
         unavailable.copySavedAuthPath()
-        unavailable.showSharedRoot()
+        unavailable.showDataLocation(unavailable.paths.defaultHome, name: "Codex home")
         try expect(unavailable.errorMessage == unavailableError, "Unavailable actions changed the failure UI")
         try expect(unavailable.status == nil && unavailable.notice == nil,
                    "Unavailable actions produced usable state")

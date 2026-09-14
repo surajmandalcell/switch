@@ -37,6 +37,17 @@ extension EnvironmentValues {
 }
 
 enum AIMTheme {
+  enum Dark {
+    static let rail: UInt32 = 0x141517
+    static let canvas: UInt32 = 0x18191B
+    static let panel: UInt32 = 0x202124
+    static let raised: UInt32 = 0x27282B
+    static let raisedSecondary: UInt32 = 0x2F3034
+    static let hover: UInt32 = 0x303238
+    static let selection: UInt32 = 0x393C43
+    static let menuChrome: UInt32 = 0x18191B
+  }
+
   static let radius: CGFloat = 3
   static let railWidth: CGFloat = 48
   static let railIconSize: CGFloat = 17
@@ -51,49 +62,50 @@ enum AIMTheme {
   static let modalSectionSpacing: CGFloat = 16
   static let panelContentInset: CGFloat = 16
 
-  static let canvas = dynamic(light: 0xECEBE7, dark: 0x343539)
-  static let rail = dynamic(light: 0xF4F3EF, dark: 0x303136)
-  static let panel = dynamic(light: 0xFAF9F6, dark: 0x3B3C40)
-  static let panel2 = dynamic(light: 0xF0EFEB, dark: 0x424348)
-  static let panel3 = dynamic(light: 0xE5E4DF, dark: 0x4A4B50)
+  static let canvas = dynamic(light: 0xECEBE7, dark: Dark.canvas)
+  static let rail = dynamic(light: 0xF4F3EF, dark: Dark.rail)
+  static let panel = dynamic(light: 0xFAF9F6, dark: Dark.panel)
+  static let panel2 = dynamic(light: 0xF0EFEB, dark: Dark.raised)
+  static let panel3 = dynamic(light: 0xE5E4DF, dark: Dark.raisedSecondary)
+  static let menuChrome = dynamic(light: 0xF0EFEB, dark: Dark.menuChrome)
   static let listStripe = dynamic(
-    light: 0xF0EFEB, dark: 0x424348, lightHighContrast: 0xE4E3DD,
-    darkHighContrast: 0x505157)
-  static let listHover = dynamic(light: 0xE5E4DF, dark: 0x4A4B50)
+    light: 0xF0EFEB, dark: Dark.raised, lightHighContrast: 0xE4E3DD,
+    darkHighContrast: 0x34363B)
+  static let listHover = dynamic(light: 0xE5E4DF, dark: Dark.hover)
   static let listSelection = dynamic(
-    light: 0xE1E2E0, dark: 0x505158, lightHighContrast: 0xD4D7DC,
-    darkHighContrast: 0x5B5D65)
-  static let chatUserSurface = dynamic(light: 0xE7E9ED, dark: 0x484C54)
-  static let chatCodeSurface = dynamic(light: 0xF0EFEB, dark: 0x303136)
+    light: 0xE1E2E0, dark: Dark.selection, lightHighContrast: 0xD4D7DC,
+    darkHighContrast: 0x464A52)
+  static let chatUserSurface = dynamic(light: 0xE7E9ED, dark: 0x2B2F36)
+  static let chatCodeSurface = dynamic(light: 0xF0EFEB, dark: Dark.canvas)
   static let line = dynamic(
-    light: 0xD4D3CE, dark: 0x62646A, lightHighContrast: 0xA7A69F,
-    darkHighContrast: 0x8A8D94)
+    light: 0xD4D3CE, dark: 0x4A4D54, lightHighContrast: 0xA7A69F,
+    darkHighContrast: 0x777A82)
   static let lineSoft = dynamic(
-    light: 0xE2E1DC, dark: 0x505157, lightHighContrast: 0xB9B8B2,
-    darkHighContrast: 0x777980)
-  static let railLine = dynamic(light: 0xDAD9D5, dark: 0x424348)
+    light: 0xE2E1DC, dark: 0x35373C, lightHighContrast: 0xB9B8B2,
+    darkHighContrast: 0x5E6168)
+  static let railLine = dynamic(light: 0xDAD9D5, dark: 0x292B2F)
   static let ink = dynamic(
     light: 0x1A1B1D, dark: 0xF2F2F3, lightHighContrast: 0x000000,
     darkHighContrast: 0xFFFFFF)
   static let muted = dynamic(light: 0x666970, dark: 0xB9BBC0)
   static let faint = dynamic(light: 0x75787F, dark: 0xA7A9AF)
-  static let blue = dynamic(light: 0x566D95, dark: 0x8295B5)
-  static let green = dynamic(light: 0x557D68, dark: 0x78A28B)
-  static let amber = dynamic(light: 0x856F43, dark: 0xB39A68)
-  static let red = dynamic(light: 0x8D5A60, dark: 0xAD7379)
-  static let titleArt = dynamic(light: 0x657B98, dark: 0x92A7C3)
-  static let active = dynamic(light: 0x3C4A61, dark: 0x566D95)
+  static let blue = dynamic(light: 0x566D95, dark: 0x9AADD0)
+  static let green = dynamic(light: 0x557D68, dark: 0x8EB9A2)
+  static let amber = dynamic(light: 0x856F43, dark: 0xD0B47A)
+  static let red = dynamic(light: 0x8D5A60, dark: 0xD9959C)
+  static let titleArt = dynamic(light: 0x657B98, dark: 0x7F95B5)
+  static let active = dynamic(light: 0x3C4A61, dark: 0x445878)
   static let activeInk = dynamic(light: 0xF2F1ED, dark: 0xF2F1ED)
   static let historySelection = listSelection
   static let railIdle = dynamic(light: 0x5D6670, dark: 0xB0B7C2)
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
-  static let control = dynamic(light: 0xDEDCD6, dark: 0x515258)
-  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x5B5D63)
+  static let control = dynamic(light: 0xDEDCD6, dark: 0x34363B)
+  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x3D4046)
   static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
-  static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x5B564F)
-  static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x686153)
-  static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x515258)
-  static let disabledInk = dynamic(light: 0x62656B, dark: 0xC9CACD)
+  static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3A3732)
+  static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x494238)
+  static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x2C2E32)
+  static let disabledInk = dynamic(light: 0x62656B, dark: 0xA6A8AD)
 
   enum FontWeight: String {
     case regular = "Regular"

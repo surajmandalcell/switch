@@ -4,7 +4,7 @@ enum AIManagerPage: String, CaseIterable {
   case accounts = "Accounts"
   case backup = "Backup"
   case history = "Chat History"
-  case settings = "Shared Settings"
+  case settings = "Settings"
 }
 
 enum AIManagerNavigation {
@@ -131,7 +131,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
       item("Accounts", #selector(showAccounts(_:)), key: "1", target: self),
       item("Backup", #selector(showBackup(_:)), key: "2", target: self),
       item("Chat History", #selector(showChatHistory(_:)), key: "3", target: self),
-      item("Shared Settings", #selector(showSettings(_:)), key: "4", target: self),
+      item("Settings", #selector(showSettings(_:)), key: "4", target: self),
     ]
   }
 

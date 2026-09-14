@@ -686,7 +686,7 @@ final class AccountViewModel: ObservableObject {
     func repairLinkedSetting(_ issue: LinkedSettingsDivergence) async {
         if let manager {
             await perform(
-                failure: "Couldn’t repair the shared setting.",
+                failure: "Couldn’t repair the account data.",
                 recovery: "Refresh the account and review the changed entry again."
             ) {
                 let result = try await manager.repairLinkedSetting(
@@ -695,7 +695,7 @@ final class AccountViewModel: ObservableObject {
                     reviewedFingerprint: issue.localFingerprint
                 )
                 try await reloadStatus(using: manager)
-                notice = "The shared settings link was restored. The displaced local entry is preserved in \(result.backup.path)."
+                notice = "The account data entry was restored. The displaced local entry is preserved in \(result.backup.path)."
             }
             return
         }
@@ -705,7 +705,7 @@ final class AccountViewModel: ObservableObject {
             guard var current = status else { return }
             current.linkedSettingsDivergences.removeAll { $0.id == issue.id }
             status = current
-            notice = "Demo shared settings link repaired in memory."
+            notice = "Demo account data repaired in memory."
         }
         #else
         reportUnavailable()
@@ -809,18 +809,18 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    func showSharedRoot() {
+    func showDataLocation(_ location: URL, name: String) {
         guard !isUnavailable else { reportUnavailable(); return }
         #if AI_MANAGER_PREVIEW
         if isDemo {
-            notice = "Demo shared data includes 8 settings and 567 chats. Finder was not opened."
+            notice = "\(name) is available in production. Finder was not opened from Preview."
             return
         }
         #endif
         if paths.isolationRoot != nil {
-            notice = "Shared data path validated in isolation. Finder was not opened."
+            notice = "\(name) was validated in isolation. Finder was not opened."
         } else {
-            NSWorkspace.shared.activateFileViewerSelecting([paths.sharedRoot])
+            NSWorkspace.shared.activateFileViewerSelecting([location])
         }
     }
 

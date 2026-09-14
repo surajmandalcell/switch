@@ -113,7 +113,7 @@ struct MockAccountViewModelCheck {
         model.copySavedAuthPath()
         model.copyWarnings(["First warning", "Second warning"])
         precondition(model.notice == "2 warnings ready to copy in the production app.")
-        model.showSharedRoot()
+        model.showDataLocation(model.paths.defaultHome, name: "Codex home")
         await model.openAccount()
         if let issue = model.status?.linkedSettingsDivergences.first {
             await model.repairLinkedSetting(issue)
