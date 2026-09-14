@@ -2036,6 +2036,11 @@ with temporary synthetic homes before installation.
   do not publish view-model changes, so the selected transcript and scroll position remain stable.
   Lazy detail loading and bounded message and character counts prevent transcript work from
   blocking UI input.
+- Prepared thread summaries and file signatures persist in a versioned private cache under the
+  Switch application-support root. A later launch reuses entries whose path, size, and modification
+  date still match, so it does not reread unchanged transcript bodies. The cache uses `0700` parent
+  directories and a `0600` regular file, contains no authentication or full message list, and falls
+  back to a fresh scan if validation or decoding fails.
 - Transcript discovery does not follow symbolic links and retains the 500,000-entry traversal
   ceiling. Summary scans bypass oversized non-visible tool-output records before JSON decoding;
   visible records are bounded at 4 MiB and the existing JSONL hard ceiling remains 64 MiB. Tests
