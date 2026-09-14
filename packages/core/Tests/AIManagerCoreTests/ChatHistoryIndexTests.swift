@@ -16,7 +16,23 @@ final class ChatHistoryIndexTests: XCTestCase {
         if let root { try? fileManager.removeItem(at: root) }
     }
 
-    func testLiveIndexSearchAndDetailUseCodexMessagesWithoutDuplicates() async throws {
+    func testMessageSearchIsSeparateAndMatchesEveryTerm() async throws {
+        let messages = [
+            ChatMessage(id: "1", role: .user, text: "Fix the slow chat list", timestamp: nil),
+            ChatMessage(id: "2", role: .assistant, text: "The chat list is now virtual", timestamp: nil),
+            ChatMessage(id: "3", role: .assistant, text: "Backup checks passed", timestamp: nil),
+        ]
+
+        let result = try await ChatMessageSearch.search(messages, query: "CHAT virtual")
+
+        XCTAssertEqual(result.totalMessageCount, 3)
+        XCTAssertEqual(result.matchingMessageCount, 1)
+        XCTAssertEqual(result.messages.map(\.id), ["2"])
+        let emptyQuery = try await ChatMessageSearch.search(messages, query: "  ")
+        XCTAssertEqual(emptyQuery.messages, messages)
+    }
+
+    func testIndexSearchAndDetailUseCodexMessagesWithoutDuplicates() async throws {
         let active = try transcript(
             directory: "sessions/2026/09/13",
             filename: "active.jsonl",
