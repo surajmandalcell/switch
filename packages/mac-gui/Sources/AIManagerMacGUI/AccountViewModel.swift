@@ -3,6 +3,28 @@ import Combine
 import Foundation
 import AIManagerCore
 
+protocol ChatHistoryProviding: Sendable {
+    func refresh(query: String) async throws -> ChatHistorySnapshot
+    func search(query: String) async -> ChatHistorySnapshot
+    func detail(for id: String) async throws -> ChatThreadDetail?
+}
+
+private struct IndexedChatHistoryProvider: ChatHistoryProviding {
+    let index: ChatHistoryIndex
+
+    func refresh(query: String) async throws -> ChatHistorySnapshot {
+        try await index.refresh(query: query)
+    }
+
+    func search(query: String) async -> ChatHistorySnapshot {
+        await index.search(query: query)
+    }
+
+    func detail(for id: String) async throws -> ChatThreadDetail? {
+        try await index.detail(for: id)
+    }
+}
+
 @MainActor
 final class AccountViewModel: ObservableObject {
     #if AI_MANAGER_PREVIEW
@@ -35,7 +57,7 @@ final class AccountViewModel: ObservableObject {
 
     let paths: ManagerPaths
     private let manager: AccountManager?
-    private let chatHistoryIndex: ChatHistoryIndex?
+    private let chatHistoryProvider: (any ChatHistoryProviding)?
     #if AI_MANAGER_PREVIEW
     private var scenario: Scenario?
     #endif
@@ -45,14 +67,19 @@ final class AccountViewModel: ObservableObject {
     private var hasScannedChatHistory = false
     private var chatDetailTask: Task<ChatThreadDetail?, Error>?
 
-    init(paths: ManagerPaths, manager injectedManager: AccountManager? = nil) {
+    init(
+        paths: ManagerPaths,
+        manager injectedManager: AccountManager? = nil,
+        chatHistoryProvider injectedChatHistoryProvider: (any ChatHistoryProviding)? = nil
+    ) {
         self.paths = paths
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
-            chatHistoryIndex = ChatHistoryIndex(home: paths.sharedRoot)
+            chatHistoryProvider = injectedChatHistoryProvider
+                ?? IndexedChatHistoryProvider(index: ChatHistoryIndex(home: paths.sharedRoot))
         } catch {
             manager = nil
-            chatHistoryIndex = nil
+            chatHistoryProvider = nil
             isUnavailable = true
             hasLoaded = true
             unavailableReason = "Switch could not open its private data folder. \(error.localizedDescription)"
@@ -64,7 +91,7 @@ final class AccountViewModel: ObservableObject {
     init(scenario: Scenario = .demo, demoPaths: ManagerPaths? = nil) {
         paths = demoPaths ?? DemoData.paths
         manager = nil
-        chatHistoryIndex = nil
+        chatHistoryProvider = nil
         self.scenario = scenario
         reset(to: scenario)
     }
@@ -616,7 +643,7 @@ final class AccountViewModel: ObservableObject {
             return
         }
         #endif
-        guard let chatHistoryIndex else {
+        guard let chatHistoryProvider else {
             chatHistoryError = unavailableReason ?? "The chat library is unavailable."
             return
         }
@@ -624,7 +651,7 @@ final class AccountViewModel: ObservableObject {
         if showsInitialLoader { isChatHistoryLoading = true }
         defer { if showsInitialLoader { isChatHistoryLoading = false } }
         do {
-            let snapshot = try await chatHistoryIndex.refresh(query: query)
+            let snapshot = try await chatHistoryProvider.refresh(query: query)
             guard !Task.isCancelled else { return }
             hasScannedChatHistory = true
             if snapshot != chatHistory { chatHistory = snapshot }
@@ -674,8 +701,8 @@ final class AccountViewModel: ObservableObject {
             return
         }
         #endif
-        guard let chatHistoryIndex else { return }
-        let task = Task { try await chatHistoryIndex.detail(for: id) }
+        guard let chatHistoryProvider else { return }
+        let task = Task { try await chatHistoryProvider.detail(for: id) }
         chatDetailTask = task
         do {
             let detail = try await withTaskCancellationHandler {
