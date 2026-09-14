@@ -1,3 +1,4 @@
+import CSQLite
 import Foundation
 import XCTest
 @testable import AIManagerCore
@@ -109,6 +110,110 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(detail?.omittedMessageCount, 0)
     }
 
+    func testCanonicalDatabaseNameOverridesInjectedContextWithoutReparsing() async throws {
+        let transcriptURL = try transcript(
+            directory: "sessions/2026/09/14",
+            filename: "named.jsonl",
+            records: [
+                ["timestamp": "2026-09-14T04:00:00.000Z", "type": "session_meta", "payload": [
+                    "id": "thread-named", "cwd": "/Projects/Old Name",
+                ]],
+                ["timestamp": "2026-09-14T04:00:01.000Z", "type": "event_msg", "payload": [
+                    "type": "user_message",
+                    "message": "# AGENTS.md instructions for /Projects/Old Name\n<INSTRUCTIONS>\nBootstrap only",
+                ]],
+                ["timestamp": "2026-09-14T04:00:02.000Z", "type": "event_msg", "payload": [
+                    "type": "user_message", "message": "Make the reader calm and legible",
+                ]],
+                ["timestamp": "2026-09-14T04:00:03.000Z", "type": "response_item", "payload": [
+                    "type": "message", "role": "assistant",
+                    "content": [["type": "output_text", "text": "The visual hierarchy is quieter."]],
+                ]],
+            ])
+        try createThreadDatabase(
+            threadID: "thread-named",
+            rolloutPath: transcriptURL.path,
+            name: "Reading comfort pass",
+            title: "# AGENTS.md instructions for /Projects/Old Name",
+            preview: "The visual hierarchy is quieter.",
+            workingDirectory: "/Projects/Switch")
+        let index = ChatHistoryIndex(home: root, maximumWorkerCount: 2)
+
+        let initial = try await index.refresh()
+
+        XCTAssertEqual(initial.reparsedFileCount, 1)
+        XCTAssertEqual(initial.threads.first?.title, "Reading comfort pass")
+        XCTAssertEqual(initial.threads.first?.workingDirectory, "/Projects/Switch")
+        XCTAssertEqual(initial.threads.first?.messageCount, 2)
+        let detail = try await index.detail(for: try XCTUnwrap(initial.threads.first?.id))
+        XCTAssertEqual(detail?.messages.map(\.text), [
+            "Make the reader calm and legible", "The visual hierarchy is quieter.",
+        ])
+
+        try updateThreadName("Reader typography polish")
+        let renamed = try await index.refresh()
+
+        XCTAssertEqual(renamed.reparsedFileCount, 0)
+        XCTAssertEqual(renamed.threads.first?.title, "Reader typography polish")
+        XCTAssertGreaterThan(renamed.libraryRevision, initial.libraryRevision)
+    }
+
+    func testLegacyFallbackSkipsBootstrapContext() async throws {
+        _ = try transcript(
+            directory: "sessions/2026/09/14",
+            filename: "legacy-context.jsonl",
+            records: [
+                ["timestamp": "2026-09-14T05:00:00Z", "type": "session_meta", "payload": [
+                    "id": "legacy-context", "cwd": "/Projects/Reader",
+                ]],
+                ["timestamp": "2026-09-14T05:00:01Z", "type": "event_msg", "payload": [
+                    "type": "user_message",
+                    "message": "<environment_context>\nprivate bootstrap details\n</environment_context>",
+                ]],
+                ["timestamp": "2026-09-14T05:00:02Z", "type": "event_msg", "payload": [
+                    "type": "user_message", "message": "Use the actual conversation title",
+                ]],
+            ])
+        let index = ChatHistoryIndex(home: root)
+
+        let snapshot = try await index.refresh()
+        let detail = try await index.detail(for: try XCTUnwrap(snapshot.threads.first?.id))
+
+        XCTAssertEqual(snapshot.threads.first?.title, "Use the actual conversation title")
+        XCTAssertEqual(snapshot.threads.first?.messageCount, 1)
+        XCTAssertEqual(detail?.messages.map(\.text), ["Use the actual conversation title"])
+    }
+
+    func testVersionOneCacheMigratesWhileApplyingDatabaseName() async throws {
+        let transcriptURL = try transcript(
+            directory: "sessions/2026/09/14",
+            filename: "migration.jsonl",
+            records: standardRecords(id: "cache-migration", prompt: "Original transcript title"))
+        let cacheFile = root.appending(path: "manager/cache/chat-history-v1.json")
+        _ = try await ChatHistoryIndex(home: root, cacheFile: cacheFile).refresh()
+        var cacheObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: cacheFile)) as? [String: Any])
+        cacheObject["version"] = 1
+        let legacyData = try JSONSerialization.data(withJSONObject: cacheObject, options: [.sortedKeys])
+        try legacyData.write(to: cacheFile, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cacheFile.path)
+        try createThreadDatabase(
+            threadID: "cache-migration",
+            rolloutPath: transcriptURL.path,
+            name: "Migrated canonical name",
+            title: "Original transcript title",
+            preview: "Cached preview",
+            workingDirectory: "/Projects/Cache")
+
+        let reopened = try await ChatHistoryIndex(home: root, cacheFile: cacheFile).refresh()
+        let migratedObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: cacheFile)) as? [String: Any])
+
+        XCTAssertEqual(reopened.reparsedFileCount, 0)
+        XCTAssertEqual(reopened.threads.first?.title, "Migrated canonical name")
+        XCTAssertEqual(migratedObject["version"] as? Int, 2)
+    }
+
     func testRefreshReparsesOnlyChangedFilesAndSkipsMalformedRecords() async throws {
         let first = try transcript(
             directory: "sessions/2026/09/13", filename: "first.jsonl",
@@ -210,5 +315,65 @@ final class ChatHistoryIndexTests: XCTestCase {
             data.append(0x0A)
         }
         return data
+    }
+
+    private func createThreadDatabase(
+        threadID: String,
+        rolloutPath: String,
+        name: String,
+        title: String,
+        preview: String,
+        workingDirectory: String
+    ) throws {
+        let database = root.appending(path: "state_5.sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_open_v2(
+                database.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil),
+            SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let schema = """
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                title TEXT,
+                name TEXT,
+                preview TEXT,
+                cwd TEXT,
+                updated_at_ms INTEGER,
+                archived INTEGER
+            )
+            """
+        XCTAssertEqual(sqlite3_exec(db, schema, nil, nil, nil), SQLITE_OK)
+        var statement: OpaquePointer?
+        let insert = """
+            INSERT INTO threads
+                (id, rollout_path, title, name, preview, cwd, updated_at_ms, archived)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1789362000000, 0)
+            """
+        XCTAssertEqual(sqlite3_prepare_v2(db, insert, -1, &statement, nil), SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (index, value) in [
+            threadID, rolloutPath, title, name, preview, workingDirectory,
+        ].enumerated() {
+            sqlite3_bind_text(statement, Int32(index + 1), value, -1, transient)
+        }
+        XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
+    }
+
+    private func updateThreadName(_ name: String) throws {
+        let database = root.appending(path: "state_5.sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_prepare_v2(db, "UPDATE threads SET name = ?1", -1, &statement, nil),
+            SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, name, -1, transient)
+        XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
     }
 }

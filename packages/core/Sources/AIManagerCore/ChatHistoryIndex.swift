@@ -172,6 +172,13 @@ public actor ChatHistoryIndex {
         let detail: ChatThreadDetail
     }
 
+    private struct ThreadMetadataIndex: Sendable {
+        let byPath: [String: SQLiteThreadMetadata]
+        let byThreadID: [String: SQLiteThreadMetadata]
+
+        static let empty = ThreadMetadataIndex(byPath: [:], byThreadID: [:])
+    }
+
     private enum WorkerResult: Sendable {
         case parsed(Candidate, ParsedTranscript)
         case failed(Candidate)
@@ -218,6 +225,7 @@ public actor ChatHistoryIndex {
     private var orderedCacheIsDirty = true
     private var libraryRevision: UInt64 = 0
     private var loadedPersistentCache = false
+    private var persistentCacheNeedsMigration = false
 
     public init(home: URL, cacheFile: URL? = nil, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
@@ -230,6 +238,9 @@ public actor ChatHistoryIndex {
     public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
         try Task.checkCancellation()
         loadPersistentCacheIfNeeded()
+        let metadataTask = Task.detached(priority: .utility) { [home] in
+            Self.threadMetadata(in: home)
+        }
         let candidates = try Self.transcriptCandidates(in: home)
         let currentPaths = Set(candidates.map { $0.url.path })
         let removedCachedFile = cache.keys.contains(where: { !currentPaths.contains($0) })
@@ -246,7 +257,7 @@ public actor ChatHistoryIndex {
             return cache[path]?.signature != candidate.signature
                 && failedSignatures[path] != candidate.signature
         }
-        let libraryChanged = removedCachedFile || removedFailedFile || !changed.isEmpty
+        var libraryChanged = removedCachedFile || removedFailedFile || !changed.isEmpty
         let parsed = await parseConcurrently(changed)
         try Task.checkCancellation()
 
@@ -271,6 +282,10 @@ public actor ChatHistoryIndex {
                 break
             }
         }
+
+        let metadata = await metadataTask.value
+        if apply(metadata: metadata) { libraryChanged = true }
+        if persistentCacheNeedsMigration { libraryChanged = true }
 
         if libraryChanged {
             libraryRevision &+= 1
@@ -303,9 +318,9 @@ public actor ChatHistoryIndex {
         }
         try Task.checkCancellation()
         let detail = ChatThreadDetail(
-            thread: transcript.summary,
+            thread: cached.summary,
             messages: transcript.messages,
-            omittedMessageCount: max(0, transcript.summary.messageCount - transcript.messages.count))
+            omittedMessageCount: max(0, cached.summary.messageCount - transcript.messages.count))
         detailCache[id] = CachedDetail(signature: cached.signature, detail: detail)
         return detail
     }
@@ -360,10 +375,12 @@ public actor ChatHistoryIndex {
               permissions.intValue & 0o077 == 0,
               let data = try? Data(contentsOf: persistentCacheFile),
               let document = try? JSONDecoder().decode(PersistentDocument.self, from: data),
-              document.version == 1,
+              (1...2).contains(document.version),
               document.homePath == home.path,
               document.threads.count + document.failures.count <= 500_000
         else { return }
+
+        persistentCacheNeedsMigration = document.version < 2
 
         for item in document.threads where validPersistentPath(item.path) {
             guard item.path.count <= 4_096,
@@ -432,12 +449,90 @@ public actor ChatHistoryIndex {
                 modifiedAt: signature.modifiedAt)
         }
         let document = PersistentDocument(
-            version: 1, homePath: home.path, threads: threads, failures: failures)
+            version: 2, homePath: home.path, threads: threads, failures: failures)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(document) else { return }
-        try? CoreSupport.atomicWrite(
-            data, to: persistentCacheFile, permissions: 0o600, fileManager: .default)
+        if (try? CoreSupport.atomicWrite(
+            data, to: persistentCacheFile, permissions: 0o600, fileManager: .default)) != nil {
+            persistentCacheNeedsMigration = false
+        }
+    }
+
+    private func apply(metadata index: ThreadMetadataIndex) -> Bool {
+        var changed = false
+        for path in cache.keys.sorted() {
+            guard let cached = cache[path] else { continue }
+            let current = cached.summary
+            let metadata = index.byPath[path] ?? index.byThreadID[current.threadID]
+            let workingDirectory = ChatTitlePolicy.nonempty(metadata?.workingDirectory)
+                ?? current.workingDirectory
+            let title = ChatTitlePolicy.resolvedTitle(
+                explicitName: metadata?.name,
+                databaseTitle: metadata?.title,
+                transcriptTitle: current.title,
+                workingDirectory: workingDirectory)
+            let preview = ChatTitlePolicy.meaningfulCompact(metadata?.preview, maximumCharacters: 180)
+                ?? ChatTitlePolicy.meaningfulCompact(current.preview, maximumCharacters: 180)
+                ?? ChatTitlePolicy.projectLabel(workingDirectory: workingDirectory)
+            let summary = ChatThreadSummary(
+                id: current.id,
+                threadID: metadata?.threadID ?? current.threadID,
+                title: title,
+                preview: preview,
+                workingDirectory: workingDirectory,
+                updatedAt: metadata?.updatedAt ?? current.updatedAt,
+                archived: metadata?.archived ?? current.archived,
+                messageCount: current.messageCount,
+                fileByteCount: current.fileByteCount,
+                source: current.source,
+                unreadableRecordCount: current.unreadableRecordCount)
+            let searchText = Self.searchText(for: summary)
+            guard summary != current || searchText != cached.searchText else { continue }
+            cache[path] = CachedThread(
+                signature: cached.signature, summary: summary, searchText: searchText)
+            if let detail = detailCache[path] {
+                detailCache[path] = CachedDetail(
+                    signature: detail.signature,
+                    detail: ChatThreadDetail(
+                        thread: summary,
+                        messages: detail.detail.messages,
+                        omittedMessageCount: detail.detail.omittedMessageCount))
+            }
+            orderedCacheIsDirty = true
+            changed = true
+        }
+        return changed
+    }
+
+    private static func searchText(for summary: ChatThreadSummary) -> String {
+        [summary.title, summary.preview, summary.workingDirectory, summary.threadID]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+            .lowercased()
+    }
+
+    private static func threadMetadata(in home: URL) -> ThreadMetadataIndex {
+        let database = home.appending(path: "state_5.sqlite")
+        guard let values = try? database.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let rows = try? SQLiteSupport.readThreadMetadata(database: database)
+        else { return .empty }
+        var byPath: [String: SQLiteThreadMetadata] = [:]
+        var byThreadID: [String: SQLiteThreadMetadata] = [:]
+        for row in rows {
+            let path: String
+            if let url = URL(string: row.rolloutPath), url.isFileURL {
+                path = url.standardizedFileURL.path
+            } else {
+                path = URL(fileURLWithPath: row.rolloutPath).standardizedFileURL.path
+            }
+            byPath[path] = row
+            byThreadID[row.threadID] = row
+        }
+        return ThreadMetadataIndex(byPath: byPath, byThreadID: byThreadID)
     }
 
     private func validPersistentPath(_ path: String) -> Bool {
@@ -545,11 +640,19 @@ private enum TranscriptParser {
         var count = 0
         var first: RawMessage?
         var last: RawMessage?
+        var meaningfulCount = 0
+        var firstMeaningful: RawMessage?
+        var lastMeaningful: RawMessage?
 
         mutating func record(_ message: RawMessage) {
             count += 1
             if first == nil { first = message }
             last = message
+            if !ChatTitlePolicy.isBootstrapContext(message.text) {
+                meaningfulCount += 1
+                if firstMeaningful == nil { firstMeaningful = message }
+                lastMeaningful = message
+            }
         }
     }
 
@@ -660,15 +763,20 @@ private enum TranscriptParser {
         }
 
         let users = eventUsers.count > 0 ? eventUsers : responseUsers
-        let chosenUserMessages = eventUsers.count > 0 ? eventUserMessages : responseUserMessages
-        let lastMessage = [users.last, assistants.last]
+        let chosenUserMessages = (eventUsers.count > 0 ? eventUserMessages : responseUserMessages)
+            .filter { !ChatTitlePolicy.isBootstrapContext($0.text) }
+        let lastMessage = [users.lastMeaningful, assistants.last]
             .compactMap { $0 }
             .max { $0.sequence < $1.sequence }
         let resolvedThreadID = threadID ?? candidate.url.deletingPathExtension().lastPathComponent
-        let title = compact(users.first?.text, maximumCharacters: 96) ?? "Untitled chat"
-        let preview = compact(lastMessage?.text, maximumCharacters: 180)
-            ?? compact(workingDirectory, maximumCharacters: 180)
-            ?? resolvedThreadID
+        let title = ChatTitlePolicy.resolvedTitle(
+            explicitName: nil,
+            databaseTitle: nil,
+            transcriptTitle: users.firstMeaningful?.text,
+            workingDirectory: workingDirectory)
+        let preview = ChatTitlePolicy.meaningfulCompact(
+            lastMessage?.text, maximumCharacters: 180)
+            ?? ChatTitlePolicy.projectLabel(workingDirectory: workingDirectory)
         let path = candidate.url.path
         let summary = ChatThreadSummary(
             id: path,
@@ -678,7 +786,7 @@ private enum TranscriptParser {
             workingDirectory: workingDirectory,
             updatedAt: latestDate,
             archived: candidate.archived,
-            messageCount: users.count + assistants.count,
+            messageCount: users.meaningfulCount + assistants.count,
             fileByteCount: candidate.signature.byteCount,
             source: candidate.url,
             unreadableRecordCount: unreadableRecords)
@@ -742,6 +850,56 @@ private enum TranscriptParser {
     }
 
     private static func nonempty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+}
+
+private enum ChatTitlePolicy {
+    static func resolvedTitle(
+        explicitName: String?,
+        databaseTitle: String?,
+        transcriptTitle: String?,
+        workingDirectory: String?
+    ) -> String {
+        if let explicitName = compact(explicitName, maximumCharacters: 96) {
+            return explicitName
+        }
+        return meaningfulCompact(databaseTitle, maximumCharacters: 96)
+            ?? meaningfulCompact(transcriptTitle, maximumCharacters: 96)
+            ?? projectLabel(workingDirectory: workingDirectory)
+    }
+
+    static func meaningfulCompact(_ value: String?, maximumCharacters: Int) -> String? {
+        guard let value = nonempty(value), !isBootstrapContext(value) else { return nil }
+        return compact(value, maximumCharacters: maximumCharacters)
+    }
+
+    static func projectLabel(workingDirectory: String?) -> String {
+        guard let workingDirectory = nonempty(workingDirectory) else { return "Untitled chat" }
+        let project = URL(fileURLWithPath: workingDirectory).lastPathComponent
+        guard !project.isEmpty, project != "/" else { return "Untitled chat" }
+        return "Conversation in \(project)"
+    }
+
+    static func isBootstrapContext(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let prefixes = [
+            "# agents.md instructions for ",
+            "<instructions>",
+            "# global codex instructions",
+            "<environment_context>",
+            "<skills_instructions>",
+            "<permissions instructions>",
+        ]
+        if prefixes.contains(where: normalized.hasPrefix) { return true }
+        return normalized.hasPrefix("you are codex")
+            && normalized.contains("system, developer, and direct user instructions")
+    }
+
+    static func nonempty(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
         return trimmed
