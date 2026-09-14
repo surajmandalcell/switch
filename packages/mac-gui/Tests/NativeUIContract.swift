@@ -1,3 +1,4 @@
+import AIManagerCore
 import AppKit
 
 struct AIManagerNativeViewSnapshot: Codable {
@@ -16,6 +17,78 @@ struct AIManagerNativeViewSnapshot: Codable {
 
 @MainActor
 enum AIManagerNativeContract {
+  static func chatPresentationFailures() -> [String] {
+    var failures: [String] = []
+    let markdown = """
+      # Heading
+
+      A **bold** paragraph.
+
+      > Quoted text
+
+      - First
+      - Second
+
+      1. One
+      2. Two
+
+      ```swift
+      let answer = 42
+      ```
+      """
+    let message = ChatMessage(id: "markdown", role: .assistant, text: markdown, timestamp: nil)
+    do {
+      let presentation = try ChatMessagePresenter.parse(message)
+      if !presentation.blocks.contains(where: { if case .heading = $0 { true } else { false } }) {
+        failures.append("Chat presentation did not preserve a Markdown heading")
+      }
+      if !presentation.blocks.contains(where: { if case .quote = $0 { true } else { false } }) {
+        failures.append("Chat presentation did not preserve a Markdown quote")
+      }
+      if !presentation.blocks.contains(where: { if case .unorderedList = $0 { true } else { false } }) {
+        failures.append("Chat presentation did not preserve an unordered list")
+      }
+      if !presentation.blocks.contains(where: { if case .orderedList = $0 { true } else { false } }) {
+        failures.append("Chat presentation did not preserve an ordered list")
+      }
+      if !presentation.blocks.contains(where: {
+        if case let .code(_, language, text, _, _) = $0 {
+          return language == "swift" && text == "let answer = 42"
+        }
+        return false
+      }) {
+        failures.append("Chat presentation did not preserve a fenced Swift code block")
+      }
+    } catch {
+      failures.append("Chat presentation could not parse structured Markdown: \(error)")
+    }
+
+    let longCode = (0..<30).map { "line \($0)" }.joined(separator: "\n")
+    let bounded = ChatMessage(
+      id: "bounded", role: .assistant,
+      text: "```text\n\(longCode)\n```\n"
+        + String(repeating: "x", count: ChatMessagePresenter.maximumSourceCharacters + 1),
+      timestamp: nil)
+    do {
+      let presentation = try ChatMessagePresenter.parse(bounded)
+      if !presentation.sourceWasTruncated {
+        failures.append("Chat presentation did not report its source bound")
+      }
+      if !presentation.blocks.contains(where: {
+        if case let .code(_, _, preview, expanded, _) = $0 {
+          return preview.split(separator: "\n").count == ChatMessagePresenter.compactCodeLines
+            && expanded != nil
+        }
+        return false
+      }) {
+        failures.append("Chat presentation did not compact long code")
+      }
+    } catch {
+      failures.append("Chat presentation could not apply its content bounds: \(error)")
+    }
+    return failures
+  }
+
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
