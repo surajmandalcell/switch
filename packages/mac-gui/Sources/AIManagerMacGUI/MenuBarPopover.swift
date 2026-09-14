@@ -155,9 +155,9 @@ struct MenuBarPopover: View {
   static let listInset: CGFloat = 10
   static let cardSpacing: CGFloat = 8
   static let accountHeaderHeight: CGFloat = 58
-  static let quotaRowHeight: CGFloat = 34
-  static let accountActionWidth: CGFloat = 68
-  static let accountActionHeight: CGFloat = 26
+  static let quotaRowHeight: CGFloat = 44
+  static let accountActionWidth: CGFloat = 64
+  static let accountActionHeight: CGFloat = 24
 
   static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     let quotaCount = [account.usage?.secondaryUsedPercentage, account.usage?.usedPercentage]
@@ -177,11 +177,20 @@ struct MenuBarPopover: View {
       footer
     }
     .frame(width: Self.width)
-    .background(AIMTheme.panel)
+    .background {
+      LinearGradient(
+        colors: [AIMTheme.panel, AIMTheme.menuChrome],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing)
+    }
     .foregroundStyle(AIMTheme.ink)
     .environment(\.aimDarkMode, colorScheme == .dark)
     .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
     .focusEffectDisabled(!showFocusIndicators)
+    .overlay {
+      RoundedRectangle(cornerRadius: AIMTheme.radius)
+        .stroke(AIMTheme.lineSoft, lineWidth: 1)
+    }
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
   }
 
@@ -270,7 +279,7 @@ private struct MenuBarAccountRow: View {
       HStack(spacing: 10) {
         Circle()
           .fill(account.isActive ? AIMTheme.green : (account.isVerified ? AIMTheme.faint : AIMTheme.amber))
-          .frame(width: 8, height: 8)
+          .frame(width: 9, height: 9)
           .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 4) {
           Text(account.identity)
@@ -380,10 +389,18 @@ private struct MenuBarAccountRow: View {
   }
 
   private var cardBackground: some ShapeStyle {
-    if account.isActive { return AnyShapeStyle(AIMTheme.listSelection) }
+    if account.isActive {
+      return AnyShapeStyle(LinearGradient(
+        colors: [AIMTheme.panel2, AIMTheme.listSelection.opacity(0.55)],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing))
+    }
     if isSwitching { return AnyShapeStyle(AIMTheme.controlHover) }
     if isHovered && account.isVerified { return AnyShapeStyle(AIMTheme.listHover) }
-    return AnyShapeStyle(AIMTheme.panel2)
+    return AnyShapeStyle(LinearGradient(
+      colors: [AIMTheme.panel2, AIMTheme.panel3.opacity(0.32)],
+      startPoint: .topLeading,
+      endPoint: .bottomTrailing))
   }
 
   private var accessibilityLabel: String {
@@ -408,20 +425,16 @@ private struct MenuBarQuotaRow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    VStack(spacing: 5) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 2) {
         Text(label)
           .font(AIMTheme.sans(10, weight: .medium))
           .foregroundStyle(AIMTheme.muted)
         Text("\(percentage)%")
-          .font(AIMTheme.mono(10, weight: .semibold))
+          .font(AIMTheme.mono(12, weight: .semibold))
           .foregroundStyle(AIMTheme.ink)
-        Spacer(minLength: 8)
-        Text(reset ?? "")
-          .font(AIMTheme.sans(9))
-          .foregroundStyle(AIMTheme.muted)
-          .lineLimit(1)
       }
+      .frame(width: 52, alignment: .leading)
       GeometryReader { proxy in
         ZStack(alignment: .leading) {
           Capsule().fill(AIMTheme.control)
@@ -430,8 +443,13 @@ private struct MenuBarQuotaRow: View {
             .frame(width: proxy.size.width * CGFloat(percentage) / 100)
         }
       }
-      .frame(height: 4)
+      .frame(height: 5)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: percentage)
+      Text(reset ?? "")
+        .font(AIMTheme.sans(9))
+        .foregroundStyle(AIMTheme.muted)
+        .lineLimit(1)
+        .frame(width: 96, alignment: .trailing)
     }
     .frame(height: MenuBarPopover.quotaRowHeight)
   }
