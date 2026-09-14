@@ -252,6 +252,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.modalHeight == 648, "Modal height does not preserve the source-row rhythm")
     expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
+    failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
             UserDefaults.standard.string(forKey: "appearanceMode") == mode,

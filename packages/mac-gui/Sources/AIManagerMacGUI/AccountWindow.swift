@@ -992,7 +992,7 @@ private struct HistorySearchField: View {
     }
     .padding(.horizontal, 9)
     .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
-    .background(AIMTheme.control.opacity(0.62))
+    .background(AIMTheme.control)
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
   }
 }
@@ -1022,10 +1022,13 @@ private struct ChatThreadRow: View {
       .contentShape(Rectangle())
       .background(
         selected
-          ? AIMTheme.historySelection
+          ? AIMTheme.listSelection
           : (hovered
-            ? AIMTheme.panel2.opacity(0.72)
-            : (striped ? AIMTheme.panel2.opacity(0.42) : Color.clear)))
+            ? AIMTheme.listHover
+            : (striped ? AIMTheme.listStripe : Color.clear)))
+      .overlay(alignment: .leading) {
+        if selected { Rectangle().fill(AIMTheme.active).frame(width: 3) }
+      }
       .foregroundStyle(AIMTheme.ink)
     }
     .buttonStyle(AIMPressButtonStyle())
@@ -1048,6 +1051,8 @@ private struct ChatDetailPane: View {
   @State private var messageSearchResult = ChatMessageSearchResult(
     messages: [], totalMessageCount: 0, matchingMessageCount: 0)
   @State private var isSearching = false
+  @State private var presentations: [String: ChatMessagePresentation] = [:]
+  @State private var presentationRevision = 0
 
   var body: some View {
     VStack(spacing: 0) {
@@ -1062,9 +1067,9 @@ private struct ChatDetailPane: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 58)
-        .background(AIMTheme.panel2.opacity(0.62))
+        .background(AIMTheme.panel2)
       } else {
-        Color.clear.frame(height: 58).background(AIMTheme.panel2.opacity(0.62))
+        Color.clear.frame(height: 58).background(AIMTheme.panel2)
       }
 
       HStack(spacing: 10) {
@@ -1089,7 +1094,10 @@ private struct ChatDetailPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let detail = model.selectedChat {
-        AIMVirtualList(items: detailItems(detail), rowSpacing: 0) { item in
+        AIMVirtualList(
+          items: detailItems(detail), rowSpacing: 0,
+          contentRevision: presentationRevision
+        ) { item in
           AnyView(detailRow(item))
         }
       } else {
@@ -1106,6 +1114,7 @@ private struct ChatDetailPane: View {
     .background(AIMTheme.panel)
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     .task(id: searchKey) { await updateMessageSearch() }
+    .task(id: presentationKey) { await updatePresentations() }
   }
 
   private var selectedSummary: ChatThreadSummary? {
@@ -1117,6 +1126,12 @@ private struct ChatDetailPane: View {
     ChatMessageSearchKey(
       threadID: model.selectedChatID,
       query: messageQuery,
+      fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0)
+  }
+
+  private var presentationKey: ChatPresentationKey {
+    ChatPresentationKey(
+      threadID: model.selectedChatID,
       fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0)
   }
 
@@ -1134,7 +1149,12 @@ private struct ChatDetailPane: View {
     if !messageQuery.isEmpty && messageSearchResult.messages.isEmpty && !isSearching {
       items.append(.emptySearch)
     } else {
-      items.append(contentsOf: displayedMessages(detail).map(ChatDetailListItem.message))
+      let messages = displayedMessages(detail)
+      items.append(contentsOf: messages.enumerated().map { index, message in
+        .message(
+          message,
+          separated: index == 0 || messages[index - 1].role != message.role)
+      })
     }
     items.append(.bottomSpace)
     return items
@@ -1150,10 +1170,12 @@ private struct ChatDetailPane: View {
         icon: .warning,
         copy: { model.copyWarnings([text]) })
         .padding(.horizontal, 12)
-    case let .message(message):
+    case let .message(message, separated):
       ChatMessageRow(
         message: message,
-        renderedText: model.renderedChatMessages[message.id] ?? AttributedString(message.text))
+        presentation: presentations[message.id],
+        fallbackText: model.renderedChatMessages[message.id] ?? AttributedString(message.text),
+        separated: separated)
     case .emptySearch:
       VStack(spacing: 6) {
         AIMIcon(name: .search, size: 16).foregroundStyle(AIMTheme.muted)
@@ -1183,6 +1205,27 @@ private struct ChatDetailPane: View {
     parts.append("\(thread.messageCount.formatted()) messages")
     if thread.archived { parts.append("Archived") }
     return parts.joined(separator: "  ·  ")
+  }
+
+  @MainActor
+  private func updatePresentations() async {
+    guard let detail = model.selectedChat else {
+      presentations = [:]
+      return
+    }
+    do {
+      let rendered = try await ChatMessagePresenter.render(messages: detail.messages)
+      guard !Task.isCancelled,
+        model.selectedChatID == detail.thread.id,
+        model.selectedChat?.thread.fileByteCount == detail.thread.fileByteCount
+      else { return }
+      presentations = rendered
+      presentationRevision &+= 1
+    } catch is CancellationError {
+      return
+    } catch {
+      presentations = [:]
+    }
   }
 
   @MainActor
@@ -1226,14 +1269,14 @@ private struct ChatDetailPane: View {
 
 private enum ChatDetailListItem: Identifiable, Equatable {
   case notice(String)
-  case message(ChatMessage)
+  case message(ChatMessage, separated: Bool)
   case emptySearch
   case bottomSpace
 
   var id: String {
     switch self {
     case let .notice(text): "notice:\(text)"
-    case let .message(message): "message:\(message.id)"
+    case let .message(message, _): "message:\(message.id)"
     case .emptySearch: "empty-search"
     case .bottomSpace: "bottom-space"
     }
@@ -1246,31 +1289,216 @@ private struct ChatMessageSearchKey: Hashable {
   let fileByteCount: Int64
 }
 
+private struct ChatPresentationKey: Hashable {
+  let threadID: String?
+  let fileByteCount: Int64
+}
+
 private struct ChatMessageRow: View {
   let message: ChatMessage
-  let renderedText: AttributedString
+  let presentation: ChatMessagePresentation?
+  let fallbackText: AttributedString
+  let separated: Bool
+  @State private var hovered = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline) {
+    VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
+      HStack(spacing: 5) {
         Text(message.role == .user ? "You" : "Codex")
           .font(AIMTheme.sans(9.5, weight: .semibold))
-          .foregroundStyle(AIMTheme.muted)
-        Spacer()
         if let timestamp = message.timestamp {
-          Text(timestamp, style: .time).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.faint)
+          Text("·")
+          Text(timestamp, style: .time)
         }
+        ChatCopyButton(text: message.text, label: "Copy message", emphasized: hovered)
       }
-      Text(renderedText)
-        .font(AIMTheme.sans(13))
-        .lineSpacing(4)
+      .font(AIMTheme.sans(9.5))
+      .foregroundStyle(AIMTheme.muted)
+
+      if message.role == .user {
+        ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+          .frame(maxWidth: 460, alignment: .leading)
+          .background(AIMTheme.chatUserSurface)
+          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      } else {
+        HStack(alignment: .top, spacing: 12) {
+          Rectangle().fill(AIMTheme.titleArt).frame(width: 2)
+          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: 620, alignment: .leading)
+      }
+    }
+    .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
+    .padding(.horizontal, 24)
+    .padding(.top, separated ? 18 : 8)
+    .frame(maxWidth: .infinity, alignment: .center)
+    .onHover { hovered = $0 }
+  }
+}
+
+private struct ChatMessageBlocks: View {
+  let presentation: ChatMessagePresentation?
+  let fallbackText: AttributedString
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      if let presentation {
+        ForEach(presentation.blocks) { block in
+          ChatPresentationBlockView(block: block)
+        }
+        if presentation.sourceWasTruncated {
+          Text("This long message is shortened in the reader.")
+            .font(AIMTheme.sans(10, weight: .medium))
+            .foregroundStyle(AIMTheme.amber)
+        }
+      } else {
+        Text(fallbackText)
+          .font(AIMTheme.sans(13))
+          .lineSpacing(4)
+          .textSelection(.enabled)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct ChatPresentationBlockView: View {
+  let block: ChatPresentationBlock
+
+  @ViewBuilder var body: some View {
+    switch block {
+    case let .paragraph(_, text):
+      readable(text)
+    case let .heading(_, level, text):
+      Text(text)
+        .font(AIMTheme.sans(level == 1 ? 17 : (level == 2 ? 15 : 13), weight: .semibold))
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
+    case let .quote(_, text):
+      HStack(alignment: .top, spacing: 9) {
+        Rectangle().fill(AIMTheme.line).frame(width: 2)
+        readable(text).foregroundStyle(AIMTheme.muted)
+      }
+    case let .unorderedList(_, items):
+      VStack(alignment: .leading, spacing: 5) {
+        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("•").font(AIMTheme.sans(12, weight: .semibold))
+            readable(item)
+          }
+        }
+      }
+    case let .orderedList(_, items):
+      VStack(alignment: .leading, spacing: 5) {
+        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(index + 1).")
+              .font(AIMTheme.mono(10, weight: .medium))
+              .frame(width: 20, alignment: .trailing)
+            readable(item)
+          }
+        }
+      }
+    case let .code(_, language, preview, expanded, sourceWasTruncated):
+      ChatCodeBlock(
+        language: language, preview: preview, expandedText: expanded,
+        sourceWasTruncated: sourceWasTruncated)
+    case .divider:
+      Rectangle().fill(AIMTheme.lineSoft).frame(height: 1).padding(.vertical, 2)
     }
-    .frame(maxWidth: 660, alignment: .leading)
-    .padding(.horizontal, 28)
-    .padding(.vertical, 16)
-    .frame(maxWidth: .infinity, alignment: .center)
+  }
+
+  private func readable(_ text: AttributedString) -> some View {
+    Text(text)
+      .font(AIMTheme.sans(13))
+      .lineSpacing(4)
+      .textSelection(.enabled)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct ChatCodeBlock: View {
+  let language: String?
+  let preview: String
+  let expandedText: String?
+  let sourceWasTruncated: Bool
+  @State private var expanded = false
+
+  private var visibleText: String { expanded ? (expandedText ?? preview) : preview }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
+        Text(language?.uppercased() ?? "CODE")
+          .font(AIMTheme.mono(9, weight: .semibold))
+          .foregroundStyle(AIMTheme.muted)
+        Spacer()
+        ChatCopyButton(text: expandedText ?? preview, label: "Copy code", emphasized: true)
+      }
+      .padding(.horizontal, 10)
+      .frame(height: 30)
+      .background(AIMTheme.panel3)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        Text(visibleText)
+          .font(AIMTheme.mono(11))
+          .lineSpacing(3)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: true, vertical: true)
+          .padding(12)
+      }
+
+      if expandedText != nil {
+        Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
+          .buttonStyle(.plain)
+          .font(AIMTheme.sans(10, weight: .medium))
+          .foregroundStyle(AIMTheme.blue)
+          .padding(.horizontal, 10)
+          .padding(.bottom, 9)
+      } else if sourceWasTruncated {
+        Text("Code shortened")
+          .font(AIMTheme.sans(9, weight: .medium))
+          .foregroundStyle(AIMTheme.amber)
+          .padding(.horizontal, 10)
+          .padding(.bottom, 9)
+      }
+    }
+    .background(AIMTheme.chatCodeSurface)
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+}
+
+private struct ChatCopyButton: View {
+  let text: String
+  let label: String
+  let emphasized: Bool
+  @State private var copied = false
+
+  var body: some View {
+    Button {
+      #if !AI_MANAGER_PREVIEW
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(text, forType: .string)
+      #endif
+      copied = true
+      Task { @MainActor in
+        try? await Task.sleep(for: .seconds(1.2))
+        copied = false
+      }
+    } label: {
+      AIMIcon(name: copied ? .check : .copy, size: 10)
+        .frame(width: 24, height: 24)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(AIMPressButtonStyle())
+    .foregroundStyle(copied ? AIMTheme.green : AIMTheme.muted)
+    .opacity(emphasized || copied ? 1 : 0.48)
+    .help(copied ? "Copied" : label)
+    .accessibilityLabel(copied ? "Copied" : label)
   }
 
 }

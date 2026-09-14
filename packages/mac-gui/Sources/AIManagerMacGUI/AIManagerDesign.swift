@@ -55,6 +55,15 @@ enum AIMTheme {
   static let panel = dynamic(light: 0xFAF9F6, dark: 0x3B3C40)
   static let panel2 = dynamic(light: 0xF0EFEB, dark: 0x424348)
   static let panel3 = dynamic(light: 0xE5E4DF, dark: 0x4A4B50)
+  static let listStripe = dynamic(
+    light: 0xF0EFEB, dark: 0x424348, lightHighContrast: 0xE4E3DD,
+    darkHighContrast: 0x505157)
+  static let listHover = dynamic(light: 0xE5E4DF, dark: 0x4A4B50)
+  static let listSelection = dynamic(
+    light: 0xE1E2E0, dark: 0x505158, lightHighContrast: 0xD4D7DC,
+    darkHighContrast: 0x5B5D65)
+  static let chatUserSurface = dynamic(light: 0xE7E9ED, dark: 0x484C54)
+  static let chatCodeSurface = dynamic(light: 0xF0EFEB, dark: 0x303136)
   static let line = dynamic(
     light: 0xD4D3CE, dark: 0x62646A, lightHighContrast: 0xA7A69F,
     darkHighContrast: 0x8A8D94)
@@ -74,11 +83,11 @@ enum AIMTheme {
   static let titleArt = dynamic(light: 0x657B98, dark: 0x92A7C3)
   static let active = dynamic(light: 0x3C4A61, dark: 0x566D95)
   static let activeInk = dynamic(light: 0xF2F1ED, dark: 0xF2F1ED)
-  static let historySelection = dynamic(light: 0xE1E2E0, dark: 0x4B4C50)
+  static let historySelection = listSelection
   static let railIdle = dynamic(light: 0x5D6670, dark: 0xB0B7C2)
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
-  static let control = dynamic(light: 0xDEDCD6, dark: 0x4A4B50)
-  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x56585E)
+  static let control = dynamic(light: 0xDEDCD6, dark: 0x515258)
+  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x5B5D63)
   static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
   static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x5B564F)
   static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x686153)
@@ -302,17 +311,20 @@ where Item.ID: Hashable {
   let items: [Item]
   let rowSpacing: CGFloat
   let fixedRowHeight: CGFloat?
+  let contentRevision: Int
   let rowContent: (Item) -> AnyView
   @Environment(\.aimDarkMode) private var darkMode
   @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
 
   init(
     items: [Item], rowSpacing: CGFloat = 0, fixedRowHeight: CGFloat? = nil,
+    contentRevision: Int = 0,
     rowContent: @escaping (Item) -> AnyView
   ) {
     self.items = items
     self.rowSpacing = rowSpacing
     self.fixedRowHeight = fixedRowHeight
+    self.contentRevision = contentRevision
     self.rowContent = rowContent
   }
 
@@ -352,6 +364,7 @@ where Item.ID: Hashable {
       items: items,
       rowSpacing: rowSpacing,
       fixedRowHeight: fixedRowHeight,
+      contentRevision: contentRevision,
       rowContent: rowContent,
       darkMode: darkMode,
       focusIndicatorsEnabled: focusIndicatorsEnabled)
@@ -362,12 +375,14 @@ where Item.ID: Hashable {
     weak var tableView: NSTableView?
     private var items: [Item] = []
     private var fixedRowHeight: CGFloat?
+    private var contentRevision = 0
     private var rowContent: ((Item) -> AnyView)?
     private var darkMode = false
     private var focusIndicatorsEnabled = false
 
     func update(
       items nextItems: [Item], rowSpacing: CGFloat, fixedRowHeight: CGFloat?,
+      contentRevision nextContentRevision: Int,
       rowContent: @escaping (Item) -> AnyView,
       darkMode: Bool, focusIndicatorsEnabled: Bool
     ) {
@@ -377,6 +392,8 @@ where Item.ID: Hashable {
       items = nextItems
       self.fixedRowHeight = fixedRowHeight
       self.rowContent = rowContent
+      let contentChanged = contentRevision != nextContentRevision
+      contentRevision = nextContentRevision
       self.darkMode = darkMode
       self.focusIndicatorsEnabled = focusIndicatorsEnabled
       guard let tableView else { return }
@@ -385,7 +402,15 @@ where Item.ID: Hashable {
       if let fixedRowHeight { tableView.rowHeight = fixedRowHeight }
       let sameIDs = oldItems.map(\.id) == nextItems.map(\.id)
       if sameIDs, !appearanceChanged {
-        let changed = IndexSet(nextItems.indices.filter { oldItems[$0] != nextItems[$0] })
+        var changed = IndexSet(nextItems.indices.filter { oldItems[$0] != nextItems[$0] })
+        if contentChanged {
+          let visible = tableView.rows(in: tableView.visibleRect)
+          if visible.location != NSNotFound, visible.length > 0 {
+            let lower = max(0, visible.location)
+            let upper = min(nextItems.count, visible.location + visible.length)
+            changed.formUnion(IndexSet(integersIn: lower..<upper))
+          }
+        }
         if !changed.isEmpty {
           tableView.reloadData(
             forRowIndexes: changed,
