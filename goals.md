@@ -57,10 +57,14 @@ these requirements.
 
 Copy the current Recap Pro v2 Producer UI from
 `/Volumes/External1TB/dev/organization/keypath.india/recap-pro` as the visual
-source of truth: its 48px rail, 48px titlebar, Geist typography, 3px component
+source of truth: its 48px rail, 48px titlebar, dense typography, 3px component
 corners, panel/list structure, exact light/dark tokens, and interaction styling.
 Preserve native custom close/minimize controls and safe window lifecycle. Adapt
 the reference to account-management content.
+
+Typography refinement (2026-09-15): use bundled Inter for interface and reading text,
+Lora for display titles, and PT Mono for paths, identifiers, and measurements. This
+supersedes the earlier Geist typography requirement.
 
 Latest refinement (2026-09-12): the window is fixed at 1120x740, without resize
 or maximize. Its custom title region must drag reliably. Light/dark switching
@@ -2454,8 +2458,10 @@ with temporary synthetic homes before installation.
 ### Menu-bar scope and account preferences (2026-09-14)
 
 - The menu popover is for switching and viewing limits. Remove its brand/count/refresh header,
-  session explanation, and Add Account action. Keep account rows, available limit columns,
-  Open Switch, and Quit within a 384-point-wide, six-row maximum layout.
+  column header, session explanation, Add Account action, and Quit action. Use compact account
+  cards with a dedicated Switch control; expand only usage-enabled cards with separate Weekly
+  and 5 hour progress rows. Keep an updated timestamp and Open App action in the 48-point footer.
+  The popover stays 384 points wide and scrolls at a 440-point maximum height.
 - Usage display starts off. Each account has a Show usage in menu bar toggle and can return to
   the Settings default using Use default. Explicit per-account choices persist by account ID;
   changing the default affects only accounts without an override.

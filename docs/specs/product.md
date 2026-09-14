@@ -1,7 +1,7 @@
 # Switch product specification
 
 Status: Initial accepted specification
-Revision: 2026-09-14
+Revision: 2026-09-15
 
 This document defines the current product model and user-visible contract. `goals.md`
 retains milestone history and verification evidence. If older milestone text conflicts
@@ -66,9 +66,10 @@ statistics. Optional fields are conditional:
 - Never manufacture a value from transcripts and never combine stale usage with Needs
   sign-in.
 
-The menu popover contains the account list, available limit columns, and a compact Open
-Switch/Quit footer. Remove the brand/count/refresh header, session explanation, and Add
-Account action. Account creation belongs in the main window.
+The menu popover contains only account switching, enabled limit data, an updated timestamp,
+and an Open App footer action. It has no brand/count/refresh header, column header, session
+explanation, Add Account action, or Quit action. Account creation and usage refresh belong in
+the main window.
 
 Each account's Usage panel exposes Show usage in menu bar and an action to return to the
 Settings default. This preference controls both that account's popover limits and the
@@ -79,10 +80,13 @@ Main-window usage and its cache remain available regardless of this display pref
 If Codex returns only a weekly limit, show it without inventing a 5-hour value. The tray
 percentage uses the 5-hour limit when available, otherwise the weekly limit.
 
-The ledger keeps quota columns aligned and blank where an account hides usage. Missing
-percentages are never fabricated. The popover is 384 points wide, shows at most six
-60-point rows, and uses a 24-point column row plus a 40-point footer. It has no automatic
-focus outline unless the keyboard-focus indicator setting is enabled.
+Each account is a distinct compact card. Its identity row shows the account, provider and
+workspace, active or attention state, and a dedicated Switch button when eligible. When menu
+usage is enabled and cached, the card expands to show separate Weekly and 5 hour progress
+rows with percentages and reset descriptions. A hidden or missing limit takes no space and
+is never fabricated. The popover is 384 points wide, uses a 48-point footer, and scrolls at a
+440-point maximum height. It has no automatic focus outline unless the keyboard-focus
+indicator setting is enabled.
 
 ## 4. Visual system
 
@@ -101,6 +105,18 @@ against the shared neutral row scale.
 Compact section headers use one 40-point alignment row. A leading title, trailing count,
 warning/copy action, error indicator, and progress indicator occupy explicit centered slots;
 content changes must not move them vertically or horizontally.
+
+Inter is the interface and reading face, Lora is the display face for page, modal, and major
+identity titles, and PT Mono is reserved for paths, measurements, IDs, and other technical
+data. The three font families are bundled with their OFL licenses and must load in production
+and Preview builds.
+
+Account-list secondary text and menu cards identify the provider, such as Codex CLI, rather
+than repeating verification language. Healthy identity badges use the provider name; only
+states that need action add a separate state badge. The Add Account and Advanced Import
+titlebars use one 48-point row for the title, full-height step tabs, and the edge-to-edge Close
+button. Modal content and actions use matching 16-point top and bottom spacing, and checkboxes
+align to the same 16-point panel content edge as their headings and rows.
 
 ## 5. Verification contract
 
