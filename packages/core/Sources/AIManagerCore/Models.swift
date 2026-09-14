@@ -425,8 +425,9 @@ public struct RecoveryOperation: Identifiable, Codable, Sendable {
     public var previousDefaultAccountID: UUID?
     public var registryCredentialDigest: String?
     public var previousAccount: AccountRecord?
+    public var setsDefaultAccount: Bool?
 
-    public init(id: UUID, kind: String, phase: RecoveryPhase, source: URL, destination: URL, backup: URL, expectedDigest: String? = nil, touchedItems: [RecoveryItem]? = nil, previousDigest: String? = nil, registryAccountID: UUID? = nil, previousDefaultAccountID: UUID? = nil, registryCredentialDigest: String? = nil, previousAccount: AccountRecord? = nil) {
+    public init(id: UUID, kind: String, phase: RecoveryPhase, source: URL, destination: URL, backup: URL, expectedDigest: String? = nil, touchedItems: [RecoveryItem]? = nil, previousDigest: String? = nil, registryAccountID: UUID? = nil, previousDefaultAccountID: UUID? = nil, registryCredentialDigest: String? = nil, previousAccount: AccountRecord? = nil, setsDefaultAccount: Bool? = nil) {
         self.id = id
         self.kind = kind
         self.phase = phase
@@ -440,6 +441,7 @@ public struct RecoveryOperation: Identifiable, Codable, Sendable {
         self.previousDefaultAccountID = previousDefaultAccountID
         self.registryCredentialDigest = registryCredentialDigest
         self.previousAccount = previousAccount
+        self.setsDefaultAccount = setsDefaultAccount
     }
 }
 

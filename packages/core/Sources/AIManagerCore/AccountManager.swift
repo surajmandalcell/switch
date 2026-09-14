@@ -37,11 +37,12 @@ public actor AccountManager {
     private let faultInjector: @Sendable (FaultPoint) throws -> Void
     private let verificationTimeout: TimeInterval
     private let capacityCheck: CapacityCheck
+    private let loginRunner: AccountLoginRunner
     private let lock: OperationLock
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }) throws {
+    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
@@ -49,6 +50,7 @@ public actor AccountManager {
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
         self.capacityCheck = capacityCheck ?? { AccountManager.systemCapacity(at: $0) }
+        self.loginRunner = loginRunner
         self.lock = try OperationLock(at: paths.applicationSupport.appending(path: "manager.lock"), fileManager: fileManager)
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -69,6 +71,119 @@ public actor AccountManager {
         )
     }
 
+    public static let providerCatalog: [ProviderDescriptor] = [
+        .init(id: .codex, displayName: "Codex", availability: .enabled),
+        .init(
+            id: .claudeCode, displayName: "Claude Code", availability: .disabled,
+            unavailableReason: "Claude Code account setup is not available yet."),
+        .init(
+            id: .geminiCLI, displayName: "Gemini CLI", availability: .disabled,
+            unavailableReason: "Gemini CLI account setup is not available yet."),
+        .init(
+            id: .antigravityCLI, displayName: "Antigravity CLI", availability: .disabled,
+            unavailableReason: "Antigravity CLI account setup is not available yet."),
+    ]
+
+    public func refreshAccounts() async throws -> AccountSnapshot {
+        if try !pendingOperations().isEmpty {
+            _ = try await recover()
+        }
+        var current = try status()
+        if current.pendingRecovery.isEmpty, current.accounts.isEmpty {
+            let live = provider.inspect(home: paths.defaultHome)
+            if live.support == .supportedChatGPT, live.identity?.isResolved == true {
+                try provider.validatePrivateCredentialFile(
+                    paths.defaultHome.appending(path: "auth.json"))
+                _ = try await adoptLiveAccount()
+                current = try status()
+            }
+        }
+        return .init(
+            status: current,
+            providers: Self.providerCatalog,
+            discoveries: await discover(),
+            pendingLoginSessions: try loadLoginSessions()
+        )
+    }
+
+    public func startAccountLogin(providerID: ProviderID) async throws -> AccountLoginStart {
+        try ensureNoRecovery()
+        guard Self.providerCatalog.first(where: { $0.id == providerID })?.availability == .enabled else {
+            throw AIManagerError.unsupportedSource(
+                Self.providerCatalog.first(where: { $0.id == providerID })?.unavailableReason
+                    ?? "Provider \(providerID.rawValue) is not available.")
+        }
+        try provider.requireSupported(providerID)
+        guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
+        let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date())
+        let home = loginHome(session.id)
+        try CoreSupport.privateDirectory(loginSessionsURL, fileManager: fileManager)
+        try CoreSupport.privateDirectory(loginRoot(session.id), fileManager: fileManager)
+        try CoreSupport.privateDirectory(home, fileManager: fileManager)
+        try saveLoginSession(session)
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "OPENAI_API_KEY")
+        environment.removeValue(forKey: "CODEX_ACCESS_TOKEN")
+        environment["CODEX_HOME"] = home.path
+        if let isolationRoot = paths.isolationRoot { environment["HOME"] = isolationRoot.path }
+        let spec = LaunchSpec(
+            executable: executable,
+            arguments: ["-c", "cli_auth_credentials_store=\"file\"", "login"],
+            environment: environment
+        )
+        try loginRunner.launch(session.id, spec)
+        return .init(session: session, launchSpec: spec)
+    }
+
+    public func checkAccountLogin(
+        id: UUID,
+        credentialChoice: ConflictChoice? = nil
+    ) async throws -> AccountLoginCheck {
+        try ensureNoRecovery()
+        let session = try loadLoginSession(id)
+        try provider.requireSupported(session.providerID)
+        let inspection = provider.inspect(home: loginHome(id))
+        guard inspection.support == .supportedChatGPT, inspection.identity?.isResolved == true else {
+            let waiting = inspection.support == .missingAuth
+            return .init(
+                session: session,
+                state: waiting ? .waitingForLogin : .needsAttention,
+                message: waiting
+                    ? "Codex sign-in has not produced account access yet."
+                    : (inspection.error ?? "Codex sign-in did not produce supported account access.")
+            )
+        }
+        try provider.validatePrivateCredentialFile(loginHome(id).appending(path: "auth.json"))
+        let plan = try await makeImportPlan(
+            source: loginHome(id), mode: .authOnly, allowApplicationSupportSource: true)
+        if plan.conflicts.contains(where: { $0.relativePath == "auth.json" }), credentialChoice == nil {
+            return .init(
+                session: session,
+                state: .credentialChoiceRequired,
+                message: "This login matches a saved account with different access. Choose which credential to keep."
+            )
+        }
+        let decisions = credentialChoice.map { ["auth.json": $0] } ?? [:]
+        let result = try await importAccount(plan: plan, decisions: decisions)
+        loginRunner.cancel(id)
+        try fileManager.removeItem(at: loginRoot(id))
+        return .init(
+            session: session,
+            state: .completed,
+            account: result.account,
+            message: "Codex account access was saved."
+        )
+    }
+
+    public func cancelAccountLogin(id: UUID) async throws {
+        _ = try loadLoginSession(id)
+        guard try !pendingOperations().contains(where: {
+            CoreSupport.isContained($0.source, by: loginRoot(id))
+        }) else { throw AIManagerError.recoveryRequired }
+        loginRunner.cancel(id)
+        try fileManager.removeItem(at: loginRoot(id))
+    }
+
     public func discover(explicit: URL? = nil) async -> [DiscoveredSource] {
         let candidates = provider.discoveryCandidates(paths: paths, explicit: explicit)
 
@@ -86,6 +201,15 @@ public actor AccountManager {
     }
 
     public func planImport(source selected: URL, mode: ImportMode) async throws -> ImportPlan {
+        try await makeImportPlan(
+            source: selected, mode: mode, allowApplicationSupportSource: false)
+    }
+
+    private func makeImportPlan(
+        source selected: URL,
+        mode: ImportMode,
+        allowApplicationSupportSource: Bool
+    ) async throws -> ImportPlan {
         try ensureNoRecovery()
         let source = CoreSupport.home(for: selected)
         let inspection = provider.inspect(home: selected)
@@ -98,7 +222,8 @@ public actor AccountManager {
         let id = existing?.id ?? UUID()
         let destination = existing?.home
             ?? paths.applicationSupport.appending(path: "accounts/\(id.uuidString)/home", directoryHint: .isDirectory)
-        guard !CoreSupport.isContained(source, by: paths.applicationSupport), !CoreSupport.isContained(destination, by: source) else {
+        guard (allowApplicationSupportSource || !CoreSupport.isContained(source, by: paths.applicationSupport)),
+              !CoreSupport.isContained(destination, by: source) else {
             throw AIManagerError.unsafePath("source and managed destination overlap")
         }
         let manifest = try buildManifest(source: source, mode: mode)
@@ -183,7 +308,8 @@ public actor AccountManager {
             if plan.mode == .full {
                 try await ensureWritersInactive([plan.source, paths.sharedRoot])
             }
-            return try performImport(plan: plan, auth: current.data, decisions: decisions)
+            return try performImport(
+                plan: plan, auth: current.data, decisions: decisions, setsDefaultAccount: false)
         }
     }
 
@@ -577,6 +703,93 @@ extension AccountManager {
         paths.credentialStore.appending(path: "\(accountID.uuidString).json")
     }
     private var transactionsURL: URL { paths.applicationSupport.appending(path: "transactions", directoryHint: .isDirectory) }
+    private var loginSessionsURL: URL {
+        paths.applicationSupport.appending(path: "account-login", directoryHint: .isDirectory)
+    }
+
+    private func loginRoot(_ id: UUID) -> URL {
+        loginSessionsURL.appending(path: id.uuidString, directoryHint: .isDirectory)
+    }
+
+    private func loginHome(_ id: UUID) -> URL {
+        loginRoot(id).appending(path: "home", directoryHint: .isDirectory)
+    }
+
+    private func loginSessionURL(_ id: UUID) -> URL {
+        loginRoot(id).appending(path: "session.json")
+    }
+
+    private func saveLoginSession(_ session: AccountLoginSession) throws {
+        let record = VersionedLoginSession(version: 1, session: session)
+        try CoreSupport.atomicWrite(
+            try encoder.encode(record), to: loginSessionURL(session.id), fileManager: fileManager)
+    }
+
+    private func loadLoginSession(_ id: UUID) throws -> AccountLoginSession {
+        let root = loginRoot(id)
+        guard CoreSupport.isContained(root, by: loginSessionsURL) else {
+            throw AIManagerError.unsafePath(root.path)
+        }
+        try validatePrivateLoginDirectory(root)
+        try validatePrivateLoginDirectory(loginHome(id))
+        let url = loginSessionURL(id)
+        let values = try url.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              let size = values.fileSize, size <= 64 * 1_024 else {
+            throw AIManagerError.invalidSource("Account login session is not a bounded regular file.")
+        }
+        try provider.validatePrivateCredentialFile(url)
+        let record = try decoder.decode(VersionedLoginSession.self, from: Data(contentsOf: url))
+        guard record.version == 1, record.session.id == id else {
+            throw AIManagerError.invalidSource("Account login session version or identity is invalid.")
+        }
+        return record.session
+    }
+
+    private func loadLoginSessions() throws -> [AccountLoginSession] {
+        guard CoreSupport.entryExists(loginSessionsURL) else { return [] }
+        let values = try loginSessionsURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw AIManagerError.unsafePath("Account login root is not a private directory.")
+        }
+        try validatePrivateLoginDirectory(loginSessionsURL)
+        return try fileManager.contentsOfDirectory(
+            at: loginSessionsURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ).compactMap { url in
+            guard let id = UUID(uuidString: url.lastPathComponent) else { return nil }
+            return try loadLoginSession(id)
+        }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private func validatePrivateLoginDirectory(_ url: URL) throws {
+        var info = stat()
+        guard lstat(url.path, &info) == 0,
+              info.st_mode & S_IFMT == S_IFDIR,
+              info.st_uid == getuid(),
+              info.st_mode & 0o777 == 0o700 else {
+            throw AIManagerError.unsafePath("Account login directory is not private: \(url.path)")
+        }
+    }
+
+    private func adoptLiveAccount() async throws -> ImportResult {
+        let plan = try await makeImportPlan(
+            source: paths.defaultHome, mode: .authOnly, allowApplicationSupportSource: false)
+        guard plan.conflicts.isEmpty else { throw AIManagerError.credentialConflict }
+        let current = provider.inspect(home: paths.defaultHome)
+        guard current.support == .supportedChatGPT,
+              current.digest == plan.sourceAuthDigest else { throw AIManagerError.sourceChanged }
+        return try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            guard try loadRegistry().accounts.isEmpty else {
+                throw AIManagerError.operationFailed("The account registry changed during live account adoption.")
+            }
+            return try performImport(
+                plan: plan, auth: current.data, decisions: [:], setsDefaultAccount: true)
+        }
+    }
 
     private func operationItemsURL(_ id: UUID) -> URL {
         transactionsURL.appending(path: "\(id.uuidString).items", directoryHint: .isDirectory)
@@ -922,7 +1135,12 @@ extension AccountManager {
         }
     }
 
-    private func performImport(plan: ImportPlan, auth: Data, decisions: [String: ConflictChoice]) throws -> ImportResult {
+    private func performImport(
+        plan: ImportPlan,
+        auth: Data,
+        decisions: [String: ConflictChoice],
+        setsDefaultAccount: Bool
+    ) throws -> ImportResult {
         var registry = try loadRegistry()
         let matching = registry.accounts.firstIndex { provider.sameIdentity($0.identity, plan.identity) }
         let keepExistingCredential = matching != nil && registry.accounts[matching!].credentialDigest != plan.sourceAuthDigest && decisions["auth.json"] == .keepShared
@@ -944,7 +1162,7 @@ extension AccountManager {
         }
         let destination = expectedDestination
         let staging = paths.applicationSupport.appending(path: "staging/\(plan.id.uuidString)/home", directoryHint: .isDirectory)
-        var operation = RecoveryOperation(id: plan.id, kind: "import", phase: .prepared, source: plan.source, destination: destination, backup: plan.backup, touchedItems: [], registryAccountID: matching.map { registry.accounts[$0].id } ?? plan.id, registryCredentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest, previousAccount: matching.map { registry.accounts[$0] })
+        var operation = RecoveryOperation(id: plan.id, kind: "import", phase: .prepared, source: plan.source, destination: destination, backup: plan.backup, touchedItems: [], registryAccountID: matching.map { registry.accounts[$0].id } ?? plan.id, previousDefaultAccountID: registry.defaultAccountID, registryCredentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest, previousAccount: matching.map { registry.accounts[$0] }, setsDefaultAccount: setsDefaultAccount)
         try saveOperation(operation)
         try CoreSupport.privateDirectory(plan.backup, fileManager: fileManager)
         _ = try fileManager.contentsOfDirectory(atPath: plan.backup.path)
@@ -1109,6 +1327,19 @@ extension AccountManager {
             credentialDigest: keepExistingCredential ? registry.accounts[matching!].credentialDigest : plan.sourceAuthDigest
         )
         if let matching { registry.accounts[matching] = account } else { registry.accounts.append(account) }
+        if setsDefaultAccount {
+            guard CoreSupport.sameLocation(plan.source, paths.defaultHome) else {
+                throw AIManagerError.unsafePath("Only the live Codex home can be adopted as default.")
+            }
+            let live = provider.inspect(home: paths.defaultHome)
+            guard live.support == .supportedChatGPT,
+                  let liveIdentity = live.identity,
+                  provider.sameIdentity(account.identity, liveIdentity),
+                  live.digest == account.credentialDigest else {
+                throw AIManagerError.sourceChanged
+            }
+            registry.defaultAccountID = accountID
+        }
         try saveRegistry(registry)
         try faultInjector(.afterRegistryCommit)
         operation.phase = .registryCommitted
@@ -1988,6 +2219,16 @@ extension AccountManager {
                 credentialDigest: inspection.digest
             ))
         }
+        if operation.setsDefaultAccount == true {
+            let live = provider.inspect(home: paths.defaultHome)
+            guard live.support == .supportedChatGPT,
+                  let liveIdentity = live.identity,
+                  provider.sameIdentity(identity, liveIdentity),
+                  live.digest == inspection.digest else {
+                throw AIManagerError.credentialConflict
+            }
+            registry.defaultAccountID = accountID
+        }
         try saveRegistry(registry)
     }
 
@@ -2062,7 +2303,11 @@ extension AccountManager {
         }
         guard let accountID = operation.registryAccountID,
               let expectedCredential = operation.registryCredentialDigest else { return false }
-        return registry.accounts.first(where: { $0.id == accountID })?.credentialDigest == expectedCredential
+        let accountMatches = registry.accounts.first(where: { $0.id == accountID })?.credentialDigest
+            == expectedCredential
+        let defaultMatches = operation.setsDefaultAccount != true
+            || registry.defaultAccountID == accountID
+        return accountMatches && defaultMatches
     }
 
     private func publishedRecoveryTargetsMatch(_ operation: RecoveryOperation) throws -> Bool {
@@ -2083,6 +2328,9 @@ extension AccountManager {
                 registry.accounts[index] = previous
             }
         } else if let accountID = operation.registryAccountID {
+            if operation.setsDefaultAccount == true {
+                registry.defaultAccountID = operation.previousDefaultAccountID
+            }
             if let previous = operation.previousAccount,
                let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
                 registry.accounts[index] = previous
@@ -2165,4 +2413,9 @@ extension AccountManager {
         try? fileManager.removeItem(at: operationItemsURL(operation.id))
         return .init(operationID: operation.id, outcome: .rolledBack, message: "The incomplete operation was rolled back.")
     }
+}
+
+private struct VersionedLoginSession: Codable {
+    var version: Int
+    var session: AccountLoginSession
 }
