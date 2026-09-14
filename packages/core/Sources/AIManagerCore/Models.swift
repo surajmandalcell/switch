@@ -391,6 +391,25 @@ public struct SwitchResult: Codable, Sendable {
     }
 }
 
+public struct AccountDeletionResult: Codable, Sendable {
+    public var accountID: UUID
+    public var replacementDefaultAccountID: UUID?
+    public var removedManagedHome: Bool
+    public var removedCredential: Bool
+
+    public init(
+        accountID: UUID,
+        replacementDefaultAccountID: UUID?,
+        removedManagedHome: Bool,
+        removedCredential: Bool
+    ) {
+        self.accountID = accountID
+        self.replacementDefaultAccountID = replacementDefaultAccountID
+        self.removedManagedHome = removedManagedHome
+        self.removedCredential = removedCredential
+    }
+}
+
 public enum RecoveryPhase: String, Codable, Sendable { case prepared, backedUp, staged, published, registryCommitted, completed, rolledBack, conflicted }
 
 public enum RecoveryConflictChoice: String, Codable, Sendable {
@@ -523,6 +542,19 @@ public struct LaunchSpec: Codable, Sendable {
     }
 }
 
+public struct AccountCheckResult: Sendable {
+    public var verification: VerificationResult
+    public var usage: CodexAccountUsageSnapshot?
+
+    public init(
+        verification: VerificationResult,
+        usage: CodexAccountUsageSnapshot? = nil
+    ) {
+        self.verification = verification
+        self.usage = usage
+    }
+}
+
 public enum AIManagerError: LocalizedError, Equatable {
     case invalidSource(String)
     case unsupportedSource(String)
@@ -535,6 +567,8 @@ public enum AIManagerError: LocalizedError, Equatable {
     case credentialConflict
     case recoveryRequired
     case accountNotFound
+    case defaultAccountReplacementRequired
+    case invalidReplacementAccount
     case cliNotFound
     case operationFailed(String)
 
@@ -551,6 +585,8 @@ public enum AIManagerError: LocalizedError, Equatable {
         case .credentialConflict: "Credential copies diverged. Sign in again or resolve the conflict."
         case .recoveryRequired: "Finish recovery before starting another change."
         case .accountNotFound: "Account not found."
+        case .defaultAccountReplacementRequired: "Choose another saved account before deleting the default account."
+        case .invalidReplacementAccount: "The replacement account must be a different saved account."
         case .cliNotFound: "Codex CLI was not found."
         case .operationFailed(let value): value
         }

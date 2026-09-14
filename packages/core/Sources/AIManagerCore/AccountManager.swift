@@ -32,8 +32,11 @@ public actor AccountManager {
 
     private struct UsageReadLease {
         var accountID: UUID
+        var defaultAccountID: UUID?
         var identity: AccountIdentity
         var credentialDigest: String
+        var sourceCredentialDigest: String
+        var usesLiveCredential: Bool
         var root: URL
         var source: CodexAppServerSource
         var executable: URL
@@ -369,6 +372,120 @@ public actor AccountManager {
         }
     }
 
+    public func deleteAccount(
+        accountID: UUID,
+        replacementDefaultAccountID: UUID? = nil
+    ) async throws -> AccountDeletionResult {
+        let initial = try loadRegistry()
+        guard initial.accounts.contains(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
+        }
+        if let replacementDefaultAccountID {
+            guard replacementDefaultAccountID != accountID,
+                  initial.accounts.contains(where: { $0.id == replacementDefaultAccountID }) else {
+                throw AIManagerError.invalidReplacementAccount
+            }
+        }
+        if initial.defaultAccountID == accountID {
+            guard let replacementDefaultAccountID else {
+                throw AIManagerError.defaultAccountReplacementRequired
+            }
+            _ = try await switchDefault(to: replacementDefaultAccountID)
+        }
+
+        return try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            var registry = try loadRegistry()
+            guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            guard registry.defaultAccountID != accountID else {
+                throw AIManagerError.defaultAccountReplacementRequired
+            }
+            let account = registry.accounts[index]
+            try validateDeleteTargets(account)
+
+            let operationID = UUID()
+            let backup = paths.applicationSupport.appending(
+                path: "backups/\(operationID.uuidString)", directoryHint: .isDirectory)
+            var operation = RecoveryOperation(
+                id: operationID,
+                kind: "delete-account",
+                phase: .prepared,
+                source: account.source,
+                destination: account.home,
+                backup: backup,
+                touchedItems: [],
+                registryAccountID: accountID,
+                previousDefaultAccountID: registry.defaultAccountID,
+                previousAccount: account
+            )
+            try saveOperation(operation)
+            try CoreSupport.privateDirectory(backup, fileManager: fileManager)
+
+            let ownedTargets = [
+                (account.home, backup.appending(path: "account-home", directoryHint: .isDirectory)),
+                (account.credentialFile, backup.appending(path: "auth.json")),
+            ]
+            for (destination, protected) in ownedTargets where CoreSupport.entryExists(destination) {
+                let digest = try treeDigest(destination)
+                try copyPortable(destination, to: protected)
+                guard try treeDigest(protected) == digest else {
+                    throw AIManagerError.operationFailed("The account deletion backup did not verify.")
+                }
+                operation.touchedItems = (operation.touchedItems ?? []) + [
+                    .init(
+                        destination: destination,
+                        backup: protected,
+                        expectedDigest: digest,
+                        previousDigest: digest
+                    )
+                ]
+                try saveOperation(operation)
+            }
+            operation.phase = .backedUp
+            try saveOperation(operation)
+            for item in operation.touchedItems ?? [] {
+                guard CoreSupport.entryExists(item.destination),
+                      try treeDigest(item.destination) == item.expectedDigest else {
+                    throw AIManagerError.sourceChanged
+                }
+            }
+
+            registry.accounts.remove(at: index)
+            try saveRegistry(registry)
+            operation.phase = .registryCommitted
+            try saveOperation(operation)
+            try faultInjector(.afterRegistryCommit)
+
+            for item in operation.touchedItems ?? [] {
+                let destinationUnchanged: Bool
+                if CoreSupport.entryExists(item.destination) {
+                    destinationUnchanged = try treeDigest(item.destination) == item.expectedDigest
+                } else {
+                    destinationUnchanged = true
+                }
+                guard destinationUnchanged else {
+                    operation.phase = .conflicted
+                    try saveOperation(operation)
+                    throw AIManagerError.sourceChanged
+                }
+                if CoreSupport.entryExists(item.destination) {
+                    try fileManager.removeItem(at: item.destination)
+                }
+            }
+            try? fileManager.removeItem(at: backup)
+            try finishOperation(&operation)
+            return .init(
+                accountID: accountID,
+                replacementDefaultAccountID: initial.defaultAccountID == accountID
+                    ? replacementDefaultAccountID : nil,
+                removedManagedHome: !CoreSupport.entryExists(account.home),
+                removedCredential: !CoreSupport.entryExists(account.credentialFile)
+            )
+        }
+    }
+
     private func activateLoginAccountIfNeeded(_ accountID: UUID) async throws {
         try await lock.withAsyncLock {
             try ensureNoRecovery()
@@ -406,6 +523,97 @@ public actor AccountManager {
         return snapshot
     }
 
+    public func checkAccount(
+        accountID: UUID,
+        reader: CodexAppServerAccountReader = .init(),
+        limits: CodexAppServerLimits = .init()
+    ) async -> AccountCheckResult {
+        let account: AccountRecord
+        do {
+            let registry = try loadRegistry()
+            guard let found = registry.accounts.first(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            account = found
+            guard account.identity.providerID == provider.id else {
+                let result = VerificationResult(
+                    state: .unsupported,
+                    checkedAt: Date(),
+                    detail: "Provider \(account.identity.providerID.rawValue) is not supported by this release."
+                )
+                try? recordAccountCheck(result, accountID: accountID, expected: account)
+                return .init(verification: result)
+            }
+            try provider.validateManagedCredential(account)
+        } catch {
+            let result = VerificationResult(
+                state: .needsSignIn,
+                checkedAt: Date(),
+                detail: "The saved auth.json failed its local format, identity, digest, or permission check."
+            )
+            try? recordAccountCheck(result, accountID: accountID, expected: nil)
+            return .init(verification: result)
+        }
+
+        do {
+            let snapshot = try await readCodexAccountUsage(
+                accountID: accountID,
+                reader: reader,
+                limits: limits
+            )
+            let accountIDMatches = snapshot.rateLimits?.accountID.map {
+                $0 == account.identity.accountID
+            } ?? true
+            let authenticated = snapshot.requiresOpenAIAuthentication != true
+                && accountIDMatches
+                && snapshot.account != nil
+            let result: VerificationResult
+            if snapshot.requiresOpenAIAuthentication == true || !accountIDMatches {
+                result = .init(
+                    state: .needsSignIn,
+                    checkedAt: snapshot.fetchedAt,
+                    detail: snapshot.requiresOpenAIAuthentication == true
+                        ? "Codex requires sign-in for this saved auth.json."
+                        : "Codex returned a different account for this saved auth.json."
+                )
+            } else if authenticated {
+                result = .init(
+                    state: .verifiedWithCodex,
+                    checkedAt: snapshot.fetchedAt,
+                    detail: "Codex verified the saved auth.json and returned account and usage data without a model request."
+                )
+            } else {
+                result = .init(
+                    state: .verifiedLocally,
+                    checkedAt: snapshot.fetchedAt,
+                    detail: "The saved auth.json passed local checks. Codex returned no account identity."
+                )
+            }
+            let email = authenticated ? snapshot.account?.email : nil
+            try recordAccountCheck(
+                result,
+                accountID: accountID,
+                expected: account,
+                authoritativeEmail: email
+            )
+            return .init(
+                verification: result,
+                usage: result.state == .needsSignIn ? nil : snapshot
+            )
+        } catch {
+            let detail = error as? AIManagerError == .cliNotFound
+                ? "The saved auth.json passed local checks. Codex CLI was not found, so account and usage checks were unavailable."
+                : "The saved auth.json passed local checks. Codex account and usage checks were unavailable."
+            let result = VerificationResult(
+                state: .verifiedLocally,
+                checkedAt: Date(),
+                detail: detail
+            )
+            try? recordAccountCheck(result, accountID: accountID, expected: account)
+            return .init(verification: result)
+        }
+    }
+
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
         try ensureNoRecovery()
         let registry = try loadRegistry()
@@ -414,11 +622,12 @@ public actor AccountManager {
         guard registry.defaultAccountID == accountID else {
             throw AIManagerError.operationFailed("Use this account before opening Codex.")
         }
+        try provider.validatePrivateCredentialFile(
+            paths.defaultHome.appending(path: "auth.json"))
         let live = provider.inspect(home: paths.defaultHome)
         guard live.support == .supportedChatGPT,
               let liveIdentity = live.identity,
-              provider.sameIdentity(account.identity, liveIdentity),
-              live.digest == account.credentialDigest else {
+              provider.sameIdentity(account.identity, liveIdentity) else {
             throw AIManagerError.credentialConflict
         }
         guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
@@ -451,7 +660,6 @@ public actor AccountManager {
             try provider.validateManagedCredential(account)
             let live = provider.inspect(home: paths.defaultHome)
             let alreadyActive = registry.defaultAccountID == accountID
-                && live.digest == account.credentialDigest
                 && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
             if !alreadyActive {
                 try await ensureWritersInactive([paths.defaultHome])
@@ -572,64 +780,10 @@ public actor AccountManager {
     }
 
     public func verifyLocal(accountID: UUID) async -> VerificationResult {
-        if let account = try? loadRegistry().accounts.first(where: { $0.id == accountID }), account.identity.providerID != provider.id {
-            return .init(
-                state: .unsupported,
-                checkedAt: Date(),
-                detail: "Provider \(account.identity.providerID.rawValue) is not supported by this release."
-            )
-        }
-        var verificationHome: URL?
-        do {
-            let registry = try loadRegistry()
-            guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
-                throw AIManagerError.accountNotFound
-            }
-            try provider.validateManagedCredential(account)
-            guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
-            let isolated = paths.applicationSupport.appending(path: "verification/\(UUID().uuidString)", directoryHint: .isDirectory)
-            verificationHome = isolated
-            try CoreSupport.privateDirectory(isolated, fileManager: fileManager)
-            try copyPortable(account.credentialFile, to: isolated.appending(path: "auth.json"))
-            var environment = ProcessInfo.processInfo.environment
-            environment.removeValue(forKey: "OPENAI_API_KEY")
-            environment.removeValue(forKey: "CODEX_ACCESS_TOKEN")
-            environment["CODEX_HOME"] = isolated.path
-            if let isolationRoot = paths.isolationRoot { environment["HOME"] = isolationRoot.path }
-            let spec = LaunchSpec(
-                executable: executable,
-                arguments: ["-c", "cli_auth_credentials_store=\"file\"", "login", "status"],
-                environment: environment
-            )
-            let process = Process()
-            process.executableURL = spec.executable
-            process.arguments = spec.arguments
-            process.environment = spec.environment
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            let deadline = Date().addingTimeInterval(verificationTimeout)
-            while process.isRunning, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
-            if process.isRunning {
-                process.terminate()
-                let terminationDeadline = Date().addingTimeInterval(1)
-                while process.isRunning, Date() < terminationDeadline { try await Task.sleep(for: .milliseconds(25)) }
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            }
-            process.waitUntilExit()
-            try? fileManager.removeItem(at: isolated)
-            verificationHome = nil
-            let result = process.terminationStatus == 0
-                ? VerificationResult(state: .verifiedLocally, checkedAt: Date(), detail: "Codex found file-based credentials. No online request was made.")
-                : VerificationResult(state: .needsSignIn, checkedAt: Date(), detail: "Codex did not accept the local credential. Use Codex sign-in for this profile.")
-            try recordVerification(result, accountID: accountID)
-            return result
-        } catch {
-            if let verificationHome { try? fileManager.removeItem(at: verificationHome) }
-            let result = VerificationResult(state: .needsSignIn, checkedAt: Date(), detail: "Local verification failed without making a model request.")
-            try? recordVerification(result, accountID: accountID)
-            return result
-        }
+        await checkAccount(
+            accountID: accountID,
+            limits: .init(timeout: verificationTimeout)
+        ).verification
     }
 
     public func recover() async throws -> [RecoveryResult] {
@@ -766,6 +920,20 @@ extension AccountManager {
     private var transactionsURL: URL { paths.applicationSupport.appending(path: "transactions", directoryHint: .isDirectory) }
     private var loginSessionsURL: URL {
         paths.applicationSupport.appending(path: "account-login", directoryHint: .isDirectory)
+    }
+
+    private func validateDeleteTargets(_ account: AccountRecord) throws {
+        let expectedHome = accountsRoot.appending(path: account.id.uuidString)
+            .appending(path: "home", directoryHint: .isDirectory)
+        guard CoreSupport.sameLocation(account.home, expectedHome),
+              CoreSupport.isContained(account.home, by: accountsRoot) else {
+            throw AIManagerError.unsafePath("managed account home is outside the private account root")
+        }
+        let expectedCredential = credentialFile(for: account.id)
+        guard CoreSupport.sameLocation(account.credentialFile, expectedCredential),
+              CoreSupport.isContained(account.credentialFile, by: paths.credentialStore) else {
+            throw AIManagerError.unsafePath("saved credential is outside the private credential store")
+        }
     }
 
     private func loginRoot(_ id: UUID) -> URL {
@@ -929,10 +1097,27 @@ extension AccountManager {
         try CoreSupport.atomicWrite(try encoder.encode(registry), to: registryURL, fileManager: fileManager)
     }
 
-    private func recordVerification(_ result: VerificationResult, accountID: UUID) throws {
+    private func recordAccountCheck(
+        _ result: VerificationResult,
+        accountID: UUID,
+        expected: AccountRecord?,
+        authoritativeEmail: String? = nil
+    ) throws {
         try lock.withLock {
             var registry = try loadRegistry()
-            guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+            guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
+                throw AIManagerError.accountNotFound
+            }
+            if let expected {
+                guard registry.accounts[index].identity == expected.identity,
+                      registry.accounts[index].credentialDigest == expected.credentialDigest else {
+                    throw AIManagerError.sourceChanged
+                }
+            }
+            if let email = authoritativeEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !email.isEmpty {
+                registry.accounts[index].identity.email = String(email.prefix(320))
+            }
             registry.accounts[index].verification = result
             try saveRegistry(registry)
         }
@@ -1529,21 +1714,30 @@ extension AccountManager {
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
         }
-        guard registry.defaultAccountID == accountID else {
-            throw AIManagerError.operationFailed("Use this account before refreshing usage.")
-        }
         try provider.requireSupported(account.identity.providerID)
         guard account.identity.isResolved else { throw AIManagerError.unresolvedIdentity }
         try provider.validateManagedCredential(account)
 
-        let liveAuth = paths.defaultHome.appending(path: "auth.json")
-        try provider.validatePrivateCredentialFile(liveAuth)
-        let live = provider.inspect(home: paths.defaultHome)
-        guard live.support == .supportedChatGPT,
-              let liveIdentity = live.identity,
-              provider.sameIdentity(account.identity, liveIdentity),
-              live.digest == account.credentialDigest else {
-            throw AIManagerError.credentialConflict
+        let authData: Data
+        let sourceCredentialDigest: String
+        let usesLiveCredential: Bool
+        if registry.defaultAccountID == accountID {
+            let liveAuth = paths.defaultHome.appending(path: "auth.json")
+            try provider.validatePrivateCredentialFile(liveAuth)
+            let live = provider.inspect(home: paths.defaultHome)
+            guard live.support == .supportedChatGPT,
+                  let liveIdentity = live.identity,
+                  provider.sameIdentity(account.identity, liveIdentity) else {
+                throw AIManagerError.credentialConflict
+            }
+            authData = live.data
+            sourceCredentialDigest = live.digest
+            usesLiveCredential = true
+        } else {
+            let saved = provider.inspect(credentialFile: account.credentialFile)
+            authData = saved.data
+            sourceCredentialDigest = saved.digest
+            usesLiveCredential = false
         }
         guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
 
@@ -1557,12 +1751,15 @@ extension AccountManager {
             try CoreSupport.privateDirectory(root, fileManager: fileManager)
             try CoreSupport.privateDirectory(home, fileManager: fileManager)
             let auth = home.appending(path: "auth.json")
-            try CoreSupport.atomicWrite(live.data, to: auth, fileManager: fileManager)
+            try CoreSupport.atomicWrite(authData, to: auth, fileManager: fileManager)
             try provider.validatePrivateCredentialFile(auth)
             return .init(
                 accountID: accountID,
+                defaultAccountID: registry.defaultAccountID,
                 identity: account.identity,
                 credentialDigest: account.credentialDigest,
+                sourceCredentialDigest: sourceCredentialDigest,
+                usesLiveCredential: usesLiveCredential,
                 root: root,
                 source: .init(codexHome: home, authFile: auth),
                 executable: executable
@@ -1576,7 +1773,7 @@ extension AccountManager {
     private func validateUsageRead(_ lease: UsageReadLease) throws {
         try ensureNoRecovery()
         let registry = try loadRegistry()
-        guard registry.defaultAccountID == lease.accountID,
+        guard registry.defaultAccountID == lease.defaultAccountID,
               let account = registry.accounts.first(where: { $0.id == lease.accountID }),
               account.identity == lease.identity,
               account.credentialDigest == lease.credentialDigest else {
@@ -1610,18 +1807,20 @@ extension AccountManager {
               saved.digest == lease.credentialDigest else {
             throw AIManagerError.sourceChanged
         }
-        let liveAuth = paths.defaultHome.appending(path: "auth.json")
-        do {
-            try provider.validatePrivateCredentialFile(liveAuth)
-        } catch {
-            throw AIManagerError.sourceChanged
-        }
-        let live = provider.inspect(home: paths.defaultHome)
-        guard live.support == .supportedChatGPT,
-              let liveIdentity = live.identity,
-              provider.sameIdentity(lease.identity, liveIdentity),
-              live.digest == lease.credentialDigest else {
-            throw AIManagerError.sourceChanged
+        if lease.usesLiveCredential {
+            let liveAuth = paths.defaultHome.appending(path: "auth.json")
+            do {
+                try provider.validatePrivateCredentialFile(liveAuth)
+            } catch {
+                throw AIManagerError.sourceChanged
+            }
+            let live = provider.inspect(home: paths.defaultHome)
+            guard live.support == .supportedChatGPT,
+                  let liveIdentity = live.identity,
+                  provider.sameIdentity(lease.identity, liveIdentity),
+                  live.digest == lease.sourceCredentialDigest else {
+                throw AIManagerError.sourceChanged
+            }
         }
     }
 
@@ -1650,13 +1849,44 @@ extension AccountManager {
     }
 
     private func resolveExecutable() -> URL? {
-        if let explicit = paths.codexExecutable, fileManager.isExecutableFile(atPath: explicit.path) { return explicit }
+        if let explicit = paths.codexExecutable,
+           let executable = validatedExecutable(explicit) {
+            return executable
+        }
         if paths.isolationRoot != nil { return nil }
+        var candidates: [URL] = []
         for directory in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") {
-            let candidate = URL(fileURLWithPath: String(directory)).appending(path: "codex")
-            if fileManager.isExecutableFile(atPath: candidate.path) { return candidate }
+            candidates.append(
+                URL(fileURLWithPath: String(directory)).appending(path: "codex"))
+        }
+        let userHome = fileManager.homeDirectoryForCurrentUser
+        candidates += [
+            userHome.appending(path: ".local/bin/codex"),
+            userHome.appending(path: ".codex/packages/standalone/current/bin/codex"),
+            URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
+            URL(fileURLWithPath: "/usr/local/bin/codex"),
+            URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
+            userHome.appending(path: "Applications/ChatGPT.app/Contents/Resources/codex"),
+        ]
+        var seen = Set<String>()
+        for candidate in candidates {
+            let canonical = CoreSupport.canonical(candidate)
+            guard seen.insert(canonical.path).inserted else { continue }
+            if let executable = validatedExecutable(candidate) { return executable }
         }
         return nil
+    }
+
+    private func validatedExecutable(_ candidate: URL) -> URL? {
+        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+        guard let values = try? resolved.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              fileManager.isExecutableFile(atPath: resolved.path) else {
+            return nil
+        }
+        return resolved
     }
 
     private func lexicalLinkTarget(_ link: URL) -> URL? {
@@ -2154,7 +2384,7 @@ extension AccountManager {
     }
 
     private func affectedRecoveryHomes(_ operation: RecoveryOperation) throws -> [URL] {
-        guard ["import", "switch", "settings-link-repair", "usage-credential-refresh"].contains(operation.kind),
+        guard ["import", "switch", "settings-link-repair", "usage-credential-refresh", "delete-account"].contains(operation.kind),
               CoreSupport.isContained(operation.backup, by: paths.applicationSupport) else {
             throw AIManagerError.invalidSource("Unknown or unsafe recovery operation.")
         }
@@ -2203,6 +2433,15 @@ extension AccountManager {
                 throw AIManagerError.unsafePath(operation.destination.path)
             }
             homes.append(paths.defaultHome)
+        case "delete-account":
+            guard let account = operation.previousAccount,
+                  operation.registryAccountID == account.id else {
+                throw AIManagerError.invalidSource("Account deletion recovery is missing its account record.")
+            }
+            try validateDeleteTargets(account)
+            guard CoreSupport.sameLocation(operation.destination, account.home) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
         default:
             throw AIManagerError.invalidSource("Unknown recovery operation kind.")
         }
@@ -2222,7 +2461,9 @@ extension AccountManager {
             }
             let matches = candidates.filter { CoreSupport.isContained(target.destination, by: $0) }
             guard !matches.isEmpty else { throw AIManagerError.unsafePath(target.destination.path) }
-            homes += matches
+            if operation.kind != "delete-account" {
+                homes += matches
+            }
         }
         var seen = Set<String>()
         return homes.filter { seen.insert(CoreSupport.canonical($0).path).inserted }
@@ -2266,6 +2507,9 @@ extension AccountManager {
         _ operation: RecoveryOperation,
         choice: RecoveryConflictChoice
     ) throws -> RecoveryResult {
+        if operation.kind == "delete-account" {
+            return try resolveDeleteAccountConflict(operation, choice: choice)
+        }
         var operation = operation
         switch choice {
         case .preserveCurrent:
@@ -2535,6 +2779,9 @@ extension AccountManager {
         if operation.kind == "usage-credential-refresh" {
             return try recoverUsageCredentialRefresh(operation)
         }
+        if operation.kind == "delete-account" {
+            return try recoverDeleteAccount(operation)
+        }
         var operation = operation
         var registry = try loadRegistry()
         let registryCommitted = registryCommitted(operation, registry: registry)
@@ -2673,6 +2920,125 @@ extension AccountManager {
             operationID: operation.id,
             outcome: .completed,
             message: "Recovery saved the refreshed live credential."
+        )
+    }
+
+    private func recoverDeleteAccount(
+        _ pending: RecoveryOperation
+    ) throws -> RecoveryResult {
+        var operation = pending
+        guard let account = operation.previousAccount,
+              operation.registryAccountID == account.id else {
+            throw AIManagerError.invalidSource("Account deletion recovery is incomplete.")
+        }
+        try validateDeleteTargets(account)
+        let targets = try recoveryTargets(operation)
+        let expected = [
+            account.home.standardizedFileURL.path,
+            account.credentialFile.standardizedFileURL.path,
+        ]
+        guard Set(targets.map { $0.destination.standardizedFileURL.path }).isSubset(of: Set(expected)) else {
+            throw AIManagerError.unsafePath("Account deletion recovery contains an unmanaged target.")
+        }
+
+        let registry = try loadRegistry()
+        if registry.accounts.contains(where: { $0.id == account.id }) {
+            for target in targets {
+                if CoreSupport.entryExists(target.destination) {
+                    guard try treeDigest(target.destination) == target.previousDigest else {
+                        operation.phase = .conflicted
+                        try saveOperation(operation)
+                        return .init(
+                            operationID: operation.id,
+                            outcome: .conflict,
+                            message: "A managed account file changed during deletion recovery."
+                        )
+                    }
+                } else if let backup = target.backup,
+                          let digest = target.previousDigest,
+                          CoreSupport.entryExists(backup),
+                          try treeDigest(backup) == digest {
+                    try copyPortable(backup, to: target.destination)
+                } else {
+                    throw AIManagerError.operationFailed("A protected account deletion backup is missing.")
+                }
+            }
+            try? fileManager.removeItem(at: operation.backup)
+            operation.phase = .rolledBack
+            try saveOperation(operation)
+            try? fileManager.removeItem(at: operationItemsURL(operation.id))
+            return .init(
+                operationID: operation.id,
+                outcome: .rolledBack,
+                message: "The incomplete account deletion was rolled back."
+            )
+        }
+
+        guard registry.defaultAccountID == operation.previousDefaultAccountID else {
+            operation.phase = .conflicted
+            try saveOperation(operation)
+            return .init(
+                operationID: operation.id,
+                outcome: .conflict,
+                message: "The account registry changed during deletion recovery."
+            )
+        }
+        for target in targets where CoreSupport.entryExists(target.destination) {
+            guard try treeDigest(target.destination) == target.previousDigest else {
+                operation.phase = .conflicted
+                try saveOperation(operation)
+                return .init(
+                    operationID: operation.id,
+                    outcome: .conflict,
+                    message: "A managed account file changed after its registry record was removed."
+                )
+            }
+            try fileManager.removeItem(at: target.destination)
+        }
+        try? fileManager.removeItem(at: operation.backup)
+        try finishOperation(&operation)
+        return .init(
+            operationID: operation.id,
+            outcome: .completed,
+            message: "Recovery finished deleting the managed account files."
+        )
+    }
+
+    private func resolveDeleteAccountConflict(
+        _ pending: RecoveryOperation,
+        choice: RecoveryConflictChoice
+    ) throws -> RecoveryResult {
+        var operation = pending
+        guard let account = operation.previousAccount,
+              operation.registryAccountID == account.id else {
+            throw AIManagerError.invalidSource("Account deletion recovery is incomplete.")
+        }
+        try validateDeleteTargets(account)
+        let targets = try recoveryTargets(operation)
+        try validateRecoveryBackups(targets)
+        _ = choice
+        try preserveRecoveryTargets(targets, under: operation.backup)
+        for target in targets {
+            guard let backup = target.backup else {
+                throw AIManagerError.operationFailed("A protected account deletion backup is missing.")
+            }
+            if CoreSupport.entryExists(target.destination) {
+                try fileManager.removeItem(at: target.destination)
+            }
+            try copyPortable(backup, to: target.destination)
+        }
+        var registry = try loadRegistry()
+        if !registry.accounts.contains(where: { $0.id == account.id }) {
+            registry.accounts.append(account)
+            try saveRegistry(registry)
+        }
+        operation.phase = .rolledBack
+        try saveOperation(operation)
+        try? fileManager.removeItem(at: operationItemsURL(operation.id))
+        return .init(
+            operationID: operation.id,
+            outcome: .rolledBack,
+            message: "The account deletion was cancelled and its managed files were restored."
         )
     }
 }

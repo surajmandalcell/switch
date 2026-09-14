@@ -75,6 +75,29 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertTrue(usageReadNames().isEmpty)
     }
 
+    func testRefreshedLiveCredentialCanReadUsageWithoutMutatingVaultOrRegistry() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAndSelect("primary", manager: manager)
+        let savedBefore = try Data(contentsOf: account.credentialFile)
+        let registryURL = paths.applicationSupport.appending(path: "accounts.json")
+        let registryBefore = try Data(contentsOf: registryURL)
+        let refreshed = try authData(account: "primary", marker: "refreshed-live")
+        try privateWrite(refreshed, to: paths.defaultHome.appending(path: "auth.json"))
+        let transport = UsageTransport()
+
+        _ = try await manager.readCodexAccountUsage(
+            accountID: account.id,
+            reader: .init(transport: transport, environment: { [:] })
+        )
+
+        XCTAssertEqual(transport.capturedAuth, refreshed)
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile), savedBefore)
+        XCTAssertEqual(try Data(contentsOf: registryURL), registryBefore)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), refreshed)
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
     func testLegacyUsageCredentialRefreshJournalCompletesSafely() async throws {
         let setup = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let account = try await importAndSelect("primary", manager: setup)
@@ -124,7 +147,7 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertTrue(status.pendingRecovery.isEmpty)
     }
 
-    func testInactiveAccountIsRejectedBeforeTransport() async throws {
+    func testInactiveAccountReadsItsSavedCredentialWithoutSwitching() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let active = try await importAndSelect("active", manager: manager)
         let inactive = try await importAccount("inactive", manager: manager)
@@ -132,17 +155,16 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertEqual(status.defaultAccountID, active.id)
         let transport = UsageTransport()
 
-        await XCTAssertThrowsUsageError(
-            try await manager.readCodexAccountUsage(
-                accountID: inactive.id,
-                reader: .init(transport: transport, environment: { [:] })
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? AIManagerError,
-                .operationFailed("Use this account before refreshing usage."))
-        }
-        XCTAssertFalse(transport.wasInvoked)
+        _ = try await manager.readCodexAccountUsage(
+            accountID: inactive.id,
+            reader: .init(transport: transport, environment: { [:] })
+        )
+
+        XCTAssertTrue(transport.wasInvoked)
+        XCTAssertEqual(transport.capturedAuth, try Data(contentsOf: inactive.credentialFile))
+        let finalStatus = try await manager.status()
+        XCTAssertEqual(finalStatus.defaultAccountID, active.id)
+        XCTAssertTrue(usageReadNames().isEmpty)
     }
 
     func testActiveCodexWriterStillReadsFromIsolatedHome() async throws {
@@ -256,6 +278,60 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertTrue(usageReadNames().isEmpty)
     }
 
+    func testInactiveAccountDeletionDuringReadFailsClosedAndCleansTemporaryHome() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        _ = try await importAndSelect("active", manager: manager)
+        let inactive = try await importAccount("inactive-delete", manager: manager)
+        let transport = SuspendingUsageTransport()
+        let read = Task {
+            try await manager.readCodexAccountUsage(
+                accountID: inactive.id,
+                reader: .init(transport: transport, environment: { [:] })
+            )
+        }
+        await transport.waitUntilStarted()
+
+        _ = try await manager.deleteAccount(accountID: inactive.id)
+        await transport.resume()
+
+        await XCTAssertThrowsUsageError(try await read.value) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testInactiveAccountReimportDuringReadFailsClosedAndCleansTemporaryHome() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        _ = try await importAndSelect("active", manager: manager)
+        let inactive = try await importAccount("inactive-reimport", manager: manager)
+        let source = root.appending(path: "source-reimport", directoryHint: .isDirectory)
+        try privateDirectory(source)
+        try privateWrite(
+            try authData(account: "inactive-reimport", marker: "replacement"),
+            to: source.appending(path: "auth.json")
+        )
+        let plan = try await manager.planImport(source: source, mode: .authOnly)
+        let transport = SuspendingUsageTransport()
+        let read = Task {
+            try await manager.readCodexAccountUsage(
+                accountID: inactive.id,
+                reader: .init(transport: transport, environment: { [:] })
+            )
+        }
+        await transport.waitUntilStarted()
+
+        _ = try await manager.importAccount(
+            plan: plan,
+            decisions: ["auth.json": .useImported]
+        )
+        await transport.resume()
+
+        await XCTAssertThrowsUsageError(try await read.value) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
+        XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
     func testTransportFailureCleansTemporaryHome() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let account = try await importAndSelect("primary", manager: manager)
@@ -269,6 +345,65 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
             XCTAssertEqual(error as? InjectedUsageFailure, .read)
         }
         XCTAssertTrue(usageReadNames().isEmpty)
+    }
+
+    func testCheckUsesAccountReadIdentityAndUsageForInactiveAccount() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let active = try await importAndSelect("active", manager: manager)
+        let inactive = try await importAccount("inactive", manager: manager)
+        let transport = AccountCheckTransport(
+            accountEmail: "canonical@example.test",
+            accountID: inactive.identity.accountID,
+            requiresAuthentication: false
+        )
+
+        let result = await manager.checkAccount(
+            accountID: inactive.id,
+            reader: .init(transport: transport, environment: { [:] })
+        )
+
+        XCTAssertEqual(result.verification.state, .verifiedWithCodex)
+        XCTAssertEqual(result.usage?.account?.email, "canonical@example.test")
+        let status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountID, active.id)
+        XCTAssertEqual(
+            status.accounts.first(where: { $0.id == inactive.id })?.identity.email,
+            "canonical@example.test"
+        )
+    }
+
+    func testCheckKeepsValidFileVerifiedWhenAppServerIsUnavailable() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAccount("offline", manager: manager)
+
+        let result = await manager.checkAccount(
+            accountID: account.id,
+            reader: .init(transport: FailingUsageTransport(), environment: { [:] })
+        )
+
+        XCTAssertEqual(result.verification.state, .verifiedLocally)
+        XCTAssertNil(result.usage)
+        XCTAssertTrue(result.verification.detail.contains("auth.json"))
+        let status = try await manager.status()
+        XCTAssertEqual(status.accounts.first?.verification.state, .verifiedLocally)
+    }
+
+    func testCheckMarksNeedsSignInOnlyWhenBackendRequiresAuthentication() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAccount("expired", manager: manager)
+        let transport = AccountCheckTransport(
+            accountEmail: nil,
+            accountID: nil,
+            requiresAuthentication: true
+        )
+
+        let result = await manager.checkAccount(
+            accountID: account.id,
+            reader: .init(transport: transport, environment: { [:] })
+        )
+
+        XCTAssertEqual(result.verification.state, .needsSignIn)
+        XCTAssertNil(result.usage)
     }
 
     private func importAndSelect(_ name: String, manager: AccountManager) async throws -> AccountRecord {
@@ -427,6 +562,40 @@ private struct FailingUsageTransport: CodexAppServerRPCTransport {
         limits: CodexAppServerLimits
     ) async throws -> [Data] {
         throw InjectedUsageFailure.read
+    }
+}
+
+private struct AccountCheckTransport: CodexAppServerRPCTransport {
+    let accountEmail: String?
+    let accountID: String?
+    let requiresAuthentication: Bool
+
+    func performAccountRead(
+        launch: CodexAppServerLaunch,
+        limits: CodexAppServerLimits
+    ) async throws -> [Data] {
+        var accountResult: [String: Any] = [
+            "requiresOpenaiAuth": requiresAuthentication,
+        ]
+        if let accountEmail {
+            accountResult["account"] = [
+                "type": "chatgpt",
+                "email": accountEmail,
+                "planType": "plus",
+            ]
+        }
+        var rateResult: [String: Any] = [:]
+        if let accountID { rateResult["accountId"] = accountID }
+        return [
+            response(id: 2, result: accountResult),
+            response(id: 3, result: rateResult),
+            response(id: 4, result: ["summary": ["lifetimeTokens": 42]]),
+        ]
+    }
+
+    private func response(id: Int, result: [String: Any]) -> Data {
+        try! JSONSerialization.data(
+            withJSONObject: ["id": id, "result": result], options: [.sortedKeys])
     }
 }
 
