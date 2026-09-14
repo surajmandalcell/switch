@@ -147,6 +147,29 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
         XCTAssertEqual(snapshot.dailyUsage, [])
     }
 
+    func testReaderKeepsAccountAndLimitsWhenUsageEndpointIsUnavailable() async throws {
+        let transport = SyntheticAccountTransport(records: [
+            response(id: 2, result: [
+                "account": ["type": "chatgpt", "email": "person@example.test"],
+                "requiresOpenaiAuth": true,
+            ]),
+            response(id: 3, result: [
+                "rateLimits": ["primary": ["usedPercent": 37]],
+            ]),
+            rpcError(id: 4, code: -32601, message: "Method not found"),
+        ])
+
+        let snapshot = try await CodexAppServerAccountReader(
+            transport: transport,
+            environment: { [:] }
+        ).read(executable: URL(fileURLWithPath: "/synthetic/codex"), source: source)
+
+        XCTAssertEqual(snapshot.account?.email, "person@example.test")
+        XCTAssertEqual(snapshot.rateLimits?.defaultBucket?.primary?.usedPercent, 37)
+        XCTAssertNil(snapshot.usage)
+        XCTAssertEqual(snapshot.dailyUsage, [])
+    }
+
     func testReaderRejectsAuthOutsideTheIsolatedHomeAndNonPrivateAuth() async throws {
         let transport = SyntheticAccountTransport(records: [])
         let reader = CodexAppServerAccountReader(transport: transport, environment: { [:] })
@@ -279,6 +302,13 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
 
     private func response(id: Int, result: [String: Any]) -> Data {
         try! JSONSerialization.data(withJSONObject: ["id": id, "result": result], options: [.sortedKeys])
+    }
+
+    private func rpcError(id: Int, code: Int, message: String) -> Data {
+        try! JSONSerialization.data(withJSONObject: [
+            "id": id,
+            "error": ["code": code, "message": message],
+        ], options: [.sortedKeys])
     }
 
     private func syntheticServer(_ body: String) throws -> URL {
