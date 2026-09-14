@@ -1157,7 +1157,9 @@ private struct ChatDetailPane: View {
         copy: { model.copyWarnings([text]) })
         .padding(.horizontal, 12)
     case let .message(message):
-      ChatMessageRow(message: message)
+      ChatMessageRow(
+        message: message,
+        renderedText: model.renderedChatMessages[message.id] ?? AttributedString(message.text))
     case .emptySearch:
       VStack(spacing: 6) {
         AIMIcon(name: .search, size: 16).foregroundStyle(AIMTheme.muted)
@@ -1252,6 +1254,7 @@ private struct ChatMessageSearchKey: Hashable {
 
 private struct ChatMessageRow: View {
   let message: ChatMessage
+  let renderedText: AttributedString
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -1276,9 +1279,6 @@ private struct ChatMessageRow: View {
     .frame(maxWidth: .infinity, alignment: .center)
   }
 
-  private var renderedText: AttributedString {
-    (try? AttributedString(markdown: message.text)) ?? AttributedString(message.text)
-  }
 }
 
 private struct BackupPage: View {

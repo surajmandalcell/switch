@@ -51,7 +51,7 @@ struct ProductionAccountViewModelCheck {
             """
             {"timestamp":"2026-09-13T04:00:00Z","type":"session_meta","payload":{"id":"shared","cwd":"/Projects/Switch"}}
             {"timestamp":"2026-09-13T04:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"Inspect the shared chat library"}}
-            {"timestamp":"2026-09-13T04:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The synthetic chat is readable."}]}}
+            {"timestamp":"2026-09-13T04:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The synthetic chat is **readable**."}]}}
 
             """.utf8)
             .write(to: sessions.appending(path: "shared.jsonl"))
@@ -136,6 +136,11 @@ struct ProductionAccountViewModelCheck {
         try expect(model.chatHistory.matchingThreadCount == 1, "Production chat search missed its transcript")
         try expect(model.selectedChat?.messages.map(\.role) == [.user, .assistant],
                    "Production chat detail did not decode user and assistant messages")
+        try expect(
+            model.renderedChatMessages.values.contains {
+                String($0.characters) == "The synthetic chat is readable."
+            },
+            "Production chat detail did not prepare Markdown before publication")
 
         await model.beginImport()
         let discovered = try expect(
