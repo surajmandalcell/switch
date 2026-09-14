@@ -23,6 +23,7 @@ swiftc \
   -lAIManagerCore \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ChatHistoryMonitor.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \
   "$repo_root/packages/mac-gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
