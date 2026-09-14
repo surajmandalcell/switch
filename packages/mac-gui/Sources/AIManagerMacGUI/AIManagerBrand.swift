@@ -182,8 +182,7 @@ final class AIManagerStatusItemController: NSObject {
 
   static func contentSize(accountCount: Int, visibleScreenHeight: CGFloat) -> NSSize {
     let visibleRows = min(max(accountCount, 0), MenuBarPopover.maximumVisibleRows)
-    let idealHeight = MenuBarPopover.headerHeight
-      + MenuBarPopover.footerHeight
+    let idealHeight = MenuBarPopover.footerHeight
       + (accountCount > 0 ? MenuBarPopover.columnHeaderHeight : 0)
       + CGFloat(visibleRows) * MenuBarPopover.accountRowHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, visibleScreenHeight - 96)

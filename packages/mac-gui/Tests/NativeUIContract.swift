@@ -99,6 +99,72 @@ enum AIManagerNativeContract {
     expect(MenuBarPopover.trailingActionWidth == 34, "Menu-bar trailing action slot width changed")
     expect(MenuBarPopover.quotaText(nil).isEmpty, "Missing menu-bar quota uses a placeholder")
     expect(MenuBarPopover.quotaText(0) == "0%", "Zero menu-bar quota is hidden")
+    failures.append(contentsOf: menuBarUsagePreferenceFailures())
+    return failures
+  }
+
+  static func menuBarUsagePreferenceFailures() -> [String] {
+    let domain = "Switch.MenuBarUsagePreferences.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: domain) else {
+      return ["Menu-bar usage preference test store is unavailable"]
+    }
+    defer { defaults.removePersistentDomain(forName: domain) }
+    defaults.removePersistentDomain(forName: domain)
+
+    var failures: [String] = []
+    let first = UUID()
+    let second = UUID()
+    if MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults) {
+      failures.append("Menu-bar usage defaults to on")
+    }
+
+    defaults.set(true, forKey: MenuBarUsagePreferences.defaultKey)
+    if !MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults) {
+      failures.append("An account without an override does not follow the enabled default")
+    }
+
+    MenuBarUsagePreferences.setOverride(false, for: first, defaults: defaults)
+    if MenuBarUsagePreferences.explicitValue(for: first, defaults: defaults) != false
+      || MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults)
+    {
+      failures.append("An explicit hidden choice is not preserved")
+    }
+    if !MenuBarUsagePreferences.showsUsage(for: second, defaults: defaults) {
+      failures.append("One account’s override changes another account")
+    }
+
+    MenuBarUsagePreferences.useDefault(for: first, defaults: defaults)
+    if MenuBarUsagePreferences.explicitValue(for: first, defaults: defaults) != nil
+      || !MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults)
+    {
+      failures.append("Use default does not restore inherited menu-bar usage")
+    }
+
+    MenuBarUsagePreferences.setOverride(true, for: second, defaults: defaults)
+    defaults.set(false, forKey: MenuBarUsagePreferences.defaultKey)
+    if MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults)
+      || !MenuBarUsagePreferences.showsUsage(for: second, defaults: defaults)
+    {
+      failures.append("Changing the default does not preserve explicit account choices")
+    }
+    if let reopened = UserDefaults(suiteName: domain),
+      MenuBarUsagePreferences.explicitValue(for: second, defaults: reopened) != true
+    {
+      failures.append("Account usage choice does not survive reopening preferences")
+    }
+    let hiddenAccount = MenuBarAccountSnapshot(
+      id: first, identity: "Synthetic account", detail: "", isVerified: true,
+      isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: 42), showsUsage: false)
+    if hiddenAccount.usage != nil {
+      failures.append("A hidden account still publishes usage")
+    }
+    let store = MenuBarPopoverStore(
+      snapshot: MenuBarSnapshot(accounts: [hiddenAccount], primaryUsedPercentage: nil),
+      actions: MenuBarPopoverActions(openMainWindow: {}, quit: {}, switchAccount: { _ in }))
+    store.refresh(hiddenAccount)
+    if store.refreshingAccountID != nil {
+      failures.append("A hidden account can start menu-bar usage refresh")
+    }
     return failures
   }
 
@@ -130,8 +196,8 @@ enum AIManagerNativeContract {
     }
 
     expect(MenuBarPopover.width == 384, "Menu-bar popover is not 384 points wide")
-    expect(MenuBarPopover.minimumHeight == 192, "Menu-bar popover minimum height is not 192 points")
-    expect(MenuBarPopover.maximumHeight == 548, "Menu-bar popover maximum height is not 548 points")
+    expect(MenuBarPopover.minimumHeight == 124, "Menu-bar popover retains removed chrome space")
+    expect(MenuBarPopover.maximumHeight == 424, "Menu-bar popover maximum height includes removed chrome")
     expect(MenuBarPopover.accountRowHeight == 60, "Menu-bar account rows are not 60 points high")
     expect(MenuBarPopover.maximumVisibleRows == 6, "Menu-bar account list does not stop at six visible rows")
 
@@ -142,12 +208,12 @@ enum AIManagerNativeContract {
     let shortScreen = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 480)
     for size in [empty, one, six, many, shortScreen] {
       expect(size.width == 384, "Menu-bar popover width changes with its contents")
-      expect(size.height >= 192, "Menu-bar popover is shorter than 192 points")
-      expect(size.height <= 548, "Menu-bar popover is taller than 548 points")
+      expect(size.height >= 124, "Menu-bar popover is shorter than its empty state")
+      expect(size.height <= 424, "Menu-bar popover is taller than six rows plus controls")
     }
-    expect(empty.height == 192, "Empty menu-bar popover does not use its compact minimum height")
-    expect(one.height == 248, "One-row menu-bar popover has the wrong fixed-region geometry")
-    expect(six.height == 548 && many.height == six.height, "Menu-bar list does not scroll after six rows")
+    expect(empty.height == 124, "Empty menu-bar popover does not use its compact minimum height")
+    expect(one.height == 124, "One-row menu-bar popover has the wrong fixed-region geometry")
+    expect(six.height == 424 && many.height == six.height, "Menu-bar list does not scroll after six rows")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
 
     let snapshot = MenuBarPopoverPreviewData.snapshot
@@ -162,7 +228,7 @@ enum AIManagerNativeContract {
     let controller = AIManagerStatusItemController(
       snapshot: snapshot,
       actions: MenuBarPopoverActions(
-        openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in }))
+        openMainWindow: {}, quit: {}, switchAccount: { _ in }))
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
     expect(controller.usesPopover, "Status item still uses a static menu")
     expect(controller.popoverContentSize.width == 384, "Hosted popover changed its fixed width")
@@ -181,7 +247,7 @@ enum AIManagerNativeContract {
     let copyStore = MenuBarPopoverStore(
       snapshot: snapshot,
       actions: MenuBarPopoverActions(
-        openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in },
+        openMainWindow: {}, quit: {}, switchAccount: { _ in },
         copyText: { copiedError = $0 }))
     copyStore.copyError("Synthetic menu error")
     expect(copiedError == "Synthetic menu error", "Menu-bar errors do not expose a copy action")
