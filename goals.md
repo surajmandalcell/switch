@@ -238,6 +238,31 @@ inactive row switches once, keeps the popover open during work, and closes after
 row is a no-op; errors stay copyable. A switch never kills Codex and states that it applies to new
 sessions. The provider chooser is reachable from the popover and the main Accounts page.
 
+Account trust and action refinement (2026-09-14): treat only the live `~/.codex/auth.json` as the
+automatic first-run account source. Do not infer current accounts from renamed legacy snapshots such
+as `auth.json.*`; those files remain explicit Advanced Import sources. **Check account** first validates
+the selected UUID vault file, including its identity, digest, ownership, permissions, and regular-file
+status. It then uses a disposable private `CODEX_HOME` to ask Codex for account and usage data without
+sending a model request. A missing CLI, timeout, launch failure, or optional account-service failure
+must keep a valid file `Verified locally`; only a malformed saved credential, an explicit authentication
+response, or a returned identity mismatch may set `Needs sign-in`. A successful account read may
+replace a provisional display email with the canonical returned email.
+
+Every account row has a right-click menu for Use, Open, Check, Copy auth path, and Delete. The detail
+actions expose the same Delete operation beside Copy auth path. Deletion requires a clear destructive
+confirmation, removes only the UUID-owned managed home, vault credential, and registry record, leaves
+the original import source and shared `~/.codex` data unchanged, and recovers after interruption. The
+default account requires an explicit saved replacement before deletion. The CLI exposes the same
+transaction as `ai-manager remove` with confirmation and structured output.
+
+Open Codex performs any required account switch inside Switch before opening Terminal, so a known
+switch failure stays in the app instead of opening a command file that immediately exits. Opening the
+already selected default accepts a refreshed live token when its account identity still matches and
+does not require writer detection. Changing the default remains fail-closed while writer ownership is
+unknown. The Add Account modal does not reload when Switch regains focus. Its four provider rows use
+unchanged official OpenAI, Anthropic, Gemini, and Antigravity artwork with recorded source URLs and
+digests; the disabled providers remain inert.
+
 Contrast and chat-reader refinement (2026-09-14): stop deriving alternating rows from translucent
 overlays. Use explicit `listStripe`, `listHover`, and `listSelection` colors; the normal dark stripe is
 `#424348` over the `#3B3C40` panel, with `#4A4B50` hover and `#505158` selection. Apply the same ordered
@@ -2311,20 +2336,26 @@ with temporary synthetic homes before installation.
   Advanced Import, switch, open, and recovery operations. Human and JSON output carry stable
   session commands without credential content. First-run status adopts the current login and
   lists unfinished login sessions without changing the existing top-level status fields.
-- The complete native gate passed 136 core contracts with zero failures; its two protected-copy
-  opt-ins were then run against an authorized minimal private copy of the workstation home and
-  both passed. The representative transcript was fully accounted for, source authentication
-  stayed unchanged, and peak resident memory stayed below 30 MB. Production and Preview models,
-  the Pixel icon, System/Light/Dark window contracts, fixed geometry, single-instance behavior,
-  menu commands, and thin overlay scrollbars pass. Read-only unprivileged `linux/arm64` and
-  `linux/amd64` containers pass the release build, core suite, and full CLI acceptance.
-- Workstation migration found one live account and two distinct legacy credential snapshots; the
-  former `~/.codex2` directory is no longer present. Switch registered `me@mandalsuraj.com`,
-  `me@surajmandal.in`, and `surajmandalcell@gmail.com` as three UUID-named 0600 vault files under
-  the 0700 `~/.switch/codex` directory. The current account remains default, the live credential
-  digest is unchanged, both legacy snapshots were tightened from 0644 to 0600, and status reports
-  no pending recovery or login session. Shared config, chats, and other live-home files remain in
-  the single `~/.codex` tree.
+- The complete native gate discovers 149 core contracts and passes 147 with zero failures; the two
+  protected-copy integrations remain opt-in in the ordinary gate and previously passed separately
+  against an authorized minimal private copy of the workstation home. Production and Preview
+  models, official provider assets, the Pixel icon, System/Light/Dark window contracts, fixed
+  geometry, single-instance behavior, menu commands, and thin overlay scrollbars pass. Read-only
+  unprivileged `linux/arm64` and `linux/amd64` containers pass the release build, core suite, and
+  full CLI acceptance.
+- The earlier workstation migration claim that `me@surajmandal.in` was a valid third account is
+  superseded. That unconfirmed label came from the legacy `~/.codex/auth.json.me.switch` snapshot,
+  not a live Codex account check. Its Switch registry record, UUID vault file, and app-owned managed
+  home were deleted through the recoverable account-removal transaction. The source snapshot stays
+  private and unchanged. Switch now contains `me@mandalsuraj.com` as the default and
+  `surajmandalcell@gmail.com` as the second saved account; status reports no pending recovery or
+  login session. Shared config, chats, and the live credential remain unchanged in `~/.codex`.
+- A real non-model account check reports an explicit Codex sign-in requirement for the current
+  `me@mandalsuraj.com` credential. The Gmail credential passes all local format, identity, digest,
+  ownership, permission, and regular-file checks; when Codex's optional account service is
+  unavailable it remains `Verified locally`. Opening the current account through Switch with
+  `--version` exits successfully with Codex CLI 0.155.0-alpha.3.9 and leaves the live credential
+  digest unchanged.
 - Switching continues to fail closed while any Codex process is running because the installed CLI
   cannot attribute a process to a particular home. Closing active Codex sessions before choosing
   another account prevents a later token refresh from overwriting the selected live credential.
