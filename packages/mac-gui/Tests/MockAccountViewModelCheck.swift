@@ -40,6 +40,19 @@ struct MockAccountViewModelCheck {
         await model.searchChatHistory(query: "")
         precondition(model.selectedChat != nil)
 
+        await model.beginAddAccount()
+        precondition(model.showImport)
+        precondition(model.accountModalMode == .add)
+        precondition(model.providers.map(\.id) == [.codex, .claudeCode, .geminiCLI, .antigravityCLI])
+        precondition(model.providers.map(\.availability) == [.enabled, .disabled, .disabled, .disabled])
+        await model.startAccountLogin()
+        precondition(model.accountLoginSession != nil)
+        precondition(model.accountLoginState == .waitingForLogin)
+        await model.checkAccountLogin()
+        precondition(model.accountLoginState == .completed)
+        model.closeAccountModal()
+        precondition(!model.showImport)
+
         model.isBusy = true
         await model.beginImport()
         precondition(!model.showImport)

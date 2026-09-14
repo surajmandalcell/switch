@@ -226,10 +226,20 @@ struct AccountWindow: View {
             }
           }
           .ignoresSafeArea()
-          ImportFlow(model: model)
+          Group {
+            switch model.accountModalMode {
+            case .add:
+              AddAccountFlow(model: model)
+            case .advancedImport:
+              ImportFlow(model: model)
+            }
+          }
             .frame(
               width: min(780, geometry.size.width - 48),
-              height: min(AIMTheme.modalHeight, geometry.size.height - 48)
+              height: min(
+                model.accountModalMode == .add ? 540 : AIMTheme.modalHeight,
+                geometry.size.height - 48
+              )
             )
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .shadow(color: .black.opacity(dark ? 0.22 : 0.1), radius: 34, y: 14)
@@ -306,8 +316,8 @@ struct AccountWindow: View {
           appearanceMode = dark ? "light" : "dark"
         }
       }
-      RailButton(icon: .plus, label: "Import account", active: false, disabled: model.isBusy) {
-        Task { await model.beginImport() }
+      RailButton(icon: .plus, label: "Add account", active: false, disabled: model.isBusy) {
+        Task { await model.beginAddAccount() }
       }
     }.frame(width: AIMTheme.railWidth).background(AIMTheme.rail.opacity(reduceTransparency ? 1 : 0.96))
       .overlay(alignment: .trailing) {
@@ -546,11 +556,11 @@ private struct AccountsPage: View {
             }
           }
           Button {
-            Task { await model.beginImport() }
+            Task { await model.beginAddAccount() }
           } label: {
             HStack {
               AIMIcon(name: .plus, size: 13)
-              Text("Import account")
+              Text("Add account")
               Spacer()
             }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
               .foregroundStyle(model.isBusy || !model.hasLoaded ? AIMTheme.disabledInk : AIMTheme.ink)
@@ -607,12 +617,17 @@ private struct EmptyAccountView: View {
           }
         } else {
           VStack(alignment: .leading, spacing: 10) {
-            Text("Import your first Codex account").font(AIMTheme.sans(18, weight: .semibold))
+            Text("Add your first account").font(AIMTheme.sans(18, weight: .semibold))
             Text(
-              "Choose a Codex home to review credentials, shared settings, chat history, and its backup plan."
+              "Switch found no saved account. Sign in to Codex or use Advanced Import for an existing folder."
             ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
-            AIMButton(title: "Import account", icon: .plus, tone: .primary, disabled: model.isBusy) {
-              Task { await model.beginImport() }
+            HStack(spacing: 6) {
+              AIMButton(title: "Add account", icon: .plus, tone: .primary, disabled: model.isBusy) {
+                Task { await model.beginAddAccount() }
+              }
+              AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
+                Task { await model.beginAdvancedImport() }
+              }
             }
           }
         }
@@ -1748,6 +1763,248 @@ private struct ErrorBar: View {
   }
 }
 
+private struct AddAccountFlow: View {
+  @ObservedObject var model: AccountViewModel
+  @State private var hoveredProviderID: ProviderID?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var step: Int {
+    if model.accountLoginState == .completed { return 3 }
+    return model.accountLoginSession == nil ? 1 : 2
+  }
+
+  private var selectedProvider: ProviderDescriptor? {
+    model.providers.first { $0.id == model.selectedProviderID }
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ImportHeader(
+        title: step == 1 ? "Add Account" : (step == 2 ? "Sign In" : "Account Ready"),
+        step: step,
+        closeDisabled: model.isBusy,
+        labels: ["Provider", "Sign in", "Done"]
+      ) {
+        model.closeAccountModal()
+      }
+      Group {
+        if let error = model.errorMessage {
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
+          }
+          .padding(.horizontal, 24).padding(.top, 12)
+          .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
+        }
+      }
+      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.errorMessage)
+
+      Group {
+        switch step {
+        case 1: providerPage
+        case 2: signInPage
+        default: completedPage
+        }
+      }
+      .id(step)
+      .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 3)))
+      .disabled(model.isBusy)
+
+      if model.isBusy {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Checking account…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+        }
+        .padding(10)
+        .transition(reduceMotion ? .identity : .opacity)
+      }
+    }
+    .font(AIMTheme.sans(13))
+    .foregroundStyle(AIMTheme.ink)
+    .background(AIMTheme.panel)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.navigation), value: step)
+  }
+
+  private var providerPage: some View {
+    VStack(spacing: AIMTheme.modalSectionSpacing) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Choose the tool you want to add.")
+          .font(AIMTheme.sans(14, weight: .medium))
+        Text("Your current Codex login is saved automatically when Switch first opens.")
+          .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      AIMPanel(title: "Providers") {
+        VStack(spacing: 0) {
+          ForEach(Array(model.providers.enumerated()), id: \.element.id) { index, provider in
+            let available = provider.availability == .enabled
+            let selected = model.selectedProviderID == provider.id
+            Button {
+              model.selectedProviderID = provider.id
+            } label: {
+              HStack(spacing: 12) {
+                AIMIcon(name: .terminal, size: 15)
+                  .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.muted)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(provider.displayName).font(AIMTheme.sans(12, weight: .semibold))
+                  Text(available ? "Account switching and usage are supported." : unavailableCopy(provider))
+                    .font(AIMTheme.sans(10))
+                    .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.74) : AIMTheme.muted)
+                    .lineLimit(1)
+                }
+                Spacer()
+                if available {
+                  AIMIcon(name: selected ? .checkSquare : .square, size: 14)
+                } else {
+                  Badge(text: "Coming later", color: AIMTheme.panel3)
+                }
+              }
+              .padding(.horizontal, AIMTheme.panelContentInset)
+              .frame(height: 62)
+              .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
+              .background(
+                selected
+                  ? AIMTheme.active
+                  : (hoveredProviderID == provider.id
+                    ? AIMTheme.listHover
+                    : (index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe))
+              )
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(AIMPressButtonStyle())
+            .disabled(!available)
+            .opacity(available ? 1 : 0.64)
+            .onHover { hoveredProviderID = $0 && available ? provider.id : nil }
+            .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hoveredProviderID)
+            .accessibilityLabel(provider.displayName)
+            .accessibilityHint(available ? "Available" : unavailableCopy(provider))
+          }
+        }
+      }
+      .frame(maxHeight: .infinity)
+
+      HStack(spacing: 6) {
+        AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
+          Task { await model.beginAdvancedImport() }
+        }
+        Spacer()
+        AIMButton(
+          title: "Continue", tone: .primary,
+          disabled: selectedProvider?.availability != .enabled || model.isBusy
+        ) {
+          Task { await model.startAccountLogin() }
+        }
+      }
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset)
+    .padding(.top, 18)
+    .padding(.bottom, 24)
+    .frame(maxHeight: .infinity, alignment: .top)
+  }
+
+  private var signInPage: some View {
+    VStack(spacing: AIMTheme.modalSectionSpacing) {
+      AIMPanel(title: "Codex sign-in") {
+        VStack(alignment: .leading, spacing: 16) {
+          HStack(alignment: .top, spacing: 12) {
+            AIMIcon(
+              name: model.accountLoginState == .needsAttention ? .warning : .account,
+              size: 19
+            )
+            .foregroundStyle(
+              model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue)
+            VStack(alignment: .leading, spacing: 5) {
+              Text("Finish signing in to Codex")
+                .font(AIMTheme.sans(18, weight: .semibold))
+              Text(
+                "Codex is using a private temporary home. Your current account, settings, and chats stay unchanged while you sign in."
+              )
+              .font(AIMTheme.sans(12))
+              .foregroundStyle(AIMTheme.muted)
+              .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+          if let message = model.accountLoginMessage {
+            Notice(
+              text: message,
+              tone: model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue
+            )
+          }
+          if model.accountLoginState == .credentialChoiceRequired {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("This account is already saved with different access.")
+                .font(AIMTheme.sans(12, weight: .semibold))
+              HStack(spacing: 6) {
+                AIMButton(title: "Use new sign-in", tone: .primary) {
+                  Task { await model.checkAccountLogin(credentialChoice: .useImported) }
+                }
+                AIMButton(title: "Keep saved access") {
+                  Task { await model.checkAccountLogin(credentialChoice: .keepShared) }
+                }
+              }
+            }
+          } else {
+            Text("When the browser says sign-in is complete, return to Switch and check the account.")
+              .font(AIMTheme.sans(11))
+              .foregroundStyle(AIMTheme.muted)
+          }
+        }
+        .padding(20)
+      }
+      .frame(maxHeight: .infinity)
+
+      HStack(spacing: 6) {
+        AIMButton(title: "Cancel sign-in") {
+          Task { await model.cancelAccountLogin() }
+        }
+        Spacer()
+        if model.accountLoginState != .credentialChoiceRequired {
+          AIMButton(title: "Check Now", icon: .refresh, tone: .primary) {
+            Task { await model.checkAccountLogin() }
+          }
+        }
+      }
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset)
+    .padding(.top, 18)
+    .padding(.bottom, 24)
+    .frame(maxHeight: .infinity, alignment: .top)
+  }
+
+  private var completedPage: some View {
+    VStack(spacing: AIMTheme.modalSectionSpacing) {
+      AIMPanel(title: "Ready") {
+        VStack(alignment: .leading, spacing: 12) {
+          HStack(spacing: 10) {
+            AIMIcon(name: .success, size: 22).foregroundStyle(AIMTheme.green)
+            Text(model.selectedAccount?.identity.heroName ?? "Codex account")
+              .font(AIMTheme.sans(19, weight: .semibold))
+          }
+          Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
+            .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
+          Text("Switch preserved the current settings and chat library.")
+            .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      }
+      HStack {
+        Spacer()
+        AIMButton(title: "Done", tone: .primary) { model.closeAccountModal() }
+      }
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset)
+    .padding(.top, 18)
+    .padding(.bottom, 24)
+    .frame(maxHeight: .infinity, alignment: .top)
+  }
+
+  private func unavailableCopy(_ provider: ProviderDescriptor) -> String {
+    provider.unavailableReason ?? "Account setup is not available in this version."
+  }
+}
+
 private struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1758,8 +2015,7 @@ private struct ImportFlow: View {
         step: step,
         closeDisabled: model.isBusy
       ) {
-        model.resetImport()
-        model.showImport = false
+        model.closeAccountModal()
       }
       Group {
         if let error = model.errorMessage {
@@ -1807,6 +2063,7 @@ private struct ImportHeader: View {
   let title: String
   let step: Int
   let closeDisabled: Bool
+  var labels = ["Source", "Review", "Done"]
   let close: () -> Void
   @State private var closeHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1819,7 +2076,7 @@ private struct ImportHeader: View {
         .lineLimit(1)
         .padding(.leading, AIMTheme.modalOuterInset)
       Spacer(minLength: AIMTheme.modalOuterInset)
-      ImportSteps(step: step)
+      ImportSteps(step: step, labels: labels)
         .fixedSize(horizontal: true, vertical: true)
         .padding(.trailing, 16)
       Button(action: close) {
@@ -1860,7 +2117,7 @@ private struct ImportHeader: View {
 
 private struct ImportSteps: View {
   let step: Int
-  private let labels = ["Source", "Review", "Done"]
+  let labels: [String]
   var body: some View {
     HStack(spacing: 2) {
       ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
@@ -2166,8 +2423,7 @@ private struct ImportResultPage: View {
       HStack {
         Spacer()
         AIMButton(title: "Done", tone: .primary) {
-          model.resetImport()
-          model.showImport = false
+          model.closeAccountModal()
         }
       }
     }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 16).padding(.bottom, 24)

@@ -277,14 +277,11 @@ struct ProductionAccountViewModelCheck {
         let recoveryManager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let recoveryModel = AccountViewModel(paths: paths, manager: recoveryManager)
         await recoveryModel.load()
-        try expect(recoveryModel.status?.pendingRecovery.count == 1,
-                   "Interrupted repair did not surface recovery work")
-        await recoveryModel.recover()
-        try expect(recoveryModel.errorMessage == nil, "Recovery failed")
+        try expect(recoveryModel.errorMessage == nil, "Automatic recovery failed")
         try expect(recoveryModel.status?.pendingRecovery.isEmpty == true,
-                   "Recovery work remained pending")
+                   "Recoverable work remained pending after launch")
         try expect(try Data(contentsOf: localConfig) == recoverableEdit,
-                   "Recovery did not restore the local edit")
+                   "Launch recovery did not restore the local edit")
 
         try await checkUnavailableState(root: root)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")
