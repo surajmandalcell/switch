@@ -202,17 +202,20 @@ test a secondary-display restore contract with synthetic screen frames. Name the
 module and package `Mac GUI` and `packages/mac-gui`; retain `packages/tui` as the macOS and Linux CLI
 plus interactive terminal interface.
 
-Navigation and live-history refinement (2026-09-13): order the rail and View menu as Accounts,
+Navigation and chat-history refinement (2026-09-13, revised 2026-09-14): order the rail and View
+menu as Accounts,
 Backup, Chat History, and Shared Settings. Rename the user-facing Recovery page and its copy to
 Backup while preserving the existing internal recovery transaction contract. Command+, still opens
-Shared Settings. Use an established chat-bubble SF Symbol for Chat History at 85% of the standard
-rail-glyph size while preserving its 48-point hit target. The history page exposes live search, a
-thread list, and readable messages from the shared Codex transcript library. Enumerate
+Shared Settings. Use an established chat-bubble SF Symbol for Chat History at 75% of the standard
+rail-glyph size while preserving its 48-point hit target. The history page exposes separate thread
+and message search, a virtual thread list,
+and readable messages from the shared Codex transcript library without a status badge. Enumerate
 only regular JSONL files below `sessions` and `archived_sessions`, never follow symbolic links, and
 keep the existing 500,000-entry bound. Stream records instead of loading whole transcript files.
-Refresh an incremental file-signature cache while the page is visible, decode only changed files on
-a bounded set of utility-priority workers, debounce search, load selected-thread messages away from
-the SwiftUI main actor, and cancel obsolete work. Main-actor updates contain only prepared view data.
+Refresh the incremental file-signature cache after the first load only when coalesced file-system
+events arrive, decode only changed files on a bounded set of utility-priority workers, debounce both
+searches, load selected-thread messages away from the SwiftUI main actor, and cancel obsolete work.
+Main-actor updates contain only prepared view data.
 Every actionable warning offers a copy action, and warning groups offer one bulk copy action. Expected
 scope exclusions stay visible in the import manifest but do not create warning cards; warnings are
 reserved for conditions that need attention, such as an active source or a symbolic-link review.
@@ -2026,7 +2029,8 @@ with temporary synthetic homes before installation.
 - The left thread pane and right message pane each own a search field. Thread search covers title,
   preview, working directory, and thread ID. Message search covers the already loaded user and
   Codex messages without reading the transcript again. Each field has its own count, empty state,
-  clear action, 120 ms debounce, and cancellation of obsolete work.
+  clear action, 120 ms debounce, and cancellation of obsolete work. The former green-dot status and
+  `Live` label are removed.
 - `ChatHistoryIndex` is an actor. It streams JSONL records, caches each regular file by size and
   modification date, reparses only changed files, and runs changed-file work in a utility-priority
   task group capped at six workers. Selected-thread detail parsing runs in a cancellable detached
@@ -2035,7 +2039,8 @@ with temporary synthetic homes before installation.
   trigger refreshes. No timer scans an unchanged library. Unchanged results and repeated nil errors
   do not publish view-model changes, so the selected transcript and scroll position remain stable.
   Lazy detail loading and bounded message and character counts prevent transcript work from
-  blocking UI input.
+  blocking UI input. Both panes use native virtual tables with overlay scrollbars; the 1,717-thread
+  stress fixture realizes 15 table rows at the captured viewport instead of 1,717 SwiftUI rows.
 - Prepared thread summaries and file signatures persist in a versioned private cache under the
   Switch application-support root. A later launch reuses entries whose path, size, and modification
   date still match, so it does not reread unchanged transcript bodies. The cache uses `0700` parent
@@ -2046,15 +2051,16 @@ with temporary synthetic homes before installation.
   visible records are bounded at 4 MiB and the existing JSONL hard ceiling remains 64 MiB. Tests
   cover current and legacy records, duplicate-user suppression, incremental reparsing, malformed
   records, symlink refusal, and a 5 MiB tool-output record followed by visible chat.
-- `scripts/check-native.sh` discovered 92 core contracts: 90 executed without failure and the two
+- `scripts/check-native.sh` discovered 94 core contracts: 92 executed without failure and the two
   authorized private-copy tests remained explicit opt-ins. Production and Preview model checks,
   System/Light/Dark window contracts, the Pixel-trace icon, fixed-window geometry, thin overlay
-  scrollbars, and single-instance behavior passed. Final dark and light 1120 by 740 history renders
-  are stored at `/private/tmp/switch-history-dark-final.vApo0K/artifacts/window.png` and
-  `/private/tmp/switch-history-light-final.XIbNs0/artifacts/window.png` and were inspected at full
+  scrollbars, single-instance behavior, two-search presence, and bounded virtual-row realization
+  passed. Final dark and light 1120 by 740 stress renders are stored at
+  `/private/tmp/switch-chat-history-review.zg6w20/artifacts/window.png` and
+  `/private/tmp/switch-chat-history-light.XSvvJ0/artifacts/window.png` and were inspected at full
   resolution.
 - The same source passed `scripts/check-linux.sh` as user 10001 from a read-only repository mount
-  in `linux/arm64` and `linux/amd64` containers. Each architecture discovered 92 tests, executed 90
+  in `linux/arm64` and `linux/amd64` containers. Each architecture discovered 94 tests, executed 92
   without failure, skipped only the two protected-copy opt-ins, and passed the release CLI,
   discovery, import, activation, backup, SQLite, symlink, permission, and isolated-home checks.
 
@@ -2079,11 +2085,11 @@ with temporary synthetic homes before installation.
   transcript file failed indexing; one transcript contained eight oversized or malformed records.
   The history warning now describes skipped files and records accurately and copies that diagnostic
   without exposing transcript content.
-- `scripts/check-native.sh` discovered 92 tests, executed 90 without failure, and skipped only the
+- `scripts/check-native.sh` discovered 94 tests, executed 92 without failure, and skipped only the
   two explicit protected-copy opt-ins. Production and Preview model checks, System/Light/Dark
   contracts, deterministic icon output, fixed-window behavior, thin scrollbars, and single-instance
   behavior passed. Read-only unprivileged `linux/arm64` and `linux/amd64` containers each produced
-  the same 90 passes and two opt-in skips, then passed the complete CLI acceptance.
+  the same 92 passes and two opt-in skips, then passed the complete CLI acceptance.
 
 ### Revised Dock composition acceptance (2026-09-13)
 

@@ -141,6 +141,6 @@ printf 'r\nk\nq\n' | "$binary" interactive >"$recovery_result"
 skip_if_native_writer_unknown "$recovery_result" || true
 rg -Fi "Recovery conflict $interactive_recovery_id (import)" "$recovery_result" >/dev/null
 rg -F '[k] Keep current data  [b] Restore protected backup  [s] Skip:' "$recovery_result" >/dev/null
-rg -F $'\tcompleted\tCurrent live files were kept.' "$recovery_result" >/dev/null
+rg -F $'\tcompleted\tCurrent files were kept.' "$recovery_result" >/dev/null
 
 printf '%s\n' 'CLI acceptance passed.'
