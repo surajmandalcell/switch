@@ -178,7 +178,37 @@ public actor ChatHistoryIndex {
         case cancelled
     }
 
+    private struct PersistentDocument: Codable {
+        let version: Int
+        let homePath: String
+        let threads: [PersistentThread]
+        let failures: [PersistentFailure]
+    }
+
+    private struct PersistentThread: Codable {
+        let path: String
+        let byteCount: Int64
+        let modifiedAt: Date
+        let threadID: String
+        let title: String
+        let preview: String
+        let workingDirectory: String?
+        let updatedAt: Date
+        let archived: Bool
+        let messageCount: Int
+        let fileByteCount: Int64
+        let unreadableRecordCount: Int
+        let searchText: String
+    }
+
+    private struct PersistentFailure: Codable {
+        let path: String
+        let byteCount: Int64
+        let modifiedAt: Date
+    }
+
     private let home: URL
+    private let persistentCacheFile: URL?
     private let workerCount: Int
     private var cache: [String: CachedThread] = [:]
     private var failedSignatures: [String: FileSignature] = [:]
@@ -187,9 +217,11 @@ public actor ChatHistoryIndex {
     private var cachedUnreadableRecordCount = 0
     private var orderedCacheIsDirty = true
     private var libraryRevision: UInt64 = 0
+    private var loadedPersistentCache = false
 
-    public init(home: URL, maximumWorkerCount: Int? = nil) {
+    public init(home: URL, cacheFile: URL? = nil, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
+        persistentCacheFile = cacheFile?.standardizedFileURL
         let requested = maximumWorkerCount
             ?? max(2, ProcessInfo.processInfo.activeProcessorCount - 1)
         workerCount = min(max(1, requested), 6)
@@ -197,6 +229,7 @@ public actor ChatHistoryIndex {
 
     public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
         try Task.checkCancellation()
+        loadPersistentCacheIfNeeded()
         let candidates = try Self.transcriptCandidates(in: home)
         let currentPaths = Set(candidates.map { $0.url.path })
         let removedCachedFile = cache.keys.contains(where: { !currentPaths.contains($0) })
@@ -213,9 +246,7 @@ public actor ChatHistoryIndex {
             return cache[path]?.signature != candidate.signature
                 && failedSignatures[path] != candidate.signature
         }
-        if removedCachedFile || removedFailedFile || !changed.isEmpty {
-            libraryRevision &+= 1
-        }
+        let libraryChanged = removedCachedFile || removedFailedFile || !changed.isEmpty
         let parsed = await parseConcurrently(changed)
         try Task.checkCancellation()
 
@@ -239,6 +270,11 @@ public actor ChatHistoryIndex {
             case .cancelled:
                 break
             }
+        }
+
+        if libraryChanged {
+            libraryRevision &+= 1
+            persistCache()
         }
 
         return makeSnapshot(query: query, limit: limit, reparsedFileCount: changed.count)
@@ -307,6 +343,109 @@ public actor ChatHistoryIndex {
             skippedFileCount: failedSignatures.count,
             unreadableRecordCount: cachedUnreadableRecordCount,
             reparsedFileCount: reparsedFileCount)
+    }
+
+    private func loadPersistentCacheIfNeeded() {
+        guard !loadedPersistentCache else { return }
+        loadedPersistentCache = true
+        guard let persistentCacheFile,
+              let values = try? persistentCacheFile.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let fileSize = values.fileSize,
+              fileSize <= 32 * 1_024 * 1_024,
+              let permissions = try? FileManager.default.attributesOfItem(
+                atPath: persistentCacheFile.path)[.posixPermissions] as? NSNumber,
+              permissions.intValue & 0o077 == 0,
+              let data = try? Data(contentsOf: persistentCacheFile),
+              let document = try? JSONDecoder().decode(PersistentDocument.self, from: data),
+              document.version == 1,
+              document.homePath == home.path,
+              document.threads.count + document.failures.count <= 500_000
+        else { return }
+
+        for item in document.threads where validPersistentPath(item.path) {
+            guard item.path.count <= 4_096,
+                  item.threadID.count <= 1_024,
+                  item.title.count <= 1_024,
+                  item.preview.count <= 4_096,
+                  (item.workingDirectory?.count ?? 0) <= 4_096,
+                  item.searchText.count <= 16_384,
+                  item.byteCount >= 0,
+                  item.fileByteCount >= 0,
+                  item.messageCount >= 0,
+                  item.unreadableRecordCount >= 0
+            else { continue }
+            let signature = FileSignature(byteCount: item.byteCount, modifiedAt: item.modifiedAt)
+            let summary = ChatThreadSummary(
+                id: item.path,
+                threadID: item.threadID,
+                title: item.title,
+                preview: item.preview,
+                workingDirectory: item.workingDirectory,
+                updatedAt: item.updatedAt,
+                archived: item.archived,
+                messageCount: item.messageCount,
+                fileByteCount: item.fileByteCount,
+                source: URL(fileURLWithPath: item.path),
+                unreadableRecordCount: item.unreadableRecordCount)
+            cache[item.path] = CachedThread(
+                signature: signature, summary: summary, searchText: item.searchText)
+        }
+        for item in document.failures where validPersistentPath(item.path) {
+            guard item.path.count <= 4_096, item.byteCount >= 0 else { continue }
+            failedSignatures[item.path] = FileSignature(
+                byteCount: item.byteCount, modifiedAt: item.modifiedAt)
+        }
+        if !cache.isEmpty || !failedSignatures.isEmpty {
+            orderedCacheIsDirty = true
+            libraryRevision = 1
+        }
+    }
+
+    private func persistCache() {
+        guard let persistentCacheFile else { return }
+        let threads = cache.keys.sorted().compactMap { path -> PersistentThread? in
+            guard let cached = cache[path] else { return nil }
+            let summary = cached.summary
+            return PersistentThread(
+                path: path,
+                byteCount: cached.signature.byteCount,
+                modifiedAt: cached.signature.modifiedAt,
+                threadID: summary.threadID,
+                title: summary.title,
+                preview: summary.preview,
+                workingDirectory: summary.workingDirectory,
+                updatedAt: summary.updatedAt,
+                archived: summary.archived,
+                messageCount: summary.messageCount,
+                fileByteCount: summary.fileByteCount,
+                unreadableRecordCount: summary.unreadableRecordCount,
+                searchText: cached.searchText)
+        }
+        let failures = failedSignatures.keys.sorted().compactMap { path -> PersistentFailure? in
+            guard let signature = failedSignatures[path] else { return nil }
+            return PersistentFailure(
+                path: path,
+                byteCount: signature.byteCount,
+                modifiedAt: signature.modifiedAt)
+        }
+        let document = PersistentDocument(
+            version: 1, homePath: home.path, threads: threads, failures: failures)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(document) else { return }
+        try? CoreSupport.atomicWrite(
+            data, to: persistentCacheFile, permissions: 0o600, fileManager: .default)
+    }
+
+    private func validPersistentPath(_ path: String) -> Bool {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard standardized == path else { return false }
+        return ["sessions", "archived_sessions"].contains { directory in
+            standardized.hasPrefix(home.appending(path: directory, directoryHint: .isDirectory).path + "/")
+        }
     }
 
     private func parseConcurrently(_ candidates: [Candidate]) async -> [WorkerResult] {

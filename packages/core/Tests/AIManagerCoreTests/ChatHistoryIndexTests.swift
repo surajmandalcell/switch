@@ -32,6 +32,33 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(emptyQuery.messages, messages)
     }
 
+    func testPersistentSummaryCacheSkipsUnchangedTranscriptBodies() async throws {
+        _ = try transcript(
+            directory: "sessions/2026/09/14",
+            filename: "cached.jsonl",
+            records: standardRecords(id: "cached", prompt: "Reuse the summary cache"))
+        let cacheFile = root.appending(path: "manager/cache/chat-history-v1.json")
+
+        let initial = try await ChatHistoryIndex(
+            home: root, cacheFile: cacheFile, maximumWorkerCount: 2).refresh()
+        XCTAssertEqual(initial.reparsedFileCount, 1)
+        XCTAssertTrue(fileManager.fileExists(atPath: cacheFile.path))
+        let permissions = try XCTUnwrap(
+            try fileManager.attributesOfItem(atPath: cacheFile.path)[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(permissions.intValue & 0o777, 0o600)
+
+        let reopened = try await ChatHistoryIndex(
+            home: root, cacheFile: cacheFile, maximumWorkerCount: 2).refresh()
+        XCTAssertEqual(reopened.reparsedFileCount, 0)
+        XCTAssertEqual(reopened.threads.first?.title, "Reuse the summary cache")
+
+        try Data("not a cache".utf8).write(to: cacheFile)
+        let recovered = try await ChatHistoryIndex(
+            home: root, cacheFile: cacheFile, maximumWorkerCount: 2).refresh()
+        XCTAssertEqual(recovered.reparsedFileCount, 1)
+        XCTAssertEqual(recovered.totalThreadCount, 1)
+    }
+
     func testIndexSearchAndDetailUseCodexMessagesWithoutDuplicates() async throws {
         let active = try transcript(
             directory: "sessions/2026/09/13",
