@@ -192,6 +192,62 @@ palette, one-point rim, and lower shading unchanged. Add one shallow white highl
 the top of the tile and fades completely before its midpoint. Cap it at 0.035 opacity in Light and
 0.028 in Dark so the top gains a little depth without returning to the rejected glossy treatment.
 
+Account onboarding, usage, and compact-menu refinement (2026-09-14): replace the normal import-first
+experience with one **Add account** flow. On launch, when the registry is empty, recover existing
+transactions and adopt a valid regular file-based ChatGPT credential already present in the live
+`~/.codex` home. Adoption copies authentication into the private UUID vault, marks that identity as
+the default, and leaves the live credential, settings, chats, databases, and links unchanged. It is
+idempotent and fails closed on missing, malformed, symbolic-linked, hard-linked, non-private, or
+unresolved credentials. An existing nonempty registry is never silently rewritten.
+
+The Add provider catalog appears in the fixed order Codex CLI, Claude Code, Gemini CLI, and
+Antigravity CLI. Codex CLI is enabled. The other three rows are visibly disabled and say
+`Unavailable`; they have stable provider identifiers but no behavioral adapters, credential access,
+or process actions in this release. Selecting Codex creates a private versioned login session under
+the application-support staging root, with an isolated `CODEX_HOME` and file-backed credential
+storage. It opens the official Codex login in Terminal without changing the live home. **Check now**
+validates the staged regular `auth.json`, identifies the account, and commits it through the existing
+auth-only import transaction. Restarting Switch resumes a waiting or interrupted login session.
+Cancellation removes only app-owned staging after validation. Never put email addresses in vault or
+staging paths; use opaque operation and account UUIDs. Never store raw authentication in SQLite.
+
+Keep the existing source-selection, reimport, settings-and-chat merge, conflict, manifest, storage,
+and external-link paths under **Advanced Import**. The normal Add flow exposes none of those choices.
+All digest checks, private permissions, containment rules, writer checks, atomic publication,
+outgoing-token capture, backups, rollback, and conflict recovery remain mandatory in both paths.
+
+Use the installed Codex app-server account interface for non-secret account details and statistics:
+`account/read`, `account/rateLimits/read`, and `account/usage/read`. These calls do not send a model
+prompt. Store bounded timestamped account and rate-limit samples in SQLite, never tokens or raw
+app-server traffic. Refresh on explicit request and a coalesced cache policy; do not poll while the
+app is closed. Missing backend fields display as unavailable and are never inferred from transcript token
+counts. Account pages show the full cached breakdown. The menu bar reads the same cache and never
+starts filesystem enumeration, credential validation, network work, or transcript parsing when it
+opens.
+
+Replace the static status-item menu with one transient vertical popover using the existing visual
+system. It is 360 points wide and between 192 and `min(536, visible screen height - 96)` points tall.
+Six 60-point account rows remain visible before the list scrolls; the header, new-account action,
+session-boundary note, Open Switch, and Quit remain fixed. Each row shows identity, workspace or
+verification, a compact cached quota value when available, and the active check. Clicking a verified
+inactive row switches once, keeps the popover open during work, and closes after success. The active
+row is a no-op; errors stay copyable. A switch never kills Codex and states that it applies to new
+sessions. The provider chooser is reachable from the popover and the main Accounts page.
+
+Contrast and chat-reader refinement (2026-09-14): stop deriving alternating rows from translucent
+overlays. Use explicit `listStripe`, `listHover`, and `listSelection` colors; the normal dark stripe is
+`#424348` over the `#3B3C40` panel, with `#4A4B50` hover and `#505158` selection. Apply the same ordered
+base, stripe, hover, busy, and selection states to every account and conversation list. Dark controls
+must remain distinct from every panel in idle, hover, pressed, selected, and disabled states.
+
+Keep conversation rows at 50 points with only the canonical title and project or folder. Redesign the
+reader as a hybrid conversation: compact trailing user bubbles and leading open Codex reading blocks
+with a two-point role rail. Put each timestamp beside its role, expose copy on hover and keyboard
+focus, and shape paragraphs, headings, lists, quotes, dividers, links, and code blocks away from the
+main actor. Code uses an independently scrollable monospaced surface and a copy action. Bound and
+cache prepared presentation by thread and file signature; preserve the existing virtual tables,
+cancellation, full-text search, and raw-message copy behavior.
+
 Mac window-placement and package naming correction (2026-09-13): persist the selected display and
 the window's top-left offset within that display's visible frame. Restore both on the next launch,
 including displays with negative desktop coordinates and displays whose desktop position changed.
@@ -360,8 +416,10 @@ Do not report that Orca, Super, or every terminal has switched automatically.
 
 - Windows, mobile, a browser frontend, and a Linux GUI. The shared core and terminal
   interface remain supported on Linux.
-- Claude, Gemini, API routing, provider conversion, or automatic failover.
-- A proxy server, background daemon, quota polling, pricing, or a usage dashboard.
+- Operational Claude Code, Gemini CLI, or Antigravity CLI adapters; their disabled provider-catalog
+  rows are in scope. API routing, provider conversion, and automatic failover remain excluded.
+- A proxy server, background daemon, pricing, or a cross-provider usage dashboard. Bounded cached
+  Codex account, rate-limit, and token-activity snapshots are in scope.
 - A chat editor, model client, terminal emulator, or orchestration system.
 - Cloud synchronization, encrypted export archives, or a team account service.
 - Automatic cross-account live sharing of SQLite databases.
