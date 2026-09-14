@@ -2013,23 +2013,29 @@ with temporary synthetic homes before installation.
   `7eb400e` and `cedd8a1` pass their scoped contracts; the final signed installation and exact
   revision are recorded after this documentation checkpoint.
 
-### Navigation and live-history acceptance (2026-09-13)
+### Navigation and chat-history acceptance (2026-09-13, revised 2026-09-14)
 
 - The rail and View menu now use the same order: Accounts, Backup, Chat History, and Shared
   Settings. Command+1 through Command+4 follow that order, Command+, still opens Shared Settings,
   Backup uses the archive-box symbol, and Chat History uses the native two-bubble conversation
   symbol. Recovery remains the internal operation and data-contract name so existing journals,
   commands, and repair behavior stay compatible.
-- Chat History indexes the live Codex `sessions` and `archived_sessions` trees, updates while the
-  page is visible, searches thread title, preview, working directory, and thread ID, and loads the
+- Chat History indexes the current Codex `sessions` and `archived_sessions` trees and loads the
   selected transcript into a separate readable message pane. Production contains no sample
   conversations; the three example threads remain behind `AI_MANAGER_PREVIEW`.
+- The left thread pane and right message pane each own a search field. Thread search covers title,
+  preview, working directory, and thread ID. Message search covers the already loaded user and
+  Codex messages without reading the transcript again. Each field has its own count, empty state,
+  clear action, 120 ms debounce, and cancellation of obsolete work.
 - `ChatHistoryIndex` is an actor. It streams JSONL records, caches each regular file by size and
   modification date, reparses only changed files, and runs changed-file work in a utility-priority
   task group capped at six workers. Selected-thread detail parsing runs in a cancellable detached
-  user-initiated task. The main actor receives prepared snapshots only. A 750 ms visible-page poll,
-  a 120 ms search debounce, cancellation on query or selection changes, lazy detail loading, and
-  bounded message and character counts prevent transcript work from blocking UI input.
+  user-initiated task. The main actor receives prepared snapshots and search results only. The
+  750 ms visible-page poll is superseded: one initial scan and coalesced file-system change events
+  trigger refreshes. No timer scans an unchanged library. Unchanged results and repeated nil errors
+  do not publish view-model changes, so the selected transcript and scroll position remain stable.
+  Lazy detail loading and bounded message and character counts prevent transcript work from
+  blocking UI input.
 - Transcript discovery does not follow symbolic links and retains the 500,000-entry traversal
   ceiling. Summary scans bypass oversized non-visible tool-output records before JSON decoding;
   visible records are bounded at 4 MiB and the existing JSONL hard ceiling remains 64 MiB. Tests
@@ -2047,9 +2053,9 @@ with temporary synthetic homes before installation.
   without failure, skipped only the two protected-copy opt-ins, and passed the release CLI,
   discovery, import, activation, backup, SQLite, symlink, permission, and isolated-home checks.
 
-### Warning controls and rail-scale acceptance (2026-09-13)
+### Warning controls and rail-scale acceptance (2026-09-13, revised 2026-09-14)
 
-- The Chat History rail glyph is 14.45 points, exactly 85% of the standard 17-point rail glyph,
+- The Chat History rail glyph is 12.75 points, exactly 75% of the standard 17-point rail glyph,
   while its selection surface and hit target remain 48 by 48 points. The native menu contract locks
   the ratio. A full-resolution dark render at
   `/private/tmp/switch-chat-icon-review.RWkqBe/artifacts/window.png` confirms that the smaller glyph
