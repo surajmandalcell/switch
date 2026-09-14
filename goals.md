@@ -5,7 +5,9 @@ the final receipt named in the closeout evidence. The installed app uses the rea
 Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
 distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
-Design revision: 2026-09-13.
+Design revision: 2026-09-14. The current product contract is
+[`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
+verification evidence.
 
 ### Switch product identity refinement (2026-09-13)
 
@@ -27,8 +29,9 @@ these requirements.
 - Replace the current Dock, Spotlight, rail, and menu-bar artwork with one clear,
   licensed account-manager mark. It must stay legible at 16, 22, 44, 256, and 1024 pixels.
   The Dock artwork needs restrained macOS depth and edge light without a glossy effect.
-- Replace the near-black dark theme with a lighter graphite macOS palette. Preserve the
-  custom Recap Pro geometry, density, translucency, and three-point component corners.
+- The earlier lighter-graphite direction is superseded. Use the darker neutral macOS palette
+  in `docs/specs/product.md`, while preserving the custom Recap Pro geometry, density,
+  translucency, and three-point component corners.
   Audit every surface, overlay, hover, selected, pressed, disabled, warning, and error state
   in both themes. Keep normal text at WCAG AA contrast or better.
 - Replace scattered animation timings with one restrained motion system. Pointer feedback
@@ -90,7 +93,7 @@ surface and state; replace the current robot mark with a simpler licensed-glyph
 composition and add a restrained edge highlight to Dock and Spotlight artwork.
 Remove the Recovery rail gap, align page titles to the content grid, remove the
 extra title-bar control, keep Close visible, and reveal Minimize only on hover.
-Add a persistent Minimize to Tray setting with predictable close/minimize/menu
+Add a persistent Minimize to Menu Bar setting with predictable close/minimize/menu
 behavior. Apply restrained interruptible micro-interactions, honor reduced
 motion, and keep rendering work GPU-friendly. Verify that account switching
 changes only authentication while configuration, sessions, history, skills,
@@ -148,9 +151,9 @@ provenance without adding the reference board or source exploration images to th
 Native menu and icon-shape refinement (2026-09-13): install a complete macOS menu bar in
 both production and compile-time Preview. The application menu includes About Switch,
 Settings with Command+,, Services, Hide, Hide Others, Show All, and Quit. Command+, must
-bring the main window forward and navigate its existing content pane to Shared Settings.
+bring the main window forward and navigate its existing content pane to Settings.
 File, Edit, View, Window, and Help use native selectors and key equivalents where macOS owns
-the behavior; View exposes Accounts, Shared Settings, Chat History, and Recovery without
+the behavior; View exposes Accounts, Settings, Chat History, and Recovery without
 adding another navigation shell. Keep the fixed-window and custom-window-control contracts.
 Replace the current asymmetric icon trace with a clean vector derived from the supplied
 reference silhouette: four balanced outer lobes, one upper-right circular cutout, and one
@@ -202,7 +205,7 @@ unresolved credentials. An existing nonempty registry is never silently rewritte
 
 The Add provider catalog appears in the fixed order Codex CLI, Claude Code, Gemini CLI, and
 Antigravity CLI. Codex CLI is enabled. The other three rows are visibly disabled and say
-`Unavailable`; they have stable provider identifiers but no behavioral adapters, credential access,
+`WIP`; they have stable provider identifiers but no behavioral adapters, credential access,
 or process actions in this release. Selecting Codex creates a private versioned login session under
 the application-support staging root, with an isolated `CODEX_HOME` and file-backed credential
 storage. It starts the official Codex browser login without changing the live home. The CLI opens
@@ -221,8 +224,9 @@ Use the installed Codex app-server account interface for non-secret account deta
 `account/read`, `account/rateLimits/read`, and `account/usage/read`. These calls do not send a model
 prompt. Store bounded timestamped account and rate-limit samples in SQLite, never tokens or raw
 app-server traffic. Refresh on explicit request and a coalesced cache policy; do not poll while the
-app is closed. Missing backend fields display as unavailable and are never inferred from transcript token
-counts. Account pages show the full cached breakdown. The menu bar reads the same cache and never
+app is closed. Missing optional backend fields are omitted and are never inferred from transcript token
+counts. Account pages show the returned cached breakdown and retain explicit core empty/error states.
+The menu bar reads the same cache and never
 starts filesystem enumeration, credential validation, network work, or transcript parsing when it
 opens.
 
@@ -319,9 +323,9 @@ plus interactive terminal interface.
 
 Navigation and chat-history refinement (2026-09-13, revised 2026-09-14): order the rail and View
 menu as Accounts,
-Backup, Chat History, and Shared Settings. Rename the user-facing Recovery page and its copy to
-Backup while preserving the existing internal recovery transaction contract. Command+, still opens
-Shared Settings. Use an established chat-bubble SF Symbol for Chat History at 75% of the standard
+Backup, Chat History, and Settings. Rename the user-facing Recovery page and its copy to
+Backup while preserving the existing internal recovery transaction contract. Command+, opens
+Settings. Use an established chat-bubble SF Symbol for Chat History at 75% of the standard
 rail-glyph size while preserving its 48-point hit target. The history page exposes separate thread
 and message search, a virtual thread list,
 and readable messages from the shared Codex transcript library without a status badge. Enumerate
@@ -1681,7 +1685,7 @@ One marker, zero missing triggers; no icon-related shortcuts were added.
   The always-running decorative timeline was removed. The installed release measured
   0.00% median CPU and 0.11% average CPU across 30 one-second idle samples, with a 2.20%
   launch peak.
-- Shared Settings contains a persistent Minimize to Tray switch. The titlebar control and
+- Settings contains a persistent Minimize to Menu Bar switch. The titlebar control and
   Command-M use the same behavior helper; acceptance covers both preference branches with
   a disposable UserDefaults suite. The menu-bar item remains available to reopen the app.
 - Dock and Spotlight artwork use the exact Apache-2.0 Material Symbols Rounded
@@ -1731,7 +1735,7 @@ rename does not strand preferences or managed data.
 
 The 48-point rail keeps Close centered in its own square. Minimize is a square floating
 control that appears beside it on hover or keyboard focus and never changes Close's
-position. Shared Settings rows span the panel: labels align at the leading content edge and
+position. Settings rows span the panel: labels align at the leading content edge and
 switches align at the trailing edge. Neither row may collapse to its intrinsic width.
 
 Recovery must show interrupted core operations and distinct, legible examples for a regular
@@ -1767,7 +1771,7 @@ Development-signed local build alone is not a public distribution release.
   disconnected-external-drive examples, including Wait for drive and Back up elsewhere.
   Production shows only real recovery journals and policy because v1 has no background
   backup scheduler. Production History now reads actual transcript totals and index state;
-  Shared Settings no longer labels absent entries as linked.
+  Settings no longer labels absent entries as linked.
 - The app display name, menu commands, status-item text, bundle filenames, build scripts,
   CI paths, and documentation are renamed to **IIA Directeur**. The bundle identifier,
   application-support root, frame-autosave key, executable target, and `ai-manager` CLI name
@@ -1847,7 +1851,7 @@ combined control region. Static panels and decorative surfaces do not animate.
   refresh, normal/primary/danger buttons, and error dismissal have explicit pointer states.
   Selection, busy, and disabled changes use 100-millisecond transitions, and Reduce Motion
   removes movement. Disabled children inherit the wizard's busy state.
-- Light Accounts, light History, dark Shared Settings, dark Recovery, and the light import
+- Light Accounts, light History, dark Settings, dark Recovery, and the light import
   wizard were rendered and inspected at the fixed 1120 by 740 window size. The modal contract
   passes with three configured overlay scroll views and a working title drag target.
 - The native suite passes 52 tests with two private-copy gates skipped and no failures. The
@@ -2046,8 +2050,8 @@ with temporary synthetic homes before installation.
   Edit, View, Window, and Help. The application menu contains the standard About panel, Settings,
   Services, Hide, Hide Others, Show All, and Quit commands. The fixed window exposes no Zoom or
   maximize command.
-- Command+, presents the existing main window and changes its content route to Shared Settings.
-  Command+1 through Command+4 select Accounts, Shared Settings, Chat History, and Recovery. The
+- Command+, presents the existing main window and changes its content route to Settings.
+  Command+1 through Command+4 select Accounts, Settings, Chat History, and Recovery. The
   GUI contract dispatches these real menu items and verifies both window presentation and every
   resulting page route, rather than checking menu labels alone.
 - The supplied reference PNG has SHA-256
@@ -2135,8 +2139,8 @@ with temporary synthetic homes before installation.
 
 ### Navigation and chat-history acceptance (2026-09-13, revised 2026-09-14)
 
-- The rail and View menu now use the same order: Accounts, Backup, Chat History, and Shared
-  Settings. Command+1 through Command+4 follow that order, Command+, still opens Shared Settings,
+- The rail and View menu now use the same order: Accounts, Backup, Chat History, and
+  Settings. Command+1 through Command+4 follow that order, Command+, opens Settings,
   Backup uses the archive-box symbol, and Chat History uses the native two-bubble conversation
   symbol. Recovery remains the internal operation and data-contract name so existing journals,
   commands, and repair behavior stay compatible.
@@ -2357,9 +2361,9 @@ with temporary synthetic homes before installation.
   change, never copies token rotation back, and removes its temporary home on success or failure.
   Bounded private SQLite caching keeps the menu-bar popover instant and retains rate-limit data if
   the optional activity endpoint is unavailable.
-- The Mac account page presents every returned limit bucket, reset window, plan, credits, spend
-  control, ordinary-usage state, token totals, streaks, longest turn, and daily rows. Missing
-  backend fields say Unavailable. Usage and switch failures have copy actions. The fixed-width
+- The Mac account page presents returned limit windows and statistics while omitting optional
+  fields that the backend did not return. Explicit zero and false values remain visible. Usage
+  and switch failures have copy actions. The fixed-width
   menu-bar popover shows six virtualized account rows at most, cached quota detail, Add Account,
   and direct account switching without starting a network request when it opens.
 - The terminal interface exposes the same provider order and Add, Check, Cancel, status-resume,
