@@ -2051,6 +2051,31 @@ with temporary synthetic homes before installation.
   visible records are bounded at 4 MiB and the existing JSONL hard ceiling remains 64 MiB. Tests
   cover current and legacy records, duplicate-user suppression, incremental reparsing, malformed
   records, symlink refusal, and a 5 MiB tool-output record followed by visible chat.
+
+### Chat-history naming and reading-comfort acceptance (2026-09-14)
+
+- Thread rows use Codex's persisted thread name or title from `state_5.sqlite` when it is meaningful.
+  Explicit user names have first priority. Injected `AGENTS.md`, global instruction,
+  `environment_context`, and similar bootstrap payloads never become a visible title. Older homes
+  without usable database metadata fall back to the first meaningful user request and then a calm
+  project-based label.
+- Database metadata is read with a read-only SQLite connection off the main actor and overlaid on
+  cached summaries without rereading unchanged transcript bodies. Existing version-1 private
+  caches migrate in place so the title repair does not trigger a multi-gigabyte rescan. A changed
+  database name, title, preview, working directory, recency, or archive flag refreshes the library
+  revision and selected detail while preserving the transcript cache.
+- The thread list presents one title, one preview line, and a quiet project/time line. It omits the
+  repeated per-row message count and uses a neutral selection surface that preserves the normal ink
+  color. The reader presents one title and one compact context line, shows a result count only for
+  an active message search, and removes the separate raw-ID/byte-count metadata card.
+- Messages share one neutral reading surface with a bounded text measure, 13-point Geist body,
+  generous line spacing, and restrained role labels. Full-width blue and gray message cards are
+  removed. Long instruction-heavy conversations remain selectable, virtualized, and visually calm
+  in both Light and Dark appearances.
+- [ ] Prove canonical SQLite naming, instruction-payload filtering, version-1 cache migration, and
+  metadata-only refresh with synthetic homes.
+- [ ] Capture and inspect the 1,717-thread stress page in Light and Dark appearances, then rerun the
+  complete native and two-architecture Linux gates before installing the exact committed build.
 - `scripts/check-native.sh` discovered 94 core contracts: 92 executed without failure and the two
   authorized private-copy tests remained explicit opt-ins. Production and Preview model checks,
   System/Light/Dark window contracts, the Pixel-trace icon, fixed-window geometry, thin overlay
