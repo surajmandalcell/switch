@@ -258,10 +258,40 @@ transaction as `ai-manager remove` with confirmation and structured output.
 Open Codex performs any required account switch inside Switch before opening Terminal, so a known
 switch failure stays in the app instead of opening a command file that immediately exits. Opening the
 already selected default accepts a refreshed live token when its account identity still matches and
-does not require writer detection. Changing the default remains fail-closed while writer ownership is
-unknown. The Add Account modal does not reload when Switch regains focus. Its four provider rows use
+does not require writer detection. The Add Account modal does not reload when Switch regains focus. Its four provider rows use
 unchanged official OpenAI, Anthropic, Gemini, and Antigravity artwork with recorded source URLs and
 digests; the disabled providers remain inert.
+
+Wizard, switching, and saved-usage refinement (2026-09-14): the ordinary Add Account provider step
+is the provider list itself. Remove the introductory heading, explanatory sentence, and redundant
+`Providers` panel title; keep the list aligned to the modal content grid and let it use the available
+height. Disabled provider badges say `WIP`. All wizard steps keep one stable titlebar, body, notice,
+and action geometry so loading, focus changes, validation, errors, and step changes do not move
+controls. Instructions describe the selected account as applying to new Codex sessions.
+
+Choosing a default atomically replaces the live credential for new sessions even when existing Codex
+processes are running. It never terminates or edits an existing session. Preserve transaction,
+identity, digest, backup, and recovery checks, but do not block a user-requested default change merely
+because a Codex process exists elsewhere on the machine. Every saved UUID credential can run the
+isolated non-model account and rate-limit check without becoming the default. Fresh imports and
+inactive accounts expose Refresh usage. `account/read` means signed in whenever it returns a ChatGPT
+account object; `requiresOpenaiAuth` describes whether the selected provider needs OpenAI auth and is
+not a signed-out signal while that account object exists. A successful current usage snapshot and a
+Needs sign-in badge must never be shown together.
+
+Chat filtering refinement (2026-09-14): parse bounded visible transcript entries into Prompts,
+Responses, Tools, and Other. Tools includes calls and returned output; Other contains visible
+reasoning summaries and supported non-chat events, never encrypted reasoning or raw secret-bearing
+records. The reader can enable any combination, applies message search after the role filter, and
+persists the selected categories across launches. Copy filtered exports exactly the currently
+filtered messages in chronological order with stable role labels and timestamps. Empty filter and
+search states remain recoverable without reparsing the transcript.
+
+Menu-bar refinement (2026-09-14): compare ten static directions before implementation and retain the
+review sheet under the canonical build artifacts. Select the direction that best supports immediate
+account switching and quota scanning. The production popover opens without an appearance animation,
+uses a flat surface, three-point corners, sharper internal geometry, bounded screen-aware dimensions,
+and stable spacing in empty, loading, error, and populated states.
 
 Contrast and chat-reader refinement (2026-09-14): stop deriving alternating rows from translucent
 overlays. Use explicit `listStripe`, `listHover`, and `listSelection` colors; the normal dark stripe is
@@ -2356,8 +2386,7 @@ with temporary synthetic homes before installation.
   unavailable it remains `Verified locally`. Opening the current account through Switch with
   `--version` exits successfully with Codex CLI 0.155.0-alpha.3.9 and leaves the live credential
   digest unchanged.
-- Switching continues to fail closed while any Codex process is running because the installed CLI
-  cannot attribute a process to a particular home. Closing active Codex sessions before choosing
-  another account prevents a later token refresh from overwriting the selected live credential.
+- The earlier rule that blocked switching whenever any Codex process existed is superseded. A chosen
+  default applies to new sessions immediately without terminating existing Codex processes.
   The exact clean signed installation and hashes are recorded outside the repository in
   `/private/tmp/ai-manager-build/final-install-receipt.json`.
