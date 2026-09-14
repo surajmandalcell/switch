@@ -342,7 +342,7 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: result.backup.appending(path: "conflicts/thread").path))
     }
 
-    func testSwitchChangesOnlyAuthAndRefusesActiveWriter() async throws {
+    func testSwitchChangesOnlyAuthWhileExistingCodexProcessesContinue() async throws {
         try Data("settings".utf8).write(to: paths.defaultHome.appending(path: "config.toml"))
         let firstSource = root.appending(path: "one")
         let secondSource = root.appending(path: "two")
@@ -359,13 +359,15 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), try Data(contentsOf: second.account.credentialFile))
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "config.toml")), settings)
 
-        let blocked = try AccountManager(paths: paths, writerCheck: { _ in .active })
-        await XCTAssertThrowsErrorAsync(try await blocked.switchDefault(to: first.account.id)) { error in
-            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
-        }
+        let existingProcess = try AccountManager(paths: paths, writerCheck: { _ in .active })
+        _ = try await existingProcess.switchDefault(to: first.account.id)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
+            try Data(contentsOf: first.account.credentialFile)
+        )
     }
 
-    func testSwitchChecksTheSingleLiveCodexHome() async throws {
+    func testSwitchDoesNotConsultWriterStateForNewSessions() async throws {
         let firstSource = root.appending(path: "writer-first")
         let secondSource = root.appending(path: "writer-second")
         try writeAuth(home: firstSource, account: "writer-first", workspace: "workspace")
@@ -377,18 +379,15 @@ final class AccountManagerContractTests: XCTestCase {
         let second = try await setup.importAccount(plan: secondPlan).account
         _ = try await setup.switchDefault(to: first.id)
 
-        let defaultHome = paths.defaultHome
-        let outgoingBlocked = try AccountManager(paths: paths, writerCheck: { home in
-            CoreSupport.canonical(home) == CoreSupport.canonical(defaultHome) ? .active : .inactive
-        })
-        await XCTAssertThrowsErrorAsync(
-            try await outgoingBlocked.switchDefault(to: second.id)
-        ) { error in
-            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
-        }
+        let existingProcess = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
+        _ = try await existingProcess.switchDefault(to: second.id)
 
-        let defaultAccountID = try await setup.status().defaultAccountID
-        XCTAssertEqual(defaultAccountID, first.id)
+        let finalStatus = try await setup.status()
+        XCTAssertEqual(finalStatus.defaultAccountID, second.id)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
+            try Data(contentsOf: second.credentialFile)
+        )
     }
 
     func testLinkedSettingRepairRechecksSharedRootWriter() async throws {
@@ -582,7 +581,7 @@ final class AccountManagerContractTests: XCTestCase {
         )
     }
 
-    func testActivateAndRunRequiresWriterCertaintyToChangeAccounts() async throws {
+    func testActivateAndRunChangesTheAccountForNewSessionWhenWriterStateIsUnknown() async throws {
         let firstSource = root.appending(path: "launch-first-source")
         let secondSource = root.appending(path: "launch-second-source")
         try writeAuth(home: firstSource, account: "first", workspace: "workspace")
@@ -596,18 +595,19 @@ final class AccountManagerContractTests: XCTestCase {
         let originalLive = try Data(contentsOf: paths.defaultHome.appending(path: "auth.json"))
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
 
-        await XCTAssertThrowsErrorAsync(
-            try await manager.activateAndRun(accountID: second.id, arguments: ["--version"])
-        ) { error in
-            XCTAssertEqual(error as? AIManagerError, .writerStateUnknown)
-        }
+        let exitStatus = try await manager.activateAndRun(
+            accountID: second.id,
+            arguments: ["--version"]
+        )
 
+        XCTAssertEqual(exitStatus, 0)
+        XCTAssertNotEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), originalLive)
         XCTAssertEqual(
             try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
-            originalLive
+            try Data(contentsOf: second.credentialFile)
         )
         let finalStatus = try await manager.status()
-        XCTAssertEqual(finalStatus.defaultAccountID, first.id)
+        XCTAssertEqual(finalStatus.defaultAccountID, second.id)
     }
 
     func testLaunchRefusesTamperedSavedAuth() async throws {
