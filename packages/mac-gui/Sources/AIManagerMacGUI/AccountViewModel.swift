@@ -49,6 +49,7 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var chatHistory = ChatHistorySnapshot()
     @Published private(set) var selectedChatID: String?
     @Published private(set) var selectedChat: ChatThreadDetail?
+    @Published private(set) var renderedChatMessages: [String: AttributedString] = [:]
     @Published private(set) var isChatHistoryLoading = false
     @Published private(set) var isChatLoading = false
     @Published private(set) var chatHistoryError: String?
@@ -195,6 +196,9 @@ final class AccountViewModel: ObservableObject {
             matchingThreadCount: demoThreads.count)
         selectedChatID = demoThreads.first?.id
         selectedChat = selectedChatID.flatMap(DemoData.chatDetail)
+        renderedChatMessages = Dictionary(uniqueKeysWithValues: (selectedChat?.messages ?? []).map {
+            ($0.id, (try? AttributedString(markdown: $0.text)) ?? AttributedString($0.text))
+        })
         isChatHistoryLoading = false
         isChatLoading = false
         chatHistoryError = nil
@@ -717,6 +721,7 @@ final class AccountViewModel: ObservableObject {
         guard selectedChatID != id || selectedChat?.thread.id != id else { return }
         selectedChatID = id
         selectedChat = nil
+        renderedChatMessages = [:]
         await loadSelectedChat(id)
     }
 
@@ -748,7 +753,9 @@ final class AccountViewModel: ObservableObject {
         }
         #if AI_MANAGER_PREVIEW
         if isDemo {
-            selectedChat = DemoData.chatDetail(id)
+            let detail = DemoData.chatDetail(id)
+            renderedChatMessages = (try? await Self.render(messages: detail?.messages ?? [])) ?? [:]
+            selectedChat = detail
             return
         }
         #endif
@@ -761,9 +768,11 @@ final class AccountViewModel: ObservableObject {
             } onCancel: {
                 task.cancel()
             }
+            let rendered = try await Self.render(messages: detail?.messages ?? [])
             guard !Task.isCancelled,
                   generation == chatSelectionGeneration,
                   selectedChatID == id else { return }
+            renderedChatMessages = rendered
             if detail != selectedChat { selectedChat = detail }
             chatDetailTask = nil
         } catch is CancellationError {
@@ -773,6 +782,26 @@ final class AccountViewModel: ObservableObject {
             chatDetailTask = nil
             let message = "The selected chat could not open. \(error.localizedDescription)"
             if chatHistoryError != message { chatHistoryError = message }
+        }
+    }
+
+    nonisolated private static func render(
+        messages: [ChatMessage]
+    ) async throws -> [String: AttributedString] {
+        let task = Task.detached(priority: .userInitiated) {
+            var rendered: [String: AttributedString] = [:]
+            rendered.reserveCapacity(messages.count)
+            for (index, message) in messages.enumerated() {
+                if index.isMultiple(of: 16) { try Task.checkCancellation() }
+                rendered[message.id] = (try? AttributedString(markdown: message.text))
+                    ?? AttributedString(message.text)
+            }
+            return rendered
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
         }
     }
 
