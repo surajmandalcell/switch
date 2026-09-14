@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarUsageSnapshot: Equatable, Sendable {
@@ -55,6 +56,21 @@ struct MenuBarPopoverActions {
   let addAccount: () -> Void
   let quit: () -> Void
   let switchAccount: (UUID) async throws -> Void
+  let copyText: ((String) -> Void)?
+
+  init(
+    openMainWindow: @escaping () -> Void,
+    addAccount: @escaping () -> Void,
+    quit: @escaping () -> Void,
+    switchAccount: @escaping (UUID) async throws -> Void,
+    copyText: ((String) -> Void)? = nil
+  ) {
+    self.openMainWindow = openMainWindow
+    self.addAccount = addAccount
+    self.quit = quit
+    self.switchAccount = switchAccount
+    self.copyText = copyText
+  }
 }
 
 @MainActor
@@ -91,6 +107,17 @@ final class MenuBarPopoverStore: ObservableObject {
 
   func quit() {
     actions.quit()
+  }
+
+  func copyError(_ error: String) {
+    if let copyText = actions.copyText {
+      copyText(error)
+      return
+    }
+    #if !AI_MANAGER_PREVIEW
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(error, forType: .string)
+    #endif
   }
 
   func select(_ account: MenuBarAccountSnapshot) {
@@ -176,21 +203,34 @@ struct MenuBarPopover: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .accessibilityElement(children: .combine)
     } else {
-      ScrollView(.vertical) {
-        LazyVStack(spacing: 0) {
-          ForEach(Array(store.snapshot.accounts.enumerated()), id: \.element.id) { index, account in
-            MenuBarAccountRow(
-              account: account,
-              isStriped: index.isMultiple(of: 2) == false,
-              isSwitching: store.switchingAccountID == account.id,
-              error: store.rowErrors[account.id],
-              action: { store.select(account) }
-            )
-          }
-        }
+      AIMVirtualList(
+        items: store.snapshot.accounts,
+        fixedRowHeight: Self.accountRowHeight,
+        contentRevision: rowContentRevision
+      ) { account in
+        let index = store.snapshot.accounts.firstIndex(where: { $0.id == account.id }) ?? 0
+        return AnyView(
+          MenuBarAccountRow(
+            account: account,
+            isStriped: index.isMultiple(of: 2) == false,
+            isSwitching: store.switchingAccountID == account.id,
+            error: store.rowErrors[account.id],
+            copyError: { store.copyError($0) },
+            action: { store.select(account) }
+          )
+        )
       }
-      .scrollIndicators(.visible)
     }
+  }
+
+  private var rowContentRevision: Int {
+    var hasher = Hasher()
+    hasher.combine(store.switchingAccountID)
+    for (id, error) in store.rowErrors.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+      hasher.combine(id)
+      hasher.combine(error)
+    }
+    return hasher.finalize()
   }
 
   private var footer: some View {
@@ -258,49 +298,67 @@ private struct MenuBarAccountRow: View {
   let isStriped: Bool
   let isSwitching: Bool
   let error: String?
+  let copyError: (String) -> Void
   let action: () -> Void
 
   @State private var isHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    Button(action: action) {
-      HStack(spacing: 10) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text(account.identity)
-            .font(AIMTheme.sans(12, weight: .medium))
-            .lineLimit(1)
-          Text(error ?? account.detail)
-            .font(AIMTheme.sans(10))
-            .foregroundStyle(error == nil ? AIMTheme.muted : AIMTheme.red)
-            .lineLimit(1)
-            .textSelection(.enabled)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    HStack(spacing: 0) {
+      Button(action: action) {
+        HStack(spacing: 10) {
+          VStack(alignment: .leading, spacing: 3) {
+            Text(account.identity)
+              .font(AIMTheme.sans(12, weight: .medium))
+              .lineLimit(1)
+            Text(error ?? account.detail)
+              .font(AIMTheme.sans(10))
+              .foregroundStyle(error == nil ? AIMTheme.muted : AIMTheme.red)
+              .lineLimit(1)
+              .textSelection(.enabled)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
 
-        if let usage = account.usage {
-          VStack(alignment: .trailing, spacing: 2) {
-            Text("\(usage.usedPercentage)%")
-              .font(AIMTheme.mono(12, weight: .semibold))
-            if let detail = usageDetail(usage) {
-              Text(detail)
-                .font(AIMTheme.sans(9))
-                .foregroundStyle(AIMTheme.muted)
-                .lineLimit(1)
+          if let usage = account.usage {
+            VStack(alignment: .trailing, spacing: 2) {
+              Text("\(usage.usedPercentage)%")
+                .font(AIMTheme.mono(12, weight: .semibold))
+              if let detail = usageDetail(usage) {
+                Text(detail)
+                  .font(AIMTheme.sans(9))
+                  .foregroundStyle(AIMTheme.muted)
+                  .lineLimit(1)
+              }
             }
           }
-        }
 
-        statusAccessory
-          .frame(width: 18, height: 18)
+          if error == nil {
+            statusAccessory
+              .frame(width: 18, height: 18)
+          }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, error == nil ? 14 : 8)
+        .frame(height: MenuBarPopover.accountRowHeight)
+        .contentShape(Rectangle())
       }
-      .padding(.horizontal, 14)
-      .frame(height: MenuBarPopover.accountRowHeight)
-      .contentShape(Rectangle())
-      .background(rowBackground)
+      .buttonStyle(AIMPressButtonStyle())
+      .disabled(!account.isVerified || isSwitching)
+
+      if let error {
+        Button { copyError(error) } label: {
+          AIMIcon(name: .copy, size: 12)
+            .foregroundStyle(AIMTheme.amber)
+            .frame(width: 34, height: MenuBarPopover.accountRowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AIMPressButtonStyle())
+        .help("Copy error")
+        .accessibilityLabel("Copy account error")
+      }
     }
-    .buttonStyle(AIMPressButtonStyle())
-    .disabled(!account.isVerified || account.isActive || isSwitching)
+    .background(rowBackground)
     .onHover { hovered in
       withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover)) {
         isHovered = hovered

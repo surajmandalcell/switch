@@ -262,19 +262,22 @@ struct AIMPanel<Content: View>: View {
 
 private struct AIMTitleArt: View {
   var body: some View {
-    Canvas { context, _ in
+    Canvas { context, size in
+      let trailingAnchor = size.width - 13
       for radius in stride(from: CGFloat(24), through: 60, by: 9) {
         context.stroke(
           Path(ellipseIn: CGRect(
-            x: 187 - radius, y: 47 - radius, width: radius * 2, height: radius * 2)),
+            x: trailingAnchor - radius, y: 47 - radius,
+            width: radius * 2, height: radius * 2)),
           with: .color(AIMTheme.titleArt.opacity(0.48)), lineWidth: 0.65)
         context.stroke(
           Path(ellipseIn: CGRect(
-            x: 128 - radius, y: -23 - radius, width: radius * 2, height: radius * 2)),
+            x: trailingAnchor - 59 - radius, y: -23 - radius,
+            width: radius * 2, height: radius * 2)),
           with: .color(AIMTheme.titleArt.opacity(0.29)), lineWidth: 0.65)
       }
     }
-    .frame(width: 200, height: 40)
+    .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
     .mask {
       LinearGradient(
         stops: [

@@ -141,6 +141,11 @@ final class AIManagerStatusItemController: NSObject {
     }
   }
 
+  func updateAppearance(_ appearance: NSAppearance?) {
+    popover.appearance = appearance
+    popover.contentViewController?.view.appearance = appearance
+  }
+
   static func contentSize(accountCount: Int, visibleScreenHeight: CGFloat) -> NSSize {
     let visibleRows = min(max(accountCount, 0), MenuBarPopover.maximumVisibleRows)
     let idealHeight = MenuBarPopover.headerHeight

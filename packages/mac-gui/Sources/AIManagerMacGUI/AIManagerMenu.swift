@@ -15,26 +15,29 @@ enum AIManagerNavigation {
 @MainActor
 final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   private let applicationName: String
-  private let importAccount: () -> Void
+  private let addAccount: () -> Void
+  private let advancedImport: () -> Void
   private let closeWindow: () -> Void
   private let minimizeWindow: () -> Void
   private let presentWindow: () -> Void
-  private let canImport: () -> Bool
+  private let canChangeAccounts: () -> Bool
 
   init(
     applicationName: String,
-    importAccount: @escaping () -> Void,
+    addAccount: @escaping () -> Void,
+    advancedImport: @escaping () -> Void,
     closeWindow: @escaping () -> Void,
     minimizeWindow: @escaping () -> Void,
     presentWindow: @escaping () -> Void,
-    canImport: @escaping () -> Bool
+    canChangeAccounts: @escaping () -> Bool
   ) {
     self.applicationName = applicationName
-    self.importAccount = importAccount
+    self.addAccount = addAccount
+    self.advancedImport = advancedImport
     self.closeWindow = closeWindow
     self.minimizeWindow = minimizeWindow
     self.presentWindow = presentWindow
-    self.canImport = canImport
+    self.canChangeAccounts = canChangeAccounts
   }
 
   func install() {
@@ -58,12 +61,14 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   @objc func showAccounts(_ sender: Any?) { navigate(to: .accounts) }
   @objc func showBackup(_ sender: Any?) { navigate(to: .backup) }
   @objc func showChatHistory(_ sender: Any?) { navigate(to: .history) }
-  @objc func performImport(_ sender: Any?) { importAccount() }
+  @objc func performAddAccount(_ sender: Any?) { addAccount() }
+  @objc func performAdvancedImport(_ sender: Any?) { advancedImport() }
   @objc func performClose(_ sender: Any?) { closeWindow() }
   @objc func performMinimize(_ sender: Any?) { minimizeWindow() }
 
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-    menuItem.action == #selector(performImport(_:)) ? canImport() : true
+    [#selector(performAddAccount(_:)), #selector(performAdvancedImport(_:))].contains(menuItem.action)
+      ? canChangeAccounts() : true
   }
 
   private func navigate(to page: AIManagerPage) {
@@ -96,7 +101,10 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
 
   private func fileItems() -> [NSMenuItem] {
     [
-      item("Import Account…", #selector(performImport(_:)), key: "i", target: self),
+      item("Add Account…", #selector(performAddAccount(_:)), key: "n", target: self),
+      item(
+        "Advanced Import…", #selector(performAdvancedImport(_:)), key: "i",
+        modifiers: [.command, .shift], target: self),
       .separator(),
       item("Close Window", #selector(performClose(_:)), key: "w", target: self),
     ]
