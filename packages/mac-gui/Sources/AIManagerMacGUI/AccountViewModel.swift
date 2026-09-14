@@ -25,6 +25,11 @@ private struct IndexedChatHistoryProvider: ChatHistoryProviding {
     }
 }
 
+enum AccountModalMode {
+    case add
+    case advancedImport
+}
+
 @MainActor
 final class AccountViewModel: ObservableObject {
     #if AI_MANAGER_PREVIEW
@@ -39,6 +44,12 @@ final class AccountViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var notice: String?
     @Published var showImport = false
+    @Published var accountModalMode: AccountModalMode = .add
+    @Published var providers: [ProviderDescriptor] = AccountManager.providerCatalog
+    @Published var pendingLoginSessions: [AccountLoginSession] = []
+    @Published var accountLoginSession: AccountLoginSession?
+    @Published var accountLoginState: AccountLoginState?
+    @Published var accountLoginMessage: String?
     @Published var selectedProviderID: ProviderID = .codex
     @Published var importMode: ImportMode = .authOnly
     @Published var selectedSourceID: String?
@@ -130,7 +141,11 @@ final class AccountViewModel: ObservableObject {
             failure: "Couldn’t load accounts.",
             recovery: "Refresh after resolving any item shown in Backup."
         ) {
-            try await reloadStatus(using: manager)
+            if hasLoaded {
+                try await reloadStatus(using: manager)
+            } else {
+                apply(try await manager.refreshAccounts())
+            }
             let newStatus = status!
             if selectedAccountID == nil {
                 selectedAccountID = newStatus.defaultAccountID ?? newStatus.accounts.first?.id
@@ -141,9 +156,9 @@ final class AccountViewModel: ObservableObject {
     func refresh() async {
         if let manager {
             await perform(failure: "Couldn’t refresh accounts.", recovery: "Try Refresh again.") {
-                try await reloadStatus(using: manager)
+                apply(try await manager.refreshAccounts())
                 refreshedAt = Date()
-                notice = "Accounts and backup state refreshed."
+                notice = "Accounts, sign-ins, and backup state refreshed."
             }
             return
         }
@@ -180,6 +195,12 @@ final class AccountViewModel: ObservableObject {
         errorMessage = scenario == .allStates ? "One account needs sign-in before it can be opened." : nil
         notice = scenario == .allStates ? "Demo backup and settings issues are ready to review." : nil
         showImport = false
+        accountModalMode = .add
+        providers = AccountManager.providerCatalog
+        pendingLoginSessions = []
+        accountLoginSession = nil
+        accountLoginState = nil
+        accountLoginMessage = nil
         selectedProviderID = .codex
         importMode = .authOnly
         importPlan = nil
@@ -207,12 +228,135 @@ final class AccountViewModel: ObservableObject {
     }
     #endif
 
-    func beginImport() async {
+    func beginAddAccount() async {
         guard !isUnavailable else { reportUnavailable(); return }
         guard !isBusy else { return }
+        resetAccountModal()
+        accountModalMode = .add
+        showImport = true
+        if let pending = pendingLoginSessions.first {
+            accountLoginSession = pending
+            selectedProviderID = pending.providerID
+            accountLoginState = .waitingForLogin
+            accountLoginMessage = "Finish the existing sign-in, then check it here."
+        }
+    }
+
+    func beginAdvancedImport() async {
+        guard !isUnavailable else { reportUnavailable(); return }
+        guard !isBusy else { return }
+        resetAccountModal()
+        accountModalMode = .advancedImport
         showImport = true
         resetImport()
         await discover()
+    }
+
+    func beginImport() async {
+        await beginAdvancedImport()
+    }
+
+    func startAccountLogin() async {
+        if let manager {
+            let providerID = selectedProviderID
+            await perform(
+                failure: "Couldn’t start sign-in.",
+                recovery: "Confirm that the Codex CLI is installed, then try again."
+            ) {
+                let start = try await manager.startAccountLogin(providerID: providerID)
+                accountLoginSession = start.session
+                accountLoginState = .waitingForLogin
+                accountLoginMessage = "Finish signing in to Codex, then return here and choose Check Now."
+                if !pendingLoginSessions.contains(where: { $0.id == start.session.id }) {
+                    pendingLoginSessions.append(start.session)
+                }
+            }
+            return
+        }
+        #if AI_MANAGER_PREVIEW
+        guard isDemo else { reportUnavailable(); return }
+        await perform {
+            guard selectedProviderID == .codex else {
+                throw AIManagerError.unsupportedSource("This provider is not available yet.")
+            }
+            let session = AccountLoginSession(
+                id: UUID(uuidString: "45A9767B-D942-41B6-88D8-2410E367B815")!,
+                providerID: .codex,
+                createdAt: DemoData.now
+            )
+            accountLoginSession = session
+            pendingLoginSessions = [session]
+            accountLoginState = .waitingForLogin
+            accountLoginMessage = "Demo sign-in is ready to check. No browser or process was opened."
+        }
+        #else
+        reportUnavailable()
+        #endif
+    }
+
+    func checkAccountLogin(credentialChoice: ConflictChoice? = nil) async {
+        guard let session = accountLoginSession else { return }
+        if let manager {
+            await perform(
+                failure: "Couldn’t complete sign-in.",
+                recovery: "Finish the Codex sign-in and choose Check Now again."
+            ) {
+                let check = try await manager.checkAccountLogin(
+                    id: session.id,
+                    credentialChoice: credentialChoice
+                )
+                accountLoginState = check.state
+                accountLoginMessage = check.message
+                if let account = check.account {
+                    try await reloadStatus(using: manager)
+                    selectedAccountID = account.id
+                    pendingLoginSessions.removeAll { $0.id == session.id }
+                    let name = account.identity.email ?? account.identity.accountID ?? "The account"
+                    notice = "\(name) is ready for new Codex sessions."
+                }
+            }
+            return
+        }
+        #if AI_MANAGER_PREVIEW
+        guard isDemo else { reportUnavailable(); return }
+        await perform {
+            accountLoginState = .completed
+            accountLoginMessage = "Demo account access was saved in memory."
+            pendingLoginSessions.removeAll { $0.id == session.id }
+            if let account = status?.accounts.first {
+                selectedAccountID = account.id
+            }
+        }
+        #else
+        reportUnavailable()
+        #endif
+    }
+
+    func cancelAccountLogin() async {
+        guard let session = accountLoginSession else {
+            resetAccountLogin()
+            return
+        }
+        if let manager {
+            await perform(
+                failure: "Couldn’t cancel sign-in.",
+                recovery: "Refresh and retry from the pending sign-in."
+            ) {
+                try await manager.cancelAccountLogin(id: session.id)
+                pendingLoginSessions.removeAll { $0.id == session.id }
+                resetAccountLogin()
+            }
+            return
+        }
+        #if AI_MANAGER_PREVIEW
+        guard isDemo else { reportUnavailable(); return }
+        await perform {
+            pendingLoginSessions.removeAll { $0.id == session.id }
+            resetAccountLogin()
+        }
+        #else
+        reportUnavailable()
+        #endif
     }
 
     func discover(explicit: URL? = nil) async {
@@ -385,25 +529,27 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
-    func switchDefault() async {
+    func switchDefault(to requestedID: UUID? = nil) async {
         if let manager {
-            guard let id = selectedAccountID else { return }
+            guard let id = requestedID ?? selectedAccountID else { return }
             await perform(
                 failure: "Couldn’t change the default account.",
                 recovery: "Close running Codex sessions, resolve Backup items, then retry."
             ) {
                 let result = try await manager.switchDefault(to: id)
                 try await reloadStatus(using: manager)
+                selectedAccountID = id
                 notice = "New Codex sessions will use this account. Backup: \(result.backup.path)"
             }
             return
         }
         #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
-        guard let id = selectedAccountID, var current = status else { return }
+        guard let id = requestedID ?? selectedAccountID, var current = status else { return }
         await perform {
             current.defaultAccountID = id
             status = current
+            selectedAccountID = id
             notice = "Future demo sessions will use this account. Existing sessions are unchanged."
         }
         #else
@@ -812,6 +958,29 @@ final class AccountViewModel: ObservableObject {
         conflictChoices = [:]
     }
 
+    func closeAccountModal() {
+        actionGeneration += 1
+        showImport = false
+        resetImport()
+        accountModalMode = .add
+        resetAccountLogin()
+    }
+
+    private func resetAccountModal() {
+        actionGeneration += 1
+        errorMessage = nil
+        notice = nil
+        resetImport()
+        resetAccountLogin()
+    }
+
+    private func resetAccountLogin() {
+        accountLoginSession = nil
+        accountLoginState = nil
+        accountLoginMessage = nil
+        selectedProviderID = .codex
+    }
+
     private func perform(
         failure: String? = nil,
         recovery: String? = nil,
@@ -848,6 +1017,18 @@ final class AccountViewModel: ObservableObject {
         })
         status = newStatus
         accountHistory = summaries
+    }
+
+    private func apply(_ snapshot: AccountSnapshot) {
+        status = snapshot.status
+        providers = snapshot.providers
+        discoveries = snapshot.discoveries
+        pendingLoginSessions = snapshot.pendingLoginSessions
+        if let current = accountLoginSession,
+           !snapshot.pendingLoginSessions.contains(where: { $0.id == current.id }),
+           accountLoginState != .completed {
+            resetAccountLogin()
+        }
     }
 
     private func makeLaunchArtifact(_ spec: LaunchSpec) throws -> URL {

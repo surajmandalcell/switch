@@ -80,6 +80,10 @@ private enum AcceptanceConfiguration {
         return nil
     }
     static var opensImport: Bool { CommandLine.arguments.contains("--import") }
+    static var opensAdd: Bool {
+        CommandLine.arguments.contains("--add") || CommandLine.arguments.contains("--add-signin")
+    }
+    static var opensAddSignIn: Bool { CommandLine.arguments.contains("--add-signin") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var stressesHistory: Bool { CommandLine.arguments.contains("--history-stress") }
     static var initialPageIndex: Int {
@@ -133,7 +137,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                     guard !AcceptanceConfiguration.contractOnly else { return }
                     receipts.observeWindowEvents()
                     await model.load()
-                    if AcceptanceConfiguration.opensImport { await model.beginImport() }
+                    await configureAccountModal()
                     try? await Task.sleep(for: .milliseconds(300))
                     checkWindowContract(receipts: receipts, stage: "after-load")
                 }
@@ -195,7 +199,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 
     private func runContractOnly(in window: NSWindow?) async {
         await model.load()
-        if AcceptanceConfiguration.opensImport { await model.beginImport() }
+        await configureAccountModal()
         try? await Task.sleep(for: .milliseconds(100))
         window?.contentView?.layoutSubtreeIfNeeded()
         if !AcceptanceConfiguration.snapshotOnly {
@@ -208,6 +212,17 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private func importAccount() {
         guard !model.isBusy else { return }
         Task { await model.beginImport() }
+    }
+
+    private func configureAccountModal() async {
+        if AcceptanceConfiguration.opensImport {
+            await model.beginAdvancedImport()
+        } else if AcceptanceConfiguration.opensAdd {
+            await model.beginAddAccount()
+            if AcceptanceConfiguration.opensAddSignIn {
+                await model.startAccountLogin()
+            }
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
