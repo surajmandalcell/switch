@@ -14,6 +14,7 @@ swiftc \
   -parse-as-library \
   -target "$(uname -m)-apple-macos14.0" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerDesign.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MenuBarPopover.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerBrand.swift" \
   "$repo_root/packages/mac-gui/Tests/NativeScrollCheck.swift" \
   -o "$output_path"
