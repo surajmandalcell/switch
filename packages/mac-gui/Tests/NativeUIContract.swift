@@ -248,7 +248,7 @@ enum AIManagerNativeContract {
     let placeholders = Set(views(in: root).compactMap {
       ($0 as? NSTextField)?.placeholderString
     })
-    return placeholders.contains("Search chats") && placeholders.contains("Search this chat")
+    return placeholders.contains("Search conversations") && placeholders.contains("Search this chat")
   }
 
   static func virtualHistoryScrollCount(in root: NSView) -> Int {

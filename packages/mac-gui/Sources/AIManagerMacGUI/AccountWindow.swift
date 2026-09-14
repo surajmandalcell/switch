@@ -863,7 +863,7 @@ private struct HistoryPage: View {
     HStack(spacing: 8) {
       VStack(spacing: 0) {
         HStack(spacing: 8) {
-          Text("Chats").font(AIMTheme.sans(12, weight: .semibold))
+          Text("Conversations").font(AIMTheme.sans(12, weight: .semibold))
           Spacer(minLength: 4)
           Text(historyCountText)
             .font(AIMTheme.sans(9))
@@ -887,7 +887,7 @@ private struct HistoryPage: View {
         .frame(height: 40)
         .background(AIMTheme.panel2)
 
-        HistorySearchField(text: $threadQuery, placeholder: "Search chats")
+        HistorySearchField(text: $threadQuery, placeholder: "Search conversations")
           .padding(.horizontal, 10)
           .frame(height: 48)
 
@@ -900,14 +900,14 @@ private struct HistoryPage: View {
         } else if model.chatHistory.threads.isEmpty {
           VStack(spacing: 7) {
             AIMIcon(name: .history, size: 18).foregroundStyle(AIMTheme.muted)
-            Text(threadQuery.isEmpty ? "No chats yet" : "No matching chats")
+            Text(threadQuery.isEmpty ? "No conversations yet" : "No matching conversations")
               .font(AIMTheme.sans(11, weight: .medium))
             Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
               .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-          AIMVirtualList(items: threadItems, fixedRowHeight: 68) { item in
+          AIMVirtualList(items: threadItems, rowSpacing: 2, fixedRowHeight: 62) { item in
             AnyView(ChatThreadRow(
               thread: item.thread,
               selected: item.selected
@@ -915,7 +915,7 @@ private struct HistoryPage: View {
           }
         }
       }
-      .frame(width: 310)
+      .frame(width: 300)
       .background(AIMTheme.panel)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
 
@@ -932,8 +932,8 @@ private struct HistoryPage: View {
 
   private var historyCountText: String {
     let result = model.chatHistory
-    if threadQuery.isEmpty { return "\(result.totalThreadCount) chats" }
-    return "\(result.matchingThreadCount) of \(result.totalThreadCount) chats"
+    if threadQuery.isEmpty { return result.totalThreadCount.formatted() }
+    return "\(result.matchingThreadCount.formatted()) of \(result.totalThreadCount.formatted())"
   }
 
   private var historyIssueText: String {
@@ -970,10 +970,10 @@ private struct HistorySearchField: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      AIMIcon(name: .search, size: 12).foregroundStyle(AIMTheme.muted)
+      AIMIcon(name: .search, size: 11).foregroundStyle(AIMTheme.muted)
       TextField(placeholder, text: $text)
         .textFieldStyle(.plain)
-        .font(AIMTheme.sans(10))
+        .font(AIMTheme.sans(10.5))
         .focusEffectDisabled(!focusIndicatorsEnabled)
       if !text.isEmpty {
         Button { text = "" } label: {
@@ -1001,31 +1001,29 @@ private struct ChatThreadRow: View {
 
   var body: some View {
     Button(action: action) {
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: 3) {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-          Text(thread.title).font(AIMTheme.sans(11, weight: .semibold)).lineLimit(1)
+          Text(thread.title).font(AIMTheme.sans(11.5, weight: .semibold)).lineLimit(1)
           Spacer(minLength: 4)
           Text(relativeTime)
-            .font(AIMTheme.mono(8)).foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.72) : AIMTheme.muted)
+            .font(AIMTheme.sans(8.5)).foregroundStyle(AIMTheme.faint)
         }
-        Text(thread.preview).font(AIMTheme.sans(9)).lineLimit(2)
-          .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.78) : AIMTheme.muted)
-        HStack(spacing: 6) {
-          if thread.archived {
-            Text("Archived").font(AIMTheme.sans(8, weight: .medium))
-          }
-          Text("\(thread.messageCount) messages").font(AIMTheme.mono(8))
+        Text(thread.preview).font(AIMTheme.sans(9.5)).lineLimit(1)
+          .foregroundStyle(AIMTheme.muted)
+        HStack(spacing: 5) {
+          Text(projectLabel).font(AIMTheme.sans(8.5, weight: .medium)).lineLimit(1)
+          if thread.archived { Text("· Archived").font(AIMTheme.sans(8.5)) }
           Spacer(minLength: 0)
         }
-        .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.65) : AIMTheme.faint)
+        .foregroundStyle(AIMTheme.faint)
       }
       .padding(.horizontal, 14)
-      .padding(.vertical, 10)
-      .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
       .contentShape(Rectangle())
       .background(
-        selected ? AIMTheme.active : (hovered ? AIMTheme.panel2 : Color.clear))
-      .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
+        selected ? AIMTheme.historySelection : (hovered ? AIMTheme.panel2.opacity(0.72) : Color.clear))
+      .foregroundStyle(AIMTheme.ink)
     }
     .buttonStyle(AIMPressButtonStyle())
     .onHover { hovered = $0 }
@@ -1042,6 +1040,12 @@ private struct ChatThreadRow: View {
     if interval < 604_800 { return "\(Int(interval / 86_400))d" }
     return thread.updatedAt.formatted(.dateTime.month(.abbreviated).day())
   }
+
+  private var projectLabel: String {
+    guard let directory = thread.workingDirectory else { return "Codex" }
+    let name = URL(fileURLWithPath: directory).lastPathComponent
+    return name.isEmpty ? "Codex" : name
+  }
 }
 
 private struct ChatDetailPane: View {
@@ -1054,33 +1058,35 @@ private struct ChatDetailPane: View {
   var body: some View {
     VStack(spacing: 0) {
       if let thread = selectedSummary {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-          Text(thread.title).font(AIMTheme.sans(12, weight: .semibold)).lineLimit(1)
-          if thread.archived { Badge(text: "Archived", color: AIMTheme.amber) }
+        HStack(spacing: 12) {
+          VStack(alignment: .leading, spacing: 3) {
+            Text(thread.title).font(AIMTheme.sans(14, weight: .semibold)).lineLimit(1)
+            Text(threadContext(thread))
+              .font(AIMTheme.sans(9.5)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+          }
           Spacer(minLength: 8)
-          Text("\(thread.messageCount) messages")
-            .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
         }
-        .padding(.horizontal, 14)
-        .frame(height: 40)
-        .background(AIMTheme.panel2)
+        .padding(.horizontal, 18)
+        .frame(height: 58)
+        .background(AIMTheme.panel2.opacity(0.62))
       } else {
-        Color.clear.frame(height: 40).background(AIMTheme.panel2)
+        Color.clear.frame(height: 58).background(AIMTheme.panel2.opacity(0.62))
       }
 
       HStack(spacing: 10) {
         HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
         if isSearching {
           ProgressView().controlSize(.small)
-        } else if let detail = model.selectedChat {
+        } else if let detail = model.selectedChat,
+                  !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           Text(messageCountText(detail))
-            .font(AIMTheme.sans(9))
+            .font(AIMTheme.sans(9.5))
             .foregroundStyle(AIMTheme.muted)
             .contentTransition(.numericText())
         }
       }
-      .padding(.horizontal, 10)
-      .frame(height: 48)
+      .padding(.horizontal, 12)
+      .frame(height: 46)
 
       if model.isChatLoading {
         VStack(spacing: 10) {
@@ -1089,7 +1095,7 @@ private struct ChatDetailPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let detail = model.selectedChat {
-        AIMVirtualList(items: detailItems(detail), rowSpacing: 8) { item in
+        AIMVirtualList(items: detailItems(detail), rowSpacing: 0) { item in
           AnyView(detailRow(item))
         }
       } else {
@@ -1126,7 +1132,7 @@ private struct ChatDetailPane: View {
   }
 
   private func detailItems(_ detail: ChatThreadDetail) -> [ChatDetailListItem] {
-    var items: [ChatDetailListItem] = [.metadata(detail.thread)]
+    var items: [ChatDetailListItem] = []
     if detail.omittedMessageCount > 0 {
       items.append(.notice(
         "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast."))
@@ -1143,10 +1149,6 @@ private struct ChatDetailPane: View {
   @ViewBuilder
   private func detailRow(_ item: ChatDetailListItem) -> some View {
     switch item {
-    case let .metadata(thread):
-      ChatThreadMetadata(thread: thread)
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
     case let .notice(text):
       Notice(
         text: text,
@@ -1156,7 +1158,6 @@ private struct ChatDetailPane: View {
         .padding(.horizontal, 12)
     case let .message(message):
       ChatMessageRow(message: message)
-        .padding(.horizontal, 12)
     case .emptySearch:
       VStack(spacing: 6) {
         AIMIcon(name: .search, size: 16).foregroundStyle(AIMTheme.muted)
@@ -1165,15 +1166,27 @@ private struct ChatDetailPane: View {
       .frame(maxWidth: .infinity, minHeight: 120)
       .padding(.horizontal, 12)
     case .bottomSpace:
-      Color.clear.frame(height: 4)
+      Color.clear.frame(height: 16)
     }
   }
 
   private func messageCountText(_ detail: ChatThreadDetail) -> String {
     if messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return "\(detail.messages.count) messages"
+      return "\(detail.messages.count.formatted()) messages"
     }
-    return "\(messageSearchResult.matchingMessageCount) of \(detail.messages.count)"
+    return "\(messageSearchResult.matchingMessageCount.formatted()) matches"
+  }
+
+  private func threadContext(_ thread: ChatThreadSummary) -> String {
+    var parts: [String] = []
+    if let directory = thread.workingDirectory {
+      let project = URL(fileURLWithPath: directory).lastPathComponent
+      if !project.isEmpty { parts.append(project) }
+    }
+    parts.append(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
+    parts.append("\(thread.messageCount.formatted()) messages")
+    if thread.archived { parts.append("Archived") }
+    return parts.joined(separator: "  ·  ")
   }
 
   @MainActor
@@ -1216,7 +1229,6 @@ private struct ChatDetailPane: View {
 }
 
 private enum ChatDetailListItem: Identifiable, Equatable {
-  case metadata(ChatThreadSummary)
   case notice(String)
   case message(ChatMessage)
   case emptySearch
@@ -1224,7 +1236,6 @@ private enum ChatDetailListItem: Identifiable, Equatable {
 
   var id: String {
     switch self {
-    case let .metadata(thread): "metadata:\(thread.id)"
     case let .notice(text): "notice:\(text)"
     case let .message(message): "message:\(message.id)"
     case .emptySearch: "empty-search"
@@ -1239,55 +1250,34 @@ private struct ChatMessageSearchKey: Hashable {
   let fileByteCount: Int64
 }
 
-private struct ChatThreadMetadata: View {
-  let thread: ChatThreadSummary
-
-  var body: some View {
-    HStack(spacing: 10) {
-      AIMIcon(name: .history, size: 14).foregroundStyle(AIMTheme.blue)
-      VStack(alignment: .leading, spacing: 3) {
-        if let directory = thread.workingDirectory {
-          Text(directory).font(AIMTheme.mono(9)).lineLimit(1).truncationMode(.middle)
-            .help(directory)
-        }
-        HStack(spacing: 8) {
-          Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
-          Text(ByteCountFormatter.string(fromByteCount: thread.fileByteCount, countStyle: .file))
-          Text(thread.threadID).lineLimit(1).truncationMode(.middle)
-        }
-        .font(AIMTheme.mono(8)).foregroundStyle(AIMTheme.muted)
-      }
-      Spacer(minLength: 0)
-    }
-    .padding(10)
-    .background(AIMTheme.panel2.opacity(0.7))
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-  }
-}
-
 private struct ChatMessageRow: View {
   let message: ChatMessage
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
+    VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .firstTextBaseline) {
         Text(message.role == .user ? "You" : "Codex")
-          .font(AIMTheme.sans(9, weight: .semibold))
-          .foregroundStyle(message.role == .user ? AIMTheme.blue : AIMTheme.green)
+          .font(AIMTheme.sans(9.5, weight: .semibold))
+          .foregroundStyle(AIMTheme.muted)
         Spacer()
         if let timestamp = message.timestamp {
-          Text(timestamp, style: .time).font(AIMTheme.mono(8)).foregroundStyle(AIMTheme.faint)
+          Text(timestamp, style: .time).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.faint)
         }
       }
-      Text(message.text)
-        .font(AIMTheme.sans(11))
-        .lineSpacing(2)
+      Text(renderedText)
+        .font(AIMTheme.sans(13))
+        .lineSpacing(4)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .padding(11)
-    .background(message.role == .user ? AIMTheme.active.opacity(0.18) : AIMTheme.panel2.opacity(0.72))
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .frame(maxWidth: 660, alignment: .leading)
+    .padding(.horizontal, 28)
+    .padding(.vertical, 16)
+    .frame(maxWidth: .infinity, alignment: .center)
+  }
+
+  private var renderedText: AttributedString {
+    (try? AttributedString(markdown: message.text)) ?? AttributedString(message.text)
   }
 }
 
