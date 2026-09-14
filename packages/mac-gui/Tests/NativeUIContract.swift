@@ -17,6 +17,55 @@ struct AIManagerNativeViewSnapshot: Codable {
 
 @MainActor
 enum AIManagerNativeContract {
+  @MainActor static func menuBarPopoverFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+
+    expect(MenuBarPopover.width == 360, "Menu-bar popover is not 360 points wide")
+    expect(MenuBarPopover.minimumHeight == 192, "Menu-bar popover minimum height is not 192 points")
+    expect(MenuBarPopover.maximumHeight == 536, "Menu-bar popover maximum height is not 536 points")
+    expect(MenuBarPopover.accountRowHeight == 60, "Menu-bar account rows are not 60 points high")
+    expect(MenuBarPopover.maximumVisibleRows == 6, "Menu-bar account list does not stop at six visible rows")
+
+    let empty = AIManagerStatusItemController.contentSize(accountCount: 0, visibleScreenHeight: 900)
+    let one = AIManagerStatusItemController.contentSize(accountCount: 1, visibleScreenHeight: 900)
+    let six = AIManagerStatusItemController.contentSize(accountCount: 6, visibleScreenHeight: 900)
+    let many = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 900)
+    let shortScreen = AIManagerStatusItemController.contentSize(accountCount: 20, visibleScreenHeight: 480)
+    for size in [empty, one, six, many, shortScreen] {
+      expect(size.width == 360, "Menu-bar popover width changes with its contents")
+      expect(size.height >= 192, "Menu-bar popover is shorter than 192 points")
+      expect(size.height <= 536, "Menu-bar popover is taller than 536 points")
+    }
+    expect(empty.height == 192, "Empty menu-bar popover does not use its compact minimum height")
+    expect(one.height == 236, "One-row menu-bar popover has the wrong fixed-region geometry")
+    expect(six.height == 536 && many.height == six.height, "Menu-bar list does not scroll after six rows")
+    expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
+
+    let snapshot = MenuBarPopoverPreviewData.snapshot
+    expect(snapshot.primaryUsedPercentage == 42, "Preview menu snapshot lacks cached primary usage")
+    expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
+    expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
+    expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
+    expect(snapshot.accounts.compactMap(\.usage).contains(where: {
+      $0.plan != nil && $0.resetDescription != nil
+    }), "Preview menu snapshot lacks cached plan and reset details")
+
+    let controller = AIManagerStatusItemController(
+      snapshot: snapshot,
+      actions: MenuBarPopoverActions(
+        openMainWindow: {}, addAccount: {}, quit: {}, switchAccount: { _ in }))
+    expect(controller.isPresent, "Menu-bar template mark is unavailable")
+    expect(controller.usesPopover, "Status item still uses a static menu")
+    expect(controller.popoverContentSize.width == 360, "Hosted popover changed its fixed width")
+    expect(controller.statusTitle == "42%", "Status item does not show cached primary usage")
+    controller.update(snapshot: .empty)
+    expect(controller.statusTitle.isEmpty, "Status item is not icon-only when usage is unavailable")
+    return failures
+  }
+
   static func chatPresentationFailures() -> [String] {
     var failures: [String] = []
     let markdown = """

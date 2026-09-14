@@ -1,5 +1,6 @@
 import AppKit
 import AIManagerCore
+import Combine
 
 @MainActor
 private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
@@ -8,6 +9,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: AIManagerStatusItemController?
     private var menuController: AIManagerMenuController?
     private var instanceActivationObserver: NSObjectProtocol?
+    private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppFonts.register()
@@ -28,10 +30,27 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
-        statusItemController = AIManagerStatusItemController {
-            controller.present()
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        let statusItemController = AIManagerStatusItemController(
+            snapshot: menuBarSnapshot(),
+            actions: MenuBarPopoverActions(
+                openMainWindow: {
+                    controller.present()
+                    NSApp.activate(ignoringOtherApps: true)
+                },
+                addAccount: { [weak self] in self?.addAccountFromMenuBar() },
+                quit: { NSApp.terminate(nil) },
+                switchAccount: { [weak self] accountID in
+                    guard let self else { throw MenuBarActionError.appUnavailable }
+                    try await self.switchAccountFromMenuBar(accountID)
+                }
+            ))
+        self.statusItemController = statusItemController
+        model.$status
+            .sink { [weak self, weak statusItemController] _ in
+                guard let self else { return }
+                statusItemController?.update(snapshot: self.menuBarSnapshot())
+            }
+            .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
             applicationName: AIManagerBrand.bundleDisplayName(),
             importAccount: { [weak self] in self?.importAccount() },
@@ -71,6 +90,73 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         Task { await model.beginImport() }
     }
 
+    private func addAccountFromMenuBar() {
+        guard !model.isBusy else { return }
+        Task { await model.beginAddAccount() }
+    }
+
+    private func switchAccountFromMenuBar(_ accountID: UUID) async throws {
+        guard model.status?.accounts.contains(where: {
+            $0.id == accountID && $0.verification.state == .verifiedWithCodex
+        }) == true else {
+            throw MenuBarActionError.accountUnavailable
+        }
+        if model.status?.defaultAccountID == accountID { return }
+        await model.switchDefault(to: accountID)
+        guard model.status?.defaultAccountID == accountID else {
+            throw MenuBarActionError.switchFailed(model.errorMessage)
+        }
+    }
+
+    private func menuBarSnapshot() -> MenuBarSnapshot {
+        guard let status = model.status else { return .empty }
+        return MenuBarSnapshot(
+            accounts: status.accounts.map { account in
+                MenuBarAccountSnapshot(
+                    id: account.id,
+                    identity: account.identity.email ?? "Codex account",
+                    detail: Self.accountDetail(account),
+                    isVerified: account.verification.state == .verifiedWithCodex,
+                    isActive: account.id == status.defaultAccountID)
+            },
+            primaryUsedPercentage: nil)
+    }
+
+    private static func accountDetail(_ account: AccountRecord) -> String {
+        let workspace = account.identity.workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let verification: String
+        switch account.verification.state {
+        case .verifiedWithCodex: verification = "Verified"
+        case .verifiedLocally: verification = "Locally verified"
+        case .needsSignIn: verification = "Sign-in required"
+        case .imported: verification = "Check required"
+        case .unsupported: verification = "Unavailable"
+        }
+        return [workspace, verification]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+    }
+
+}
+
+private enum MenuBarActionError: LocalizedError {
+    case appUnavailable
+    case accountUnavailable
+    case switchFailed(String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .appUnavailable:
+            return "Switch is unavailable."
+        case .accountUnavailable:
+            return "This account must be verified before switching."
+        case .switchFailed(let detail):
+            return detail ?? "Switch could not change the account."
+        }
+    }
 }
 
 @main

@@ -173,10 +173,23 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
-        statusItemController = AIManagerStatusItemController {
-            controller.present()
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        let statusItemController = AIManagerStatusItemController(
+            snapshot: MenuBarPopoverPreviewData.snapshot,
+            actions: MenuBarPopoverActions(
+                openMainWindow: {
+                    controller.present()
+                    NSApp.activate(ignoringOtherApps: true)
+                },
+                addAccount: { [weak self] in
+                    Task { await self?.model.beginAddAccount() }
+                },
+                quit: {},
+                switchAccount: { [weak self] accountID in
+                    guard let self else { return }
+                    await self.model.switchDefault(to: accountID)
+                }
+            ))
+        self.statusItemController = statusItemController
         controller.present()
     }
 
@@ -253,6 +266,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
+    failures.append(contentsOf: AIManagerNativeContract.menuBarPopoverFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
             UserDefaults.standard.string(forKey: "appearanceMode") == mode,
