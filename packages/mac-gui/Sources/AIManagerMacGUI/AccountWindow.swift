@@ -1188,7 +1188,7 @@ private struct ActivityCell: View {
 private struct AccountUsagePanel: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
-  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = false
+  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @State private var showUsageOverride: Bool?
 
   init(account: AccountRecord, model: AccountViewModel) {
@@ -1588,7 +1588,7 @@ private struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
   @Binding var showFocusIndicators: Bool
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
-  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = false
+  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     AIMScrollView {

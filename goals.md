@@ -2523,6 +2523,20 @@ with temporary synthetic homes before installation.
   that can remove durable user data requires a separate explicit design and confirmation flow.
 - No implementation work is authorized for this deferred milestone yet.
 
+### Tray usage and Cleanup icon refinement (2026-09-15)
+
+- Only advanced Cleanup development is deferred. Continue the remaining accepted product work.
+- Replace the Cleanup rail's destructive trash symbol with the native eraser symbol. Keep trash
+  only on actions that remove data.
+- Show cached account usage in the menu bar by default. Keep the global and per-account controls
+  so a user can opt out without affecting usage in the main window.
+- Match the accepted menu reference with compact bordered cards. Put each quota name over its
+  percentage, the progress bar in the center, and the reset time at the right. Keep equal compact
+  Active, Switch, and Sign in controls, a subtle dark gradient, the refresh time at bottom left,
+  and Open App at bottom right. Do not restore the removed header or Add Account action.
+- Verify the fresh preference default, explicit opt-out, stable card geometry, native Cleanup
+  symbol, dark and light snapshots, and the installed tray percentage.
+
 ### Resumed login and protected-copy audit (2026-09-14)
 
 - The completion audit reproduced a CLI failure after process restart: Check Now rejected a

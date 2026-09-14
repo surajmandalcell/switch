@@ -11,7 +11,8 @@ enum MenuBarUsagePreferences {
   }
 
   static func showsUsage(for accountID: UUID, defaults: UserDefaults = .standard) -> Bool {
-    explicitValue(for: accountID, defaults: defaults) ?? defaults.bool(forKey: defaultKey)
+    explicitValue(for: accountID, defaults: defaults)
+      ?? (defaults.object(forKey: defaultKey) == nil || defaults.bool(forKey: defaultKey))
   }
 
   static func setOverride(

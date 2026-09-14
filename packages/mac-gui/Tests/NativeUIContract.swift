@@ -119,8 +119,8 @@ enum AIManagerNativeContract {
     var failures: [String] = []
     let first = UUID()
     let second = UUID()
-    if MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults) {
-      failures.append("Menu-bar usage defaults to on")
+    if !MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults) {
+      failures.append("Menu-bar usage does not default to on")
     }
 
     defaults.set(true, forKey: MenuBarUsagePreferences.defaultKey)

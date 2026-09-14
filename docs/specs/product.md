@@ -43,7 +43,7 @@ opens Settings. Settings contains only:
 1. **App behavior** — Minimize to menu bar and the optional keyboard-focus indicator.
 2. **Data locations** — Codex home (`~/.codex`) and saved account vault
    (`~/.switch/codex`), each with a plain-language purpose and an explicit Reveal action.
-3. **Menu bar defaults** — Show account usage, initially off. Accounts without an
+3. **Menu bar defaults** — Show account usage, initially on. Accounts without an
    explicit override follow this default. Changing it preserves explicit account choices.
 4. Preview-only demo controls in Preview builds.
 
@@ -99,9 +99,11 @@ Each account is a distinct compact card. Its identity row shows the account, pro
 workspace, active or attention state, and a dedicated Switch button when eligible. Active,
 Switch, and Sign in controls share one compact ghost-button size. When menu
 usage is enabled and cached, the card expands to show separate Weekly and 5 hour progress
-rows with percentages and reset descriptions. A hidden or missing limit takes no space and
-is never fabricated. The footer shows the newest cache refresh time on the left even when
-usage display is disabled, and Open App on the right. The popover is 384 points wide, uses a
+rows. Each row places the limit name above its percentage, followed by a horizontal progress
+bar and a right-aligned reset description. The cards use a quiet dark gradient, fine border,
+and restrained hover change while preserving three-point corners. A hidden or missing limit
+takes no space and is never fabricated. The footer shows the newest cache refresh time on the
+left even when usage display is disabled, and Open App on the right. The popover is 384 points wide, uses a
 48-point footer, and scrolls at a 440-point maximum height. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 
