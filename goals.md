@@ -227,6 +227,9 @@ opens.
 
 Replace the static status-item menu with one transient vertical popover using the existing visual
 system. It is 360 points wide and between 192 and `min(536, visible screen height - 96)` points tall.
+The status item itself shows the template mark plus the cached primary used percentage, such as
+`42%`; it stays icon-only when that value is unavailable, and its tooltip states that the percentage
+is used quota. Updating this label never changes the popover width or starts a refresh.
 Six 60-point account rows remain visible before the list scrolls; the header, new-account action,
 session-boundary note, Open Switch, and Quit remain fixed. Each row shows identity, workspace or
 verification, a compact cached quota value when available, and the active check. Clicking a verified
