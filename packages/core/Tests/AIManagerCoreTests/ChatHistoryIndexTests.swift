@@ -79,6 +79,7 @@ final class ChatHistoryIndexTests: XCTestCase {
         let unchanged = try await index.refresh()
         XCTAssertEqual(initial.reparsedFileCount, 2)
         XCTAssertEqual(unchanged.reparsedFileCount, 0)
+        XCTAssertEqual(unchanged.libraryRevision, initial.libraryRevision)
 
         let handle = try FileHandle(forWritingTo: first)
         try handle.seekToEnd()
@@ -87,6 +88,7 @@ final class ChatHistoryIndexTests: XCTestCase {
         let updated = try await index.refresh()
 
         XCTAssertEqual(updated.reparsedFileCount, 1)
+        XCTAssertGreaterThan(updated.libraryRevision, unchanged.libraryRevision)
         XCTAssertEqual(updated.totalThreadCount, 2)
         XCTAssertEqual(updated.unreadableRecordCount, 1)
     }

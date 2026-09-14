@@ -77,6 +77,7 @@ public struct ChatThreadDetail: Sendable, Equatable {
 
 public struct ChatHistorySnapshot: Sendable, Equatable {
     public let threads: [ChatThreadSummary]
+    public let libraryRevision: UInt64
     public let totalThreadCount: Int
     public let matchingThreadCount: Int
     public let skippedFileCount: Int
@@ -85,6 +86,7 @@ public struct ChatHistorySnapshot: Sendable, Equatable {
 
     public init(
         threads: [ChatThreadSummary] = [],
+        libraryRevision: UInt64 = 0,
         totalThreadCount: Int = 0,
         matchingThreadCount: Int = 0,
         skippedFileCount: Int = 0,
@@ -92,6 +94,7 @@ public struct ChatHistorySnapshot: Sendable, Equatable {
         reparsedFileCount: Int = 0
     ) {
         self.threads = threads
+        self.libraryRevision = libraryRevision
         self.totalThreadCount = totalThreadCount
         self.matchingThreadCount = matchingThreadCount
         self.skippedFileCount = skippedFileCount
@@ -137,6 +140,7 @@ public actor ChatHistoryIndex {
     private var orderedCache: [CachedThread] = []
     private var cachedUnreadableRecordCount = 0
     private var orderedCacheIsDirty = true
+    private var libraryRevision: UInt64 = 0
 
     public init(home: URL, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
@@ -149,7 +153,9 @@ public actor ChatHistoryIndex {
         try Task.checkCancellation()
         let candidates = try Self.transcriptCandidates(in: home)
         let currentPaths = Set(candidates.map { $0.url.path })
-        if cache.keys.contains(where: { !currentPaths.contains($0) }) {
+        let removedCachedFile = cache.keys.contains(where: { !currentPaths.contains($0) })
+        let removedFailedFile = failedSignatures.keys.contains(where: { !currentPaths.contains($0) })
+        if removedCachedFile {
             orderedCacheIsDirty = true
         }
         cache = cache.filter { currentPaths.contains($0.key) }
@@ -160,6 +166,9 @@ public actor ChatHistoryIndex {
             let path = candidate.url.path
             return cache[path]?.signature != candidate.signature
                 && failedSignatures[path] != candidate.signature
+        }
+        if removedCachedFile || removedFailedFile || !changed.isEmpty {
+            libraryRevision &+= 1
         }
         let parsed = await parseConcurrently(changed)
         try Task.checkCancellation()
@@ -246,6 +255,7 @@ public actor ChatHistoryIndex {
         let safeLimit = min(max(1, limit), 2_000)
         return ChatHistorySnapshot(
             threads: Array(matches.prefix(safeLimit)).map(\.summary),
+            libraryRevision: libraryRevision,
             totalThreadCount: all.count,
             matchingThreadCount: matches.count,
             skippedFileCount: failedSignatures.count,
