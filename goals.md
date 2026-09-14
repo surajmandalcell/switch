@@ -2390,3 +2390,34 @@ with temporary synthetic homes before installation.
   default applies to new sessions immediately without terminating existing Codex processes.
   The exact clean signed installation and hashes are recorded outside the repository in
   `/private/tmp/ai-manager-build/final-install-receipt.json`.
+
+### New-session switching, reader filters, and compact menu acceptance (2026-09-14)
+
+- Selecting an account now publishes its saved credential for new Codex sessions without inspecting
+  or terminating existing Codex processes. The transaction, credential digests, rollback journal,
+  and recovery checks remain mandatory. A returned account whose ID matches the saved credential is
+  authenticated even when the app-server also reports that a different open session needs auth.
+- Every saved Codex credential can be checked from a disposable private home and refresh its own
+  cached usage without becoming the default. Fresh Add Account and Advanced Import results expose
+  the same refresh action. A credential classified as needing sign-in cannot show a stale quota.
+- Add Account has no introductory copy block or redundant Providers heading. Unsupported rows say
+  WIP. The three steps share one stable 480-point canvas and a reserved progress/error region;
+  step changes no longer use opacity, offset, or geometry transitions. Advanced Import retains its
+  648-point data-review canvas and the same stable progress/error region.
+- Chat History parses prompts, responses, function/custom/shell/web tool calls and results, plus
+  visible reasoning summaries into four filterable categories. Raw or encrypted reasoning remains
+  excluded. The filter mask persists, is applied before text search, and Copy shown exports exactly
+  the displayed chronological rows with stable category labels and ISO timestamps. Parsing remains
+  detached, cancellable, record-bounded, message-bounded, and cache-versioned.
+- Ten separate flat menu-bar directions and a combined review sheet are under
+  `/private/tmp/ai-manager-build/menu-design-options/`. The selected native ledger became a
+  384-point, three-pixel-corner popover with no presentation animation, six virtualized rows at
+  most, zebra separation, 5-hour and weekly columns, direct switching, per-account usage refresh,
+  refresh-all, Add Account, Open Switch, Quit, and copyable row errors. The actual SwiftUI render is
+  emitted as `menu-bar.png` by the Mac GUI acceptance harness.
+- Clean commit `7748bac` passed `scripts/check-native.sh`: 152 contracts were discovered, 150
+  executed successfully, and only the two explicit authorized-private-copy integrations were
+  skipped. Pixel icon generation, Preview and production models, System/Light/Dark GUI contracts,
+  compact wizard pixels, menu pixels, native scrolling, and single-instance behavior passed.
+  Read-only unprivileged `linux/arm64` and `linux/amd64` Docker containers then passed the same
+  152-contract inventory, release build, and full CLI/TUI acceptance from that commit.
