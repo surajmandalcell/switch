@@ -74,6 +74,7 @@ enum AIMTheme {
   static let titleArt = dynamic(light: 0x657B98, dark: 0x92A7C3)
   static let active = dynamic(light: 0x3C4A61, dark: 0x566D95)
   static let activeInk = dynamic(light: 0xF2F1ED, dark: 0xF2F1ED)
+  static let historySelection = dynamic(light: 0xE1E2E0, dark: 0x4B4C50)
   static let railIdle = dynamic(light: 0x5D6670, dark: 0xB0B7C2)
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
   static let control = dynamic(light: 0xDEDCD6, dark: 0x4A4B50)
