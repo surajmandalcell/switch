@@ -295,6 +295,9 @@ struct AccountWindow: View {
     .onChange(of: scenePhase) { _, phase in
       if phase == .active { Task { await model.reloadAfterActivation() } }
     }
+    .task(id: model.hasLoaded) {
+      if model.hasLoaded { await model.watchActivity() }
+    }
   }
 
   private func applyAppearance(to window: NSWindow) {
@@ -1076,8 +1079,10 @@ enum UsageActivityRange: String, CaseIterable, Identifiable {
 
 private struct UsageActivityCalendar: View {
   let rows: [CodexDailyUsageSnapshot]
+  @ObservedObject var model: AccountViewModel
   @AppStorage(UsageActivityRange.preferenceKey) private var storedRange = UsageActivityRange.year.rawValue
   @State private var selectedDate: Date?
+  @State private var projects: [CodexProjectDailyActivity] = []
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var range: UsageActivityRange {
@@ -1166,9 +1171,37 @@ private struct UsageActivityCalendar: View {
           Spacer(minLength: 0)
         }
       }
+      if !projects.isEmpty {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Projects in this Codex home")
+            .font(AIMTheme.sans(10, weight: .medium)).foregroundStyle(AIMTheme.muted)
+            .help("Recorded from local conversation token events. These shared-home totals are separate from account usage.")
+          ForEach(projects, id: \.project) { project in
+            HStack(spacing: 12) {
+              if project.project.hasPrefix("/") {
+                AIMCopyablePath(path: project.project).font(AIMTheme.mono(9))
+              } else { Text(project.project).font(AIMTheme.sans(10)) }
+              Spacer()
+              Text("\(UsagePresentation.exactTokens(project.tokens)) tokens")
+                .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+              if !project.isComplete {
+                AIMIcon(name: .info, size: 10).foregroundStyle(AIMTheme.amber)
+                  .help("Some source records are incomplete. Previously recorded totals were retained.")
+              }
+            }
+          }
+        }.padding(.top, 4)
+      }
     }
     .padding(.top, 14)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: range)
+    .task(id: selectedDate) {
+      projects = []
+      guard let selectedDate else { return }
+      let result = await model.projectActivity(on: selectedDate)
+      guard !Task.isCancelled else { return }
+      projects = result
+    }
   }
 
   private var cellSize: CGFloat { range == .year ? 9 : 13 }
@@ -1334,8 +1367,8 @@ private struct AccountUsagePanel: View {
               UsageUnavailableRow(text: "Rate limits unavailable")
             }
 
-            if !snapshot.dailyUsage.isEmpty {
-              UsageActivityCalendar(rows: snapshot.dailyUsage)
+            if !model.dailyUsage(for: account.id).isEmpty {
+              UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
             }
           }
           .padding(16)
@@ -1360,6 +1393,10 @@ private struct AccountUsagePanel: View {
             refreshButton
           }
           .padding(16)
+          if !model.dailyUsage(for: account.id).isEmpty {
+            UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
+              .padding(.horizontal, 16).padding(.bottom, 16)
+          }
         }
       }
     }
@@ -1844,7 +1881,7 @@ private struct HistoryPage: View {
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 12)
     .padding(.bottom, 24)
-    .task { await model.watchChatHistory() }
+    .task { await model.refreshChatHistory(query: threadQuery) }
     .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
   }
 

@@ -95,11 +95,21 @@ backup, stages changes, validates the staged result, publishes the account,
 and verifies the result. A failed operation keeps the prior usable state and
 shows a recovery action.
 
-Existing Codex processes keep their cached credentials. **Use for new Codex
-sessions** atomically replaces the regular `~/.codex/auth.json` file while
+Existing Codex processes keep their cached credentials. **Set as Default**
+atomically replaces the regular `~/.codex/auth.json` file while
 leaving the rest of `~/.codex` unchanged. **Open Codex** performs that activation
 when needed and launches the same live home. Saved credentials are regular
 private files, never symbolic or hard links.
+
+Daily activity starts with a one-year calendar and remembers the selected range.
+Switch retains compact daily summaries in its private application-support
+`activity/daily.sqlite` database, so removing old conversations or rebuilding
+search and quota caches preserves recorded totals. Account totals come from
+Codex responses. Project totals come from local cumulative token events and
+remain separate from account totals. Incomplete or reset source records retain
+known values with an incomplete indication; unseen or deleted records cannot
+be reconstructed. Click a displayed path to copy it. Settings controls body
+translucency, initially 25%, from 0% to 50%.
 
 ## Native package
 

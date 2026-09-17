@@ -85,7 +85,7 @@ struct ProductionAccountViewModelCheck {
             manager: manager,
             chatHistoryProvider: countingHistory,
             chatHistoryMonitor: SilentChatHistoryMonitor())
-        let historyWatch = Task { await stableHistoryModel.watchChatHistory() }
+        let historyWatch = Task { await stableHistoryModel.watchActivity() }
         for _ in 0..<100 where await countingHistory.refreshCount() == 0 {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -110,7 +110,7 @@ struct ProductionAccountViewModelCheck {
         let eventHistory = CountingChatHistoryProvider()
         let eventHistoryModel = AccountViewModel(
             paths: paths, manager: manager, chatHistoryProvider: eventHistory)
-        let eventWatch = Task { await eventHistoryModel.watchChatHistory() }
+        let eventWatch = Task { await eventHistoryModel.watchActivity() }
         for _ in 0..<100 where await eventHistory.refreshCount() == 0 {
             try await Task.sleep(for: .milliseconds(10))
         }

@@ -33,6 +33,116 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(emptyQuery.messages, messages)
     }
 
+    func testProjectActivityUsesCumulativeDeltasAndSurvivesArchiveDeletionAndCacheClear() async throws {
+        let home = root.appending(path: "codex")
+        let source = home.appending(path: "sessions/chat.jsonl")
+        let ledger = try CodexUsageStatisticsCache(
+            databaseURL: root.appending(path: "cache/usage.sqlite"),
+            activityDatabaseURL: root.appending(path: "activity/daily.sqlite"))
+        let cacheFile = root.appending(path: "cache/chats.json")
+        let index = ChatHistoryIndex(home: home, cacheFile: cacheFile)
+        await index.attachActivityCache(ledger)
+        var records: [[String: Any]] = [["type": "session_meta", "payload": [
+            "id": "usage-thread", "cwd": "/Projects/first"]]]
+        records += [tokenRecord(total: 100, at: "2026-09-15T23:59:00Z"),
+                    tokenRecord(total: 100, at: "2026-09-15T23:59:30Z"),
+                    tokenRecord(total: 140, at: "2026-09-16T00:01:00Z")]
+        try writeTranscript(source, records: records)
+        _ = try await index.refresh()
+        let unchanged = try await index.refresh()
+        XCTAssertEqual(unchanged.reparsedFileCount, 0)
+        var first = try await ledger.projectActivity(on: "2026-09-15")
+        var second = try await ledger.projectActivity(on: "2026-09-16")
+        XCTAssertEqual(first.map(\.tokens), [100])
+        XCTAssertEqual(second.map(\.tokens), [40])
+        records.append(tokenRecord(total: 200, at: "2026-09-16T00:02:00Z"))
+        try writeTranscript(source, records: records)
+        _ = try await index.refresh()
+        second = try await ledger.projectActivity(on: "2026-09-16")
+        XCTAssertEqual(second.map(\.tokens), [100])
+        let duplicate = home.appending(path: "archived_sessions/copied.jsonl")
+        try writeTranscript(duplicate, records: records)
+        _ = try await index.refresh()
+        try fileManager.removeItem(at: source)
+        _ = try await index.refresh()
+        try await index.clearCache()
+        let reopened = ChatHistoryIndex(home: home, cacheFile: cacheFile)
+        await reopened.attachActivityCache(ledger)
+        _ = try await reopened.refresh()
+        try fileManager.removeItem(at: duplicate)
+        _ = try await reopened.refresh()
+        first = try await ledger.projectActivity(on: "2026-09-15")
+        second = try await ledger.projectActivity(on: "2026-09-16")
+        XCTAssertEqual(first.map(\.tokens), [100])
+        XCTAssertEqual(second.map(\.tokens), [100])
+        XCTAssertEqual(second.first?.project, "/Projects/first")
+        XCTAssertEqual(second.first?.isComplete, true)
+    }
+
+    func testConcurrentRefreshesShareOneScanAndKeepSeparateSearches() async throws {
+        for index in 0..<100 {
+            _ = try transcript(directory: "sessions", filename: "\(index).jsonl",
+                records: standardRecords(id: "\(index)", prompt: index == 0 ? "one special prompt" : "ordinary"))
+        }
+        let index = ChatHistoryIndex(home: root, maximumWorkerCount: 1)
+        async let all = index.refresh()
+        async let filtered = index.refresh(query: "special")
+        let results = try await (all, filtered)
+        XCTAssertEqual(results.0.libraryRevision, results.1.libraryRevision)
+        XCTAssertEqual(results.0.matchingThreadCount, 100)
+        XCTAssertEqual(results.1.matchingThreadCount, 1)
+        let unchanged = try await index.refresh()
+        XCTAssertEqual(unchanged.reparsedFileCount, 0)
+    }
+
+    func testProjectActivityRetainsKnownTotalsForTruncationResetAndForkedHistory() async throws {
+        let home = root.appending(path: "codex")
+        let source = home.appending(path: "sessions/chat.jsonl")
+        let ledger = try CodexUsageStatisticsCache(
+            databaseURL: root.appending(path: "cache/usage.sqlite"),
+            activityDatabaseURL: root.appending(path: "activity/daily.sqlite"))
+        let index = ChatHistoryIndex(home: home)
+        await index.attachActivityCache(ledger)
+        let meta: [String: Any] = ["type": "session_meta", "payload": ["id": "thread", "cwd": "/Project"]]
+        let initial = [meta, tokenRecord(total: 100, at: "2026-09-16T01:00:00Z"),
+                       tokenRecord(total: 200, at: "2026-09-16T02:00:00Z")]
+        try writeTranscript(source, records: initial)
+        _ = try await index.refresh()
+        try writeTranscript(source, records: Array(initial.prefix(2)))
+        _ = try await index.refresh()
+        var rows = try await ledger.projectActivity(on: "2026-09-16")
+        XCTAssertEqual(rows.map(\.tokens), [200])
+        XCTAssertEqual(rows.first?.isComplete, false)
+        try writeTranscript(source, records: initial + [tokenRecord(total: 5, at: "2026-09-16T03:00:00Z")])
+        _ = try await index.refresh()
+        var fork = initial
+        fork[0] = ["type": "session_meta", "payload": [
+            "id": "child", "cwd": "/Child", "forked_from_id": "thread"]]
+        fork.insert(meta, at: 1)
+        try writeTranscript(home.appending(path: "sessions/fork.jsonl"), records: fork)
+        let forkSnapshot = try await index.refresh()
+        XCTAssertEqual(forkSnapshot.threads.first(where: { $0.threadID == "child" })?.workingDirectory, "/Child")
+        var bad = try Data(contentsOf: source)
+        bad.append(Data("{bad-record\n".utf8))
+        try bad.write(to: source)
+        _ = try await index.refresh()
+        rows = try await ledger.projectActivity(on: "2026-09-16")
+        XCTAssertEqual(rows.map(\.tokens), [200])
+        XCTAssertEqual(rows.first?.isComplete, false)
+    }
+
+    private func tokenRecord(total: Int64, at date: String) -> [String: Any] {
+        ["timestamp": date, "type": "event_msg", "payload": [
+            "type": "token_count", "info": [
+                "total_token_usage": ["total_tokens": total],
+                "last_token_usage": ["total_tokens": 99]]]]
+    }
+
+    private func writeTranscript(_ url: URL, records: [[String: Any]]) throws {
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try encodedLines(records).write(to: url)
+    }
+
     func testMessageSearchFiltersRolesBeforeMatchingAndExportPreservesDisplayedOrder() async throws {
         let timestamp = try XCTUnwrap(
             ISO8601DateFormatter().date(from: "2026-09-14T04:00:00Z"))

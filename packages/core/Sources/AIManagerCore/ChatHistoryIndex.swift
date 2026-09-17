@@ -211,6 +211,7 @@ public actor ChatHistoryIndex {
         let signature: FileSignature
         let summary: ChatThreadSummary
         let searchText: String
+        var activityRecorded = false
     }
 
     private struct CachedDetail: Sendable {
@@ -252,6 +253,7 @@ public actor ChatHistoryIndex {
         let fileByteCount: Int64
         let unreadableRecordCount: Int
         let searchText: String
+        let activityRecorded: Bool?
     }
 
     private struct PersistentFailure: Codable {
@@ -272,6 +274,8 @@ public actor ChatHistoryIndex {
     private var libraryRevision: UInt64 = 0
     private var loadedPersistentCache = false
     private var persistentCacheNeedsMigration = false
+    private var activityCache: CodexUsageStatisticsCache?
+    private var refreshTask: Task<Int, Error>?
 
     public init(home: URL, cacheFile: URL? = nil, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
@@ -281,7 +285,26 @@ public actor ChatHistoryIndex {
         workerCount = min(max(1, requested), 6)
     }
 
+    public func attachActivityCache(_ cache: CodexUsageStatisticsCache) {
+        activityCache = cache
+    }
+
     public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
+        try Task.checkCancellation()
+        let reparsedFileCount: Int
+        if let refreshTask {
+            reparsedFileCount = try await refreshTask.value
+        } else {
+            let task = Task(priority: .utility) { try await self.scan() }
+            refreshTask = task
+            defer { refreshTask = nil }
+            reparsedFileCount = try await task.value
+        }
+        try Task.checkCancellation()
+        return makeSnapshot(query: query, limit: limit, reparsedFileCount: reparsedFileCount)
+    }
+
+    private func scan() async throws -> Int {
         try Task.checkCancellation()
         loadPersistentCacheIfNeeded()
         let metadataTask = Task.detached(priority: .utility) { [home] in
@@ -300,7 +323,8 @@ public actor ChatHistoryIndex {
 
         let changed = candidates.filter { candidate in
             let path = candidate.url.path
-            return cache[path]?.signature != candidate.signature
+            return (cache[path]?.signature != candidate.signature
+                    || (activityCache != nil && cache[path]?.activityRecorded != true))
                 && failedSignatures[path] != candidate.signature
         }
         var libraryChanged = removedCachedFile || removedFailedFile || !changed.isEmpty
@@ -311,15 +335,27 @@ public actor ChatHistoryIndex {
             switch result {
             case let .parsed(candidate, transcript):
                 let path = candidate.url.path
+                if let activityCache {
+                    let fallback = CoreSupport.digest(Data(
+                        (home.path + "\u{0}" + candidate.url.lastPathComponent).utf8))
+                    try await activityCache.recordTranscriptActivity(transcript.activity, fallbackID: fallback)
+                }
                 cache[path] = CachedThread(
                     signature: candidate.signature,
                     summary: transcript.summary,
-                    searchText: transcript.searchText)
+                    searchText: transcript.searchText,
+                    activityRecorded: activityCache != nil)
                 orderedCacheIsDirty = true
                 failedSignatures[path] = nil
                 detailCache[path] = nil
             case let .failed(candidate):
                 let path = candidate.url.path
+                if let activityCache, let previous = cache[path] {
+                    try await activityCache.recordTranscriptActivity(.init(
+                        threadID: previous.summary.threadID, project: previous.summary.workingDirectory,
+                        firstEvent: "", eventCount: 0, totalTokens: 0, days: [:], complete: false),
+                        fallbackID: "")
+                }
                 if cache[path] != nil { orderedCacheIsDirty = true }
                 cache[path] = nil
                 failedSignatures[path] = candidate.signature
@@ -338,7 +374,7 @@ public actor ChatHistoryIndex {
             persistCache()
         }
 
-        return makeSnapshot(query: query, limit: limit, reparsedFileCount: changed.count)
+        return changed.count
     }
 
     public func search(query: String, limit: Int = 1_000) -> ChatHistorySnapshot {
@@ -477,7 +513,8 @@ public actor ChatHistoryIndex {
                 source: URL(fileURLWithPath: item.path),
                 unreadableRecordCount: item.unreadableRecordCount)
             cache[item.path] = CachedThread(
-                signature: signature, summary: summary, searchText: item.searchText)
+                signature: signature, summary: summary, searchText: item.searchText,
+                activityRecorded: item.activityRecorded ?? false)
         }
         for item in document.failures where validPersistentPath(item.path) {
             guard item.path.count <= 4_096, item.byteCount >= 0 else { continue }
@@ -508,7 +545,7 @@ public actor ChatHistoryIndex {
                 messageCount: summary.messageCount,
                 fileByteCount: summary.fileByteCount,
                 unreadableRecordCount: summary.unreadableRecordCount,
-                searchText: cached.searchText)
+                searchText: cached.searchText, activityRecorded: cached.activityRecorded)
         }
         let failures = failedSignatures.keys.sorted().compactMap { path -> PersistentFailure? in
             guard let signature = failedSignatures[path] else { return nil }
@@ -559,7 +596,8 @@ public actor ChatHistoryIndex {
             let searchText = Self.searchText(for: summary)
             guard summary != current || searchText != cached.searchText else { continue }
             cache[path] = CachedThread(
-                signature: cached.signature, summary: summary, searchText: searchText)
+                signature: cached.signature, summary: summary, searchText: searchText,
+                activityRecorded: cached.activityRecorded)
             if let detail = detailCache[path] {
                 detailCache[path] = CachedDetail(
                     signature: detail.signature,
@@ -695,6 +733,7 @@ private struct ParsedTranscript: Sendable {
     let summary: ChatThreadSummary
     let searchText: String
     let messages: [ChatMessage]
+    let activity: CodexTranscriptActivity
 }
 
 private enum TranscriptParser {
@@ -732,17 +771,24 @@ private enum TranscriptParser {
         let reader = try JSONLReader(url: candidate.url)
         let fractionalDateParser: ISO8601DateFormatter?
         let wholeSecondDateParser: ISO8601DateFormatter?
-        if includeMessages {
+        do {
             let fractional = ISO8601DateFormatter()
             fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             fractionalDateParser = fractional
             let wholeSecond = ISO8601DateFormatter()
             wholeSecond.formatOptions = [.withInternetDateTime]
             wholeSecondDateParser = wholeSecond
-        } else {
-            fractionalDateParser = nil
-            wholeSecondDateParser = nil
         }
+        let dayParser = ISO8601DateFormatter()
+        dayParser.formatOptions = [.withFullDate]
+        dayParser.timeZone = TimeZone(secondsFromGMT: 0)
+        var activityDays: [String: Int64] = [:]
+        var previousTokens: Int64 = 0
+        var activityEventCount = 0
+        var firstActivityEvent = ""
+        var activityComplete = true
+        var inheritedHistory = false
+        var hasSessionMetadata = false
         var threadID: String?
         var workingDirectory: String?
         var latestDate = candidate.signature.modifiedAt
@@ -767,24 +813,60 @@ private enum TranscriptParser {
             if sequence == 1, record.starts(with: [0xEF, 0xBB, 0xBF]) {
                 record.removeFirst(3)
             }
-            guard record.count <= 4 * 1_024 * 1_024 else { continue }
+            guard record.count <= 4 * 1_024 * 1_024 else {
+                activityComplete = false
+                continue
+            }
             if record.count > 64 * 1_024, !mayContainVisibleMessage(record) { continue }
             guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any]
             else {
                 unreadableRecords += 1
                 continue
             }
-            let timestamp = parseDate(
-                object["timestamp"], fractional: fractionalDateParser,
-                wholeSecond: wholeSecondDateParser)
-            if let timestamp, timestamp > latestDate { latestDate = timestamp }
             let type = object["type"] as? String
-
+            let payload = object["payload"] as? [String: Any]
+            let tokenEvent = type == "event_msg" && payload?["type"] as? String == "token_count"
+            let timestamp = includeMessages || tokenEvent ? parseDate(
+                object["timestamp"], fractional: fractionalDateParser,
+                wholeSecond: wholeSecondDateParser) : nil
+            if let timestamp, timestamp > latestDate { latestDate = timestamp }
             if type == "session_meta", let payload = object["payload"] as? [String: Any] {
+                guard !hasSessionMetadata else { continue }
+                hasSessionMetadata = true
                 threadID = nonempty(payload["id"] as? String)
                     ?? nonempty(payload["session_id"] as? String)
                     ?? threadID
                 workingDirectory = nonempty(payload["cwd"] as? String) ?? workingDirectory
+                inheritedHistory = payload["forked_from_id"] is String
+                    || payload["history_base"] is [String: Any]
+                    || payload["subagent_history_start_ordinal"] is NSNumber
+                continue
+            }
+
+            if tokenEvent {
+                guard let info = payload?["info"] as? [String: Any] else { continue }
+                guard let usage = info["total_token_usage"] as? [String: Any],
+                      let number = usage["total_tokens"] as? NSNumber,
+                      String(cString: number.objCType) != "c",
+                      let total = Int64(number.stringValue), total >= 0 else {
+                    activityComplete = false
+                    continue
+                }
+                activityEventCount += 1
+                if firstActivityEvent.isEmpty {
+                    firstActivityEvent = "\(object["timestamp"] as? String ?? ""):\(total)"
+                }
+                guard !inheritedHistory, total >= previousTokens else {
+                    activityComplete = false
+                    continue
+                }
+                let delta = total - previousTokens
+                previousTokens = total
+                guard let timestamp else { activityComplete = false; continue }
+                guard activityComplete else { continue }
+                let day = dayParser.string(from: timestamp)
+                let (sum, overflow) = activityDays[day, default: 0].addingReportingOverflow(delta)
+                if overflow { activityComplete = false } else { activityDays[day] = sum }
                 continue
             }
 
@@ -897,7 +979,15 @@ private enum TranscriptParser {
             .compactMap { $0 }
             .joined(separator: "\n")
             .lowercased()
-        return ParsedTranscript(summary: summary, searchText: searchText, messages: messages)
+        let current = try? candidate.url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let unchanged = Int64(current?.fileSize ?? -1) == candidate.signature.byteCount
+            && current?.contentModificationDate == candidate.signature.modifiedAt
+        return ParsedTranscript(
+            summary: summary, searchText: searchText, messages: messages,
+            activity: CodexTranscriptActivity(
+                threadID: threadID, project: workingDirectory, firstEvent: firstActivityEvent,
+                eventCount: activityEventCount, totalTokens: previousTokens, days: activityDays,
+                complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged))
     }
 
     private static func append(

@@ -64,6 +64,54 @@ final class CodexUsageStatisticsCacheTests: XCTestCase {
         XCTAssertNil(recovered?.failureAt)
     }
 
+    func testDailyLedgerMergesCorrectionsAndSurvivesExpiryPurgeAndReopen() async throws {
+        let ledger = root.appending(path: "activity/daily.sqlite")
+        let account = UUID()
+        let other = UUID()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let cache = try CodexUsageStatisticsCache(databaseURL: database,
+            policy: .init(retention: 1, maximumSamplesPerAccount: 1),
+            activityDatabaseURL: ledger, now: { clock.value })
+        func daily(_ rows: [(String, Int64)], at time: Double) -> CodexAccountUsageSnapshot {
+            .init(account: nil, requiresOpenAIAuthentication: nil, rateLimits: nil, usage: nil,
+                  dailyUsage: rows.map { .init(startDate: $0.0, tokens: $0.1) },
+                  fetchedAt: Date(timeIntervalSince1970: time))
+        }
+        let first = daily([("2026-09-15", 10), ("2026-09-15", 20), ("2026-09-16", 40),
+                           ("2026-02-30", 99), ("2026-09-14", -1)], at: 100)
+        try await cache.upsertSuccess(accountID: account, snapshot: first)
+        try await cache.upsertSuccess(accountID: account, snapshot: first)
+        clock.value = clock.value.addingTimeInterval(10)
+        try await cache.upsertSuccess(accountID: account,
+            snapshot: daily([("2026-09-16", 12), ("2026-09-17", 0)], at: 200))
+        try await cache.upsertSuccess(accountID: account,
+            snapshot: daily([("2026-09-16", 99)], at: 150))
+        try await cache.upsertSuccess(accountID: other,
+            snapshot: daily([("2026-09-16", 7)], at: 300))
+        try await cache.purgeAll()
+        let reopened = try CodexUsageStatisticsCache(databaseURL: database, activityDatabaseURL: ledger)
+        let rows = try await reopened.dailyUsage(for: account)
+        XCTAssertEqual(rows.map(\.startDate), ["2026-09-15", "2026-09-16", "2026-09-17"])
+        XCTAssertEqual(rows.map(\.tokens), [30, 12, 0])
+        let otherRows = try await reopened.dailyUsage(for: other)
+        XCTAssertEqual(otherRows.map(\.tokens), [7])
+        XCTAssertEqual(try mode(ledger) & 0o777, 0o600)
+        XCTAssertLessThan(try Data(contentsOf: ledger).count, 128 * 1_024)
+    }
+
+    func testDailyLedgerSeedsExistingSamplesBeforeTheyExpire() async throws {
+        let account = UUID()
+        let cache = try CodexUsageStatisticsCache(databaseURL: database)
+        try await cache.upsertSuccess(accountID: account, snapshot: .init(
+            account: nil, requiresOpenAIAuthentication: nil, rateLimits: nil, usage: nil,
+            dailyUsage: [.init(startDate: "2026-09-16", tokens: 42)], fetchedAt: Date()))
+        let migrated = try CodexUsageStatisticsCache(databaseURL: database,
+            activityDatabaseURL: root.appending(path: "activity/daily.sqlite"))
+        try await migrated.purgeAll()
+        let retained = try await migrated.dailyUsage(for: account)
+        XCTAssertEqual(retained.map(\.tokens), [42])
+    }
+
     func testEnforcesRetentionPerAccountAndTotalRowLimits() async throws {
         let first = UUID()
         let second = UUID()
