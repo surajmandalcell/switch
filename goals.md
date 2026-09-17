@@ -25,6 +25,12 @@ reconciliation without the user-action busy state. The app delegate owns the sin
 callback; the duplicate view callback is removed. `check-mac-gui-production.sh` failed before
 the change and passes after it. Cross-control tracking verification and installation remain open.
 
+A second production regression caught five publications during an unchanged activation.
+Native value equality now avoids publishing unchanged status, history counts, cached usage,
+limit snapshots, and retained activity. The regression passes with zero idle publications;
+an external synthetic account reorder still refreshes the list and preserves selection.
+There is no replacement hover tracker or theme change in this fix.
+
 - [x] Reproduce missing and abrupt hover feedback in the shared native controls.
 - [x] Give enabled controls a consistent 120 ms fade without changing hit areas.
 - [x] Verify rendered entry/exit, disabled/Reduce Motion states, and sidebar transitions.

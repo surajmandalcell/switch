@@ -1082,13 +1082,15 @@ final class AccountViewModel: ObservableObject {
         do {
             let accountIDs = status?.accounts.map(\.id) ?? []
             let cached = try await usageCache.latest(for: accountIDs)
-            accountUsage = Dictionary(uniqueKeysWithValues: cached.map { ($0.accountID, $0) })
-            usageSnapshots = Dictionary(uniqueKeysWithValues: cached.compactMap { entry in
+            let newUsage = Dictionary(uniqueKeysWithValues: cached.map { ($0.accountID, $0) })
+            let newSnapshots = Dictionary(uniqueKeysWithValues: cached.compactMap { entry in
                 entry.snapshot.map { (entry.accountID, $0) }
             })
             var daily: [UUID: [CodexDailyUsageSnapshot]] = [:]
             for id in accountIDs { daily[id] = try await usageCache.dailyUsage(for: id) }
-            retainedDailyUsage = daily
+            if accountUsage != newUsage { accountUsage = newUsage }
+            if usageSnapshots != newSnapshots { usageSnapshots = newSnapshots }
+            if retainedDailyUsage != daily { retainedDailyUsage = daily }
         } catch {
             usageError = CodexUsageStatisticsFailure.storageUnavailable.message
             usageErrorAccountID = nil
@@ -1432,8 +1434,8 @@ final class AccountViewModel: ObservableObject {
         let summaries = Dictionary(uniqueKeysWithValues: newStatus.accounts.map {
             ($0.id, sharedHistory)
         })
-        status = newStatus
-        accountHistory = summaries
+        if status != newStatus { status = newStatus }
+        if accountHistory != summaries { accountHistory = summaries }
     }
 
     private func apply(_ snapshot: AccountSnapshot) {

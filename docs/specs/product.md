@@ -221,7 +221,7 @@ Animate color or opacity only; hit areas remain fixed and decorative overlays do
 pointer input. Disabled controls do not highlight, and Reduce Motion uses immediate feedback.
 Moving between controls or returning after Command-Tab must not cycle through hover,
 disabled, and normal colors. Background account reconciliation must not disable the
-interface, and each control must have one authoritative pointer-tracking path.
+interface or publish unchanged account, history, and usage values.
 
 Inter is the interface, reading, and display face. PT Mono is reserved for paths,
 measurements, IDs, and other technical data. Both font families are bundled with their OFL
