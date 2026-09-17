@@ -108,8 +108,10 @@ explanation, Add Account action, or Quit action. Account creation and usage refr
 the main window.
 
 Each account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
-in its action row. An outlined double tick with two complete checkmarks shows the selected state,
-matching Using as default; its accessible value
+in its action row. Both stateful actions use a single tick when false (Set as Default or
+Menubar display off), and an outlined double tick with two complete checkmarks when true
+(Using as default or Menubar display on). The icon reflects the current state, not the
+action that clicking will perform. The Menubar toggle's accessible value
 explains whether usage display is on or off. Its context menu offers Use Settings default.
 Fit the double check's visible outline, including stroke clearance, rather than its empty
 512-unit SVG canvas. At the ordinary 13-point icon size, give it a 17⅓-by-13-point area:

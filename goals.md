@@ -17,6 +17,8 @@ verification evidence.
   respecting saved order instead of forcing the default first.
 - [x] Reduce popover text and spacing; use a compact blue outlined Switch action.
 - [x] Draw two complete outlined checks; the incomplete Ionicons second arm is superseded.
+- [x] Confirm single ticks for false states and double ticks for true states on both
+  Set as Default and Show in Menubar.
 - [x] Verify the refinements, audit debt, and install the exact clean signed build.
 
 This refinement supersedes the earlier default-first tray, repeated provider glyphs,
@@ -31,6 +33,14 @@ The double-tick regression failed against the prior artwork: `Path.addLines` int
 extra move and disconnected an arm. Explicit connected lines now draw two complete checks.
 Current light/dark menu, tray, and account renders were inspected at actual size in
 `/private/tmp/ai-manager-build/ui-review`.
+
+State clarification: the installed `c3b969f21a55` already selects the icon from each
+action's actual boolean. Native inspection confirmed a single tick for Set as Default
+on a nondefault account and a double tick for Using as default. Toggling Menubar display
+off showed a single tick and accessible Off value; restoring on showed a double tick
+and On value. Original preferences and account selection were restored without changing
+authentication. This clarification changes documentation only; the full debt inventory
+remains two existing markers with explicit, unmet triggers and no additions.
 
 Installed acceptance: clean signed checkpoint `3d7160447a5e` passed the local release gate.
 Native window-relative pointer drags moved accounts down and up without selecting or activating
