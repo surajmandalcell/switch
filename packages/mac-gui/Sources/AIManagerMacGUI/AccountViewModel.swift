@@ -709,6 +709,37 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
+    func moveAccount(_ accountID: UUID, to targetID: UUID) async {
+        guard let accounts = status?.accounts,
+              let source = accounts.firstIndex(where: { $0.id == accountID }),
+              let target = accounts.firstIndex(where: { $0.id == targetID }),
+              source != target else { return }
+        var ids = accounts.map(\.id)
+        ids.insert(ids.remove(at: source), at: target)
+        await perform(
+            failure: "Couldn’t save the account order.",
+            recovery: "Refresh accounts, then try again."
+        ) {
+            if let manager {
+                status = try await manager.reorderAccounts(ids)
+                return
+            }
+            #if AI_MANAGER_PREVIEW
+            guard isDemo, var current = status else { return }
+            let records = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+            current.accounts = ids.compactMap { records[$0] }
+            status = current
+            #endif
+        }
+    }
+
+    func adjacentAccountID(to accountID: UUID, offset: Int) -> UUID? {
+        guard let accounts = status?.accounts,
+              let index = accounts.firstIndex(where: { $0.id == accountID }),
+              accounts.indices.contains(index + offset) else { return nil }
+        return accounts[index + offset].id
+    }
+
     func repairLinkedSetting(_ issue: LinkedSettingsDivergence) async {
         if let manager {
             await perform(

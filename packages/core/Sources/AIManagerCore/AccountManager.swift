@@ -83,6 +83,22 @@ public actor AccountManager {
         )
     }
 
+    public func reorderAccounts(_ accountIDs: [UUID]) throws -> ManagerStatus {
+        try lock.withLock {
+            try ensureNoRecovery()
+            var registry = try loadRegistryLocked()
+            guard accountIDs.count == registry.accounts.count,
+                  Set(accountIDs) == Set(registry.accounts.map(\.id)) else {
+                throw AIManagerError.sourceChanged
+            }
+            guard accountIDs != registry.accounts.map(\.id) else { return }
+            let accounts = Dictionary(uniqueKeysWithValues: registry.accounts.map { ($0.id, $0) })
+            registry.accounts = accountIDs.compactMap { accounts[$0] }
+            try saveRegistry(registry)
+        }
+        return try status()
+    }
+
     public static let providerCatalog: [ProviderDescriptor] = [
         .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
         .init(

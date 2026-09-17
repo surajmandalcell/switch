@@ -119,6 +119,46 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertTrue(status.accounts.isEmpty)
     }
 
+    func testAccountOrderSurvivesReopenActivationAppendAndDeletion() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let first = try await importAccount("first", manager: manager)
+        let second = try await importAccount("second", manager: manager)
+        _ = try await manager.switchDefault(to: first.id)
+        let auth = try Data(contentsOf: paths.defaultHome.appending(path: "auth.json"))
+        let reordered = try await manager.reorderAccounts([second.id, first.id])
+        XCTAssertEqual(reordered.accounts.map(\.id), [second.id, first.id])
+        XCTAssertEqual(reordered.defaultAccountID, first.id)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), auth)
+
+        let registry = paths.applicationSupport.appending(path: "accounts.json")
+        let inode = try fileManager.attributesOfItem(atPath: registry.path)[.systemFileNumber] as? NSNumber
+        _ = try await manager.reorderAccounts([second.id, first.id])
+        XCTAssertEqual(try fileManager.attributesOfItem(atPath: registry.path)[.systemFileNumber] as? NSNumber, inode)
+        let reopened = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let saved = try await reopened.status()
+        XCTAssertEqual(saved.accounts.map(\.id), [second.id, first.id])
+        let third = try await importAccount("third", manager: reopened)
+        _ = try await reopened.switchDefault(to: third.id)
+        let appended = try await reopened.status()
+        XCTAssertEqual(appended.accounts.map(\.id), [second.id, first.id, third.id])
+        _ = try await reopened.deleteAccount(accountID: first.id)
+        let remaining = try await reopened.status()
+        XCTAssertEqual(remaining.accounts.map(\.id), [second.id, third.id])
+    }
+
+    func testAccountOrderRejectsStaleDuplicateAndForeignIDs() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let first = try await importAccount("first", manager: manager)
+        let second = try await importAccount("second", manager: manager)
+        for invalid in [[first.id], [first.id, first.id], [first.id, UUID()]] {
+            await XCTAssertThrowsDeletionError(try await manager.reorderAccounts(invalid)) { error in
+                XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+            }
+        }
+        let unchanged = try await manager.status()
+        XCTAssertEqual(unchanged.accounts.map(\.id), [first.id, second.id])
+    }
+
     private func importAccount(_ name: String, manager: AccountManager) async throws -> AccountRecord {
         let source = root.appending(path: "source-\(name)", directoryHint: .isDirectory)
         try privateDirectory(source)
