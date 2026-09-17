@@ -1,10 +1,10 @@
-<!-- Approved pixel-traced Switch mark on a graphite tile for light environments. -->
+<!-- Approved pixel-traced Switch mark in dark ink on a light neutral tile. -->
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="tile-surface-light" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#292929"/>
-      <stop offset="0.48" stop-color="#202020"/>
-      <stop offset="1" stop-color="#171717"/>
+      <stop offset="0" stop-color="#f7f7f5"/>
+      <stop offset="0.48" stop-color="#ecece9"/>
+      <stop offset="1" stop-color="#ddddda"/>
     </linearGradient>
     <linearGradient id="edge-light" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.07"/>
@@ -13,7 +13,7 @@
     </linearGradient>
     <linearGradient id="lower-shade-light" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0.62" stop-color="#000000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000000" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.06"/>
     </linearGradient>
     <linearGradient id="top-sheen-light" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.035"/>
@@ -28,5 +28,5 @@
   <rect x="92.5" y="92.5" width="839" height="839" rx="199.5" fill="none" stroke="url(#edge-light)" stroke-width="1"/>
   <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#lower-shade-light)"/>
   <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#top-sheen-light)"/>
-  <rect width="1024" height="1024" fill="#f4f1e8" mask="url(#pixel-mark-light)"/>
+  <rect width="1024" height="1024" fill="#222222" mask="url(#pixel-mark-light)"/>
 </svg>
