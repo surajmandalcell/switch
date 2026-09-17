@@ -107,30 +107,42 @@ and an Open App footer action. It has no brand/count/refresh header, column head
 explanation, Add Account action, or Quit action. Account creation and usage refresh belong in
 the main window.
 
-Each account exposes a labeled **Show in menu bar** toggle immediately before Open Codex
-in its action row. A native check-circle shows the selected state; its accessible value
+Each account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
+in its action row. Ionicons' exact `checkmark-done-outline` glyph shows the selected state,
+matching Using as default; its accessible value
 explains whether usage display is on or off. Its context menu offers Use Settings default.
 Identity's header retains Default and attention badges, without a redundant provider badge
 or menu-bar toggle. There is no separate preference row in Usage.
-This preference controls both that account's popover limits and the
-active account's percentage beside the menu-bar icon. All accounts remain listed and
+This preference controls both that account's popover limits and its menu-bar entry.
+With any account enabled, replace Switch's tray mark with up to four compact pairs of
+the provider's monochrome glyph and **remaining** quota percentage. Put the enabled default
+first, then other enabled accounts in list order. Repeat the glyph for different accounts of
+the same provider. When an enabled account has no cached limit, show a dash, with its identity
+and unavailable-limit state in the tooltip and accessible description; never invent a value.
+Keep the Switch mark only when no account is enabled. All accounts remain listed and
 switchable. Disabled usage has no refresh action or placeholder; enabling display does
 not activate an account. Preferences persist by account UUID and update the menu at once.
 Main-window usage and its cache remain available regardless of this display preference.
 If Codex returns only a weekly limit, show it without inventing a 5-hour value. The tray
-percentage uses the 5-hour limit when available, otherwise the weekly limit.
+percentage uses the 5-hour limit when available, otherwise the weekly limit, subtracting
+the clamped used percentage from 100. The popover continues to show used percentages.
+Package a sourced monochrome glyph catalog for current and future providers locally;
+having artwork does not enable an unsupported provider or add any network work on menu open.
 
 Each account is a distinct compact card. Its single 36-point identity row shows a truncated
 account name with a full-name tooltip, active or attention state, and a dedicated Switch
 button when eligible. Provider and workspace remain in the accessible description. Active,
-Switch, and Sign in controls share one compact ghost-button size. When menu
+Switch, and Sign in controls share one compact 64-by-24-point size and five-point corners.
+Switch uses a dark filled button with white text; Active is a disabled gray button rather
+than a colored badge. When menu
 usage is enabled and cached, the card expands to show separate Weekly and 5 hour progress
 rows. Each row places the limit name above its percentage, followed by a horizontal progress
 bar and a right-aligned reset description. The cards use a quiet dark gradient, fine border,
 and restrained hover change while preserving three-point corners. A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
 left even when usage display is disabled, and Open App on the right. The popover is 384 points wide,
-uses a 48-point footer, and scrolls at the smaller of 900 points or 80% of the smallest attached
+uses a compact 32-point footer with ten-point horizontal insets and a text-only Open App
+button, and scrolls at the smaller of 900 points or 80% of the smallest attached
 display's visible height. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 

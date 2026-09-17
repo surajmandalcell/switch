@@ -35,6 +35,13 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   preserving activation-failure safety and using the ordinary Delete account label.
 - [x] Compact menu account headers to one row and cap the scrolling popover at 80% of
   the smallest display's visible height, with a 900-point ceiling.
+- [ ] Replace the tray mark with provider glyph/remaining-quota pairs for enabled
+  accounts, default first, capped at four; retain the Switch mark if none are enabled.
+- [ ] Package a sourced offline glyph catalog without enabling future providers.
+- [ ] Use the exact outlined Ionicons double tick for Using as default and enabled
+  Show in Menubar; use the user's one-word Menubar label.
+- [ ] Tighten the popover footer to 32 points with a text-only Open App button; make
+  Switch dark/white and Active disabled gray, both compact with five-point corners.
 
 Compact-control refinement: the default-deletion regression reproduced the prior UI block
 before the fix. Production and Preview model checks then passed. A previous selection beats
