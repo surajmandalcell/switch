@@ -190,6 +190,25 @@ enum AIManagerNativeContract {
 
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
+    let dragModel = AccountViewModel(scenario: .allStates)
+    if let accounts = dragModel.status?.accounts, accounts.count == 3 {
+      let cases: [(CGFloat, UUID?)] = [
+        (-45, nil), (-44, accounts[0].id), (-1, accounts[0].id),
+        (0, accounts[1].id), (43.999, accounts[1].id),
+        (44, accounts[2].id), (87.999, accounts[2].id), (88, nil),
+      ]
+      for (y, expected) in cases {
+        if accountDropTarget(for: accounts[1].id, at: CGPoint(x: 100, y: y), model: dragModel) != expected {
+          failures.append("Sidebar drag targets the wrong account at vertical boundary \(y)")
+        }
+      }
+      for point in [CGPoint(x: -1, y: 0), CGPoint(x: 201, y: 0),
+        CGPoint(x: 0, y: CGFloat.infinity), CGPoint(x: CGFloat.nan, y: 0)] {
+        if accountDropTarget(for: accounts[1].id, at: point, model: dragModel) != nil {
+          failures.append("Sidebar drag accepts an outside or invalid pointer position")
+        }
+      }
+    } else { failures.append("Sidebar drag fixture lacks three ordered accounts") }
     let doubleTick = AIMIcon(name: .doubleCheck, size: 13)
     let tickBounds = AIMDoubleCheckShape().path(
       in: CGRect(x: 0, y: 0, width: doubleTick.width, height: doubleTick.size)).boundingRect

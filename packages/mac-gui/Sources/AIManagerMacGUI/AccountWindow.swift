@@ -1,7 +1,6 @@
 import AIManagerCore
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 @MainActor final class AIManagerWindow: NSWindow {
   static let fixedSize = NSSize(width: 1120, height: 740)
@@ -615,6 +614,7 @@ private struct AccountsPage: View {
   @State private var importHovered = false
   @State private var pendingDeletion: PendingAccountDeletion?
   @State private var dropTargetID: UUID?
+  @GestureState private var isDraggingAccount = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
@@ -634,25 +634,20 @@ private struct AccountsPage: View {
                 .contextMenu {
                   accountContextMenu(for: account)
                 }
-                .onDrag { NSItemProvider(object: account.id.uuidString as NSString) }
-                .onDrop(of: [UTType.utf8PlainText], isTargeted: Binding(
-                  get: { dropTargetID == account.id },
-                  set: { targeted in
-                    if targeted { dropTargetID = account.id }
-                    else if dropTargetID == account.id { dropTargetID = nil }
-                  }
-                )) { providers in
-                  guard !model.isBusy, providers.count == 1,
-                    providers[0].canLoadObject(ofClass: NSString.self) else { return false }
-                  _ = providers[0].loadObject(ofClass: NSString.self) { object, error in
-                    guard error == nil, let text = object as? String,
-                      let id = UUID(uuidString: text) else { return }
-                    Task { @MainActor in await model.moveAccount(id, to: account.id) }
-                  }
-                  return true
-                }
+                .highPriorityGesture(
+                  DragGesture(minimumDistance: 6)
+                    .updating($isDraggingAccount) { _, dragging, _ in dragging = true }
+                    .onChanged { value in
+                      dropTargetID = accountDropTarget(for: account.id, at: value.location, model: model)
+                    }
+                    .onEnded { value in
+                      defer { dropTargetID = nil }
+                      guard let target = accountDropTarget(for: account.id, at: value.location, model: model) else { return }
+                      Task { await model.moveAccount(account.id, to: target) }
+                    }
+                )
                 .overlay {
-                  if dropTargetID == account.id {
+                  if isDraggingAccount && dropTargetID == account.id {
                     Rectangle().stroke(AIMTheme.blue.opacity(0.7), lineWidth: 1)
                       .allowsHitTesting(false)
                   }
@@ -761,7 +756,18 @@ private struct AccountsPage: View {
     return removal
   }
 }
+@MainActor
+func accountDropTarget(for accountID: UUID, at point: CGPoint, model: AccountViewModel) -> UUID? {
+  guard !model.isBusy, point.x.isFinite, point.y.isFinite,
+    point.x >= 0, point.x <= AIMTheme.listWidth,
+    abs(point.y) < CGFloat(model.status?.accounts.count ?? 0) * AccountListRow.height
+  else { return nil }
+  return model.adjacentAccountID(
+    to: accountID, offset: Int(floor(point.y / AccountListRow.height)))
+}
+
 private struct AccountListRow: View {
+  static let height: CGFloat = 44
   let account: AccountRecord, selected: Bool, isDefault: Bool
   @State private var hover = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -775,7 +781,7 @@ private struct AccountListRow: View {
       Text(account.identity.providerID.displayName).font(AIMTheme.sans(10, weight: .medium))
         .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
     }.padding(.horizontal, 12).padding(.vertical, 6).frame(
-      maxWidth: .infinity, minHeight: 44, alignment: .leading
+      maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
     ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background(
       selected ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear)
     ).overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
