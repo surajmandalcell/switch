@@ -85,6 +85,13 @@ Daily activity uses a GitHub-style calendar instead of a date table. The user ca
 Selecting an account only changes the displayed account; it must not activate credentials
 or wait on file reads, queries, or repeated calendar aggregation. Build each displayed
 calendar's days, weeks, and token maximum once per body update, rather than once per cell.
+The full account pane must remain responsive during ordinary selection, including accounts
+with a year of activity. Measure the real pane's layout and drawing, not only its calendar
+or the selected-ID setter. Defer expensive display work when necessary without showing
+the previous account's data under the new identity.
+Dense month/year grids use one native Canvas with exact-day pointer selection, arrow keys,
+and native accessibility actions for each date. Weekday labels align to a Sunday-first grid.
+Routine account or hover redraws must not reload or reassign the Dock icon.
 Sidebar hover has one bounded target and fades its highlight in and out within 120 ms,
 without animating hitbox geometry or leaving previous items persistently lit.
 Cell intensity reflects the token count within the selected range, and a selected day shows
@@ -222,6 +229,9 @@ pointer input. Disabled controls do not highlight, and Reduce Motion uses immedi
 Moving between controls or returning after Command-Tab must not cycle through hover,
 disabled, and normal colors. Background account reconciliation must not disable the
 interface or publish unchanged account, history, and usage values.
+Light and dark hover feedback must remain stable with body translucency enabled.
+Show in Menubar uses the same normal button colors as Open Codex and Use & Open Codex;
+its tick state communicates the saved choice without a separate blue surface.
 
 Inter is the interface, reading, and display face. PT Mono is reserved for paths,
 measurements, IDs, and other technical data. Both font families are bundled with their OFL

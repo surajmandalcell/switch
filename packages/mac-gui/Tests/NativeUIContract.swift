@@ -61,11 +61,13 @@ enum AIManagerNativeContract {
     for (name, control, enabled) in controls {
       failures.append(contentsOf: await hoverFeedbackFailures(name: name, control: control, enabled: enabled))
     }
-    failures.append(contentsOf: await hoverTransitionFailures())
+    for opacity in [1.0, 0.65] {
+      failures.append(contentsOf: await hoverTransitionFailures(surfaceOpacity: opacity))
+    }
     return failures
   }
 
-  private static func hoverTransitionFailures() async -> [String] {
+  private static func hoverTransitionFailures(surfaceOpacity: Double) async -> [String] {
     let hover = AIMSidebarHover()
     let dark = NSApp.windows.first?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     let root = VStack(spacing: 0) {
@@ -74,6 +76,10 @@ enum AIManagerNativeContract {
       RailButton(icon: .settings, label: "Settings", active: false,
         sidebarHover: hover, hoverID: "Settings", action: {})
     }.background(AIMTheme.canvas)
+      .background {
+        AIMVisualEffect(material: .underWindowBackground, blendingMode: .behindWindow, darkMode: dark)
+      }
+      .environment(\.aimSurfaceOpacity, surfaceOpacity)
       .environment(\.colorScheme, dark ? .dark : .light).environment(\.aimDarkMode, dark)
     let host = NSHostingView(rootView: root)
     host.frame = NSRect(x: 0, y: 0, width: 48, height: 96)
@@ -132,7 +138,7 @@ enum AIManagerNativeContract {
       if frameCount > 8, let settled = frames.last, frames.suffix(48).contains(where: { abs($0 - settled) > 0.01 }) {
         failures.append("\(expected) highlight flashes after a same-view refresh")
       }
-      FileHandle.standardError.write(Data("HOVER_TRANSITION \(expected) frames=\(frames.count) settled=\(frames.last ?? -1)\n".utf8))
+      FileHandle.standardError.write(Data("HOVER_TRANSITION \(expected) opacity=\(surfaceOpacity) frames=\(frames.count) settled=\(frames.last ?? -1)\n".utf8))
     }
     return failures
   }
@@ -201,6 +207,11 @@ enum AIManagerNativeContract {
         ? [] : ["\(name) highlights while disabled"]
     }
     let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let minimum = min(samples[0], samples[3], samples[6])
+    let maximum = max(samples[0], samples[3], samples[6])
+    if samples.contains(where: { $0 < minimum - 0.01 || $0 > maximum + 0.01 }) {
+      return ["\(name) flashes past its normal and hovered colors during the fade"]
+    }
     return abs(samples[0] - samples[3]) > 0.02
       && abs(samples[0] - samples[6]) < 0.003
       && (reduceMotion || (
@@ -316,6 +327,31 @@ enum AIManagerNativeContract {
     expect(
       activityDays.map(\.tokens) == [0, 0, 0, 0, 0, 8, 0],
       "Activity calendar does not fill, filter, or aggregate daily usage")
+    let weeks = UsagePresentation.activityWeeks(for: activityDays)
+    let heatmap = ActivityHeatmap(weeks: weeks, maximumTokens: 8,
+      selectedDate: nil, size: 9, select: { _ in })
+    // September 14, 2026 is Monday, the second row in a Sunday-first grid.
+    expect(heatmap.day(at: CGPoint(x: 31, y: 16))?.tokens == 8,
+      "Heatmap hit testing or weekday labels do not select Monday's token count")
+    expect(heatmap.day(at: CGPoint(x: 13, y: 16)) == nil
+      && heatmap.day(at: CGPoint(x: 24.5, y: 16)) == nil
+      && heatmap.day(at: CGPoint(x: 31, y: 21.5)) == nil
+      && heatmap.day(at: CGPoint(x: 31, y: -1)) == nil,
+      "Heatmap gutters and labels select a neighboring day")
+    for (column, week) in weeks.enumerated() {
+      for (row, day) in week.enumerated() {
+        expect(heatmap.day(at: CGPoint(x: 19 + column * 12, y: 4 + row * 12)) == day,
+          "Heatmap marker does not select its exact activity day")
+      }
+    }
+    let mondayHeatmap = ActivityHeatmap(weeks: weeks, maximumTokens: 8,
+      selectedDate: activityDays[5].date, size: 9, select: { _ in })
+    expect(mondayHeatmap.selection(after: .leftArrow) == activityDays[0].date
+      && mondayHeatmap.selection(after: .rightArrow) == activityDays[6].date
+      && mondayHeatmap.selection(after: .upArrow) == activityDays[4].date
+      && mondayHeatmap.selection(after: .downArrow) == activityDays[6].date
+      && mondayHeatmap.selection(after: "a") == nil,
+      "Heatmap keyboard selection skips a day or escapes the filtered date range")
 
     expect(HistoryHeaderLayout.height == 40, "Conversation header height changed")
     expect(HistoryHeaderLayout.countWidth == 52, "Conversation count slot width changed")
@@ -358,7 +394,24 @@ enum AIManagerNativeContract {
     }
     let warm = elapsed[1]
     FileHandle.standardError.write(Data("ACTIVITY_RENDER_MS \(Int(warm * 1000))\n".utf8))
-    return warm < 0.2 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
+    var failures = warm < 0.2 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
+    let pane = NSHostingView(rootView: AccountWindow(model: model))
+    pane.frame = NSRect(x: 0, y: 0, width: 1120, height: 740)
+    let window = NSWindow(contentRect: pane.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = pane
+    pane.layoutSubtreeIfNeeded()
+    for account in (model.status?.accounts ?? []).reversed() {
+      let start = CFAbsoluteTimeGetCurrent()
+      model.selectedAccountID = account.id
+      pane.layoutSubtreeIfNeeded()
+      if let bitmap = pane.bitmapImageRepForCachingDisplay(in: pane.bounds) {
+        pane.cacheDisplay(in: pane.bounds, to: bitmap)
+      }
+      let milliseconds = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+      FileHandle.standardError.write(Data("ACCOUNT_SELECTION_RENDER_MS \(milliseconds)\n".utf8))
+      if milliseconds >= 100 { failures.append("Ordinary account selection blocks the full pane for \(milliseconds) ms") }
+    }
+    return failures
   }
 
   static func menuBarUsagePreferenceFailures() -> [String] {

@@ -277,9 +277,9 @@ struct AccountWindow: View {
         target.window = window
         applyAppearance(to: window)
         applyFocusPolicy(to: window)
-        AIManagerBrand.installApplicationIcon(dark: dark)
       }
     ).ignoresSafeArea(.container, edges: .top)
+    .onAppear { AIManagerBrand.installApplicationIcon(dark: dark) }
     .onChange(of: dark) { _, _ in
       if let window = target.window { applyAppearance(to: window) }
       AIManagerBrand.installApplicationIcon(dark: dark)
@@ -868,7 +868,7 @@ private struct AccountDetail: View {
             }
           }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
         }
-        AccountUsagePanel(account: account, model: model).id(account.id)
+        AccountUsagePanel(account: account, model: model)
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
             DetailRow(label: "Saved auth", value: account.credentialFile.path)
@@ -1075,6 +1075,17 @@ enum UsagePresentation {
     value.formatted(.number)
   }
 
+  static func activityWeeks(for days: [ActivityDay]) -> [[ActivityDay?]] {
+    guard let first = days.first else { return [] }
+    let weekday = activityCalendar.component(.weekday, from: first.date)
+    var padded = Array(repeating: Optional<ActivityDay>.none, count: weekday - 1)
+    padded.append(contentsOf: days.map(Optional.some))
+    while !padded.count.isMultiple(of: 7) { padded.append(nil) }
+    return stride(from: 0, to: padded.count, by: 7).map {
+      Array(padded[$0..<$0 + 7])
+    }
+  }
+
   static func nonempty(_ value: String?) -> String? {
     guard let value else { return nil }
     let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1148,7 +1159,7 @@ struct UsageActivityCalendar: View {
     let days = UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: range.dayCount)
     let maximumTokens = days.lazy.map(\.tokens).max() ?? 0
     let selectedDay = days.first { $0.date == selectedDate }
-    let weeks = weeks(for: days)
+    let weeks = UsagePresentation.activityWeeks(for: days)
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 10) {
         Text("Daily activity").font(AIMTheme.sans(13.2, weight: .semibold))
@@ -1197,30 +1208,9 @@ struct UsageActivityCalendar: View {
           Spacer()
         }
       } else {
-        HStack(alignment: .top, spacing: 5) {
-          VStack(spacing: 3) {
-            ForEach(0..<7, id: \.self) { weekday in
-              Text(weekday == 1 ? "M" : weekday == 3 ? "W" : weekday == 5 ? "F" : "")
-                .font(AIMTheme.sans(7, weight: .medium)).foregroundStyle(AIMTheme.faint)
-                .frame(width: 10, height: cellSize)
-            }
-          }
-          HStack(alignment: .top, spacing: 3) {
-            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-              VStack(spacing: 3) {
-                ForEach(Array(week.enumerated()), id: \.offset) { _, day in
-                  if let day {
-                    ActivityCell(
-                      day: day, maximumTokens: maximumTokens,
-                      selected: selectedDate == day.date, size: cellSize
-                    ) { selectedDate = day.date }
-                  } else {
-                    Color.clear.frame(width: cellSize, height: cellSize)
-                  }
-                }
-              }
-            }
-          }
+        HStack(alignment: .top, spacing: 0) {
+          ActivityHeatmap(weeks: weeks, maximumTokens: maximumTokens,
+            selectedDate: selectedDate, size: cellSize) { selectedDate = $0 }
           Spacer(minLength: 0)
         }
       }
@@ -1248,6 +1238,10 @@ struct UsageActivityCalendar: View {
     }
     .padding(.top, 14)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: range)
+    .onChange(of: model.selectedAccountID) { _, _ in
+      selectedDate = nil
+      projects = []
+    }
     .task(id: selectedDate) {
       projects = []
       guard let selectedDate else { return }
@@ -1258,18 +1252,110 @@ struct UsageActivityCalendar: View {
   }
 
   private var cellSize: CGFloat { range == .year ? 9 : 13 }
+}
 
-  private func weeks(for days: [UsagePresentation.ActivityDay]) -> [[UsagePresentation.ActivityDay?]] {
-    guard let first = days.first else { return [] }
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    let weekday = calendar.component(.weekday, from: first.date)
-    let leading = (weekday + 5) % 7
-    var padded = Array(repeating: Optional<UsagePresentation.ActivityDay>.none, count: leading)
-    padded.append(contentsOf: days.map(Optional.some))
-    while !padded.count.isMultiple(of: 7) { padded.append(nil) }
-    return stride(from: 0, to: padded.count, by: 7).map {
-      Array(padded[$0..<min($0 + 7, padded.count)])
+struct ActivityHeatmap: View {
+  let weeks: [[UsagePresentation.ActivityDay?]]
+  let maximumTokens: Int64
+  let selectedDate: Date?
+  let size: CGFloat
+  let select: (Date) -> Void
+  @State private var hovered = CGPoint.zero
+  @State private var pointerInside = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
+
+  private var pitch: CGFloat { size + 3 }
+  func day(at point: CGPoint) -> UsagePresentation.ActivityDay? {
+    guard point.x >= 15, point.y >= 0 else { return nil }
+    let column = Int((point.x - 15) / pitch), row = Int(point.y / pitch)
+    guard weeks.indices.contains(column), (0..<7).contains(row),
+      (point.x - 15).truncatingRemainder(dividingBy: pitch) < size,
+      point.y.truncatingRemainder(dividingBy: pitch) < size else { return nil }
+    return weeks[column][row]
+  }
+
+  func selection(after key: KeyEquivalent) -> Date? {
+    let days = weeks.flatMap { $0 }.compactMap { $0 }
+    guard !days.isEmpty else { return nil }
+    let offset: Int
+    switch key {
+    case .leftArrow: offset = -7
+    case .rightArrow: offset = 7
+    case .upArrow: offset = -1
+    case .downArrow: offset = 1
+    default: return nil
+    }
+    let index = days.firstIndex { $0.date == selectedDate } ?? days.count - 1
+    return days[min(max(index + offset, 0), days.count - 1)].date
+  }
+
+  var body: some View {
+    let hoverDay = pointerInside && isEnabled ? day(at: hovered) : nil
+    Canvas { context, _ in
+      for row in [1, 3, 5] {
+        context.draw(Text(row == 1 ? "M" : row == 3 ? "W" : "F")
+          .font(AIMTheme.sans(7, weight: .medium)).foregroundStyle(AIMTheme.faint),
+          at: CGPoint(x: 5, y: CGFloat(row) * pitch + size / 2))
+      }
+      for (column, week) in weeks.enumerated() {
+        for (row, day) in week.enumerated() {
+          guard let day else { continue }
+          let rect = CGRect(x: 15 + CGFloat(column) * pitch, y: CGFloat(row) * pitch,
+                            width: size, height: size)
+          let path = Path(roundedRect: rect, cornerRadius: max(1, size * 0.18))
+          let intensity = maximumTokens > 0
+            ? 0.24 + 0.70 * sqrt(Double(day.tokens) / Double(maximumTokens)) : 0
+          context.fill(path, with: .color(day.tokens > 0
+            ? AIMTheme.green.opacity(intensity) : AIMTheme.control.opacity(0.58)))
+          context.stroke(path, with: .color(selectedDate == day.date
+            ? AIMTheme.ink : AIMTheme.lineSoft.opacity(0.55)), lineWidth: 1)
+        }
+      }
+    }
+    .frame(width: 15 + CGFloat(weeks.count) * pitch - 3, height: 7 * pitch - 3)
+    .overlay(alignment: .topLeading) {
+      RoundedRectangle(cornerRadius: max(1, size * 0.18))
+        .fill(AIMTheme.ink).frame(width: size, height: size)
+        .opacity(hoverDay == nil ? 0 : 0.07)
+        .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hoverDay != nil)
+        .offset(x: 15 + floor(max(0, hovered.x - 15) / pitch) * pitch,
+                y: floor(max(0, hovered.y) / pitch) * pitch)
+        .allowsHitTesting(false)
+    }
+    .contentShape(Rectangle())
+    .onContinuousHover { phase in
+      switch phase {
+      case .active(let point):
+        pointerInside = isEnabled && day(at: point) != nil
+        if pointerInside { hovered = point }
+      case .ended: pointerInside = false
+      }
+    }
+    .gesture(SpatialTapGesture().onEnded { event in
+      if isEnabled, let day = day(at: event.location) { select(day.date) }
+    })
+    .help(hoverDay.map {
+      "\($0.date.formatted(date: .complete, time: .omitted)): \(UsagePresentation.exactTokens($0.tokens)) tokens"
+    } ?? "Daily token activity. Select a day for details.")
+    .focusable()
+    .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { event in
+      guard isEnabled, let date = selection(after: event.key) else { return .ignored }
+      select(date)
+      return .handled
+    }
+    .accessibilityRepresentation {
+      HStack {
+        ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+          VStack {
+            ForEach(week.compactMap { $0 }) { day in
+              Button { select(day.date) } label: { Text(day.date.formatted(date: .complete, time: .omitted)) }
+                .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
+                .accessibilityAddTraits(selectedDate == day.date ? .isSelected : [])
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -1327,8 +1413,7 @@ private struct AccountMenuBarUsageButton: View {
   var body: some View {
     AIMButton(
       title: "Show in Menubar",
-      icon: showsUsage ? .doubleCheck : .check,
-      active: showsUsage
+      icon: showsUsage ? .doubleCheck : .check
     ) {
       let value = !showsUsage
       MenuBarUsagePreferences.setOverride(value, for: accountID)

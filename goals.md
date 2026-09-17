@@ -9,6 +9,34 @@ Design revision: 2026-09-17. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Light-theme hover and full account selection (2026-09-18)
+
+Follow-up: hover flashing is reported in light mode, and ordinary account-list selection
+still stalls after the isolated calendar optimization. The whole account pane needs its
+own timing check. Match Show in Menubar to the normal Open action colors.
+
+- [x] Measure full account selection and light hover with translucent surfaces.
+- [x] Fix confirmed causes and retain account/day selection and accessibility.
+- [x] Match Show in Menubar colors without changing its persisted tick state.
+- [ ] Verify native checks and install checksum-matched clean HEAD.
+
+The full-pane hosted regression failed with 217 ms and 166 ms ordinary-selection renders;
+the previous isolated calendar check did not catch these stalls. The installed-process sample
+also caught account updates repeatedly loading/reassigning the Dock icon. Routine redraws
+now retain the usage pane and leave Dock changes to startup and appearance changes. Month
+and year activity use one native Canvas instead of hundreds of rendered/tracked controls,
+with exact-day hit testing, arrow-key selection, and native accessibility button actions.
+The same System/Light/Dark full-pane check measures 31–59 ms; yearly calendar rendering is
+7–8 ms. Day/project selection resets when the displayed account changes. Weekday labels
+now match a Sunday-first grid; gutters cannot select adjacent days.
+
+Light and dark native hover replay passes with both opaque and 35% translucent surfaces,
+including rapid crossings, same-view refresh, and checking for intermediate colors outside
+the normal/hover range. This does not reproduce or close the physical light-only flash:
+the native driver still cannot record pointer hover. No palette change is inferred from
+that unrecorded sequence. Show in Menubar retains its saved single/double tick and uses
+the normal Open action colors.
+
 ### App-wide hover feedback (2026-09-18)
 
 Follow-up: the installed `ba13da1d2e27` still flashes while moving between controls and
