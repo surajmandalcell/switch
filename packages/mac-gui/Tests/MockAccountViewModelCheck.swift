@@ -116,6 +116,7 @@ struct MockAccountViewModelCheck {
         await model.verify()
         precondition(model.selectedAccount?.verification.state == .verifiedWithCodex)
         model.copySavedAuthPath()
+        precondition(model.copyPath("/Demo/Shared"))
         model.copyWarnings(["First warning", "Second warning"])
         precondition(model.notice == "2 warnings ready to copy in the production app.")
         model.showDataLocation(model.paths.defaultHome, name: "Codex home")

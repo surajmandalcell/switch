@@ -24,6 +24,12 @@ enum AIManagerNativeContract {
     }
 
     expect(AIMTheme.Dark.rail == 0x141517, "Dark rail color changed")
+    expect(AIMTranslucency.opacity(25, reduceTransparency: false) == 0.75,
+      "Initial content opacity is not 75 percent")
+    expect(AIMTranslucency.opacity(100, reduceTransparency: false) == 0.5
+      && AIMTranslucency.opacity(-1, reduceTransparency: false) == 1
+      && AIMTranslucency.opacity(25, reduceTransparency: true) == 1,
+      "Translucency ignores its bounds or Reduce Transparency")
     expect(AIMTheme.Dark.canvas == 0x18191B, "Dark canvas color changed")
     expect(AIMTheme.Dark.panel == 0x202124, "Dark panel color changed")
     expect(AIMTheme.Dark.raised == 0x27282B, "Dark raised color changed")

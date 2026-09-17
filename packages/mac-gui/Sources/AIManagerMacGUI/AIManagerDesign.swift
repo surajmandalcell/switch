@@ -9,22 +9,45 @@ private struct AIMDarkModeKey: EnvironmentKey {
   static let defaultValue = false
 }
 
+private struct AIMSurfaceOpacityKey: EnvironmentKey { static let defaultValue = 1.0 }
+private struct AIMCopyPathKey: EnvironmentKey {
+  static let defaultValue: @MainActor (String) -> Bool = { _ in false }
+}
+
+enum AIMTranslucency {
+  static let preferenceKey = "bodyTranslucency"
+  static let initialValue = 25.0
+  static func opacity(_ value: Double, reduceTransparency: Bool) -> Double {
+    reduceTransparency ? 1 : 1 - min(max(value.isFinite ? value : initialValue, 0), 50) / 100
+  }
+}
+
 private struct AIMAdaptiveColor: ShapeStyle, Hashable {
   let light: UInt32
   let dark: UInt32
   var lightHighContrast: UInt32?
   var darkHighContrast: UInt32?
+  var translucentSurface = false
 
   func resolve(in environment: EnvironmentValues) -> Color.Resolved {
     let highContrast = environment.colorSchemeContrast == .increased
     let hex = environment.colorScheme == .dark
       ? (highContrast ? darkHighContrast ?? dark : dark)
       : (highContrast ? lightHighContrast ?? light : light)
-    return Color(hex: hex).resolve(in: environment)
+    return Color(hex: hex).opacity(translucentSurface ? environment.aimSurfaceOpacity : 1)
+      .resolve(in: environment)
   }
 }
 
 extension EnvironmentValues {
+  var aimSurfaceOpacity: Double {
+    get { self[AIMSurfaceOpacityKey.self] }
+    set { self[AIMSurfaceOpacityKey.self] = newValue }
+  }
+  var aimCopyPath: @MainActor (String) -> Bool {
+    get { self[AIMCopyPathKey.self] }
+    set { self[AIMCopyPathKey.self] = newValue }
+  }
   var aimFocusIndicatorsEnabled: Bool {
     get { self[AIMFocusIndicatorsKey.self] }
     set { self[AIMFocusIndicatorsKey.self] = newValue }
@@ -63,11 +86,11 @@ enum AIMTheme {
   static let modalSectionSpacing: CGFloat = 16
   static let panelContentInset: CGFloat = 16
 
-  static let canvas = dynamic(light: 0xECEBE7, dark: Dark.canvas)
+  static let canvas = dynamic(light: 0xECEBE7, dark: Dark.canvas, translucentSurface: true)
   static let rail = dynamic(light: 0xF4F3EF, dark: Dark.rail)
-  static let panel = dynamic(light: 0xFAF9F6, dark: Dark.panel)
-  static let panel2 = dynamic(light: 0xF0EFEB, dark: Dark.raised)
-  static let panel3 = dynamic(light: 0xE5E4DF, dark: Dark.raisedSecondary)
+  static let panel = dynamic(light: 0xFAF9F6, dark: Dark.panel, translucentSurface: true)
+  static let panel2 = dynamic(light: 0xF0EFEB, dark: Dark.raised, translucentSurface: true)
+  static let panel3 = dynamic(light: 0xE5E4DF, dark: Dark.raisedSecondary, translucentSurface: true)
   static let menuChrome = dynamic(light: 0xF0EFEB, dark: Dark.menuChrome)
   static let listStripe = dynamic(
     light: 0xF0EFEB, dark: Dark.raised, lightHighContrast: 0xE4E3DD,
@@ -127,11 +150,53 @@ enum AIMTheme {
 
   private static func dynamic(
     light: UInt32, dark: UInt32, lightHighContrast: UInt32? = nil,
-    darkHighContrast: UInt32? = nil
+    darkHighContrast: UInt32? = nil, translucentSurface: Bool = false
   ) -> Color {
     Color(AIMAdaptiveColor(
       light: light, dark: dark, lightHighContrast: lightHighContrast,
-      darkHighContrast: darkHighContrast))
+      darkHighContrast: darkHighContrast, translucentSurface: translucentSurface))
+  }
+}
+
+struct AIMCopyablePath: View {
+  let path: String
+  @Environment(\.aimCopyPath) private var copyPath
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var copied = false
+  @State private var feedbackTask: Task<Void, Never>?
+
+  var body: some View {
+    Text(path)
+      .lineLimit(1).truncationMode(.middle)
+      .contentShape(Rectangle())
+      .highPriorityGesture(TapGesture().onEnded { copy() })
+      .focusable()
+      .onKeyPress(.return) { copy(); return .handled }
+      .help("Click to copy \(path)")
+      .accessibilityLabel("Copy path: \(path)")
+      .accessibilityAddTraits(.isButton)
+      .accessibilityAction { copy() }
+      .overlay(alignment: .topTrailing) {
+        Text("Copied").font(AIMTheme.sans(9, weight: .medium))
+          .foregroundStyle(AIMTheme.green)
+          .padding(.horizontal, 4).padding(.vertical, 2)
+          .background(AIMTheme.panel)
+          .offset(y: -14)
+          .opacity(copied ? 1 : 0)
+          .allowsHitTesting(false).accessibilityHidden(true)
+      }
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: copied)
+      .onDisappear { feedbackTask?.cancel() }
+  }
+
+  private func copy() {
+    guard copyPath(path) else { return }
+    feedbackTask?.cancel()
+    copied = true
+    feedbackTask = Task { @MainActor in
+      do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
+      copied = false
+    }
   }
 }
 
@@ -348,6 +413,8 @@ struct AIMScrollView<Content: View>: View {
   @ViewBuilder let content: Content
   @Environment(\.aimDarkMode) private var darkMode
   @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+  @Environment(\.aimSurfaceOpacity) private var surfaceOpacity
+  @Environment(\.aimCopyPath) private var copyPath
 
   init(@ViewBuilder content: () -> Content) { self.content = content() }
 
@@ -357,6 +424,8 @@ struct AIMScrollView<Content: View>: View {
         content.environment(\.colorScheme, darkMode ? .dark : .light)
           .environment(\.aimDarkMode, darkMode)
           .environment(\.aimFocusIndicatorsEnabled, focusIndicatorsEnabled)
+          .environment(\.aimSurfaceOpacity, surfaceOpacity)
+          .environment(\.aimCopyPath, copyPath)
           .foregroundStyle(AIMTheme.ink)
           .focusEffectDisabled(!focusIndicatorsEnabled)))
   }
@@ -371,6 +440,8 @@ where Item.ID: Hashable {
   let rowContent: (Item) -> AnyView
   @Environment(\.aimDarkMode) private var darkMode
   @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+  @Environment(\.aimSurfaceOpacity) private var surfaceOpacity
+  @Environment(\.aimCopyPath) private var copyPath
 
   init(
     items: [Item], rowSpacing: CGFloat = 0, fixedRowHeight: CGFloat? = nil,
@@ -423,7 +494,8 @@ where Item.ID: Hashable {
       contentRevision: contentRevision,
       rowContent: rowContent,
       darkMode: darkMode,
-      focusIndicatorsEnabled: focusIndicatorsEnabled)
+      focusIndicatorsEnabled: focusIndicatorsEnabled,
+      surfaceOpacity: surfaceOpacity, copyPath: copyPath)
   }
 
   @MainActor
@@ -435,15 +507,19 @@ where Item.ID: Hashable {
     private var rowContent: ((Item) -> AnyView)?
     private var darkMode = false
     private var focusIndicatorsEnabled = false
+    private var surfaceOpacity = 1.0
+    private var copyPath: @MainActor (String) -> Bool = { _ in false }
 
     func update(
       items nextItems: [Item], rowSpacing: CGFloat, fixedRowHeight: CGFloat?,
       contentRevision nextContentRevision: Int,
       rowContent: @escaping (Item) -> AnyView,
-      darkMode: Bool, focusIndicatorsEnabled: Bool
+      darkMode: Bool, focusIndicatorsEnabled: Bool,
+      surfaceOpacity: Double, copyPath: @escaping @MainActor (String) -> Bool
     ) {
       let appearanceChanged = self.darkMode != darkMode
         || self.focusIndicatorsEnabled != focusIndicatorsEnabled
+        || self.surfaceOpacity != surfaceOpacity
       let oldItems = items
       items = nextItems
       self.fixedRowHeight = fixedRowHeight
@@ -452,6 +528,8 @@ where Item.ID: Hashable {
       contentRevision = nextContentRevision
       self.darkMode = darkMode
       self.focusIndicatorsEnabled = focusIndicatorsEnabled
+      self.surfaceOpacity = surfaceOpacity
+      self.copyPath = copyPath
       guard let tableView else { return }
       tableView.intercellSpacing = NSSize(width: 0, height: rowSpacing)
       tableView.usesAutomaticRowHeights = fixedRowHeight == nil
@@ -494,6 +572,8 @@ where Item.ID: Hashable {
           .environment(\.colorScheme, darkMode ? .dark : .light)
           .environment(\.aimDarkMode, darkMode)
           .environment(\.aimFocusIndicatorsEnabled, focusIndicatorsEnabled)
+          .environment(\.aimSurfaceOpacity, surfaceOpacity)
+          .environment(\.aimCopyPath, copyPath)
           .foregroundStyle(AIMTheme.ink)
           .focusEffectDisabled(!focusIndicatorsEnabled))
       return cell
