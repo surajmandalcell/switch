@@ -488,6 +488,7 @@ private struct AIMButton: View {
   var icon: AIMIcon.Name?
   var tone: ButtonTone = .normal
   var disabled = false
+  var active = false
   let action: () -> Void
   @State private var hover = false
   @FocusState private var focused: Bool
@@ -505,7 +506,7 @@ private struct AIMButton: View {
           unavailable
             ? AIMTheme.disabledInk
             : (tone == .primary
-              ? AIMTheme.canvas : (tone == .danger ? AIMTheme.statusInk : AIMTheme.ink))
+              ? AIMTheme.canvas : (tone == .danger ? AIMTheme.statusInk : (active ? AIMTheme.blue : AIMTheme.ink)))
         ).background(
           unavailable
             ? AIMTheme.disabledControl
@@ -513,7 +514,7 @@ private struct AIMButton: View {
               ? (hover ? AIMTheme.primaryHover : AIMTheme.ink)
               : (tone == .danger
                 ? AIMTheme.red
-                : (hover ? AIMTheme.controlHover : AIMTheme.control)))
+                : (hover ? AIMTheme.controlHover : (active ? AIMTheme.blue.opacity(0.10) : AIMTheme.control))))
         ).overlay {
           if tone == .danger && hover {
             RoundedRectangle(cornerRadius: 3).fill(AIMTheme.statusInk.opacity(0.08))
@@ -571,6 +572,9 @@ private struct AIMIconButton: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(AIMPressButtonStyle())
+    .background {
+      if icon == .copy { AIMCopyCursor(enabled: !unavailable).allowsHitTesting(false) }
+    }
     .focused($focused)
     .disabled(disabled)
     .onHover { hover = $0 && !unavailable }
@@ -872,13 +876,9 @@ private struct AccountDetail: View {
       if account.id == model.status?.defaultAccountID {
         Badge(text: "Default", color: AIMTheme.green.opacity(0.14), ink: AIMTheme.ink)
       }
-      Badge(
-        text: account.identity.providerID.displayName,
-        color: AIMTheme.panel3.opacity(0.65), ink: AIMTheme.muted)
       if let attention = account.verification.state.attentionLabel {
         Badge(text: attention, color: account.verification.state.color)
       }
-      AccountMenuBarUsageButton(accountID: account.id).id(account.id)
     }
   }
   @ViewBuilder private var actions: some View {
@@ -889,6 +889,8 @@ private struct AccountDetail: View {
       tone: .primary,
       disabled: model.isBusy
     ) { Task { await model.switchDefault() } }
+    AccountMenuBarUsageButton(accountID: account.id)
+      .id(account.id).disabled(model.isBusy)
     AIMButton(
       title: account.id == model.status?.defaultAccountID
         ? AccountActionCopy.open : AccountActionCopy.useAndOpen,
@@ -1271,16 +1273,17 @@ private struct AccountMenuBarUsageButton: View {
   private var showsUsage: Bool { showUsageOverride ?? defaultShowUsage }
 
   var body: some View {
-    AIMIconButton(
-      icon: .menuBar,
-      label: showsUsage ? "Hide usage in menu bar" : "Show usage in menu bar",
+    AIMButton(
+      title: "Show in menu bar",
+      icon: showsUsage ? .success : .circle,
       active: showsUsage
     ) {
       let value = !showsUsage
       MenuBarUsagePreferences.setOverride(value, for: accountID)
       showUsageOverride = value
     }
-    .accessibilityLabel("Show usage in menu bar")
+    .accessibilityLabel("Show in menu bar")
+    .help(showsUsage ? "Hide this account's usage in the menu bar" : "Show this account's usage in the menu bar")
     .accessibilityValue(showsUsage ? "On" : "Off")
     .accessibilityAddTraits(showsUsage ? .isSelected : [])
     .contextMenu {

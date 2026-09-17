@@ -26,10 +26,10 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   respecting Reduce Transparency and keeping text and controls fully legible.
 - [x] Close the current native and both Linux architecture gates, then install the exact
   clean signed build and verify the installed revision and stable single-instance launch.
-- [ ] Move a labeled Show in menu bar toggle immediately before Open Codex; remove
+- [x] Move a labeled Show in menu bar toggle immediately before Open Codex; remove
   the provider badge and old toggle from Identity's header.
-- [ ] Confirm the magnifying-glass action uses the same 13-point size as Copy and Delete.
-- [ ] Show a pointing-hand cursor over copyable paths, with graceful truncation and
+- [x] Confirm the magnifying-glass action uses the same 13-point size as Copy and Delete.
+- [x] Show a pointing-hand cursor over copyable paths, with graceful truncation and
   full-path tooltips that preserve the exact copied value.
 - [x] Delete the default account through a saved fallback and select that replacement,
   preserving activation-failure safety and using the ordinary Delete account label.
@@ -41,6 +41,9 @@ before the fix. Production and Preview model checks then passed. A previous sele
 the more recently used account; malformed replacement auth preserves the outgoing account
 and live auth; successful replacement selects the new default and preserves shared settings;
 the sole remaining default stays protected. No real account was deleted during verification.
+The labeled menu toggle, header simplification, and native copy cursor passed System,
+Light, and Dark contracts. The cursor view passes pointer events through to the path;
+middle truncation and the full-path tooltip preserve the exact copied value.
 
 Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
 Developer ID Application identity and notarization; local development signing is not that gate.

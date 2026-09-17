@@ -162,6 +162,7 @@ struct AIMCopyablePath: View {
   let path: String
   @Environment(\.aimCopyPath) private var copyPath
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
   @State private var copied = false
   @State private var feedbackTask: Task<Void, Never>?
 
@@ -172,10 +173,12 @@ struct AIMCopyablePath: View {
       .highPriorityGesture(TapGesture().onEnded { copy() })
       .focusable()
       .onKeyPress(.return) { copy(); return .handled }
+      .onKeyPress(.space) { copy(); return .handled }
       .help("Click to copy \(path)")
       .accessibilityLabel("Copy path: \(path)")
       .accessibilityAddTraits(.isButton)
       .accessibilityAction { copy() }
+      .background { AIMCopyCursor(enabled: isEnabled).allowsHitTesting(false) }
       .overlay(alignment: .topTrailing) {
         Text("Copied").font(AIMTheme.sans(9, weight: .medium))
           .foregroundStyle(AIMTheme.green)
@@ -196,6 +199,31 @@ struct AIMCopyablePath: View {
     feedbackTask = Task { @MainActor in
       do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
       copied = false
+    }
+  }
+}
+
+struct AIMCopyCursor: NSViewRepresentable {
+  let enabled: Bool
+
+  func makeNSView(context: Context) -> CursorView {
+    let view = CursorView()
+    view.enabled = enabled
+    return view
+  }
+
+  func updateNSView(_ view: CursorView, context: Context) {
+    guard view.enabled != enabled else { return }
+    view.enabled = enabled
+    view.window?.invalidateCursorRects(for: view)
+  }
+
+  final class CursorView: NSView {
+    var enabled = true
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func resetCursorRects() {
+      super.resetCursorRects()
+      if enabled { addCursorRect(visibleRect, cursor: .pointingHand) }
     }
   }
 }
@@ -255,7 +283,7 @@ struct AIMVisualEffect: NSViewRepresentable {
 struct AIMIcon: View {
   enum Name: CaseIterable {
     case account, settings, history, backup, cleanup, search, plus, refresh, moon, sun, close, minimize
-    case chevron, check, doubleCheck, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
+    case chevron, check, doubleCheck, circle, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
 
     var symbol: String {
       switch self {
@@ -276,6 +304,7 @@ struct AIMIcon: View {
       case .openApp: "macwindow"
       case .menuBar: "menubar.rectangle"
       case .check, .doubleCheck: "checkmark"
+      case .circle: "circle"
       case .square: "square"
       case .checkSquare: "checkmark.square.fill"
       case .folder: "folder"
