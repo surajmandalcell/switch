@@ -34,12 +34,15 @@ the trademarks of their owners and identify the corresponding tool or provider.
 existing `rsvg-convert`. This avoids macOS CoreSVG rendering differences, including
 Gemini's clipped shape. The menu renderer loads each PNG once, caches its native
 image, and composites
-at most four 16-point glyph/remaining-percentage pairs into one template image.
+remaining percentages for at most four enabled accounts into one template image,
+with one 12-point glyph per service. Service order follows the first included account
+in the saved sidebar order; percentages retain account order within each service.
 macOS tints the complete image for menu-bar appearance and selection. No runtime
 icon dependency or asset download is required. Extra catalog entries do not
 change provider availability.
 
-The outlined double check uses the exact Ionicons `checkmark-done-outline.svg`
-geometry in native SwiftUI, sourced from:
+The outlined double check adapts Ionicons `checkmark-done-outline.svg` in native
+SwiftUI, completing the second check's long arm rather than omitting its overlap.
+Original source:
 https://raw.githubusercontent.com/ionic-team/ionicons/main/src/svg/checkmark-done-outline.svg
 Its MIT license is included at `../LICENSE-Ionicons.txt`.

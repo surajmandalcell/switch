@@ -13,14 +13,24 @@ verification evidence.
 
 - [ ] Persist drag-and-drop account order, with accessible Move up/down actions,
   without changing selection or authentication.
-- [ ] Group the first four enabled tray accounts under one smaller glyph per service,
+- [x] Group the first four enabled tray accounts under one smaller glyph per service,
   respecting saved order instead of forcing the default first.
-- [ ] Reduce popover text and spacing; use a compact blue outlined Switch action.
-- [ ] Draw two complete outlined checks; the incomplete Ionicons second arm is superseded.
+- [x] Reduce popover text and spacing; use a compact blue outlined Switch action.
+- [x] Draw two complete outlined checks; the incomplete Ionicons second arm is superseded.
 - [ ] Verify the refinements, audit debt, and install the exact clean signed build.
 
 This refinement supersedes the earlier default-first tray, repeated provider glyphs,
 filled Switch button, and exact disconnected Ionicons geometry. Advanced Cleanup remains deferred.
+
+Refinement checks: the shared registry preserves order across reopen, activation, append,
+and deletion, rejects stale/duplicate/foreign IDs, and skips unchanged writes. The production
+model moves accounts in both directions without changing selection, default, or live auth.
+Native System/Light/Dark contracts passed. Grouping checks cover interleaved services,
+disabled accounts, the four-account cap, saved order, and the actual status button description.
+The double-tick regression failed against the prior artwork: `Path.addLines` introduced an
+extra move and disconnected an arm. Explicit connected lines now draw two complete checks.
+Current light/dark menu, tray, and account renders were inspected at actual size in
+`/private/tmp/ai-manager-build/ui-review`. Installation and pointer-drag acceptance remain pending.
 
 ### Active completion ledger (2026-09-17)
 

@@ -325,7 +325,7 @@ struct AIMIcon: View {
   var body: some View {
     Group {
       if name == .doubleCheck {
-        IoCheckmarkDoneOutline()
+        AIMDoubleCheckShape()
           .stroke(style: StrokeStyle(lineWidth: size * 2 / 21, lineCap: .round, lineJoin: .round))
       } else {
         Image(systemName: name.symbol)
@@ -338,16 +338,16 @@ struct AIMIcon: View {
   }
 }
 
-// Exact checkmark-done-outline geometry from Ionicons, MIT licensed.
-struct IoCheckmarkDoneOutline: Shape {
+// Adapted from Ionicons (MIT): complete both checks instead of omitting the overlap.
+struct AIMDoubleCheckShape: Shape {
   func path(in rect: CGRect) -> Path {
     var path = Path()
-    path.move(to: CGPoint(x: 464, y: 128))
-    path.addLines([CGPoint(x: 240, y: 384), CGPoint(x: 144, y: 288)])
-    path.move(to: CGPoint(x: 144, y: 384))
-    path.addLine(to: CGPoint(x: 48, y: 288))
-    path.move(to: CGPoint(x: 368, y: 128))
-    path.addLine(to: CGPoint(x: 232, y: 284))
+    path.move(to: CGPoint(x: 48, y: 288))
+    path.addLine(to: CGPoint(x: 144, y: 384))
+    path.addLine(to: CGPoint(x: 368, y: 128))
+    path.move(to: CGPoint(x: 144, y: 288))
+    path.addLine(to: CGPoint(x: 240, y: 384))
+    path.addLine(to: CGPoint(x: 464, y: 128))
     // Fit the ink bounds, including the original 32-unit round stroke.
     let scale = min(rect.width / 448, rect.height / 288)
     let x = rect.minX + (rect.width - 448 * scale) / 2 - 32 * scale

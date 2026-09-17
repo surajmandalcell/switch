@@ -78,8 +78,19 @@ struct MenuBarSnapshot: Equatable, Sendable {
   let lastRefreshedAt: Date?
 
   var statusAccounts: [MenuBarAccountSnapshot] {
-    let enabled = accounts.filter(\.showsUsage)
-    return Array((enabled.filter(\.isActive) + enabled.filter { !$0.isActive }).prefix(4))
+    statusAccountGroups.flatMap { $0 }
+  }
+
+  var statusAccountGroups: [[MenuBarAccountSnapshot]] {
+    var groups: [[MenuBarAccountSnapshot]] = []
+    for account in accounts.filter(\.showsUsage).prefix(4) {
+      if let index = groups.firstIndex(where: { $0.first?.providerID == account.providerID }) {
+        groups[index].append(account)
+      } else {
+        groups.append([account])
+      }
+    }
+    return groups
   }
 
   static let empty = MenuBarSnapshot(
@@ -172,24 +183,24 @@ final class MenuBarPopoverStore: ObservableObject {
 }
 
 struct MenuBarPopover: View {
-  static let width: CGFloat = 384
+  static let width: CGFloat = 344
   static let minimumHeight: CGFloat = 104
   static let maximumHeight: CGFloat = 900
-  static let footerHeight: CGFloat = 32
-  static let listInset: CGFloat = 10
-  static let cardSpacing: CGFloat = 8
-  static let accountHeaderHeight: CGFloat = 36
-  static let quotaRowHeight: CGFloat = 36
-  static let accountActionWidth: CGFloat = 64
-  static let accountActionHeight: CGFloat = 24
+  static let footerHeight: CGFloat = 28
+  static let listInset: CGFloat = 8
+  static let cardSpacing: CGFloat = 6
+  static let accountHeaderHeight: CGFloat = 30
+  static let quotaRowHeight: CGFloat = 28
+  static let accountActionWidth: CGFloat = 56
+  static let accountActionHeight: CGFloat = 22
   static let buttonRadius: CGFloat = 5
 
   static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     let quotaCount = [account.usage?.secondaryUsedPercentage, account.usage?.usedPercentage]
       .compactMap { $0 }.count
     guard account.showsUsage, quotaCount > 0 else { return accountHeaderHeight }
-    return accountHeaderHeight + 17 + CGFloat(quotaCount) * quotaRowHeight
-      + CGFloat(max(0, quotaCount - 1)) * 6
+    return accountHeaderHeight + 13 + CGFloat(quotaCount) * quotaRowHeight
+      + CGFloat(max(0, quotaCount - 1)) * 4
   }
 
   @ObservedObject var store: MenuBarPopoverStore
@@ -266,14 +277,14 @@ struct MenuBarPopover: View {
     HStack(spacing: 8) {
       if let refreshedAt = store.snapshot.lastRefreshedAt {
         Text("Refreshed \(refreshedAt.formatted(.relative(presentation: .numeric)))")
-          .font(AIMTheme.sans(10))
+          .font(AIMTheme.sans(9))
           .foregroundStyle(AIMTheme.muted)
           .lineLimit(1)
       }
       Spacer(minLength: 0)
       MenuBarActionButton(title: "Open App", action: store.openMainWindow)
     }
-    .padding(.horizontal, 10)
+    .padding(.horizontal, 8)
     .frame(height: Self.footerHeight)
     .background(AIMTheme.menuChrome)
     .overlay(alignment: .top) { Divider().overlay(AIMTheme.lineSoft) }
@@ -292,13 +303,13 @@ private struct MenuBarAccountRow: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 10) {
+      HStack(spacing: 8) {
         Circle()
           .fill(account.isActive ? AIMTheme.green : (account.isVerified ? AIMTheme.faint : AIMTheme.amber))
-          .frame(width: 9, height: 9)
+          .frame(width: 7, height: 7)
           .accessibilityHidden(true)
         Text(account.identity)
-          .font(AIMTheme.sans(12, weight: .medium))
+          .font(AIMTheme.sans(11, weight: .medium))
           .lineLimit(1).truncationMode(.middle)
           .frame(maxWidth: .infinity, alignment: .leading)
           .help(account.identity)
@@ -316,14 +327,14 @@ private struct MenuBarAccountRow: View {
         }
         switchControl
       }
-      .padding(.horizontal, 14)
+      .padding(.horizontal, 10)
       .frame(height: MenuBarPopover.accountHeaderHeight)
 
       if let usage = account.usage, account.showsUsage,
          usage.usedPercentage != nil || usage.secondaryUsedPercentage != nil
       {
         Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
           if let percentage = usage.secondaryUsedPercentage {
             MenuBarQuotaRow(
               label: "Weekly", percentage: percentage,
@@ -335,8 +346,8 @@ private struct MenuBarAccountRow: View {
               reset: usage.resetDescription, color: AIMTheme.blue)
           }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
       }
     }
     .frame(height: MenuBarPopover.accountRowHeight(account))
@@ -423,16 +434,16 @@ private struct MenuBarQuotaRow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 8) {
       VStack(alignment: .leading, spacing: 2) {
         Text(label)
-          .font(AIMTheme.sans(10, weight: .medium))
+          .font(AIMTheme.sans(9, weight: .medium))
           .foregroundStyle(AIMTheme.muted)
         Text("\(percentage)%")
-          .font(AIMTheme.mono(12, weight: .semibold))
+          .font(AIMTheme.mono(11, weight: .semibold))
           .foregroundStyle(AIMTheme.ink)
       }
-      .frame(width: 52, alignment: .leading)
+      .frame(width: 44, alignment: .leading)
       GeometryReader { proxy in
         ZStack(alignment: .leading) {
           Capsule().fill(AIMTheme.control)
@@ -441,13 +452,13 @@ private struct MenuBarQuotaRow: View {
             .frame(width: proxy.size.width * CGFloat(percentage) / 100)
         }
       }
-      .frame(height: 5)
+      .frame(height: 4)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: percentage)
       Text(reset ?? "")
         .font(AIMTheme.sans(9))
         .foregroundStyle(AIMTheme.muted)
         .lineLimit(1)
-        .frame(width: 96, alignment: .trailing)
+        .frame(width: 88, alignment: .trailing)
     }
     .frame(height: MenuBarPopover.quotaRowHeight)
   }
@@ -464,13 +475,24 @@ private struct MenuBarActionButton: View {
     Button(action: action) {
       Text(title)
         .font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(disabled ? AIMTheme.muted : Color.white)
+        .foregroundStyle(disabled ? AIMTheme.muted : title == "Switch" ? AIMTheme.blue : Color.white)
         .frame(
           width: MenuBarPopover.accountActionWidth,
           height: MenuBarPopover.accountActionHeight)
-        .background(disabled ? AIMTheme.control.opacity(0.65)
-          : Color(nsColor: NSColor(srgbRed: isHovered ? 0.23 : 0.16,
-              green: isHovered ? 0.24 : 0.17, blue: isHovered ? 0.25 : 0.18, alpha: 1)))
+        .background {
+          if disabled { AIMTheme.control.opacity(0.65) }
+          else if title == "Switch" { AIMTheme.blue.opacity(isHovered ? 0.12 : 0.025) }
+          else {
+            Color(nsColor: NSColor(srgbRed: isHovered ? 0.23 : 0.16,
+              green: isHovered ? 0.24 : 0.17, blue: isHovered ? 0.25 : 0.18, alpha: 1))
+          }
+        }
+        .overlay {
+          if title == "Switch", !disabled {
+            RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius)
+              .stroke(AIMTheme.blue.opacity(isHovered ? 1 : 0.7), lineWidth: 1)
+          }
+        }
         .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
         .contentShape(Rectangle())
     }
