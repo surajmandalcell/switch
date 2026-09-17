@@ -160,10 +160,6 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         usageSnapshots: [UUID: CodexAccountUsageSnapshot]
     ) -> MenuBarSnapshot {
         guard let status else { return .empty }
-        let activeUsage = status.defaultAccountID.flatMap { accountID -> MenuBarUsageSnapshot? in
-            guard MenuBarUsagePreferences.showsUsage(for: accountID) else { return nil }
-            return menuBarUsage(for: accountID, status: status, usageSnapshots: usageSnapshots)
-        }
         return MenuBarSnapshot(
             accounts: status.accounts.map { account in
                 let showsUsage = MenuBarUsagePreferences.showsUsage(for: account.id)
@@ -179,10 +175,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                             status: status,
                             usageSnapshots: usageSnapshots)
                         : nil,
-                    showsUsage: showsUsage)
+                    showsUsage: showsUsage,
+                    providerID: account.identity.providerID)
             },
-            primaryUsedPercentage: activeUsage?.usedPercentage
-                ?? activeUsage?.secondaryUsedPercentage,
             lastRefreshedAt: usageSnapshots.values.map(\.fetchedAt).max())
     }
 

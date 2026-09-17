@@ -5,6 +5,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 icons="$repo_root/packages/mac-gui/Resources/Icons"
 iconset="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}/icons/AppIcon.iconset"
 command -v rsvg-convert >/dev/null
+
+for glyph in "$icons"/ProviderGlyphs/*.svg; do
+  rsvg-convert --width 64 --height 64 "$glyph" --output "${glyph%.svg}.png"
+done
 command -v iconutil >/dev/null
 rm -rf "$iconset"
 mkdir -p "$iconset"

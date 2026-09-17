@@ -40,6 +40,7 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
 
 struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let id: UUID
+  let providerID: ProviderID
   let identity: String
   let detail: String
   let isVerified: Bool
@@ -54,9 +55,11 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     isVerified: Bool,
     isActive: Bool,
     usage: MenuBarUsageSnapshot? = nil,
-    showsUsage: Bool = true
+    showsUsage: Bool = true,
+    providerID: ProviderID = .codex
   ) {
     self.id = id
+    self.providerID = providerID
     self.identity = identity
     self.detail = detail
     self.isVerified = isVerified
@@ -64,22 +67,29 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     self.usage = showsUsage ? usage : nil
     self.showsUsage = showsUsage
   }
+
+  var remainingPercentage: Int? {
+    (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map { 100 - $0 }
+  }
 }
 
 struct MenuBarSnapshot: Equatable, Sendable {
   let accounts: [MenuBarAccountSnapshot]
-  let primaryUsedPercentage: Int?
   let lastRefreshedAt: Date?
 
+  var statusAccounts: [MenuBarAccountSnapshot] {
+    let enabled = accounts.filter(\.showsUsage)
+    return Array((enabled.filter(\.isActive) + enabled.filter { !$0.isActive }).prefix(4))
+  }
+
   static let empty = MenuBarSnapshot(
-    accounts: [], primaryUsedPercentage: nil, lastRefreshedAt: nil)
+    accounts: [], lastRefreshedAt: nil)
 
   init(
-    accounts: [MenuBarAccountSnapshot], primaryUsedPercentage: Int?,
+    accounts: [MenuBarAccountSnapshot],
     lastRefreshedAt: Date? = nil
   ) {
     self.accounts = accounts
-    self.primaryUsedPercentage = primaryUsedPercentage.map { min(max($0, 0), 100) }
     self.lastRefreshedAt = lastRefreshedAt ?? accounts.compactMap(\.usage?.fetchedAt).max()
   }
 }
@@ -165,20 +175,21 @@ struct MenuBarPopover: View {
   static let width: CGFloat = 384
   static let minimumHeight: CGFloat = 104
   static let maximumHeight: CGFloat = 900
-  static let footerHeight: CGFloat = 48
+  static let footerHeight: CGFloat = 32
   static let listInset: CGFloat = 10
   static let cardSpacing: CGFloat = 8
   static let accountHeaderHeight: CGFloat = 36
-  static let quotaRowHeight: CGFloat = 44
+  static let quotaRowHeight: CGFloat = 36
   static let accountActionWidth: CGFloat = 64
   static let accountActionHeight: CGFloat = 24
+  static let buttonRadius: CGFloat = 5
 
   static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     let quotaCount = [account.usage?.secondaryUsedPercentage, account.usage?.usedPercentage]
       .compactMap { $0 }.count
     guard account.showsUsage, quotaCount > 0 else { return accountHeaderHeight }
-    return accountHeaderHeight + 25 + CGFloat(quotaCount) * quotaRowHeight
-      + CGFloat(max(0, quotaCount - 1)) * 10
+    return accountHeaderHeight + 17 + CGFloat(quotaCount) * quotaRowHeight
+      + CGFloat(max(0, quotaCount - 1)) * 6
   }
 
   @ObservedObject var store: MenuBarPopoverStore
@@ -252,7 +263,7 @@ struct MenuBarPopover: View {
   }
 
   private var footer: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 8) {
       if let refreshedAt = store.snapshot.lastRefreshedAt {
         Text("Refreshed \(refreshedAt.formatted(.relative(presentation: .numeric)))")
           .font(AIMTheme.sans(10))
@@ -260,18 +271,9 @@ struct MenuBarPopover: View {
           .lineLimit(1)
       }
       Spacer(minLength: 0)
-      MenuBarHoverButton(action: store.openMainWindow) {
-        HStack(spacing: 7) {
-          AIMIcon(name: .openApp, size: 13)
-          Text("Open App")
-        }
-        .font(AIMTheme.sans(11, weight: .semibold))
-        .padding(.horizontal, 14)
-        .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-      }
+      MenuBarActionButton(title: "Open App", action: store.openMainWindow)
     }
-    .padding(.leading, 14)
+    .padding(.horizontal, 10)
     .frame(height: Self.footerHeight)
     .background(AIMTheme.menuChrome)
     .overlay(alignment: .top) { Divider().overlay(AIMTheme.lineSoft) }
@@ -321,7 +323,7 @@ private struct MenuBarAccountRow: View {
          usage.usedPercentage != nil || usage.secondaryUsedPercentage != nil
       {
         Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
           if let percentage = usage.secondaryUsedPercentage {
             MenuBarQuotaRow(
               label: "Weekly", percentage: percentage,
@@ -334,7 +336,7 @@ private struct MenuBarAccountRow: View {
           }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
       }
     }
     .frame(height: MenuBarPopover.accountRowHeight(account))
@@ -362,21 +364,10 @@ private struct MenuBarAccountRow: View {
         .controlSize(.small)
         .frame(width: MenuBarPopover.accountActionWidth, height: MenuBarPopover.accountActionHeight)
         .background(AIMTheme.control.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
         .accessibilityLabel("Switching account")
     } else if account.isActive {
-      Text("Active")
-        .font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(AIMTheme.green)
-        .frame(
-          width: MenuBarPopover.accountActionWidth,
-          height: MenuBarPopover.accountActionHeight)
-        .background(AIMTheme.green.opacity(0.08))
-        .overlay {
-          RoundedRectangle(cornerRadius: AIMTheme.radius)
-            .stroke(AIMTheme.green.opacity(0.22), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      MenuBarActionButton(title: "Active", disabled: true, action: {})
     } else if !account.isVerified {
       Text("Sign in")
         .font(AIMTheme.sans(10, weight: .medium))
@@ -389,9 +380,9 @@ private struct MenuBarAccountRow: View {
           RoundedRectangle(cornerRadius: AIMTheme.radius)
             .stroke(AIMTheme.amber.opacity(0.22), lineWidth: 1)
         }
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
     } else {
-      MenuBarSwitchButton(action: action)
+      MenuBarActionButton(action: action)
     }
   }
 
@@ -462,51 +453,33 @@ private struct MenuBarQuotaRow: View {
   }
 }
 
-private struct MenuBarSwitchButton: View {
+private struct MenuBarActionButton: View {
+  var title = "Switch"
+  var disabled = false
   let action: () -> Void
   @State private var isHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
-      Text("Switch")
+      Text(title)
         .font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(AIMTheme.ink)
+        .foregroundStyle(disabled ? AIMTheme.muted : Color.white)
         .frame(
           width: MenuBarPopover.accountActionWidth,
           height: MenuBarPopover.accountActionHeight)
-        .background(isHovered ? AIMTheme.controlHover : AIMTheme.control.opacity(0.45))
-        .overlay {
-          RoundedRectangle(cornerRadius: AIMTheme.radius)
-            .stroke(AIMTheme.lineSoft, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .background(disabled ? AIMTheme.control.opacity(0.65)
+          : Color(nsColor: NSColor(srgbRed: isHovered ? 0.23 : 0.16,
+              green: isHovered ? 0.24 : 0.17, blue: isHovered ? 0.25 : 0.18, alpha: 1)))
+        .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
         .contentShape(Rectangle())
     }
     .buttonStyle(AIMPressButtonStyle())
-    .onHover { isHovered = $0 }
+    .disabled(disabled)
+    .onHover { isHovered = $0 && !disabled }
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: isHovered)
-    .accessibilityLabel("Use this account for new Codex sessions")
-  }
-}
-
-private struct MenuBarHoverButton<Label: View>: View {
-  let action: () -> Void
-  @ViewBuilder let label: Label
-
-  @State private var isHovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  var body: some View {
-    Button(action: action) { label }
-      .buttonStyle(AIMPressButtonStyle())
-      .background(isHovered ? AIMTheme.listHover : Color.clear)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      .onHover { hovered in
-        withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover)) {
-          isHovered = hovered
-        }
-      }
+    .accessibilityLabel(disabled ? "Active account"
+      : title == "Switch" ? "Use this account for new Codex sessions" : title)
   }
 }
 
@@ -535,7 +508,6 @@ enum MenuBarPopoverPreviewData {
         id: UUID(uuidString: "DB9AB65A-F894-426D-8A16-86772A8F054D")!,
         identity: "needs-sign-in@example.test", detail: "Codex CLI · Personal",
         isVerified: false, isActive: false),
-    ],
-    primaryUsedPercentage: 42)
+    ])
 }
 #endif

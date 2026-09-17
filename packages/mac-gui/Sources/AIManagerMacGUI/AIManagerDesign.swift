@@ -324,10 +324,8 @@ struct AIMIcon: View {
   var body: some View {
     Group {
       if name == .doubleCheck {
-        HStack(spacing: -size * 0.5) {
-          Image(systemName: name.symbol)
-          Image(systemName: name.symbol)
-        }
+        IoCheckmarkDoneOutline()
+          .stroke(style: StrokeStyle(lineWidth: size / 16, lineCap: .round, lineJoin: .round))
       } else {
         Image(systemName: name.symbol)
       }
@@ -336,6 +334,20 @@ struct AIMIcon: View {
       .symbolRenderingMode(.monochrome)
       .frame(width: size, height: size)
       .accessibilityHidden(true)
+  }
+}
+
+// Exact checkmark-done-outline geometry from Ionicons, MIT licensed.
+private struct IoCheckmarkDoneOutline: Shape {
+  func path(in rect: CGRect) -> Path {
+    var path = Path()
+    path.move(to: CGPoint(x: 464, y: 128))
+    path.addLines([CGPoint(x: 240, y: 384), CGPoint(x: 144, y: 288)])
+    path.move(to: CGPoint(x: 144, y: 384))
+    path.addLine(to: CGPoint(x: 48, y: 288))
+    path.move(to: CGPoint(x: 368, y: 128))
+    path.addLine(to: CGPoint(x: 232, y: 284))
+    return path.applying(CGAffineTransform(scaleX: rect.width / 512, y: rect.height / 512))
   }
 }
 

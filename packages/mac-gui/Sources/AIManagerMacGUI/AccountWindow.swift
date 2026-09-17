@@ -1274,16 +1274,16 @@ private struct AccountMenuBarUsageButton: View {
 
   var body: some View {
     AIMButton(
-      title: "Show in menu bar",
-      icon: showsUsage ? .success : .circle,
+      title: "Show in Menubar",
+      icon: showsUsage ? .doubleCheck : .check,
       active: showsUsage
     ) {
       let value = !showsUsage
       MenuBarUsagePreferences.setOverride(value, for: accountID)
       showUsageOverride = value
     }
-    .accessibilityLabel("Show in menu bar")
-    .help(showsUsage ? "Hide this account's usage in the menu bar" : "Show this account's usage in the menu bar")
+    .accessibilityLabel("Show in Menubar")
+    .help(showsUsage ? "Hide this account's usage in Menubar" : "Show this account's usage in Menubar")
     .accessibilityValue(showsUsage ? "On" : "Off")
     .accessibilityAddTraits(showsUsage ? .isSelected : [])
     .contextMenu {
@@ -1677,7 +1677,7 @@ private struct SettingsPage: View {
       VStack(spacing: 8) {
         AIMPanel(title: "App behavior") {
           VStack(spacing: 0) {
-            settingRow(isOn: $minimizeToTray, title: "Minimize to menu bar") {
+            settingRow(isOn: $minimizeToTray, title: "Minimize to Menubar") {
               Text("Hide the window and keep Switch available from its menu-bar icon.")
             }
             settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
@@ -1697,9 +1697,9 @@ private struct SettingsPage: View {
             }.padding(.horizontal, 16).frame(minHeight: 48)
           }
         }
-        AIMPanel(title: "Menu bar defaults") {
+        AIMPanel(title: "Menubar defaults") {
           settingRow(isOn: $defaultShowUsage, title: "Show account usage") {
-            Text("Accounts without their own choice show cached usage in the menu bar.")
+            Text("Accounts without their own choice show cached usage in Menubar.")
           }
         }
         #if AI_MANAGER_PREVIEW
