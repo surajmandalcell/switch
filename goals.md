@@ -2558,6 +2558,11 @@ with temporary synthetic homes before installation.
 - UI verification: System, Light, and Dark contracts pass. Accounts, Add Account, and menu
   renders were inspected; identity content keeps its left alignment after removing the badges
   from the body. Preference inheritance and reset still use the existing UUID-based contract.
+- The full gate reproduced the synthetic noisy-server test's one-second pipeline startup
+  race. Generate its oversized JSON with shell-builtin printf rather than spawning head/tr;
+  retain the same timeout and byte limits. The focused regression and full native gate pass:
+  154 discovered, 152 passed, two protected-copy opt-ins skipped, plus production/Preview
+  models, locked icon assets, three appearance contracts, single-instance, and native scrolling.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 
