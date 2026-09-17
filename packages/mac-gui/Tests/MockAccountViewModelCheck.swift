@@ -158,6 +158,18 @@ struct MockAccountViewModelCheck {
         await pendingAction.value
         precondition(model.notice == nil, "A reset action completed with stale state")
 
+        model.reset(to: .demo)
+        let demoDefault = model.status!.defaultAccountID!
+        let demoReplacement = model.status!.accounts.first {
+            $0.id != demoDefault && $0.verification.state != .needsSignIn
+        }!
+        model.selectedAccountID = demoReplacement.id
+        model.selectedAccountID = demoDefault
+        await model.deleteAccount(demoDefault)
+        precondition(model.status?.defaultAccountID == demoReplacement.id)
+        precondition(model.selectedAccountID == demoReplacement.id)
+        precondition(!model.canDeleteAccount(demoReplacement.id))
+
         model.reset(to: .empty)
         precondition(model.status?.accounts.isEmpty == true)
         precondition(model.discoveries.isEmpty)
