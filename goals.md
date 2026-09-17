@@ -11,6 +11,20 @@ verification evidence.
 
 ### App-wide hover feedback (2026-09-18)
 
+Follow-up: the installed `ba13da1d2e27` still flashes while moving between controls and
+returning after Command-Tab. The earlier isolated entry/exit checks did not cover this
+sequence; they do not close this acceptance gate.
+
+- [ ] Reproduce cross-control and activation color changes with native regression checks.
+- [ ] Remove the shared cause and verify continuous interaction through reconciliation.
+- [ ] Install and verify the corrected clean signed checkpoint.
+
+The production-model regression reproduced activation publishing `isBusy = true`, which
+disables controls and resets shared hover state. Activation now performs a guarded background
+reconciliation without the user-action busy state. The app delegate owns the single activation
+callback; the duplicate view callback is removed. `check-mac-gui-production.sh` failed before
+the change and passes after it. Cross-control tracking verification and installation remain open.
+
 - [x] Reproduce missing and abrupt hover feedback in the shared native controls.
 - [x] Give enabled controls a consistent 120 ms fade without changing hit areas.
 - [x] Verify rendered entry/exit, disabled/Reduce Motion states, and sidebar transitions.

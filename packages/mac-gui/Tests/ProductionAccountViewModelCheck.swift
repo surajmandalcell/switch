@@ -132,6 +132,14 @@ struct ProductionAccountViewModelCheck {
         await model.load()
         try expect(model.hasLoaded, "Production model did not leave its loading state")
         try expect(model.status?.accounts.isEmpty == true, "Production registry was not initially empty")
+        var activationDisabledControls = false
+        let activationBusy = model.$isBusy.dropFirst().sink {
+            activationDisabledControls = activationDisabledControls || $0
+        }
+        await model.reloadAfterActivation()
+        withExtendedLifetime(activationBusy) {}
+        try expect(!activationDisabledControls,
+                   "Returning to the app disables controls and resets their hover colors")
         await model.refreshChatHistory(query: "shared chat")
         try expect(model.chatHistory.totalThreadCount == 1, "Production chat index missed its transcript")
         try expect(model.chatHistory.matchingThreadCount == 1, "Production chat search missed its transcript")
