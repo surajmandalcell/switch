@@ -111,6 +111,11 @@ Each account exposes a labeled **Show in Menubar** toggle immediately before Ope
 in its action row. Ionicons' exact `checkmark-done-outline` glyph shows the selected state,
 matching Using as default; its accessible value
 explains whether usage display is on or off. Its context menu offers Use Settings default.
+Fit the double check's visible outline, including stroke clearance, rather than its empty
+512-unit SVG canvas. At the ordinary 13-point icon size, give it a 17⅓-by-13-point area:
+visible centerlines must occupy at least 15 points in width and nine points in height, with
+round strokes about 1.2 points thick. Preserve the exact Ionicons geometry and proportions.
+Both ticks must remain distinguishable at actual size in light and dark appearances.
 Identity's header retains Default and attention badges, without a redundant provider badge
 or menu-bar toggle. There is no separate preference row in Usage.
 This preference controls both that account's popover limits and its menu-bar entry.

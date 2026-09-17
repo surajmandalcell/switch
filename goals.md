@@ -42,6 +42,9 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   Show in Menubar; use the user's one-word Menubar label.
 - [x] Tighten the popover footer to 32 points with a text-only Open App button; make
   Switch dark/white and Active disabled gray, both compact with five-point corners.
+- [ ] Fit the double tick to its visible outline rather than the padded SVG canvas,
+  using a wider icon area and readable strokes; inspect both ticks at actual size in
+  light/dark account actions and install the clean signed correction.
 
 Provider-menu verification: the complete native gate passed with 157 tests passed and two
 protected-copy opt-ins skipped. Final System, Light, and Dark contracts passed after the
