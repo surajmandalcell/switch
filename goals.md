@@ -14,7 +14,7 @@ verification evidence.
 - [x] Reproduce missing and abrupt hover feedback in the shared native controls.
 - [x] Give enabled controls a consistent 120 ms fade without changing hit areas.
 - [x] Verify rendered entry/exit, disabled/Reduce Motion states, and sidebar transitions.
-- [ ] Audit debt and install the clean signed checkpoint.
+- [x] Audit debt and install the clean signed checkpoint.
 
 This supersedes the previous sidebar's immediate highlight exit. Account selection rendering
 must retain its verified performance; Advanced Cleanup remains deferred.
@@ -41,6 +41,14 @@ GUI driver has no hover action. Core/Linux inputs are unchanged and their accept
 remain valid. Full debt inventory remains two existing markers, no additions and no missing
 triggers: legacy mutation scoping awaits a reliable Codex home-scoped writer probe;
 unowned login-home cleanup awaits durable process-exit ownership. Neither trigger is reached.
+
+Clean signed code checkpoint `41e85cfa1246` passed local release readiness and was installed
+at `/Applications/Switch.app` with its matching CLI/helper. Installed ordinary account selection,
+Settings navigation, and Add Account opening/Close passed without starting sign-in or activating
+credentials. One app process reopened normally; account order, default, Menubar choices, and
+appearance/translucency preferences were preserved. The final documentation checkpoint is
+packaged again, and its exact installed revision/hashes are recorded in the canonical private
+`/private/tmp/ai-manager-build/final-install-receipt.json`.
 
 ### Account selection responsiveness (2026-09-18)
 
