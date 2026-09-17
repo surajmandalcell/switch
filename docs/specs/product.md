@@ -247,3 +247,7 @@ focused Mac GUI contract, production and Preview model checks, System/Light/Dark
 and the full native gate before installation. Core or CLI changes additionally pass both
 unprivileged read-only Linux Docker architectures. Public distribution still requires a
 Developer ID Application signature and notarization.
+Before installed-app GUI actions, compare the packaged and `/Applications/Switch.app`
+executable SHA-256 values, verify the embedded revision against the committed build, and
+check that the running process maps the installed binary's inode. A stale process or
+checksum mismatch must be corrected before clicking; record this proof in the install receipt.

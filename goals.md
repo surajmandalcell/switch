@@ -18,7 +18,7 @@ sequence; they do not close this acceptance gate.
 - [x] Reproduce activation disabling controls and publishing unchanged data.
 - [x] Verify rapid cross-control movement and redraw stability with native checks.
 - [x] Keep background reconciliation from changing enabled states or unchanged values.
-- [ ] Install and verify the corrected clean signed checkpoint.
+- [x] Install and verify the corrected clean signed checkpoint.
 
 The production-model regression reproduced activation publishing `isBusy = true`, which
 disables controls and resets shared hover state. Activation now performs a guarded background
@@ -45,6 +45,14 @@ Read-only nonroot ARM64 and AMD64 Linux gates both pass the updated equality typ
 159 core tests (two protected-copy opt-in skips), and CLI login/recovery acceptance.
 Full debt inventory remains the two existing safety deferrals with no missing triggers;
 neither the home-scoped writer-probe nor process-exit ownership trigger is reached.
+
+Clean signed code checkpoint `8a441c398cf1` was installed at `/Applications/Switch.app`
+with the matching CLI/helper and passed local release readiness. Native installed selection,
+Settings navigation, and opening/closing Add Account pass. Original Accounts/Me selection,
+Gmail default, account order, both Menubar choices, appearance, and 35% translucency are
+preserved. The final documentation checkpoint is packaged again; its exact installed
+revision, process, hashes, and verification are in the canonical private final-install receipt.
+Physical hover and Command-Tab confirmation remains outside the recorded native replay.
 
 - [x] Reproduce missing and abrupt hover feedback in the shared native controls.
 - [x] Give enabled controls a consistent 120 ms fade without changing hit areas.
