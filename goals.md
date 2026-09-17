@@ -9,6 +9,27 @@ Design revision: 2026-09-17. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Active completion ledger (2026-09-17)
+
+This ledger owns unfinished work in the current continuation. Historical milestone entries
+below are evidence of their recorded revisions, not a claim that newer requirements passed.
+
+- [ ] Account controls: magnifying-glass check, single-tick Set as Default, double-tick
+  Using as default with reapply enabled; surface missing-snapshot usage errors and prevent
+  an enabled refresh action from silently losing a concurrent request.
+- [ ] Align returned summary facts at the right of the authentication/ordinary-usage row.
+- [ ] Persist the activity range, initially one year; enlarge Daily activity by 20%.
+- [ ] Copy displayed paths on click with a brief nonmoving Copied confirmation.
+- [ ] Retain durable daily account and project usage summaries independently of source
+  conversations and rebuildable caches, with repeated-scan/restart/deletion checks.
+- [ ] Configurable content/titlebar translucency, initially 25% with a 0–50% range,
+  respecting Reduce Transparency and keeping text and controls fully legible.
+- [ ] Close the current native and both Linux architecture gates, then install the exact
+  clean signed build and verify the installed revision and stable single-instance launch.
+
+Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
+Developer ID Application identity and notarization; local development signing is not that gate.
+
 ### Switch product identity refinement (2026-09-13)
 
 The macOS product name is **Switch**. Package the production bundle as `Switch.app`.

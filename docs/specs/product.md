@@ -41,6 +41,9 @@ The rail and View menu use this order: Accounts, Backup, Chat History, Settings.
 opens Settings. Settings contains only:
 
 1. **App behavior** — Minimize to menu bar and the optional keyboard-focus indicator.
+   Body translucency is adjustable from 0% to 50%, initially 25% (75% opacity),
+   and applies to the entire content area and its page titlebar without fading text or
+   controls. Reduce Transparency makes these surfaces opaque. The rail stays distinct.
 2. **Data locations** — Codex home (`~/.codex`) and saved account vault
    (`~/.switch/codex`), each with a plain-language purpose and an explicit Reveal action.
 3. **Menu bar defaults** — Show account usage, initially on. Accounts without an
@@ -78,8 +81,18 @@ statistics. Optional fields are conditional:
   sign-in.
 
 Daily activity uses a GitHub-style calendar instead of a date table. The user can select 7 days,
-1 month, or 1 year. Cell intensity reflects the token count within the selected range, and a
-selected day shows its date and exact token count.
+1 month, or 1 year, initially 1 year. The selected range persists across app restarts.
+Cell intensity reflects the token count within the selected range, and a selected day shows
+its date and exact token count. The Daily activity label is 20% larger than its prior 11-point
+size. Returned Lifetime, Peak day, streak, and Longest turn facts align at the right of the
+Ordinary usage and Authentication row rather than occupying another row below the limits.
+
+Retain a compact durable daily summary separately from expiring quota snapshots. Merge
+repeated authoritative account/day totals without double counting and preserve days omitted
+from later responses. Retain per-project daily summaries from explicit local token events,
+without assigning shared conversations to the currently selected account or retaining message
+content. Incremental scans, app restarts, and deletion of old source conversations must not
+erase or duplicate retained totals. Clearing rebuildable caches must preserve this ledger.
 
 The menu popover contains only account switching, enabled limit data, a refresh timestamp,
 and an Open App footer action. It has no brand/count/refresh header, column header, session
@@ -130,8 +143,13 @@ content changes must not move them vertically or horizontally.
 Identity and Usage are the primary account sections. Their header tint is restrained;
 secondary and settings headers use a lighter tint. Decorative header strokes use half the
 previous opacity. Default, provider, and attention badges sit at the right of Identity's
-header. Use and Open remain labeled primary actions; Check, Copy, and Refresh use quiet
+header. Set as Default and Open remain labeled primary actions; Check, Copy, and Refresh use quiet
 tooltip icon buttons. Healthy verification detail is not repeated under the identity.
+Check account files uses a magnifying-glass icon. Set as Default uses a single tick;
+the default account shows a double tick and Using as default. That action remains enabled
+when idle to reapply the saved credential. Displayed filesystem paths copy their exact text
+on click and show a brief local Copied confirmation without shifting layout; accessible
+names identify the copy action, and Preview must not mutate the real clipboard.
 Body prose uses Inter rather than monospace. Disabled actions stay legible and every icon
 action retains an accessible name, focus behavior, and its existing safety guards.
 
