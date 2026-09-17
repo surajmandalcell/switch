@@ -292,7 +292,7 @@ struct AccountWindow: View {
       page = requestedPage
       NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: requestedPage)
     }
-    .task(id: model.hasLoaded) {
+    .task(id: model.hasLoaded, priority: .utility) {
       if model.hasLoaded { await model.watchActivity() }
     }
   }
@@ -1345,17 +1345,23 @@ struct ActivityHeatmap: View {
       return .handled
     }
     .accessibilityRepresentation {
-      HStack {
+      HStack(alignment: .top, spacing: 3) {
         ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-          VStack {
-            ForEach(week.compactMap { $0 }) { day in
-              Button { select(day.date) } label: { Text(day.date.formatted(date: .complete, time: .omitted)) }
-                .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
-                .accessibilityAddTraits(selectedDate == day.date ? .isSelected : [])
+          VStack(spacing: 3) {
+            ForEach(Array(week.enumerated()), id: \.offset) { _, day in
+              if let day {
+                Button { select(day.date) } label: { Color.clear.frame(width: size, height: size) }
+                  .buttonStyle(.plain)
+                  .accessibilityLabel(day.date.formatted(date: .complete, time: .omitted))
+                  .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
+                  .accessibilityAddTraits(selectedDate == day.date ? .isSelected : [])
+              } else {
+                Color.clear.frame(width: size, height: size).accessibilityHidden(true)
+              }
             }
           }
         }
-      }
+      }.padding(.leading, 15)
     }
   }
 }
