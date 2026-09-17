@@ -1,4 +1,5 @@
 import AppKit
+import AIManagerCore
 import SwiftUI
 
 struct MenuBarUsageSnapshot: Equatable, Sendable {
@@ -20,6 +21,19 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     self.resetDescription = resetDescription
     self.secondaryResetDescription = secondaryResetDescription
     self.fetchedAt = fetchedAt
+  }
+
+  init?(bucket: CodexRateLimitBucketSnapshot, fetchedAt: Date) {
+    let primaryIsWeekly = bucket.primary?.windowDurationMinutes == 10_080
+    let session = primaryIsWeekly ? bucket.secondary : bucket.primary
+    let weekly = primaryIsWeekly ? bucket.primary : bucket.secondary
+    guard session?.usedPercent != nil || weekly?.usedPercent != nil else { return nil }
+    self.init(
+      usedPercentage: session?.usedPercent,
+      secondaryUsedPercentage: weekly?.usedPercent,
+      resetDescription: session?.resetsAt.map { "resets \($0.formatted(.relative(presentation: .named)))" },
+      secondaryResetDescription: weekly?.resetsAt.map { "resets \($0.formatted(.relative(presentation: .named)))" },
+      fetchedAt: fetchedAt)
   }
 
 }

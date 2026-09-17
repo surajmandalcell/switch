@@ -194,21 +194,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         guard status.accounts.first(where: { $0.id == accountID })?.verification.state != .needsSignIn,
               let snapshot = usageSnapshots[accountID],
               let bucket = snapshot.rateLimits?.defaultBucket else { return nil }
-        let used = bucket.primary?.usedPercent
-        let secondaryUsed = bucket.secondary?.usedPercent
-        guard used != nil || secondaryUsed != nil else { return nil }
-        let reset = bucket.primary?.resetsAt.map {
-            "resets \($0.formatted(.relative(presentation: .named)))"
-        }
-        let secondaryReset = bucket.secondary?.resetsAt.map {
-            "resets \($0.formatted(.relative(presentation: .named)))"
-        }
-        return MenuBarUsageSnapshot(
-            usedPercentage: used,
-            secondaryUsedPercentage: secondaryUsed,
-            resetDescription: reset,
-            secondaryResetDescription: secondaryReset,
-            fetchedAt: snapshot.fetchedAt)
+        return MenuBarUsageSnapshot(bucket: bucket, fetchedAt: snapshot.fetchedAt)
     }
 
     private static func accountDetail(_ account: AccountRecord) -> String {
