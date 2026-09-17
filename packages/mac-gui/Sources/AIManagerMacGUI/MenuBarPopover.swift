@@ -163,12 +163,12 @@ final class MenuBarPopoverStore: ObservableObject {
 
 struct MenuBarPopover: View {
   static let width: CGFloat = 384
-  static let minimumHeight: CGFloat = 124
-  static let maximumHeight: CGFloat = 440
+  static let minimumHeight: CGFloat = 104
+  static let maximumHeight: CGFloat = 900
   static let footerHeight: CGFloat = 48
   static let listInset: CGFloat = 10
   static let cardSpacing: CGFloat = 8
-  static let accountHeaderHeight: CGFloat = 58
+  static let accountHeaderHeight: CGFloat = 36
   static let quotaRowHeight: CGFloat = 44
   static let accountActionWidth: CGFloat = 64
   static let accountActionHeight: CGFloat = 24
@@ -295,17 +295,11 @@ private struct MenuBarAccountRow: View {
           .fill(account.isActive ? AIMTheme.green : (account.isVerified ? AIMTheme.faint : AIMTheme.amber))
           .frame(width: 9, height: 9)
           .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 4) {
-          Text(account.identity)
-            .font(AIMTheme.sans(13, weight: .semibold))
-            .lineLimit(1)
-          Text(error ?? account.detail)
-            .font(AIMTheme.sans(10))
-            .foregroundStyle(error == nil ? AIMTheme.muted : AIMTheme.red)
-            .lineLimit(1)
-            .textSelection(.enabled)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Text(account.identity)
+          .font(AIMTheme.sans(12, weight: .medium))
+          .lineLimit(1).truncationMode(.middle)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .help(account.identity)
         if let error {
           Button { copyError(error) } label: {
             AIMIcon(name: .copy, size: 12)
@@ -314,7 +308,8 @@ private struct MenuBarAccountRow: View {
               .contentShape(Rectangle())
           }
           .buttonStyle(AIMPressButtonStyle())
-          .help("Copy error")
+          .background { AIMCopyCursor(enabled: true).allowsHitTesting(false) }
+          .help("\(error) Click to copy.")
           .accessibilityLabel("Copy account error")
         }
         switchControl

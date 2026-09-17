@@ -150,7 +150,7 @@ final class AIManagerStatusItemController: NSObject {
     popover.contentViewController = NSHostingController(rootView: content)
     popover.contentSize = Self.contentSize(
       accounts: snapshot.accounts,
-      visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? Self.fallbackScreenHeight)
+      visibleScreenHeight: smallestDisplayHeight)
 
     store.didSwitch = { [weak self] in self?.closePopover() }
     store.didRequestDismissal = { [weak self] in self?.closePopover() }
@@ -169,9 +169,7 @@ final class AIManagerStatusItemController: NSObject {
     if popover.isShown {
       popover.contentSize = Self.contentSize(
         accounts: snapshot.accounts,
-        visibleScreenHeight: statusItem.button?.window?.screen?.visibleFrame.height
-          ?? NSScreen.main?.visibleFrame.height
-          ?? Self.fallbackScreenHeight)
+        visibleScreenHeight: smallestDisplayHeight)
     }
   }
 
@@ -192,7 +190,7 @@ final class AIManagerStatusItemController: NSObject {
         + CGFloat(max(0, accounts.count - 1)) * MenuBarPopover.cardSpacing
     }
     let idealHeight = MenuBarPopover.footerHeight + listHeight
-    let screenMaximum = max(MenuBarPopover.minimumHeight, visibleScreenHeight - 96)
+    let screenMaximum = max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.80))
     let height = min(
       max(idealHeight, MenuBarPopover.minimumHeight),
       min(MenuBarPopover.maximumHeight, screenMaximum))
@@ -200,6 +198,9 @@ final class AIManagerStatusItemController: NSObject {
   }
 
   private static let fallbackScreenHeight: CGFloat = 900
+  private var smallestDisplayHeight: CGFloat {
+    NSScreen.screens.map(\.visibleFrame.height).min() ?? Self.fallbackScreenHeight
+  }
 
   private func configureButton() {
     guard let button = statusItem.button else { return }
@@ -234,9 +235,7 @@ final class AIManagerStatusItemController: NSObject {
     guard let button = statusItem.button else { return }
     popover.contentSize = Self.contentSize(
       accounts: store.snapshot.accounts,
-      visibleScreenHeight: button.window?.screen?.visibleFrame.height
-        ?? NSScreen.main?.visibleFrame.height
-        ?? Self.fallbackScreenHeight)
+      visibleScreenHeight: smallestDisplayHeight)
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
   }
 
