@@ -211,6 +211,24 @@ struct ProductionAccountViewModelCheck {
         let alternateAccountID = try expect(
             model.status?.accounts.first(where: { $0.id != fullAccountID })?.id,
             "A second account was unavailable for the Open Codex activation check")
+        let originalOrder = model.status?.accounts.map(\.id) ?? []
+        await model.moveAccount(originalOrder[0], to: originalOrder[1])
+        try expect(model.errorMessage == nil, "Account reordering failed")
+        try expect(model.status?.accounts.map(\.id) == [originalOrder[1], originalOrder[0]],
+                   "Dragging to the next account did not move the account down")
+        try expect(model.selectedAccountID == fullAccountID && model.status?.defaultAccountID == fullAccountID,
+                   "Reordering changed selection or default")
+        try expect(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")) == fullData,
+                   "Reordering changed the live sign-in")
+        try expect(model.adjacentAccountID(to: originalOrder[0], offset: -1) == originalOrder[1]
+                   && model.adjacentAccountID(to: originalOrder[0], offset: 1) == nil,
+                   "Move up/down actions target the wrong neighbor")
+        let reorderedStatus = try await manager.status()
+        try expect(reorderedStatus.accounts.map(\.id) == [originalOrder[1], originalOrder[0]],
+                   "The app's account order did not reach the shared registry")
+        await model.moveAccount(originalOrder[0], to: originalOrder[1])
+        try expect(model.status?.accounts.map(\.id) == originalOrder,
+                   "Dragging to a preceding account did not move the account up")
         await model.openAccount(alternateAccountID)
         try expect(model.status?.defaultAccountID == alternateAccountID,
                    "Open Codex did not activate its requested account before launch")

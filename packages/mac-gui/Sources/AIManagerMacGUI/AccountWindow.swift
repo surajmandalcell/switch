@@ -613,6 +613,7 @@ private struct AccountsPage: View {
   @ObservedObject var model: AccountViewModel
   @State private var importHovered = false
   @State private var pendingDeletion: PendingAccountDeletion?
+  @State private var dropTargetID: UUID?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
@@ -631,6 +632,24 @@ private struct AccountsPage: View {
                 .buttonStyle(AIMPressButtonStyle())
                 .contextMenu {
                   accountContextMenu(for: account)
+                }
+                .draggable(account.id.uuidString)
+                .dropDestination(for: String.self) { items, _ in
+                  guard !model.isBusy, items.count == 1,
+                    let id = UUID(uuidString: items[0]),
+                    model.status?.accounts.contains(where: { $0.id == id }) == true
+                  else { return false }
+                  Task { await model.moveAccount(id, to: account.id) }
+                  return true
+                } isTargeted: { targeted in
+                  if targeted { dropTargetID = account.id }
+                  else if dropTargetID == account.id { dropTargetID = nil }
+                }
+                .overlay {
+                  if dropTargetID == account.id {
+                    Rectangle().stroke(AIMTheme.blue.opacity(0.7), lineWidth: 1)
+                      .allowsHitTesting(false)
+                  }
                 }
               }
               if !model.hasLoaded {
@@ -701,6 +720,17 @@ private struct AccountsPage: View {
     Button(AccountActionCopy.copyAuthPath) {
       model.copySavedAuthPath(for: account.id)
     }
+    Divider()
+    Button("Move up") {
+      if let target = model.adjacentAccountID(to: account.id, offset: -1) {
+        Task { await model.moveAccount(account.id, to: target) }
+      }
+    }.disabled(model.isBusy || model.adjacentAccountID(to: account.id, offset: -1) == nil)
+    Button("Move down") {
+      if let target = model.adjacentAccountID(to: account.id, offset: 1) {
+        Task { await model.moveAccount(account.id, to: target) }
+      }
+    }.disabled(model.isBusy || model.adjacentAccountID(to: account.id, offset: 1) == nil)
     Divider()
     Button(AccountActionCopy.delete, role: .destructive) {
       prepareDeletion(of: account)
