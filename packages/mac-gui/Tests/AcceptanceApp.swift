@@ -598,7 +598,7 @@ private final class AcceptanceReceipts {
         view.layoutSubtreeIfNeeded()
         writeSnapshot(of: view, filename: "menu-bar.png")
 
-        let accounts = [ProviderID.codex, .claudeCode, .geminiCLI, ProviderID(rawValue: "grok-build")]
+        let accounts = [ProviderID.codex, .claudeCode, .codex, .geminiCLI]
             .enumerated().map { index, provider in
                 MenuBarAccountSnapshot(
                     id: UUID(), identity: "glyph-\(index)@example.test", detail: "",
@@ -606,7 +606,7 @@ private final class AcceptanceReceipts {
                     usage: MenuBarUsageSnapshot(usedPercentage: [0, 39, 96, 100][index]),
                     providerID: provider)
             }
-        if let image = AIManagerBrand.statusImage(accounts: accounts) {
+        if let image = AIManagerBrand.statusImage(groups: MenuBarSnapshot(accounts: accounts).statusAccountGroups) {
             let strip = NSHostingView(rootView:
                 Image(nsImage: image).foregroundStyle(AIMTheme.ink)
                     .padding(10).background(AIMTheme.panel))

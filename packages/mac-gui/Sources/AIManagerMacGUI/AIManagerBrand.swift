@@ -87,26 +87,32 @@ enum AIManagerBrand {
     return image
   }
 
-  static func statusImage(accounts: [MenuBarAccountSnapshot], in bundle: Bundle = .main) -> NSImage? {
-    guard !accounts.isEmpty else { return trayImage(in: bundle) }
+  static func statusImage(groups: [[MenuBarAccountSnapshot]], in bundle: Bundle = .main) -> NSImage? {
+    guard !groups.isEmpty else { return trayImage(in: bundle) }
     let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-    let labels = accounts.map { account in
+    let labels = groups.map { group in group.map { account in
       NSAttributedString(
         string: account.remainingPercentage.map { "\($0)%" } ?? "–",
         attributes: [.font: font, .foregroundColor: NSColor.black])
-    }
-    let glyphs = accounts.map {
-      providerGlyph(for: $0.providerID, in: bundle)
+    } }
+    let glyphs = groups.map {
+      providerGlyph(for: $0[0].providerID, in: bundle)
         ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
     }
-    let widths = labels.map { ceil($0.size().width) + 20 }
-    let width = widths.reduce(0, +) + CGFloat(accounts.count - 1) * 10
+    let widths = labels.map { group in
+      16 + group.reduce(0) { $0 + ceil($1.size().width) } + CGFloat(group.count - 1) * 5
+    }
+    let width = widths.reduce(0, +) + CGFloat(groups.count - 1) * 10
     let image = NSImage(size: NSSize(width: width, height: 22), flipped: false) { _ in
       var x: CGFloat = 0
       for index in labels.indices {
-        glyphs[index]?.draw(in: NSRect(x: x, y: 3, width: 16, height: 16))
-        labels[index].draw(at: NSPoint(x: x + 20, y: floor((22 - labels[index].size().height) / 2)))
-        x += widths[index] + 10
+        glyphs[index]?.draw(in: NSRect(x: x, y: 5, width: 12, height: 12))
+        x += 16
+        for label in labels[index] {
+          label.draw(at: NSPoint(x: x, y: floor((22 - label.size().height) / 2)))
+          x += ceil(label.size().width) + 5
+        }
+        x += 5
       }
       return true
     }
@@ -277,7 +283,7 @@ final class AIManagerStatusItemController: NSObject {
     let accounts = snapshot.statusAccounts
     button.title = ""
     button.imagePosition = .imageOnly
-    button.image = AIManagerBrand.statusImage(accounts: accounts, in: bundle)
+    button.image = AIManagerBrand.statusImage(groups: snapshot.statusAccountGroups, in: bundle)
     let description = accounts.map { account in
       let quota = account.remainingPercentage.map { "\($0)% remaining" } ?? "Limit not checked"
       return "\(account.providerID.displayName), \(account.identity), \(quota)"

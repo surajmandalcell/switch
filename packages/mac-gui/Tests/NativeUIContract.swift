@@ -191,8 +191,20 @@ enum AIManagerNativeContract {
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
     let doubleTick = AIMIcon(name: .doubleCheck, size: 13)
-    let tickBounds = IoCheckmarkDoneOutline().path(
+    let tickBounds = AIMDoubleCheckShape().path(
       in: CGRect(x: 0, y: 0, width: doubleTick.width, height: doubleTick.size)).boundingRect
+    var checks: [[CGPoint]] = []
+    AIMDoubleCheckShape().path(in: CGRect(x: 0, y: 0, width: doubleTick.width, height: doubleTick.size))
+      .forEach { element in
+        switch element {
+        case .move(to: let point): checks.append([point])
+        case .line(to: let point): checks[checks.count - 1].append(point)
+        default: break
+        }
+      }
+    if checks.count != 2 || checks.contains(where: { $0.count != 3 }) {
+      failures.append("The double tick has an incomplete short or long arm")
+    }
     if tickBounds.width < 15 || tickBounds.height < 9 {
       failures.append("Double-check ink is too small to distinguish both ticks at button size")
     }
@@ -241,15 +253,15 @@ enum AIManagerNativeContract {
       if !condition() { failures.append(message) }
     }
 
-    expect(MenuBarPopover.width == 384, "Menu-bar popover is not 384 points wide")
+    expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
     expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
     expect(MenuBarPopover.maximumHeight == 900, "Menu-bar popover maximum height is not capped")
-    expect(MenuBarPopover.accountHeaderHeight == 36, "Menu-bar account header has the wrong height")
-    expect(MenuBarPopover.quotaRowHeight == 36, "Menu-bar quota rows have the wrong height")
-    expect(MenuBarPopover.footerHeight == 32, "Menu-bar footer retains excessive height")
+    expect(MenuBarPopover.accountHeaderHeight == 30, "Menu-bar account header has the wrong height")
+    expect(MenuBarPopover.quotaRowHeight == 28, "Menu-bar quota rows have the wrong height")
+    expect(MenuBarPopover.footerHeight == 28, "Menu-bar footer retains excessive height")
     expect(MenuBarPopover.buttonRadius == 5, "Menu-bar buttons retain sharp corners")
-    expect(MenuBarPopover.accountActionWidth == 64, "Menu-bar account actions have different widths")
-    expect(MenuBarPopover.accountActionHeight == 24, "Menu-bar account actions are not compact")
+    expect(MenuBarPopover.accountActionWidth == 56, "Menu-bar account actions have different widths")
+    expect(MenuBarPopover.accountActionHeight == 22, "Menu-bar account actions are not compact")
 
     let snapshot = MenuBarPopoverPreviewData.snapshot
     let hiddenAccount = MenuBarAccountSnapshot(
@@ -273,14 +285,14 @@ enum AIManagerNativeContract {
     let fractionalScreen = AIManagerStatusItemController.contentSize(
       accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 601)
     for size in [empty, hidden, one, two, many, shortScreen, tallScreen, fractionalScreen] {
-      expect(size.width == 384, "Menu-bar popover width changes with its contents")
+      expect(size.width == 344, "Menu-bar popover width changes with its contents")
       expect(size.height >= 104, "Menu-bar popover is shorter than its empty state")
       expect(size.height <= 900, "Menu-bar popover exceeds its height cap")
     }
     expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 104, "Hidden usage leaves blank quota space")
-    expect(one.height == 183, "One usage card has the wrong geometry")
-    expect(two.height == 322, "Two usage cards have the wrong geometry")
+    expect(one.height == 147, "One usage card has the wrong geometry")
+    expect(two.height == 256, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
     expect(tallScreen.height == 900, "Menu-bar popover exceeds its absolute height cap")
@@ -300,7 +312,7 @@ enum AIManagerNativeContract {
         openMainWindow: {}, switchAccount: { _ in }))
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
     expect(controller.usesPopover, "Status item still uses a static menu")
-    expect(controller.popoverContentSize.width == 384, "Hosted popover changed its fixed width")
+    expect(controller.popoverContentSize.width == 344, "Hosted popover changed its fixed width")
     expect(controller.statusTitle == "58% 82% –", "Status item does not show enabled remaining quotas")
     let disabledSnapshot = MenuBarSnapshot(accounts: [hiddenAccount])
     controller.update(snapshot: disabledSnapshot)
@@ -311,18 +323,26 @@ enum AIManagerNativeContract {
         id: UUID(), identity: "account-\(index)@example.test", detail: "",
         isVerified: true, isActive: index == 5,
         usage: MenuBarUsageSnapshot(usedPercentage: index * 10),
-        showsUsage: index != 1, providerID: index == 5 ? .claudeCode : .codex)
+        showsUsage: index != 1, providerID: index == 2 || index == 5 ? .claudeCode : .codex)
     }
     let capped = MenuBarSnapshot(accounts: enabled)
-    expect(capped.statusAccounts.map(\.id) == [enabled[5].id, enabled[0].id, enabled[2].id, enabled[3].id],
-      "Tray pairs do not cap at four enabled accounts with default first")
+    expect(capped.statusAccounts.map(\.id) == [enabled[0].id, enabled[3].id, enabled[4].id, enabled[2].id],
+      "Tray quotas do not group the first four enabled accounts in saved order")
+    expect(capped.statusAccountGroups.map { $0.map(\.id) }
+      == [[enabled[0].id, enabled[3].id, enabled[4].id], [enabled[2].id]],
+      "Tray repeats a service group or changes its account order")
     controller.update(snapshot: capped)
-    expect(controller.statusTitle == "50% 100% 80% 70%", "Tray quota order or meaning changed")
-    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-5@example.test, 50% remaining")
+    expect(controller.statusTitle == "100% 70% 60% 80%", "Tray quota order or meaning changed")
+    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-2@example.test, 80% remaining")
       && !controller.statusAccessibilityLabel.contains("account-1@example.test")
-      && !controller.statusAccessibilityLabel.contains("account-4@example.test"),
+      && !controller.statusAccessibilityLabel.contains("account-5@example.test"),
       "Actual status button does not describe only the displayed provider/remaining pairs")
     expect(controller.isPresent, "Multi-provider tray image is not a native template")
+    let sameService = AIManagerBrand.statusImage(groups: [[enabled[0], enabled[3]]])
+    let differentServices = AIManagerBrand.statusImage(groups: [[enabled[0]], [enabled[3]]])
+    expect(sameService != nil && differentServices != nil
+      && differentServices!.size.width - sameService!.size.width == 21,
+      "Grouped native tray still reserves a repeated service glyph")
     for used in -1...101 {
       let account = MenuBarAccountSnapshot(
         id: UUID(), identity: "boundary@example.test", detail: "", isVerified: true,
