@@ -63,6 +63,57 @@ enum AIManagerBrand {
       bundle: bundle)
   }
 
+  static let providerGlyphNames: [String: String] = [
+    "codex": "codex", "claude-code": "claudecode", "gemini-cli": "gemini",
+    "antigravity-cli": "antigravity", "openai": "openai", "claude": "claude",
+    "grok-build": "grok", "xai": "xai", "cursor": "cursor",
+    "github-copilot": "githubcopilot", "copilot": "copilot", "cline": "cline",
+    "windsurf": "windsurf", "opencode": "opencode", "amp": "amp", "goose": "goose",
+    "deepseek": "deepseek", "qwen": "qwen", "mistral": "mistral",
+    "ollama": "ollama", "perplexity": "perplexity",
+  ]
+  private static var glyphCache: [String: NSImage] = [:]
+
+  static func providerGlyph(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage? {
+    guard let name = providerGlyphNames[providerID.rawValue] else { return nil }
+    let key = bundle.bundleURL.path + "/" + name
+    if let image = glyphCache[key] { return image }
+    guard let url = bundle.url(
+      forResource: name, withExtension: "png", subdirectory: "Icons/ProviderGlyphs"),
+      let image = NSImage(contentsOf: url)
+    else { return nil }
+    image.isTemplate = true
+    glyphCache[key] = image
+    return image
+  }
+
+  static func statusImage(accounts: [MenuBarAccountSnapshot], in bundle: Bundle = .main) -> NSImage? {
+    guard !accounts.isEmpty else { return trayImage(in: bundle) }
+    let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+    let labels = accounts.map { account in
+      NSAttributedString(
+        string: account.remainingPercentage.map { "\($0)%" } ?? "–",
+        attributes: [.font: font, .foregroundColor: NSColor.black])
+    }
+    let glyphs = accounts.map {
+      providerGlyph(for: $0.providerID, in: bundle)
+        ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
+    }
+    let widths = labels.map { ceil($0.size().width) + 20 }
+    let width = widths.reduce(0, +) + CGFloat(accounts.count - 1) * 10
+    let image = NSImage(size: NSSize(width: width, height: 22), flipped: false) { _ in
+      var x: CGFloat = 0
+      for index in labels.indices {
+        glyphs[index]?.draw(in: NSRect(x: x, y: 3, width: 16, height: 16))
+        labels[index].draw(at: NSPoint(x: x + 20, y: floor((22 - labels[index].size().height) / 2)))
+        x += widths[index] + 10
+      }
+      return true
+    }
+    image.isTemplate = true
+    return image
+  }
+
   static func acceptanceFailures(in bundle: Bundle = .main) -> [String] {
     var failures: [String] = []
     for (name, fileExtension) in [
@@ -79,6 +130,11 @@ enum AIManagerBrand {
         failures.append(
           "Provider asset \(artwork.resourceName).\(artwork.fileExtension) did not load")
         continue
+      }
+    }
+    for id in providerGlyphNames.keys.sorted() {
+      if providerGlyph(for: ProviderID(rawValue: id), in: bundle) == nil {
+        failures.append("Provider menu glyph \(id) did not load")
       }
     }
     for name in ["AppIcon", "AppIconLight", "AppIconDark"] {
@@ -127,7 +183,11 @@ final class AIManagerStatusItemController: NSObject {
   var isPresent: Bool { statusItem.button?.image?.isTemplate == true }
   var usesPopover: Bool { statusItem.menu == nil && popover.behavior == .transient }
   var popoverContentSize: NSSize { popover.contentSize }
-  var statusTitle: String { statusItem.button?.title ?? "" }
+  var statusTitle: String {
+    store.snapshot.statusAccounts.map { $0.remainingPercentage.map { "\($0)%" } ?? "–" }
+      .joined(separator: " ")
+  }
+  var statusAccessibilityLabel: String { statusItem.button?.accessibilityLabel() ?? "" }
 
   private let statusItem: NSStatusItem
   private let popover = NSPopover()
@@ -165,7 +225,7 @@ final class AIManagerStatusItemController: NSObject {
 
   func update(snapshot: MenuBarSnapshot) {
     store.update(snapshot: snapshot)
-    updateStatusLabel(snapshot.primaryUsedPercentage)
+    updateStatusLabel(snapshot)
     if popover.isShown {
       popover.contentSize = Self.contentSize(
         accounts: snapshot.accounts,
@@ -211,20 +271,20 @@ final class AIManagerStatusItemController: NSObject {
     button.sendAction(on: [.leftMouseUp])
   }
 
-  private func updateStatusLabel(_ usedPercentage: Int?) {
+  private func updateStatusLabel(_ snapshot: MenuBarSnapshot) {
     guard let button = statusItem.button else { return }
     let applicationName = AIManagerBrand.bundleDisplayName(in: bundle)
-    if let usedPercentage {
-      button.title = "\(usedPercentage)%"
-      button.imagePosition = .imageLeading
-      button.toolTip = "\(applicationName) — \(usedPercentage)% used quota"
-      button.setAccessibilityLabel("\(applicationName), \(usedPercentage) percent used quota")
-    } else {
-      button.title = ""
-      button.imagePosition = .imageOnly
-      button.toolTip = applicationName
-      button.setAccessibilityLabel(applicationName)
-    }
+    let accounts = snapshot.statusAccounts
+    button.title = ""
+    button.imagePosition = .imageOnly
+    button.image = AIManagerBrand.statusImage(accounts: accounts, in: bundle)
+    let description = accounts.map { account in
+      let quota = account.remainingPercentage.map { "\($0)% remaining" } ?? "Limit not checked"
+      return "\(account.providerID.displayName), \(account.identity), \(quota)"
+    }.joined(separator: "\n")
+    button.toolTip = description.isEmpty ? applicationName : description
+    button.setAccessibilityLabel(
+      description.isEmpty ? applicationName : applicationName + ", " + description)
   }
 
   @objc private func togglePopover() {

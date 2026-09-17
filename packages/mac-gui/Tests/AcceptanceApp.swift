@@ -1,3 +1,4 @@
+import AIManagerCore
 import AppKit
 import Combine
 import Foundation
@@ -596,6 +597,39 @@ private final class AcceptanceReceipts {
                 visibleScreenHeight: 900))
         view.layoutSubtreeIfNeeded()
         writeSnapshot(of: view, filename: "menu-bar.png")
+
+        let accounts = [ProviderID.codex, .claudeCode, .geminiCLI, ProviderID(rawValue: "grok-build")]
+            .enumerated().map { index, provider in
+                MenuBarAccountSnapshot(
+                    id: UUID(), identity: "glyph-\(index)@example.test", detail: "",
+                    isVerified: true, isActive: index == 0,
+                    usage: MenuBarUsageSnapshot(usedPercentage: [0, 39, 96, 100][index]),
+                    providerID: provider)
+            }
+        if let image = AIManagerBrand.statusImage(accounts: accounts) {
+            let strip = NSHostingView(rootView:
+                Image(nsImage: image).foregroundStyle(AIMTheme.ink)
+                    .padding(10).background(AIMTheme.panel))
+            strip.appearance = appearance
+            strip.frame = NSRect(x: 0, y: 0, width: image.size.width + 20, height: 42)
+            strip.layoutSubtreeIfNeeded()
+            writeSnapshot(of: strip, filename: "tray-glyphs.png")
+        }
+        let catalog = NSHostingView(rootView:
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(170), alignment: .leading), count: 3), spacing: 12) {
+                ForEach(AIManagerBrand.providerGlyphNames.keys.sorted(), id: \.self) { id in
+                    HStack(spacing: 8) {
+                        if let image = AIManagerBrand.providerGlyph(for: ProviderID(rawValue: id)) {
+                            Image(nsImage: image).resizable().scaledToFit().frame(width: 18, height: 18)
+                        }
+                        Text(id).font(AIMTheme.sans(11))
+                    }
+                }
+            }.padding(12).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel))
+        catalog.appearance = appearance
+        catalog.frame = NSRect(x: 0, y: 0, width: 560, height: 250)
+        catalog.layoutSubtreeIfNeeded()
+        writeSnapshot(of: catalog, filename: "provider-glyphs.png")
     }
 
     private func writeSnapshot(of view: NSView, filename: String) {
@@ -616,7 +650,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window.png", "menu-bar.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }

@@ -35,13 +35,29 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   preserving activation-failure safety and using the ordinary Delete account label.
 - [x] Compact menu account headers to one row and cap the scrolling popover at 80% of
   the smallest display's visible height, with a 900-point ceiling.
-- [ ] Replace the tray mark with provider glyph/remaining-quota pairs for enabled
+- [x] Replace the tray mark with provider glyph/remaining-quota pairs for enabled
   accounts, default first, capped at four; retain the Switch mark if none are enabled.
-- [ ] Package a sourced offline glyph catalog without enabling future providers.
-- [ ] Use the exact outlined Ionicons double tick for Using as default and enabled
+- [x] Package a sourced offline glyph catalog without enabling future providers.
+- [x] Use the exact outlined Ionicons double tick for Using as default and enabled
   Show in Menubar; use the user's one-word Menubar label.
-- [ ] Tighten the popover footer to 32 points with a text-only Open App button; make
+- [x] Tighten the popover footer to 32 points with a text-only Open App button; make
   Switch dark/white and Active disabled gray, both compact with five-point corners.
+
+Provider-menu verification: the complete native gate passed with 157 tests passed and two
+protected-copy opt-ins skipped. Final System, Light, and Dark contracts passed after the
+filled footer action was applied. Remaining-quota checks cover every used percentage from
+-1 through 101, explicit zero/full use, missing limits, weekly-only limits, disabled display,
+six accounts capped at four, default-first order, and the actual status button's accessible
+provider/identity/remaining description. The unused active-only quota field was removed.
+The 21-glyph catalog is pinned to LobeHub static SVG 1.90.0 with its MIT license; exact
+Ionicons double-check geometry retains its MIT notice. A native render exposed Gemini's
+CoreSVG clipping error; generated 64-pixel PNGs fixed the missing glyph. Current light/dark
+tray strips, the full glyph catalog, account actions, and compact filled-button popovers
+were visually inspected in `/private/tmp/ai-manager-build/ui-review`. Glyphs are cached,
+the full tray strip is a native template image, and no menu-open network fetch is introduced.
+The final installed revision remains recorded in the canonical receipt. Shared-core/Linux
+inputs are unchanged. The two existing ownership markers and their upgrade triggers remain
+unchanged; no marker was added or left without a trigger.
 
 Compact-control refinement: the default-deletion regression reproduced the prior UI block
 before the fix. Production and Preview model checks then passed. A previous selection beats

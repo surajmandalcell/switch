@@ -137,12 +137,13 @@ Switch uses a dark filled button with white text; Active is a disabled gray butt
 than a colored badge. When menu
 usage is enabled and cached, the card expands to show separate Weekly and 5 hour progress
 rows. Each row places the limit name above its percentage, followed by a horizontal progress
-bar and a right-aligned reset description. The cards use a quiet dark gradient, fine border,
+bar and a right-aligned reset description. Quota rows are 36 points high with eight-point
+vertical insets and six-point spacing. The cards use a quiet dark gradient, fine border,
 and restrained hover change while preserving three-point corners. A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
 left even when usage display is disabled, and Open App on the right. The popover is 384 points wide,
-uses a compact 32-point footer with ten-point horizontal insets and a text-only Open App
-button, and scrolls at the smaller of 900 points or 80% of the smallest attached
+uses a compact 32-point footer with ten-point horizontal insets and a text-only dark
+filled Open App button, and scrolls at the smaller of 900 points or 80% of the smallest attached
 display's visible height. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 

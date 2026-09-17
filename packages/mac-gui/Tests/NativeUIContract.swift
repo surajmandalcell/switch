@@ -236,7 +236,9 @@ enum AIManagerNativeContract {
     expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
     expect(MenuBarPopover.maximumHeight == 900, "Menu-bar popover maximum height is not capped")
     expect(MenuBarPopover.accountHeaderHeight == 36, "Menu-bar account header has the wrong height")
-    expect(MenuBarPopover.quotaRowHeight == 44, "Menu-bar quota rows have the wrong height")
+    expect(MenuBarPopover.quotaRowHeight == 36, "Menu-bar quota rows have the wrong height")
+    expect(MenuBarPopover.footerHeight == 32, "Menu-bar footer retains excessive height")
+    expect(MenuBarPopover.buttonRadius == 5, "Menu-bar buttons retain sharp corners")
     expect(MenuBarPopover.accountActionWidth == 64, "Menu-bar account actions have different widths")
     expect(MenuBarPopover.accountActionHeight == 24, "Menu-bar account actions are not compact")
 
@@ -268,14 +270,14 @@ enum AIManagerNativeContract {
     }
     expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 104, "Hidden usage leaves blank quota space")
-    expect(one.height == 227, "One usage card has the wrong geometry")
-    expect(two.height == 394, "Two usage cards have the wrong geometry")
+    expect(one.height == 183, "One usage card has the wrong geometry")
+    expect(two.height == 322, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
     expect(tallScreen.height == 900, "Menu-bar popover exceeds its absolute height cap")
     expect(fractionalScreen.height == 480, "Menu-bar screen cap rounds beyond 80%")
 
-    expect(snapshot.primaryUsedPercentage == 42, "Preview menu snapshot lacks cached primary usage")
+    expect(snapshot.accounts.first?.remainingPercentage == 58, "Preview menu snapshot lacks cached remaining quota")
     expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
     expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
     expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
@@ -290,7 +292,47 @@ enum AIManagerNativeContract {
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
     expect(controller.usesPopover, "Status item still uses a static menu")
     expect(controller.popoverContentSize.width == 384, "Hosted popover changed its fixed width")
-    expect(controller.statusTitle == "42%", "Status item does not show cached primary usage")
+    expect(controller.statusTitle == "58% 82% –", "Status item does not show enabled remaining quotas")
+    let disabledSnapshot = MenuBarSnapshot(accounts: [hiddenAccount])
+    controller.update(snapshot: disabledSnapshot)
+    expect(controller.statusTitle.isEmpty, "Disabled usage still appears beside a provider glyph")
+
+    let enabled = (0..<6).map { index in
+      MenuBarAccountSnapshot(
+        id: UUID(), identity: "account-\(index)@example.test", detail: "",
+        isVerified: true, isActive: index == 5,
+        usage: MenuBarUsageSnapshot(usedPercentage: index * 10),
+        showsUsage: index != 1, providerID: index == 5 ? .claudeCode : .codex)
+    }
+    let capped = MenuBarSnapshot(accounts: enabled)
+    expect(capped.statusAccounts.map(\.id) == [enabled[5].id, enabled[0].id, enabled[2].id, enabled[3].id],
+      "Tray pairs do not cap at four enabled accounts with default first")
+    controller.update(snapshot: capped)
+    expect(controller.statusTitle == "50% 100% 80% 70%", "Tray quota order or meaning changed")
+    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-5@example.test, 50% remaining")
+      && !controller.statusAccessibilityLabel.contains("account-1@example.test")
+      && !controller.statusAccessibilityLabel.contains("account-4@example.test"),
+      "Actual status button does not describe only the displayed provider/remaining pairs")
+    expect(controller.isPresent, "Multi-provider tray image is not a native template")
+    for used in -1...101 {
+      let account = MenuBarAccountSnapshot(
+        id: UUID(), identity: "boundary@example.test", detail: "", isVerified: true,
+        isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: used))
+      expect(account.remainingPercentage == 100 - min(max(used, 0), 100),
+        "Remaining quota fails at \(used) percent used")
+    }
+    let weekly = MenuBarAccountSnapshot(
+      id: UUID(), identity: "weekly@example.test", detail: "", isVerified: true,
+      isActive: true, usage: MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 96))
+    expect(weekly.remainingPercentage == 4, "Weekly-only quota does not show four percent remaining")
+    let unknown = MenuBarAccountSnapshot(
+      id: UUID(), identity: "unknown@example.test", detail: "", isVerified: true, isActive: true)
+    expect(unknown.remainingPercentage == nil, "Missing quota invents a remaining percentage")
+    expect(AIManagerBrand.providerGlyphNames.count == 21, "Offline brand catalog lost glyphs")
+    expect(AIManagerBrand.providerGlyph(for: .codex)?.isTemplate == true
+      && AIManagerBrand.providerGlyph(for: .claudeCode)?.isTemplate == true,
+      "Codex or Claude Code menu glyph is unavailable")
+    controller.update(snapshot: snapshot)
     let originalSize = controller.popoverContentSize
     controller.updateAppearance(NSAppearance(named: .darkAqua))
     expect(
