@@ -203,6 +203,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         window?.contentView?.layoutSubtreeIfNeeded()
         if !AcceptanceConfiguration.snapshotOnly {
             menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
+            menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.hoverFeedbackFailures())
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)

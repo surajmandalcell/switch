@@ -251,7 +251,10 @@ private extension AIMTheme.FontWeight {
 
 enum AIMMotion {
   static let press = 0.055
-  static let hover = 0.08
+  static let hover = 0.12
+  static func hoverAnimation(reduceMotion: Bool) -> Animation? {
+    reduceMotion ? nil : .easeOut(duration: hover)
+  }
   static let state = 0.10
   static let navigation = 0.14
   static let modal = 0.14
@@ -374,12 +377,32 @@ struct AIMPressButtonStyle: ButtonStyle {
 
   struct Body: View {
     let configuration: Configuration
+    @State private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
       configuration.label
+        .overlay {
+          RoundedRectangle(cornerRadius: AIMTheme.radius)
+            .fill(AIMTheme.ink)
+            .opacity(hovered && isEnabled ? 0.07 : 0)
+            .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered && isEnabled)
+            .allowsHitTesting(false)
+        }
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+          let inside: Bool
+          switch phase {
+          case .active: inside = isEnabled
+          case .ended: inside = false
+          }
+          if hovered != inside { hovered = inside }
+        }
+        .onChange(of: isEnabled) { _, enabled in
+          if !enabled { hovered = false }
+        }
         .brightness(configuration.isPressed && isEnabled ? -0.035 : 0)
         .opacity(configuration.isPressed && isEnabled ? 0.92 : 1)
         .animation(

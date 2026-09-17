@@ -463,7 +463,7 @@ private struct RailTop: View {
   }
 }
 
-private struct RailButton: View {
+struct RailButton: View {
   let icon: AIMIcon.Name, label: String, active: Bool
   var disabled = false
   let sidebarHover: AIMSidebarHover
@@ -480,7 +480,7 @@ private struct RailButton: View {
         active ? AIMTheme.activeInk : (hover && !unavailable ? AIMTheme.ink : AIMTheme.railIdle)
       ).background {
         Rectangle().fill(active ? AIMTheme.active : (hover && !unavailable ? AIMTheme.panel2 : .clear))
-          .animation(hover && !reduceMotion ? .easeOut(duration: AIMMotion.hover) : nil, value: hover)
+          .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hover)
           .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: active)
           .allowsHitTesting(false)
       }
@@ -491,8 +491,8 @@ private struct RailButton: View {
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
   }
 }
-private enum ButtonTone { case normal, primary, danger }
-private struct AIMButton: View {
+enum ButtonTone { case normal, primary, danger }
+struct AIMButton: View {
   let title: String
   var icon: AIMIcon.Name?
   var tone: ButtonTone = .normal
@@ -540,7 +540,7 @@ private struct AIMButton: View {
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
   }
 }
-private struct AIMIconButton: View {
+struct AIMIconButton: View {
   let icon: AIMIcon.Name
   let label: String
   var tone: ButtonTone = .normal
@@ -776,7 +776,7 @@ func accountDropTarget(for accountID: UUID, at point: CGPoint, model: AccountVie
     to: accountID, offset: Int(floor(point.y / AccountListRow.height)))
 }
 
-private struct AccountListRow: View {
+struct AccountListRow: View {
   static let height: CGFloat = 44
   let account: AccountRecord, selected: Bool, isDefault: Bool
   let sidebarHover: AIMSidebarHover
@@ -795,7 +795,7 @@ private struct AccountListRow: View {
       maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
     ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background {
       Rectangle().fill(selected ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear))
-        .animation(hover && !reduceMotion ? .easeOut(duration: AIMMotion.hover) : nil, value: hover)
+        .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hover)
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
         .allowsHitTesting(false)
     }.overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
@@ -1285,6 +1285,7 @@ private struct ActivityCell: View {
   let size: CGFloat
   let select: () -> Void
   @State private var hovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var fill: AnyShapeStyle {
     guard day.tokens > 0, maximumTokens > 0 else {
@@ -1307,6 +1308,7 @@ private struct ActivityCell: View {
     }
     .buttonStyle(AIMPressButtonStyle())
     .onHover { hovered = $0 }
+    .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
     .help("\(day.date.formatted(date: .complete, time: .omitted)): \(UsagePresentation.exactTokens(day.tokens)) tokens")
     .accessibilityLabel(day.date.formatted(date: .complete, time: .omitted))
     .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
@@ -2397,6 +2399,7 @@ private struct ChatFilterButton: View {
   let selected: Bool
   let action: () -> Void
   @State private var hovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
@@ -2415,6 +2418,7 @@ private struct ChatFilterButton: View {
     }
     .buttonStyle(AIMPressButtonStyle())
     .onHover { hovered = $0 }
+    .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
     .accessibilityLabel("Show \(choice.rawValue.lowercased())")
     .accessibilityAddTraits(selected ? .isSelected : [])
   }
@@ -2424,6 +2428,7 @@ private struct ChatFilteredCopyButton: View {
   let messages: [ChatMessage]
   @State private var copied = false
   @State private var hovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button {
@@ -2454,6 +2459,7 @@ private struct ChatFilteredCopyButton: View {
     .disabled(messages.isEmpty)
     .opacity(messages.isEmpty ? 0.45 : 1)
     .onHover { hovered = $0 }
+    .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
     .help("Copy the messages currently shown")
     .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
   }

@@ -16,8 +16,126 @@ struct AIManagerNativeViewSnapshot: Codable {
   let verticalScrollerClass: String?
 }
 
+private final class HoverTestEvent: NSEvent {
+  let area: NSTrackingArea
+  let eventType: NSEvent.EventType
+  let location: NSPoint
+  init(area: NSTrackingArea, type: NSEvent.EventType) {
+    self.area = area
+    self.eventType = type
+    let view = area.owner as? NSView
+    let bounds = view?.bounds ?? .zero
+    let rect = area.rect.isEmpty ? bounds : area.rect.intersection(bounds)
+    location = view?.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil) ?? .zero
+    super.init()
+  }
+  @available(*, unavailable) required init?(coder: NSCoder) { nil }
+  override var trackingArea: NSTrackingArea? { area }
+  override var type: NSEvent.EventType { eventType }
+  override var locationInWindow: NSPoint { location }
+}
+
 @MainActor
 enum AIManagerNativeContract {
+  static func hoverFeedbackFailures() async -> [String] {
+    var failures: [String] = []
+    let shared = AnyView(Button {} label: {
+        Text("Range").frame(width: 140, height: 30).background(AIMTheme.control)
+      }.buttonStyle(AIMPressButtonStyle()))
+    var controls: [(String, AnyView, Bool)] = [
+      ("Shared button", shared, true),
+      ("Disabled shared button", AnyView(shared.disabled(true)), false),
+      ("Action button", AnyView(AIMButton(title: "Hover test", action: {})), true),
+      ("Icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", action: {})), true),
+      ("Disabled icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", disabled: true, action: {})), false),
+    ]
+    let hover = AIMSidebarHover()
+    controls.append(("Rail button", AnyView(RailButton(icon: .settings, label: "Settings", active: false,
+      sidebarHover: hover, hoverID: "Settings", action: {})), true))
+    let model = AccountViewModel(scenario: .demo)
+    if let account = model.status?.accounts.first {
+      controls.append(("Account row", AnyView(Button {} label: {
+        AccountListRow(account: account, selected: false, isDefault: false, sidebarHover: hover)
+      }.buttonStyle(AIMPressButtonStyle())), true))
+    } else { failures.append("Account hover fixture has no account") }
+    for (name, control, enabled) in controls {
+      failures.append(contentsOf: await hoverFeedbackFailures(name: name, control: control, enabled: enabled))
+    }
+    return failures
+  }
+
+  private static func hoverFeedbackFailures(name: String, control: AnyView, enabled: Bool) async -> [String] {
+    let dark = NSApp.windows.first?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    let host = NSHostingView(rootView: control.frame(width: 140, height: 48)
+      .background(AIMTheme.canvas).environment(\.colorScheme, dark ? .dark : .light)
+      .environment(\.aimDarkMode, dark))
+    host.frame = NSRect(x: 0, y: 0, width: 140, height: 48)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    try? await Task.sleep(for: .milliseconds(100))
+    let areas = views(in: host).flatMap { view in
+      view.updateTrackingAreas()
+      return view.trackingAreas
+    }
+    let initialBounds = host.bounds
+    func color() -> Double {
+      host.layoutSubtreeIfNeeded()
+      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      var total = 0.0
+      var count = 0
+      for y in stride(from: 0, to: bitmap.pixelsHigh, by: 5) {
+        for x in stride(from: 0, to: bitmap.pixelsWide, by: 5) {
+          if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) {
+            total += color.redComponent + color.greenComponent + color.blueComponent
+            count += 1
+          }
+        }
+      }
+      return total / Double(max(count, 1))
+    }
+    var samples = [color()]
+    var movementFlashes = false
+    for type in [NSEvent.EventType.mouseEntered, .mouseExited] {
+      for area in areas {
+        guard let owner = area.owner as? NSResponder else { continue }
+        let event = HoverTestEvent(area: area, type: type)
+        if type == .mouseEntered { owner.mouseEntered(with: event) }
+        else { owner.mouseExited(with: event) }
+      }
+      for delay in [16, 24, 120] {
+        try? await Task.sleep(for: .milliseconds(delay))
+        samples.append(color())
+      }
+      if type == .mouseEntered {
+        let settled = samples.last!
+        // Exercise the actual tracking host without moving the user's pointer.
+        for _ in 0..<3 {
+          for area in areas {
+            (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved))
+          }
+          try? await Task.sleep(for: .milliseconds(16))
+          if abs(color() - settled) > 0.003 { movementFlashes = true }
+        }
+      }
+    }
+    FileHandle.standardError.write(Data("HOVER_FADE \(name) samples=\(samples)\n".utf8))
+    if host.bounds != initialBounds { return ["\(name) hover changes its hitbox geometry"] }
+    if movementFlashes { return ["\(name) pointer movement flashes its settled highlight"] }
+    if !enabled {
+      return samples.allSatisfy { abs($0 - samples[0]) < 0.003 }
+        ? [] : ["\(name) highlights while disabled"]
+    }
+    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    return abs(samples[0] - samples[3]) > 0.02
+      && abs(samples[0] - samples[6]) < 0.003
+      && (reduceMotion || (
+        (samples[1] != samples[3] || samples[2] != samples[3])
+          && (samples[4] != samples[6] || samples[5] != samples[6])))
+      ? [] : ["\(name) hover does not visibly fade in and out"]
+  }
+
   static func presentationContractFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -25,6 +143,9 @@ enum AIManagerNativeContract {
     }
 
     expect(AIMTheme.Dark.rail == 0x141517, "Dark rail color changed")
+    expect(AIMMotion.hoverAnimation(reduceMotion: true) == nil
+      && AIMMotion.hoverAnimation(reduceMotion: false) != nil,
+      "Shared hover animation ignores Reduce Motion")
     expect(AIMTranslucency.opacity(25, reduceTransparency: false) == 0.75,
       "Initial content opacity is not 75 percent")
     expect(AIMTranslucency.opacity(100, reduceTransparency: false) == 0.5
