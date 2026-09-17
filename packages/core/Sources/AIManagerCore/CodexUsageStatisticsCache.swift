@@ -87,10 +87,28 @@ public enum CodexUsageStatisticsCacheError: Error, LocalizedError, Sendable, Equ
     }
 }
 
+public struct CodexProjectDailyActivity: Sendable, Equatable {
+    public let project: String
+    public let day: String
+    public let tokens: Int64
+    public let isComplete: Bool
+}
+
+struct CodexTranscriptActivity: Sendable {
+    let threadID: String?
+    let project: String?
+    let firstEvent: String
+    let eventCount: Int
+    let totalTokens: Int64
+    let days: [String: Int64]
+    let complete: Bool
+}
+
 public actor CodexUsageStatisticsCache {
     public static let schemaVersion: Int32 = 1
 
     private let databaseURL: URL
+    private let activityDatabaseURL: URL?
     private let policy: CodexUsageStatisticsCachePolicy
     private let now: @Sendable () -> Date
     private let encoder: JSONEncoder
@@ -99,8 +117,13 @@ public actor CodexUsageStatisticsCache {
     public init(
         databaseURL: URL,
         policy: CodexUsageStatisticsCachePolicy = .init(),
+        activityDatabaseURL: URL? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) throws {
+        guard activityDatabaseURL?.standardizedFileURL != databaseURL.standardizedFileURL else {
+            throw CodexUsageStatisticsCacheError.invalidLocation(
+                "Daily activity must use a separate database from the rebuildable usage cache.")
+        }
         guard policy.retention >= 0,
               policy.retention.isFinite,
               policy.staleAfter >= 0,
@@ -116,6 +139,7 @@ public actor CodexUsageStatisticsCache {
             throw CodexUsageStatisticsCacheError.invalidPolicy
         }
         self.databaseURL = databaseURL
+        self.activityDatabaseURL = activityDatabaseURL
         self.policy = policy
         self.now = now
         encoder = JSONEncoder()
@@ -127,6 +151,67 @@ public actor CodexUsageStatisticsCache {
             try Self.migrate(database)
         }
         try Self.secureDatabaseFiles(databaseURL)
+        if let activityDatabaseURL {
+            try Self.prepareLocation(activityDatabaseURL)
+            try Self.withDatabase(at: activityDatabaseURL) { database in
+                try Self.configure(database)
+                try Self.checkIntegrity(database)
+                let version = try Self.scalarInt(database, "PRAGMA user_version")
+                guard version <= 1 else {
+                    throw CodexUsageStatisticsCacheError.unsupportedSchema(version)
+                }
+                try Self.transaction(database) {
+                    try Self.execute(database, """
+                        CREATE TABLE IF NOT EXISTS account_days(
+                            account_id TEXT NOT NULL, day TEXT NOT NULL,
+                            tokens INTEGER NOT NULL CHECK(tokens >= 0), fetched_at REAL NOT NULL,
+                            PRIMARY KEY(account_id, day)
+                        ) WITHOUT ROWID;
+                        CREATE TABLE IF NOT EXISTS activity_threads(
+                            thread_id TEXT PRIMARY KEY NOT NULL, project TEXT NOT NULL,
+                            first_event TEXT NOT NULL, event_count INTEGER NOT NULL,
+                            total_tokens INTEGER NOT NULL, complete INTEGER NOT NULL
+                        ) WITHOUT ROWID;
+                        CREATE TABLE IF NOT EXISTS project_days(
+                            thread_id TEXT NOT NULL, day TEXT NOT NULL,
+                            tokens INTEGER NOT NULL CHECK(tokens >= 0),
+                            PRIMARY KEY(thread_id, day),
+                            FOREIGN KEY(thread_id) REFERENCES activity_threads(thread_id)
+                        ) WITHOUT ROWID;
+                        CREATE INDEX IF NOT EXISTS project_days_date ON project_days(day);
+                        CREATE TABLE IF NOT EXISTS activity_metadata(
+                            key TEXT PRIMARY KEY NOT NULL
+                        ) WITHOUT ROWID;
+                        PRAGMA user_version = 1;
+                        """)
+                }
+            }
+            // Seed the ledger once from already retained quota samples. No source transcript
+            // or authentication content is copied into the durable activity database.
+            if try Self.withDatabase(at: activityDatabaseURL, {
+                try Self.scalarInt($0,
+                    "SELECT COUNT(*) FROM activity_metadata WHERE key = 'usage_cache_seeded'") == 0
+            }) {
+                try Self.withDatabase(at: databaseURL) { database in
+                    let statement = try Self.prepare(database,
+                        "SELECT account_id, snapshot FROM usage_samples ORDER BY fetched_at")
+                    defer { sqlite3_finalize(statement) }
+                    while sqlite3_step(statement) == SQLITE_ROW {
+                        guard let id = Self.text(statement, column: 0) else { continue }
+                        let snapshot = try Self.decodeSnapshot(statement, column: 1, decoder: decoder)
+                        try Self.mergeDailyUsage(snapshot, accountID: id, at: activityDatabaseURL)
+                    }
+                    guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                        throw Self.databaseError(database, "Could not seed daily activity")
+                    }
+                }
+                try Self.withDatabase(at: activityDatabaseURL) {
+                    try Self.execute($0,
+                        "INSERT OR IGNORE INTO activity_metadata VALUES('usage_cache_seeded')")
+                }
+            }
+            try Self.secureDatabaseFiles(activityDatabaseURL)
+        }
     }
 
     public func latest(for accountID: UUID) throws -> CachedCodexAccountUsage? {
@@ -197,6 +282,10 @@ public actor CodexUsageStatisticsCache {
         let recordedAt = now()
         guard recordedAt.timeIntervalSince1970.isFinite else {
             throw CodexUsageStatisticsCacheError.invalidSnapshot
+        }
+        if let activityDatabaseURL {
+            try Self.mergeDailyUsage(snapshot, accountID: accountID.uuidString.lowercased(),
+                                    at: activityDatabaseURL)
         }
         try Self.withDatabase(at: databaseURL) { database in
             try Self.transaction(database) {
@@ -282,6 +371,173 @@ public actor CodexUsageStatisticsCache {
                 try Self.execute(database, "DELETE FROM usage_accounts")
             }
         }
+    }
+
+    public func dailyUsage(for accountID: UUID) throws -> [CodexDailyUsageSnapshot] {
+        guard let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            let statement = try Self.prepare(database,
+                "SELECT day, tokens FROM account_days WHERE account_id = ?1 ORDER BY day")
+            defer { sqlite3_finalize(statement) }
+            Self.bind(accountID.uuidString.lowercased(), to: statement, at: 1)
+            var rows: [CodexDailyUsageSnapshot] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                rows.append(.init(startDate: Self.text(statement, column: 0),
+                                  tokens: sqlite3_column_int64(statement, 1)))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read daily activity")
+            }
+            return rows
+        }
+    }
+
+    public func projectActivity(on day: String) throws -> [CodexProjectDailyActivity] {
+        guard Self.validDay(day), let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            let statement = try Self.prepare(database, """
+                SELECT t.project, SUM(d.tokens), MIN(t.complete)
+                FROM project_days d JOIN activity_threads t USING(thread_id)
+                WHERE d.day = ?1 GROUP BY t.project ORDER BY SUM(d.tokens) DESC
+                """)
+            defer { sqlite3_finalize(statement) }
+            Self.bind(day, to: statement, at: 1)
+            var rows: [CodexProjectDailyActivity] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let project = Self.text(statement, column: 0) else { continue }
+                rows.append(.init(project: project, day: day,
+                                  tokens: sqlite3_column_int64(statement, 1),
+                                  isComplete: sqlite3_column_int(statement, 2) != 0))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read project activity")
+            }
+            return rows
+        }
+    }
+
+    func recordTranscriptActivity(_ activity: CodexTranscriptActivity, fallbackID: String) throws {
+        guard let activityDatabaseURL else { return }
+        let id = "codex:" + (activity.threadID ?? fallbackID)
+        let project = activity.project.flatMap {
+            $0.hasPrefix("/") ? URL(fileURLWithPath: $0).standardizedFileURL.path : nil
+        }
+            ?? "Unknown project"
+        guard id.utf8.count <= 4_096, project.utf8.count <= 4_096,
+              activity.firstEvent.utf8.count <= 256, activity.eventCount >= 0,
+              activity.totalTokens >= 0, activity.days.count <= 36_600,
+              activity.days.allSatisfy({ Self.validDay($0.key) && $0.value >= 0 }) else {
+            throw CodexUsageStatisticsCacheError.invalidSnapshot
+        }
+        try Self.withDatabase(at: activityDatabaseURL) { database in
+            try Self.transaction(database) {
+                let existing = try Self.prepare(database,
+                    "SELECT first_event, event_count, total_tokens, project FROM activity_threads WHERE thread_id = ?1")
+                defer { sqlite3_finalize(existing) }
+                Self.bind(id, to: existing, at: 1)
+                let result = sqlite3_step(existing)
+                guard result == SQLITE_ROW || result == SQLITE_DONE else {
+                    throw Self.databaseError(database, "Could not read retained transcript activity")
+                }
+                let hasPrevious = result == SQLITE_ROW
+                if !hasPrevious && activity.eventCount == 0 { return }
+                if hasPrevious && (!activity.complete
+                    || Self.text(existing, column: 0) != activity.firstEvent
+                    || sqlite3_column_int64(existing, 1) > Int64(activity.eventCount)
+                    || sqlite3_column_int64(existing, 2) > activity.totalTokens
+                    || Self.text(existing, column: 3) != project) {
+                    let mark = try Self.prepare(database,
+                        "UPDATE activity_threads SET complete = 0 WHERE thread_id = ?1")
+                    defer { sqlite3_finalize(mark) }
+                    Self.bind(id, to: mark, at: 1)
+                    guard sqlite3_step(mark) == SQLITE_DONE else {
+                        throw Self.databaseError(database, "Could not retain incomplete activity")
+                    }
+                    return
+                }
+                let upsert = try Self.prepare(database, """
+                    INSERT INTO activity_threads VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+                    ON CONFLICT(thread_id) DO UPDATE SET
+                        event_count = excluded.event_count, total_tokens = excluded.total_tokens,
+                        complete = excluded.complete
+                    """)
+                defer { sqlite3_finalize(upsert) }
+                Self.bind(id, to: upsert, at: 1)
+                Self.bind(project, to: upsert, at: 2)
+                Self.bind(activity.firstEvent, to: upsert, at: 3)
+                sqlite3_bind_int64(upsert, 4, Int64(activity.eventCount))
+                sqlite3_bind_int64(upsert, 5, activity.totalTokens)
+                sqlite3_bind_int(upsert, 6, activity.complete ? 1 : 0)
+                guard sqlite3_step(upsert) == SQLITE_DONE else {
+                    throw Self.databaseError(database, "Could not retain transcript activity")
+                }
+                let delete = try Self.prepare(database, "DELETE FROM project_days WHERE thread_id = ?1")
+                defer { sqlite3_finalize(delete) }
+                Self.bind(id, to: delete, at: 1)
+                guard sqlite3_step(delete) == SQLITE_DONE else {
+                    throw Self.databaseError(database, "Could not replace transcript activity")
+                }
+                let insert = try Self.prepare(database, "INSERT INTO project_days VALUES(?1, ?2, ?3)")
+                defer { sqlite3_finalize(insert) }
+                for (day, tokens) in activity.days {
+                    sqlite3_reset(insert)
+                    Self.bind(id, to: insert, at: 1)
+                    Self.bind(day, to: insert, at: 2)
+                    sqlite3_bind_int64(insert, 3, tokens)
+                    guard sqlite3_step(insert) == SQLITE_DONE else {
+                        throw Self.databaseError(database, "Could not save daily project activity")
+                    }
+                }
+            }
+        }
+        try Self.secureDatabaseFiles(activityDatabaseURL)
+    }
+
+    private static func mergeDailyUsage(
+        _ snapshot: CodexAccountUsageSnapshot, accountID: String, at url: URL
+    ) throws {
+        var days: [String: Int64] = [:]
+        for row in snapshot.dailyUsage {
+            guard let day = row.startDate, validDay(day), let tokens = row.tokens, tokens >= 0 else { continue }
+            let (sum, overflow) = days[day, default: 0].addingReportingOverflow(tokens)
+            guard !overflow else { throw CodexUsageStatisticsCacheError.invalidSnapshot }
+            days[day] = sum
+        }
+        try withDatabase(at: url) { database in
+            try transaction(database) {
+                let statement = try prepare(database, """
+                    INSERT INTO account_days VALUES(?1, ?2, ?3, ?4)
+                    ON CONFLICT(account_id, day) DO UPDATE SET
+                        tokens = excluded.tokens, fetched_at = excluded.fetched_at
+                    WHERE excluded.fetched_at > account_days.fetched_at
+                    """)
+                defer { sqlite3_finalize(statement) }
+                for (day, tokens) in days {
+                    sqlite3_reset(statement)
+                    bind(accountID, to: statement, at: 1)
+                    bind(day, to: statement, at: 2)
+                    sqlite3_bind_int64(statement, 3, tokens)
+                    sqlite3_bind_double(statement, 4, snapshot.fetchedAt.timeIntervalSince1970)
+                    guard sqlite3_step(statement) == SQLITE_DONE else {
+                        throw databaseError(database, "Could not retain daily account activity")
+                    }
+                }
+            }
+        }
+        try secureDatabaseFiles(url)
+    }
+
+    private static func validDay(_ value: String) -> Bool {
+        guard value.utf8.count == 10 else { return false }
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+              let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
+              (1970...9999).contains(year) else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return false }
+        let actual = calendar.dateComponents([.year, .month, .day], from: date)
+        return actual.year == year && actual.month == month && actual.day == day
     }
 
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

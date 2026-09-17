@@ -93,6 +93,14 @@ from later responses. Retain per-project daily summaries from explicit local tok
 without assigning shared conversations to the currently selected account or retaining message
 content. Incremental scans, app restarts, and deletion of old source conversations must not
 erase or duplicate retained totals. Clearing rebuildable caches must preserve this ledger.
+The ledger is an owner-private SQLite database at application support `activity/daily.sqlite`.
+Account totals come from authoritative Codex account/day responses; newer values replace prior
+values, including downward corrections and zero. Local project totals use UTC event days and
+increases in cumulative token counters, never repeated last-turn counters. Thread IDs deduplicate
+archived or copied transcripts. Unknown fork boundaries and reset or incomplete source records
+retain known totals with an incomplete indication. Project totals remain separate from account
+totals, and selected days identify their shared-home provenance. One background file monitor and
+coalesced bounded worker scans maintain summaries independently of the visible page.
 
 The menu popover contains only account switching, enabled limit data, a refresh timestamp,
 and an Open App footer action. It has no brand/count/refresh header, column header, session

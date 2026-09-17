@@ -4,14 +4,23 @@ import Foundation
 import AIManagerCore
 
 protocol ChatHistoryProviding: Sendable {
+    func attachActivityCache(_ cache: CodexUsageStatisticsCache) async
     func refresh(query: String) async throws -> ChatHistorySnapshot
     func search(query: String) async -> ChatHistorySnapshot
     func detail(for id: String) async throws -> ChatThreadDetail?
     func clearCache() async throws
 }
 
+extension ChatHistoryProviding {
+    func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
+}
+
 private struct IndexedChatHistoryProvider: ChatHistoryProviding {
     let index: ChatHistoryIndex
+
+    func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {
+        await index.attachActivityCache(cache)
+    }
 
     func refresh(query: String) async throws -> ChatHistorySnapshot {
         try await index.refresh(query: query)
@@ -69,6 +78,7 @@ final class AccountViewModel: ObservableObject {
     @Published var accountHistory: [UUID: HistorySummary] = [:]
     @Published private(set) var accountUsage: [UUID: CachedCodexAccountUsage] = [:]
     @Published private(set) var usageSnapshots: [UUID: CodexAccountUsageSnapshot] = [:]
+    @Published private(set) var retainedDailyUsage: [UUID: [CodexDailyUsageSnapshot]] = [:]
     @Published private(set) var usageRefreshAccountID: UUID?
     @Published private(set) var usageError: String?
     @Published private(set) var chatHistory = ChatHistorySnapshot()
@@ -925,6 +935,17 @@ final class AccountViewModel: ObservableObject {
         accountUsage[accountID]
     }
 
+    func dailyUsage(for accountID: UUID) -> [CodexDailyUsageSnapshot] {
+        retainedDailyUsage[accountID] ?? usage(for: accountID)?.dailyUsage ?? []
+    }
+
+    func projectActivity(on date: Date) async -> [CodexProjectDailyActivity] {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return (try? await usageCache?.projectActivity(on: formatter.string(from: date))) ?? []
+    }
+
     func usageError(for accountID: UUID) -> String? {
         if usageErrorAccountID == nil || usageErrorAccountID == accountID {
             if let usageError { return usageError }
@@ -996,6 +1017,9 @@ final class AccountViewModel: ObservableObject {
             usageSnapshots = Dictionary(uniqueKeysWithValues: cached.compactMap { entry in
                 entry.snapshot.map { (entry.accountID, $0) }
             })
+            var daily: [UUID: [CodexDailyUsageSnapshot]] = [:]
+            for id in accountIDs { daily[id] = try await usageCache.dailyUsage(for: id) }
+            retainedDailyUsage = daily
         } catch {
             usageError = CodexUsageStatisticsFailure.storageUnavailable.message
             usageErrorAccountID = nil
@@ -1005,10 +1029,13 @@ final class AccountViewModel: ObservableObject {
     private func prepareUsageCache() async {
         guard !didPrepareUsageCache, let usageDatabaseURL else { return }
         didPrepareUsageCache = true
+        let activityURL = paths.applicationSupport.appending(path: "activity/daily.sqlite")
         do {
             usageCache = try await Task.detached(priority: .utility) {
-                try CodexUsageStatisticsCache(databaseURL: usageDatabaseURL)
+                try CodexUsageStatisticsCache(databaseURL: usageDatabaseURL,
+                                              activityDatabaseURL: activityURL)
             }.value
+            if let usageCache { await chatHistoryProvider?.attachActivityCache(usageCache) }
         } catch {
             usageError = "Usage history is unavailable. \(error.localizedDescription)"
             usageErrorAccountID = nil
@@ -1080,15 +1107,31 @@ final class AccountViewModel: ObservableObject {
         return Int64(values.fileSize ?? 0)
     }
 
-    func watchChatHistory() async {
-        await refreshChatHistory(query: requestedChatHistoryQuery)
+    func watchActivity() async {
         #if AI_MANAGER_PREVIEW
         if isDemo { return }
         #endif
-        guard let chatHistoryMonitor else { return }
+        await prepareUsageCache()
+        guard let chatHistoryMonitor, let chatHistoryProvider else { return }
+        await indexActivity()
         for await _ in chatHistoryMonitor.changes() {
             guard !Task.isCancelled else { return }
-            await refreshChatHistory(query: requestedChatHistoryQuery)
+            await indexActivity()
+        }
+
+        func indexActivity() async {
+            do {
+                let snapshot = try await chatHistoryProvider.refresh(query: requestedChatHistoryQuery)
+                guard !Task.isCancelled else { return }
+                if hasScannedChatHistory {
+                    applyChatHistory(snapshot, query: requestedChatHistoryQuery)
+                    await selectVisibleChat()
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                chatHistoryError = "Activity could not be saved. \(error.localizedDescription)"
+            }
         }
     }
 

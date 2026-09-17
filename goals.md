@@ -20,7 +20,7 @@ below are evidence of their recorded revisions, not a claim that newer requireme
 - [x] Align returned summary facts at the right of the authentication/ordinary-usage row.
 - [x] Persist the activity range, initially one year; enlarge Daily activity by 20%.
 - [x] Copy displayed paths on click with a brief nonmoving Copied confirmation.
-- [ ] Retain durable daily account and project usage summaries independently of source
+- [x] Retain durable daily account and project usage summaries independently of source
   conversations and rebuildable caches, with repeated-scan/restart/deletion checks.
 - [x] Configurable content/titlebar translucency, initially 25% with a 0–50% range,
   respecting Reduce Transparency and keeping text and controls fully legible.
@@ -36,6 +36,13 @@ refresh errors, sign-in presentation, explicit-zero quotas, and credits-only res
 Path and translucency verification: native System/Light/Dark contracts passed after forwarding
 the copy callback and opacity through native scroll/list hosting boundaries. Translucency
 bounds and Reduce Transparency passed. Preview path copying remains in memory.
+Durable activity verification: 26 focused core checks passed. They cover repeated snapshots,
+newer downward corrections and explicit zero, late older responses, initial cache migration,
+purge/reopen, cumulative deltas, repeated last-turn counters, midnight, archive/copy deduplication,
+source deletion, cache clearing, truncation, resets, forks with unknown boundaries, and
+coalesced simultaneous scans. Production model and all three native theme contracts passed.
+Only compact UTC day/token summaries and project metadata are retained; no message content
+or auth is stored in the separate activity database.
 
 ### Switch product identity refinement (2026-09-13)
 
