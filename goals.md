@@ -9,6 +9,19 @@ Design revision: 2026-09-17. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Current refinement (2026-09-17)
+
+- [ ] Persist drag-and-drop account order, with accessible Move up/down actions,
+  without changing selection or authentication.
+- [ ] Group the first four enabled tray accounts under one smaller glyph per service,
+  respecting saved order instead of forcing the default first.
+- [ ] Reduce popover text and spacing; use a compact blue outlined Switch action.
+- [ ] Draw two complete outlined checks; the incomplete Ionicons second arm is superseded.
+- [ ] Verify the refinements, audit debt, and install the exact clean signed build.
+
+This refinement supersedes the earlier default-first tray, repeated provider glyphs,
+filled Switch button, and exact disconnected Ionicons geometry. Advanced Cleanup remains deferred.
+
 ### Active completion ledger (2026-09-17)
 
 This ledger owns unfinished work in the current continuation. Historical milestone entries
