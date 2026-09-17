@@ -42,9 +42,19 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   Show in Menubar; use the user's one-word Menubar label.
 - [x] Tighten the popover footer to 32 points with a text-only Open App button; make
   Switch dark/white and Active disabled gray, both compact with five-point corners.
-- [ ] Fit the double tick to its visible outline rather than the padded SVG canvas,
+- [x] Fit the double tick to its visible outline rather than the padded SVG canvas,
   using a wider icon area and readable strokes; inspect both ticks at actual size in
   light/dark account actions and install the clean signed correction.
+
+Double-tick correction: a regression check reproduced the original 6.5-point visible
+height before the fix. The exact Ionicons centerlines now occupy approximately
+16.1-by-9.9 points with 1.24-point round strokes at the ordinary action size. Single
+and double states reserve the same icon width, preventing a toggle-induced row shift.
+Final System, Light, and Dark contracts passed. Current light/dark account captures
+were inspected at actual size with both default and Menubar double ticks clearly
+visible. Shared-core and provider-menu behavior are unchanged. The exact installed
+revision and hashes are recorded in the canonical receipt. The debt audit retains
+the same two ownership guards, zero new markers, and zero missing upgrade triggers.
 
 Provider-menu verification: the complete native gate passed with 157 tests passed and two
 protected-copy opt-ins skipped. Final System, Light, and Dark contracts passed after the

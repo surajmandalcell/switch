@@ -116,6 +116,8 @@ Fit the double check's visible outline, including stroke clearance, rather than 
 visible centerlines must occupy at least 15 points in width and nine points in height, with
 round strokes about 1.2 points thick. Preserve the exact Ionicons geometry and proportions.
 Both ticks must remain distinguishable at actual size in light and dark appearances.
+Single and double ticks use the same icon area so changing the Menubar preference does
+not shift the other actions.
 Identity's header retains Default and attention badges, without a redundant provider badge
 or menu-bar toggle. There is no separate preference row in Usage.
 This preference controls both that account's popover limits and its menu-bar entry.
