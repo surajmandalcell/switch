@@ -73,6 +73,16 @@ enum AIManagerNativeContract {
       id: "zero", name: "Zero", plan: nil, model: nil,
       primary: zeroWindow, secondary: nil, credits: nil, spendControlReached: false)
     expect(UsagePresentation.hasContent(zeroBucket), "A bucket with explicit zero values is hidden")
+    let creditsOnly = CodexRateLimitBucketSnapshot(
+      id: "credits", name: nil, plan: nil, model: nil, primary: nil, secondary: nil,
+      credits: CodexCreditsSnapshot(hasCredits: true, unlimited: nil, balance: "1"),
+      spendControlReached: nil)
+    expect(UsagePresentation.hasContent(creditsOnly) && !UsagePresentation.hasRateLimits(creditsOnly),
+      "Credits-only data hides the missing-rate-limits notice")
+    expect(UsagePresentation.emptyUsageTitle(failure: "Timed out", needsSignIn: false)
+      == "Usage could not be refreshed", "An initial usage failure is shown as never checked")
+    expect(UsagePresentation.emptyUsageTitle(failure: nil, needsSignIn: true)
+      == "Sign in to refresh usage", "Missing sign-in state is shown as never checked")
 
     let zeroSummary = CodexUsageSummarySnapshot(
       lifetimeTokens: 0, peakDailyTokens: nil, currentStreakDays: 0,
@@ -168,6 +178,9 @@ enum AIManagerNativeContract {
 
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
+    if AccountActionCopy.use != "Set as Default"
+      || AccountActionCopy.usingDefault != "Using as default"
+    { failures.append("Default account action uses stale labels") }
     if AccountActionCopy.copyAuthPath != "Copy auth path" {
       failures.append("Account auth-path action uses stale copy")
     }
