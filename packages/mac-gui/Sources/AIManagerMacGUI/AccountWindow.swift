@@ -1,6 +1,7 @@
 import AIManagerCore
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor final class AIManagerWindow: NSWindow {
   static let fixedSize = NSSize(width: 1120, height: 740)
@@ -633,17 +634,22 @@ private struct AccountsPage: View {
                 .contextMenu {
                   accountContextMenu(for: account)
                 }
-                .draggable(account.id.uuidString)
-                .dropDestination(for: String.self) { items, _ in
-                  guard !model.isBusy, items.count == 1,
-                    let id = UUID(uuidString: items[0]),
-                    model.status?.accounts.contains(where: { $0.id == id }) == true
-                  else { return false }
-                  Task { await model.moveAccount(id, to: account.id) }
+                .onDrag { NSItemProvider(object: account.id.uuidString as NSString) }
+                .onDrop(of: [UTType.utf8PlainText], isTargeted: Binding(
+                  get: { dropTargetID == account.id },
+                  set: { targeted in
+                    if targeted { dropTargetID = account.id }
+                    else if dropTargetID == account.id { dropTargetID = nil }
+                  }
+                )) { providers in
+                  guard !model.isBusy, providers.count == 1,
+                    providers[0].canLoadObject(ofClass: NSString.self) else { return false }
+                  _ = providers[0].loadObject(ofClass: NSString.self) { object, error in
+                    guard error == nil, let text = object as? String,
+                      let id = UUID(uuidString: text) else { return }
+                    Task { @MainActor in await model.moveAccount(id, to: account.id) }
+                  }
                   return true
-                } isTargeted: { targeted in
-                  if targeted { dropTargetID = account.id }
-                  else if dropTargetID == account.id { dropTargetID = nil }
                 }
                 .overlay {
                   if dropTargetID == account.id {
