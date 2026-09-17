@@ -9,6 +9,39 @@ Design revision: 2026-09-17. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### App-wide hover feedback (2026-09-18)
+
+- [x] Reproduce missing and abrupt hover feedback in the shared native controls.
+- [x] Give enabled controls a consistent 120 ms fade without changing hit areas.
+- [x] Verify rendered entry/exit, disabled/Reduce Motion states, and sidebar transitions.
+- [ ] Audit debt and install the clean signed checkpoint.
+
+This supersedes the previous sidebar's immediate highlight exit. Account selection rendering
+must retain its verified performance; Advanced Cleanup remains deferred.
+
+The original shared button style supplied only press feedback. A native hosted-button
+tracking-event/pixel test failed because entering and leaving a button without its own
+hover code changed no pixels. The existing normal action button did animate; there was no
+global animation-disable switch, and the user's Reduce Motion setting was off. Several
+chat/activity controls lacked fades, and the prior sidebar explicitly removed its exit fade.
+The shared style now uses continuous tracking and a local opacity tint, updating its hover
+state only when entry/exit changes. Component hover colors and both sidebar directions use
+the same 120 ms duration. Decorative tint never takes pointer input; disabled controls do
+not highlight, and Reduce Motion selects no animation. No model publication, polling,
+geometry animation, font change, or new dependency is introduced.
+
+System/Light/Dark native contracts pass. Direct native tracking-event replay and pixel
+sampling exercise the real shared style, action/icon buttons, rail, and account row.
+Entry and exit contain intermediate frames, settled pointer movements do not flash,
+disabled controls remain unchanged, hit bounds stay fixed, and exit restores the original
+appearance. Both Reduce Motion policy branches pass without changing OS preferences.
+Warm calendar renders remain 97–108 ms under the existing 200 ms budget. Continuous
+physical pointer movement in the installed app remains unrecorded because the native
+GUI driver has no hover action. Core/Linux inputs are unchanged and their accepted gates
+remain valid. Full debt inventory remains two existing markers, no additions and no missing
+triggers: legacy mutation scoping awaits a reliable Codex home-scoped writer probe;
+unowned login-home cleanup awaits durable process-exit ownership. Neither trigger is reached.
+
 ### Account selection responsiveness (2026-09-18)
 
 - [x] Reproduce and measure account-detail rendering stalls without activating accounts.

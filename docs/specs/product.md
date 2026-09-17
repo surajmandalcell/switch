@@ -85,8 +85,8 @@ Daily activity uses a GitHub-style calendar instead of a date table. The user ca
 Selecting an account only changes the displayed account; it must not activate credentials
 or wait on file reads, queries, or repeated calendar aggregation. Build each displayed
 calendar's days, weeks, and token maximum once per body update, rather than once per cell.
-Sidebar hover has one bounded target and animates only its highlight, without animating
-hitbox geometry or leaving previous items lit while the pointer crosses rows.
+Sidebar hover has one bounded target and fades its highlight in and out within 120 ms,
+without animating hitbox geometry or leaving previous items persistently lit.
 Cell intensity reflects the token count within the selected range, and a selected day shows
 its date and exact token count. The Daily activity label is 20% larger than its prior 11-point
 size. Returned Lifetime, Peak day, streak, and Longest turn facts align at the right of the
@@ -215,7 +215,10 @@ do not replace its label with a long instruction. Conversations and settings are
 
 Close hover uses bright red `#FF453A` with a white glyph; Minimize hover uses bright yellow
 `#FFD43B` with a dark glyph. Both remain square, and Minimize floats out of Close without
-entering the title layout. Keep one continuous rail divider and immediate hover feedback.
+entering the title layout. Keep one continuous rail divider. Enabled buttons, icon actions,
+range selectors, and list rows use a visible, interruptible 120 ms hover fade in both directions.
+Animate color or opacity only; hit areas remain fixed and decorative overlays do not intercept
+pointer input. Disabled controls do not highlight, and Reduce Motion uses immediate feedback.
 
 Inter is the interface, reading, and display face. PT Mono is reserved for paths,
 measurements, IDs, and other technical data. Both font families are bundled with their OFL
