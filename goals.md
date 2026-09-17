@@ -43,6 +43,9 @@ source deletion, cache clearing, truncation, resets, forks with unknown boundari
 coalesced simultaneous scans. Production model and all three native theme contracts passed.
 Only compact UTC day/token summaries and project metadata are retained; no message content
 or auth is stored in the separate activity database.
+The menu conversion also recognizes a seven-day primary quota as weekly, preserving
+weekly-only usage without fabricating a five-hour limit. Its raw-response regression and
+System/Light/Dark native contracts passed.
 
 ### Switch product identity refinement (2026-09-13)
 

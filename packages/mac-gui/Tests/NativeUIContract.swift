@@ -120,6 +120,12 @@ enum AIManagerNativeContract {
       weeklyOnly.usedPercentage == nil && weeklyOnly.secondaryUsedPercentage == 1
         && (weeklyOnly.usedPercentage ?? weeklyOnly.secondaryUsedPercentage) == 1,
       "Weekly-only usage is discarded or missing from the status item")
+    let weeklyPrimary = MenuBarUsageSnapshot(bucket: .init(
+      id: nil, name: nil, plan: nil, model: nil,
+      primary: .init(usedPercent: 1, windowDurationMinutes: 10_080, resetsAt: nil),
+      secondary: nil, credits: nil, spendControlReached: nil), fetchedAt: activityEnd)
+    expect(weeklyPrimary?.usedPercentage == nil && weeklyPrimary?.secondaryUsedPercentage == 1,
+      "A weekly-only primary response is incorrectly labelled as five-hour usage")
     failures.append(contentsOf: menuBarUsagePreferenceFailures())
     return failures
   }
