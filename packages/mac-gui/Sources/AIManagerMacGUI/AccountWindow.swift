@@ -583,7 +583,8 @@ private struct Badge: View {
 }
 
 enum AccountActionCopy {
-  static let use = "Use for new Codex sessions"
+  static let use = "Set as Default"
+  static let usingDefault = "Using as default"
   static let open = "Open Codex"
   static let useAndOpen = "Use & Open Codex"
   static let check = "Check account files"
@@ -673,10 +674,10 @@ private struct AccountsPage: View {
   @ViewBuilder
   private func accountContextMenu(for account: AccountRecord) -> some View {
     let isDefault = account.id == model.status?.defaultAccountID
-    Button(AccountActionCopy.use) {
+    Button(isDefault ? AccountActionCopy.usingDefault : AccountActionCopy.use) {
       Task { await model.switchDefault(to: account.id) }
     }
-    .disabled(model.isBusy || isDefault)
+    .disabled(model.isBusy)
     Button(isDefault ? AccountActionCopy.open : AccountActionCopy.useAndOpen) {
       Task { await model.openAccount(account.id) }
     }
@@ -872,7 +873,10 @@ private struct AccountDetail: View {
   }
   @ViewBuilder private var actions: some View {
     AIMButton(
-      title: AccountActionCopy.use, tone: .primary,
+      title: account.id == model.status?.defaultAccountID
+        ? AccountActionCopy.usingDefault : AccountActionCopy.use,
+      icon: account.id == model.status?.defaultAccountID ? .doubleCheck : .check,
+      tone: .primary,
       disabled: model.isBusy
     ) { Task { await model.switchDefault() } }
     AIMButton(
@@ -883,7 +887,7 @@ private struct AccountDetail: View {
     ) {
       Task { await model.openAccount(account.id) }
     }
-    AIMIconButton(icon: .check, label: AccountActionCopy.check, disabled: model.isBusy) {
+    AIMIconButton(icon: .search, label: AccountActionCopy.check, disabled: model.isBusy) {
       Task { await model.checkAccount(account.id) }
     }
     AIMIconButton(icon: .copy, label: AccountActionCopy.copyAuthPath) {
@@ -969,6 +973,15 @@ enum UsagePresentation {
       || spendControl(bucket.spendControlReached) != nil
   }
 
+  static func hasRateLimits(_ bucket: CodexRateLimitBucketSnapshot) -> Bool {
+    hasWindow(bucket.primary) || hasWindow(bucket.secondary)
+  }
+
+  static func emptyUsageTitle(failure: String?, needsSignIn: Bool) -> String {
+    if needsSignIn { return "Sign in to refresh usage" }
+    return failure == nil ? "Usage has not been checked" : "Usage could not be refreshed"
+  }
+
   static func activityDays(
     _ rows: [CodexDailyUsageSnapshot],
     endingAt endDate: Date,
@@ -1041,7 +1054,8 @@ enum UsagePresentation {
   }
 }
 
-private enum UsageActivityRange: String, CaseIterable, Identifiable {
+enum UsageActivityRange: String, CaseIterable, Identifiable {
+  static let preferenceKey = "usageActivityRange"
   case week = "7 days"
   case month = "1 month"
   case year = "1 year"
@@ -1058,9 +1072,14 @@ private enum UsageActivityRange: String, CaseIterable, Identifiable {
 
 private struct UsageActivityCalendar: View {
   let rows: [CodexDailyUsageSnapshot]
-  @State private var range: UsageActivityRange = .month
+  @AppStorage(UsageActivityRange.preferenceKey) private var storedRange = UsageActivityRange.year.rawValue
   @State private var selectedDate: Date?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var range: UsageActivityRange {
+    get { UsageActivityRange(rawValue: storedRange) ?? .year }
+    nonmutating set { storedRange = newValue.rawValue }
+  }
 
   private var days: [UsagePresentation.ActivityDay] {
     UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: range.dayCount)
@@ -1074,7 +1093,7 @@ private struct UsageActivityCalendar: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 10) {
-        Text("Daily activity").font(AIMTheme.sans(11, weight: .semibold))
+        Text("Daily activity").font(AIMTheme.sans(13.2, weight: .semibold))
         if let selectedDay {
           Text(selectedDay.date.formatted(date: .abbreviated, time: .omitted))
             .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
@@ -1282,12 +1301,16 @@ private struct AccountUsagePanel: View {
             .padding(.bottom, 14)
 
             let accountFacts = UsagePresentation.accountFacts(snapshot)
-            if !accountFacts.isEmpty {
-              HStack(spacing: 18) {
+            let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
+            if !accountFacts.isEmpty || !summaryFacts.isEmpty {
+              HStack(alignment: .top, spacing: 12) {
                 ForEach(accountFacts) { fact in
                   UsageFact(label: fact.label, value: fact.value)
                 }
-                Spacer()
+                Spacer(minLength: 12)
+                ForEach(summaryFacts) { fact in
+                  UsageFact(label: fact.label, value: fact.value)
+                }
               }
               .padding(.bottom, 14)
             }
@@ -1303,19 +1326,8 @@ private struct AccountUsagePanel: View {
               .background(index.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
             }
 
-            if limitBuckets.isEmpty {
+            if !limitBuckets.contains(where: { UsagePresentation.hasRateLimits($0.value) }) {
               UsageUnavailableRow(text: "Rate limits unavailable")
-            }
-
-            let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
-            if !summaryFacts.isEmpty {
-              HStack(spacing: 20) {
-                ForEach(summaryFacts) { fact in
-                  UsageFact(label: fact.label, value: fact.value)
-                }
-                Spacer()
-              }
-              .padding(.top, 14)
             }
 
             if !snapshot.dailyUsage.isEmpty {
@@ -1327,12 +1339,20 @@ private struct AccountUsagePanel: View {
           HStack(spacing: 12) {
             AIMIcon(name: .info, size: 15).foregroundStyle(AIMTheme.muted)
             VStack(alignment: .leading, spacing: 3) {
-              Text("Usage has not been checked")
+              Text(UsagePresentation.emptyUsageTitle(
+                failure: usageFailure, needsSignIn: account.verification.state == .needsSignIn))
                 .font(AIMTheme.sans(12, weight: .semibold))
-              Text("Refresh this saved account without changing the default account.")
-              .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              if let failure = usageFailure {
+                Text(failure).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
+              } else {
+                Text("Refresh this saved account without changing the default account.")
+                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              }
             }
             Spacer()
+            if let failure = usageFailure {
+              WarningCopyButton(label: "Copy usage error") { model.copyWarnings([failure]) }
+            }
             refreshButton
           }
           .padding(16)
@@ -1363,7 +1383,7 @@ private struct AccountUsagePanel: View {
     AIMIconButton(
       icon: .refresh,
       label: isRefreshing ? "Refreshing usage" : "Refresh usage",
-      disabled: isRefreshing || model.isBusy
+      disabled: model.usageRefreshAccountID != nil || model.isBusy
     ) {
       Task { await model.refreshUsage(accountID: account.id) }
     }

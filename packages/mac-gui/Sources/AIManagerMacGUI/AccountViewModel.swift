@@ -630,7 +630,7 @@ final class AccountViewModel: ObservableObject {
         }
         #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
-        guard let id = selectedAccountID, var current = status,
+        guard let id = requestedID ?? selectedAccountID, var current = status,
               let index = current.accounts.firstIndex(where: { $0.id == id }) else { return }
         await perform {
             current.accounts[index].verification = VerificationResult(
@@ -639,6 +639,7 @@ final class AccountViewModel: ObservableObject {
                 detail: "Demo account check passed without a network request."
             )
             status = current
+            selectedAccountID = id
             notice = current.accounts[index].verification.detail
         }
         #else

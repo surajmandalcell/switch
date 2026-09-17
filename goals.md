@@ -14,11 +14,11 @@ verification evidence.
 This ledger owns unfinished work in the current continuation. Historical milestone entries
 below are evidence of their recorded revisions, not a claim that newer requirements passed.
 
-- [ ] Account controls: magnifying-glass check, single-tick Set as Default, double-tick
+- [x] Account controls: magnifying-glass check, single-tick Set as Default, double-tick
   Using as default with reapply enabled; surface missing-snapshot usage errors and prevent
   an enabled refresh action from silently losing a concurrent request.
-- [ ] Align returned summary facts at the right of the authentication/ordinary-usage row.
-- [ ] Persist the activity range, initially one year; enlarge Daily activity by 20%.
+- [x] Align returned summary facts at the right of the authentication/ordinary-usage row.
+- [x] Persist the activity range, initially one year; enlarge Daily activity by 20%.
 - [ ] Copy displayed paths on click with a brief nonmoving Copied confirmation.
 - [ ] Retain durable daily account and project usage summaries independently of source
   conversations and rebuildable caches, with repeated-scan/restart/deletion checks.
@@ -29,6 +29,10 @@ below are evidence of their recorded revisions, not a claim that newer requireme
 
 Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
 Developer ID Application identity and notarization; local development signing is not that gate.
+
+Account refinement verification: the focused Preview model check passed, including a
+nonselected-row account check. Native System/Light/Dark contracts passed, including initial
+refresh errors, sign-in presentation, explicit-zero quotas, and credits-only responses.
 
 ### Switch product identity refinement (2026-09-13)
 

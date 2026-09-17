@@ -26,6 +26,11 @@ struct MockAccountViewModelCheck {
         precondition(model.status?.accounts.count == 3)
         precondition(model.status?.pendingRecovery.count == 2)
         precondition(model.status?.linkedSettingsDivergences.count == 1)
+        let nonselectedAccount = model.status!.accounts.first { $0.id != model.selectedAccountID }!
+        await model.checkAccount(nonselectedAccount.id)
+        precondition(model.selectedAccountID == nonselectedAccount.id)
+        precondition(model.selectedAccount?.verification.state == .verifiedWithCodex)
+        model.reset(to: .allStates)
         await model.refreshChatHistory(query: "")
         precondition(model.chatHistory.totalThreadCount == 3)
         let initialChatID = model.selectedChatID

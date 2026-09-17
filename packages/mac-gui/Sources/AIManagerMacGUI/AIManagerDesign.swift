@@ -190,7 +190,7 @@ struct AIMVisualEffect: NSViewRepresentable {
 struct AIMIcon: View {
   enum Name: CaseIterable {
     case account, settings, history, backup, cleanup, search, plus, refresh, moon, sun, close, minimize
-    case chevron, check, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
+    case chevron, check, doubleCheck, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
 
     var symbol: String {
       switch self {
@@ -210,7 +210,7 @@ struct AIMIcon: View {
       case .terminal: "terminal"
       case .openApp: "macwindow"
       case .menuBar: "menubar.rectangle"
-      case .check: "checkmark"
+      case .check, .doubleCheck: "checkmark"
       case .square: "square"
       case .checkSquare: "checkmark.square.fill"
       case .folder: "folder"
@@ -228,7 +228,16 @@ struct AIMIcon: View {
   var size: CGFloat = 17
 
   var body: some View {
-    Image(systemName: name.symbol)
+    Group {
+      if name == .doubleCheck {
+        HStack(spacing: -size * 0.5) {
+          Image(systemName: name.symbol)
+          Image(systemName: name.symbol)
+        }
+      } else {
+        Image(systemName: name.symbol)
+      }
+    }
       .font(.system(size: size, weight: .regular))
       .symbolRenderingMode(.monochrome)
       .frame(width: size, height: size)
