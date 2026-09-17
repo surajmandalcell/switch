@@ -146,7 +146,8 @@ Package a sourced monochrome glyph catalog for current and future providers loca
 having artwork does not enable an unsupported provider or add any network work on menu open.
 
 Each account is a distinct compact card. Its single 30-point identity row shows a truncated
-account name with a full-name tooltip, active or attention state, and a dedicated Switch
+account name with a full-name tooltip, a cached provider glyph instead of a status dot,
+active or attention state, and a dedicated Switch
 button when eligible. Provider and workspace remain in the accessible description. Active,
 Switch, and Sign in controls share one compact 56-by-22-point size and five-point corners.
 Switch uses a blue outlined button; Active is a disabled gray button rather
@@ -155,12 +156,16 @@ usage is enabled and cached, the card expands to show separate Weekly and 5 hour
 rows. Each row places the limit name above its percentage, followed by a horizontal progress
 bar and a right-aligned reset description. Quota rows are 28 points high with six-point
 vertical insets and four-point spacing. Account names are 11 points, quota labels nine,
-and percentages 11. The cards use a quiet dark gradient, fine border,
+and percentages 11. The whole popover, including cards and footer, is translucent over
+one native macOS backdrop blur. Card tints stay translucent; text and icons remain opaque.
+Use the existing native visual-effect wrapper and cached provider glyphs, without per-card
+blur, software image filters, polling, or icon downloads on open. Reduce Transparency
+uses an opaque fallback. The cards use a quiet tint, fine border,
 and restrained hover change while preserving three-point corners. A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
 left even when usage display is disabled, and Open App on the right. The popover is 344 points wide,
-uses a compact 28-point footer with eight-point horizontal insets and a text-only dark
-filled Open App button, and scrolls at the smaller of 900 points or 80% of the smallest attached
+uses a compact 28-point footer with eight-point horizontal insets and a text-only ghost
+Open App button with a subtle hover tint, and scrolls at the smaller of 900 points or 80% of the smallest attached
 display's visible height. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 

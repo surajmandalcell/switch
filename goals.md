@@ -11,6 +11,10 @@ verification evidence.
 
 ### Current refinement (2026-09-17)
 
+- [x] Make the whole Menubar popover translucent over native blur, respecting Reduce
+  Transparency and keeping one shared backdrop rather than per-row effects.
+- [x] Use a ghost Open App footer button and cached provider glyphs instead of account dots.
+- [ ] Check native appearance, backdrop reuse, and panel responsiveness; install the clean signed build.
 - [x] Persist drag-and-drop account order, with accessible Move up/down actions,
   without changing selection or authentication.
 - [x] Group the first four enabled tray accounts under one smaller glyph per service,
@@ -23,6 +27,16 @@ verification evidence.
 
 This refinement supersedes the earlier default-first tray, repeated provider glyphs,
 filled Switch button, and exact disconnected Ionicons geometry. Advanced Cleanup remains deferred.
+
+Menubar glass refinement: System/Light/Dark contracts pass with one native `.popover`
+behind-window visual effect covering the complete host and reused across snapshot updates.
+Card and footer tints remain translucent; Open App is a ghost button, and account headers
+use cached 12-point provider glyphs. Original-source comparison failed the new backdrop
+regression, then current-source contracts passed. Light/dark renders were inspected.
+There are no per-row blur effects, software blur filters, new polling, or icon downloads.
+This bounds added rendering work; physical GPU frame timing has not been measured.
+Reduce Transparency selects the opaque fallback; the contracts check the actual OS setting
+without changing the user's accessibility preferences. Signed local installation remains pending.
 
 Refinement checks: the shared registry preserves order across reopen, activation, append,
 and deletion, rejects stale/duplicate/foreign IDs, and skips unchanged writes. The production
