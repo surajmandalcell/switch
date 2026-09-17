@@ -190,6 +190,15 @@ enum AIManagerNativeContract {
 
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
+    let doubleTick = AIMIcon(name: .doubleCheck, size: 13)
+    let tickBounds = IoCheckmarkDoneOutline().path(
+      in: CGRect(x: 0, y: 0, width: doubleTick.width, height: doubleTick.size)).boundingRect
+    if tickBounds.width < 15 || tickBounds.height < 9 {
+      failures.append("Double-check ink is too small to distinguish both ticks at button size")
+    }
+    if doubleTick.width != AIMIcon(name: .check, size: 13).width {
+      failures.append("Changing single/double tick shifts the account action row")
+    }
     if AccountActionCopy.use != "Set as Default"
       || AccountActionCopy.usingDefault != "Using as default"
     { failures.append("Default account action uses stale labels") }
