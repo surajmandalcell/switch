@@ -24,7 +24,7 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   conversations and rebuildable caches, with repeated-scan/restart/deletion checks.
 - [x] Configurable content/titlebar translucency, initially 25% with a 0–50% range,
   respecting Reduce Transparency and keeping text and controls fully legible.
-- [ ] Close the current native and both Linux architecture gates, then install the exact
+- [x] Close the current native and both Linux architecture gates, then install the exact
   clean signed build and verify the installed revision and stable single-instance launch.
 
 Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
@@ -46,6 +46,29 @@ or auth is stored in the separate activity database.
 The menu conversion also recognizes a seven-day primary quota as weekly, preserving
 weekly-only usage without fabricating a five-hour limit. Its raw-response regression and
 System/Light/Dark native contracts passed.
+
+Closeout verification (2026-09-17): the full native gate and fresh isolated Linux ARM64
+and AMD64 Docker gates each discovered 159 tests, passed 157, and skipped the two
+protected-copy opt-ins without failures. Linux CLI login recovery, cancellation, and
+acceptance passed on both architectures. The native gate also passed Preview isolation,
+production-model integration, icon assets, all three theme contracts, single-instance
+behavior, and native scroll checks. Current light/dark account, settings, modal, and menu
+images are in the canonical `/private/tmp/ai-manager-build/ui-review` directory.
+
+The clean signed code checkpoint `942d2523dbaa` was installed and passed the installed
+local release gate with matching app/CLI hashes, one stable process after repeated
+background opens, native Settings shortcut, default-action presentation, real path copying,
+and one-year preference persistence. Its live compact activity ledger recorded 525 threads
+in 168 KiB with mode 0600. The documentation checkpoint is packaged and installed again;
+the exact final revision and hashes are recorded outside the repository in
+`/private/tmp/ai-manager-build/final-install-receipt.json`.
+
+Debt audit: two existing markers, zero without triggers, zero added by this continuation.
+`AccountManager.swift:904` retains the conservative legacy-mutation guard until Codex
+provides a reliable home-scoped writer lock or probe. `AccountManager.swift:993` retains
+unowned login homes until durable process-exit ownership can be verified. Neither trigger
+has been reached. Advanced Cleanup remains deferred; public direct distribution remains
+blocked on Developer ID Application signing and notarization.
 
 ### Switch product identity refinement (2026-09-13)
 
@@ -577,8 +600,9 @@ Do not hardcode these paths or account identities into the product.
 - [x] Create consistent snapshots of six SQLite databases and check their integrity.
 - [x] Rebase 408 indexed transcript paths to the new home and verify the files exist.
 - [x] Make the copied standalone CLI release link independent of the Orca source path.
-- [ ] Verify an online request or an interactive resumed chat using the new home.
-- [ ] Register the new home in Super. This was not part of the preparation request.
+- Historical preparation follow-up, outside the current release gates: an online request
+  or interactive resumed chat using the separate home was not performed.
+- Registering that home in Super was outside the preparation request and remains out of scope.
 
 ```text
 ~/.codex                         ~/.codex2
