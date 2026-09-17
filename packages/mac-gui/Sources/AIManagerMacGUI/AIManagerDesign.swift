@@ -1,5 +1,16 @@
 import AppKit
+import Observation
 import SwiftUI
+
+@MainActor @Observable
+final class AIMSidebarHover {
+  private(set) var target: String?
+
+  func update(_ id: String, inside: Bool) {
+    if inside { target = id }
+    else if target == id { target = nil }
+  }
+}
 
 private struct AIMFocusIndicatorsKey: EnvironmentKey {
   static let defaultValue = false

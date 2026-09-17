@@ -24,6 +24,14 @@ System/Light/Dark contracts. Range changes still clear a day selection outside t
 This measures the real calendar view's main-thread layout and draw, rather than just the
 model setter or GUI-driver round-trip. No live credentials were activated or modified.
 
+Sidebar hover now has one shared observed target across the rail and account list.
+An exit from a previous target cannot clear the newly entered target. Only each background
+highlight animates on entry; the previous highlight clears immediately, with fixed 44-point
+account rows and 48-point rail hit areas. Observation tracks the tiny controls that read
+the target without publishing account-model changes or rebuilding the usage pane.
+System/Light/Dark contracts pass, including crossed-column and delayed-exit event sequences.
+The GUI driver has no standalone hover action; installed row-boundary and drag checks remain pending.
+
 ### Current refinement (2026-09-17)
 
 - [x] Make the whole Menubar popover translucent over native blur, respecting Reduce
