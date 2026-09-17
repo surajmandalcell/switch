@@ -37,6 +37,19 @@ the native driver still cannot record pointer hover. No palette change is inferr
 that unrecorded sequence. Show in Menubar retains its saved single/double tick and uses
 the normal Open action colors.
 
+Installed code checkpoint `4cb7d59ea160` passed exact package/installed checksum and process
+inode verification before native clicks. Both themes show matching Menubar/Open colors,
+and ordinary selection preserves the default account. Installed AX inspection exposed only
+51 dates because the alternative accessibility layout used full-size text buttons. Its
+replacement matches the nine/thirteen-point marker frames and preserves blank date slots.
+An ordered-out hosted AX probe returned no children even after the correction; it cannot
+serve as the regression seam and was removed. Pointer/date geometry and arrow-key tests
+remain runnable, with real installed AX coverage to be checked after replacement.
+The idle installed sample also shows long automatic transcript parsing inherited a
+user-initiated root task, despite utility worker requests. The automatic watcher now starts
+at utility priority; the captured main thread was idle, so this is background scheduling
+work rather than proof of a second main-thread stall.
+
 ### App-wide hover feedback (2026-09-18)
 
 Follow-up: the installed `ba13da1d2e27` still flashes while moving between controls and

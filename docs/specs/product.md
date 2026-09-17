@@ -92,6 +92,8 @@ the previous account's data under the new identity.
 Dense month/year grids use one native Canvas with exact-day pointer selection, arrow keys,
 and native accessibility actions for each date. Weekday labels align to a Sunday-first grid.
 Routine account or hover redraws must not reload or reassign the Dock icon.
+Automatic activity indexing runs at utility priority, leaving foreground interactions
+ahead of long transcript scans. Accessible date actions share the drawn markers' bounds.
 Sidebar hover has one bounded target and fades its highlight in and out within 120 ms,
 without animating hitbox geometry or leaving previous items persistently lit.
 Cell intensity reflects the token count within the selected range, and a selected day shows
