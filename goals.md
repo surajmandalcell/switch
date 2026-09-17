@@ -18,7 +18,7 @@ own timing check. Match Show in Menubar to the normal Open action colors.
 - [x] Measure full account selection and light hover with translucent surfaces.
 - [x] Fix confirmed causes and retain account/day selection and accessibility.
 - [x] Match Show in Menubar colors without changing its persisted tick state.
-- [ ] Verify native checks and install checksum-matched clean HEAD.
+- [x] Verify native checks and install checksum-matched clean HEAD.
 
 The full-pane hosted regression failed with 217 ms and 166 ms ordinary-selection renders;
 the previous isolated calendar check did not catch these stalls. The installed-process sample
@@ -49,6 +49,21 @@ The idle installed sample also shows long automatic transcript parsing inherited
 user-initiated root task, despite utility worker requests. The automatic watcher now starts
 at utility priority; the captured main thread was idle, so this is background scheduling
 work rather than proof of a second main-thread stall.
+
+Corrected clean signed code checkpoint `6d2275320be9` is installed with matching CLI/helper
+and passes local release readiness. Final native pane renders are 24–40 ms; calendar draws
+are 7–14 ms. All required native subgates pass: 159 core tests (two protected-copy opt-in
+skips), icon, Preview/production models, System/Light/Dark contracts, instance, and scrolling.
+No core/CLI change requires repeating the accepted ARM64/AMD64 Linux gates. Full debt audit
+retains two existing safety markers, both with triggers, and no new markers.
+Initial installed account clicks and light/dark color inspection passed. Final installed
+AX/date-action inspection returns native `cgWindowNotFound`, including discovery and an
+exact bundle-ID retry; the final 365-action count is unverified. No focus or window-placement
+override is used to force that inspection. The temporary light appearance is restored to
+the original dark preference through the native Defaults API. Default credentials, account
+order, Menubar choices, and translucency are preserved. Physical light-hover remains open.
+The final documentation checkpoint is repackaged; the canonical private install receipt
+records its exact revision, signature, executable hashes, and mapped running process.
 
 ### App-wide hover feedback (2026-09-18)
 
