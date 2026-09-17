@@ -86,8 +86,10 @@ and an Open App footer action. It has no brand/count/refresh header, column head
 explanation, Add Account action, or Quit action. Account creation and usage refresh belong in
 the main window.
 
-Each account's Usage panel exposes Show usage in menu bar and an action to return to the
-Settings default. This preference controls both that account's popover limits and the
+Each account's Identity header exposes a compact menu-bar icon toggle beside its status
+badges. Its tooltip and accessible value explain whether menu-bar usage is on or off; its
+context menu offers Use Settings default. There is no separate preference row in Usage.
+This preference controls both that account's popover limits and the
 active account's percentage beside the menu-bar icon. All accounts remain listed and
 switchable. Disabled usage has no refresh action or placeholder; enabling display does
 not activate an account. Preferences persist by account UUID and update the menu at once.
@@ -124,6 +126,18 @@ against the shared neutral row scale.
 Compact section headers use one 40-point alignment row. A leading title, trailing count,
 warning/copy action, error indicator, and progress indicator occupy explicit centered slots;
 content changes must not move them vertically or horizontally.
+
+Identity and Usage are the primary account sections. Their header tint is restrained;
+secondary and settings headers use a lighter tint. Decorative header strokes use half the
+previous opacity. Default, provider, and attention badges sit at the right of Identity's
+header. Use and Open remain labeled primary actions; Check, Copy, and Refresh use quiet
+tooltip icon buttons. Healthy verification detail is not repeated under the identity.
+Body prose uses Inter rather than monospace. Disabled actions stay legible and every icon
+action retains an accessible name, focus behavior, and its existing safety guards.
+
+Close hover uses bright red `#FF453A` with a white glyph; Minimize hover uses bright yellow
+`#FFD43B` with a dark glyph. Both remain square, and Minimize floats out of Close without
+entering the title layout. Keep one continuous rail divider and immediate hover feedback.
 
 Inter is the interface, reading, and display face. PT Mono is reserved for paths,
 measurements, IDs, and other technical data. Both font families are bundled with their OFL

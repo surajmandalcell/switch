@@ -2548,6 +2548,16 @@ with temporary synthetic homes before installation.
   implementation remains deferred.
 - Icon verification: regenerated both PNG treatments and the Spotlight ICNS, inspected both
   full-size renders, and passed the locked pixel-trace and generated-asset contract.
+- Make Close hover brighter red and Minimize hover brighter yellow, preserving the floating
+  square controls and continuous sidebar divider.
+- Reduce visual clutter: place status badges and a tooltip menu-usage icon in Identity's
+  header; remove the separate usage-display row; keep Use/Open labeled and make Check, Copy,
+  and Refresh quiet icons. Retain preference inheritance, reset, accessible state, and guards.
+- Halve decorative pattern opacity and reduce header tint by section importance. Keep Inter
+  for prose and PT Mono for technical data rather than forcing fonts or dimming essential text.
+- UI verification: System, Light, and Dark contracts pass. Accounts, Add Account, and menu
+  renders were inspected; identity content keeps its left alignment after removing the badges
+  from the body. Preference inheritance and reset still use the existing UUID-based contract.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 
