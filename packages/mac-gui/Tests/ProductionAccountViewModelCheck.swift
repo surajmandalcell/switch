@@ -140,6 +140,12 @@ struct ProductionAccountViewModelCheck {
         withExtendedLifetime(activationBusy) {}
         try expect(!activationDisabledControls,
                    "Returning to the app disables controls and resets their hover colors")
+        var activationPublications = 0
+        let activationUpdates = model.objectWillChange.sink { activationPublications += 1 }
+        await model.reloadAfterActivation()
+        withExtendedLifetime(activationUpdates) {}
+        try expect(activationPublications == 0,
+                   "Unchanged activation republishes the interface \(activationPublications) times")
         await model.refreshChatHistory(query: "shared chat")
         try expect(model.chatHistory.totalThreadCount == 1, "Production chat index missed its transcript")
         try expect(model.chatHistory.matchingThreadCount == 1, "Production chat search missed its transcript")
@@ -207,6 +213,18 @@ struct ProductionAccountViewModelCheck {
                    "Reviewed external rules were not imported")
         try expect(try Data(contentsOf: fullSource.appending(path: "auth.json")) == fullData,
                    "Full import changed its source")
+
+        model.closeAccountModal()
+        let orderBeforeActivation = model.status!.accounts.map(\.id)
+        let selectionBeforeActivation = model.selectedAccountID
+        _ = try await manager.reorderAccounts(Array(orderBeforeActivation.reversed()))
+        await model.reloadAfterActivation()
+        try expect(model.status?.accounts.map(\.id) == Array(orderBeforeActivation.reversed()),
+                   "Activation ignored changed account data")
+        try expect(model.selectedAccountID == selectionBeforeActivation,
+                   "Activation changed the selected account")
+        _ = try await manager.reorderAccounts(orderBeforeActivation)
+        await model.reloadAfterActivation()
 
         await model.switchDefault()
         try expect(model.status?.defaultAccountID == model.selectedAccountID, "Default account did not switch")

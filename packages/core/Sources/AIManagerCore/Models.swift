@@ -144,7 +144,7 @@ public enum VerificationState: String, Codable, Sendable {
     case unsupported
 }
 
-public struct VerificationResult: Codable, Sendable {
+public struct VerificationResult: Codable, Equatable, Sendable {
     public var state: VerificationState
     public var checkedAt: Date?
     public var detail: String
@@ -156,7 +156,7 @@ public struct VerificationResult: Codable, Sendable {
     }
 }
 
-public struct AccountRecord: Identifiable, Codable, Sendable {
+public struct AccountRecord: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var identity: AccountIdentity
     public var credentialFile: URL
@@ -211,7 +211,7 @@ public struct AccountRecord: Identifiable, Codable, Sendable {
     }
 }
 
-public struct HistorySummary: Codable, Sendable {
+public struct HistorySummary: Codable, Equatable, Sendable {
     public var activeTranscripts: Int
     public var archivedTranscripts: Int
     public var hasIndexes: Bool
@@ -417,7 +417,7 @@ public enum RecoveryConflictChoice: String, Codable, Sendable {
     case restoreBackup
 }
 
-public struct RecoveryItem: Codable, Sendable {
+public struct RecoveryItem: Codable, Equatable, Sendable {
     public var destination: URL
     public var backup: URL?
     public var expectedDigest: String
@@ -433,7 +433,7 @@ public struct RecoveryItem: Codable, Sendable {
     }
 }
 
-public struct RecoveryOperation: Identifiable, Codable, Sendable {
+public struct RecoveryOperation: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var kind: String
     public var phase: RecoveryPhase
@@ -481,7 +481,7 @@ public struct RecoveryResult: Codable, Sendable {
     }
 }
 
-public struct LinkedSettingsDivergence: Identifiable, Codable, Sendable {
+public struct LinkedSettingsDivergence: Identifiable, Codable, Equatable, Sendable {
     public var id: String { "\(accountID.uuidString):\(relativePath)" }
     public var accountID: UUID
     public var relativePath: String
@@ -512,7 +512,7 @@ public struct LinkedSettingRepairResult: Codable, Sendable {
     }
 }
 
-public struct ManagerStatus: Codable, Sendable {
+public struct ManagerStatus: Codable, Equatable, Sendable {
     public var accounts: [AccountRecord]
     public var defaultAccountID: UUID?
     public var sharedRoot: URL
