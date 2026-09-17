@@ -13,8 +13,8 @@ verification evidence.
 
 - [x] Reproduce and measure account-detail rendering stalls without activating accounts.
 - [x] Remove repeated activity-calendar work from the selection render path.
-- [ ] Fix sidebar hover flashing and verify hit areas while preserving drag ordering.
-- [ ] Run affected native checks, audit debt, and install the clean signed checkpoint.
+- [x] Fix sidebar hover flashing and verify hit areas while preserving drag ordering.
+- [x] Run affected native checks, audit debt, and install the clean signed checkpoint.
 
 The installed-process sample captured `UsageActivityCalendar.maximumTokens` repeatedly
 calling `activityDays` inside each of the 365 cell builders. A native hosted yearly calendar
@@ -30,7 +30,17 @@ highlight animates on entry; the previous highlight clears immediately, with fix
 account rows and 48-point rail hit areas. Observation tracks the tiny controls that read
 the target without publishing account-model changes or rebuilding the usage pane.
 System/Light/Dark contracts pass, including crossed-column and delayed-exit event sequences.
-The GUI driver has no standalone hover action; installed row-boundary and drag checks remain pending.
+An isolated removal of the late-exit guard failed the hover regression; restoring it passed.
+Installed clean signed checkpoint `12b90bbc8865` passed local release readiness. Native
+coordinate clicks at row centers and right edges selected the corresponding account;
+dragging reordered in both directions, and an outside drag canceled. Original order and
+default were retained, with no credential activation. A follow-up installed-process sample
+showed the main thread predominantly waiting for events instead of rebuilding the calendar.
+The GUI driver has no standalone hover action, so continuous physical pointer motion was
+not recorded. Final System/Light/Dark warm-render checks were 91–97 ms. Shared-core/Linux
+results remain valid because only native view code changed. The full debt inventory remains
+two existing markers, no new markers and no missing triggers; neither upgrade trigger was reached.
+The final private receipt records the clean documentation checkpoint installed after closeout.
 
 ### Current refinement (2026-09-17)
 
