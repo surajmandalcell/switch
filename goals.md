@@ -11,13 +11,13 @@ verification evidence.
 
 ### Current refinement (2026-09-17)
 
-- [ ] Persist drag-and-drop account order, with accessible Move up/down actions,
+- [x] Persist drag-and-drop account order, with accessible Move up/down actions,
   without changing selection or authentication.
 - [x] Group the first four enabled tray accounts under one smaller glyph per service,
   respecting saved order instead of forcing the default first.
 - [x] Reduce popover text and spacing; use a compact blue outlined Switch action.
 - [x] Draw two complete outlined checks; the incomplete Ionicons second arm is superseded.
-- [ ] Verify the refinements, audit debt, and install the exact clean signed build.
+- [x] Verify the refinements, audit debt, and install the exact clean signed build.
 
 This refinement supersedes the earlier default-first tray, repeated provider glyphs,
 filled Switch button, and exact disconnected Ionicons geometry. Advanced Cleanup remains deferred.
@@ -30,7 +30,25 @@ disabled accounts, the four-account cap, saved order, and the actual status butt
 The double-tick regression failed against the prior artwork: `Path.addLines` introduced an
 extra move and disconnected an arm. Explicit connected lines now draw two complete checks.
 Current light/dark menu, tray, and account renders were inspected at actual size in
-`/private/tmp/ai-manager-build/ui-review`. Installation and pointer-drag acceptance remain pending.
+`/private/tmp/ai-manager-build/ui-review`.
+
+Installed acceptance: clean signed checkpoint `3d7160447a5e` passed the local release gate.
+Native window-relative pointer drags moved accounts down and up without selecting or activating
+them; the changed order survived a real app restart. An outside drop canceled cleanly, ordinary
+row clicks still selected accounts, and Move down saved the same order through the context menu.
+The original account order and default were restored. System drag-session adapters did not move
+rows in the background test; the final sidebar uses a direct native drag gesture. Its boundary
+checks cover row edges, out-of-list positions, nonfinite coordinates, and cancellation highlights.
+Native and read-only unprivileged Linux ARM64/AMD64 gates each discovered 161 tests, passed 159,
+and skipped two protected-copy opt-ins. Preview isolation, production-model integration, icon
+assets, all three theme contracts, single-instance, and scroll checks passed. The shared core
+was unchanged after the Linux checks. The final documentation checkpoint is packaged again;
+the exact installed revision and hashes remain in the canonical private install receipt.
+The full debt inventory remains two existing markers, zero additions and zero missing triggers:
+legacy mutations await a reliable home-scoped Codex writer probe; unowned login-home cleanup
+awaits durable process-exit ownership. Neither trigger has been reached. Physical tray capture
+retains its known SystemUIServer driver limitation; the shared native template strip, actual
+status-button accessibility, and both theme renders passed. Advanced Cleanup remains deferred.
 
 ### Active completion ledger (2026-09-17)
 
@@ -149,8 +167,8 @@ the exact final revision and hashes are recorded outside the repository in
 `/private/tmp/ai-manager-build/final-install-receipt.json`.
 
 Debt audit: two existing markers, zero without triggers, zero added by this continuation.
-`AccountManager.swift:904` retains the conservative legacy-mutation guard until Codex
-provides a reliable home-scoped writer lock or probe. `AccountManager.swift:993` retains
+`AccountManager.swift:920` retains the conservative legacy-mutation guard until Codex
+provides a reliable home-scoped writer lock or probe. `AccountManager.swift:1009` retains
 unowned login homes until durable process-exit ownership can be verified. Neither trigger
 has been reached. Advanced Cleanup remains deferred; public direct distribution remains
 blocked on Developer ID Application signing and notarization.
