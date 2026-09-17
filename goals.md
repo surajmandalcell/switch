@@ -15,8 +15,9 @@ Follow-up: the installed `ba13da1d2e27` still flashes while moving between contr
 returning after Command-Tab. The earlier isolated entry/exit checks did not cover this
 sequence; they do not close this acceptance gate.
 
-- [ ] Reproduce cross-control and activation color changes with native regression checks.
-- [ ] Remove the shared cause and verify continuous interaction through reconciliation.
+- [x] Reproduce activation disabling controls and publishing unchanged data.
+- [x] Verify rapid cross-control movement and redraw stability with native checks.
+- [x] Keep background reconciliation from changing enabled states or unchanged values.
 - [ ] Install and verify the corrected clean signed checkpoint.
 
 The production-model regression reproduced activation publishing `isBusy = true`, which
@@ -30,6 +31,20 @@ Native value equality now avoids publishing unchanged status, history counts, ca
 limit snapshots, and retained activity. The regression passes with zero idle publications;
 an external synthetic account reorder still refreshes the list and preserves selection.
 There is no replacement hover tracker or theme change in this fix.
+
+System/Light/Dark native contracts replay movement between two real rail controls, including
+rapid interrupted fades and a same-view refresh. Both target ownership and rendered pixels
+stay stable through a one-second observation; action/icon button entry/exit checks still pass.
+These checks did not reproduce an independent pointer-only flash. The native GUI driver has
+no hover primitive, so physical pointer movement and actual Command-Tab remain unrecorded;
+the confirmed activation causes are fixed without claiming that seam was captured. Native
+core checks pass (159 passing, two protected-copy opt-in skips), as do Preview, production
+model, icon, single-instance, and scroll checks. Warm calendar renders remain 101–116 ms,
+under the existing 200 ms budget. Advanced Cleanup remains deferred.
+Read-only nonroot ARM64 and AMD64 Linux gates both pass the updated equality types,
+159 core tests (two protected-copy opt-in skips), and CLI login/recovery acceptance.
+Full debt inventory remains the two existing safety deferrals with no missing triggers;
+neither the home-scoped writer-probe nor process-exit ownership trigger is reached.
 
 - [x] Reproduce missing and abrupt hover feedback in the shared native controls.
 - [x] Give enabled controls a consistent 120 ms fade without changing hit areas.

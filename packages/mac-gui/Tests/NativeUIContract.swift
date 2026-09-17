@@ -20,13 +20,13 @@ private final class HoverTestEvent: NSEvent {
   let area: NSTrackingArea
   let eventType: NSEvent.EventType
   let location: NSPoint
-  init(area: NSTrackingArea, type: NSEvent.EventType) {
+  init(area: NSTrackingArea, type: NSEvent.EventType, location: NSPoint? = nil) {
     self.area = area
     self.eventType = type
     let view = area.owner as? NSView
     let bounds = view?.bounds ?? .zero
     let rect = area.rect.isEmpty ? bounds : area.rect.intersection(bounds)
-    location = view?.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil) ?? .zero
+    self.location = location ?? view?.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil) ?? .zero
     super.init()
   }
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
@@ -60,6 +60,79 @@ enum AIManagerNativeContract {
     } else { failures.append("Account hover fixture has no account") }
     for (name, control, enabled) in controls {
       failures.append(contentsOf: await hoverFeedbackFailures(name: name, control: control, enabled: enabled))
+    }
+    failures.append(contentsOf: await hoverTransitionFailures())
+    return failures
+  }
+
+  private static func hoverTransitionFailures() async -> [String] {
+    let hover = AIMSidebarHover()
+    let dark = NSApp.windows.first?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    let root = VStack(spacing: 0) {
+      RailButton(icon: .account, label: "Accounts", active: false,
+        sidebarHover: hover, hoverID: "Accounts", action: {})
+      RailButton(icon: .settings, label: "Settings", active: false,
+        sidebarHover: hover, hoverID: "Settings", action: {})
+    }.background(AIMTheme.canvas)
+      .environment(\.colorScheme, dark ? .dark : .light).environment(\.aimDarkMode, dark)
+    let host = NSHostingView(rootView: root)
+    host.frame = NSRect(x: 0, y: 0, width: 48, height: 96)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    try? await Task.sleep(for: .milliseconds(100))
+    func areas(at point: NSPoint) -> [NSTrackingArea] {
+      host.layoutSubtreeIfNeeded()
+      return views(in: host).flatMap { view -> [NSTrackingArea] in
+        view.updateTrackingAreas()
+        return view.trackingAreas.filter { area in
+          let rect = area.rect.isEmpty ? view.bounds : area.rect.intersection(view.bounds)
+          return view.convert(rect, to: nil).contains(point)
+        }
+      }
+    }
+    let first = host.convert(NSPoint(x: 24, y: host.isFlipped ? 24 : 72), to: nil)
+    let second = host.convert(NSPoint(x: 24, y: host.isFlipped ? 72 : 24), to: nil)
+    func pixel(at point: NSPoint) -> Double {
+      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      let local = host.convert(point, from: nil)
+      let x = Int(4 * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+      let y = Int((host.isFlipped ? local.y : host.bounds.height - local.y) * CGFloat(bitmap.pixelsHigh) / host.bounds.height)
+      guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return -1 }
+      return color.redComponent + color.greenComponent + color.blueComponent
+    }
+    var failures: [String] = []
+    for (index, point) in [first, second, first, second, first, second].enumerated() {
+      let current = areas(at: point)
+      for area in current {
+        if index == 0 {
+          (area.owner as? NSResponder)?.mouseEntered(with: HoverTestEvent(area: area, type: .mouseEntered, location: point))
+        } else {
+          (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved, location: point))
+        }
+      }
+      let expected = index.isMultiple(of: 2) ? "Accounts" : "Settings"
+      var frames: [Double] = []
+      let frameCount = index < 4 ? 2 : 64
+      for frame in 0..<frameCount {
+        try? await Task.sleep(for: .milliseconds(16))
+        // Relayout and refresh areas as AppKit does while the highlight is changing.
+        let refreshed = areas(at: point)
+        for area in refreshed {
+          (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved, location: point))
+        }
+        if hover.target != expected { failures.append("Moving between controls loses the \(expected) hover target") }
+        frames.append(pixel(at: point))
+        if frame == 4 {
+          // Same view, as during an observed model refresh while the pointer stays inside.
+          host.rootView = root
+        }
+      }
+      if frames.contains(where: { $0 < 0 }) { failures.append("\(expected) hover pixels could not be captured") }
+      if frameCount > 8, let settled = frames.last, frames.suffix(48).contains(where: { abs($0 - settled) > 0.01 }) {
+        failures.append("\(expected) highlight flashes after a same-view refresh")
+      }
+      FileHandle.standardError.write(Data("HOVER_TRANSITION \(expected) frames=\(frames.count) settled=\(frames.last ?? -1)\n".utf8))
     }
     return failures
   }
