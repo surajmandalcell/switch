@@ -26,6 +26,15 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   respecting Reduce Transparency and keeping text and controls fully legible.
 - [x] Close the current native and both Linux architecture gates, then install the exact
   clean signed build and verify the installed revision and stable single-instance launch.
+- [ ] Move a labeled Show in menu bar toggle immediately before Open Codex; remove
+  the provider badge and old toggle from Identity's header.
+- [ ] Confirm the magnifying-glass action uses the same 13-point size as Copy and Delete.
+- [ ] Show a pointing-hand cursor over copyable paths, with graceful truncation and
+  full-path tooltips that preserve the exact copied value.
+- [ ] Delete the default account through a saved fallback and select that replacement,
+  preserving activation-failure safety and using the ordinary Delete account label.
+- [ ] Compact menu account headers to one row and cap the scrolling popover at 80% of
+  the smallest display's visible height, with a 900-point ceiling.
 
 Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
 Developer ID Application identity and notarization; local development signing is not that gate.

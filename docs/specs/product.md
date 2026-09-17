@@ -107,9 +107,11 @@ and an Open App footer action. It has no brand/count/refresh header, column head
 explanation, Add Account action, or Quit action. Account creation and usage refresh belong in
 the main window.
 
-Each account's Identity header exposes a compact menu-bar icon toggle beside its status
-badges. Its tooltip and accessible value explain whether menu-bar usage is on or off; its
-context menu offers Use Settings default. There is no separate preference row in Usage.
+Each account exposes a labeled **Show in menu bar** toggle immediately before Open Codex
+in its action row. A native check-circle shows the selected state; its accessible value
+explains whether usage display is on or off. Its context menu offers Use Settings default.
+Identity's header retains Default and attention badges, without a redundant provider badge
+or menu-bar toggle. There is no separate preference row in Usage.
 This preference controls both that account's popover limits and the
 active account's percentage beside the menu-bar icon. All accounts remain listed and
 switchable. Disabled usage has no refresh action or placeholder; enabling display does
@@ -118,16 +120,18 @@ Main-window usage and its cache remain available regardless of this display pref
 If Codex returns only a weekly limit, show it without inventing a 5-hour value. The tray
 percentage uses the 5-hour limit when available, otherwise the weekly limit.
 
-Each account is a distinct compact card. Its identity row shows the account, provider and
-workspace, active or attention state, and a dedicated Switch button when eligible. Active,
+Each account is a distinct compact card. Its single 36-point identity row shows a truncated
+account name with a full-name tooltip, active or attention state, and a dedicated Switch
+button when eligible. Provider and workspace remain in the accessible description. Active,
 Switch, and Sign in controls share one compact ghost-button size. When menu
 usage is enabled and cached, the card expands to show separate Weekly and 5 hour progress
 rows. Each row places the limit name above its percentage, followed by a horizontal progress
 bar and a right-aligned reset description. The cards use a quiet dark gradient, fine border,
 and restrained hover change while preserving three-point corners. A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
-left even when usage display is disabled, and Open App on the right. The popover is 384 points wide, uses a
-48-point footer, and scrolls at a 440-point maximum height. It has no automatic focus outline
+left even when usage display is disabled, and Open App on the right. The popover is 384 points wide,
+uses a 48-point footer, and scrolls at the smaller of 900 points or 80% of the smallest attached
+display's visible height. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 
 ## 4. Visual system
@@ -150,16 +154,24 @@ content changes must not move them vertically or horizontally.
 
 Identity and Usage are the primary account sections. Their header tint is restrained;
 secondary and settings headers use a lighter tint. Decorative header strokes use half the
-previous opacity. Default, provider, and attention badges sit at the right of Identity's
+previous opacity. Default and attention badges sit at the right of Identity's
 header. Set as Default and Open remain labeled primary actions; Check, Copy, and Refresh use quiet
 tooltip icon buttons. Healthy verification detail is not repeated under the identity.
 Check account files uses a magnifying-glass icon. Set as Default uses a single tick;
 the default account shows a double tick and Using as default. That action remains enabled
 when idle to reapply the saved credential. Displayed filesystem paths copy their exact text
-on click and show a brief local Copied confirmation without shifting layout; accessible
+on click and show a brief local Copied confirmation without shifting layout. Copyable text
+uses a pointing-hand cursor, middle truncation, and a full-path tooltip; accessible
 names identify the copy action, and Preview must not mutate the real clipboard.
 Body prose uses Inter rather than monospace. Disabled actions stay legible and every icon
 action retains an accessible name, focus behavior, and its existing safety guards.
+
+Deleting the default account automatically activates an eligible saved fallback before
+deleting its saved credential. Prefer the currently selected other account, then the previous
+selection, then the most recently used eligible account, then the first available account.
+The deletion confirmation names the replacement. A failed activation preserves the account
+being deleted. With no eligible fallback, the normal Delete account action remains disabled;
+do not replace its label with a long instruction. Conversations and settings are preserved.
 
 Close hover uses bright red `#FF453A` with a white glyph; Minimize hover uses bright yellow
 `#FFD43B` with a dark glyph. Both remain square, and Minimize floats out of Close without
