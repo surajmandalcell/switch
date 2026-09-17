@@ -14,7 +14,7 @@ verification evidence.
 - [x] Make the whole Menubar popover translucent over native blur, respecting Reduce
   Transparency and keeping one shared backdrop rather than per-row effects.
 - [x] Use a ghost Open App footer button and cached provider glyphs instead of account dots.
-- [ ] Check native appearance, backdrop reuse, and panel responsiveness; install the clean signed build.
+- [x] Check native appearance and backdrop reuse; install the clean signed build.
 - [x] Persist drag-and-drop account order, with accessible Move up/down actions,
   without changing selection or authentication.
 - [x] Group the first four enabled tray accounts under one smaller glyph per service,
@@ -36,7 +36,12 @@ regression, then current-source contracts passed. Light/dark renders were inspec
 There are no per-row blur effects, software blur filters, new polling, or icon downloads.
 This bounds added rendering work; physical GPU frame timing has not been measured.
 Reduce Transparency selects the opaque fallback; the contracts check the actual OS setting
-without changing the user's accessibility preferences. Signed local installation remains pending.
+without changing the user's accessibility preferences. Clean signed checkpoint `c2dd85f1e40e`
+was installed at `/Applications/Switch.app`, passed the local release gate, and reopened normally
+with the original account selection and Menubar settings. Core and Linux gates remain valid
+because this refinement changes only native views and their contract checks. Physical popover
+inspection retains the existing SystemUIServer driver limitation; native layer geometry and
+both theme renders passed. The final receipt records the clean documentation checkpoint.
 
 Refinement checks: the shared registry preserves order across reopen, activation, append,
 and deletion, rejects stale/duplicate/foreign IDs, and skips unchanged writes. The production
