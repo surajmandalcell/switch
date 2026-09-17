@@ -161,6 +161,7 @@ struct AccountWindow: View {
   @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
   @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
   @State private var refreshHovered = false
+  @State private var sidebarHover = AIMSidebarHover()
   @Environment(\.colorScheme) private var systemScheme
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -195,7 +196,7 @@ struct AccountWindow: View {
             .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.errorMessage)
             Group {
               switch page {
-              case .accounts: AccountsPage(model: model)
+              case .accounts: AccountsPage(model: model, sidebarHover: sidebarHover)
               case .backup: BackupPage(model: model)
               case .history: HistoryPage(model: model)
               case .cleanup: CleanupPage(model: model)
@@ -320,17 +321,20 @@ struct AccountWindow: View {
       ForEach(AIManagerPage.allCases, id: \.self) { item in
         RailButton(
           icon: item.icon, label: item.rawValue, active: page == item,
+          sidebarHover: sidebarHover, hoverID: item.rawValue,
           iconSize: item.railIconSize
         ) { page = item }
       }
       Spacer()
-      RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false)
+      RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false,
+        sidebarHover: sidebarHover, hoverID: "appearance")
       {
         withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.theme)) {
           appearanceMode = dark ? "light" : "dark"
         }
       }
-      RailButton(icon: .plus, label: "Add account", active: false, disabled: model.isBusy) {
+      RailButton(icon: .plus, label: "Add account", active: false, disabled: model.isBusy,
+        sidebarHover: sidebarHover, hoverID: "addAccount") {
         Task { await model.beginAddAccount() }
       }
     }.frame(width: AIMTheme.railWidth).background(AIMTheme.rail.opacity(reduceTransparency ? 1 : 0.96))
@@ -462,9 +466,11 @@ private struct RailTop: View {
 private struct RailButton: View {
   let icon: AIMIcon.Name, label: String, active: Bool
   var disabled = false
+  let sidebarHover: AIMSidebarHover
+  let hoverID: String
   var iconSize = AIMTheme.railIconSize
   let action: () -> Void
-  @State private var hover = false
+  private var hover: Bool { sidebarHover.target == hoverID }
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.isEnabled) private var isEnabled
   private var unavailable: Bool { disabled || !isEnabled }
@@ -472,13 +478,16 @@ private struct RailButton: View {
     Button(action: action) {
       AIMIcon(name: icon, size: iconSize).frame(width: 48, height: 48).foregroundStyle(
         active ? AIMTheme.activeInk : (hover && !unavailable ? AIMTheme.ink : AIMTheme.railIdle)
-      ).background(active ? AIMTheme.active : (hover && !unavailable ? AIMTheme.panel2 : .clear))
+      ).background {
+        Rectangle().fill(active ? AIMTheme.active : (hover && !unavailable ? AIMTheme.panel2 : .clear))
+          .animation(hover && !reduceMotion ? .easeOut(duration: AIMMotion.hover) : nil, value: hover)
+          .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: active)
+          .allowsHitTesting(false)
+      }
         .contentShape(Rectangle())
     }.buttonStyle(AIMPressButtonStyle()).disabled(disabled).help(label).accessibilityLabel(label).accessibilityAddTraits(
       active ? .isSelected : []
-    ).onHover { hover = $0 && !unavailable }.animation(
-      reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hover)
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: active)
+    ).onHover { sidebarHover.update(hoverID, inside: $0 && !unavailable) }
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
   }
 }
@@ -611,6 +620,7 @@ private struct PendingAccountDeletion: Identifiable {
 
 private struct AccountsPage: View {
   @ObservedObject var model: AccountViewModel
+  let sidebarHover: AIMSidebarHover
   @State private var importHovered = false
   @State private var pendingDeletion: PendingAccountDeletion?
   @State private var dropTargetID: UUID?
@@ -628,7 +638,7 @@ private struct AccountsPage: View {
                 } label: {
                   AccountListRow(
                     account: account, selected: account.id == model.selectedAccountID,
-                    isDefault: account.id == model.status?.defaultAccountID)
+                    isDefault: account.id == model.status?.defaultAccountID, sidebarHover: sidebarHover)
                 }
                 .buttonStyle(AIMPressButtonStyle())
                 .contextMenu {
@@ -769,7 +779,8 @@ func accountDropTarget(for accountID: UUID, at point: CGPoint, model: AccountVie
 private struct AccountListRow: View {
   static let height: CGFloat = 44
   let account: AccountRecord, selected: Bool, isDefault: Bool
-  @State private var hover = false
+  let sidebarHover: AIMSidebarHover
+  private var hover: Bool { sidebarHover.target == account.id.uuidString }
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
@@ -782,14 +793,16 @@ private struct AccountListRow: View {
         .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
     }.padding(.horizontal, 12).padding(.vertical, 6).frame(
       maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
-    ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background(
-      selected ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear)
-    ).overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
-      .contentShape(Rectangle()).onHover { hover = $0 }.accessibilityElement(children: .combine)
+    ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background {
+      Rectangle().fill(selected ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear))
+        .animation(hover && !reduceMotion ? .easeOut(duration: AIMMotion.hover) : nil, value: hover)
+        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
+        .allowsHitTesting(false)
+    }.overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
+      .contentShape(Rectangle()).onHover { sidebarHover.update(account.id.uuidString, inside: $0) }
+      .accessibilityElement(children: .combine)
       .accessibilityAddTraits(selected ? .isSelected : [])
       .accessibilityValue(isDefault ? "Default account" : "Not the default account")
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hover)
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
   }
 }
 private struct EmptyAccountView: View {

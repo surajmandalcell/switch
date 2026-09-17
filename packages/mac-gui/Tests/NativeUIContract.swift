@@ -39,6 +39,17 @@ enum AIManagerNativeContract {
     expect(AIMTheme.Dark.selection == 0x393C43, "Dark selection color changed")
     expect(AIMTheme.Dark.menuChrome == 0x18191B, "Dark menu chrome color changed")
 
+    let hover = AIMSidebarHover()
+    hover.update("first-account", inside: true)
+    hover.update("second-account", inside: true)
+    hover.update("first-account", inside: false)
+    expect(hover.target == "second-account", "A late hover exit clears the current account highlight")
+    hover.update("Accounts", inside: true)
+    hover.update("second-account", inside: false)
+    expect(hover.target == "Accounts", "Crossing sidebar columns leaves a stale hover target")
+    hover.update("Accounts", inside: false)
+    expect(hover.target == nil, "Leaving the sidebar retains its hover highlight")
+
     expect(UsagePresentation.credits(nil) == nil, "Missing credits are visible")
     expect(
       UsagePresentation.credits(CodexCreditsSnapshot(
