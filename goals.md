@@ -48,6 +48,10 @@ Single-row menu headers and the height policy passed all three native theme cont
 including 480-, 601-, 900-, and 2,000-point display heights. Light and dark account/menu
 captures were inspected in `/private/tmp/ai-manager-build/ui-review`; no provider subtitle
 occupies a menu row. The final installed revision is recorded in the canonical install receipt.
+The full native gate passed after these refinements: 157 passed, two protected-copy opt-ins
+skipped, plus icon, Preview, production model, three-theme, single-instance, and scroll gates.
+The debt inventory remains the two existing ownership guards documented below, with no new
+markers and no missing upgrade triggers. Shared-core/Linux inputs were unchanged.
 
 Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
 Developer ID Application identity and notarization; local development signing is not that gate.
