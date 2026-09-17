@@ -56,7 +56,12 @@ final class AccountViewModel: ObservableObject {
     #endif
 
     @Published var status: ManagerStatus?
-    @Published var selectedAccountID: UUID?
+    @Published var selectedAccountID: UUID? {
+        didSet {
+            if let oldValue, oldValue != selectedAccountID { previousSelectedAccountID = oldValue }
+        }
+    }
+    private var previousSelectedAccountID: UUID?
     @Published var discoveries: [DiscoveredSource] = []
     @Published var isBusy = false
     @Published var refreshedAt: Date?
@@ -736,32 +741,54 @@ final class AccountViewModel: ObservableObject {
     func canDeleteAccount(_ accountID: UUID) -> Bool {
         guard let current = status,
               current.accounts.contains(where: { $0.id == accountID }) else { return false }
-        return current.defaultAccountID != accountID
+        return current.defaultAccountID != accountID || deletionReplacement(for: accountID) != nil
+    }
+
+    func deletionReplacement(for accountID: UUID) -> AccountRecord? {
+        let candidates = status?.accounts.filter {
+            $0.id != accountID && $0.verification.state != .needsSignIn
+                && $0.verification.state != .unsupported
+        } ?? []
+        for preferred in [selectedAccountID, previousSelectedAccountID] {
+            if let account = candidates.first(where: { $0.id == preferred }) { return account }
+        }
+        return candidates.filter { $0.lastUsedAt != nil }.max {
+            ($0.lastUsedAt ?? .distantPast) < ($1.lastUsedAt ?? .distantPast)
+        } ?? candidates.first
     }
 
     func deleteAccount(_ accountID: UUID) async {
         guard let account = status?.accounts.first(where: { $0.id == accountID }) else { return }
         guard canDeleteAccount(accountID) else {
-            errorMessage = "Use another account for new Codex sessions before deleting the default account."
+            errorMessage = "No saved account is available as a replacement."
             return
         }
+        let replacement = status?.defaultAccountID == accountID
+            ? deletionReplacement(for: accountID)?.id : nil
         if let manager {
             await perform(
                 failure: "Couldn’t delete the account.",
                 recovery: "Refresh accounts, then try again."
             ) {
-                _ = try await manager.deleteAccount(
-                    accountID: accountID,
-                    replacementDefaultAccountID: nil)
+                do {
+                    _ = try await manager.deleteAccount(
+                        accountID: accountID,
+                        replacementDefaultAccountID: replacement)
+                } catch {
+                    try? await reloadStatus(using: manager)
+                    throw error
+                }
                 try await reloadStatus(using: manager)
                 accountUsage[accountID] = nil
                 usageSnapshots[accountID] = nil
+                retainedDailyUsage[accountID] = nil
                 if usageErrorAccountID == accountID {
                     usageError = nil
                     usageErrorAccountID = nil
                 }
-                selectedAccountID = status?.defaultAccountID
-                    ?? status?.accounts.first?.id
+                if selectedAccountID == accountID {
+                    selectedAccountID = status?.defaultAccountID ?? status?.accounts.first?.id
+                }
                 let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
                 notice = "\(accountName) was deleted from Switch."
             }
@@ -772,13 +799,15 @@ final class AccountViewModel: ObservableObject {
         await perform {
             guard var current = status else { return }
             current.accounts.removeAll { $0.id == accountID }
+            if current.defaultAccountID == accountID { current.defaultAccountID = replacement }
             current.linkedSettingsDivergences.removeAll { $0.accountID == accountID }
             status = current
             accountHistory[accountID] = nil
             accountUsage[accountID] = nil
             usageSnapshots[accountID] = nil
-            selectedAccountID = current.defaultAccountID
-                ?? current.accounts.first?.id
+            if selectedAccountID == accountID {
+                selectedAccountID = current.defaultAccountID ?? current.accounts.first?.id
+            }
             let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
             notice = "\(accountName) was deleted from the demo."
         }

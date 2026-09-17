@@ -300,7 +300,63 @@ struct ProductionAccountViewModelCheck {
                    "Account deletion changed the original auth source")
 
         try await checkUnavailableState(root: root)
+        try await checkDefaultDeletion(root: root)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")
+    }
+
+    @MainActor
+    private static func checkDefaultDeletion(root: URL) async throws {
+        let testRoot = root.appending(path: "default-deletion")
+        let paths = ManagerPaths(
+            applicationSupport: testRoot.appending(path: "support"),
+            defaultHome: testRoot.appending(path: "live"),
+            sharedRoot: testRoot.appending(path: "live"),
+            orcaAccountsRoot: testRoot.appending(path: "orca"),
+            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: testRoot)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        var accounts: [AccountRecord] = []
+        for name in ["first", "previous", "recent"] {
+            let source = testRoot.appending(path: name)
+            _ = try writeSource(at: source, account: name, workspace: "personal")
+            let plan = try await manager.planImport(source: source, mode: .authOnly)
+            accounts.append(try await manager.importAccount(plan: plan).account)
+        }
+        _ = try await manager.switchDefault(to: accounts[2].id)
+        _ = try await manager.switchDefault(to: accounts[0].id)
+        let config = paths.defaultHome.appending(path: "config.toml")
+        try Data("preserve shared settings".utf8).write(to: config)
+        let model = AccountViewModel(paths: paths, manager: manager)
+        await model.load()
+        model.selectedAccountID = accounts[1].id
+        model.selectedAccountID = accounts[0].id
+        let replacementAuth = try Data(contentsOf: accounts[1].credentialFile)
+        let liveAuth = paths.defaultHome.appending(path: "auth.json")
+        let outgoingAuth = try Data(contentsOf: liveAuth)
+        try Data("{}".utf8).write(to: accounts[1].credentialFile)
+        await model.deleteAccount(accounts[0].id)
+        try expect(model.errorMessage != nil, "Invalid replacement was accepted")
+        try expect(model.status?.defaultAccountID == accounts[0].id,
+                   "Failed replacement changed the default account")
+        try expect(FileManager.default.fileExists(atPath: accounts[0].credentialFile.path),
+                   "Failed replacement deleted the outgoing credential")
+        try expect(try Data(contentsOf: liveAuth) == outgoingAuth,
+                   "Failed replacement changed the live authentication")
+        try replacementAuth.write(to: accounts[1].credentialFile)
+        await model.deleteAccount(accounts[0].id)
+        try expect(model.errorMessage == nil, "Default deletion failed: \(model.errorMessage ?? "unknown")")
+        try expect(model.status?.defaultAccountID == accounts[1].id
+                   && model.selectedAccountID == accounts[1].id,
+                   "Default deletion did not activate and select the previous selection")
+        try expect(model.status?.accounts.count == 2
+                   && !FileManager.default.fileExists(atPath: accounts[0].credentialFile.path),
+                   "Default deletion left the removed account or credential")
+        try expect(try Data(contentsOf: liveAuth) == replacementAuth,
+                   "Default deletion did not install the replacement authentication")
+        try expect(try Data(contentsOf: config) == Data("preserve shared settings".utf8),
+                   "Default deletion changed shared settings")
+        await model.deleteAccount(accounts[2].id)
+        try expect(!model.canDeleteAccount(accounts[1].id),
+                   "The only remaining default can be deleted without a fallback")
     }
 
     @MainActor

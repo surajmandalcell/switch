@@ -671,7 +671,7 @@ private struct AccountsPage: View {
       let accountName = deletion.account.identity.heroName
       return Alert(
         title: Text("Delete \(accountName)?"),
-        message: Text("Switch will remove \(accountName)'s saved auth.json. The original source stays unchanged."),
+        message: Text(deletionMessage(for: deletion.account)),
         primaryButton: .destructive(Text("Delete account")) {
           Task { await model.deleteAccount(deletion.account.id) }
         },
@@ -698,7 +698,7 @@ private struct AccountsPage: View {
       model.copySavedAuthPath(for: account.id)
     }
     Divider()
-    Button(deleteActionLabel(for: account), role: .destructive) {
+    Button(AccountActionCopy.delete, role: .destructive) {
       prepareDeletion(of: account)
     }
     .disabled(model.isBusy || !model.canDeleteAccount(account.id))
@@ -706,16 +706,19 @@ private struct AccountsPage: View {
 
   private func prepareDeletion(of account: AccountRecord) {
     guard model.canDeleteAccount(account.id) else {
-      model.errorMessage = "Use another account for new Codex sessions before deleting the default account."
+      model.errorMessage = "No saved account is available as a replacement."
       return
     }
     pendingDeletion = PendingAccountDeletion(account: account)
   }
 
-  private func deleteActionLabel(for account: AccountRecord) -> String {
-    account.id == model.status?.defaultAccountID
-      ? "Use another account before deleting the default account"
-      : AccountActionCopy.delete
+  private func deletionMessage(for account: AccountRecord) -> String {
+    let removal = "Remove this account's saved sign-in from Switch. Conversations and settings stay."
+    if account.id == model.status?.defaultAccountID,
+       let replacement = model.deletionReplacement(for: account.id) {
+      return "\(removal) \(replacement.identity.heroName) will become the default for new Codex sessions."
+    }
+    return removal
   }
 }
 private struct AccountListRow: View {
@@ -902,9 +905,7 @@ private struct AccountDetail: View {
     }
     AIMIconButton(
       icon: .trash,
-      label: account.id == model.status?.defaultAccountID
-        ? "Use another account before deleting the default account"
-        : AccountActionCopy.delete,
+      label: AccountActionCopy.delete,
       tone: .danger,
       disabled: model.isBusy || !model.canDeleteAccount(account.id),
       action: delete)

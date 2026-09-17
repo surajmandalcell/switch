@@ -31,10 +31,16 @@ below are evidence of their recorded revisions, not a claim that newer requireme
 - [ ] Confirm the magnifying-glass action uses the same 13-point size as Copy and Delete.
 - [ ] Show a pointing-hand cursor over copyable paths, with graceful truncation and
   full-path tooltips that preserve the exact copied value.
-- [ ] Delete the default account through a saved fallback and select that replacement,
+- [x] Delete the default account through a saved fallback and select that replacement,
   preserving activation-failure safety and using the ordinary Delete account label.
 - [ ] Compact menu account headers to one row and cap the scrolling popover at 80% of
   the smallest display's visible height, with a 900-point ceiling.
+
+Compact-control refinement: the default-deletion regression reproduced the prior UI block
+before the fix. Production and Preview model checks then passed. A previous selection beats
+the more recently used account; malformed replacement auth preserves the outgoing account
+and live auth; successful replacement selects the new default and preserves shared settings;
+the sole remaining default stays protected. No real account was deleted during verification.
 
 Advanced Cleanup remains explicitly deferred. Public distribution still requires an external
 Developer ID Application identity and notarization; local development signing is not that gate.
