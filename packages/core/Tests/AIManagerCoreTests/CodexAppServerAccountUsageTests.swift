@@ -263,9 +263,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
         let noisy = try syntheticServer(
             """
             IFS= read -r line
-            printf '{"id":1,"result":{"padding":"'
-            head -c 2048 /dev/zero | tr '\\000' x
-            printf '"}}\\n'
+            printf '{"id":1,"result":{"padding":"%02048d"}}\\n' 0
             """
         )
         await XCTAssertThrowsErrorAsync(
