@@ -109,6 +109,7 @@ final class AccountViewModel: ObservableObject {
     #endif
     private var unavailableReason: String? = nil
     private var actionGeneration = 0
+    private var isActivationReloading = false
     private var chatSelectionGeneration = 0
     private var hasScannedChatHistory = false
     private var requestedChatHistoryQuery = ""
@@ -196,8 +197,16 @@ final class AccountViewModel: ObservableObject {
     }
 
     func reloadAfterActivation() async {
-        guard !showImport else { return }
-        await load()
+        guard hasLoaded, !showImport, !isBusy, !isActivationReloading, let manager else { return }
+        isActivationReloading = true
+        defer { isActivationReloading = false }
+        do {
+            try await reloadStatus(using: manager)
+            await loadCachedUsage()
+            if shouldRefreshDefaultUsage { Task { await self.refreshDefaultUsage() } }
+        } catch {
+            errorMessage = "Couldn’t refresh accounts. \(error.localizedDescription)"
+        }
     }
 
     func refresh() async {

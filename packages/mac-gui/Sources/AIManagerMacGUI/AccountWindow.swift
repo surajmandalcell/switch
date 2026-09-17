@@ -163,7 +163,6 @@ struct AccountWindow: View {
   @State private var refreshHovered = false
   @State private var sidebarHover = AIMSidebarHover()
   @Environment(\.colorScheme) private var systemScheme
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   private var themeOverride: ColorScheme? {
@@ -292,9 +291,6 @@ struct AccountWindow: View {
       guard let requestedPage = notification.object as? AIManagerPage else { return }
       page = requestedPage
       NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: requestedPage)
-    }
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { Task { await model.reloadAfterActivation() } }
     }
     .task(id: model.hasLoaded) {
       if model.hasLoaded { await model.watchActivity() }
