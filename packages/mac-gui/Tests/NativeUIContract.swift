@@ -233,9 +233,9 @@ enum AIManagerNativeContract {
     }
 
     expect(MenuBarPopover.width == 384, "Menu-bar popover is not 384 points wide")
-    expect(MenuBarPopover.minimumHeight == 124, "Menu-bar popover retains removed chrome space")
-    expect(MenuBarPopover.maximumHeight == 440, "Menu-bar popover maximum height is not capped")
-    expect(MenuBarPopover.accountHeaderHeight == 58, "Menu-bar account header has the wrong height")
+    expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
+    expect(MenuBarPopover.maximumHeight == 900, "Menu-bar popover maximum height is not capped")
+    expect(MenuBarPopover.accountHeaderHeight == 36, "Menu-bar account header has the wrong height")
     expect(MenuBarPopover.quotaRowHeight == 44, "Menu-bar quota rows have the wrong height")
     expect(MenuBarPopover.accountActionWidth == 64, "Menu-bar account actions have different widths")
     expect(MenuBarPopover.accountActionHeight == 24, "Menu-bar account actions are not compact")
@@ -257,17 +257,23 @@ enum AIManagerNativeContract {
       accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 900)
     let shortScreen = AIManagerStatusItemController.contentSize(
       accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 480)
-    for size in [empty, hidden, one, two, many, shortScreen] {
+    let tallScreen = AIManagerStatusItemController.contentSize(
+      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 2_000)
+    let fractionalScreen = AIManagerStatusItemController.contentSize(
+      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 601)
+    for size in [empty, hidden, one, two, many, shortScreen, tallScreen, fractionalScreen] {
       expect(size.width == 384, "Menu-bar popover width changes with its contents")
-      expect(size.height >= 124, "Menu-bar popover is shorter than its empty state")
-      expect(size.height <= 440, "Menu-bar popover exceeds its height cap")
+      expect(size.height >= 104, "Menu-bar popover is shorter than its empty state")
+      expect(size.height <= 900, "Menu-bar popover exceeds its height cap")
     }
-    expect(empty.height == 124, "Empty menu-bar popover does not use its compact minimum height")
-    expect(hidden.height == 126, "Hidden usage leaves blank quota space")
-    expect(one.height == 249, "One usage card has the wrong geometry")
-    expect(two.height == 438, "Two usage cards have the wrong geometry")
-    expect(many.height == 440, "Menu-bar cards do not scroll at the height cap")
+    expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
+    expect(hidden.height == 104, "Hidden usage leaves blank quota space")
+    expect(one.height == 227, "One usage card has the wrong geometry")
+    expect(two.height == 394, "Two usage cards have the wrong geometry")
+    expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
+    expect(tallScreen.height == 900, "Menu-bar popover exceeds its absolute height cap")
+    expect(fractionalScreen.height == 480, "Menu-bar screen cap rounds beyond 80%")
 
     expect(snapshot.primaryUsedPercentage == 42, "Preview menu snapshot lacks cached primary usage")
     expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
