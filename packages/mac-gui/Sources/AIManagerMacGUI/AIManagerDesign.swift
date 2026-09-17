@@ -104,7 +104,9 @@ enum AIMTheme {
   static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x3D4046)
   static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
   static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3A3732)
-  static let minimizeHover = dynamic(light: 0xCCC4B2, dark: 0x494238)
+  static let minimizeHover = Color(hex: 0xFFD43B)
+  static let closeHover = Color(hex: 0xFF453A)
+  static let windowControlInk = Color(hex: 0x1A1B1D)
   static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x2C2E32)
   static let disabledInk = dynamic(light: 0x62656B, dark: 0xA6A8AD)
 
@@ -188,7 +190,7 @@ struct AIMVisualEffect: NSViewRepresentable {
 struct AIMIcon: View {
   enum Name: CaseIterable {
     case account, settings, history, backup, cleanup, search, plus, refresh, moon, sun, close, minimize
-    case chevron, check, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp
+    case chevron, check, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
 
     var symbol: String {
       switch self {
@@ -207,6 +209,7 @@ struct AIMIcon: View {
       case .chevron: "chevron.right"
       case .terminal: "terminal"
       case .openApp: "macwindow"
+      case .menuBar: "menubar.rectangle"
       case .check: "checkmark"
       case .square: "square"
       case .checkSquare: "checkmark.square.fill"
@@ -256,18 +259,30 @@ struct AIMPressButtonStyle: ButtonStyle {
   }
 }
 
+enum AIMPanelImportance {
+  case primary, secondary
+
+  var tintOpacity: Double { self == .primary ? 0.70 : 0.28 }
+}
+
 struct AIMPanel<Content: View>: View {
   let title: String
+  var importance: AIMPanelImportance = .secondary
+  var headerAccessories: AnyView? = nil
   @ViewBuilder var content: Content
 
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 0) {
+      HStack(spacing: 8) {
         Text(title)
-          .font(AIMTheme.sans(12, weight: .semibold))
+          .font(AIMTheme.sans(12, weight: .medium))
+          .foregroundStyle(importance == .primary ? AIMTheme.ink : AIMTheme.muted)
           .padding(.horizontal, AIMTheme.panelContentInset)
           .frame(height: 40)
         Spacer(minLength: 0)
+        if let headerAccessories {
+          headerAccessories.padding(.trailing, 10)
+        }
       }
       .frame(height: 40)
       .background {
@@ -276,11 +291,11 @@ struct AIMPanel<Content: View>: View {
             colors: [AIMTheme.green.opacity(0.16), .clear, AIMTheme.titleArt.opacity(0.24)],
             startPoint: .leading,
             endPoint: .trailing
-          )
+          ).opacity(importance.tintOpacity)
           AIMTitleArt()
         }.allowsHitTesting(false)
       }
-      .background(AIMTheme.panel2)
+      .background(AIMTheme.panel2.opacity(importance.tintOpacity))
       content
     }
     .background(AIMTheme.panel)
@@ -297,12 +312,12 @@ private struct AIMTitleArt: View {
           Path(ellipseIn: CGRect(
             x: trailingAnchor - radius, y: 47 - radius,
             width: radius * 2, height: radius * 2)),
-          with: .color(AIMTheme.titleArt.opacity(0.48)), lineWidth: 0.65)
+          with: .color(AIMTheme.titleArt.opacity(0.24)), lineWidth: 0.65)
         context.stroke(
           Path(ellipseIn: CGRect(
             x: trailingAnchor - 59 - radius, y: -23 - radius,
             width: radius * 2, height: radius * 2)),
-          with: .color(AIMTheme.titleArt.opacity(0.29)), lineWidth: 0.65)
+          with: .color(AIMTheme.titleArt.opacity(0.145)), lineWidth: 0.65)
       }
     }
     .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)

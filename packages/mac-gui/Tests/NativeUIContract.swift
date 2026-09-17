@@ -189,6 +189,9 @@ enum AIManagerNativeContract {
     {
       failures.append("The Cleanup rail does not use the native eraser symbol")
     }
+    if NSImage(systemSymbolName: AIMIcon.Name.menuBar.symbol, accessibilityDescription: nil) == nil {
+      failures.append("The account menu-usage control has no native icon")
+    }
     if [ProviderID.codex, .claudeCode, .geminiCLI, .antigravityCLI].map(\.displayName)
       != ["Codex CLI", "Claude Code", "Gemini CLI", "Antigravity CLI"]
       || ProviderID(rawValue: "grok-build").displayName != "Grok Build"

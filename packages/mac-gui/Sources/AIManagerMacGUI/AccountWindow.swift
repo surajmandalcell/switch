@@ -391,7 +391,7 @@ private struct RailTop: View {
     ZStack(alignment: .topLeading) {
       Button(action: minimize) {
         AIMIcon(name: .minimize, size: 15).foregroundStyle(
-          minimizeHover ? AIMTheme.ink : AIMTheme.muted
+          minimizeHover ? AIMTheme.windowControlInk : AIMTheme.muted
         )
         .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
         .background(minimizeHover ? AIMTheme.minimizeHover : AIMTheme.minimizeControl)
@@ -409,12 +409,12 @@ private struct RailTop: View {
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.minimize), value: showMinimize)
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: minimizeHover)
       Button(action: close) {
-        AIMIcon(name: .close, size: 15).foregroundStyle(Color(nsColor: .systemRed))
+        AIMIcon(name: .close, size: 15).foregroundStyle(closeHover ? Color.white : AIMTheme.closeHover)
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
           .background(alignment: .leading) {
             ZStack {
               AIMTheme.rail
-              Color(nsColor: .systemRed).opacity(closeHover ? 0.12 : 0)
+              AIMTheme.closeHover.opacity(closeHover ? 1 : 0)
                 .animation(
                   reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: closeHover)
             }.frame(
@@ -527,6 +527,7 @@ private struct AIMIconButton: View {
   let label: String
   var tone: ButtonTone = .normal
   var disabled = false
+  var active = false
   let action: () -> Void
   @State private var hover = false
   @FocusState private var focused: Bool
@@ -542,14 +543,16 @@ private struct AIMIconButton: View {
         .foregroundStyle(
           unavailable
             ? AIMTheme.disabledInk
-            : (tone == .danger ? AIMTheme.statusInk : AIMTheme.ink)
+            : (tone == .danger
+              ? (hover ? AIMTheme.statusInk : AIMTheme.red)
+              : (active ? AIMTheme.blue : (hover ? AIMTheme.ink : AIMTheme.muted)))
         )
         .background(
           unavailable
-            ? AIMTheme.disabledControl
-            : (tone == .danger
-              ? AIMTheme.red
-              : (hover ? AIMTheme.controlHover : AIMTheme.control))
+            ? Color.clear
+            : (hover
+              ? (tone == .danger ? AIMTheme.red : AIMTheme.controlHover)
+              : (active ? AIMTheme.blue.opacity(0.10) : Color.clear))
         )
         .overlay {
           if focused, focusIndicatorsEnabled {
@@ -573,7 +576,7 @@ private struct Badge: View {
   let text: String, color: Color
   var ink: Color = AIMTheme.statusInk
   var body: some View {
-    Text(text.uppercased()).font(AIMTheme.sans(10, weight: .semibold)).padding(.horizontal, 6)
+    Text(text).font(AIMTheme.sans(10, weight: .medium)).padding(.horizontal, 6)
       .frame(height: 18).foregroundStyle(ink).background(color).clipShape(
         RoundedRectangle(cornerRadius: 3))
   }
@@ -773,32 +776,30 @@ private struct AccountDetail: View {
   var body: some View {
     AIMScrollView {
       VStack(spacing: 8) {
-        AIMPanel(title: "Identity") {
+        AIMPanel(title: "Identity", importance: .primary, headerAccessories: AnyView(identityStatus)) {
           VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-              VStack(alignment: .leading, spacing: 4) {
-                Text(account.identity.heroName).font(AIMTheme.sans(22, weight: .semibold))
-                  .lineLimit(1).textSelection(.enabled)
-                Text(account.identity.workspaceID ?? "Personal workspace").font(AIMTheme.mono(10))
-                  .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 4) {
+              Text(account.identity.heroName).font(AIMTheme.sans(20, weight: .semibold))
+                .lineLimit(1).textSelection(.enabled)
+              Group {
+                if let workspaceID = account.identity.workspaceID {
+                  Text(workspaceID).font(AIMTheme.mono(10))
+                } else {
+                  Text("Personal workspace").font(AIMTheme.sans(11))
+                }
               }
-              Spacer()
-              if account.id == model.status?.defaultAccountID {
-                Badge(text: "Default", color: AIMTheme.green)
-              }
-              Badge(text: account.identity.providerID.displayName, color: account.verification.state.color)
-              if let attention = account.verification.state.attentionLabel {
-                Badge(text: attention, color: account.verification.state.color)
-              }
+              .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
             }
-            Text(account.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
-              AIMTheme.muted
-            ).textSelection(.enabled)
+            if account.verification.state.attentionLabel != nil {
+              Text(account.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
+                AIMTheme.muted
+              ).textSelection(.enabled)
+            }
             ViewThatFits(in: .horizontal) {
               HStack(spacing: 4) { actions }
               VStack(alignment: .leading, spacing: 4) { actions }
             }
-          }.padding(16)
+          }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
         }
         AccountUsagePanel(account: account, model: model).id(account.id)
         AIMPanel(title: "Account details") {
@@ -855,6 +856,20 @@ private struct AccountDetail: View {
       }.frame(maxWidth: .infinity)
     }.frame(maxWidth: .infinity)
   }
+  private var identityStatus: some View {
+    HStack(spacing: 6) {
+      if account.id == model.status?.defaultAccountID {
+        Badge(text: "Default", color: AIMTheme.green.opacity(0.14), ink: AIMTheme.ink)
+      }
+      Badge(
+        text: account.identity.providerID.displayName,
+        color: AIMTheme.panel3.opacity(0.65), ink: AIMTheme.muted)
+      if let attention = account.verification.state.attentionLabel {
+        Badge(text: attention, color: account.verification.state.color)
+      }
+      AccountMenuBarUsageButton(accountID: account.id).id(account.id)
+    }
+  }
   @ViewBuilder private var actions: some View {
     AIMButton(
       title: AccountActionCopy.use, tone: .primary,
@@ -868,10 +883,10 @@ private struct AccountDetail: View {
     ) {
       Task { await model.openAccount(account.id) }
     }
-    AIMButton(title: AccountActionCopy.check, icon: .check, disabled: model.isBusy) {
+    AIMIconButton(icon: .check, label: AccountActionCopy.check, disabled: model.isBusy) {
       Task { await model.checkAccount(account.id) }
     }
-    AIMButton(title: AccountActionCopy.copyAuthPath, icon: .copy) {
+    AIMIconButton(icon: .copy, label: AccountActionCopy.copyAuthPath) {
       model.copySavedAuthPath(for: account.id)
     }
     AIMIconButton(
@@ -1185,18 +1200,47 @@ private struct ActivityCell: View {
   }
 }
 
-private struct AccountUsagePanel: View {
-  let account: AccountRecord
-  @ObservedObject var model: AccountViewModel
+private struct AccountMenuBarUsageButton: View {
+  let accountID: UUID
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @State private var showUsageOverride: Bool?
 
-  init(account: AccountRecord, model: AccountViewModel) {
-    self.account = account
-    self.model = model
+  init(accountID: UUID) {
+    self.accountID = accountID
     _showUsageOverride = State(
-      initialValue: MenuBarUsagePreferences.explicitValue(for: account.id))
+      initialValue: MenuBarUsagePreferences.explicitValue(for: accountID))
   }
+
+  private var showsUsage: Bool { showUsageOverride ?? defaultShowUsage }
+
+  var body: some View {
+    AIMIconButton(
+      icon: .menuBar,
+      label: showsUsage ? "Hide usage in menu bar" : "Show usage in menu bar",
+      active: showsUsage
+    ) {
+      let value = !showsUsage
+      MenuBarUsagePreferences.setOverride(value, for: accountID)
+      showUsageOverride = value
+    }
+    .accessibilityLabel("Show usage in menu bar")
+    .accessibilityValue(showsUsage ? "On" : "Off")
+    .accessibilityAddTraits(showsUsage ? .isSelected : [])
+    .contextMenu {
+      Button("Use Settings default") {
+        MenuBarUsagePreferences.useDefault(for: accountID)
+        showUsageOverride = nil
+      }.disabled(showUsageOverride == nil)
+    }
+    .onAppear {
+      showUsageOverride = MenuBarUsagePreferences.explicitValue(for: accountID)
+    }
+  }
+}
+
+private struct AccountUsagePanel: View {
+  let account: AccountRecord
+  @ObservedObject var model: AccountViewModel
 
   private var snapshot: CodexAccountUsageSnapshot? { model.usage(for: account.id) }
   private var cached: CachedCodexAccountUsage? { model.cachedUsage(for: account.id) }
@@ -1225,10 +1269,8 @@ private struct AccountUsagePanel: View {
   }
 
   var body: some View {
-    AIMPanel(title: "Usage") {
+    AIMPanel(title: "Usage", importance: .primary) {
       VStack(spacing: 0) {
-        menuBarPreference
-        Divider().overlay(AIMTheme.lineSoft)
         if let snapshot {
           VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
@@ -1297,37 +1339,6 @@ private struct AccountUsagePanel: View {
         }
       }
     }
-    .onAppear {
-      showUsageOverride = MenuBarUsagePreferences.explicitValue(for: account.id)
-    }
-  }
-
-  private var menuBarPreference: some View {
-    HStack(spacing: 12) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text("Show usage in menu bar").font(AIMTheme.sans(11, weight: .medium))
-        Text("Show this account’s cached limits and active usage percentage.")
-          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-      }
-      Spacer(minLength: 16)
-      if showUsageOverride != nil {
-        AIMButton(title: "Use default") {
-          MenuBarUsagePreferences.useDefault(for: account.id)
-          showUsageOverride = nil
-        }
-      }
-      Toggle("", isOn: Binding(
-        get: { showUsageOverride ?? defaultShowUsage },
-        set: { value in
-          MenuBarUsagePreferences.setOverride(value, for: account.id)
-          showUsageOverride = value
-        }
-      ))
-      .labelsHidden().toggleStyle(.switch).controlSize(.small)
-      .accessibilityLabel("Show usage in menu bar")
-    }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
   }
 
   @ViewBuilder private var usageStatus: some View {
@@ -1349,9 +1360,9 @@ private struct AccountUsagePanel: View {
   }
 
   private var refreshButton: some View {
-    AIMButton(
-      title: isRefreshing ? "Refreshing" : "Refresh usage",
+    AIMIconButton(
       icon: .refresh,
+      label: isRefreshing ? "Refreshing usage" : "Refresh usage",
       disabled: isRefreshing || model.isBusy
     ) {
       Task { await model.refreshUsage(accountID: account.id) }
@@ -1466,7 +1477,7 @@ private struct UsageFact: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(label).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
-      Text(value).font(AIMTheme.mono(11, weight: .semibold))
+      Text(value).font(AIMTheme.sans(11, weight: .medium)).monospacedDigit()
     }
   }
 }
@@ -3121,7 +3132,7 @@ private struct ImportHeader: View {
           )
           .background(
             closeHovered && !closeDisabled
-              ? Color(nsColor: .systemRed)
+              ? AIMTheme.closeHover
               : AIMTheme.panel3
           )
           .contentShape(Rectangle())

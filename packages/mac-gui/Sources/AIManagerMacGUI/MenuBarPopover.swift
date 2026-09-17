@@ -357,8 +357,7 @@ private struct MenuBarAccountRow: View {
         .accessibilityLabel("Switching account")
     } else if account.isActive {
       Text("Active")
-        .font(AIMTheme.sans(9, weight: .semibold))
-        .textCase(.uppercase)
+        .font(AIMTheme.sans(10, weight: .medium))
         .foregroundStyle(AIMTheme.green)
         .frame(
           width: MenuBarPopover.accountActionWidth,
@@ -371,8 +370,7 @@ private struct MenuBarAccountRow: View {
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     } else if !account.isVerified {
       Text("Sign in")
-        .font(AIMTheme.sans(9, weight: .semibold))
-        .textCase(.uppercase)
+        .font(AIMTheme.sans(10, weight: .medium))
         .foregroundStyle(AIMTheme.amber)
         .frame(
           width: MenuBarPopover.accountActionWidth,
@@ -463,7 +461,7 @@ private struct MenuBarSwitchButton: View {
   var body: some View {
     Button(action: action) {
       Text("Switch")
-        .font(AIMTheme.sans(10, weight: .semibold))
+        .font(AIMTheme.sans(10, weight: .medium))
         .foregroundStyle(AIMTheme.ink)
         .frame(
           width: MenuBarPopover.accountActionWidth,
