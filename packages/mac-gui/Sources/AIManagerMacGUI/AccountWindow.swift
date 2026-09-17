@@ -1122,7 +1122,7 @@ enum UsageActivityRange: String, CaseIterable, Identifiable {
   }
 }
 
-private struct UsageActivityCalendar: View {
+struct UsageActivityCalendar: View {
   let rows: [CodexDailyUsageSnapshot]
   @ObservedObject var model: AccountViewModel
   @AppStorage(UsageActivityRange.preferenceKey) private var storedRange = UsageActivityRange.year.rawValue
@@ -1135,16 +1135,11 @@ private struct UsageActivityCalendar: View {
     nonmutating set { storedRange = newValue.rawValue }
   }
 
-  private var days: [UsagePresentation.ActivityDay] {
-    UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: range.dayCount)
-  }
-  private var maximumTokens: Int64 { days.map(\.tokens).max() ?? 0 }
-  private var selectedDay: UsagePresentation.ActivityDay? {
-    guard let selectedDate else { return nil }
-    return days.first { $0.date == selectedDate }
-  }
-
   var body: some View {
+    let days = UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: range.dayCount)
+    let maximumTokens = days.lazy.map(\.tokens).max() ?? 0
+    let selectedDay = days.first { $0.date == selectedDate }
+    let weeks = weeks(for: days)
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 10) {
         Text("Daily activity").font(AIMTheme.sans(13.2, weight: .semibold))
@@ -1159,7 +1154,11 @@ private struct UsageActivityCalendar: View {
           ForEach(UsageActivityRange.allCases) { option in
             Button {
               range = option
-              if selectedDay == nil { selectedDate = nil }
+              if let date = selectedDate,
+                 !UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: option.dayCount)
+                   .contains(where: { $0.date == date }) {
+                selectedDate = nil
+              }
             } label: {
               Text(option.rawValue)
                 .font(AIMTheme.sans(9, weight: .medium))
@@ -1251,7 +1250,7 @@ private struct UsageActivityCalendar: View {
 
   private var cellSize: CGFloat { range == .year ? 9 : 13 }
 
-  private var weeks: [[UsagePresentation.ActivityDay?]] {
+  private func weeks(for days: [UsagePresentation.ActivityDay]) -> [[UsagePresentation.ActivityDay?]] {
     guard let first = days.first else { return [] }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
