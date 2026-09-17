@@ -1,7 +1,7 @@
 # Switch product specification
 
 Status: Initial accepted specification
-Revision: 2026-09-15
+Revision: 2026-09-17
 
 This document defines the current product model and user-visible contract. `goals.md`
 retains milestone history and verification evidence. If older milestone text conflicts
@@ -128,6 +128,11 @@ content changes must not move them vertically or horizontally.
 Inter is the interface, reading, and display face. PT Mono is reserved for paths,
 measurements, IDs, and other technical data. Both font families are bundled with their OFL
 licenses and must load in production and Preview builds.
+
+Dock and Spotlight use the approved pixel trace as a dark glyph on a light neutral tile,
+with the existing generous padding, optical placement, shallow surface shade, and slight
+top sheen. Both app appearance variants retain this light-tile treatment. Menu-bar artwork
+remains the native monochrome template.
 
 Account-list secondary text and menu cards identify the provider, such as Codex CLI, rather
 than repeating verification language. Healthy identity badges use the provider name; only

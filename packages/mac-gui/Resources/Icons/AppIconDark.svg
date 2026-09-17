@@ -1,10 +1,10 @@
-<!-- Approved pixel-traced Switch mark on a deeper graphite tile for dark environments. -->
+<!-- Approved pixel-traced Switch mark in dark ink on a light tile for dark environments. -->
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="tile-surface-dark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#232323"/>
-      <stop offset="0.48" stop-color="#191919"/>
-      <stop offset="1" stop-color="#111111"/>
+      <stop offset="0" stop-color="#e7e7e4"/>
+      <stop offset="0.48" stop-color="#d9d9d6"/>
+      <stop offset="1" stop-color="#cbcbc7"/>
     </linearGradient>
     <linearGradient id="edge-dark" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.05"/>
@@ -13,7 +13,7 @@
     </linearGradient>
     <linearGradient id="lower-shade-dark" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0.58" stop-color="#000000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.08"/>
     </linearGradient>
     <linearGradient id="top-sheen-dark" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.028"/>
@@ -28,5 +28,5 @@
   <rect x="92.5" y="92.5" width="839" height="839" rx="199.5" fill="none" stroke="url(#edge-dark)" stroke-width="1"/>
   <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#lower-shade-dark)"/>
   <rect x="94" y="94" width="836" height="836" rx="198" fill="url(#top-sheen-dark)"/>
-  <rect width="1024" height="1024" fill="#f8f6ef" mask="url(#pixel-mark-dark)"/>
+  <rect width="1024" height="1024" fill="#1b1b1b" mask="url(#pixel-mark-dark)"/>
 </svg>

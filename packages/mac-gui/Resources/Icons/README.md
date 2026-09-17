@@ -7,7 +7,7 @@ annulus without reconstructing or hand-fitting their geometry.
 appropriate optical size; neither changes its shape.
 
 `AppIconLight.svg` and `AppIconDark.svg` provide explicit Dock treatments. Both
-keep the neutral near-black macOS tile and exact warm-white Pixel trace. The trace
+keep a light neutral macOS tile and exact dark-ink Pixel trace. The trace
 uses a 520-point foreground box with generous internal clearance. Surface shade
 is shallow, and the one-point top-left edge lift peaks at seven percent opacity
 in Light and five percent in Dark. The app swaps these treatments with its

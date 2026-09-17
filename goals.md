@@ -5,7 +5,7 @@ the final receipt named in the closeout evidence. The installed app uses the rea
 Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
 distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
-Design revision: 2026-09-15. The current product contract is
+Design revision: 2026-09-17. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
@@ -2539,6 +2539,15 @@ with temporary synthetic homes before installation.
 - Verification: the fresh-default regression failed against the old code and passed after the
   shared preference fix. System, Light, and Dark GUI contracts pass. Dark and Light menu renders
   show both quota rows, equal compact actions, the footer timestamp, and Open App.
+
+### Quieter interface and inverse Dock artwork (2026-09-17)
+
+- Invert the Dock and Spotlight treatment to a dark approved pixel-trace glyph on a light
+  neutral tile. Preserve the trace, padding, placement, and restrained top sheen in both themes.
+- Continue the accepted account, menu, chat, and native-app work. Only advanced Cleanup
+  implementation remains deferred.
+- Icon verification: regenerated both PNG treatments and the Spotlight ICNS, inspected both
+  full-size renders, and passed the locked pixel-trace and generated-asset contract.
 
 ### Resumed login and protected-copy audit (2026-09-14)
 
