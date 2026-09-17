@@ -19,10 +19,10 @@ below are evidence of their recorded revisions, not a claim that newer requireme
   an enabled refresh action from silently losing a concurrent request.
 - [x] Align returned summary facts at the right of the authentication/ordinary-usage row.
 - [x] Persist the activity range, initially one year; enlarge Daily activity by 20%.
-- [ ] Copy displayed paths on click with a brief nonmoving Copied confirmation.
+- [x] Copy displayed paths on click with a brief nonmoving Copied confirmation.
 - [ ] Retain durable daily account and project usage summaries independently of source
   conversations and rebuildable caches, with repeated-scan/restart/deletion checks.
-- [ ] Configurable content/titlebar translucency, initially 25% with a 0–50% range,
+- [x] Configurable content/titlebar translucency, initially 25% with a 0–50% range,
   respecting Reduce Transparency and keeping text and controls fully legible.
 - [ ] Close the current native and both Linux architecture gates, then install the exact
   clean signed build and verify the installed revision and stable single-instance launch.
@@ -33,6 +33,9 @@ Developer ID Application identity and notarization; local development signing is
 Account refinement verification: the focused Preview model check passed, including a
 nonselected-row account check. Native System/Light/Dark contracts passed, including initial
 refresh errors, sign-in presentation, explicit-zero quotas, and credits-only responses.
+Path and translucency verification: native System/Light/Dark contracts passed after forwarding
+the copy callback and opacity through native scroll/list hosting boundaries. Translucency
+bounds and Reduce Transparency passed. Preview path copying remains in memory.
 
 ### Switch product identity refinement (2026-09-13)
 

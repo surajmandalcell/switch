@@ -777,6 +777,16 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
+    func copyPath(_ path: String) -> Bool {
+        guard !isUnavailable, !path.isEmpty else { return false }
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return true }
+        #endif
+        if paths.isolationRoot != nil { return true }
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.setString(path, forType: .string)
+    }
+
     func copySavedAuthPath(for requestedID: UUID? = nil) {
         guard !isUnavailable else { reportUnavailable(); return }
         let account = status?.accounts.first { $0.id == (requestedID ?? selectedAccountID) }

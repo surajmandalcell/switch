@@ -159,6 +159,7 @@ struct AccountWindow: View {
   @State private var page: AIManagerPage = .accounts
   @AppStorage("appearanceMode") private var appearanceMode = "system"
   @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
+  @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
   @State private var refreshHovered = false
   @Environment(\.colorScheme) private var systemScheme
   @Environment(\.scenePhase) private var scenePhase
@@ -206,6 +207,8 @@ struct AccountWindow: View {
             .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 3)))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
           }
+          .environment(\.aimSurfaceOpacity,
+            AIMTranslucency.opacity(translucency, reduceTransparency: reduceTransparency))
         }
         .disabled(model.showImport)
         .accessibilityHidden(model.showImport)
@@ -258,13 +261,15 @@ struct AccountWindow: View {
         AIMTheme.canvas
       } else {
         AIMVisualEffect(material: .underWindowBackground, blendingMode: .behindWindow, darkMode: dark)
-        AIMTheme.canvas.opacity(dark ? 0.88 : 0.91)
+        AIMTheme.canvas.opacity(AIMTranslucency.opacity(
+          translucency, reduceTransparency: reduceTransparency))
       }
     }
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.navigation), value: page)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.modal), value: model.showImport)
     .environment(\.aimDarkMode, dark)
     .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
+    .environment(\.aimCopyPath, model.copyPath)
     .focusEffectDisabled(!showFocusIndicators)
     .preferredColorScheme(themeOverride)
     .background(
@@ -359,7 +364,7 @@ struct AccountWindow: View {
     }
       .padding(.horizontal, AIMTheme.modalOuterInset)
       .frame(height: AIMTheme.topbarHeight)
-      .background(AIMTheme.canvas.opacity(reduceTransparency ? 1 : 0.92))
+      .background(AIMTheme.canvas)
       .overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.railLine).frame(height: 1) }
   }
 
@@ -825,11 +830,10 @@ private struct AccountDetail: View {
                 HStack(spacing: 12) {
                   AIMIcon(name: .warning, size: 15).foregroundStyle(AIMTheme.amber)
                   VStack(alignment: .leading, spacing: 2) {
-                    Text(issue.relativePath).font(AIMTheme.mono(11, weight: .semibold))
-                    Text(issue.localPath.path).font(AIMTheme.mono(9)).foregroundStyle(
+                    AIMCopyablePath(path: issue.relativePath).font(AIMTheme.mono(11, weight: .semibold))
+                    AIMCopyablePath(path: issue.localPath.path).font(AIMTheme.mono(9)).foregroundStyle(
                       AIMTheme.muted
-                    ).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                      .help(issue.localPath.path)
+                    )
                   }
                   Spacer()
                   WarningCopyButton(label: "Copy repair warning") {
@@ -1508,8 +1512,13 @@ private struct DetailRow: View {
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: 16) {
       Text(label).font(AIMTheme.sans(11, weight: .medium)).frame(width: 118, alignment: .leading)
-      Text(value).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted).lineLimit(1)
-        .truncationMode(.middle).textSelection(.enabled).help(value)
+      Group {
+        if value.hasPrefix("/") || value.hasPrefix("~/") {
+          AIMCopyablePath(path: value)
+        } else {
+          Text(value).lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(value)
+        }
+      }.font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
       Spacer()
     }.padding(.horizontal, 16).frame(minHeight: 40).background(
       zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
@@ -1620,6 +1629,7 @@ private struct SettingsPage: View {
   @Binding var showFocusIndicators: Bool
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
+  @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     AIMScrollView {
@@ -1632,6 +1642,18 @@ private struct SettingsPage: View {
             settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
               Text("Show outlines only while keyboard controls have focus.")
             }
+            HStack(spacing: 16) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text("Body translucency").font(AIMTheme.sans(11, weight: .medium))
+                Text("Keep content readable while revealing a little of the desktop.")
+                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              }
+              Spacer(minLength: 24)
+              Slider(value: $translucency, in: 0...50, step: 1)
+                .frame(width: 160).accessibilityLabel("Body translucency")
+              Text("\(Int(translucency))%")
+                .font(AIMTheme.mono(10)).frame(width: 32, alignment: .trailing)
+            }.padding(.horizontal, 16).frame(minHeight: 48)
           }
         }
         AIMPanel(title: "Menu bar defaults") {
@@ -1716,8 +1738,7 @@ private struct DataLocationRow: View {
       VStack(alignment: .leading, spacing: 3) {
         Text(title).font(AIMTheme.sans(11, weight: .semibold))
         Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-        Text(path).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.faint)
-          .lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(path)
+        AIMCopyablePath(path: path).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.faint)
       }
       Spacer(minLength: 20)
       AIMButton(title: "Reveal", icon: .folder, action: reveal)
@@ -2589,10 +2610,9 @@ private struct BackupPage: View {
                     AIMIcon(name: .warning, size: 15).foregroundStyle(AIMTheme.amber)
                     VStack(alignment: .leading, spacing: 3) {
                       Text(item.kind.capitalized).font(AIMTheme.sans(12, weight: .semibold))
-                      Text(item.destination.path).font(AIMTheme.mono(9)).foregroundStyle(
+                      AIMCopyablePath(path: item.destination.path).font(AIMTheme.mono(9)).foregroundStyle(
                         AIMTheme.muted
-                      ).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                        .help(item.destination.path)
+                      )
                     }
                     Spacer()
                     WarningCopyButton(label: "Copy backup warning") {
@@ -3244,10 +3264,8 @@ private struct SourcePage: View {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(source.identity?.displayName ?? source.support.label).font(
                       AIMTheme.sans(12, weight: .medium))
-                    Text(source.path.path).font(AIMTheme.mono(11)).foregroundStyle(
+                    AIMCopyablePath(path: source.path.path).font(AIMTheme.mono(11)).foregroundStyle(
                       selected ? AIMTheme.activeInk : AIMTheme.muted)
-                      .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                      .help(source.path.path)
                     Text(
                       "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
                     ).font(AIMTheme.mono(10)).foregroundStyle(
@@ -3385,7 +3403,7 @@ private struct ImportReviewPage: View {
               VStack(spacing: 0) {
                 ForEach(plan.conflicts) { conflict in
                   VStack(alignment: .leading, spacing: 8) {
-                    Text(conflict.relativePath).font(AIMTheme.mono(11, weight: .semibold))
+                    AIMCopyablePath(path: conflict.relativePath).font(AIMTheme.mono(11, weight: .semibold))
                     Text(
                       conflict.affectsAllAccounts
                         ? "This settings choice affects every account opened from this Mac."
@@ -3423,7 +3441,7 @@ private struct ImportReviewPage: View {
                 HStack {
                   AIMIcon(name: entry.selected ? .check : .minimize, size: 12).foregroundStyle(
                     entry.selected ? AIMTheme.green : AIMTheme.faint)
-                  Text(entry.relativePath).font(AIMTheme.mono(10))
+                  AIMCopyablePath(path: entry.relativePath).font(AIMTheme.mono(10))
                   Spacer()
                   Text(entry.disposition).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
                 }.padding(.horizontal, 16).frame(height: 36)
