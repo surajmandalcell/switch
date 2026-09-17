@@ -1,5 +1,6 @@
 import AIManagerCore
 import AppKit
+import SwiftUI
 
 struct AIManagerNativeViewSnapshot: Codable {
   let path: String
@@ -399,6 +400,23 @@ enum AIManagerNativeContract {
         copyText: { copiedError = $0 }))
     copyStore.copyError("Synthetic menu error")
     expect(copiedError == "Synthetic menu error", "Menu-bar errors do not expose a copy action")
+
+    let glassView = NSHostingView(rootView: MenuBarPopover(store: copyStore))
+    glassView.frame = NSRect(origin: .zero, size: originalSize)
+    glassView.layoutSubtreeIfNeeded()
+    let effects = views(in: glassView).compactMap { $0 as? NSVisualEffectView }
+    let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    expect(effects.count == (reduceTransparency ? 0 : 1),
+      "Menu-bar backdrop is missing, repeated per account, or ignores Reduce Transparency")
+    if !reduceTransparency {
+      expect(effects.first?.material == .popover && effects.first?.blendingMode == .behindWindow,
+        "Menu-bar backdrop does not use native behind-window popover blur")
+      expect(effects.first?.frame.size == originalSize, "Menu-bar blur does not cover the whole panel")
+    }
+    copyStore.update(snapshot: disabledSnapshot)
+    glassView.layoutSubtreeIfNeeded()
+    expect(views(in: glassView).compactMap { $0 as? NSVisualEffectView }.first === effects.first,
+      "Menu-bar snapshot updates recreate the backdrop")
 
     controller.update(snapshot: .empty)
     expect(controller.statusTitle.isEmpty, "Status item is not icon-only when usage is unavailable")

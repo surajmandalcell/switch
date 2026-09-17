@@ -206,6 +206,7 @@ struct MenuBarPopover: View {
   @ObservedObject var store: MenuBarPopoverStore
   @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
   var body: some View {
     VStack(spacing: 0) {
@@ -214,10 +215,14 @@ struct MenuBarPopover: View {
     }
     .frame(width: Self.width)
     .background {
-      LinearGradient(
-        colors: [AIMTheme.panel, AIMTheme.menuChrome],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing)
+      if reduceTransparency {
+        AIMTheme.panel
+      } else {
+        AIMVisualEffect(
+          material: .popover, blendingMode: .behindWindow, darkMode: colorScheme == .dark)
+          .overlay(AIMTheme.panel.opacity(0.12))
+          .allowsHitTesting(false)
+      }
     }
     .foregroundStyle(AIMTheme.ink)
     .environment(\.aimDarkMode, colorScheme == .dark)
@@ -286,7 +291,7 @@ struct MenuBarPopover: View {
     }
     .padding(.horizontal, 8)
     .frame(height: Self.footerHeight)
-    .background(AIMTheme.menuChrome)
+    .background(AIMTheme.menuChrome.opacity(0.12))
     .overlay(alignment: .top) { Divider().overlay(AIMTheme.lineSoft) }
   }
 }
@@ -304,10 +309,16 @@ private struct MenuBarAccountRow: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 8) {
-        Circle()
-          .fill(account.isActive ? AIMTheme.green : (account.isVerified ? AIMTheme.faint : AIMTheme.amber))
-          .frame(width: 7, height: 7)
-          .accessibilityHidden(true)
+        Group {
+          if let image = AIManagerBrand.providerGlyph(for: account.providerID) {
+            Image(nsImage: image).resizable().scaledToFit()
+          } else {
+            AIMIcon(name: .terminal, size: 12)
+          }
+        }
+        .frame(width: 12, height: 12)
+        .foregroundStyle(AIMTheme.muted)
+        .accessibilityHidden(true)
         Text(account.identity)
           .font(AIMTheme.sans(11, weight: .medium))
           .lineLimit(1).truncationMode(.middle)
@@ -400,14 +411,14 @@ private struct MenuBarAccountRow: View {
   private var cardBackground: some ShapeStyle {
     if account.isActive {
       return AnyShapeStyle(LinearGradient(
-        colors: [AIMTheme.panel2, AIMTheme.listSelection.opacity(0.55)],
+        colors: [AIMTheme.panel2.opacity(0.22), AIMTheme.listSelection.opacity(0.16)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing))
     }
-    if isSwitching { return AnyShapeStyle(AIMTheme.controlHover) }
-    if isHovered && account.isVerified { return AnyShapeStyle(AIMTheme.listHover) }
+    if isSwitching { return AnyShapeStyle(AIMTheme.controlHover.opacity(0.35)) }
+    if isHovered && account.isVerified { return AnyShapeStyle(AIMTheme.listHover.opacity(0.30)) }
     return AnyShapeStyle(LinearGradient(
-      colors: [AIMTheme.panel2, AIMTheme.panel3.opacity(0.32)],
+      colors: [AIMTheme.panel2.opacity(0.16), AIMTheme.panel3.opacity(0.08)],
       startPoint: .topLeading,
       endPoint: .bottomTrailing))
   }
@@ -475,17 +486,14 @@ private struct MenuBarActionButton: View {
     Button(action: action) {
       Text(title)
         .font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(disabled ? AIMTheme.muted : title == "Switch" ? AIMTheme.blue : Color.white)
+        .foregroundStyle(disabled ? AIMTheme.muted : title == "Switch" ? AIMTheme.blue : AIMTheme.ink)
         .frame(
           width: MenuBarPopover.accountActionWidth,
           height: MenuBarPopover.accountActionHeight)
         .background {
           if disabled { AIMTheme.control.opacity(0.65) }
           else if title == "Switch" { AIMTheme.blue.opacity(isHovered ? 0.12 : 0.025) }
-          else {
-            Color(nsColor: NSColor(srgbRed: isHovered ? 0.23 : 0.16,
-              green: isHovered ? 0.24 : 0.17, blue: isHovered ? 0.25 : 0.18, alpha: 1))
-          }
+          else { AIMTheme.control.opacity(isHovered ? 0.5 : 0) }
         }
         .overlay {
           if title == "Switch", !disabled {
