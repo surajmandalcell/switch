@@ -127,8 +127,33 @@ enum AIManagerNativeContract {
       secondary: nil, credits: nil, spendControlReached: nil), fetchedAt: activityEnd)
     expect(weeklyPrimary?.usedPercentage == nil && weeklyPrimary?.secondaryUsedPercentage == 1,
       "A weekly-only primary response is incorrectly labelled as five-hour usage")
+    failures.append(contentsOf: activityCalendarRenderFailures())
     failures.append(contentsOf: menuBarUsagePreferenceFailures())
     return failures
+  }
+
+  static func activityCalendarRenderFailures() -> [String] {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withFullDate]
+    let rows = UsagePresentation.activityDays([], endingAt: Date(), dayCount: 365)
+      .enumerated().map { offset, day in
+        CodexDailyUsageSnapshot(startDate: formatter.string(from: day.date), tokens: Int64(offset + 1))
+      }
+    let model = AccountViewModel(scenario: .demo)
+    var elapsed: [Double] = []
+    for _ in 0..<2 {
+      let start = CFAbsoluteTimeGetCurrent()
+      let host = NSHostingView(rootView: UsageActivityCalendar(rows: rows, model: model))
+      host.frame = NSRect(x: 0, y: 0, width: 800, height: 160)
+      host.layoutSubtreeIfNeeded()
+      if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+      }
+      elapsed.append(CFAbsoluteTimeGetCurrent() - start)
+    }
+    let warm = elapsed[1]
+    FileHandle.standardError.write(Data("ACTIVITY_RENDER_MS \(Int(warm * 1000))\n".utf8))
+    return warm < 0.2 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
   }
 
   static func menuBarUsagePreferenceFailures() -> [String] {

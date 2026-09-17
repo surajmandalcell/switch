@@ -9,6 +9,21 @@ Design revision: 2026-09-17. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Account selection responsiveness (2026-09-18)
+
+- [x] Reproduce and measure account-detail rendering stalls without activating accounts.
+- [x] Remove repeated activity-calendar work from the selection render path.
+- [ ] Fix sidebar hover flashing and verify hit areas while preserving drag ordering.
+- [ ] Run affected native checks, audit debt, and install the clean signed checkpoint.
+
+The installed-process sample captured `UsageActivityCalendar.maximumTokens` repeatedly
+calling `activityDays` inside each of the 365 cell builders. A native hosted yearly calendar
+with 365 synthetic usage rows failed its 200 ms warm-render budget at 717 ms. Calculating
+days, maximum, and week groups once per body brought the same render to 76–86 ms across
+System/Light/Dark contracts. Range changes still clear a day selection outside the new range.
+This measures the real calendar view's main-thread layout and draw, rather than just the
+model setter or GUI-driver round-trip. No live credentials were activated or modified.
+
 ### Current refinement (2026-09-17)
 
 - [x] Make the whole Menubar popover translucent over native blur, respecting Reduce

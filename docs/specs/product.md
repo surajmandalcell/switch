@@ -82,6 +82,11 @@ statistics. Optional fields are conditional:
 
 Daily activity uses a GitHub-style calendar instead of a date table. The user can select 7 days,
 1 month, or 1 year, initially 1 year. The selected range persists across app restarts.
+Selecting an account only changes the displayed account; it must not activate credentials
+or wait on file reads, queries, or repeated calendar aggregation. Build each displayed
+calendar's days, weeks, and token maximum once per body update, rather than once per cell.
+Sidebar hover has one bounded target and animates only its highlight, without animating
+hitbox geometry or leaving previous items lit while the pointer crosses rows.
 Cell intensity reflects the token count within the selected range, and a selected day shows
 its date and exact token count. The Daily activity label is 20% larger than its prior 11-point
 size. Returned Lifetime, Peak day, streak, and Longest turn facts align at the right of the
