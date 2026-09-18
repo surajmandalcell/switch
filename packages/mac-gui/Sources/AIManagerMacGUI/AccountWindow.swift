@@ -2281,15 +2281,6 @@ private struct HistoryPage: View {
         HStack(spacing: 0) {
           Text("Conversations").font(AIMTheme.sans(12, weight: .semibold))
           Spacer(minLength: 8)
-          Text(historyCountText)
-            .font(AIMTheme.sans(9))
-            .foregroundStyle(AIMTheme.muted)
-            .monospacedDigit()
-            .contentTransition(.numericText())
-            .frame(
-              width: HistoryHeaderLayout.countWidth,
-              height: HistoryHeaderLayout.height,
-              alignment: .trailing)
           Group {
             if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
               WarningCopyButton(label: "Copy history warning") {
@@ -2307,12 +2298,21 @@ private struct HistoryPage: View {
                 .help(error)
                 .accessibilityLabel(error)
             } else if model.isChatHistoryLoading {
-              ProgressView().controlSize(.small)
+              ProgressView().controlSize(.mini)
             } else {
               Color.clear
             }
           }
           .frame(width: HistoryHeaderLayout.statusWidth, height: HistoryHeaderLayout.height)
+          Text(historyCountText)
+            .font(AIMTheme.sans(9))
+            .foregroundStyle(AIMTheme.muted)
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .frame(
+              width: HistoryHeaderLayout.countWidth,
+              height: HistoryHeaderLayout.height,
+              alignment: .trailing)
         }
         .padding(.leading, 14)
         .padding(.trailing, 8)
