@@ -9,6 +9,13 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### README refresh (2026-09-19)
+
+- [x] Document current account setup, saved-auth usage checks, Menubar preferences,
+  shared chat pagination and retained activity, and comprehensive recoverable Cleanup.
+- [x] Check local documentation links, command names, package requirements and build paths
+  against the product specification and maintained sources. No runtime changes.
+
 ### Conversation pagination and comprehensive Cleanup (2026-09-19)
 
 - [x] Replace Cleanup's native time-range select with a themed dropdown and align all
