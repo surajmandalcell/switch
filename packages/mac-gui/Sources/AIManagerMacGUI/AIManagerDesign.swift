@@ -122,6 +122,7 @@ enum AIMTheme {
   static let ink = dynamic(
     light: 0x1A1B1D, dark: 0xF2F2F3, lightHighContrast: 0x000000,
     darkHighContrast: 0xFFFFFF)
+  static let primaryInk = dynamic(light: 0xFFFFFF, dark: Dark.canvas)
   static let muted = dynamic(light: 0x666970, dark: 0xB9BBC0)
   static let faint = dynamic(light: 0x75787F, dark: 0xA7A9AF)
   static let blue = dynamic(light: 0x566D95, dark: 0x9AADD0)
@@ -140,6 +141,7 @@ enum AIMTheme {
   static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3A3732)
   static let minimizeHover = Color(hex: 0xFFD43B)
   static let closeHover = Color(hex: 0xFF453A)
+  static let modalCloseSurface = dynamic(light: 0xD3D1CA, dark: 0x3D4046)
   static let windowControlInk = Color(hex: 0x1A1B1D)
   static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x2C2E32)
   static let disabledInk = dynamic(light: 0x62656B, dark: 0xA6A8AD)

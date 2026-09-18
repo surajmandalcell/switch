@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor final class AIManagerWindow: NSWindow {
   static let fixedSize = NSSize(width: 1120, height: 740)
   static let frameAutosaveName = "AIManagerMainWindow"
+  static let cornerRadius: CGFloat = 3
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
 }
@@ -47,6 +48,9 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
       rootView: rootView.frame(width: fixedSize.width, height: fixedSize.height))
     host.frame = NSRect(origin: .zero, size: fixedSize)
     host.focusRingType = .none
+    host.wantsLayer = true
+    host.layer?.cornerRadius = AIManagerWindow.cornerRadius
+    host.layer?.masksToBounds = true
     window.contentView = host
     window.contentMinSize = fixedSize
     window.contentMaxSize = fixedSize
@@ -512,7 +516,7 @@ struct AIMButton: View {
           unavailable
             ? AIMTheme.disabledInk
             : (tone == .primary
-              ? AIMTheme.canvas : (tone == .danger ? AIMTheme.statusInk : (active ? AIMTheme.blue : AIMTheme.ink)))
+              ? AIMTheme.primaryInk : (tone == .danger ? AIMTheme.statusInk : (active ? AIMTheme.blue : AIMTheme.ink)))
         ).background {
           AIMHoverBackground(
             base: unavailable ? AIMTheme.disabledControl
@@ -3036,13 +3040,15 @@ private struct AddAccountFlow: View {
     model.providers.first { $0.id == model.selectedProviderID }
   }
 
+  private var selectedIsDefault: Bool {
+    model.selectedAccountID.map { $0 == model.status?.defaultAccountID } ?? false
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       ImportHeader(
         title: step == 1 ? "Add Account" : (step == 2 ? "Sign In" : "Account Ready"),
-        step: step,
-        closeDisabled: model.isBusy,
-        labels: ["Provider", "Sign in", "Done"]
+        closeDisabled: model.isBusy
       ) {
         model.closeAccountModal()
       }
@@ -3126,11 +3132,11 @@ private struct AddAccountFlow: View {
 
       Spacer(minLength: AIMTheme.modalSectionSpacing)
 
-      HStack(spacing: 6) {
+      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
         AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
           Task { await model.beginAdvancedImport() }
         }
-        Spacer()
+      } trailing: {
         AIMButton(
           title: "Continue", tone: .primary,
           disabled: selectedProvider?.availability != .enabled || model.isBusy
@@ -3198,11 +3204,11 @@ private struct AddAccountFlow: View {
 
       Spacer(minLength: AIMTheme.modalSectionSpacing)
 
-      HStack(spacing: 6) {
+      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
         AIMButton(title: "Cancel sign-in") {
           Task { await model.cancelAccountLogin() }
         }
-        Spacer()
+      } trailing: {
         if model.accountLoginState != .credentialChoiceRequired {
           AIMButton(title: "Check Now", icon: .refresh, tone: .primary) {
             Task { await model.checkAccountLogin() }
@@ -3228,23 +3234,29 @@ private struct AddAccountFlow: View {
             .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
           Text("The account is ready for new Codex sessions. Shared settings and chats stay in place.")
             .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+          HStack(spacing: 6) {
+            AIMButton(
+              title: selectedIsDefault ? AccountActionCopy.usingDefault : AccountActionCopy.use,
+              icon: selectedIsDefault ? .doubleCheck : .check,
+              tone: .primary, disabled: model.isBusy
+            ) {
+              Task { await model.switchDefault() }
+            }
+            AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
+              Task { await model.openAccount() }
+            }
+          }
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
-      HStack {
-        AIMButton(title: "Use for new Codex sessions", tone: .primary, disabled: model.isBusy) {
-          Task { await model.switchDefault() }
-        }
+      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
         if let accountID = model.selectedAccountID {
           AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
             Task { await model.refreshUsage(accountID: accountID) }
           }
         }
-        AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
-          Task { await model.openAccount() }
-        }
-        Spacer()
+      } trailing: {
         AIMButton(title: "Done") { model.closeAccountModal() }
       }
     }
@@ -3264,7 +3276,6 @@ private struct ImportFlow: View {
     VStack(spacing: 0) {
       ImportHeader(
         title: title,
-        step: step,
         closeDisabled: model.isBusy
       ) {
         model.closeAccountModal()
@@ -3307,9 +3318,7 @@ private struct ImportFlow: View {
 
 private struct ImportHeader: View {
   let title: String
-  let step: Int
   let closeDisabled: Bool
-  var labels = ["Source", "Review", "Done"]
   let close: () -> Void
   @State private var closeHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -3322,8 +3331,6 @@ private struct ImportHeader: View {
         .lineLimit(1)
         .padding(.leading, AIMTheme.modalOuterInset)
       Spacer(minLength: AIMTheme.modalOuterInset)
-      ImportSteps(step: step, labels: labels)
-        .fixedSize(horizontal: true, vertical: true)
       Button(action: close) {
         AIMIcon(name: .close, size: 15)
           .foregroundStyle(closeHovered && !closeDisabled ? Color.white : AIMTheme.ink)
@@ -3332,7 +3339,7 @@ private struct ImportHeader: View {
             height: AIMTheme.modalTitlebarHeight
           )
           .background {
-            AIMHoverBackground(base: AIMTheme.panel3, highlight: AIMTheme.closeHover,
+            AIMHoverBackground(base: AIMTheme.modalCloseSurface, highlight: AIMTheme.closeHover,
               hovered: closeHovered && !closeDisabled)
           }
           .contentShape(Rectangle())
@@ -3352,6 +3359,28 @@ private struct ImportHeader: View {
     .frame(height: AIMTheme.modalTitlebarHeight)
     .background(AIMTheme.panel2)
     .accessibilityIdentifier("import-modal-titlebar")
+  }
+}
+
+private struct ImportFooter<Leading: View, Trailing: View>: View {
+  let step: Int
+  var labels = ["Source", "Review", "Done"]
+  @ViewBuilder var leading: Leading
+  @ViewBuilder var trailing: Trailing
+
+  var body: some View {
+    ZStack {
+      HStack(spacing: 6) {
+        leading
+        Spacer(minLength: 16)
+        trailing
+      }
+      ImportSteps(step: step, labels: labels)
+        .fixedSize(horizontal: true, vertical: true)
+        .allowsHitTesting(false)
+    }
+    .frame(height: 30)
+    .accessibilityIdentifier("import-modal-footer")
   }
 }
 
@@ -3474,12 +3503,14 @@ private struct SourcePage: View {
           : "Reviews Codex-home conflicts and adds source chats to the merged library. Everything affected is backed up first."
       ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
         maxWidth: .infinity, alignment: .leading)
-      HStack(spacing: 4) {
-        AIMButton(title: "Choose Codex folder…", icon: .folder) {
-          Task { await model.chooseSource() }
+      ImportFooter(step: 1) {
+        HStack(spacing: 4) {
+          AIMButton(title: "Choose Codex folder…", icon: .folder) {
+            Task { await model.chooseSource() }
+          }
+          AIMIconButton(icon: .refresh, label: "Refresh sources") { Task { await model.discover() } }
         }
-        AIMButton(title: "Refresh", icon: .refresh) { Task { await model.discover() } }
-        Spacer()
+      } trailing: {
         AIMButton(
           title: "Review import", tone: .primary,
           disabled: model.selectedSourceID == nil
@@ -3603,9 +3634,9 @@ private struct ImportReviewPage: View {
           }
         }
       }
-      HStack {
+      ImportFooter(step: 2) {
         AIMButton(title: "Back") { model.resetImport() }
-        Spacer()
+      } trailing: {
         AIMButton(title: "Import account", tone: .primary, disabled: !complete || model.isBusy) {
           Task { await model.commitImport() }
         }
@@ -3655,11 +3686,11 @@ private struct ImportResultPage: View {
             tone: AIMTheme.blue, icon: .success)
         }
       }
-      HStack {
+      ImportFooter(step: 3) {
         AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
           Task { await model.refreshUsage(accountID: result.account.id) }
         }
-        Spacer()
+      } trailing: {
         AIMButton(title: "Done", tone: .primary) {
           model.closeAccountModal()
         }

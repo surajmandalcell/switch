@@ -216,7 +216,7 @@ final class AIManagerStatusItemController: NSObject {
     popover.contentViewController = NSHostingController(rootView: content)
     popover.contentSize = Self.contentSize(
       accounts: snapshot.accounts,
-      visibleScreenHeight: smallestDisplayHeight)
+      visibleScreenHeight: Self.smallestDisplayHeight)
 
     store.didSwitch = { [weak self] in self?.closePopover() }
     store.didRequestDismissal = { [weak self] in self?.closePopover() }
@@ -235,7 +235,7 @@ final class AIManagerStatusItemController: NSObject {
     if popover.isShown {
       popover.contentSize = Self.contentSize(
         accounts: snapshot.accounts,
-        visibleScreenHeight: smallestDisplayHeight)
+        visibleScreenHeight: Self.smallestDisplayHeight)
     }
   }
 
@@ -257,14 +257,12 @@ final class AIManagerStatusItemController: NSObject {
     }
     let idealHeight = MenuBarPopover.footerHeight + listHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.80))
-    let height = min(
-      max(idealHeight, MenuBarPopover.minimumHeight),
-      min(MenuBarPopover.maximumHeight, screenMaximum))
+    let height = min(max(idealHeight, MenuBarPopover.minimumHeight), screenMaximum)
     return NSSize(width: MenuBarPopover.width, height: height)
   }
 
   private static let fallbackScreenHeight: CGFloat = 900
-  private var smallestDisplayHeight: CGFloat {
+  static var smallestDisplayHeight: CGFloat {
     NSScreen.screens.map(\.visibleFrame.height).min() ?? Self.fallbackScreenHeight
   }
 
@@ -301,7 +299,7 @@ final class AIManagerStatusItemController: NSObject {
     guard let button = statusItem.button else { return }
     popover.contentSize = Self.contentSize(
       accounts: store.snapshot.accounts,
-      visibleScreenHeight: smallestDisplayHeight)
+      visibleScreenHeight: Self.smallestDisplayHeight)
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
   }
 

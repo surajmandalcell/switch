@@ -386,6 +386,8 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         )
     }
     if let contentView = window.contentView {
+        expect(contentView.layer?.cornerRadius == 3 && contentView.layer?.masksToBounds == true,
+            "Main window does not clip all native surfaces to three-point corners")
         expect(contentView.bounds.size == AcceptanceConfiguration.initialSize, "Acceptance content size changed")
         expect(
             AIManagerNativeContract.defaultFocusIndicatorsAreHidden(in: window),
