@@ -17,8 +17,10 @@ verification evidence.
   conversation totals and reduce excess message padding.
 - [x] Resume Cleanup with project/source trees, date selection, exact previews, recovery,
   restore and separately confirmed permanent removal; preserve retained activity totals.
-- [ ] Verify synthetic large-thread, paging, safety and recovery cases and update the
-  exact clean signed installed app.
+- [x] Verify synthetic large-thread, paging, safety and recovery cases.
+
+The canonical private final-install receipt owns the subsequent clean signed installation,
+installed revision, checksums, process identity and final runtime acceptance.
 
 The latest request supersedes the earlier Cleanup deferral. Root implements the changes;
 the Astra review covers Cleanup safety and existing seams without editing the code.
@@ -50,6 +52,20 @@ confirmation. Recoverable batches offer Restore and a separately confirmed perma
 removal. Busy, empty, error and completion states are visible. Native end-of-scroll and
 date-boundary checks pass; production and Preview view-model checks pass. The full core
 suite contains 172 checks with only the two existing protected-copy opt-in skips.
+
+Installed inventory inspection found a hard-linked live transcript in the user's existing
+setup. Protected linked files now remain visible and disabled instead of aborting the full
+inventory. Project selection includes eligible files only; the reviewed removal path still
+rejects hard links. No linked user file was moved or changed.
+
+The installed pagination checkpoint was exercised in the real reader: scrolling expanded
+the native message table from the first 100 messages to 300 without a cutoff notice. The
+header showed 912 messages and 40M recorded tokens; the sidebar showed 544 conversations
+on one aligned row. Both unprivileged read-only Linux architectures pass the 172-check
+suite (two existing opt-in skips) and CLI acceptance. Native System/Light/Dark contracts,
+Preview/production models and scroll checks pass. Task-end debt inventory contains zero
+markers and zero missing triggers. Final installed acceptance is recorded after packaging
+in `/private/tmp/ai-manager-build/final-install-receipt.json`.
 
 ### Menubar popup viewport and display cap (2026-09-18)
 

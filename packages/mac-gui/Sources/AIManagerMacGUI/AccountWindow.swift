@@ -1775,6 +1775,11 @@ private struct CleanupPage: View {
               .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
           }.padding(16).disabled(unavailable)
         }
+        let protectedCount = conversations.filter { $0.exclusionReason != nil }.count
+        if protectedCount > 0 {
+          Text("\(protectedCount.formatted()) linked or unsafe conversation files are protected. Other files can still be selected.")
+            .foregroundStyle(AIMTheme.muted)
+        }
         HStack {
           Text("\(selectedConversations.count.formatted()) conversations · \(selectedSamples.count.formatted()) samples")
             .foregroundStyle(AIMTheme.muted)
@@ -1874,6 +1879,7 @@ private struct CleanupPage: View {
     return DisclosureGroup(archived ? "Archived conversations (\(entries.count.formatted()))" : "Active conversations (\(entries.count.formatted()))") {
       ForEach(grouped.keys.sorted(), id: \.self) { project in
         let projectEntries = grouped[project] ?? []
+        let selectable = projectEntries.filter { $0.exclusionReason == nil }
         DisclosureGroup {
           AIMVirtualList(items: projectEntries, fixedRowHeight: 34) { item in
             AnyView(HStack(spacing: 8) {
@@ -1882,7 +1888,8 @@ private struct CleanupPage: View {
                 set: { enabled in
                   if enabled { selectedConversations.insert(item.id) } else { selectedConversations.remove(item.id) }
                   review = nil
-                })).toggleStyle(.checkbox).lineLimit(1).help(item.relativePath)
+                })).toggleStyle(.checkbox).lineLimit(1)
+                .disabled(item.exclusionReason != nil).help(item.exclusionReason ?? item.relativePath)
               Spacer(minLength: 4)
               Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(AIMTheme.muted)
               Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted).frame(width: 65, alignment: .trailing)
@@ -1890,12 +1897,12 @@ private struct CleanupPage: View {
           }.frame(height: min(CGFloat(projectEntries.count) * 34, 204))
         } label: {
           Toggle("\(URL(fileURLWithPath: project).lastPathComponent) (\(projectEntries.count.formatted()))", isOn: Binding(
-            get: { projectEntries.allSatisfy { selectedConversations.contains($0.id) } },
+            get: { !selectable.isEmpty && selectable.allSatisfy { selectedConversations.contains($0.id) } },
             set: { enabled in
-              let ids = Set(projectEntries.map(\.id))
+              let ids = Set(selectable.map(\.id))
               if enabled { selectedConversations.formUnion(ids) } else { selectedConversations.subtract(ids) }
               review = nil
-            })).toggleStyle(.checkbox).help(project)
+            })).toggleStyle(.checkbox).disabled(selectable.isEmpty).help(project)
         }
       }
       if entries.isEmpty { Text("No conversations in this date range.").foregroundStyle(AIMTheme.muted) }

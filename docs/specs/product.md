@@ -71,6 +71,8 @@ recoverable private trash with a journal, restart recovery, Restore, and separat
 permanent removal. Moving to trash does not claim freed disk space. Preserve compact activity totals
 before removing a source; reject changed/unsafe files and active or unknown writers. Keep auth,
 settings, account registry/defaults, backups, Codex databases, and the activity ledger protected.
+Show linked or foreign-owned conversation files as protected entries; they never block selection
+of safe files and cannot enter a removal review.
 
 Chat History loads messages in chronological pages as the reader scrolls, without a permanent
 older-message cutoff. Filters and search operate across the complete conversation, retain their

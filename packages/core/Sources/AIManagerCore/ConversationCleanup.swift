@@ -13,6 +13,7 @@ public struct CleanupConversation: Identifiable, Codable, Sendable, Equatable {
     public let archived: Bool
     public let updatedAt: Date
     public let bytes: Int64
+    public let exclusionReason: String?
     let inode: UInt64
     let device: UInt64
     let modifiedAt: Date
@@ -69,14 +70,19 @@ struct ConversationCleanup {
                     continue
                 }
                 guard url.pathExtension.lowercased() == "jsonl" else { continue }
-                let info = try regularFile(url, within: home)
+                try validateAncestors(url.deletingLastPathComponent(), within: home)
+                var info = stat()
+                guard lstat(url.path, &info) == 0 else { throw AIManagerError.sourceChanged }
+                guard info.st_mode & S_IFMT == S_IFREG else { continue }
+                let exclusionReason = info.st_uid != getuid() ? "This file belongs to another user. Cleanup keeps it."
+                    : info.st_nlink != 1 ? "This file is shared through a hard link. Cleanup keeps it." : nil
                 let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
                 guard let modified = values.contentModificationDate else { throw AIManagerError.sourceChanged }
                 let summary = known[url.path]
                 result.append(CleanupConversation(relativePath: String(url.path.dropFirst(home.path.count + 1)),
                     title: summary?.title ?? url.deletingPathExtension().lastPathComponent,
                     project: summary?.workingDirectory ?? "Unknown project", archived: name == "archived_sessions",
-                    updatedAt: summary?.updatedAt ?? modified, bytes: Int64(info.st_size),
+                    updatedAt: summary?.updatedAt ?? modified, bytes: Int64(info.st_size), exclusionReason: exclusionReason,
                     inode: UInt64(info.st_ino), device: UInt64(info.st_dev), modifiedAt: modified))
             }
             if let scanError { throw scanError }
