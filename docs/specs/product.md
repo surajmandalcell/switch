@@ -166,26 +166,28 @@ the clamped used percentage from 100. The popover continues to show used percent
 Package a sourced monochrome glyph catalog for current and future providers locally;
 having artwork does not enable an unsupported provider or add any network work on menu open.
 
-Each account is a distinct compact card. Its single 30-point identity row shows a truncated
+Each account is a distinct compact card. Its single 35-point identity row shows a truncated
 account name with a full-name tooltip, a cached provider glyph instead of a status dot,
 active or attention state, and a dedicated Switch
 button when eligible. Provider and workspace remain in the accessible description. Active,
-Switch, and Sign in controls share one compact 56-by-22-point size and five-point corners.
+Switch, and Sign in controls share one compact 56-by-22-point size and three-point corners.
 Switch uses a blue outlined button; Active is a disabled gray button rather
 than a colored badge. When menu
-usage is enabled and cached, the card expands to show separate Weekly and 5 hour progress
-rows. Each row places the limit name above its percentage, followed by a horizontal progress
-bar and a right-aligned reset description. Quota rows are 28 points high with six-point
-vertical insets and four-point spacing. Account names are 11 points, quota labels nine,
-and percentages 11. The whole popover, including cards and footer, is translucent over
+usage is enabled and cached, the card expands to show Session followed by Weekly limits.
+Each 40-point quota row places its name above a full-width four-point progress bar,
+then its used percentage on the left and reset description on the right. Use 13-point
+spacing between limits, four-point top and ten-point bottom usage insets. Account names
+and quota labels are 11 points, used percentages ten, and reset descriptions nine.
+The whole popover, including cards and footer, is translucent over
 one native macOS backdrop blur. Card tints stay translucent; text and icons remain opaque.
 Use the existing native visual-effect wrapper and cached provider glyphs, without per-card
 blur, software image filters, polling, or icon downloads on open. Reduce Transparency
-uses an opaque fallback. The cards use a quiet tint, fine border,
-and restrained hover change while preserving three-point corners. A hidden or missing limit
+uses an opaque fallback. The Soft rectangles account panels use a uniform solid tint
+and seven-point corners, without a header divider, outline, or active-state gradient.
+A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
 left even when usage display is disabled, and Open App on the right. The popover is 344 points wide,
-uses a compact 28-point footer with eight-point horizontal insets and a text-only ghost
+uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
 Open App button with a subtle hover tint, and scrolls at the smaller of 900 points or 80% of the smallest attached
 display's visible height. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
@@ -199,19 +201,32 @@ Text remains `#F2F2F3`
 with muted text no darker than `#B9BBC0`. Soft separators remain visible without turning
 panels into outlined cards.
 
-The Menubar popover will use a dedicated palette independent of the app's light or dark
-appearance. The owner selects option 01's Soft rectangles layout: identical compact
-account panels, no separate header tint or dividers, and the existing refresh footer.
-The next HTML review varies only colors, with debounced inputs for popup, card, and
-button corner radii applied to every preview. Start with 13, 10, and 5 pixels respectively.
-Include a single proportional slider that scales all three radii together; individual
-inputs establish their proportions. Save the actual final radii with the color selection
-in the preview URL and expose a copyable choice summary.
-Palette and final radii remain pending; the installed design stays in place until chosen.
+The owner selects the Soft rectangles layout with preview 04 Ivory for light mode and
+09 Espresso for dark mode, following the app's effective appearance. This supersedes
+the earlier fixed-palette request. Use popup/card/button radii of 9/7/3 points.
+The Menubar has its own palette, separate from the main window's colors:
+
+| Role | Ivory | Espresso |
+|---|---|---|
+| Shell | `#F0ECE2` | `#292722` |
+| Account panel | `#FFFDF6` | `#3B372F` |
+| Text | `#323229` | `#F1E8D5` |
+| Secondary text | `#6B665A` | `#C8BCA6` |
+| Limit track | `#E0DED4` | `#625B4B` |
+| Limit fill | `#4B706E` | `#B4C8DD` |
+| Switch text | `#315E92` | `#BDD6F4` |
+| Switch outline | `#A0B4CA` | `#7F9CBB` |
+| Disabled Active control | `#E9E7DF` | `#504A3E` |
+| Footer separator | `#DCD8CC` | `#534A3B` |
+
+Use a 92% shell tint over the single native backdrop and 94% panel tints, with opaque
+text/icons and fully opaque fallback surfaces when Reduce Transparency is enabled.
+Appearance changes update all virtualized panels without altering their geometry.
 Preserve compact multi-account switching, visible limits, the refresh timestamp, and
 Open App. Keep the single native backdrop and reduced-transparency fallback, and open
 without presentation animation. Preview data is illustrative and does not query or
-change accounts. The review artifact is `tmp/index.html`.
+change accounts. The review artifact is `tmp/index.html`; its radius inputs and slider
+are review controls, not new app settings.
 
 Compact section headers use one 40-point alignment row. A leading title, trailing count,
 warning/copy action, error indicator, and progress indicator occupy explicit centered slots;

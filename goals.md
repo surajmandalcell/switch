@@ -19,13 +19,13 @@ The HTML uses synthetic account identities and usage; it must not read or mutate
 
 - [x] Deliver and verify ten selectable HTML previews.
 - [x] Refine Soft rectangles into color variations with debounced radius inputs and a proportional slider.
-- [ ] Apply the owner's selected design to the native Menubar and installed app.
+- [x] Apply the owner's selected design to the native Menubar.
 
 The owner selects option 01, Soft rectangles, for the layout. The second review keeps
 its geometry and varies only palette. Add 250 ms debounced popup, card, and button
 radius inputs to `tmp/index.html`, starting at 13/10/5 px, and preserve the chosen values
 in the preview URL so the owner can return the exact final choice. Final palette and
-radii remain unselected. Keep the first-round artifact as `tmp/designs-round1.html`.
+radii were unselected at this review checkpoint. Keep the first-round artifact as `tmp/designs-round1.html`.
 The owner also requests a single slider to scale all three radii in proportion.
 Individual inputs establish the baseline, the slider updates every preview, and Copy
 choice returns the selected color and actual final radii.
@@ -48,7 +48,22 @@ display. The local Inter font and sourced Codex glyph load successfully. Enabled
 contrast meets 4.5:1, including reset descriptions and footer copy. The mechanical design
 detector uses a degraded regex fallback; its only finding is the owner's pinned Inter
 font. Full task-end debt inventory: zero markers and zero missing triggers. Native
-implementation and installation await the owner's design choice.
+implementation and installation awaited the owner's design choice.
+
+The owner now selects 04 Ivory for light mode and 09 Espresso for dark mode, with
+popup/card/button radii of 9/7/3 points. Follow the effective app appearance using
+these dedicated Menubar palettes, superseding the earlier appearance-independent
+preference. Apply the approved Soft rectangles layout and quota structure, preserve
+cached limits and switching behavior, and update the canonical installed app.
+
+Native verification passes System, Light, and Dark contracts, including the approved
+geometry, hosted Ivory-to-Espresso-to-Ivory panels, bounded lists, cached usage,
+single-backdrop reuse, and existing hover/selection regressions. Inspected light and
+dark renders match the chosen Soft rectangles panels. The final installation receipt
+in `/private/tmp/ai-manager-build/final-install-receipt.json` owns the subsequent clean
+signed installation, source revision, binary checksums, and running-process identity.
+Task-end debt inventory remains zero markers and zero missing triggers. Advanced
+Cleanup remains deferred.
 
 ### Home-scoped writer checks and retired sign-in cleanup (2026-09-18)
 
