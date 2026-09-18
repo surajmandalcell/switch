@@ -63,6 +63,14 @@ public struct CachedCodexAccountUsage: Sendable, Equatable {
     public let isStale: Bool
 }
 
+public struct CleanupUsageSample: Identifiable, Sendable, Equatable {
+    public let id: Int64
+    public let accountID: UUID
+    public let fetchedAt: Date
+    public let bytes: Int64
+    let digest: String
+}
+
 public enum CodexUsageStatisticsCacheError: Error, LocalizedError, Sendable, Equatable {
     case invalidPolicy
     case invalidLocation(String)
@@ -369,6 +377,52 @@ public actor CodexUsageStatisticsCache {
             try Self.transaction(database) {
                 try Self.execute(database, "DELETE FROM usage_samples")
                 try Self.execute(database, "DELETE FROM usage_accounts")
+            }
+        }
+    }
+
+    public func cleanupSamples() throws -> [CleanupUsageSample] {
+        try Self.withDatabase(at: databaseURL) { database in
+            let statement = try Self.prepare(database, "SELECT id, account_id, fetched_at, snapshot FROM usage_samples ORDER BY fetched_at DESC, id DESC")
+            defer { sqlite3_finalize(statement) }
+            var samples: [CleanupUsageSample] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let rawID = Self.text(statement, column: 1), let accountID = UUID(uuidString: rawID),
+                      let blob = sqlite3_column_blob(statement, 3) else {
+                    throw CodexUsageStatisticsCacheError.invalidSnapshot
+                }
+                let data = Data(bytes: blob, count: Int(sqlite3_column_bytes(statement, 3)))
+                samples.append(.init(id: sqlite3_column_int64(statement, 0), accountID: accountID,
+                    fetchedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)),
+                    bytes: Int64(data.count), digest: CoreSupport.digest(data)))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read Cleanup usage samples")
+            }
+            return samples
+        }
+    }
+
+    public func removeCleanupSamples(_ samples: [CleanupUsageSample]) throws {
+        guard Set(samples.map(\.id)).count == samples.count else { throw AIManagerError.sourceChanged }
+        try Self.withDatabase(at: databaseURL) { database in
+            try Self.transaction(database) {
+                for sample in samples {
+                    let read = try Self.prepare(database, "SELECT account_id, fetched_at, snapshot FROM usage_samples WHERE id = ?1")
+                    defer { sqlite3_finalize(read) }
+                    sqlite3_bind_int64(read, 1, sample.id)
+                    guard sqlite3_step(read) == SQLITE_ROW,
+                          Self.text(read, column: 0) == sample.accountID.uuidString.lowercased(),
+                          sqlite3_column_double(read, 1) == sample.fetchedAt.timeIntervalSince1970,
+                          let blob = sqlite3_column_blob(read, 2),
+                          CoreSupport.digest(Data(bytes: blob, count: Int(sqlite3_column_bytes(read, 2)))) == sample.digest else {
+                        throw AIManagerError.sourceChanged
+                    }
+                    let remove = try Self.prepare(database, "DELETE FROM usage_samples WHERE id = ?1")
+                    defer { sqlite3_finalize(remove) }
+                    sqlite3_bind_int64(remove, 1, sample.id)
+                    guard sqlite3_step(remove) == SQLITE_DONE else { throw Self.databaseError(database, "Could not clear selected usage samples") }
+                }
             }
         }
     }

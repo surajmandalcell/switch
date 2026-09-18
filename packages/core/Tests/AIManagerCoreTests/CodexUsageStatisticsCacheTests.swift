@@ -64,6 +64,28 @@ final class CodexUsageStatisticsCacheTests: XCTestCase {
         XCTAssertNil(recovered?.failureAt)
     }
 
+    func testCleanupRemovesOnlyReviewedSamplesAndPreservesOtherAccountsAndFailureStatus() async throws {
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let cache = try CodexUsageStatisticsCache(databaseURL: database, now: { date })
+        let account = UUID(), other = UUID()
+        try await cache.upsertSuccess(accountID: account, snapshot: snapshot(at: date, used: 10))
+        try await cache.upsertSuccess(accountID: account, snapshot: snapshot(at: date.addingTimeInterval(-3_600), used: 20))
+        try await cache.upsertSuccess(accountID: other, snapshot: snapshot(at: date, used: 30))
+        try await cache.recordFailure(accountID: account, failure: .timedOut)
+        let inventory = try await cache.cleanupSamples()
+        let selected = inventory.filter { $0.accountID == account && $0.fetchedAt < date }
+        XCTAssertEqual(selected.count, 1)
+        try await cache.removeCleanupSamples(selected)
+        let remaining = try await cache.cleanupSamples()
+        XCTAssertEqual(remaining.count, 2)
+        let status = try await cache.latest(for: account)
+        XCTAssertEqual(status?.failure, .timedOut)
+        let otherHistory = try await cache.history(for: other)
+        XCTAssertEqual(otherHistory.count, 1)
+        do { try await cache.removeCleanupSamples(inventory); XCTFail("A stale review was accepted") }
+        catch { let intact = try await cache.cleanupSamples(); XCTAssertEqual(intact.count, 2) }
+    }
+
     func testDailyLedgerMergesCorrectionsAndSurvivesExpiryPurgeAndReopen() async throws {
         let ledger = root.appending(path: "activity/daily.sqlite")
         let account = UUID()

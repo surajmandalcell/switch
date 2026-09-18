@@ -288,6 +288,8 @@ public actor ChatHistoryIndex {
     private var persistentCacheNeedsMigration = false
     private var activityCache: CodexUsageStatisticsCache?
     private var refreshTask: Task<Int, Error>?
+    private var isClearingCache = false
+    private var refreshGeneration = 0
 
     public init(home: URL, cacheFile: URL? = nil, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
@@ -303,13 +305,16 @@ public actor ChatHistoryIndex {
 
     public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
         try Task.checkCancellation()
+        guard !isClearingCache else { throw CancellationError() }
         let reparsedFileCount: Int
         if let refreshTask {
             reparsedFileCount = try await refreshTask.value
         } else {
+            refreshGeneration += 1
+            let generation = refreshGeneration
             let task = Task(priority: .utility) { try await self.scan() }
             refreshTask = task
-            defer { refreshTask = nil }
+            defer { if generation == refreshGeneration { refreshTask = nil } }
             reparsedFileCount = try await task.value
         }
         try Task.checkCancellation()
@@ -463,7 +468,38 @@ public actor ChatHistoryIndex {
             nextOffset: next < indexed.matches.count ? next : nil)
     }
 
-    public func clearCache() throws {
+    public func cleanupSummaries() -> [ChatThreadSummary] {
+        cache.values.map(\.summary)
+    }
+
+    public func preserveActivity(for sources: [URL]) async throws {
+        guard let activityCache else { throw AIManagerError.operationFailed("The activity ledger is unavailable. Conversations were kept.") }
+        let candidates = try Self.transcriptCandidates(in: home)
+        let byPath = Dictionary(uniqueKeysWithValues: candidates.map { (CoreSupport.canonical($0.url).path, $0) })
+        for source in sources {
+            guard let candidate = byPath[CoreSupport.canonical(source).path] else { throw AIManagerError.sourceChanged }
+            let task = Task.detached(priority: .utility) { try TranscriptParser.parse(candidate, includeMessages: false) }
+            let parsed = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: { task.cancel() }
+            guard parsed.activity.complete else {
+                throw AIManagerError.invalidSource("Activity could not be fully preserved for \(source.lastPathComponent). The conversations were kept.")
+            }
+            let fallback = CoreSupport.digest(Data((home.path + "\u{0}" + source.lastPathComponent).utf8))
+            try await activityCache.recordTranscriptActivity(parsed.activity, fallbackID: fallback)
+        }
+    }
+
+    public func clearCache() async throws {
+        guard !isClearingCache else { throw AIManagerError.operationFailed("The conversation index is already being cleared.") }
+        isClearingCache = true
+        defer { isClearingCache = false }
+        refreshGeneration += 1
+        if let task = refreshTask {
+            task.cancel()
+            _ = try? await task.value
+        }
+        refreshTask = nil
         cache.removeAll(keepingCapacity: false)
         failedSignatures.removeAll(keepingCapacity: false)
         detailCache.removeAll(keepingCapacity: false)
