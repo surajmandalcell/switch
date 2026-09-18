@@ -264,6 +264,71 @@ final class AccountOnboardingTests: XCTestCase {
         await assertOnboardingThrows(try await restarted.checkAccountLogin(id: started.session.id))
     }
 
+    func testRetiredLoginIsPrunedAfterRestartOnlyWhenItsWriterIsInactive() async throws {
+        let liveAuth = try writeAuth(home: paths.defaultHome, account: "kept", workspace: "personal")
+        let runner = AccountLoginRunner(launch: { _, _ in }, cancel: { _ in false })
+        let original = try AccountManager(paths: paths, writerCheck: { _ in .unknown }, loginRunner: runner)
+        let started = try await original.startAccountLogin(providerID: .codex)
+        let staging = paths.applicationSupport.appending(path: "account-login/\(started.session.id.uuidString)")
+        try await original.cancelAccountLogin(id: started.session.id)
+
+        for state in [WriterState.active, .unknown] {
+            let restarted = try AccountManager(paths: paths, writerCheck: { _ in state }, loginRunner: runner)
+            let snapshot = try await restarted.refreshAccounts(includeDiscoveries: false)
+            XCTAssertTrue(snapshot.pendingLoginSessions.isEmpty)
+            XCTAssertTrue(fileManager.fileExists(atPath: staging.path))
+        }
+
+        let stopped = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, loginRunner: runner)
+        let snapshot = try await stopped.refreshAccounts(includeDiscoveries: false)
+        XCTAssertTrue(snapshot.pendingLoginSessions.isEmpty)
+        XCTAssertFalse(fileManager.fileExists(atPath: staging.path))
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), liveAuth)
+        await assertOnboardingThrows(try await stopped.checkAccountLogin(id: started.session.id))
+        _ = try await stopped.refreshAccounts(includeDiscoveries: false)
+    }
+
+    func testRetiredLoginHomeSurvivesConflictedRecovery() async throws {
+        let crashing = try AccountManager(
+            paths: paths, writerCheck: { _ in .inactive }, loginRunner: .init(launch: { _, _ in }),
+            faultInjector: { if $0 == .afterRegistryCommit { throw AIManagerError.operationFailed("stop") } })
+        let started = try await crashing.startAccountLogin(providerID: .codex)
+        let staging = paths.applicationSupport.appending(path: "account-login/\(started.session.id.uuidString)")
+        _ = try writeAuth(home: staging.appending(path: "home"), account: "recover", workspace: "personal")
+        await assertOnboardingThrows(try await crashing.checkAccountLogin(id: started.session.id))
+        let status = try await crashing.status()
+        let account = try XCTUnwrap(status.accounts.first)
+        let later = try writeAuth(home: root.appending(path: "later"), account: "recover", workspace: "personal", marker: "later")
+        try later.write(to: account.credentialFile)
+        let sessionURL = staging.appending(path: "session.json")
+        var record = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: sessionURL)) as? [String: Any])
+        record["retiredAt"] = "2026-09-18T00:00:00Z"
+        try JSONSerialization.data(withJSONObject: record).write(to: sessionURL)
+
+        let restarted = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let snapshot = try await restarted.refreshAccounts(includeDiscoveries: false)
+        XCTAssertEqual(snapshot.status.pendingRecovery.first?.phase, .conflicted)
+        XCTAssertTrue(snapshot.pendingLoginSessions.isEmpty)
+        XCTAssertTrue(fileManager.fileExists(atPath: staging.path))
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile), later)
+    }
+
+    func testRetiredLoginPruningRejectsARootSymlinkWithoutDeletingItsTarget() async throws {
+        let original = try AccountManager(
+            paths: paths, writerCheck: { _ in .unknown }, loginRunner: .init(launch: { _, _ in }))
+        let started = try await original.startAccountLogin(providerID: .codex)
+        let staging = paths.applicationSupport.appending(path: "account-login/\(started.session.id.uuidString)")
+        try await original.cancelAccountLogin(id: started.session.id)
+        let outside = root.appending(path: "outside")
+        try fileManager.moveItem(at: staging, to: outside)
+        try fileManager.createSymbolicLink(at: staging, withDestinationURL: outside)
+
+        let restarted = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        await assertOnboardingThrows(try await restarted.refreshAccounts(includeDiscoveries: false))
+        XCTAssertTrue(fileManager.fileExists(atPath: outside.appending(path: "session.json").path))
+        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: staging.path), outside.path)
+    }
+
     func testAdditionalLoginDoesNotReplaceCurrentDefault() async throws {
         let liveAuth = try writeAuth(
             home: paths.defaultHome, account: "current", workspace: "personal")

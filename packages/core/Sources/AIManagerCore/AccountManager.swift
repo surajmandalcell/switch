@@ -116,6 +116,7 @@ public actor AccountManager {
         if try !pendingOperations().isEmpty {
             _ = try await recover()
         }
+        try await pruneRetiredLoginSessions()
         var current = try status()
         if current.pendingRecovery.isEmpty, current.accounts.isEmpty {
             let live = provider.inspect(home: paths.defaultHome)
@@ -907,21 +908,7 @@ extension AccountManager {
     }
 
     public static func systemWriterCheck(home: URL) async -> WriterState {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-x", "codex"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            // pgrep establishes only that a Codex process exists somewhere on the
-            // machine; it cannot attribute that process to this home.
-            // ponytail: any Codex process blocks mutations because home ownership is unknown; use verified home-scoped writer detection when Codex exposes a reliable lock or probe.
-            return process.terminationStatus == 0 ? .unknown : (process.terminationStatus == 1 ? .inactive : .unknown)
-        } catch {
-            return .unknown
-        }
+        CodexWriterProbe.check(home: home)
     }
 
     private var registryURL: URL { paths.applicationSupport.appending(path: "accounts.json") }
@@ -1006,7 +993,28 @@ extension AccountManager {
         record.retiredAt = Date()
         try CoreSupport.atomicWrite(
             try encoder.encode(record), to: loginSessionURL(id), fileManager: fileManager)
-        // ponytail: unowned login homes are retained indefinitely; delete them only after durable process-exit ownership can be verified.
+    }
+
+    private func pruneRetiredLoginSessions() async throws {
+        guard CoreSupport.entryExists(loginSessionsURL) else { return }
+        try await lock.withAsyncLock {
+            guard try pendingOperations().isEmpty else { return }
+            try validatePrivateLoginDirectory(loginSessionsURL)
+            let entries = try fileManager.contentsOfDirectory(
+                at: loginSessionsURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            for entry in entries {
+                guard let id = UUID(uuidString: entry.lastPathComponent) else { continue }
+                let reviewed = try loadLoginSessionRecord(id)
+                guard let retiredAt = reviewed.retiredAt,
+                      await writerCheck(loginHome(id)) == .inactive else { continue }
+                let current = try loadLoginSessionRecord(id)
+                guard current.retiredAt == retiredAt, current.session.createdAt == reviewed.session.createdAt else {
+                    throw AIManagerError.sourceChanged
+                }
+                guard try pendingOperations().isEmpty else { return }
+                try fileManager.removeItem(at: loginRoot(id))
+            }
+        }
     }
 
     private func loadLoginSessions() throws -> [AccountLoginSession] {
