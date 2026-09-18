@@ -157,6 +157,18 @@ struct ProductionAccountViewModelCheck {
             },
             "Production chat detail did not prepare Markdown before publication")
 
+        let cleanupData = try await model.cleanupData()
+        try expect(cleanupData.conversations.count == 1, "Cleanup inventory missed the shared conversation")
+        let cleanupPlan = try await model.reviewConversationCleanup(cleanupData.conversations)
+        try await model.applyCleanup(cleanupPlan, samples: [], clearIndex: false)
+        let trashedData = try await model.cleanupData()
+        try expect(trashedData.conversations.isEmpty && trashedData.trash.count == 1,
+                   "Production Cleanup did not expose recoverable conversation trash")
+        try await model.restoreCleanup(trashedData.trash[0].id)
+        let restoredData = try await model.cleanupData()
+        try expect(restoredData.conversations.count == 1 && restoredData.trash.isEmpty,
+                   "Production Cleanup did not restore the original conversation")
+
         await model.beginImport()
         let discovered = try expect(
             model.discoveries.first { $0.path.standardizedFileURL == authOnlySource.standardizedFileURL },

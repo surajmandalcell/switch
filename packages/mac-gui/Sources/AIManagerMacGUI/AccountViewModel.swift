@@ -10,10 +10,16 @@ protocol ChatHistoryProviding: Sendable {
     func detail(for id: String) async throws -> ChatThreadDetail?
     func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail?
     func clearCache() async throws
+    func cleanupSummaries() async -> [ChatThreadSummary]
+    func preserveActivity(for sources: [URL]) async throws
 }
 
 extension ChatHistoryProviding {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
+    func cleanupSummaries() async -> [ChatThreadSummary] { [] }
+    func preserveActivity(for sources: [URL]) async throws {
+        throw AIManagerError.operationFailed("The activity ledger is unavailable. Conversations were kept.")
+    }
     func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail? {
         guard let detail = try await detail(for: id) else { return nil }
         let result = try await ChatMessageSearch.search(detail.messages, query: query, filter: filter)
@@ -51,6 +57,8 @@ private struct IndexedChatHistoryProvider: ChatHistoryProviding {
     func clearCache() async throws {
         try await index.clearCache()
     }
+    func cleanupSummaries() async -> [ChatThreadSummary] { await index.cleanupSummaries() }
+    func preserveActivity(for sources: [URL]) async throws { try await index.preserveActivity(for: sources) }
 }
 
 struct RebuildableCacheSizes: Equatable, Sendable {
@@ -1166,6 +1174,74 @@ final class AccountViewModel: ObservableObject {
             usageErrorAccountID = nil
             notice = "Usage cache cleared. Refresh an account to fetch it again."
         }
+    }
+
+    func cleanupData() async throws -> (conversations: [CleanupConversation], samples: [CleanupUsageSample], trash: [ConversationCleanupBatch]) {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return ([], [], []) }
+        #endif
+        await prepareUsageCache()
+        guard let manager, let usageCache else { throw AIManagerError.operationFailed("Cleanup storage is unavailable.") }
+        _ = try await chatHistoryProvider?.refresh(query: "")
+        let summaries = await chatHistoryProvider?.cleanupSummaries() ?? []
+        let conversations = try await manager.cleanupInventory(summaries: summaries)
+        let samples = try await usageCache.cleanupSamples()
+        let trash = try await manager.cleanupTrash()
+        return (conversations, samples, trash)
+    }
+
+    func reviewConversationCleanup(_ items: [CleanupConversation]) async throws -> ConversationCleanupPlan {
+        guard let manager else { throw AIManagerError.operationFailed("Cleanup is unavailable.") }
+        return try await manager.reviewCleanup(items)
+    }
+
+    func applyCleanup(_ plan: ConversationCleanupPlan?, samples: [CleanupUsageSample], clearIndex: Bool) async throws {
+        guard !isBusy, let manager, let usageCache, let chatHistoryProvider else {
+            throw AIManagerError.operationFailed("Cleanup is unavailable while another action is running.")
+        }
+        isBusy = true
+        defer { isBusy = false }
+        if let plan {
+            _ = try await manager.moveConversationsToTrash(plan) { sources in
+                try await chatHistoryProvider.preserveActivity(for: sources)
+            }
+            chatDetailTask?.cancel()
+            chatSelectionGeneration += 1
+            selectedChat = nil
+            selectedChatID = nil
+            renderedChatMessages = [:]
+            hasScannedChatHistory = false
+        }
+        try await usageCache.removeCleanupSamples(samples)
+        await loadCachedUsage()
+        if clearIndex {
+            try await chatHistoryProvider.clearCache()
+            chatHistory = ChatHistorySnapshot()
+            selectedChat = nil
+            selectedChatID = nil
+            renderedChatMessages = [:]
+            hasScannedChatHistory = false
+        }
+        let moved = plan?.conversations.count ?? 0
+        let bytes = ByteCountFormatter.string(fromByteCount: plan?.bytes ?? 0, countStyle: .file)
+        notice = "Cleanup complete: \(moved) conversations (\(bytes)) moved to recoverable trash; \(samples.count) usage samples cleared\(clearIndex ? "; conversation index cleared" : ""). Daily activity totals were retained."
+    }
+
+    func restoreCleanup(_ id: UUID) async throws {
+        guard !isBusy, let manager else { throw AIManagerError.operationFailed("Another action is running.") }
+        isBusy = true
+        defer { isBusy = false }
+        try await manager.restoreCleanupTrash(id)
+        hasScannedChatHistory = false
+        notice = "Conversations restored."
+    }
+
+    func emptyCleanup(_ id: UUID) async throws {
+        guard !isBusy, let manager else { throw AIManagerError.operationFailed("Another action is running.") }
+        isBusy = true
+        defer { isBusy = false }
+        try await manager.permanentlyRemoveCleanupTrash(id)
+        notice = "Selected conversation trash permanently removed."
     }
 
     func clearConversationIndex() async {
