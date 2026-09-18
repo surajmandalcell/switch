@@ -1,7 +1,7 @@
 # Switch product specification
 
 Status: Initial accepted specification
-Revision: 2026-09-17
+Revision: 2026-09-18
 
 This document defines the current product model and user-visible contract. `goals.md`
 retains milestone history and verification evidence. If older milestone text conflicts
@@ -31,9 +31,16 @@ but the interface must not describe linked entries as part of the product's ever
 After a restart, checking a completed sign-in reads the private staged credential and uses
 the same identity, digest, and transaction checks as an auth-only import. An unrelated
 running Codex process must not block that check. If Switch no longer owns the sign-in
-process, it retires the session metadata and retains the staging home. Cancellation follows
-the same rule: stop only a process Switch owns, and preserve a home whose writer is unknown.
+process, it retires the session metadata. Cancellation stops only a process Switch owns.
+After a restart or refresh, remove retired staging homes once the home-scoped writer check
+proves they are inactive; preserve active or unknown homes and any home needed by recovery.
 Retired sessions do not reappear as pending or allow another import through their old ID.
+
+Full imports, legacy settings repair, and recovery check writers for their affected homes,
+including shared symlink targets. Attribute a Codex process through its held home-scoped
+runtime lock, without reading its environment or credentials. An unrelated verified home
+does not block the operation. Missing, inaccessible, or unrecognized ownership evidence
+remains unknown and blocks destructive changes; unlocked stale runtime files are not writers.
 
 ## 2. Navigation and Settings
 

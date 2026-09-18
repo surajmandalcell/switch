@@ -5,9 +5,49 @@ the final receipt named in the closeout evidence. The installed app uses the rea
 Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
 distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
-Design revision: 2026-09-17. The current product contract is
+Design revision: 2026-09-18. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
+
+### Home-scoped writer checks and retired sign-in cleanup (2026-09-18)
+
+The owner confirms that the installed local opacity fades resolve the light hover flash.
+The trace ruled out appearance/backdrop/disabled resets during the replay; it did not
+capture pixels or identify a specific macOS compositor defect. The broad adaptive-color
+animation path is removed, and the owner closes the physical hover acceptance gate.
+
+The owner requests resolution of both remaining marked debts. The initial full inventory
+has two markers, each with a trigger: global Codex-process blocking and indefinite
+unowned sign-in-home retention. Upgrade writer attribution through Codex's held home-scoped
+runtime lock, retaining unknown ownership as a safety state. Reuse that check after
+restarts to prune retired private sign-in homes only when inactive and not needed by recovery.
+Cleanup product-feature work remains deferred.
+
+- [x] Verify home scoping, shared targets, active/unknown writers, and stale locks.
+- [x] Verify retired-home pruning across restarts without deleting active/recovery data.
+- [x] Run affected native and both Linux gates and audit debt.
+
+The shared writer check now attributes each candidate through an open, held Codex
+`tmp/arg0/codex-arg0*/.lock`, using native descriptor metadata and nonblocking lock checks.
+It handles canonical home aliases, linked shared settings/history, direct open paths,
+mixed known/unknown candidates, and process exit; no environment or credential is read.
+Unknown or inaccessible evidence remains a safety block. Supported ownership evidence
+comes from [Codex's lifetime arg0 guard](https://github.com/openai/codex/blob/main/codex-rs/arg0/src/lib.rs).
+
+Retired sign-in metadata persists across restarts. Refresh removes its private staging
+directory only after an inactive scoped check and a fresh metadata/path validation under
+the existing operation lock. Active/unknown homes, unsafe root links, and pending recovery
+remain protected. Saved auth, current auth, and account history are unaffected.
+The old indefinite-retention regression failed before the fix; a controlled restoration
+of process-wide blocking makes the new writer regression fail, and removing it passes.
+Full native gates pass with 164 tests and two protected-copy opt-in skips, Preview and
+production models, System/Light/Dark rendering, instance, and scroll checks. Both read-only,
+unprivileged Linux ARM64 and AMD64 gates pass the same core tests and CLI
+onboarding/recovery/cancellation acceptance. An initial Intel emulator startup failure
+is discarded; gracefully restarting idle OrbStack restores execution without config changes.
+The full end inventory has zero Ponytail markers, zero missing triggers, and no new markers.
+The canonical private final-install receipt owns the subsequent clean signed installation,
+source revision, package/app/helper/CLI comparisons, mapped running process, and startup smoke.
 
 ### Light-theme hover and full account selection (2026-09-18)
 
