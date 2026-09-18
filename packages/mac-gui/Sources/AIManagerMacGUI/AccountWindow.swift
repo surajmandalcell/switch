@@ -527,6 +527,9 @@ struct AIMButton: View {
               : tone == .danger ? AIMTheme.statusInk.opacity(0.08) : AIMTheme.controlHover,
             hovered: hover && !unavailable)
         }.overlay {
+          if tone == .normal {
+            RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.line, lineWidth: 1)
+          }
           if focused, focusIndicatorsEnabled {
             RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
           }
@@ -1715,6 +1718,7 @@ private struct CleanupPage: View {
   @State private var selectedSamples: Set<Int64> = []
   @State private var clearIndex = false
   @State private var range: CleanupDateRange = .olderMonth
+  @State private var choosingRange = false
   @State private var from = Date().addingTimeInterval(-30 * 86_400)
   @State private var through = Date()
   @State private var anchor = Date()
@@ -1735,7 +1739,7 @@ private struct CleanupPage: View {
     AIMScrollView {
       VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 12) {
-          CleanupRangeSelect(selection: $range).disabled(unavailable)
+          CleanupRangeSelect(selection: $range, expanded: $choosingRange).disabled(unavailable)
           if range == .custom {
             DatePicker("From", selection: $from, displayedComponents: .date)
             DatePicker("Through", selection: $through, in: from..., displayedComponents: .date)
@@ -1744,17 +1748,35 @@ private struct CleanupPage: View {
           if loading { ProgressView().controlSize(.small) }
           AIMButton(title: "Reload", icon: .refresh, disabled: unavailable) { Task { await reload() } }
         }
-        Text("Conversation dates use the last update. Selected conversations move in full to recoverable trash.")
-          .foregroundStyle(AIMTheme.muted)
-        AIMPanel(title: "Codex CLI") {
+        AIMPanel(title: "Conversations", importance: .primary, headerAccessories: AnyView(
+          Text("\(visibleConversations.count.formatted()) conversations · Shared · Codex CLI")
+            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted))) {
           VStack(alignment: .leading, spacing: 12) {
-            DisclosureGroup("Shared conversations (\(visibleConversations.count.formatted()))") {
-              VStack(alignment: .leading, spacing: 8) {
+            if visibleConversations.isEmpty {
+              HStack {
+                Text("No conversations match this time range.").foregroundStyle(AIMTheme.muted)
+                Spacer()
+                if range != .all {
+                  AIMButton(title: "Show all") { range = .all }
+                }
+              }
+            } else {
+              Text("Choose projects or conversations. Dates use their last update.")
+                .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              if visibleConversations.contains(where: { !$0.archived }) {
                 conversationTree(archived: false)
+              }
+              if visibleConversations.contains(where: \.archived) {
                 conversationTree(archived: true)
-              }.frame(maxWidth: .infinity, alignment: .leading)
+              }
             }
-            DisclosureGroup("Account usage samples (\(visibleSamples.count.formatted()))") {
+          }.padding(16).frame(maxWidth: .infinity, alignment: .leading).disabled(unavailable)
+        }
+        AIMPanel(title: "Cached data", headerAccessories: AnyView(
+          Text("\(visibleSamples.count.formatted()) samples")
+            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted))) {
+          VStack(alignment: .leading, spacing: 12) {
+            DisclosureGroup("Usage history by account") {
               let grouped = Dictionary(grouping: visibleSamples, by: \.accountID)
               VStack(alignment: .leading, spacing: 8) {
                 ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
@@ -1775,22 +1797,31 @@ private struct CleanupPage: View {
             Toggle("Shared conversation index · \(sizeText(sizes.conversationBytes))", isOn: $clearIndex)
               .toggleStyle(.checkbox).disabled(range != .all || sizes.conversationBytes == 0)
               .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
+            Text("Caches rebuild when needed. Daily activity stays saved.")
+              .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
           }.padding(16).disabled(unavailable)
         }
         let protectedCount = conversations.filter { $0.exclusionReason != nil }.count
         if protectedCount > 0 {
-          Text("\(protectedCount.formatted()) linked or unsafe conversation files are protected. Other files can still be selected.")
-            .foregroundStyle(AIMTheme.muted)
+          HStack(spacing: 6) {
+            AIMIcon(name: .info, size: 12)
+            Text("\(protectedCount.formatted()) shared or unsafe files are protected.")
+          }.font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            .help("Linked or foreign-owned files cannot be removed. Other conversations remain selectable.")
         }
         HStack {
-          Text("\(selectedConversations.count.formatted()) conversations · \(selectedSamples.count.formatted()) samples")
-            .foregroundStyle(AIMTheme.muted)
+          Text("Selected").font(AIMTheme.sans(11, weight: .medium))
+          Text(selectedConversations.isEmpty && selectedSamples.isEmpty && !clearIndex
+            ? "Choose items to review."
+            : "\(selectedConversations.count.formatted()) conversations · \(selectedSamples.count.formatted()) samples\(clearIndex ? " · index" : "")")
+            .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
           Spacer()
           AIMButton(title: "Review selection", tone: .primary,
             disabled: unavailable || (selectedConversations.isEmpty && selectedSamples.isEmpty && !clearIndex)) {
               Task { await makeReview() }
             }
-        }
+        }.padding(12).background(AIMTheme.panel2)
+          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
         if let review {
           AIMPanel(title: "Review before cleanup", importance: .primary) {
             VStack(alignment: .leading, spacing: 10) {
@@ -1847,12 +1878,25 @@ private struct CleanupPage: View {
             }
           }
         }
-        Text("Accounts, auth, settings, backups, Codex databases, and retained daily activity are protected.")
-          .foregroundStyle(AIMTheme.muted)
+        Text("Account access, settings, backups, and saved activity stay unchanged.")
+          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
         if let error { Notice(text: error, tone: AIMTheme.amber) }
         if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
       .font(AIMTheme.sans(11))
+      .frame(maxWidth: .infinity, minHeight: 620, alignment: .topLeading)
+      .overlayPreferenceValue(CleanupRangeAnchor.self) { anchor in
+        if choosingRange, let anchor {
+          GeometryReader { geometry in
+            let bounds = geometry[anchor]
+            ZStack(alignment: .topLeading) {
+              Color.clear.contentShape(Rectangle()).onTapGesture { choosingRange = false }
+              CleanupRangeOptions(selection: $range, expanded: $choosingRange)
+                .frame(width: bounds.width).offset(x: bounds.minX, y: bounds.maxY + 3)
+            }
+          }
+        }
+      }
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 12)
@@ -1862,6 +1906,7 @@ private struct CleanupPage: View {
     .onChange(of: from) { _, _ in resetSelection() }
     .onChange(of: through) { _, _ in resetSelection() }
     .onChange(of: clearIndex) { _, _ in review = nil }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in choosingRange = false }
     .alert("Apply reviewed cleanup?", isPresented: $confirming) {
       Button("Cancel", role: .cancel) {}
       Button("Apply cleanup") { Task { await apply() } }
@@ -1979,9 +2024,8 @@ private struct CleanupReview {
 
 struct CleanupRangeSelect: View {
   @Binding var selection: CleanupDateRange
-  @State private var expanded = false
+  @Binding var expanded: Bool
   @FocusState private var triggerFocused: Bool
-  @FocusState private var focusedOption: CleanupDateRange?
 
   var body: some View {
     HStack(spacing: 8) {
@@ -1994,46 +2038,64 @@ struct CleanupRangeSelect: View {
             .foregroundStyle(AIMTheme.muted)
         }
         .font(AIMTheme.sans(11, weight: .medium)).foregroundStyle(AIMTheme.ink)
-        .padding(.horizontal, 10).frame(width: 184, height: 30)
+        .padding(.horizontal, 10).frame(width: 184, height: 28)
         .background(AIMTheme.control).clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
         .overlay(RoundedRectangle(cornerRadius: AIMTheme.radius)
-          .stroke(expanded || triggerFocused ? AIMTheme.blue : AIMTheme.lineSoft, lineWidth: 1))
+          .stroke(expanded || triggerFocused ? AIMTheme.blue : AIMTheme.line, lineWidth: 1))
       }
       .buttonStyle(AIMPressButtonStyle()).focused($triggerFocused)
       .accessibilityLabel("Time range").accessibilityValue(selection.rawValue)
       .accessibilityHint(expanded ? "Close time ranges" : "Choose a time range")
       .accessibilityIdentifier("cleanup-time-range")
-      .popover(isPresented: $expanded, arrowEdge: .bottom) {
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(CleanupDateRange.allCases) { option in
-            Button { choose(option) } label: {
-              HStack(spacing: 8) {
-                AIMIcon(name: .check, size: 11).opacity(option == selection ? 1 : 0)
-                Text(option.rawValue)
-                Spacer(minLength: 0)
-              }
-              .font(AIMTheme.sans(11, weight: option == selection ? .medium : .regular))
-              .foregroundStyle(AIMTheme.ink).padding(.horizontal, 10).frame(height: 30)
-              .background(option == focusedOption ? AIMTheme.listSelection : .clear)
-              .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-            }
-            .buttonStyle(AIMPressButtonStyle()).focused($focusedOption, equals: option)
-            .accessibilityAddTraits(option == selection ? .isSelected : [])
-            if option == .month || option == .olderYear {
-              Rectangle().fill(AIMTheme.lineSoft).frame(height: 1).padding(.vertical, 4)
-            }
-          }
-        }
-        .padding(8).frame(width: 216).background(AIMTheme.panel)
-        .onAppear { focusedOption = selection }
-        .onMoveCommand { direction in
-          if let next = (focusedOption ?? selection).moved(direction) { focusedOption = next }
-        }
-        .onKeyPress(.return) { choose(focusedOption ?? selection); return .handled }
-        .onExitCommand { expanded = false }
-      }
+      .anchorPreference(key: CleanupRangeAnchor.self, value: .bounds) { $0 }
       .onChange(of: expanded) { _, open in if !open { triggerFocused = true } }
     }
+  }
+}
+
+private struct CleanupRangeAnchor: PreferenceKey {
+  static var defaultValue: Anchor<CGRect>? { nil }
+  static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+    value = nextValue() ?? value
+  }
+}
+
+private struct CleanupRangeOptions: View {
+  @Binding var selection: CleanupDateRange
+  @Binding var expanded: Bool
+  @FocusState private var focusedOption: CleanupDateRange?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(CleanupDateRange.allCases) { option in
+        Button { choose(option) } label: {
+          HStack(spacing: 7) {
+            AIMIcon(name: .check, size: 10).opacity(option == selection ? 1 : 0)
+            Text(option.rawValue)
+            Spacer(minLength: 0)
+          }
+          .font(AIMTheme.sans(11, weight: option == selection ? .medium : .regular))
+          .foregroundStyle(AIMTheme.ink).padding(.horizontal, 8).frame(height: 24)
+          .background(option == focusedOption ? AIMTheme.listSelection : .clear)
+          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        }
+        .buttonStyle(AIMPressButtonStyle()).focused($focusedOption, equals: option)
+        .accessibilityAddTraits(option == selection ? .isSelected : [])
+        if option == .month || option == .olderYear {
+          Rectangle().fill(AIMTheme.lineSoft).frame(height: 1).padding(.vertical, 3)
+        }
+      }
+    }
+    .padding(4).background(AIMTheme.rail)
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .overlay(RoundedRectangle(cornerRadius: AIMTheme.radius).stroke(AIMTheme.line, lineWidth: 1))
+    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+    .onAppear { focusedOption = selection }
+    .onKeyPress(.upArrow) { focusedOption = (focusedOption ?? selection).moved(.up); return .handled }
+    .onKeyPress(.downArrow) { focusedOption = (focusedOption ?? selection).moved(.down); return .handled }
+    .onKeyPress(.return) { choose(focusedOption ?? selection); return .handled }
+    .onExitCommand { expanded = false }
+    .accessibilityLabel("Time ranges")
   }
 
   private func choose(_ option: CleanupDateRange) {
