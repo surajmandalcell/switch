@@ -33,6 +33,16 @@ System/Light/Dark native contracts pass. Evidence uses the canonical build direc
 `chat-pagination-core-full.log`, `chat-pagination-cap-regression-red.log`,
 `chat-pagination-production.log`, and `chat-pagination-ui-contract.log`.
 
+Cleanup core checkpoint: allowlisted source inventory has no visible-history row cap.
+Reviewed files are bound to inode, disk, size, modification date and digest. The existing
+manager lock and writer checks protect moves and restores. A private same-disk manifest
+is written before moving any file; interrupted moves reconcile from actual file locations.
+Restore rejects collisions, and permanent removal has a separate API and UI confirmation.
+The activity ledger is saved before any source moves. Account cache samples are removed
+by reviewed IDs and digests in a SQLite transaction, retaining other samples and failure
+status. Synthetic trash/reopen/restore/removal, unsafe-link, changed-source, writer and
+ledger-failure checks pass; the production model completes a trash-and-restore flow.
+
 ### Menubar popup viewport and display cap (2026-09-18)
 
 - [x] Fix the actual popup's document/viewport sizing so all cards expand without

@@ -99,6 +99,48 @@ public actor AccountManager {
         return try status()
     }
 
+    public func cleanupInventory(summaries: [ChatThreadSummary] = []) throws -> [CleanupConversation] {
+        try ConversationCleanup(home: paths.sharedRoot).inventory(summaries: summaries)
+    }
+
+    public func reviewCleanup(_ conversations: [CleanupConversation]) throws -> ConversationCleanupPlan {
+        try ConversationCleanup(home: paths.sharedRoot).review(conversations)
+    }
+
+    public func cleanupTrash() throws -> [ConversationCleanupBatch] {
+        try ConversationCleanup(home: paths.sharedRoot).batches()
+    }
+
+    public func moveConversationsToTrash(
+        _ plan: ConversationCleanupPlan,
+        preserveActivity: @Sendable ([URL]) async throws -> Void
+    ) async throws -> ConversationCleanupBatch {
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            try await ensureWritersInactive([paths.sharedRoot])
+            let cleanup = ConversationCleanup(home: paths.sharedRoot)
+            try cleanup.validate(plan)
+            try await preserveActivity(plan.conversations.map { plan.home.appending(path: $0.relativePath) })
+            try await ensureWritersInactive([paths.sharedRoot])
+            return try cleanup.moveToTrash(plan)
+        }
+    }
+
+    public func restoreCleanupTrash(_ id: UUID) async throws {
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            try await ensureWritersInactive([paths.sharedRoot])
+            try ConversationCleanup(home: paths.sharedRoot).restore(id)
+        }
+    }
+
+    public func permanentlyRemoveCleanupTrash(_ id: UUID) throws {
+        try lock.withLock {
+            try ensureNoRecovery()
+            try ConversationCleanup(home: paths.sharedRoot).permanentlyRemove(id)
+        }
+    }
+
     public static let providerCatalog: [ProviderDescriptor] = [
         .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
         .init(
