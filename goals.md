@@ -11,6 +11,25 @@ verification evidence.
 
 ### Light-theme hover and full account selection (2026-09-18)
 
+The owner confirms repeated blinking of both the departed and entered controls in
+light mode after the previous installation. This hover gate remains open. The next
+regression must sample both controls during crossings, including actual exit events
+and interrupted fades, rather than only the destination's settled pixels.
+
+The corrected two-control replay passes System/Light/Dark with opaque and translucent
+surfaces. A temporary background-visible replay also remains green; layer inspection
+does not capture an unwanted transition. That probe is removed. One overlapping test
+package replacement caused resource-load failures, so that run is discarded; the final
+sequential contract run passes all three appearances. The native driver can inspect
+the current installed light window, but still has no pointer-hover action.
+An opt-in `AI_MANAGER_HOVER_TRACE=1` trace records sidebar/shared hover changes,
+backdrop updates, and appearance application in the app's own OSLog category. It is
+disabled by default and records no credentials, paths, account emails, or chat content.
+The diagnostic checkpoint is installed and verified before requesting one physical
+crossing from the owner. This is investigation support, not a claimed theme fix.
+The debt inventory remains two existing safety deferrals, zero missing triggers;
+neither reliable home-scoped writer detection nor process-exit ownership is available.
+
 Follow-up: hover flashing is reported in light mode, and ordinary account-list selection
 still stalls after the isolated calendar optimization. The whole account pane needs its
 own timing check. Match Show in Menubar to the normal Open action colors.
