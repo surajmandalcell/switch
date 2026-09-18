@@ -41,6 +41,15 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 switchAccount: { [weak self] accountID in
                     guard let self else { throw MenuBarActionError.appUnavailable }
                     try await self.switchAccountFromMenuBar(accountID)
+                },
+                refreshUsage: { [weak self] in
+                    guard let self else { return }
+                    let accountIDs = self.model.status?.accounts.filter {
+                        $0.identity.providerID == .codex && MenuBarUsagePreferences.showsUsage(for: $0.id)
+                    }.map(\.id) ?? []
+                    for accountID in accountIDs {
+                        await self.model.refreshUsage(accountID: accountID)
+                    }
                 }
             ))
         self.statusItemController = statusItemController

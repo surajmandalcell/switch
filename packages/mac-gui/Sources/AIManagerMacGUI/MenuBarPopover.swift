@@ -109,15 +109,18 @@ struct MenuBarSnapshot: Equatable, Sendable {
 struct MenuBarPopoverActions {
   let openMainWindow: () -> Void
   let switchAccount: (UUID) async throws -> Void
+  let refreshUsage: () async -> Void
   let copyText: ((String) -> Void)?
 
   init(
     openMainWindow: @escaping () -> Void,
     switchAccount: @escaping (UUID) async throws -> Void,
+    refreshUsage: @escaping () async -> Void = {},
     copyText: ((String) -> Void)? = nil
   ) {
     self.openMainWindow = openMainWindow
     self.switchAccount = switchAccount
+    self.refreshUsage = refreshUsage
     self.copyText = copyText
   }
 }
@@ -126,6 +129,7 @@ struct MenuBarPopoverActions {
 final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var snapshot: MenuBarSnapshot
   @Published private(set) var switchingAccountID: UUID?
+  @Published private(set) var isRefreshingUsage = false
   @Published private(set) var rowErrors: [UUID: String] = [:]
 
   let actions: MenuBarPopoverActions
@@ -147,6 +151,17 @@ final class MenuBarPopoverStore: ObservableObject {
   func openMainWindow() {
     actions.openMainWindow()
     didRequestDismissal?()
+  }
+
+  var canRefreshUsage: Bool {
+    !isRefreshingUsage && snapshot.accounts.contains { $0.showsUsage && $0.providerID == .codex }
+  }
+
+  func refreshUsage() async {
+    guard canRefreshUsage else { return }
+    isRefreshingUsage = true
+    defer { isRefreshingUsage = false }
+    await actions.refreshUsage()
   }
 
   func copyError(_ error: String) {
@@ -200,6 +215,7 @@ struct MenuBarPalette {
 }
 
 struct MenuBarPopover: View {
+  @State private var refreshHovered = false
   static let width: CGFloat = 344
   static let minimumHeight: CGFloat = 104
   static let footerHeight: CGFloat = 29
@@ -301,6 +317,30 @@ struct MenuBarPopover: View {
 
   private var footer: some View {
     HStack(spacing: 8) {
+      Button {
+        Task { await store.refreshUsage() }
+      } label: {
+        Group {
+          if store.isRefreshingUsage {
+            ProgressView().controlSize(.mini).frame(width: 10, height: 10)
+          } else {
+            AIMIcon(name: .refresh, size: 10)
+          }
+        }
+        .foregroundStyle(palette.muted)
+        .frame(width: 22, height: 22)
+        .background {
+          AIMHoverBackground(base: .clear, highlight: palette.ink.opacity(0.08),
+            hovered: refreshHovered && store.canRefreshUsage)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Self.buttonRadius))
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(AIMPressButtonStyle())
+      .disabled(!store.canRefreshUsage)
+      .onHover { refreshHovered = $0 }
+      .accessibilityLabel("Refresh enabled account usage")
+      .help("Refresh enabled account usage")
       if let refreshedAt = store.snapshot.lastRefreshedAt {
         Text("Refreshed \(refreshedAt.formatted(.relative(presentation: .numeric)))")
           .font(AIMTheme.sans(9))
