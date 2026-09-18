@@ -1931,7 +1931,7 @@ private struct DataLocationRow: View {
 
 enum HistoryHeaderLayout {
   static let height: CGFloat = 40
-  static let countWidth: CGFloat = 52
+  static let countWidth: CGFloat = 128
   static let warningWidth: CGFloat = 32
   static let statusWidth: CGFloat = 20
 }
@@ -2030,8 +2030,8 @@ private struct HistoryPage: View {
 
   private var historyCountText: String {
     let result = model.chatHistory
-    if threadQuery.isEmpty { return result.totalThreadCount.formatted() }
-    return "\(result.matchingThreadCount.formatted()) of \(result.totalThreadCount.formatted())"
+    if threadQuery.isEmpty { return "\(result.totalThreadCount.formatted()) conversations" }
+    return "\(result.matchingThreadCount.formatted()) of \(result.totalThreadCount.formatted()) conversations"
   }
 
   private var historyIssueText: String {
@@ -2160,8 +2160,6 @@ private struct ChatDetailPane: View {
   @ObservedObject var model: AccountViewModel
   @State private var messageQuery = ""
   @State private var messageFilter: ChatMessageFilter
-  @State private var messageSearchResult = ChatMessageSearchResult(
-    messages: [], totalMessageCount: 0, matchingMessageCount: 0)
   @State private var isSearching = false
   @State private var presentations: [String: ChatMessagePresentation] = [:]
   @State private var presentationRevision = 0
@@ -2181,6 +2179,17 @@ private struct ChatDetailPane: View {
               .font(AIMTheme.sans(9.5)).foregroundStyle(AIMTheme.muted).lineLimit(1)
           }
           Spacer(minLength: 8)
+          HStack(spacing: 6) {
+            Text("\(thread.messageCount.formatted()) messages")
+            if let tokens = thread.totalTokens {
+              Text("·")
+              Text("\(tokens.formatted(.number.notation(.compactName))) tokens")
+                .help("\(tokens.formatted()) recorded tokens")
+            }
+          }
+          .font(AIMTheme.sans(9.5))
+          .foregroundStyle(AIMTheme.muted)
+          .lineLimit(1)
         }
         .padding(.horizontal, 18)
         .frame(height: 58)
@@ -2194,7 +2203,7 @@ private struct ChatDetailPane: View {
           HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
           if isSearching {
             ProgressView().controlSize(.small).frame(width: 24, height: 24)
-          } else if let detail = model.selectedChat {
+          } else if let detail = model.selectedChat, messageFilter != .all || !messageQuery.isEmpty {
             Text(messageCountText(detail))
               .font(AIMTheme.sans(9.5))
               .foregroundStyle(AIMTheme.muted)
@@ -2235,7 +2244,8 @@ private struct ChatDetailPane: View {
       } else if let detail = model.selectedChat {
         AIMVirtualList(
           items: detailItems(detail), rowSpacing: 0,
-          contentRevision: presentationRevision
+          contentRevision: presentationRevision,
+          onReachEnd: { Task { await model.loadMoreChatMessages() } }
         ) { item in
           AnyView(detailRow(item))
         }
@@ -2275,12 +2285,12 @@ private struct ChatDetailPane: View {
   private var presentationKey: ChatPresentationKey {
     ChatPresentationKey(
       threadID: model.selectedChatID,
-      fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0)
+      fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0,
+      messageIDs: model.selectedChat?.messages.map(\.id) ?? [])
   }
 
   private func displayedMessages(_ detail: ChatThreadDetail) -> [ChatMessage] {
-    messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? filteredMessages(detail.messages) : messageSearchResult.messages
+    filteredMessages(detail.messages)
   }
 
   private func filteredMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
@@ -2297,10 +2307,6 @@ private struct ChatDetailPane: View {
 
   private func detailItems(_ detail: ChatThreadDetail) -> [ChatDetailListItem] {
     var items: [ChatDetailListItem] = []
-    if detail.omittedMessageCount > 0 {
-      items.append(.notice(
-        "\(detail.omittedMessageCount) older or oversized messages are hidden to keep this view fast."))
-    }
     let messages = displayedMessages(detail)
     if messages.isEmpty && !isSearching {
       let hasQuery = !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2312,6 +2318,7 @@ private struct ChatDetailPane: View {
           separated: index == 0 || messages[index - 1].role != message.role)
       })
     }
+    if detail.nextOffset != nil { items.append(.loadMore) }
     items.append(.bottomSpace)
     return items
   }
@@ -2319,13 +2326,6 @@ private struct ChatDetailPane: View {
   @ViewBuilder
   private func detailRow(_ item: ChatDetailListItem) -> some View {
     switch item {
-    case let .notice(text):
-      Notice(
-        text: text,
-        tone: AIMTheme.amber,
-        icon: .warning,
-        copy: { model.copyWarnings([text]) })
-        .padding(.horizontal, 12)
     case let .message(message, separated):
       ChatMessageRow(
         message: message,
@@ -2340,18 +2340,25 @@ private struct ChatDetailPane: View {
       .frame(maxWidth: .infinity, minHeight: 120)
       .padding(.horizontal, 12)
     case .bottomSpace:
-      Color.clear.frame(height: 16)
+      Color.clear.frame(height: 8)
+    case .loadMore:
+      HStack(spacing: 6) {
+        if model.isChatPageLoading { ProgressView().controlSize(.mini) }
+        AIMButton(title: model.isChatPageLoading ? "Loading messages" : "Load more messages",
+          disabled: model.isChatPageLoading) { Task { await model.loadMoreChatMessages() } }
+      }
+      .frame(maxWidth: .infinity, minHeight: 32)
     }
   }
 
   private func messageCountText(_ detail: ChatThreadDetail) -> String {
     if messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      let count = filteredMessages(detail.messages).count
+      let count = detail.matchingMessageCount
       return messageFilter == .all
         ? "\(count.formatted()) messages"
         : "\(count.formatted()) shown"
     }
-    return "\(messageSearchResult.matchingMessageCount.formatted()) matches"
+    return "\(detail.matchingMessageCount.formatted()) matches"
   }
 
   private func threadContext(_ thread: ChatThreadSummary) -> String {
@@ -2361,7 +2368,6 @@ private struct ChatDetailPane: View {
       if !project.isEmpty { parts.append(project) }
     }
     parts.append(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
-    parts.append("\(thread.messageCount.formatted()) messages")
     if thread.archived { parts.append("Archived") }
     return parts.joined(separator: "  ·  ")
   }
@@ -2373,12 +2379,14 @@ private struct ChatDetailPane: View {
       return
     }
     do {
-      let rendered = try await ChatMessagePresenter.render(messages: detail.messages)
+      let rendered = try await ChatMessagePresenter.render(messages: detail.messages.filter { presentations[$0.id] == nil })
       guard !Task.isCancelled,
         model.selectedChatID == detail.thread.id,
         model.selectedChat?.thread.fileByteCount == detail.thread.fileByteCount
       else { return }
-      presentations = rendered
+      let ids = Set(detail.messages.map(\.id))
+      presentations = presentations.filter { ids.contains($0.key) }
+      presentations.merge(rendered) { _, new in new }
       presentationRevision &+= 1
     } catch is CancellationError {
       return
@@ -2389,57 +2397,36 @@ private struct ChatDetailPane: View {
 
   @MainActor
   private func updateMessageSearch() async {
-    guard let detail = model.selectedChat else {
-      messageSearchResult = ChatMessageSearchResult(
-        messages: [], totalMessageCount: 0, matchingMessageCount: 0)
-      isSearching = false
-      return
-    }
-    let terms = messageQuery
-      .split(whereSeparator: \.isWhitespace)
-      .map { String($0).lowercased() }
-    guard !terms.isEmpty else {
-      let messages = filteredMessages(detail.messages)
-      messageSearchResult = ChatMessageSearchResult(
-        messages: messages,
-        totalMessageCount: messages.count,
-        matchingMessageCount: messages.count)
+    guard model.selectedChat != nil else {
       isSearching = false
       return
     }
     isSearching = true
-    do { try await Task.sleep(for: .milliseconds(120)) }
-    catch { return }
     do {
-      let result = try await ChatMessageSearch.search(
-        detail.messages, query: messageQuery, filter: messageFilter)
+      try await Task.sleep(for: .milliseconds(120))
+      await model.searchChatMessages(query: messageQuery, filter: messageFilter)
       guard !Task.isCancelled else { return }
-      messageSearchResult = result
       isSearching = false
     } catch is CancellationError {
       return
     } catch {
-      messageSearchResult = ChatMessageSearchResult(
-        messages: [],
-        totalMessageCount: detail.messages.count,
-        matchingMessageCount: 0)
       isSearching = false
     }
   }
 }
 
 private enum ChatDetailListItem: Identifiable, Equatable {
-  case notice(String)
   case message(ChatMessage, separated: Bool)
   case empty(String)
   case bottomSpace
+  case loadMore
 
   var id: String {
     switch self {
-    case let .notice(text): "notice:\(text)"
     case let .message(message, _): "message:\(message.id)"
     case let .empty(text): "empty:\(text)"
     case .bottomSpace: "bottom-space"
+    case .loadMore: "load-more"
     }
   }
 }
@@ -2454,6 +2441,7 @@ private struct ChatMessageSearchKey: Hashable {
 private struct ChatPresentationKey: Hashable {
   let threadID: String?
   let fileByteCount: Int64
+  let messageIDs: [String]
 }
 
 private enum ChatFilterChoice: String, CaseIterable, Identifiable {
@@ -2594,9 +2582,9 @@ private struct ChatMessageRow: View {
       }
     }
     .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
-    .padding(.horizontal, 24)
-    .padding(.top, separated ? 18 : 8)
-    .frame(maxWidth: .infinity, alignment: .center)
+    .padding(.horizontal, 12)
+    .padding(.top, separated ? 10 : 4)
+    .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     .onHover { hovered = $0 }
   }
 }

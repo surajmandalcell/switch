@@ -33,6 +33,45 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(emptyQuery.messages, messages)
     }
 
+    func testScrollingPagesReachAllMessagesAndSearchBeyondFirstPage() async throws {
+        var records: [[String: Any]] = [["type": "session_meta", "payload": ["id": "paged", "cwd": "/Projects/Paged"]]]
+        records += (0..<3_100).map { index in
+            ["type": "response_item", "payload": ["type": "message",
+                "role": index.isMultiple(of: 3) ? "user" : "assistant",
+                "content": [["type": "output_text", "text": "Message \(index) in order"]]]]
+        }
+        records += [tokenRecord(total: 200, at: "2026-09-15T23:59:00Z"),
+                    tokenRecord(total: 400, at: "2026-09-16T00:01:00Z")]
+        _ = try transcript(directory: "sessions", filename: "paged.jsonl", records: records)
+        let index = ChatHistoryIndex(home: root)
+        let snapshot = try await index.refresh()
+        let id = try XCTUnwrap(snapshot.threads.first?.id)
+        XCTAssertEqual(snapshot.threads.first?.totalTokens, 400)
+        var offset = 0
+        var messages: [ChatMessage] = []
+        repeat {
+            let loaded = try await index.detail(for: id, offset: offset)
+            let page = try XCTUnwrap(loaded)
+            XCTAssertLessThanOrEqual(page.messages.count, 100)
+            XCTAssertEqual(page.omittedMessageCount, 0)
+            XCTAssertEqual(page.matchingMessageCount, 3_100)
+            messages += page.messages
+            guard let next = page.nextOffset else { break }
+            XCTAssertGreaterThan(next, offset)
+            offset = next
+        } while true
+        XCTAssertEqual(messages.map(\.text), (0..<3_100).map { "Message \($0) in order" })
+        XCTAssertEqual(Set(messages.map(\.id)).count, 3_100)
+        let search = try await index.detail(for: id, query: "Message 3099", filter: .prompts)
+        XCTAssertEqual(search?.messages.map(\.text), ["Message 3099 in order"])
+        XCTAssertEqual(search?.matchingMessageCount, 1)
+        XCTAssertNil(search?.nextOffset)
+        let promptPage = try await index.detail(for: id, offset: 100, filter: .prompts)
+        XCTAssertEqual(promptPage?.messages.first?.text, "Message 300 in order")
+        XCTAssertEqual(promptPage?.matchingMessageCount, 1_034)
+        XCTAssertTrue(ChatTranscriptExport.text(for: promptPage?.messages ?? []).contains("Message 300 in order"))
+    }
+
     func testProjectActivityUsesCumulativeDeltasAndSurvivesArchiveDeletionAndCacheClear() async throws {
         let home = root.appending(path: "codex")
         let source = home.appending(path: "sessions/chat.jsonl")
@@ -434,7 +473,7 @@ final class ChatHistoryIndexTests: XCTestCase {
 
         XCTAssertEqual(reopened.reparsedFileCount, 1)
         XCTAssertEqual(reopened.threads.first?.title, "Migrated canonical name")
-        XCTAssertEqual(migratedObject["version"] as? Int, 3)
+        XCTAssertEqual(migratedObject["version"] as? Int, 4)
     }
 
     func testRefreshReparsesOnlyChangedFilesAndSkipsMalformedRecords() async throws {
@@ -506,7 +545,9 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.threads.first?.title, "Keep the chat view responsive")
         XCTAssertEqual(snapshot.unreadableRecordCount, 0)
         let detail = try await index.detail(for: try XCTUnwrap(snapshot.threads.first?.id))
-        XCTAssertEqual(detail?.messages.count, 1)
+        XCTAssertEqual(detail?.messages.count, 2)
+        XCTAssertTrue(detail?.messages.last?.text.hasSuffix(String(repeating: "x", count: 5 * 1_024 * 1_024)) == true)
+        XCTAssertEqual(detail?.omittedMessageCount, 0)
     }
 
     private func standardRecords(id: String, prompt: String) -> [[String: Any]] {

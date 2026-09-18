@@ -384,7 +384,7 @@ enum AIManagerNativeContract {
       "Heatmap keyboard selection skips a day or escapes the filtered date range")
 
     expect(HistoryHeaderLayout.height == 40, "Conversation header height changed")
-    expect(HistoryHeaderLayout.countWidth == 52, "Conversation count slot width changed")
+    expect(HistoryHeaderLayout.countWidth >= 120, "Conversation count slot clips its label")
     expect(HistoryHeaderLayout.warningWidth == 32, "Conversation warning slot width changed")
     expect(HistoryHeaderLayout.statusWidth == 20, "Conversation status slot width changed")
     let weeklyOnly = MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 1)
