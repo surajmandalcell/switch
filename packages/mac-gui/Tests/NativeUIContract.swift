@@ -580,6 +580,36 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  static func menuBarRefreshFailures() async -> [String] {
+    var calls = 0
+    var wasBusy = false
+    var store: MenuBarPopoverStore!
+    store = MenuBarPopoverStore(snapshot: MenuBarPopoverPreviewData.snapshot,
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in },
+        refreshUsage: {
+          calls += 1
+          wasBusy = store.isRefreshingUsage && !store.canRefreshUsage
+          await store.refreshUsage()
+        }))
+    await store.refreshUsage()
+    var failures: [String] = []
+    if calls != 1 || !wasBusy || store.isRefreshingUsage || !store.canRefreshUsage {
+      failures.append("Menubar refresh does not guard duplicate requests or reset its busy state")
+    }
+    store.update(snapshot: MenuBarSnapshot(accounts: [MenuBarAccountSnapshot(
+      id: UUID(), identity: "hidden@example.test", detail: "", isVerified: true,
+      isActive: false, showsUsage: false)]))
+    await store.refreshUsage()
+    store.update(snapshot: MenuBarSnapshot(accounts: [MenuBarAccountSnapshot(
+      id: UUID(), identity: "unsupported@example.test", detail: "", isVerified: true,
+      isActive: false, providerID: .claudeCode)]))
+    await store.refreshUsage()
+    if calls != 1 || store.canRefreshUsage {
+      failures.append("Menubar refresh runs for hidden or unsupported accounts")
+    }
+    return failures
+  }
+
   @MainActor static func menuBarPopoverFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

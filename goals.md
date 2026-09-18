@@ -9,6 +9,24 @@ Design revision: 2026-09-18. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Menubar footer refresh (2026-09-18)
+
+- [x] Add a small refresh button immediately before the Refreshed timestamp.
+- [x] Refresh enabled supported accounts through existing saved-auth background checks,
+  retaining account order, default selection, popup geometry, and the open popup.
+- [x] Verify duplicate-refresh protection and disabled hidden/unsupported-account states.
+
+System, Light, and Dark native contracts pass, including the refresh guard check.
+Inspected Light and Dark native renders retain the compact footer and place a ten-point
+ghost refresh glyph before the timestamp, with a fixed 22-point hit area and tooltip.
+The existing saved-auth checker and cache publishers update limits and the timestamp;
+no polling, account activation, or new credential handling is added. Evidence:
+`/private/tmp/ai-manager-build/menubar-footer-refresh-contract.log` and
+`/private/tmp/ai-manager-build/footer-refresh-review/`. The final installation receipt
+owns the clean signed installation and its revision, checksums, and process identity.
+Task-end debt inventory: zero markers and zero missing triggers. Advanced Cleanup
+remains deferred.
+
 ### Native Menubar sizing and wizard footer (2026-09-18)
 
 - [x] Fix native popover clipping, fitting its cards and footer up to 80% of the

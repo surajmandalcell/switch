@@ -124,9 +124,8 @@ totals, and selected days identify their shared-home provenance. One background 
 coalesced bounded worker scans maintain summaries independently of the visible page.
 
 The menu popover contains only account switching, enabled limit data, a refresh timestamp,
-and an Open App footer action. It has no brand/count/refresh header, column header, session
-explanation, Add Account action, or Quit action. Account creation and usage refresh belong in
-the main window.
+and refresh/Open App footer actions. It has no brand/count/refresh header, column header, session
+explanation, Add Account action, or Quit action. Account creation belongs in the main window.
 
 Each account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
 in its action row. Both stateful actions use a single tick when false (Set as Default or
@@ -186,7 +185,12 @@ uses an opaque fallback. The Soft rectangles account panels use a uniform solid 
 and seven-point corners, without a header divider, outline, or active-state gradient.
 A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
-left even when usage display is disabled, and Open App on the right. The popover is 344 points wide,
+left even when usage display is disabled, and Open App on the right. A small refresh icon
+immediately precedes the timestamp. It checks enabled supported accounts in saved sidebar order
+using the existing saved-auth background checks, without activating an account or closing the
+popover. Disable repeat refreshes while running and disable refresh when no supported account
+has usage display enabled. Keep the icon's space fixed while showing progress.
+The popover is 344 points wide,
 uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
 Open App button with a subtle hover tint. Its native host fits all account cards and the
 footer, growing up to 80% of the smallest attached display's visible height. There is
