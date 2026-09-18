@@ -261,6 +261,12 @@ enum AIManagerNativeContract {
       && AIMTranslucency.opacity(25, reduceTransparency: true) == 1,
       "Translucency ignores its bounds or Reduce Transparency")
     expect(AIMTheme.Dark.canvas == 0x18191B, "Dark canvas color changed")
+    var lightEnvironment = EnvironmentValues()
+    lightEnvironment.colorScheme = .light
+    lightEnvironment.aimSurfaceOpacity = 0.5
+    let primaryInk = AIMTheme.primaryInk.resolve(in: lightEnvironment)
+    expect(primaryInk.opacity == 1 && primaryInk.red == 1 && primaryInk.green == 1
+      && primaryInk.blue == 1, "Light primary button text inherits body translucency")
     expect(AIMTheme.Dark.panel == 0x202124, "Dark panel color changed")
     expect(AIMTheme.Dark.raised == 0x27282B, "Dark raised color changed")
     expect(AIMTheme.Dark.raisedSecondary == 0x2F3034, "Dark secondary raised color changed")
@@ -582,7 +588,6 @@ enum AIManagerNativeContract {
 
     expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
     expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
-    expect(MenuBarPopover.maximumHeight == 900, "Menu-bar popover maximum height is not capped")
     expect(MenuBarPopover.accountHeaderHeight == 35, "Menu-bar account header does not match Soft rectangles")
     expect(MenuBarPopover.quotaRowHeight == 40, "Menu-bar quota rows do not match the approved design")
     expect(MenuBarPopover.footerHeight == 29, "Menu-bar footer does not match the approved design")
@@ -615,7 +620,6 @@ enum AIManagerNativeContract {
     for size in [empty, hidden, one, two, many, shortScreen, tallScreen, fractionalScreen] {
       expect(size.width == 344, "Menu-bar popover width changes with its contents")
       expect(size.height >= 104, "Menu-bar popover is shorter than its empty state")
-      expect(size.height <= 900, "Menu-bar popover exceeds its height cap")
     }
     expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 104, "Hidden usage leaves blank quota space")
@@ -623,7 +627,7 @@ enum AIManagerNativeContract {
     expect(two.height == 343, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
-    expect(tallScreen.height == 900, "Menu-bar popover exceeds its absolute height cap")
+    expect(tallScreen.height == 1600, "Menu-bar retains a fixed cap below 80% of a tall screen")
     expect(fractionalScreen.height == 480, "Menu-bar screen cap rounds beyond 80%")
 
     expect(snapshot.accounts.first?.remainingPercentage == 58, "Preview menu snapshot lacks cached remaining quota")
@@ -641,6 +645,23 @@ enum AIManagerNativeContract {
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
     expect(controller.usesPopover, "Status item still uses a static menu")
     expect(controller.popoverContentSize.width == 344, "Hosted popover changed its fixed width")
+    // Exercise the controller's intrinsic sizing rather than a manually framed snapshot.
+    let sizingStore = MenuBarPopoverStore(snapshot: snapshot,
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
+    let sizingHost = NSHostingController(rootView: MenuBarPopover(store: sizingStore))
+    sizingHost.view.frame = NSRect(origin: .zero, size: controller.popoverContentSize)
+    sizingHost.view.layoutSubtreeIfNeeded()
+    expect(sizingHost.view.fittingSize.height >= controller.popoverContentSize.height,
+      "Intrinsic menu host collapses below its account cards")
+    for accounts in [Array(snapshot.accounts.prefix(1)), Array(snapshot.accounts.prefix(2)),
+                     Array(repeating: snapshot.accounts[0], count: 20), [hiddenAccount]] {
+      sizingStore.update(snapshot: MenuBarSnapshot(accounts: accounts))
+      sizingHost.view.layoutSubtreeIfNeeded()
+      let expectedSize = AIManagerStatusItemController.contentSize(
+        accounts: accounts, visibleScreenHeight: AIManagerStatusItemController.smallestDisplayHeight)
+      expect(abs(sizingHost.view.fittingSize.height - expectedSize.height) < 1,
+        "Native menu host does not fit its updated account count and screen cap")
+    }
     expect(controller.statusTitle == "58% 82% –", "Status item does not show enabled remaining quotas")
     let disabledSnapshot = MenuBarSnapshot(accounts: [hiddenAccount])
     controller.update(snapshot: disabledSnapshot)

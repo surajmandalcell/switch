@@ -9,6 +9,36 @@ Design revision: 2026-09-18. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Native Menubar sizing and wizard footer (2026-09-18)
+
+- [x] Fix native popover clipping, fitting its cards and footer up to 80% of the
+  smallest attached display's visible height; remove the extra 900-point cap.
+- [x] Match Switch text and outline to the quota progress-bar accent.
+- [x] Give the main window three-point corners, including its native backdrop.
+- [x] Keep primary button text and icons opaque, improving Using as default in Light mode.
+- [x] Center wizard steps in the bottom action row and strengthen modal Close contrast.
+
+The new intrinsic-host regression fails on the original source: AppKit measures only
+the 29-point footer and 20-point list insets, reporting 49 points for 388 points of
+content. A frame on the rendered root now uses the same content/screen calculation as
+the native controller. The regression passes for one, two, many, and usage-hidden
+accounts, including cache updates. Tall-screen coverage verifies 1600 points at 80%
+of a 2000-point visible height rather than the previous fixed 900-point ceiling.
+System, Light, and Dark contracts pass, including existing hover and account-selection
+checks. Six synthetic Add Account, Sign In, and Advanced Import contracts pass across
+Light and Dark; inspected renders show centered footer steps without action overlap.
+Default/Open completion actions move into the Ready panel to preserve the footer's
+center. The native host masks all surfaces to three-point corners. Primary foregrounds
+use a separate opaque token rather than the translucent canvas color. Modal Close
+uses an opaque neutral surface and retains bright red hover and its accessible action.
+No real sign-in or account activation is performed during verification.
+
+Evidence: `/private/tmp/ai-manager-build/menubar-height-contract.log` and
+`/private/tmp/ai-manager-build/ui-review/`. The final installation receipt owns the
+subsequent clean signed installation, checksums, source revision, and process identity.
+Task-end debt inventory: zero markers and zero missing triggers. Advanced Cleanup
+remains deferred.
+
 ### Menubar palette and multi-account design review (2026-09-18)
 
 The owner requests ten previews in `tmp/index.html` before choosing a new Menubar

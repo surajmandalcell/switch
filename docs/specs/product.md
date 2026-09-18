@@ -171,7 +171,7 @@ account name with a full-name tooltip, a cached provider glyph instead of a stat
 active or attention state, and a dedicated Switch
 button when eligible. Provider and workspace remain in the accessible description. Active,
 Switch, and Sign in controls share one compact 56-by-22-point size and three-point corners.
-Switch uses a blue outlined button; Active is a disabled gray button rather
+Switch uses an outline in the progress bar's accent color; Active is a disabled gray button rather
 than a colored badge. When menu
 usage is enabled and cached, the card expands to show Session followed by Weekly limits.
 Each 40-point quota row places its name above a full-width four-point progress bar,
@@ -188,8 +188,11 @@ A hidden or missing limit
 takes no space and is never fabricated. The footer shows the newest cache refresh time on the
 left even when usage display is disabled, and Open App on the right. The popover is 344 points wide,
 uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
-Open App button with a subtle hover tint, and scrolls at the smaller of 900 points or 80% of the smallest attached
-display's visible height. It has no automatic focus outline
+Open App button with a subtle hover tint. Its native host fits all account cards and the
+footer, growing up to 80% of the smallest attached display's visible height. There is
+no additional 900-point cap, and the list scrolls only when its contents exceed that
+available height. AppKit's intrinsic sizing must not collapse the scroll area or clip
+quota rows for one or two accounts. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 
 ## 4. Visual system
@@ -214,8 +217,7 @@ The Menubar has its own palette, separate from the main window's colors:
 | Secondary text | `#6B665A` | `#C8BCA6` |
 | Limit track | `#E0DED4` | `#625B4B` |
 | Limit fill | `#4B706E` | `#B4C8DD` |
-| Switch text | `#315E92` | `#BDD6F4` |
-| Switch outline | `#A0B4CA` | `#7F9CBB` |
+| Switch text and outline | `#4B706E` | `#B4C8DD` |
 | Disabled Active control | `#E9E7DF` | `#504A3E` |
 | Footer separator | `#DCD8CC` | `#534A3B` |
 
@@ -245,6 +247,9 @@ uses a pointing-hand cursor, middle truncation, and a full-path tooltip; accessi
 names identify the copy action, and Preview must not mutate the real clipboard.
 Body prose uses Inter rather than monospace. Disabled actions stay legible and every icon
 action retains an accessible name, focus behavior, and its existing safety guards.
+Primary button text and icons, including Using as default, remain fully opaque
+regardless of body translucency. The main window has three-point rounded corners
+with a transparent exterior; preserve its size, placement, controls, and native shadow.
 
 Deleting the default account automatically activates an eligible saved fallback before
 deleting its saved credential. Prefer the currently selected other account, then the previous
@@ -282,8 +287,11 @@ remains the native monochrome template.
 Account-list secondary text and menu cards identify the provider, such as Codex CLI, rather
 than repeating verification language. Healthy identity badges use the provider name; only
 states that need action add a separate state badge. The Add Account and Advanced Import
-titlebars use one 48-point row for the title and edge-to-edge Close button. Step tabs are
-28 points high and centered against the title text instead of filling the titlebar. Modal
+titlebars use one 48-point row for the title and edge-to-edge Close button. Close has a
+distinct opaque neutral surface, contrasting glyph, and bright red hover.
+Step tabs are 28 points high and centered horizontally in the bottom action row,
+alongside Continue, Check Now, or the current page's navigation actions. Keep their
+center fixed independently of unequal left and right buttons. Modal
 content and actions use matching 16-point top and bottom spacing, and checkboxes align to the
 same 16-point panel content edge as their headings and rows.
 

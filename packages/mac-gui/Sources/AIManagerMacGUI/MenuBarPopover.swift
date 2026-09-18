@@ -183,7 +183,7 @@ final class MenuBarPopoverStore: ObservableObject {
 }
 
 struct MenuBarPalette {
-  let surface, card, ink, muted, track, accent, action, actionBorder, active, line: Color
+  let surface, card, ink, muted, track, accent, active, line: Color
   static let ivory = MenuBarPalette(dark: false)
   static let espresso = MenuBarPalette(dark: true)
 
@@ -194,8 +194,6 @@ struct MenuBarPalette {
     muted = Color(hex: dark ? 0xC8BCA6 : 0x6B665A)
     track = Color(hex: dark ? 0x625B4B : 0xE0DED4)
     accent = Color(hex: dark ? 0xB4C8DD : 0x4B706E)
-    action = Color(hex: dark ? 0xBDD6F4 : 0x315E92)
-    actionBorder = Color(hex: dark ? 0x7F9CBB : 0xA0B4CA)
     active = Color(hex: dark ? 0x504A3E : 0xE9E7DF)
     line = Color(hex: dark ? 0x534A3B : 0xDCD8CC)
   }
@@ -204,7 +202,6 @@ struct MenuBarPalette {
 struct MenuBarPopover: View {
   static let width: CGFloat = 344
   static let minimumHeight: CGFloat = 104
-  static let maximumHeight: CGFloat = 900
   static let footerHeight: CGFloat = 29
   static let listInset: CGFloat = 10
   static let cardSpacing: CGFloat = 10
@@ -236,7 +233,9 @@ struct MenuBarPopover: View {
       accountList
       footer
     }
-    .frame(width: Self.width)
+    .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
+      accounts: store.snapshot.accounts,
+      visibleScreenHeight: AIManagerStatusItemController.smallestDisplayHeight).height)
     .background {
       if reduceTransparency {
         palette.surface
@@ -482,19 +481,19 @@ private struct MenuBarActionButton: View {
     Button(action: action) {
       Text(title)
         .font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(disabled ? palette.muted : title == "Switch" ? palette.action : palette.ink)
+        .foregroundStyle(disabled ? palette.muted : title == "Switch" ? palette.accent : palette.ink)
         .frame(
           width: MenuBarPopover.accountActionWidth,
           height: MenuBarPopover.accountActionHeight)
         .background {
           AIMHoverBackground(base: disabled ? palette.active : .clear,
-            highlight: (title == "Switch" ? palette.action : palette.ink).opacity(0.08),
+            highlight: (title == "Switch" ? palette.accent : palette.ink).opacity(0.08),
             hovered: isHovered && !disabled)
         }
         .overlay {
           if title == "Switch", !disabled {
             RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius)
-              .stroke(palette.actionBorder, lineWidth: 1)
+              .stroke(palette.accent, lineWidth: 1)
           }
         }
         .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
