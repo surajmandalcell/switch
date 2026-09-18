@@ -9,6 +9,28 @@ Design revision: 2026-09-18. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Menubar palette and multi-account design review (2026-09-18)
+
+The owner requests ten previews in `tmp/index.html` before choosing a new Menubar
+design. Use a palette independent of app appearance, starting with warm cream, and
+vary both color and shape. Follow the supplied usage-panel reference with clear
+account switching and limits, preserving the compact refresh/Open App footer.
+The HTML uses synthetic account identities and usage; it must not read or mutate auth.
+
+- [x] Deliver and verify ten selectable HTML previews.
+- [ ] Apply the owner's selected design to the native Menubar and installed app.
+
+Advanced Cleanup remains deferred by the owner's instruction.
+
+The ignored review gallery contains ten fixed palettes and distinct panel/list shapes.
+Desktop and mobile browser checks show ten options, no horizontal overflow or overlapping
+account controls, and working design selection, isolated demo switching, and weekly-only
+display. The local Inter font and sourced Codex glyph load successfully. Enabled text
+contrast meets 4.5:1, including reset descriptions and footer copy. The mechanical design
+detector uses a degraded regex fallback; its only finding is the owner's pinned Inter
+font. Full task-end debt inventory: zero markers and zero missing triggers. Native
+implementation and installation await the owner's design choice.
+
 ### Home-scoped writer checks and retired sign-in cleanup (2026-09-18)
 
 The owner confirms that the installed local opacity fades resolve the light hover flash.

@@ -199,10 +199,14 @@ Text remains `#F2F2F3`
 with muted text no darker than `#B9BBC0`. Soft separators remain visible without turning
 panels into outlined cards.
 
-The menu popover must inherit the effective app appearance in every hosted or virtualized
-row. Its dark list cannot fall back to light row colors. It opens without presentation
-animation, uses three-point corners, and uses `#18191B` for its dark column/footer chrome
-against the shared neutral row scale.
+The Menubar popover will use a dedicated palette independent of the app's light or dark
+appearance. The owner requests a warmer cream direction and ten HTML previews with
+different colors and shapes before choosing the implementation. The palette and shape
+choice remains pending; the existing installed design stays in place until that choice.
+Preserve compact multi-account switching, visible limits, the refresh timestamp, and
+Open App. Keep the single native backdrop and reduced-transparency fallback, and open
+without presentation animation. Preview data is illustrative and does not query or
+change accounts. The review artifact is `tmp/index.html`.
 
 Compact section headers use one 40-point alignment row. A leading title, trailing count,
 warning/copy action, error indicator, and progress indicator occupy explicit centered slots;

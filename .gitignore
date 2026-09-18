@@ -16,6 +16,7 @@ Thumbs.db
 
 release/
 artifacts/
+tmp/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
