@@ -50,6 +50,7 @@ enum AIManagerNativeContract {
       ("Shared button", shared, true),
       ("Disabled shared button", AnyView(shared.disabled(true)), false),
       ("Action button", AnyView(AIMButton(title: "Hover test", action: {})), true),
+      ("Cleanup time range", AnyView(CleanupRangeSelect(selection: .constant(.all))), true),
       ("Icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", action: {})), true),
       ("Disabled icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", disabled: true, action: {})), false),
     ]
@@ -402,6 +403,10 @@ enum AIManagerNativeContract {
     pagingScroll.reflectScrolledClipView(pagingScroll.contentView)
     expect(endCalls > 0, "Native scrolling does not request the next message page")
     let cleanupNow = Date(timeIntervalSince1970: 1_800_000_000)
+    expect(CleanupDateRange.hour.moved(.up) == .hour && CleanupDateRange.all.moved(.down) == .custom
+      && CleanupDateRange.custom.moved(.down) == .custom && CleanupDateRange.custom.moved(.up) == .all
+      && CleanupDateRange.all.moved(.left) == nil,
+      "Cleanup range keyboard navigation escapes its options or handles unrelated arrows")
     let cutoff = cleanupNow.addingTimeInterval(-7 * 86_400)
     expect(CleanupDateRange.week.contains(cutoff, now: cleanupNow, from: cutoff, through: cleanupNow)
       && !CleanupDateRange.olderWeek.contains(cutoff, now: cleanupNow, from: cutoff, through: cleanupNow)

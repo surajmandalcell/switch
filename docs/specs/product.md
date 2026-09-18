@@ -73,6 +73,9 @@ before removing a source; reject changed/unsafe files and active or unknown writ
 settings, account registry/defaults, backups, Codex databases, and the activity ledger protected.
 Show linked or foreign-owned conversation files as protected entries; they never block selection
 of safe files and cannot enter a removal review.
+The time-range select uses a custom themed trigger and option list, with keyboard navigation,
+selected-state feedback, and Escape dismissal. Expanded tree and account-cache checkbox rows
+align to the leading edge at their nesting level; no disclosure content is centered.
 
 Chat History loads messages in chronological pages as the reader scrolls, without a permanent
 older-message cutoff. Filters and search operate across the complete conversation, retain their

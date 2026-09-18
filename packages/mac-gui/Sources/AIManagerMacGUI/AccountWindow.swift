@@ -1735,10 +1735,7 @@ private struct CleanupPage: View {
     AIMScrollView {
       VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 12) {
-          Picker("Time range", selection: $range) {
-            ForEach(CleanupDateRange.allCases) { Text($0.rawValue).tag($0) }
-          }
-          .frame(width: 250)
+          CleanupRangeSelect(selection: $range).disabled(unavailable)
           if range == .custom {
             DatePicker("From", selection: $from, displayedComponents: .date)
             DatePicker("Through", selection: $through, in: from..., displayedComponents: .date)
@@ -1752,23 +1749,28 @@ private struct CleanupPage: View {
         AIMPanel(title: "Codex CLI") {
           VStack(alignment: .leading, spacing: 12) {
             DisclosureGroup("Shared conversations (\(visibleConversations.count.formatted()))") {
-              conversationTree(archived: false)
-              conversationTree(archived: true)
+              VStack(alignment: .leading, spacing: 8) {
+                conversationTree(archived: false)
+                conversationTree(archived: true)
+              }.frame(maxWidth: .infinity, alignment: .leading)
             }
             DisclosureGroup("Account usage samples (\(visibleSamples.count.formatted()))") {
               let grouped = Dictionary(grouping: visibleSamples, by: \.accountID)
-              ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
-                let entries = grouped[accountID] ?? []
-                let name = model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString
-                Toggle("\(name) · \(entries.count.formatted()) samples · \(sizeText(entries.reduce(0) { $0 + $1.bytes }))", isOn: Binding(
-                  get: { entries.allSatisfy { selectedSamples.contains($0.id) } },
-                  set: { enabled in
-                    let ids = Set(entries.map(\.id))
-                    if enabled { selectedSamples.formUnion(ids) } else { selectedSamples.subtract(ids) }
-                    review = nil
-                  })).toggleStyle(.checkbox)
+              VStack(alignment: .leading, spacing: 8) {
+                ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
+                  let entries = grouped[accountID] ?? []
+                  let name = model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString
+                  Toggle("\(name) · \(entries.count.formatted()) samples · \(sizeText(entries.reduce(0) { $0 + $1.bytes }))", isOn: Binding(
+                    get: { entries.allSatisfy { selectedSamples.contains($0.id) } },
+                    set: { enabled in
+                      let ids = Set(entries.map(\.id))
+                      if enabled { selectedSamples.formUnion(ids) } else { selectedSamples.subtract(ids) }
+                      review = nil
+                    })).toggleStyle(.checkbox).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if visibleSamples.isEmpty { Text("No cached samples in this date range.").foregroundStyle(AIMTheme.muted) }
               }
-              if visibleSamples.isEmpty { Text("No cached samples in this date range.").foregroundStyle(AIMTheme.muted) }
+              .frame(maxWidth: .infinity, alignment: .leading)
             }
             Toggle("Shared conversation index · \(sizeText(sizes.conversationBytes))", isOn: $clearIndex)
               .toggleStyle(.checkbox).disabled(range != .all || sizes.conversationBytes == 0)
@@ -1877,36 +1879,39 @@ private struct CleanupPage: View {
     let entries = visibleConversations.filter { $0.archived == archived }
     let grouped = Dictionary(grouping: entries, by: \.project)
     return DisclosureGroup(archived ? "Archived conversations (\(entries.count.formatted()))" : "Active conversations (\(entries.count.formatted()))") {
-      ForEach(grouped.keys.sorted(), id: \.self) { project in
-        let projectEntries = grouped[project] ?? []
-        let selectable = projectEntries.filter { $0.exclusionReason == nil }
-        DisclosureGroup {
-          AIMVirtualList(items: projectEntries, fixedRowHeight: 34) { item in
-            AnyView(HStack(spacing: 8) {
-              Toggle(item.title, isOn: Binding(
-                get: { selectedConversations.contains(item.id) },
-                set: { enabled in
-                  if enabled { selectedConversations.insert(item.id) } else { selectedConversations.remove(item.id) }
-                  review = nil
-                })).toggleStyle(.checkbox).lineLimit(1)
-                .disabled(item.exclusionReason != nil).help(item.exclusionReason ?? item.relativePath)
-              Spacer(minLength: 4)
-              Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(AIMTheme.muted)
-              Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted).frame(width: 65, alignment: .trailing)
-            }.padding(.horizontal, 4).font(AIMTheme.sans(10)))
-          }.frame(height: min(CGFloat(projectEntries.count) * 34, 204))
-        } label: {
-          Toggle("\(URL(fileURLWithPath: project).lastPathComponent) (\(projectEntries.count.formatted()))", isOn: Binding(
-            get: { !selectable.isEmpty && selectable.allSatisfy { selectedConversations.contains($0.id) } },
-            set: { enabled in
-              let ids = Set(selectable.map(\.id))
-              if enabled { selectedConversations.formUnion(ids) } else { selectedConversations.subtract(ids) }
-              review = nil
-            })).toggleStyle(.checkbox).disabled(selectable.isEmpty).help(project)
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(grouped.keys.sorted(), id: \.self) { project in
+          let projectEntries = grouped[project] ?? []
+          let selectable = projectEntries.filter { $0.exclusionReason == nil }
+          DisclosureGroup {
+            AIMVirtualList(items: projectEntries, fixedRowHeight: 34) { item in
+              AnyView(HStack(spacing: 8) {
+                Toggle(item.title, isOn: Binding(
+                  get: { selectedConversations.contains(item.id) },
+                  set: { enabled in
+                    if enabled { selectedConversations.insert(item.id) } else { selectedConversations.remove(item.id) }
+                    review = nil
+                  })).toggleStyle(.checkbox).lineLimit(1)
+                  .disabled(item.exclusionReason != nil).help(item.exclusionReason ?? item.relativePath)
+                Spacer(minLength: 4)
+                Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(AIMTheme.muted)
+                Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted).frame(width: 65, alignment: .trailing)
+              }.padding(.horizontal, 4).font(AIMTheme.sans(10)))
+            }.frame(height: min(CGFloat(projectEntries.count) * 34, 204))
+          } label: {
+            Toggle("\(URL(fileURLWithPath: project).lastPathComponent) (\(projectEntries.count.formatted()))", isOn: Binding(
+              get: { !selectable.isEmpty && selectable.allSatisfy { selectedConversations.contains($0.id) } },
+              set: { enabled in
+                let ids = Set(selectable.map(\.id))
+                if enabled { selectedConversations.formUnion(ids) } else { selectedConversations.subtract(ids) }
+                review = nil
+              })).toggleStyle(.checkbox).disabled(selectable.isEmpty).help(project)
+                .frame(maxWidth: .infinity, alignment: .leading)
+          }
         }
-      }
-      if entries.isEmpty { Text("No conversations in this date range.").foregroundStyle(AIMTheme.muted) }
-    }
+        if entries.isEmpty { Text("No conversations in this date range.").foregroundStyle(AIMTheme.muted) }
+      }.frame(maxWidth: .infinity, alignment: .leading)
+    }.frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func resetSelection() {
@@ -1972,11 +1977,80 @@ private struct CleanupReview {
   let clearIndex: Bool
 }
 
+struct CleanupRangeSelect: View {
+  @Binding var selection: CleanupDateRange
+  @State private var expanded = false
+  @FocusState private var triggerFocused: Bool
+  @FocusState private var focusedOption: CleanupDateRange?
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Text("Time range").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+      Button { expanded.toggle() } label: {
+        HStack(spacing: 12) {
+          Text(selection.rawValue).lineLimit(1)
+          Spacer(minLength: 0)
+          AIMIcon(name: .chevron, size: 10).rotationEffect(.degrees(expanded ? -90 : 90))
+            .foregroundStyle(AIMTheme.muted)
+        }
+        .font(AIMTheme.sans(11, weight: .medium)).foregroundStyle(AIMTheme.ink)
+        .padding(.horizontal, 10).frame(width: 184, height: 30)
+        .background(AIMTheme.control).clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .overlay(RoundedRectangle(cornerRadius: AIMTheme.radius)
+          .stroke(expanded || triggerFocused ? AIMTheme.blue : AIMTheme.lineSoft, lineWidth: 1))
+      }
+      .buttonStyle(AIMPressButtonStyle()).focused($triggerFocused)
+      .accessibilityLabel("Time range").accessibilityValue(selection.rawValue)
+      .accessibilityHint(expanded ? "Close time ranges" : "Choose a time range")
+      .accessibilityIdentifier("cleanup-time-range")
+      .popover(isPresented: $expanded, arrowEdge: .bottom) {
+        VStack(alignment: .leading, spacing: 2) {
+          ForEach(CleanupDateRange.allCases) { option in
+            Button { choose(option) } label: {
+              HStack(spacing: 8) {
+                AIMIcon(name: .check, size: 11).opacity(option == selection ? 1 : 0)
+                Text(option.rawValue)
+                Spacer(minLength: 0)
+              }
+              .font(AIMTheme.sans(11, weight: option == selection ? .medium : .regular))
+              .foregroundStyle(AIMTheme.ink).padding(.horizontal, 10).frame(height: 30)
+              .background(option == focusedOption ? AIMTheme.listSelection : .clear)
+              .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+            }
+            .buttonStyle(AIMPressButtonStyle()).focused($focusedOption, equals: option)
+            .accessibilityAddTraits(option == selection ? .isSelected : [])
+            if option == .month || option == .olderYear {
+              Rectangle().fill(AIMTheme.lineSoft).frame(height: 1).padding(.vertical, 4)
+            }
+          }
+        }
+        .padding(8).frame(width: 216).background(AIMTheme.panel)
+        .onAppear { focusedOption = selection }
+        .onMoveCommand { direction in
+          if let next = (focusedOption ?? selection).moved(direction) { focusedOption = next }
+        }
+        .onKeyPress(.return) { choose(focusedOption ?? selection); return .handled }
+        .onExitCommand { expanded = false }
+      }
+      .onChange(of: expanded) { _, open in if !open { triggerFocused = true } }
+    }
+  }
+
+  private func choose(_ option: CleanupDateRange) {
+    selection = option
+    expanded = false
+  }
+}
+
 enum CleanupDateRange: String, CaseIterable, Identifiable {
   case hour = "Last hour", day = "Last 24 hours", week = "Last 7 days", month = "Last 4 weeks"
   case olderWeek = "Older than 7 days", olderMonth = "Older than 30 days", olderYear = "Older than 1 year"
   case all = "All time", custom = "Custom dates"
   var id: String { rawValue }
+  func moved(_ direction: MoveCommandDirection) -> Self? {
+    guard direction == .up || direction == .down, let index = Self.allCases.firstIndex(of: self) else { return nil }
+    return Self.allCases[min(max(index + (direction == .up ? -1 : 1), 0), Self.allCases.count - 1)]
+  }
   func contains(_ date: Date, now: Date, from: Date, through: Date) -> Bool {
     if self == .all { return true }
     if self == .custom {

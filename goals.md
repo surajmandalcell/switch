@@ -11,6 +11,8 @@ verification evidence.
 
 ### Conversation pagination and comprehensive Cleanup (2026-09-19)
 
+- [x] Replace Cleanup's native time-range select with a themed dropdown and align all
+  expanded source/project/account-cache rows to their leading edges.
 - [x] Replace the hidden-message cutoff with scroll-based chronological pagination,
   including full-conversation filters/search and correctly ordered Copy shown exports.
 - [x] Add recorded conversation tokens beside aligned message counts; label sidebar
@@ -66,6 +68,12 @@ suite (two existing opt-in skips) and CLI acceptance. Native System/Light/Dark c
 Preview/production models and scroll checks pass. Task-end debt inventory contains zero
 markers and zero missing triggers. Final installed acceptance is recorded after packaging
 in `/private/tmp/ai-manager-build/final-install-receipt.json`.
+
+Cleanup control follow-up: the time-range trigger and option list use the existing Inter
+type, surfaces, borders and hover style. Arrow navigation, Enter selection, Escape dismissal
+and selected checks replace the native select. Expanded source/project/account-cache rows
+use full-width leading-aligned stacks. Keyboard boundary and smooth-hover regressions pass
+with the System/Light/Dark native contracts; installation acceptance stays in the receipt.
 
 ### Menubar popup viewport and display cap (2026-09-18)
 
