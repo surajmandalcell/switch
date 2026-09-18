@@ -87,7 +87,10 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(withSymlink.count, 1)
         try files.removeItem(at: linked)
         try files.linkItem(at: source, to: linked)
-        do { _ = try await manager.cleanupInventory(); XCTFail("Hard-linked file accepted") }
+        let withHardLinks = try await manager.cleanupInventory()
+        XCTAssertEqual(withHardLinks.count, 2)
+        XCTAssertTrue(withHardLinks.allSatisfy { $0.exclusionReason != nil })
+        do { _ = try await manager.reviewCleanup(withHardLinks); XCTFail("Hard-linked file accepted for removal") }
         catch { XCTAssertTrue(CoreSupport.entryExists(source)) }
     }
 
