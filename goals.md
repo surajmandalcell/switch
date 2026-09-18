@@ -18,7 +18,26 @@ account switching and limits, preserving the compact refresh/Open App footer.
 The HTML uses synthetic account identities and usage; it must not read or mutate auth.
 
 - [x] Deliver and verify ten selectable HTML previews.
+- [x] Refine Soft rectangles into color variations with debounced radius inputs and a proportional slider.
 - [ ] Apply the owner's selected design to the native Menubar and installed app.
+
+The owner selects option 01, Soft rectangles, for the layout. The second review keeps
+its geometry and varies only palette. Add 250 ms debounced popup, card, and button
+radius inputs to `tmp/index.html`, starting at 13/10/5 px, and preserve the chosen values
+in the preview URL so the owner can return the exact final choice. Final palette and
+radii remain unselected. Keep the first-round artifact as `tmp/designs-round1.html`.
+The owner also requests a single slider to scale all three radii in proportion.
+Individual inputs establish the baseline, the slider updates every preview, and Copy
+choice returns the selected color and actual final radii.
+
+Second-round browser verification confirms identical layout and 13/10/5 px starting
+radii across ten palettes, a 250 ms trailing update for typed radii, and proportional
+slider scaling without losing the baseline when moved through zero. Color and actual
+radii restore from the URL on reload. Invalid radii retain the last valid preview and
+disable scaling/copy; Reset corners restores the defaults. Desktop and narrow mobile
+checks show no horizontal overflow or account-control overlap, no browser errors, and
+at least 4.51:1 enabled text contrast. The same detector fallback reports only pinned
+Inter. Final debt inventory remains zero markers and zero missing triggers.
 
 Advanced Cleanup remains deferred by the owner's instruction.
 

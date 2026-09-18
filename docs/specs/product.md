@@ -200,9 +200,14 @@ with muted text no darker than `#B9BBC0`. Soft separators remain visible without
 panels into outlined cards.
 
 The Menubar popover will use a dedicated palette independent of the app's light or dark
-appearance. The owner requests a warmer cream direction and ten HTML previews with
-different colors and shapes before choosing the implementation. The palette and shape
-choice remains pending; the existing installed design stays in place until that choice.
+appearance. The owner selects option 01's Soft rectangles layout: identical compact
+account panels, no separate header tint or dividers, and the existing refresh footer.
+The next HTML review varies only colors, with debounced inputs for popup, card, and
+button corner radii applied to every preview. Start with 13, 10, and 5 pixels respectively.
+Include a single proportional slider that scales all three radii together; individual
+inputs establish their proportions. Save the actual final radii with the color selection
+in the preview URL and expose a copyable choice summary.
+Palette and final radii remain pending; the installed design stays in place until chosen.
 Preserve compact multi-account switching, visible limits, the refresh timestamp, and
 Open App. Keep the single native backdrop and reduced-transparency fallback, and open
 without presentation animation. Preview data is illustrative and does not query or
