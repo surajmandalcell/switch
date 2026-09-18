@@ -9,6 +9,15 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Conversation header alignment (2026-09-19)
+
+- [x] Move loading/error and warning slots before the right-aligned conversation count
+  and reduce the spinner to mini size. System/Light/Dark native contracts pass in
+  `/private/tmp/ai-manager-build/history-header-contract.log`.
+
+The canonical final-install receipt owns the subsequent clean signed installation
+and its installed header inspection.
+
 ### README refresh (2026-09-19)
 
 - [x] Document current account setup, saved-auth usage checks, Menubar preferences,

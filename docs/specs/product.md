@@ -1,7 +1,7 @@
 # Switch product specification
 
 Status: Initial accepted specification
-Revision: 2026-09-18
+Revision: 2026-09-19
 
 This document defines the current product model and user-visible contract. `goals.md`
 retains milestone history and verification evidence. If older milestone text conflicts
@@ -259,6 +259,8 @@ are review controls, not new app settings.
 Compact section headers use one 40-point alignment row. A leading title, trailing count,
 warning/copy action, error indicator, and progress indicator occupy explicit centered slots;
 content changes must not move them vertically or horizontally.
+In Chat History's Conversations header, warning and loading/error slots precede the
+right-aligned conversation count. Use a mini spinner and reserve no status space after the count.
 
 Identity and Usage are the primary account sections. Their header tint is restrained;
 secondary and settings headers use a lighter tint. Decorative header strokes use half the
