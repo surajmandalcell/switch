@@ -5,9 +5,33 @@ the final receipt named in the closeout evidence. The installed app uses the rea
 Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
 distribution remains blocked on a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
-Design revision: 2026-09-18. The current product contract is
+Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
+
+### Conversation pagination and comprehensive Cleanup (2026-09-19)
+
+- [x] Replace the hidden-message cutoff with scroll-based chronological pagination,
+  including full-conversation filters/search and correctly ordered Copy shown exports.
+- [x] Add recorded conversation tokens beside aligned message counts; label sidebar
+  conversation totals and reduce excess message padding.
+- [ ] Resume Cleanup with project/source trees, date selection, exact previews, recovery,
+  restore and separately confirmed permanent removal; preserve retained activity totals.
+- [ ] Verify synthetic large-thread, paging, safety and recovery cases and update the
+  exact clean signed installed app.
+
+The latest request supersedes the earlier Cleanup deferral. Root implements the changes;
+the Astra review covers Cleanup safety and existing seams without editing the code.
+
+Pagination checkpoint: 167 core checks pass with two existing opt-in skips. The new
+3,100-message regression reaches every message once in order, searches beyond the
+first page, filters subsequent pages, and reads recorded cumulative tokens. A targeted
+legacy-cap mutation fails the regression; restoring the full offset index passes it.
+Five-megabyte tool results remain copyable rather than being skipped. The summary cache
+migrates to version four to retain optional recorded totals. Production view-model and
+System/Light/Dark native contracts pass. Evidence uses the canonical build directory:
+`chat-pagination-core-full.log`, `chat-pagination-cap-regression-red.log`,
+`chat-pagination-production.log`, and `chat-pagination-ui-contract.log`.
 
 ### Menubar popup viewport and display cap (2026-09-18)
 

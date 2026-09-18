@@ -851,6 +851,8 @@ final class JSONLReader {
     private let handle: FileHandle
     private var buffer = Data()
     private var offset = 0
+    private var bufferOffset: UInt64 = 0
+    private(set) var lastRecordOffset: UInt64 = 0
     private var reachedEnd = false
     private let maximumRecordBytes: Int
 
@@ -867,6 +869,7 @@ final class JSONLReader {
                 guard newline - offset <= maximumRecordBytes else {
                     throw AIManagerError.invalidSource("A JSONL record exceeds the validation limit.")
                 }
+                lastRecordOffset = bufferOffset + UInt64(offset)
                 let record = Data(buffer[offset..<newline])
                 offset = newline + 1
                 compactIfNeeded()
@@ -878,6 +881,7 @@ final class JSONLReader {
                 guard buffer.count - offset <= maximumRecordBytes else {
                     throw AIManagerError.invalidSource("A JSONL record exceeds the validation limit.")
                 }
+                lastRecordOffset = bufferOffset + UInt64(offset)
                 let record = Data(buffer[offset...])
                 offset = buffer.count
                 return record.isEmpty ? nil : record
@@ -892,6 +896,7 @@ final class JSONLReader {
 
     private func compactIfNeeded() {
         if offset >= 1_048_576 {
+            bufferOffset += UInt64(offset)
             buffer.removeSubrange(0..<offset)
             offset = 0
         }

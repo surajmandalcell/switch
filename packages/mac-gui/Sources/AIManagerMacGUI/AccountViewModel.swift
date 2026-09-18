@@ -8,11 +8,21 @@ protocol ChatHistoryProviding: Sendable {
     func refresh(query: String) async throws -> ChatHistorySnapshot
     func search(query: String) async -> ChatHistorySnapshot
     func detail(for id: String) async throws -> ChatThreadDetail?
+    func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail?
     func clearCache() async throws
 }
 
 extension ChatHistoryProviding {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
+    func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail? {
+        guard let detail = try await detail(for: id) else { return nil }
+        let result = try await ChatMessageSearch.search(detail.messages, query: query, filter: filter)
+        let messages = Array(result.messages.dropFirst(offset).prefix(100))
+        let next = offset + messages.count
+        return ChatThreadDetail(thread: detail.thread, messages: messages, omittedMessageCount: 0,
+            matchingMessageCount: result.matchingMessageCount,
+            nextOffset: next < result.matchingMessageCount ? next : nil)
+    }
 }
 
 private struct IndexedChatHistoryProvider: ChatHistoryProviding {
@@ -32,6 +42,10 @@ private struct IndexedChatHistoryProvider: ChatHistoryProviding {
 
     func detail(for id: String) async throws -> ChatThreadDetail? {
         try await index.detail(for: id)
+    }
+
+    func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail? {
+        try await index.detail(for: id, offset: offset, query: query, filter: filter)
     }
 
     func clearCache() async throws {
@@ -91,6 +105,9 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var selectedChat: ChatThreadDetail?
     @Published private(set) var renderedChatMessages: [String: AttributedString] = [:]
     @Published private(set) var isChatHistoryLoading = false
+    @Published private(set) var isChatPageLoading = false
+    private var selectedChatQuery = ""
+    private var selectedChatFilter: ChatMessageFilter = .all
     @Published private(set) var isChatLoading = false
     @Published private(set) var chatHistoryError: String?
     @Published private(set) var isUnavailable = false
@@ -1287,7 +1304,24 @@ final class AccountViewModel: ObservableObject {
         selectedChatID = id
         selectedChat = nil
         renderedChatMessages = [:]
+        selectedChatQuery = ""
+        selectedChatFilter = .all
+        isChatPageLoading = false
         await loadSelectedChat(id)
+    }
+
+    func searchChatMessages(query: String, filter: ChatMessageFilter) async {
+        guard let id = selectedChatID,
+              selectedChatQuery != query || selectedChatFilter != filter else { return }
+        selectedChatQuery = query
+        selectedChatFilter = filter
+        await loadSelectedChat(id)
+    }
+
+    func loadMoreChatMessages() async {
+        guard !isChatPageLoading, chatDetailTask == nil,
+              let id = selectedChatID, selectedChat?.nextOffset != nil else { return }
+        await loadSelectedChat(id, appending: true)
     }
 
     private func selectVisibleChat() async {
@@ -1307,25 +1341,38 @@ final class AccountViewModel: ObservableObject {
         await loadSelectedChat(nextID)
     }
 
-    private func loadSelectedChat(_ id: String) async {
+    private func loadSelectedChat(_ id: String, appending: Bool = false) async {
         chatDetailTask?.cancel()
         chatSelectionGeneration += 1
         let generation = chatSelectionGeneration
+        let previous = selectedChat
+        let offset = appending ? previous?.nextOffset ?? 0 : 0
+        let query = selectedChatQuery
+        let filter = selectedChatFilter
+        if appending { isChatPageLoading = true }
         let showsLoader = selectedChat == nil
         if showsLoader { isChatLoading = true }
         defer {
+            if generation == chatSelectionGeneration { isChatPageLoading = false }
             if showsLoader, generation == chatSelectionGeneration { isChatLoading = false }
         }
         #if AI_MANAGER_PREVIEW
         if isDemo {
-            let detail = DemoData.chatDetail(id)
+            let detail = DemoData.chatDetail(id).map { detail in
+                let terms = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+                let matches = detail.messages.filter {
+                    filter.includes($0.role) && terms.allSatisfy($0.text.lowercased().contains)
+                }
+                return ChatThreadDetail(thread: detail.thread,
+                    messages: matches, omittedMessageCount: 0, matchingMessageCount: matches.count)
+            }
             renderedChatMessages = (try? await Self.render(messages: detail?.messages ?? [])) ?? [:]
             selectedChat = detail
             return
         }
         #endif
         guard let chatHistoryProvider else { return }
-        let task = Task { try await chatHistoryProvider.detail(for: id) }
+        let task = Task { try await chatHistoryProvider.page(for: id, offset: offset, query: query, filter: filter) }
         chatDetailTask = task
         do {
             let detail = try await withTaskCancellationHandler {
@@ -1337,8 +1384,15 @@ final class AccountViewModel: ObservableObject {
             guard !Task.isCancelled,
                   generation == chatSelectionGeneration,
                   selectedChatID == id else { return }
-            renderedChatMessages = rendered
-            if detail != selectedChat { selectedChat = detail }
+            if appending, let detail, let previous {
+                renderedChatMessages.merge(rendered) { _, new in new }
+                selectedChat = ChatThreadDetail(thread: detail.thread,
+                    messages: previous.messages + detail.messages, omittedMessageCount: 0,
+                    matchingMessageCount: detail.matchingMessageCount, nextOffset: detail.nextOffset)
+            } else {
+                renderedChatMessages = rendered
+                if detail != selectedChat { selectedChat = detail }
+            }
             chatDetailTask = nil
         } catch is CancellationError {
             return
@@ -1358,8 +1412,8 @@ final class AccountViewModel: ObservableObject {
             rendered.reserveCapacity(messages.count)
             for (index, message) in messages.enumerated() {
                 if index.isMultiple(of: 16) { try Task.checkCancellation() }
-                rendered[message.id] = (try? AttributedString(markdown: message.text))
-                    ?? AttributedString(message.text)
+                let text = String(message.text.prefix(120_000))
+                rendered[message.id] = (try? AttributedString(markdown: text)) ?? AttributedString(text)
             }
             return rendered
         }

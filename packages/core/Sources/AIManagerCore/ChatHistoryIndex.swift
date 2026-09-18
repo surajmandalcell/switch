@@ -76,6 +76,7 @@ public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
     public let fileByteCount: Int64
     public let source: URL
     public let unreadableRecordCount: Int
+    public let totalTokens: Int64?
 
     public init(
         id: String,
@@ -88,7 +89,8 @@ public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
         messageCount: Int,
         fileByteCount: Int64,
         source: URL,
-        unreadableRecordCount: Int
+        unreadableRecordCount: Int,
+        totalTokens: Int64? = nil
     ) {
         self.id = id
         self.threadID = threadID
@@ -101,6 +103,7 @@ public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
         self.fileByteCount = fileByteCount
         self.source = source
         self.unreadableRecordCount = unreadableRecordCount
+        self.totalTokens = totalTokens
     }
 }
 
@@ -108,15 +111,21 @@ public struct ChatThreadDetail: Sendable, Equatable {
     public let thread: ChatThreadSummary
     public let messages: [ChatMessage]
     public let omittedMessageCount: Int
+    public let matchingMessageCount: Int
+    public let nextOffset: Int?
 
     public init(
         thread: ChatThreadSummary,
         messages: [ChatMessage],
-        omittedMessageCount: Int
+        omittedMessageCount: Int,
+        matchingMessageCount: Int? = nil,
+        nextOffset: Int? = nil
     ) {
         self.thread = thread
         self.messages = messages
         self.omittedMessageCount = omittedMessageCount
+        self.matchingMessageCount = matchingMessageCount ?? messages.count
+        self.nextOffset = nextOffset
     }
 }
 
@@ -216,7 +225,9 @@ public actor ChatHistoryIndex {
 
     private struct CachedDetail: Sendable {
         let signature: FileSignature
-        let detail: ChatThreadDetail
+        let references: [ChatMessageReference]
+        var matchKey = ""
+        var matches: [ChatMessageReference] = []
     }
 
     private struct ThreadMetadataIndex: Sendable {
@@ -252,6 +263,7 @@ public actor ChatHistoryIndex {
         let messageCount: Int
         let fileByteCount: Int64
         let unreadableRecordCount: Int
+        let totalTokens: Int64?
         let searchText: String
         let activityRecorded: Bool?
     }
@@ -381,30 +393,74 @@ public actor ChatHistoryIndex {
         makeSnapshot(query: query, limit: limit, reparsedFileCount: 0)
     }
 
-    public func detail(for id: String) async throws -> ChatThreadDetail? {
+    public func detail(
+        for id: String, offset: Int = 0, limit: Int = 100,
+        query: String = "", filter: ChatMessageFilter = .all
+    ) async throws -> ChatThreadDetail? {
         guard let cached = cache[id] else { return nil }
-        if let detail = detailCache[id], detail.signature == cached.signature {
-            return detail.detail
-        }
         let candidate = Candidate(
             url: cached.summary.source,
             archived: cached.summary.archived,
             signature: cached.signature)
+        let previous = detailCache[id]
+        let terms = query.split(whereSeparator: \.isWhitespace).map { String($0).lowercased() }
+        let matchKey = "\(filter.rawValue):\(terms.joined(separator: "\u{0}"))"
+        let safeOffset = max(0, offset)
+        let safeLimit = min(max(1, limit), 200)
         let parsingTask = Task.detached(priority: .userInitiated) {
-            try TranscriptParser.parse(candidate, includeMessages: true)
+            var indexed: CachedDetail
+            if let previous, previous.signature == candidate.signature {
+                indexed = previous
+            } else {
+                indexed = CachedDetail(signature: candidate.signature,
+                    references: try TranscriptParser.parse(candidate, includeMessages: true).references)
+            }
+            let handle = try FileHandle(forReadingFrom: candidate.url)
+            defer { try? handle.close() }
+            if indexed.matchKey != matchKey {
+                indexed.matches = []
+                for reference in indexed.references where filter.includes(reference.role) {
+                    try Task.checkCancellation()
+                    if terms.isEmpty {
+                        indexed.matches.append(reference)
+                    } else if let message = try TranscriptParser.message(reference, handle: handle, path: id),
+                              terms.allSatisfy(message.text.lowercased().contains) {
+                        indexed.matches.append(reference)
+                    }
+                }
+                indexed.matchKey = matchKey
+            }
+            var messages: [ChatMessage] = []
+            var characters = 0
+            for reference in indexed.matches.dropFirst(safeOffset).prefix(safeLimit) {
+                try Task.checkCancellation()
+                guard let message = try TranscriptParser.message(reference, handle: handle, path: id) else {
+                    throw AIManagerError.invalidSource("The conversation changed. Refresh and try again.")
+                }
+                messages.append(message)
+                characters += message.text.utf8.count
+                if characters >= 2_000_000 { break }
+            }
+            let current = try candidate.url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            guard Int64(current.fileSize ?? -1) == candidate.signature.byteCount,
+                  current.contentModificationDate == candidate.signature.modifiedAt else {
+                throw AIManagerError.invalidSource("The conversation changed. Refresh and try again.")
+            }
+            return (indexed, messages)
         }
-        let transcript = try await withTaskCancellationHandler {
+        let (indexed, messages) = try await withTaskCancellationHandler {
             try await parsingTask.value
         } onCancel: {
             parsingTask.cancel()
         }
         try Task.checkCancellation()
-        let detail = ChatThreadDetail(
-            thread: cached.summary,
-            messages: transcript.messages,
-            omittedMessageCount: max(0, cached.summary.messageCount - transcript.messages.count))
-        detailCache[id] = CachedDetail(signature: cached.signature, detail: detail)
-        return detail
+        guard cache[id]?.signature == cached.signature else { throw CancellationError() }
+        if detailCache.count >= 4, detailCache[id] == nil { detailCache.removeAll() }
+        detailCache[id] = indexed
+        let next = safeOffset + messages.count
+        return ChatThreadDetail(thread: cached.summary, messages: messages, omittedMessageCount: 0,
+            matchingMessageCount: indexed.matches.count,
+            nextOffset: next < indexed.matches.count ? next : nil)
     }
 
     public func clearCache() throws {
@@ -480,7 +536,7 @@ public actor ChatHistoryIndex {
               permissions.intValue & 0o077 == 0,
               let data = try? Data(contentsOf: persistentCacheFile),
               let document = try? JSONDecoder().decode(PersistentDocument.self, from: data),
-              document.version == 3,
+              document.version == 4,
               document.homePath == home.path,
               document.threads.count + document.failures.count <= 500_000
         else { return }
@@ -511,7 +567,8 @@ public actor ChatHistoryIndex {
                 messageCount: item.messageCount,
                 fileByteCount: item.fileByteCount,
                 source: URL(fileURLWithPath: item.path),
-                unreadableRecordCount: item.unreadableRecordCount)
+                unreadableRecordCount: item.unreadableRecordCount,
+                totalTokens: item.totalTokens)
             cache[item.path] = CachedThread(
                 signature: signature, summary: summary, searchText: item.searchText,
                 activityRecorded: item.activityRecorded ?? false)
@@ -545,6 +602,7 @@ public actor ChatHistoryIndex {
                 messageCount: summary.messageCount,
                 fileByteCount: summary.fileByteCount,
                 unreadableRecordCount: summary.unreadableRecordCount,
+                totalTokens: summary.totalTokens,
                 searchText: cached.searchText, activityRecorded: cached.activityRecorded)
         }
         let failures = failedSignatures.keys.sorted().compactMap { path -> PersistentFailure? in
@@ -555,7 +613,7 @@ public actor ChatHistoryIndex {
                 modifiedAt: signature.modifiedAt)
         }
         let document = PersistentDocument(
-            version: 3, homePath: home.path, threads: threads, failures: failures)
+            version: 4, homePath: home.path, threads: threads, failures: failures)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(document) else { return }
@@ -592,20 +650,13 @@ public actor ChatHistoryIndex {
                 messageCount: current.messageCount,
                 fileByteCount: current.fileByteCount,
                 source: current.source,
-                unreadableRecordCount: current.unreadableRecordCount)
+                unreadableRecordCount: current.unreadableRecordCount,
+                totalTokens: current.totalTokens)
             let searchText = Self.searchText(for: summary)
             guard summary != current || searchText != cached.searchText else { continue }
             cache[path] = CachedThread(
                 signature: cached.signature, summary: summary, searchText: searchText,
                 activityRecorded: cached.activityRecorded)
-            if let detail = detailCache[path] {
-                detailCache[path] = CachedDetail(
-                    signature: detail.signature,
-                    detail: ChatThreadDetail(
-                        thread: summary,
-                        messages: detail.detail.messages,
-                        omittedMessageCount: detail.detail.omittedMessageCount))
-            }
             orderedCacheIsDirty = true
             changed = true
         }
@@ -729,10 +780,18 @@ public actor ChatHistoryIndex {
     }
 }
 
+private struct ChatMessageReference: Sendable {
+    let sequence: Int
+    let offset: UInt64
+    let byteCount: Int
+    let role: ChatMessageRole
+    let timestamp: Date?
+}
+
 private struct ParsedTranscript: Sendable {
     let summary: ChatThreadSummary
     let searchText: String
-    let messages: [ChatMessage]
+    let references: [ChatMessageReference]
     let activity: CodexTranscriptActivity
 }
 
@@ -751,8 +810,9 @@ private enum TranscriptParser {
         var meaningfulCount = 0
         var firstMeaningful: RawMessage?
         var lastMeaningful: RawMessage?
+        var references: [ChatMessageReference] = []
 
-        mutating func record(_ message: RawMessage) {
+        mutating func record(_ message: RawMessage, offset: UInt64, byteCount: Int, indexed: Bool) {
             count += 1
             if first == nil { first = message }
             last = message
@@ -760,6 +820,10 @@ private enum TranscriptParser {
                 meaningfulCount += 1
                 if firstMeaningful == nil { firstMeaningful = message }
                 lastMeaningful = message
+            }
+            if indexed, message.role != .user || !ChatTitlePolicy.isBootstrapContext(message.text) {
+                references.append(ChatMessageReference(sequence: message.sequence, offset: offset,
+                    byteCount: byteCount, role: message.role, timestamp: message.timestamp))
             }
         }
     }
@@ -797,12 +861,6 @@ private enum TranscriptParser {
         var assistants = MessageStats()
         var tools = MessageStats()
         var others = MessageStats()
-        var responseUserMessages: [RawMessage] = []
-        var eventUserMessages: [RawMessage] = []
-        var assistantMessages: [RawMessage] = []
-        var toolMessages: [RawMessage] = []
-        var otherMessages: [RawMessage] = []
-        var remainingDetailCharacters = 2_000_000
         var unreadableRecords = 0
         var sequence = 0
 
@@ -813,7 +871,7 @@ private enum TranscriptParser {
             if sequence == 1, record.starts(with: [0xEF, 0xBB, 0xBF]) {
                 record.removeFirst(3)
             }
-            guard record.count <= 4 * 1_024 * 1_024 else {
+            guard record.count <= 64 * 1_024 * 1_024 else {
                 activityComplete = false
                 continue
             }
@@ -880,10 +938,8 @@ private enum TranscriptParser {
             {
                 let message = RawMessage(
                     sequence: sequence, role: .user, text: text, timestamp: timestamp)
-                eventUsers.record(message)
-                append(
-                    message, to: &eventUserMessages, remainingCharacters: &remainingDetailCharacters,
-                    enabled: includeMessages)
+                eventUsers.record(message, offset: reader.lastRecordOffset,
+                    byteCount: rawRecord.count, indexed: includeMessages)
                 continue
             }
 
@@ -907,15 +963,11 @@ private enum TranscriptParser {
                     sequence: sequence, role: role, text: text, timestamp: timestamp)
                 switch role {
                 case .user:
-                    responseUsers.record(message)
-                    append(
-                        message, to: &responseUserMessages,
-                        remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
+                    responseUsers.record(message, offset: reader.lastRecordOffset,
+                        byteCount: rawRecord.count, indexed: includeMessages)
                 case .assistant:
-                    assistants.record(message)
-                    append(
-                        message, to: &assistantMessages,
-                        remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
+                    assistants.record(message, offset: reader.lastRecordOffset,
+                        byteCount: rawRecord.count, indexed: includeMessages)
                 case .tool, .other:
                     break
                 }
@@ -924,25 +976,19 @@ private enum TranscriptParser {
             if let text = toolText(messageObject, type: itemType) {
                 let message = RawMessage(
                     sequence: sequence, role: .tool, text: text, timestamp: timestamp)
-                tools.record(message)
-                append(
-                    message, to: &toolMessages,
-                    remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
+                tools.record(message, offset: reader.lastRecordOffset,
+                    byteCount: rawRecord.count, indexed: includeMessages)
                 continue
             }
             if itemType == "reasoning", let text = reasoningSummary(messageObject) {
                 let message = RawMessage(
                     sequence: sequence, role: .other, text: text, timestamp: timestamp)
-                others.record(message)
-                append(
-                    message, to: &otherMessages,
-                    remainingCharacters: &remainingDetailCharacters, enabled: includeMessages)
+                others.record(message, offset: reader.lastRecordOffset,
+                    byteCount: rawRecord.count, indexed: includeMessages)
             }
         }
 
         let users = eventUsers.count > 0 ? eventUsers : responseUsers
-        let chosenUserMessages = (eventUsers.count > 0 ? eventUserMessages : responseUserMessages)
-            .filter { !ChatTitlePolicy.isBootstrapContext($0.text) }
         let lastMessage = [users.lastMeaningful, assistants.last]
             .compactMap { $0 }
             .max { $0.sequence < $1.sequence }
@@ -967,14 +1013,10 @@ private enum TranscriptParser {
             messageCount: users.meaningfulCount + assistants.count + tools.count + others.count,
             fileByteCount: candidate.signature.byteCount,
             source: candidate.url,
-            unreadableRecordCount: unreadableRecords)
-        let messages = (chosenUserMessages + assistantMessages + toolMessages + otherMessages)
+            unreadableRecordCount: unreadableRecords,
+            totalTokens: activityEventCount > 0 && activityComplete && !inheritedHistory ? previousTokens : nil)
+        let references = (users.references + assistants.references + tools.references + others.references)
             .sorted { $0.sequence < $1.sequence }
-            .map {
-                ChatMessage(
-                    id: "\(path)#\($0.sequence)", role: $0.role,
-                    text: $0.text, timestamp: $0.timestamp)
-            }
         let searchText = [title, preview, workingDirectory, resolvedThreadID]
             .compactMap { $0 }
             .joined(separator: "\n")
@@ -983,25 +1025,35 @@ private enum TranscriptParser {
         let unchanged = Int64(current?.fileSize ?? -1) == candidate.signature.byteCount
             && current?.contentModificationDate == candidate.signature.modifiedAt
         return ParsedTranscript(
-            summary: summary, searchText: searchText, messages: messages,
+            summary: summary, searchText: searchText, references: references,
             activity: CodexTranscriptActivity(
                 threadID: threadID, project: workingDirectory, firstEvent: firstActivityEvent,
                 eventCount: activityEventCount, totalTokens: previousTokens, days: activityDays,
                 complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged))
     }
 
-    private static func append(
-        _ message: RawMessage,
-        to messages: inout [RawMessage],
-        remainingCharacters: inout Int,
-        enabled: Bool
-    ) {
-        guard enabled, messages.count < 2_000, remainingCharacters > 0 else { return }
-        let text = String(message.text.prefix(min(32_000, remainingCharacters)))
-        remainingCharacters -= text.count
-        messages.append(RawMessage(
-            sequence: message.sequence, role: message.role, text: text,
-            timestamp: message.timestamp))
+    static func message(_ reference: ChatMessageReference, handle: FileHandle, path: String) throws -> ChatMessage? {
+        try handle.seek(toOffset: reference.offset)
+        guard var data = try handle.read(upToCount: reference.byteCount), data.count == reference.byteCount else {
+            return nil
+        }
+        if data.starts(with: [0xEF, 0xBB, 0xBF]) { data.removeFirst(3) }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let payload = object["payload"] as? [String: Any]
+        let messageObject = object["type"] as? String == "response_item" ? payload : object
+        let text: String?
+        if object["type"] as? String == "event_msg", reference.role == .user {
+            text = payload?["message"] as? String
+        } else if let messageObject {
+            switch reference.role {
+            case .user, .assistant: text = messageText(messageObject)
+            case .tool: text = toolText(messageObject, type: messageObject["type"] as? String)
+            case .other: text = reasoningSummary(messageObject)
+            }
+        } else { text = nil }
+        guard let text else { return nil }
+        return ChatMessage(id: "\(path)#\(reference.sequence)", role: reference.role,
+            text: text, timestamp: reference.timestamp)
     }
 
     private static func messageText(_ object: [String: Any]) -> String? {
@@ -1074,17 +1126,9 @@ private enum TranscriptParser {
     }
 
     private static func mayContainVisibleMessage(_ record: Data) -> Bool {
-        let markers = [
-            Data(#""type":"session_meta""#.utf8),
-            Data(#""type":"user_message""#.utf8),
-            Data(#""role":"user""#.utf8),
-            Data(#""role":"assistant""#.utf8),
-            Data(#""function_call""#.utf8),
-            Data(#""custom_tool_call""#.utf8),
-            Data(#""local_shell_call""#.utf8),
-            Data(#""web_search_call""#.utf8),
-            Data(#""reasoning""#.utf8),
-        ]
+        let markers = ["session_meta", "user_message", "user", "assistant",
+            "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output",
+            "local_shell_call", "web_search_call", "reasoning"].map { Data("\"\($0)\"".utf8) }
         return markers.contains { record.range(of: $0) != nil }
     }
 

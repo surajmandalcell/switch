@@ -61,16 +61,25 @@ Settings never lists files as “Linked entries,” never implies that each acco
 separate configuration or chat library, and never exposes internal managed-home topology.
 An account-specific legacy repair may appear on that account only when action is required.
 
-Cleanup is deferred. The current basic page is a frozen prototype and is not the accepted feature
-design. Do not continue Cleanup implementation until the user explicitly resumes it.
+Cleanup is resumed on 2026-09-19. Replace the frozen prototype with a disclosure tree for
+shared active/archived conversations grouped by project, account usage samples, and the shared
+conversation index. Conversations are shared data and are never attributed to the selected account.
+Provide date ranges, older-than shortcuts, all time, and a custom interval. Conversation dates mean
+last updated; a selected conversation is removed as a whole. Untimestamped indexes support all time.
+Preview exact selected items and bytes before one explicit confirmation. Conversation removal uses
+recoverable private trash with a journal, restart recovery, Restore, and separately confirmed
+permanent removal. Moving to trash does not claim freed disk space. Preserve compact activity totals
+before removing a source; reject changed/unsafe files and active or unknown writers. Keep auth,
+settings, account registry/defaults, backups, Codex databases, and the activity ledger protected.
 
-When resumed, Cleanup uses a disclosure tree rather than a flat pair of actions. The hierarchy
-groups rebuildable data by provider, account, and cache type while keeping shared indexes distinct.
-It supports Chrome-style time ranges (last hour, last 24 hours, last 7 days, last 4 weeks, all time)
-and a custom date interval where the underlying data has timestamps. Before clearing, it reports
-the selected item count and estimated size, then shows one exact review summary. Accounts, saved
-auth, settings, and source conversations remain excluded from Cleanup unless a future specification
-adds a separate, explicitly destructive flow.
+Chat History loads messages in chronological pages as the reader scrolls, without a permanent
+older-message cutoff. Filters and search operate across the complete conversation, retain their
+persisted choices, and paginate their results. Copy shown exports exactly the loaded filtered
+messages in order. Native rows remain virtual and parsing/search/rendering stays off the main
+thread. Large message presentation may be compact, but original text remains available for copying.
+The conversation header aligns its message count and recorded token total; omit a token value when
+the source has no reliable token counters. Sidebar counts include the word conversations. Reduce
+message outer padding and gaps while keeping prompt, response, tool, and other roles distinct.
 
 ## 3. Usage presentation
 

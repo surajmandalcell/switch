@@ -537,6 +537,7 @@ where Item.ID: Hashable {
   let rowSpacing: CGFloat
   let fixedRowHeight: CGFloat?
   let contentRevision: Int
+  let onReachEnd: (() -> Void)?
   let rowContent: (Item) -> AnyView
   @Environment(\.aimDarkMode) private var darkMode
   @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
@@ -546,12 +547,14 @@ where Item.ID: Hashable {
   init(
     items: [Item], rowSpacing: CGFloat = 0, fixedRowHeight: CGFloat? = nil,
     contentRevision: Int = 0,
+    onReachEnd: (() -> Void)? = nil,
     rowContent: @escaping (Item) -> AnyView
   ) {
     self.items = items
     self.rowSpacing = rowSpacing
     self.fixedRowHeight = fixedRowHeight
     self.contentRevision = contentRevision
+    self.onReachEnd = onReachEnd
     self.rowContent = rowContent
   }
 
@@ -559,6 +562,7 @@ where Item.ID: Hashable {
 
   func makeNSView(context: Context) -> AIMOwnedScrollView {
     let scrollView = AIMOwnedScrollView(frame: .zero)
+    scrollView.onReachEnd = onReachEnd
     let tableView = AIMVirtualTableView(frame: .zero)
     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
     column.resizingMask = .autoresizingMask
@@ -579,6 +583,7 @@ where Item.ID: Hashable {
   }
 
   func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
+    scrollView.onReachEnd = onReachEnd
     updateCoordinator(context.coordinator)
     if let tableView = context.coordinator.tableView,
        let column = tableView.tableColumns.first {
@@ -730,6 +735,7 @@ final class AIMThinScroller: NSScroller {
 }
 
 final class AIMOwnedScrollView: NSScrollView {
+  var onReachEnd: (() -> Void)?
   private var hideTask: Task<Void, Never>?
   private var observers: [NSObjectProtocol] = []
   private var hoverTrackingArea: NSTrackingArea?
@@ -798,6 +804,14 @@ final class AIMOwnedScrollView: NSScrollView {
     showScroller()
     super.scrollWheel(with: event)
     if event.phase == .ended || event.phase == [] { scheduleHide() }
+  }
+
+  override func reflectScrolledClipView(_ clipView: NSClipView) {
+    super.reflectScrolledClipView(clipView)
+    guard let documentView, documentView.isFlipped,
+          documentView.frame.height > 0, clipView.bounds.height > 0,
+          documentView.frame.height - clipView.bounds.maxY < 180 else { return }
+    onReachEnd?()
   }
 
   private func showScroller() {
