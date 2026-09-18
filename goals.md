@@ -13,6 +13,8 @@ verification evidence.
 
 - [x] Replace Cleanup's native time-range select with a themed dropdown and align all
   expanded source/project/account-cache rows to their leading edges.
+- [x] Attach and compact the dropdown, strengthen secondary button contrast, and clarify
+  Cleanup's grouped content and review footer.
 - [x] Replace the hidden-message cutoff with scroll-based chronological pagination,
   including full-conversation filters/search and correctly ordered Copy shown exports.
 - [x] Add recorded conversation tokens beside aligned message counts; label sidebar
@@ -74,6 +76,15 @@ type, surfaces, borders and hover style. Arrow navigation, Enter selection, Esca
 and selected checks replace the native select. Expanded source/project/account-cache rows
 use full-width leading-aligned stacks. Keyboard boundary and smooth-hover regressions pass
 with the System/Light/Dark native contracts; installation acceptance stays in the receipt.
+
+The subsequent review supersedes the native popover shell: a matching-width, 24-point-row
+option list attaches three points below the trigger, without an arrow or system chrome.
+Outside-click dismissal uses the same hosted content tree. Cleanup separates shared
+conversations and cached data, offers a useful empty state and keeps selection/review in
+one footer. Secondary controls have stronger fills and borders; foreground contrast is
+10.9:1 in Light and 9.6:1 in Dark. The final three-theme native contract passes, including
+hover feedback and date/keyboard boundaries. Final installed interaction evidence belongs
+to the canonical receipt.
 
 ### Menubar popup viewport and display cap (2026-09-18)
 

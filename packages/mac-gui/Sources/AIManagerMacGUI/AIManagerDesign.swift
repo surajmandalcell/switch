@@ -135,8 +135,8 @@ enum AIMTheme {
   static let historySelection = listSelection
   static let railIdle = dynamic(light: 0x5D6670, dark: 0xB0B7C2)
   static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
-  static let control = dynamic(light: 0xDEDCD6, dark: 0x34363B)
-  static let controlHover = dynamic(light: 0xD3D1CA, dark: 0x3D4046)
+  static let control = dynamic(light: 0xD1CEC4, dark: 0x3B3E44)
+  static let controlHover = dynamic(light: 0xC1BEB3, dark: 0x494D55)
   static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
   static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3A3732)
   static let minimizeHover = Color(hex: 0xFFD43B)

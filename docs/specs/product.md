@@ -76,6 +76,11 @@ of safe files and cannot enter a removal review.
 The time-range select uses a custom themed trigger and option list, with keyboard navigation,
 selected-state feedback, and Escape dismissal. Expanded tree and account-cache checkbox rows
 align to the leading edge at their nesting level; no disclosure content is centered.
+Attach the compact option list to the trigger with a three-point gap, matching width, three-point
+corners, and no native popover arrow or chrome. Outside clicks dismiss it. Cleanup groups use
+clear headings, aligned counts and brief descriptions; keep selection totals and Review together.
+Secondary gray buttons use stronger neutral fills and borders in both appearances without
+changing the established hover behavior or fading foreground text.
 
 Chat History loads messages in chronological pages as the reader scrolls, without a permanent
 older-message cutoff. Filters and search operate across the complete conversation, retain their

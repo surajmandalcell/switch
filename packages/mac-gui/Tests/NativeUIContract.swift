@@ -50,7 +50,7 @@ enum AIManagerNativeContract {
       ("Shared button", shared, true),
       ("Disabled shared button", AnyView(shared.disabled(true)), false),
       ("Action button", AnyView(AIMButton(title: "Hover test", action: {})), true),
-      ("Cleanup time range", AnyView(CleanupRangeSelect(selection: .constant(.all))), true),
+      ("Cleanup time range", AnyView(CleanupRangeSelect(selection: .constant(.all), expanded: .constant(false))), true),
       ("Icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", action: {})), true),
       ("Disabled icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", disabled: true, action: {})), false),
     ]
