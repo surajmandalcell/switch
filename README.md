@@ -2,21 +2,93 @@
 
 Switch is a native macOS app for managing Codex accounts. It saves each
 account credential under `~/.switch/codex`, keeps one live `~/.codex` home for
-configuration and chat history, and activates an account before opening Codex.
+configuration and chat history, and switches credentials for new Codex sessions.
+
+Codex CLI is the only enabled provider. Claude Code, Gemini CLI, and
+Antigravity CLI appear as WIP choices; their icons do not imply support.
 
 The app and CLI use the same production account manager. The optional preview
 build uses in-memory sample data and is never installed over the production app.
 
-The repository contains one Swift package with three products:
+## Accounts
 
-| Product | Path | Purpose |
-| --- | --- | --- |
-| `AIManagerCore` | `packages/core` | Shared contracts and account operations |
-| `AIManager` | `packages/mac-gui` | Native Mac GUI account window |
-| `ai-manager` | `packages/tui` | CLI and interactive terminal interface |
+Switch saves the current Codex login automatically when first opened.
 
-The CLI and normal Mac GUI use the core operations. Preview uses matching synthetic
-contracts without filesystem or account side effects.
+1. Choose Add Account and Codex CLI to start browser sign-in.
+2. Finish signing in, then return to Switch and choose Check Now.
+3. Use Set as Default to select credentials for new sessions.
+4. Use Open Codex or Use & Open Codex to launch with the selected account.
+
+Sign-in uses a private temporary home, keeping the current account, settings,
+and chats unchanged. Pending sign-ins survive app restarts.
+
+Advanced Import accepts an existing Codex folder or `auth.json`. Choose
+account access only, or include settings and chats. Review conflicts before
+importing; shared settings and chats do not belong to individual accounts.
+
+Check account files validates the saved credential and checks usage when
+possible. Refresh usage also works for newly imported accounts without
+making them the default. These checks use the saved JSON in a disposable
+private home. Usage checks need Codex CLI and access to its service.
+
+Drag accounts in the sidebar to save their order. Account menus also offer
+Move up, Move down, and Delete. Deleting the default account requires an
+eligible saved replacement; the confirmation identifies it.
+
+## Menubar
+
+Enable Show in Menubar on an account to display its limits. Settings sets
+the default for accounts without an explicit choice. The status item groups
+up to four enabled accounts by service, with one glyph and their remaining
+quota percentages in saved account order. Unknown limits show a dash.
+
+The popover lists all accounts for switching. Enabled accounts show available
+Session and Weekly limits as used percentages with reset times. Its footer
+has refresh, the last refresh time, and Open App. Cards expand to fit until
+the popover reaches 80% of its display's visible height, then scroll.
+
+The popover uses Ivory in light mode and Espresso in dark mode, with one
+native backdrop blur. Reduce Transparency gives it opaque surfaces.
+
+## Chat history and activity
+
+Chat History reads shared active and archived Codex conversations. Messages
+load in chronological pages as you scroll, without a permanent cutoff.
+Search and the Prompts, Responses, Tools, and Other filters cover the complete
+conversation. Filter choices persist across app restarts. Copy shown copies
+the loaded filtered messages in order, including original large-message text.
+The header shows message counts and reliable recorded token totals when available.
+
+Daily activity starts with a one-year calendar and remembers the selected range.
+Choose 7 days, 1 month, or 1 year, then select a day for token and project details.
+Switch retains compact daily summaries in its private application-support
+`activity/daily.sqlite` database. Removing old conversations or rebuilding
+search and quota caches preserves recorded totals.
+
+Account totals come from Codex responses. Project totals come from local
+cumulative token events and remain separate from account totals. Incomplete
+or reset records retain known values with an incomplete indication. Switch
+cannot reconstruct unseen or deleted records that it never indexed.
+
+## Cleanup
+
+Cleanup has disclosure trees for shared active and archived conversations
+grouped by project, account usage samples, and the shared conversation index.
+Select recent, older-than, all-time, or custom date ranges. Conversation dates
+mean last updated; selecting one removes the whole conversation. The shared
+index has no record dates and can only be selected with All time.
+
+Review the exact selected paths, cache records, counts, and payload bytes
+before confirming. Payload sizes exclude database overhead.
+
+- Conversations move to private recoverable trash. Moving them does not free disk space.
+- Restore returns trashed conversations without overwriting existing files.
+- Permanent removal needs a separate confirmation. Interrupted moves recover after restart.
+- Usage samples and the search index are rebuildable caches; clearing them keeps daily summaries.
+
+Cleanup protects auth, settings, account records, backups, Codex databases,
+and the activity ledger. Hard-linked or foreign-owned files appear as protected
+entries. Changed files and active or unknown writers block removal.
 
 ## Platform support
 
@@ -24,6 +96,8 @@ contracts without filesystem or account side effects.
 - `AIManagerCore` and the `ai-manager` terminal interface support macOS and Linux.
 - Building requires a compatible Swift toolchain; the Mac GUI build uses Xcode.
 - Codex is optional for discovery and offline tests.
+
+Install Codex CLI to sign in, query usage, or launch Codex from Switch.
 
 The first verified Mac GUI target is Apple Silicon. Intel support needs a
 separate verified build. The Mac GUI does not run on Linux.
@@ -101,21 +175,14 @@ leaving the rest of `~/.codex` unchanged. **Open Codex** performs that activatio
 when needed and launches the same live home. Saved credentials are regular
 private files, never symbolic or hard links.
 
-Daily activity starts with a one-year calendar and remembers the selected range.
-Switch retains compact daily summaries in its private application-support
-`activity/daily.sqlite` database, so removing old conversations or rebuilding
-search and quota caches preserves recorded totals. Account totals come from
-Codex responses. Project totals come from local cumulative token events and
-remain separate from account totals. Incomplete or reset source records retain
-known values with an incomplete indication; unseen or deleted records cannot
-be reconstructed. Click a displayed path to copy it. Settings controls body
-translucency, initially 25%, from 0% to 50%.
+Click a displayed path to copy it. Settings controls body translucency,
+initially 25%, from 0% to 50%. Text and controls stay opaque.
 
 ## Native package
 
 The app bundle uses `packaging/macos/Info.plist` and an empty entitlements
-file. It does not request Full Disk Access, Accessibility, Automation, or
-network access. User-selected paths use native macOS file APIs.
+file. It does not request Full Disk Access, Accessibility, or Automation
+permissions. User-selected paths use native macOS file APIs.
 
 Local builds use an ad hoc signature. To sign with a maintainer-provided
 identity, set `AI_MANAGER_SIGNING_IDENTITY` for the build command. The app
@@ -128,7 +195,21 @@ blocked until the tag workflow signs with a Developer ID Application identity,
 notarizes and staples the app, passes the public readiness and Gatekeeper checks,
 and creates the GitHub release.
 
-See [macOS package notes](packaging/macos/README.md) for the file-access
-boundary. See [goals.md](goals.md) for the product scope and acceptance
-matrix. See [ADR 0003](docs/adr/0003-credential-transactions.md) for the
-credential transaction order retained from the gateway implementation.
+## Repository
+
+The repository contains one Swift package with three products:
+
+| Product | Path | Purpose |
+| --- | --- | --- |
+| `AIManagerCore` | `packages/core` | Shared account, usage, history, and Cleanup operations |
+| `AIManager` | `packages/mac-gui` | Native Mac GUI |
+| `ai-manager` | `packages/tui` | CLI and interactive terminal interface |
+
+The app and CLI share account operations. Preview uses synthetic data without
+filesystem or account side effects. The earlier Electron gateway is legacy
+and is not required to build or run Switch.
+
+See the [product specification](docs/specs/product.md) for current behavior
+and [goals.md](goals.md) for milestones and verification. The
+[macOS package notes](packaging/macos/README.md) describe packaging and permissions.
+[ADR 0003](docs/adr/0003-credential-transactions.md) describes the credential transaction order.
