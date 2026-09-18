@@ -214,9 +214,7 @@ final class AIManagerStatusItemController: NSObject {
     popover.behavior = .transient
     popover.animates = false
     popover.contentViewController = NSHostingController(rootView: content)
-    popover.contentSize = Self.contentSize(
-      accounts: snapshot.accounts,
-      visibleScreenHeight: Self.smallestDisplayHeight)
+    resizePopover()
 
     store.didSwitch = { [weak self] in self?.closePopover() }
     store.didRequestDismissal = { [weak self] in self?.closePopover() }
@@ -233,9 +231,7 @@ final class AIManagerStatusItemController: NSObject {
     store.update(snapshot: snapshot)
     updateStatusLabel(snapshot)
     if popover.isShown {
-      popover.contentSize = Self.contentSize(
-        accounts: snapshot.accounts,
-        visibleScreenHeight: Self.smallestDisplayHeight)
+      resizePopover()
     }
   }
 
@@ -253,7 +249,8 @@ final class AIManagerStatusItemController: NSObject {
     } else {
       listHeight = MenuBarPopover.listInset * 2
         + accounts.map(MenuBarPopover.accountRowHeight).reduce(0, +)
-        + CGFloat(max(0, accounts.count - 1)) * MenuBarPopover.cardSpacing
+        // NSTableView includes intercell spacing after its last row too.
+        + CGFloat(accounts.count) * MenuBarPopover.cardSpacing
     }
     let idealHeight = MenuBarPopover.footerHeight + listHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.80))
@@ -262,8 +259,13 @@ final class AIManagerStatusItemController: NSObject {
   }
 
   private static let fallbackScreenHeight: CGFloat = 900
-  static var smallestDisplayHeight: CGFloat {
-    NSScreen.screens.map(\.visibleFrame.height).min() ?? Self.fallbackScreenHeight
+  private func resizePopover() {
+    let screen = (popover.isShown ? popover.contentViewController?.view.window?.screen : nil)
+      ?? statusItem.button?.window?.screen ?? NSScreen.main
+    store.update(visibleScreenHeight: screen?.visibleFrame.height ?? Self.fallbackScreenHeight)
+    popover.contentViewController?.view.layoutSubtreeIfNeeded()
+    popover.contentSize = Self.contentSize(
+      accounts: store.snapshot.accounts, visibleScreenHeight: store.visibleScreenHeight)
   }
 
   private func configureButton() {
@@ -297,10 +299,9 @@ final class AIManagerStatusItemController: NSObject {
       return
     }
     guard let button = statusItem.button else { return }
-    popover.contentSize = Self.contentSize(
-      accounts: store.snapshot.accounts,
-      visibleScreenHeight: Self.smallestDisplayHeight)
+    resizePopover()
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    resizePopover()
   }
 
   private func closePopover() {

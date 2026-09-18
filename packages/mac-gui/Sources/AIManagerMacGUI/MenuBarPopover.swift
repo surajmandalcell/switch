@@ -130,15 +130,21 @@ final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var snapshot: MenuBarSnapshot
   @Published private(set) var switchingAccountID: UUID?
   @Published private(set) var isRefreshingUsage = false
+  @Published private(set) var visibleScreenHeight: CGFloat
   @Published private(set) var rowErrors: [UUID: String] = [:]
 
   let actions: MenuBarPopoverActions
   var didSwitch: (() -> Void)?
   var didRequestDismissal: (() -> Void)?
 
-  init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions) {
+  init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions, visibleScreenHeight: CGFloat = 900) {
     self.snapshot = snapshot
     self.actions = actions
+    self.visibleScreenHeight = visibleScreenHeight
+  }
+
+  func update(visibleScreenHeight: CGFloat) {
+    if self.visibleScreenHeight != visibleScreenHeight { self.visibleScreenHeight = visibleScreenHeight }
   }
 
   func update(snapshot: MenuBarSnapshot) {
@@ -251,7 +257,7 @@ struct MenuBarPopover: View {
     }
     .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
       accounts: store.snapshot.accounts,
-      visibleScreenHeight: AIManagerStatusItemController.smallestDisplayHeight).height)
+      visibleScreenHeight: store.visibleScreenHeight).height)
     .background {
       if reduceTransparency {
         palette.surface

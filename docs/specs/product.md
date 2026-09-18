@@ -193,9 +193,12 @@ has usage display enabled. Keep the icon's space fixed while showing progress.
 The popover is 344 points wide,
 uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
 Open App button with a subtle hover tint. Its native host fits all account cards and the
-footer, growing up to 80% of the smallest attached display's visible height. There is
+footer, growing up to 80% of the visible height of the display containing its status-item
+button. This display-specific rule supersedes the previous smallest-display cap. There is
 no additional 900-point cap, and the list scrolls only when its contents exceed that
-available height. AppKit's intrinsic sizing must not collapse the scroll area or clip
+available height. Below that cap every account and quota row fits without a scrollbar;
+measure the rendered scroll viewport and document, not just the requested popup size.
+AppKit's intrinsic sizing must not collapse the scroll area or clip
 quota rows for one or two accounts. It has no automatic focus outline
 unless the keyboard-focus indicator setting is enabled.
 

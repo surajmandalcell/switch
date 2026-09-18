@@ -9,6 +9,31 @@ Design revision: 2026-09-18. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Menubar popup viewport and display cap (2026-09-18)
+
+- [x] Fix the actual popup's document/viewport sizing so all cards expand without
+  a scrollbar until the content exceeds 80% of the display it opens on.
+- [x] Use the status-item button's display, superseding the smallest-display cap.
+- [x] Prove the regression against rendered native rows; the final installation
+  receipt owns the subsequent clean signed installation and process identity.
+
+The new native-window check reproduces the missed defect in the original source:
+one card's table document is 152 points in a 142-point viewport; two cards are 304
+points in a 294-point viewport. NSTableView includes ten-point intercell spacing
+after its last row, which the popup calculation omitted. The corrected calculation
+gives exact 152/152 and 304/304 document/viewport heights with hidden scrollbars.
+The controller and rendered root share the opening display's height; sizing checks
+the status-item display before opening and the actual popup display after opening.
+Cache updates retain that same display-specific cap. Boundary checks prove no scroll
+at an exact 201-point cap and scrolling when 201 points of content exceed a 200-point
+cap. Twenty-card cases scroll at 720/960 points for 900/1200-point display heights.
+System, Light, and Dark contracts pass. Evidence:
+`/private/tmp/ai-manager-build/popup-viewport-red.log`,
+`/private/tmp/ai-manager-build/popup-viewport-green.log`, and
+`/private/tmp/ai-manager-build/popup-viewport-contract.log`.
+Task-end debt inventory: zero markers and zero missing triggers. Advanced Cleanup
+remains deferred.
+
 ### Menubar footer refresh (2026-09-18)
 
 - [x] Add a small refresh button immediately before the Refreshed timestamp.

@@ -653,8 +653,8 @@ enum AIManagerNativeContract {
     }
     expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 104, "Hidden usage leaves blank quota space")
-    expect(one.height == 191, "One usage card has the wrong geometry")
-    expect(two.height == 343, "Two usage cards have the wrong geometry")
+    expect(one.height == 201, "One usage card has the wrong geometry")
+    expect(two.height == 353, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
     expect(tallScreen.height == 1600, "Menu-bar retains a fixed cap below 80% of a tall screen")
@@ -683,14 +683,45 @@ enum AIManagerNativeContract {
     sizingHost.view.layoutSubtreeIfNeeded()
     expect(sizingHost.view.fittingSize.height >= controller.popoverContentSize.height,
       "Intrinsic menu host collapses below its account cards")
-    for accounts in [Array(snapshot.accounts.prefix(1)), Array(snapshot.accounts.prefix(2)),
-                     Array(repeating: snapshot.accounts[0], count: 20), [hiddenAccount]] {
+    let firstAccount = Array(snapshot.accounts.prefix(1))
+    for (accounts, screenHeight) in [
+      (firstAccount, CGFloat(900)), (Array(snapshot.accounts.prefix(2)), CGFloat(900)),
+      (Array(repeating: snapshot.accounts[0], count: 20), CGFloat(900)),
+      ([hiddenAccount], CGFloat(900)), (firstAccount, CGFloat(251.25)),
+      (firstAccount, CGFloat(250)),
+      (Array(repeating: snapshot.accounts[0], count: 20), CGFloat(1200))
+    ] {
+      sizingStore.update(visibleScreenHeight: screenHeight)
       sizingStore.update(snapshot: MenuBarSnapshot(accounts: accounts))
       sizingHost.view.layoutSubtreeIfNeeded()
       let expectedSize = AIManagerStatusItemController.contentSize(
-        accounts: accounts, visibleScreenHeight: AIManagerStatusItemController.smallestDisplayHeight)
+        accounts: accounts, visibleScreenHeight: sizingStore.visibleScreenHeight)
       expect(abs(sizingHost.view.fittingSize.height - expectedSize.height) < 1,
         "Native menu host does not fit its updated account count and screen cap")
+      let window = NSWindow(contentRect: NSRect(origin: .zero, size: expectedSize),
+        styleMask: .borderless, backing: .buffered, defer: false)
+      window.contentView = sizingHost.view
+      sizingHost.view.frame = NSRect(origin: .zero, size: expectedSize)
+      window.contentView?.layoutSubtreeIfNeeded()
+      window.displayIfNeeded()
+      let scrolls = views(in: sizingHost.view).compactMap { $0 as? NSScrollView }
+      expect(!scrolls.isEmpty, "Popup viewport regression did not find its native scroll view")
+      for scroll in scrolls {
+        let documentHeight = scroll.documentView?.frame.height ?? 0
+        let viewportHeight = scroll.contentView.bounds.height
+        let neededHeight = documentHeight + 20 + 29
+        let cap = floor(screenHeight * 0.8)
+        print("POPOVER_VIEWPORT accounts=\(accounts.count) document=\(documentHeight) viewport=\(viewportHeight) popup=\(expectedSize.height) cap=\(cap)")
+        if neededHeight <= cap {
+          expect(viewportHeight > 0 && documentHeight <= viewportHeight + 0.5,
+            "Popup scrolls before its content reaches the display cap: \(documentHeight) > \(viewportHeight)")
+          expect(scroll.verticalScroller?.isHidden != false,
+            "Popup scrollbar is visible even though its cards fit")
+        } else {
+          expect(expectedSize.height == cap && documentHeight > viewportHeight,
+            "Popup does not scroll at the opening display's 80% cap")
+        }
+      }
     }
     expect(controller.statusTitle == "58% 82% –", "Status item does not show enabled remaining quotas")
     let disabledSnapshot = MenuBarSnapshot(accounts: [hiddenAccount])
