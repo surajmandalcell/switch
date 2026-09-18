@@ -1805,7 +1805,7 @@ private struct CleanupPage: View {
         if protectedCount > 0 {
           HStack(spacing: 6) {
             AIMIcon(name: .info, size: 12)
-            Text("\(protectedCount.formatted()) shared or unsafe files are protected.")
+            Text("\(protectedCount.formatted()) \(protectedCount == 1 ? "file is" : "files are") protected.")
           }.font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
             .help("Linked or foreign-owned files cannot be removed. Other conversations remain selectable.")
         }
@@ -1825,8 +1825,12 @@ private struct CleanupPage: View {
         if let review {
           AIMPanel(title: "Review before cleanup", importance: .primary) {
             VStack(alignment: .leading, spacing: 10) {
-              Text("\(review.plan?.conversations.count ?? 0) conversations · \(sizeText(review.plan?.bytes ?? 0)) to recoverable trash")
-              Text("\(review.samples.count) cache samples · \(sizeText(review.samples.reduce(0) { $0 + $1.bytes })) of cached payloads")
+              if let plan = review.plan {
+                Text("\(plan.conversations.count) conversations · \(sizeText(plan.bytes)) to recoverable trash")
+              }
+              if !review.samples.isEmpty {
+                Text("\(review.samples.count) cache samples · \(sizeText(review.samples.reduce(0) { $0 + $1.bytes })) of cached payloads")
+              }
               if review.clearIndex { Text("Clear the shared conversation index (\(sizeText(sizes.conversationBytes)))") }
               Text("\(range.rawValue). Moving conversations does not free disk space. Cached payload bytes exclude database overhead.")
                 .foregroundStyle(AIMTheme.muted)
@@ -2095,7 +2099,7 @@ private struct CleanupRangeOptions: View {
     .onKeyPress(.downArrow) { focusedOption = (focusedOption ?? selection).moved(.down); return .handled }
     .onKeyPress(.return) { choose(focusedOption ?? selection); return .handled }
     .onExitCommand { expanded = false }
-    .accessibilityLabel("Time ranges")
+    .accessibilityElement(children: .contain)
   }
 
   private func choose(_ option: CleanupDateRange) {
