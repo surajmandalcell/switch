@@ -151,7 +151,7 @@ private extension AIManagerPage {
     case .accounts: "Import, verify, and switch accounts"
     case .backup: "Snapshots and interrupted operations"
     case .history: "The merged resume library"
-    case .cleanup: "Remove rebuildable app data"
+    case .cleanup: "Clean up conversations and cached data"
     case .settings: "App behavior and data locations"
     }
   }
@@ -1708,70 +1708,250 @@ private struct DetailRow: View {
 private struct CleanupPage: View {
   @ObservedObject var model: AccountViewModel
   @State private var sizes = RebuildableCacheSizes(usageBytes: 0, conversationBytes: 0)
-  @State private var isReadingSizes = true
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var conversations: [CleanupConversation] = []
+  @State private var samples: [CleanupUsageSample] = []
+  @State private var trash: [ConversationCleanupBatch] = []
+  @State private var selectedConversations: Set<String> = []
+  @State private var selectedSamples: Set<Int64> = []
+  @State private var clearIndex = false
+  @State private var range: CleanupDateRange = .olderMonth
+  @State private var from = Date().addingTimeInterval(-30 * 86_400)
+  @State private var through = Date()
+  @State private var anchor = Date()
+  @State private var loading = false
+  @State private var error: String?
+  @State private var review: CleanupReview?
+  @State private var confirming = false
+  @State private var removingBatch: ConversationCleanupBatch?
+  private var unavailable: Bool { loading || model.isBusy }
+  private var visibleConversations: [CleanupConversation] {
+    conversations.filter { range.contains($0.updatedAt, now: anchor, from: from, through: through) }
+  }
+  private var visibleSamples: [CleanupUsageSample] {
+    samples.filter { range.contains($0.fetchedAt, now: anchor, from: from, through: through) }
+  }
 
   var body: some View {
     AIMScrollView {
-      VStack(spacing: 8) {
-        AIMPanel(title: "Rebuildable data") {
-          VStack(spacing: 0) {
-            CacheCleanupRow(
-              title: "Account usage cache",
-              detail: "Cached limits and daily activity. Refresh an account to fetch it again.",
-              size: sizeText(sizes.usageBytes),
-              zebra: false,
-              disabled: model.isBusy
-            ) {
-              Task {
-                await model.clearUsageCache()
-                await refreshSizes()
-              }
-            }
-            CacheCleanupRow(
-              title: "Conversation index",
-              detail: "Search metadata only. Your conversation files remain in the Codex home.",
-              size: sizeText(sizes.conversationBytes),
-              zebra: true,
-              disabled: model.isBusy
-            ) {
-              Task {
-                await model.clearConversationIndex()
-                await refreshSizes()
-              }
-            }
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 12) {
+          Picker("Time range", selection: $range) {
+            ForEach(CleanupDateRange.allCases) { Text($0.rawValue).tag($0) }
           }
+          .frame(width: 250)
+          if range == .custom {
+            DatePicker("From", selection: $from, displayedComponents: .date)
+            DatePicker("Through", selection: $through, in: from..., displayedComponents: .date)
+          }
+          Spacer(minLength: 0)
+          if loading { ProgressView().controlSize(.small) }
+          AIMButton(title: "Reload", icon: .refresh, disabled: unavailable) { Task { await reload() } }
         }
-        HStack(spacing: 10) {
-          AIMIcon(name: .info, size: 14).foregroundStyle(AIMTheme.blue)
-          Text("Cleanup keeps accounts, saved auth, settings, and conversations.")
-            .font(AIMTheme.sans(11))
+        Text("Conversation dates use the last update. Selected conversations move in full to recoverable trash.")
+          .foregroundStyle(AIMTheme.muted)
+        AIMPanel(title: "Codex CLI") {
+          VStack(alignment: .leading, spacing: 12) {
+            DisclosureGroup("Shared conversations (\(visibleConversations.count.formatted()))") {
+              conversationTree(archived: false)
+              conversationTree(archived: true)
+            }
+            DisclosureGroup("Account usage samples (\(visibleSamples.count.formatted()))") {
+              let grouped = Dictionary(grouping: visibleSamples, by: \.accountID)
+              ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
+                let entries = grouped[accountID] ?? []
+                let name = model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString
+                Toggle("\(name) · \(entries.count.formatted()) samples · \(sizeText(entries.reduce(0) { $0 + $1.bytes }))", isOn: Binding(
+                  get: { entries.allSatisfy { selectedSamples.contains($0.id) } },
+                  set: { enabled in
+                    let ids = Set(entries.map(\.id))
+                    if enabled { selectedSamples.formUnion(ids) } else { selectedSamples.subtract(ids) }
+                    review = nil
+                  })).toggleStyle(.checkbox)
+              }
+              if visibleSamples.isEmpty { Text("No cached samples in this date range.").foregroundStyle(AIMTheme.muted) }
+            }
+            Toggle("Shared conversation index · \(sizeText(sizes.conversationBytes))", isOn: $clearIndex)
+              .toggleStyle(.checkbox).disabled(range != .all || sizes.conversationBytes == 0)
+              .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
+          }.padding(16).disabled(unavailable)
+        }
+        HStack {
+          Text("\(selectedConversations.count.formatted()) conversations · \(selectedSamples.count.formatted()) samples")
             .foregroundStyle(AIMTheme.muted)
           Spacer()
-          if isReadingSizes { ProgressView().controlSize(.small) }
+          AIMButton(title: "Review selection", tone: .primary,
+            disabled: unavailable || (selectedConversations.isEmpty && selectedSamples.isEmpty && !clearIndex)) {
+              Task { await makeReview() }
+            }
         }
-        .padding(12)
-        .background(AIMTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-        Group {
-          if let notice = model.notice {
-            Notice(text: notice, tone: AIMTheme.blue)
-              .transition(reduceMotion ? .identity : .opacity)
+        if let review {
+          AIMPanel(title: "Review before cleanup", importance: .primary) {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("\(review.plan?.conversations.count ?? 0) conversations · \(sizeText(review.plan?.bytes ?? 0)) to recoverable trash")
+              Text("\(review.samples.count) cache samples · \(sizeText(review.samples.reduce(0) { $0 + $1.bytes })) of cached payloads")
+              if review.clearIndex { Text("Clear the shared conversation index (\(sizeText(sizes.conversationBytes)))") }
+              Text("\(range.rawValue). Moving conversations does not free disk space. Cached payload bytes exclude database overhead.")
+                .foregroundStyle(AIMTheme.muted)
+              if let plan = review.plan {
+                DisclosureGroup("Selected conversations") {
+                  AIMVirtualList(items: plan.conversations, fixedRowHeight: 32) { item in
+                    AnyView(HStack {
+                      AIMCopyablePath(path: item.relativePath).help(item.title)
+                      Spacer()
+                      Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted)
+                    }.font(AIMTheme.sans(10)).padding(.horizontal, 4))
+                  }.frame(height: min(CGFloat(plan.conversations.count) * 32, 192))
+                }
+              }
+              if !review.samples.isEmpty {
+                DisclosureGroup("Selected cache samples") {
+                  AIMVirtualList(items: review.samples, fixedRowHeight: 30) { sample in
+                    AnyView(HStack {
+                      Text(model.status?.accounts.first { $0.id == sample.accountID }?.identity.email ?? sample.accountID.uuidString)
+                        .lineLimit(1)
+                      Spacer()
+                      Text(sample.fetchedAt.formatted()).foregroundStyle(AIMTheme.muted)
+                    }.font(AIMTheme.sans(10)).padding(.horizontal, 4))
+                  }.frame(height: min(CGFloat(review.samples.count) * 30, 180))
+                }
+              }
+              HStack {
+                AIMButton(title: "Cancel") { self.review = nil }
+                Spacer()
+                AIMButton(title: "Confirm cleanup", tone: .primary, disabled: unavailable) { confirming = true }
+              }
+            }.padding(16)
           }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
+        if !trash.isEmpty {
+          AIMPanel(title: "Recoverable conversation trash") {
+            VStack(spacing: 0) {
+              ForEach(trash) { batch in
+                HStack(spacing: 10) {
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text("\(batch.conversations.count.formatted()) conversations · \(sizeText(batch.bytes))")
+                    Text(batch.createdAt.formatted()).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+                  }
+                  Spacer()
+                  AIMButton(title: "Restore", disabled: unavailable) { Task { await restore(batch) } }
+                  AIMButton(title: "Remove permanently", disabled: unavailable) { removingBatch = batch }
+                }.padding(12)
+              }
+            }
+          }
+        }
+        Text("Accounts, auth, settings, backups, Codex databases, and retained daily activity are protected.")
+          .foregroundStyle(AIMTheme.muted)
+        if let error { Notice(text: error, tone: AIMTheme.amber) }
+        if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
+      .font(AIMTheme.sans(11))
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.top, 12)
-    .padding(.bottom, 24)
-    .task { await refreshSizes() }
+    .padding(.bottom, 12)
+    .task { await reload() }
+    .onChange(of: range) { _, _ in resetSelection() }
+    .onChange(of: from) { _, _ in resetSelection() }
+    .onChange(of: through) { _, _ in resetSelection() }
+    .onChange(of: clearIndex) { _, _ in review = nil }
+    .alert("Apply reviewed cleanup?", isPresented: $confirming) {
+      Button("Cancel", role: .cancel) {}
+      Button("Apply cleanup") { Task { await apply() } }
+    } message: { Text("Selected conversations move to recoverable trash. Selected cache records are cleared. Daily activity totals remain saved.") }
+    .alert("Permanently remove conversation trash?", isPresented: Binding(
+      get: { removingBatch != nil }, set: { if !$0 { removingBatch = nil } }), presenting: removingBatch) { batch in
+      Button("Cancel", role: .cancel) { removingBatch = nil }
+      Button("Remove permanently", role: .destructive) {
+        Task { await remove(batch) }
+      }
+    } message: { batch in Text("\(batch.conversations.count) conversations will be removed from trash. This cannot be undone.") }
   }
 
-  private func refreshSizes() async {
-    isReadingSizes = true
-    sizes = await model.rebuildableCacheSizes()
-    isReadingSizes = false
+  private func conversationTree(archived: Bool) -> some View {
+    let entries = visibleConversations.filter { $0.archived == archived }
+    let grouped = Dictionary(grouping: entries, by: \.project)
+    return DisclosureGroup(archived ? "Archived conversations (\(entries.count.formatted()))" : "Active conversations (\(entries.count.formatted()))") {
+      ForEach(grouped.keys.sorted(), id: \.self) { project in
+        let projectEntries = grouped[project] ?? []
+        DisclosureGroup {
+          AIMVirtualList(items: projectEntries, fixedRowHeight: 34) { item in
+            AnyView(HStack(spacing: 8) {
+              Toggle(item.title, isOn: Binding(
+                get: { selectedConversations.contains(item.id) },
+                set: { enabled in
+                  if enabled { selectedConversations.insert(item.id) } else { selectedConversations.remove(item.id) }
+                  review = nil
+                })).toggleStyle(.checkbox).lineLimit(1).help(item.relativePath)
+              Spacer(minLength: 4)
+              Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(AIMTheme.muted)
+              Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted).frame(width: 65, alignment: .trailing)
+            }.padding(.horizontal, 4).font(AIMTheme.sans(10)))
+          }.frame(height: min(CGFloat(projectEntries.count) * 34, 204))
+        } label: {
+          Toggle("\(URL(fileURLWithPath: project).lastPathComponent) (\(projectEntries.count.formatted()))", isOn: Binding(
+            get: { projectEntries.allSatisfy { selectedConversations.contains($0.id) } },
+            set: { enabled in
+              let ids = Set(projectEntries.map(\.id))
+              if enabled { selectedConversations.formUnion(ids) } else { selectedConversations.subtract(ids) }
+              review = nil
+            })).toggleStyle(.checkbox).help(project)
+        }
+      }
+      if entries.isEmpty { Text("No conversations in this date range.").foregroundStyle(AIMTheme.muted) }
+    }
+  }
+
+  private func resetSelection() {
+    selectedConversations = []
+    selectedSamples = []
+    clearIndex = false
+    review = nil
+  }
+  private func reload() async {
+    loading = true
+    defer { loading = false }
+    error = nil
+    do {
+      let data = try await model.cleanupData()
+      conversations = data.conversations
+      samples = data.samples
+      trash = data.trash
+      sizes = await model.rebuildableCacheSizes()
+      anchor = Date()
+      resetSelection()
+    } catch { self.error = error.localizedDescription }
+  }
+  private func makeReview() async {
+    loading = true
+    defer { loading = false }
+    error = nil
+    do {
+      let selected = visibleConversations.filter { selectedConversations.contains($0.id) }
+      let plan = selected.isEmpty ? nil : try await model.reviewConversationCleanup(selected)
+      review = CleanupReview(plan: plan, samples: visibleSamples.filter { selectedSamples.contains($0.id) }, clearIndex: clearIndex)
+    } catch { self.error = error.localizedDescription }
+  }
+  private func apply() async {
+    guard let review else { return }
+    do {
+      try await model.applyCleanup(review.plan, samples: review.samples, clearIndex: review.clearIndex)
+      self.review = nil
+      await reload()
+    } catch {
+      self.review = nil
+      await reload()
+      self.error = "\(error.localizedDescription) Review again. Files already in trash can be restored."
+    }
+  }
+  private func restore(_ batch: ConversationCleanupBatch) async {
+    do { try await model.restoreCleanup(batch.id); await reload() }
+    catch { self.error = error.localizedDescription }
+  }
+  private func remove(_ batch: ConversationCleanupBatch) async {
+    removingBatch = nil
+    do { try await model.emptyCleanup(batch.id); await reload() }
+    catch { self.error = error.localizedDescription }
   }
 
   private func sizeText(_ bytes: Int64) -> String {
@@ -1779,28 +1959,36 @@ private struct CleanupPage: View {
   }
 }
 
-private struct CacheCleanupRow: View {
-  let title: String
-  let detail: String
-  let size: String
-  let zebra: Bool
-  let disabled: Bool
-  let clear: () -> Void
+private struct CleanupReview {
+  let plan: ConversationCleanupPlan?
+  let samples: [CleanupUsageSample]
+  let clearIndex: Bool
+}
 
-  var body: some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(title).font(AIMTheme.sans(11, weight: .semibold))
-        Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-      }
-      Spacer(minLength: 20)
-      Text(size).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
-        .frame(minWidth: 64, alignment: .trailing)
-      AIMButton(title: "Clear", icon: .trash, disabled: disabled, action: clear)
+enum CleanupDateRange: String, CaseIterable, Identifiable {
+  case hour = "Last hour", day = "Last 24 hours", week = "Last 7 days", month = "Last 4 weeks"
+  case olderWeek = "Older than 7 days", olderMonth = "Older than 30 days", olderYear = "Older than 1 year"
+  case all = "All time", custom = "Custom dates"
+  var id: String { rawValue }
+  func contains(_ date: Date, now: Date, from: Date, through: Date) -> Bool {
+    if self == .all { return true }
+    if self == .custom {
+      let start = Calendar.current.startOfDay(for: from)
+      let end = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: through)) ?? through
+      return start <= date && date < end
     }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
-    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
+    let seconds: TimeInterval
+    switch self {
+    case .hour: seconds = 3_600
+    case .day: seconds = 86_400
+    case .week, .olderWeek: seconds = 7 * 86_400
+    case .month: seconds = 28 * 86_400
+    case .olderMonth: seconds = 30 * 86_400
+    case .olderYear: seconds = 365 * 86_400
+    case .all, .custom: return false
+    }
+    let cutoff = now.addingTimeInterval(-seconds)
+    return [.olderWeek, .olderMonth, .olderYear].contains(self) ? date < cutoff : cutoff <= date && date <= now
   }
 }
 

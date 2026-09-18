@@ -35,6 +35,10 @@ private final class HoverTestEvent: NSEvent {
   override var locationInWindow: NSPoint { location }
 }
 
+private final class PaginationTestDocument: NSView {
+  override var isFlipped: Bool { true }
+}
+
 @MainActor
 enum AIManagerNativeContract {
   static func hoverFeedbackFailures() async -> [String] {
@@ -387,6 +391,27 @@ enum AIManagerNativeContract {
     expect(HistoryHeaderLayout.countWidth >= 120, "Conversation count slot clips its label")
     expect(HistoryHeaderLayout.warningWidth == 32, "Conversation warning slot width changed")
     expect(HistoryHeaderLayout.statusWidth == 20, "Conversation status slot width changed")
+    let pagingScroll = AIMOwnedScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 160))
+    pagingScroll.documentView = PaginationTestDocument(frame: NSRect(x: 0, y: 0, width: 300, height: 1_000))
+    var endCalls = 0
+    pagingScroll.onReachEnd = { endCalls += 1 }
+    pagingScroll.contentView.scroll(to: .zero)
+    pagingScroll.reflectScrolledClipView(pagingScroll.contentView)
+    expect(endCalls == 0, "Conversation pagination loads before the reader reaches the end")
+    pagingScroll.contentView.scroll(to: NSPoint(x: 0, y: 840))
+    pagingScroll.reflectScrolledClipView(pagingScroll.contentView)
+    expect(endCalls > 0, "Native scrolling does not request the next message page")
+    let cleanupNow = Date(timeIntervalSince1970: 1_800_000_000)
+    let cutoff = cleanupNow.addingTimeInterval(-7 * 86_400)
+    expect(CleanupDateRange.week.contains(cutoff, now: cleanupNow, from: cutoff, through: cleanupNow)
+      && !CleanupDateRange.olderWeek.contains(cutoff, now: cleanupNow, from: cutoff, through: cleanupNow)
+      && CleanupDateRange.olderWeek.contains(cutoff.addingTimeInterval(-1), now: cleanupNow, from: cutoff, through: cleanupNow),
+      "Cleanup date ranges overlap or miss their boundary")
+    let dayStart = Calendar.current.startOfDay(for: cleanupNow)
+    let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)!
+    expect(CleanupDateRange.custom.contains(dayStart, now: cleanupNow, from: dayStart, through: dayStart)
+      && !CleanupDateRange.custom.contains(nextDay, now: cleanupNow, from: dayStart, through: dayStart),
+      "Cleanup custom dates exclude the first day or include the next day")
     let weeklyOnly = MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 1)
     expect(
       weeklyOnly.usedPercentage == nil && weeklyOnly.secondaryUsedPercentage == 1

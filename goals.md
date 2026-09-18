@@ -15,7 +15,7 @@ verification evidence.
   including full-conversation filters/search and correctly ordered Copy shown exports.
 - [x] Add recorded conversation tokens beside aligned message counts; label sidebar
   conversation totals and reduce excess message padding.
-- [ ] Resume Cleanup with project/source trees, date selection, exact previews, recovery,
+- [x] Resume Cleanup with project/source trees, date selection, exact previews, recovery,
   restore and separately confirmed permanent removal; preserve retained activity totals.
 - [ ] Verify synthetic large-thread, paging, safety and recovery cases and update the
   exact clean signed installed app.
@@ -42,6 +42,14 @@ The activity ledger is saved before any source moves. Account cache samples are 
 by reviewed IDs and digests in a SQLite transaction, retaining other samples and failure
 status. Synthetic trash/reopen/restore/removal, unsafe-link, changed-source, writer and
 ledger-failure checks pass; the production model completes a trash-and-restore flow.
+
+Cleanup UI checkpoint: source/project disclosure trees use native checkboxes and virtual
+file rows. Time ranges include recent, older-than, all-time and inclusive custom dates.
+Review shows the selected paths, cache records, counts and payload bytes before explicit
+confirmation. Recoverable batches offer Restore and a separately confirmed permanent
+removal. Busy, empty, error and completion states are visible. Native end-of-scroll and
+date-boundary checks pass; production and Preview view-model checks pass. The full core
+suite contains 172 checks with only the two existing protected-copy opt-in skips.
 
 ### Menubar popup viewport and display cap (2026-09-18)
 
