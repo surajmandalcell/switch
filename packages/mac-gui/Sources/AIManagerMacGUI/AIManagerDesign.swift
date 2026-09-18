@@ -1,25 +1,12 @@
 import AppKit
 import Observation
-import OSLog
 import SwiftUI
-
-enum AIMHoverDiagnostics {
-  private static let enabled = ProcessInfo.processInfo.environment["AI_MANAGER_HOVER_TRACE"] == "1"
-  private static let logger = Logger(subsystem: "com.mandalsuraj.ai-manager", category: "hover-diagnostic")
-
-  static func record(_ event: @autoclosure () -> String) {
-    guard enabled else { return }
-    let message = event()
-    logger.notice("\(message, privacy: .public)")
-  }
-}
 
 @MainActor @Observable
 final class AIMSidebarHover {
   private(set) var target: String?
 
   func update(_ id: String, inside: Bool) {
-    AIMHoverDiagnostics.record("sidebar id=\(id.prefix(8)) inside=\(inside) previous=\(target?.prefix(8) ?? "none")")
     if inside { target = id }
     else if target == id { target = nil }
   }
@@ -277,6 +264,24 @@ enum AIMMotion {
   static let scrollbarOut = 0.16
 }
 
+struct AIMHoverBackground: View {
+  var base: Color = .clear
+  let highlight: Color
+  let hovered: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    Rectangle().fill(base)
+      .overlay {
+        Rectangle().fill(highlight)
+          .opacity(hovered ? 1 : 0)
+          .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
+      }
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+  }
+}
+
 extension Color {
   fileprivate init(hex: UInt32) {
     self.init(
@@ -301,7 +306,6 @@ struct AIMVisualEffect: NSViewRepresentable {
   }
 
   func updateNSView(_ view: NSVisualEffectView, context: Context) {
-    AIMHoverDiagnostics.record("backdrop update dark=\(darkMode) current=\(view.appearance?.name.rawValue ?? "inherited")")
     view.material = material
     view.blendingMode = blendingMode
     view.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
@@ -412,10 +416,7 @@ struct AIMPressButtonStyle: ButtonStyle {
           case .active: inside = isEnabled
           case .ended: inside = false
           }
-          if hovered != inside {
-            AIMHoverDiagnostics.record("shared hover \(hovered)->\(inside) enabled=\(isEnabled) event=\(NSApp.currentEvent?.type.rawValue ?? 0) point=\(String(describing: NSApp.currentEvent?.locationInWindow)) appearance=\(NSApp.keyWindow?.effectiveAppearance.name.rawValue ?? "no-key-window")")
-            hovered = inside
-          }
+          if hovered != inside { hovered = inside }
         }
         .onChange(of: isEnabled) { _, enabled in
           if !enabled { hovered = false }

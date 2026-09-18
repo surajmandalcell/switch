@@ -234,6 +234,8 @@ interface or publish unchanged account, history, and usage values.
 Light and dark hover feedback must remain stable with body translucency enabled.
 During a crossing, both the departed and entered controls must fade without repeated
 brightness reversals or flashes beyond their normal and hovered colors in light mode.
+Scope hover fades to the opacity of constant-color layers; do not animate the entire
+control's adaptive colors, foreground, or layout when pointer ownership changes.
 Show in Menubar uses the same normal button colors as Open Codex and Use & Open Codex;
 its tick state communicates the saved choice without a separate blue surface.
 

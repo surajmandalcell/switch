@@ -25,10 +25,35 @@ the current installed light window, but still has no pointer-hover action.
 An opt-in `AI_MANAGER_HOVER_TRACE=1` trace records sidebar/shared hover changes,
 backdrop updates, and appearance application in the app's own OSLog category. It is
 disabled by default and records no credentials, paths, account emails, or chat content.
-The diagnostic checkpoint is installed and verified before requesting one physical
+The diagnostic checkpoint was installed and verified before requesting one physical
 crossing from the owner. This is investigation support, not a claimed theme fix.
 The debt inventory remains two existing safety deferrals, zero missing triggers;
 neither reliable home-scoped writer detection nor process-exit ownership is available.
+
+Physical replay follow-up: the five-minute stream expired before the owner tested, but
+the app's retained OSLog recovered 183 diagnostic events, including two replay intervals.
+The single appearance application precedes both intervals. During the crossings,
+appearance remains Aqua, controls remain enabled, and there are no backdrop updates.
+Shared exit/entry pairs at one coordinate belong to different controls; these pairs
+alone do not prove false exits. The capture contains state changes, not rendered pixels,
+so it does not establish a compositor root cause or prove the visual blink is gone.
+
+The rendering workaround replaces whole-control adaptive-color interpolation with
+constant-color background layers and local 120 ms opacity fades. Rail/account rows,
+normal and icon buttons, modal rows/Close, and menu actions share that surface. Small
+activity/filter/copy controls use the existing shared opacity tint without a second
+hover tracker. Noninteractive Menubar cards no longer animate gradient-to-color swaps.
+Press feedback, native blur, themes, focus, account ordering, and selection stay intact.
+Temporary logging is removed after the retained capture is exported privately.
+The existing native crossing check now follows the physical replay within one point of
+the shared row boundary. Physical paint confirmation remains an open acceptance seam.
+Final System/Light/Dark contracts pass with the completed source, including both fade
+directions, interrupted boundary crossings, unchanged redraws, disabled/Reduce Motion
+states, Menubar geometry, and calendar selection. Warm full account-pane renders are
+24–46 ms. Core/CLI inputs and their accepted gates are unchanged. The full debt inventory
+remains two existing markers with upgrade triggers, no additions and no missing triggers.
+The canonical private final-install receipt owns the clean signed installed revision,
+package/executable/helper comparisons, mapped process, and post-install observations.
 
 Follow-up: hover flashing is reported in light mode, and ordinary account-list selection
 still stalls after the isolated calendar optimization. The whole account pane needs its
