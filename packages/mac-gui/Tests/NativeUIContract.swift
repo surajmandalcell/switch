@@ -98,6 +98,9 @@ enum AIManagerNativeContract {
     }
     let first = host.convert(NSPoint(x: 24, y: host.isFlipped ? 24 : 72), to: nil)
     let second = host.convert(NSPoint(x: 24, y: host.isFlipped ? 72 : 24), to: nil)
+    // The physical replay also crossed within a point of the shared row edge.
+    let firstEdge = host.convert(NSPoint(x: 24, y: host.isFlipped ? 47.35 : 48.65), to: nil)
+    let secondEdge = host.convert(NSPoint(x: 24, y: host.isFlipped ? 48.65 : 47.35), to: nil)
     func pixel(at point: NSPoint) -> Double {
       guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
       host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -110,7 +113,7 @@ enum AIManagerNativeContract {
     var failures: [String] = []
     var previousAreas: [NSTrackingArea] = []
     let normalPixels = [pixel(at: first), pixel(at: second)]
-    for (index, point) in [first, second, first, second, first, second].enumerated() {
+    for (index, point) in [first, second, first, second, firstEdge, secondEdge].enumerated() {
       let current = areas(at: point)
       for area in previousAreas where !current.contains(where: { $0 === area }) {
         (area.owner as? NSResponder)?.mouseExited(with:

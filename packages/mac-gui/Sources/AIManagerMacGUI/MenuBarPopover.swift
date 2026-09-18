@@ -303,9 +303,6 @@ private struct MenuBarAccountRow: View {
   let copyError: (String) -> Void
   let action: () -> Void
 
-  @State private var isHovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 8) {
@@ -368,11 +365,6 @@ private struct MenuBarAccountRow: View {
         .stroke(AIMTheme.lineSoft, lineWidth: 1)
     }
     .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-    .onHover { hovered in
-      withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover)) {
-        isHovered = hovered
-      }
-    }
     .accessibilityLabel(accessibilityLabel)
     .accessibilityHint(
       account.isActive
@@ -416,7 +408,6 @@ private struct MenuBarAccountRow: View {
         endPoint: .bottomTrailing))
     }
     if isSwitching { return AnyShapeStyle(AIMTheme.controlHover.opacity(0.35)) }
-    if isHovered && account.isVerified { return AnyShapeStyle(AIMTheme.listHover.opacity(0.30)) }
     return AnyShapeStyle(LinearGradient(
       colors: [AIMTheme.panel2.opacity(0.16), AIMTheme.panel3.opacity(0.08)],
       startPoint: .topLeading,
@@ -491,14 +482,17 @@ private struct MenuBarActionButton: View {
           width: MenuBarPopover.accountActionWidth,
           height: MenuBarPopover.accountActionHeight)
         .background {
-          if disabled { AIMTheme.control.opacity(0.65) }
-          else if title == "Switch" { AIMTheme.blue.opacity(isHovered ? 0.12 : 0.025) }
-          else { AIMTheme.control.opacity(isHovered ? 0.5 : 0) }
+          AIMHoverBackground(base: disabled ? AIMTheme.control.opacity(0.65)
+              : title == "Switch" ? AIMTheme.blue.opacity(0.025) : .clear,
+            highlight: title == "Switch" ? AIMTheme.blue.opacity(0.10) : AIMTheme.control.opacity(0.5),
+            hovered: isHovered && !disabled)
         }
         .overlay {
           if title == "Switch", !disabled {
             RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius)
-              .stroke(AIMTheme.blue.opacity(isHovered ? 1 : 0.7), lineWidth: 1)
+              .stroke(AIMTheme.blue, lineWidth: 1)
+              .opacity(isHovered ? 1 : 0.7)
+              .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovered)
           }
         }
         .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
@@ -507,7 +501,6 @@ private struct MenuBarActionButton: View {
     .buttonStyle(AIMPressButtonStyle())
     .disabled(disabled)
     .onHover { isHovered = $0 && !disabled }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: isHovered)
     .accessibilityLabel(disabled ? "Active account"
       : title == "Switch" ? "Use this account for new Codex sessions" : title)
   }

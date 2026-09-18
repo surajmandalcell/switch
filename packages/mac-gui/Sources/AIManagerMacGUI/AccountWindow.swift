@@ -358,7 +358,6 @@ struct AccountWindow: View {
       .disabled(model.isBusy)
       .opacity(model.isBusy ? 0.42 : 1)
       .onHover { refreshHovered = $0 && !model.isBusy }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: refreshHovered)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
       .help(refreshHelp)
       .accessibilityLabel(refreshAccessibilityLabel)
@@ -402,7 +401,10 @@ private struct RailTop: View {
           minimizeHover ? AIMTheme.windowControlInk : AIMTheme.muted
         )
         .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-        .background(minimizeHover ? AIMTheme.minimizeHover : AIMTheme.minimizeControl)
+        .background {
+          AIMHoverBackground(base: AIMTheme.minimizeControl,
+            highlight: AIMTheme.minimizeHover, hovered: minimizeHover)
+        }
         .contentShape(Rectangle())
       }.buttonStyle(AIMPressButtonStyle()).focusable()
         .accessibilityLabel("Minimize window")
@@ -415,7 +417,6 @@ private struct RailTop: View {
           updateHover(value)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.minimize), value: showMinimize)
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: minimizeHover)
       Button(action: close) {
         AIMIcon(name: .close, size: 15).foregroundStyle(closeHover ? Color.white : AIMTheme.closeHover)
           .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
@@ -475,8 +476,8 @@ struct RailButton: View {
       AIMIcon(name: icon, size: iconSize).frame(width: 48, height: 48).foregroundStyle(
         active ? AIMTheme.activeInk : (hover && !unavailable ? AIMTheme.ink : AIMTheme.railIdle)
       ).background {
-        Rectangle().fill(active ? AIMTheme.active : (hover && !unavailable ? AIMTheme.panel2 : .clear))
-          .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hover)
+        AIMHoverBackground(base: active ? AIMTheme.active : .clear,
+          highlight: AIMTheme.panel2, hovered: hover && !active && !unavailable)
           .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: active)
           .allowsHitTesting(false)
       }
@@ -512,18 +513,16 @@ struct AIMButton: View {
             ? AIMTheme.disabledInk
             : (tone == .primary
               ? AIMTheme.canvas : (tone == .danger ? AIMTheme.statusInk : (active ? AIMTheme.blue : AIMTheme.ink)))
-        ).background(
-          unavailable
-            ? AIMTheme.disabledControl
-            : (tone == .primary
-              ? (hover ? AIMTheme.primaryHover : AIMTheme.ink)
-              : (tone == .danger
-                ? AIMTheme.red
-                : (hover ? AIMTheme.controlHover : (active ? AIMTheme.blue.opacity(0.10) : AIMTheme.control))))
-        ).overlay {
-          if tone == .danger && hover {
-            RoundedRectangle(cornerRadius: 3).fill(AIMTheme.statusInk.opacity(0.08))
-          }
+        ).background {
+          AIMHoverBackground(
+            base: unavailable ? AIMTheme.disabledControl
+              : tone == .primary ? AIMTheme.ink
+              : tone == .danger ? AIMTheme.red
+              : active ? AIMTheme.blue.opacity(0.10) : AIMTheme.control,
+            highlight: tone == .primary ? AIMTheme.primaryHover
+              : tone == .danger ? AIMTheme.statusInk.opacity(0.08) : AIMTheme.controlHover,
+            hovered: hover && !unavailable)
+        }.overlay {
           if focused, focusIndicatorsEnabled {
             RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
           }
@@ -532,7 +531,6 @@ struct AIMButton: View {
     .buttonStyle(AIMPressButtonStyle()).focused($focused).disabled(disabled).onHover {
       hover = $0 && !unavailable
     }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hover)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
   }
 }
@@ -561,13 +559,11 @@ struct AIMIconButton: View {
               ? (hover ? AIMTheme.statusInk : AIMTheme.red)
               : (active ? AIMTheme.blue : (hover ? AIMTheme.ink : AIMTheme.muted)))
         )
-        .background(
-          unavailable
-            ? Color.clear
-            : (hover
-              ? (tone == .danger ? AIMTheme.red : AIMTheme.controlHover)
-              : (active ? AIMTheme.blue.opacity(0.10) : Color.clear))
-        )
+        .background {
+          AIMHoverBackground(base: active && !unavailable ? AIMTheme.blue.opacity(0.10) : .clear,
+            highlight: tone == .danger ? AIMTheme.red : AIMTheme.controlHover,
+            hovered: hover && !unavailable)
+        }
         .overlay {
           if focused, focusIndicatorsEnabled {
             RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
@@ -583,7 +579,6 @@ struct AIMIconButton: View {
     .focused($focused)
     .disabled(disabled)
     .onHover { hover = $0 && !unavailable }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hover)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
     .help(label)
     .accessibilityLabel(label)
@@ -680,11 +675,13 @@ private struct AccountsPage: View {
               Spacer()
             }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
               .foregroundStyle(model.isBusy || !model.hasLoaded ? AIMTheme.disabledInk : AIMTheme.ink)
-              .background(importHovered && !model.isBusy && model.hasLoaded ? AIMTheme.controlHover : AIMTheme.panel2)
+              .background {
+                AIMHoverBackground(base: AIMTheme.panel2, highlight: AIMTheme.controlHover,
+                  hovered: importHovered && !model.isBusy && model.hasLoaded)
+              }
           }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut("i", modifiers: [.command])
             .disabled(model.isBusy || !model.hasLoaded)
             .onHover { importHovered = $0 && !model.isBusy && model.hasLoaded }
-            .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: importHovered)
             .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
         }
       }.frame(width: AIMTheme.listWidth)
@@ -790,8 +787,8 @@ struct AccountListRow: View {
     }.padding(.horizontal, 12).padding(.vertical, 6).frame(
       maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
     ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background {
-      Rectangle().fill(selected ? AIMTheme.active : (hover ? AIMTheme.panel2 : .clear))
-        .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hover)
+      AIMHoverBackground(base: selected ? AIMTheme.active : .clear,
+        highlight: AIMTheme.panel2, hovered: hover && !selected)
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
         .allowsHitTesting(false)
     }.overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
@@ -1372,15 +1369,12 @@ private struct ActivityCell: View {
   let selected: Bool
   let size: CGFloat
   let select: () -> Void
-  @State private var hovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  private var fill: AnyShapeStyle {
+  private var fill: Color {
     guard day.tokens > 0, maximumTokens > 0 else {
-      return AnyShapeStyle(hovered ? AIMTheme.controlHover : AIMTheme.control.opacity(0.58))
+      return AIMTheme.control.opacity(0.58)
     }
     let intensity = 0.24 + 0.70 * sqrt(Double(day.tokens) / Double(maximumTokens))
-    return AnyShapeStyle(AIMTheme.green.opacity(hovered ? min(1, intensity + 0.10) : intensity))
+    return AIMTheme.green.opacity(intensity)
   }
 
   var body: some View {
@@ -1395,8 +1389,6 @@ private struct ActivityCell: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(AIMPressButtonStyle())
-    .onHover { hovered = $0 }
-    .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
     .help("\(day.date.formatted(date: .complete, time: .omitted)): \(UsagePresentation.exactTokens(day.tokens)) tokens")
     .accessibilityLabel(day.date.formatted(date: .complete, time: .omitted))
     .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
@@ -2121,12 +2113,10 @@ private struct ChatThreadRow: View {
       .padding(.vertical, 7)
       .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
       .contentShape(Rectangle())
-      .background(
-        selected
-          ? AIMTheme.listSelection
-          : (hovered
-            ? AIMTheme.listHover
-            : (striped ? AIMTheme.listStripe : Color.clear)))
+      .background {
+        AIMHoverBackground(base: selected ? AIMTheme.listSelection : striped ? AIMTheme.listStripe : .clear,
+          highlight: AIMTheme.listHover, hovered: hovered && !selected)
+      }
       .overlay(alignment: .leading) {
         if selected { Rectangle().fill(AIMTheme.active).frame(width: 3) }
       }
@@ -2134,7 +2124,6 @@ private struct ChatThreadRow: View {
     }
     .buttonStyle(AIMPressButtonStyle())
     .onHover { hovered = $0 }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hovered)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
     .accessibilityLabel("\(thread.title), \(projectLabel)")
   }
@@ -2485,8 +2474,6 @@ private struct ChatFilterButton: View {
   let choice: ChatFilterChoice
   let selected: Bool
   let action: () -> Void
-  @State private var hovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
@@ -2498,14 +2485,11 @@ private struct ChatFilterButton: View {
       .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
       .padding(.horizontal, 8)
       .frame(height: 24)
-      .background(
-        selected ? AIMTheme.active : (hovered ? AIMTheme.controlHover : AIMTheme.control))
+      .background(selected ? AIMTheme.active : AIMTheme.control)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
       .contentShape(Rectangle())
     }
     .buttonStyle(AIMPressButtonStyle())
-    .onHover { hovered = $0 }
-    .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
     .accessibilityLabel("Show \(choice.rawValue.lowercased())")
     .accessibilityAddTraits(selected ? .isSelected : [])
   }
@@ -2514,8 +2498,6 @@ private struct ChatFilterButton: View {
 private struct ChatFilteredCopyButton: View {
   let messages: [ChatMessage]
   @State private var copied = false
-  @State private var hovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button {
@@ -2538,15 +2520,13 @@ private struct ChatFilteredCopyButton: View {
       .foregroundStyle(copied ? AIMTheme.green : AIMTheme.ink)
       .padding(.horizontal, 9)
       .frame(height: 28)
-      .background(hovered ? AIMTheme.controlHover : AIMTheme.control)
+      .background(AIMTheme.control)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
       .contentShape(Rectangle())
     }
     .buttonStyle(AIMPressButtonStyle())
     .disabled(messages.isEmpty)
     .opacity(messages.isEmpty ? 0.45 : 1)
-    .onHover { hovered = $0 }
-    .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
     .help("Copy the messages currently shown")
     .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
   }
@@ -2928,7 +2908,6 @@ private struct WarningCopyButton: View {
   var showsTitle = false
   let action: () -> Void
   @State private var copied = false
-  @State private var hovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
@@ -2951,13 +2930,10 @@ private struct WarningCopyButton: View {
       .padding(.horizontal, showsTitle ? 9 : 0)
       .frame(minWidth: showsTitle ? 92 : 28, minHeight: 28)
       .foregroundStyle(copied ? AIMTheme.green : AIMTheme.amber)
-      .background(hovered ? AIMTheme.controlHover : Color.clear)
       .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
       .contentShape(Rectangle())
     }
     .buttonStyle(AIMPressButtonStyle())
-    .onHover { hovered = $0 }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hovered)
     .help(label)
     .accessibilityLabel(label)
   }
@@ -3130,20 +3106,17 @@ private struct AddAccountFlow: View {
             .padding(.horizontal, AIMTheme.panelContentInset)
             .frame(height: 62)
             .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
-            .background(
-              selected
-                ? AIMTheme.active
-                : (hoveredProviderID == provider.id
-                  ? AIMTheme.listHover
-                  : (index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe))
-            )
+            .background {
+              AIMHoverBackground(base: selected ? AIMTheme.active
+                  : index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe,
+                highlight: AIMTheme.listHover, hovered: hoveredProviderID == provider.id && !selected)
+            }
             .contentShape(Rectangle())
           }
           .buttonStyle(AIMPressButtonStyle())
           .disabled(!available)
           .opacity(available ? 1 : 0.64)
           .onHover { hoveredProviderID = $0 && available ? provider.id : nil }
-          .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hoveredProviderID)
           .accessibilityLabel(provider.displayName)
           .accessibilityHint(available ? "Available" : unavailableCopy(provider))
         }
@@ -3358,11 +3331,10 @@ private struct ImportHeader: View {
             width: AIMTheme.windowControlSize,
             height: AIMTheme.modalTitlebarHeight
           )
-          .background(
-            closeHovered && !closeDisabled
-              ? AIMTheme.closeHover
-              : AIMTheme.panel3
-          )
+          .background {
+            AIMHoverBackground(base: AIMTheme.panel3, highlight: AIMTheme.closeHover,
+              hovered: closeHovered && !closeDisabled)
+          }
           .contentShape(Rectangle())
       }
       .buttonStyle(AIMPressButtonStyle())
@@ -3372,10 +3344,6 @@ private struct ImportHeader: View {
       .disabled(closeDisabled)
       .opacity(closeDisabled ? 0.45 : 1)
       .onHover { closeHovered = $0 && !closeDisabled }
-      .animation(
-        reduceMotion ? nil : .easeOut(duration: AIMMotion.hover),
-        value: closeHovered
-      )
       .animation(
         reduceMotion ? nil : .easeOut(duration: AIMMotion.state),
         value: closeDisabled
@@ -3470,13 +3438,11 @@ private struct SourcePage: View {
                   )
                   .padding(.top, 1)
                 }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 10)
-                  .frame(minHeight: 64).background(
-                  selected
-                    ? AIMTheme.active.opacity(0.70)
-                    : (hoveredSourceID == source.id
-                      ? AIMTheme.panel2
-                      : (index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55)))
-                ).contentShape(Rectangle())
+                  .frame(minHeight: 64).background {
+                    AIMHoverBackground(base: selected ? AIMTheme.active.opacity(0.70)
+                        : index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55),
+                      highlight: AIMTheme.panel2, hovered: hoveredSourceID == source.id && !selected)
+                  }.contentShape(Rectangle())
                   .foregroundStyle(
                     selected ? AIMTheme.activeInk : AIMTheme.ink)
                   .opacity(isEnabled && supported ? 1 : 0.58)
@@ -3484,7 +3450,6 @@ private struct SourcePage: View {
                 .disabled(!supported)
                 .help(source.inspectionError ?? source.path.path)
                 .onHover { hoveredSourceID = $0 && isEnabled && supported ? source.id : nil }
-                .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hoveredSourceID)
                 .animation(
                   reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.selectedSourceID)
                 .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: isEnabled)
@@ -3539,14 +3504,14 @@ private struct Choice: View {
       }.font(AIMTheme.sans(11, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
         .foregroundStyle(
           !isEnabled ? AIMTheme.disabledInk : (selected ? AIMTheme.activeInk : AIMTheme.ink)
-        ).background(
-          !isEnabled
-            ? AIMTheme.disabledControl
-            : (selected ? AIMTheme.active : (hover ? AIMTheme.controlHover : AIMTheme.control)))
+        ).background {
+          AIMHoverBackground(base: !isEnabled ? AIMTheme.disabledControl
+              : selected ? AIMTheme.active : AIMTheme.control,
+            highlight: AIMTheme.controlHover, hovered: hover && !selected && isEnabled)
+        }
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     }.buttonStyle(AIMPressButtonStyle()).accessibilityAddTraits(selected ? .isSelected : [])
       .onHover { hover = $0 && isEnabled }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: hover)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: isEnabled)
   }
