@@ -124,6 +124,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyAppearance() {
         let mode = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
+        AIMHoverDiagnostics.record("applyAppearance mode=\(mode) current=\(NSApp.appearance?.name.rawValue ?? "inherited")")
         let appearance: NSAppearance?
         let usesDarkIcon: Bool?
         switch mode {

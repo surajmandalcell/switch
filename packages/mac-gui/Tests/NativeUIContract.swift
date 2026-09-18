@@ -108,17 +108,25 @@ enum AIManagerNativeContract {
       return color.redComponent + color.greenComponent + color.blueComponent
     }
     var failures: [String] = []
+    var previousAreas: [NSTrackingArea] = []
+    let normalPixels = [pixel(at: first), pixel(at: second)]
     for (index, point) in [first, second, first, second, first, second].enumerated() {
       let current = areas(at: point)
+      for area in previousAreas where !current.contains(where: { $0 === area }) {
+        (area.owner as? NSResponder)?.mouseExited(with:
+          HoverTestEvent(area: area, type: .mouseExited, location: point))
+      }
       for area in current {
-        if index == 0 {
+        if !previousAreas.contains(where: { $0 === area }) {
           (area.owner as? NSResponder)?.mouseEntered(with: HoverTestEvent(area: area, type: .mouseEntered, location: point))
         } else {
           (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved, location: point))
         }
       }
+      previousAreas = current
       let expected = index.isMultiple(of: 2) ? "Accounts" : "Settings"
       var frames: [Double] = []
+      var crossingFrames: [[Double]] = []
       let frameCount = index < 4 ? 2 : 64
       for frame in 0..<frameCount {
         try? await Task.sleep(for: .milliseconds(16))
@@ -129,10 +137,23 @@ enum AIManagerNativeContract {
         }
         if hover.target != expected { failures.append("Moving between controls loses the \(expected) hover target") }
         frames.append(pixel(at: point))
+        crossingFrames.append([pixel(at: first), pixel(at: second)])
         if frame == 4 {
           // Same view, as during an observed model refresh while the pointer stays inside.
           host.rootView = root
         }
+      }
+      if index >= 4 {
+        for slot in 0..<2 {
+          let samples = crossingFrames.map { $0[slot] }
+          let settled = samples.last!
+          let minimum = min(normalPixels[slot], settled, crossingFrames[0][slot])
+          let maximum = max(normalPixels[slot], settled, crossingFrames[0][slot])
+          if samples.contains(where: { $0 < minimum - 0.01 || $0 > maximum + 0.01 }) {
+            failures.append("Crossing controls flashes \(slot == 0 ? "Accounts" : "Settings") beyond its fade endpoints")
+          }
+        }
+        FileHandle.standardError.write(Data("HOVER_CROSS \(expected) opacity=\(surfaceOpacity) first=\(crossingFrames.prefix(12))\n".utf8))
       }
       if frames.contains(where: { $0 < 0 }) { failures.append("\(expected) hover pixels could not be captured") }
       if frameCount > 8, let settled = frames.last, frames.suffix(48).contains(where: { abs($0 - settled) > 0.01 }) {
