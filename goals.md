@@ -22,7 +22,7 @@ preference store retains percentage used. Conversion covers values below zero an
 two protected-copy opt-in skips, production and Preview model checks, and System, Light,
 and Dark UI contracts.
 
-### Mac download and local release (2026-09-19)
+### Mac download and local release (2026-09-20)
 
 - [x] Make the README lead to the current Mac download state and keep source-build
   commands in the developer guide.
@@ -30,21 +30,21 @@ and Dark UI contracts.
   build, notarization, validation, checksum, and GitHub upload flow.
 - [x] Publish an ad hoc signed Switch preview from this Mac with a checksum
   and an exact download link.
-- [ ] Publish current Switch as the normal `v3.0.0` Latest release with a direct
+- [x] Publish current Switch as the normal `v3.0.0` Latest release with a direct
   README download and concise release notes.
 - [ ] Optionally publish a Developer ID signed and notarized artifact when those
   credentials are available.
 
-The local preview release is `v3.0.0-preview.1` at
-https://github.com/surajmandalcell/switch/releases/tag/v3.0.0-preview.1.
-Its ad hoc signed archive embeds clean revision `87c989658691` and version
-`3.0.0`. The native suite passed 172 tests with two opt-in skips; GUI contracts,
-CLI acceptance, local release readiness, archive extraction, and downloaded
-asset comparison passed. The uploaded ZIP SHA-256 is
-`de722fc0ff4d062698bf799dd17a2762e4f8130a89da8503a2da323b7e2caf8c`.
-The release is published as a prerelease with both assets and manual Open Anyway
-instructions. This Mac has no Developer ID Application identity, so trusted
-signing and notarization remain open.
+The normal release is `v3.0.0` at
+https://github.com/surajmandalcell/switch/releases/tag/v3.0.0. It is the GitHub
+Latest release, and its ad hoc signed archive embeds clean revision
+`72c176264e75` and version `3.0.0`. The native suite passed 172 tests with two
+protected-copy opt-in skips; GUI contracts, CLI acceptance, local release
+readiness, archive extraction, checksum verification, direct download, and
+downloaded asset comparison passed. The uploaded ZIP SHA-256 is
+`835766063d8f901ae43a28141105c3492a627ded3f9d4850c23ae4dac181b3bf`.
+The earlier `v3.0.0-preview.1` remains available as a prerelease with concise
+install notes.
 
 ### Conversation reader polish (2026-09-19)
 
