@@ -542,6 +542,23 @@ enum AIManagerNativeContract {
     {
       failures.append("Account usage choice does not survive reopening preferences")
     }
+    if UsagePercentagePreferences.showsUsed(defaults: defaults)
+      || UsagePercentagePreferences.label(forUsed: 42, showsUsed: false) != "58% left"
+    {
+      failures.append("Usage percentages do not default to percentage left")
+    }
+    defaults.set(true, forKey: UsagePercentagePreferences.showsUsedKey)
+    if let reopened = UserDefaults(suiteName: domain),
+      !UsagePercentagePreferences.showsUsed(defaults: reopened)
+    {
+      failures.append("Usage percentage meaning does not survive reopening preferences")
+    }
+    if UsagePercentagePreferences.label(forUsed: 42, showsUsed: true) != "42% used"
+      || UsagePercentagePreferences.displayedPercentage(forUsed: -1, showsUsed: true) != 0
+      || UsagePercentagePreferences.displayedPercentage(forUsed: 101, showsUsed: false) != 0
+    {
+      failures.append("Usage percentage display does not convert or clamp API values")
+    }
     let hiddenAccount = MenuBarAccountSnapshot(
       id: first, identity: "Synthetic account", detail: "", isVerified: true,
       isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: 42), showsUsage: false)
@@ -665,6 +682,13 @@ enum AIManagerNativeContract {
       if !condition() { failures.append(message) }
     }
 
+    let defaultsDomain = "Switch.MenuBarPercentage.\(UUID().uuidString)"
+    guard let controllerDefaults = UserDefaults(suiteName: defaultsDomain) else {
+      return ["Menu-bar percentage test store is unavailable"]
+    }
+    defer { controllerDefaults.removePersistentDomain(forName: defaultsDomain) }
+    controllerDefaults.removePersistentDomain(forName: defaultsDomain)
+
     expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
     expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
     expect(MenuBarPopover.accountHeaderHeight == 35, "Menu-bar account header does not match Soft rectangles")
@@ -719,6 +743,7 @@ enum AIManagerNativeContract {
 
     let controller = AIManagerStatusItemController(
       snapshot: snapshot,
+      defaults: controllerDefaults,
       actions: MenuBarPopoverActions(
         openMainWindow: {}, switchAccount: { _ in }))
     expect(controller.isPresent, "Menu-bar template mark is unavailable")
@@ -792,10 +817,18 @@ enum AIManagerNativeContract {
       "Tray repeats a service group or changes its account order")
     controller.update(snapshot: capped)
     expect(controller.statusTitle == "100% 70% 60% 80%", "Tray quota order or meaning changed")
-    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-2@example.test, 80% remaining")
+    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-2@example.test, 80% left")
       && !controller.statusAccessibilityLabel.contains("account-1@example.test")
       && !controller.statusAccessibilityLabel.contains("account-5@example.test"),
-      "Actual status button does not describe only the displayed provider/remaining pairs")
+      "Actual status button does not describe only the displayed provider/left pairs")
+    controllerDefaults.set(true, forKey: UsagePercentagePreferences.showsUsedKey)
+    controller.update(snapshot: capped)
+    expect(controller.statusTitle == "0% 30% 40% 20%",
+      "Tray percentages do not switch from left to used")
+    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-2@example.test, 20% used"),
+      "Tray accessibility does not follow the used-percentage setting")
+    controllerDefaults.set(false, forKey: UsagePercentagePreferences.showsUsedKey)
+    controller.update(snapshot: capped)
     expect(controller.isPresent, "Multi-provider tray image is not a native template")
     let sameService = AIManagerBrand.statusImage(groups: [[enabled[0], enabled[3]]])
     let differentServices = AIManagerBrand.statusImage(groups: [[enabled[0]], [enabled[3]]])

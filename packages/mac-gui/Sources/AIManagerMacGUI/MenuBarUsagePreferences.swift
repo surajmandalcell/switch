@@ -31,3 +31,20 @@ enum MenuBarUsagePreferences {
     overridePrefix + accountID.uuidString
   }
 }
+
+enum UsagePercentagePreferences {
+  static let showsUsedKey = "showUsageAsUsed"
+
+  static func showsUsed(defaults: UserDefaults = .standard) -> Bool {
+    defaults.bool(forKey: showsUsedKey)
+  }
+
+  static func displayedPercentage(forUsed used: Int, showsUsed: Bool) -> Int {
+    let clamped = min(max(used, 0), 100)
+    return showsUsed ? clamped : 100 - clamped
+  }
+
+  static func label(forUsed used: Int, showsUsed: Bool) -> String {
+    "\(displayedPercentage(forUsed: used, showsUsed: showsUsed))% \(showsUsed ? "used" : "left")"
+  }
+}

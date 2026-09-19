@@ -1646,16 +1646,20 @@ private struct UsageUnavailableRow: View {
 private struct UsageMeter: View {
   let title: String
   let window: CodexRateLimitWindowSnapshot
+  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var used: Int { min(max(window.usedPercent ?? 0, 0), 100) }
+  private var displayedPercentage: Int {
+    UsagePercentagePreferences.displayedPercentage(forUsed: used, showsUsed: showsUsed)
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(alignment: .firstTextBaseline) {
         Text(title).font(AIMTheme.sans(11, weight: .medium))
         Spacer()
-        Text("\(used)% used")
+        Text(UsagePercentagePreferences.label(forUsed: used, showsUsed: showsUsed))
           .font(AIMTheme.mono(10, weight: .semibold))
       }
       GeometryReader { geometry in
@@ -1663,7 +1667,7 @@ private struct UsageMeter: View {
           Rectangle().fill(AIMTheme.control)
           Rectangle()
             .fill(used >= 90 ? AIMTheme.red : (used >= 70 ? AIMTheme.amber : AIMTheme.blue))
-            .frame(width: geometry.size.width * CGFloat(used) / 100)
+            .frame(width: geometry.size.width * CGFloat(displayedPercentage) / 100)
         }
         .clipShape(RoundedRectangle(cornerRadius: 3))
       }
@@ -1677,7 +1681,7 @@ private struct UsageMeter: View {
       }
     }
     .frame(maxWidth: .infinity)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: used)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: displayedPercentage)
   }
 
 }
@@ -2148,6 +2152,7 @@ private struct SettingsPage: View {
   @Binding var showFocusIndicators: Bool
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
+  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
   @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
@@ -2160,6 +2165,9 @@ private struct SettingsPage: View {
             }
             settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
               Text("Show outlines only while keyboard controls have focus.")
+            }
+            settingRow(isOn: $showUsageAsUsed, title: "Show percentage used") {
+              Text("Turn off to show the percentage left in every usage view.")
             }
             HStack(spacing: 16) {
               VStack(alignment: .leading, spacing: 2) {
