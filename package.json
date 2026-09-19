@@ -1,0 +1,38 @@
+{
+  "name": "switch-codex",
+  "version": "3.0.0",
+  "description": "Switch between saved Codex accounts from the terminal.",
+  "license": "MIT",
+  "author": "Suraj Mandal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/surajmandalcell/switch.git"
+  },
+  "homepage": "https://github.com/surajmandalcell/switch#use-switch-in-the-terminal",
+  "bugs": "https://github.com/surajmandalcell/switch/issues",
+  "keywords": [
+    "codex",
+    "openai",
+    "terminal",
+    "account-switcher"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "ai-manager": "npm/vendor/darwin-arm64/ai-manager"
+  },
+  "files": [
+    "npm/vendor/darwin-arm64/ai-manager"
+  ],
+  "scripts": {
+    "prepare": "scripts/prepare-npm-tui.sh",
+    "test": "scripts/check-npm-tui.sh"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
