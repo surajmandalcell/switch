@@ -71,6 +71,12 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   var remainingPercentage: Int? {
     (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map { 100 - $0 }
   }
+
+  func displayedPercentage(showsUsed: Bool) -> Int? {
+    (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map {
+      UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed)
+    }
+  }
 }
 
 struct MenuBarSnapshot: Equatable, Sendable {
@@ -246,6 +252,7 @@ struct MenuBarPopover: View {
 
   @ObservedObject var store: MenuBarPopoverStore
   @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
+  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   private var palette: MenuBarPalette { colorScheme == .dark ? .espresso : .ivory }
@@ -300,6 +307,7 @@ struct MenuBarPopover: View {
             translucent: !reduceTransparency,
             isSwitching: store.switchingAccountID == account.id,
             error: store.rowErrors[account.id],
+            showsUsed: showsUsed,
             copyError: { store.copyError($0) },
             action: { store.select(account) }
           )
@@ -314,6 +322,7 @@ struct MenuBarPopover: View {
     var hasher = Hasher()
     hasher.combine(store.switchingAccountID)
     hasher.combine(reduceTransparency)
+    hasher.combine(showsUsed)
     for (id, error) in store.rowErrors.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
       hasher.combine(id)
       hasher.combine(error)
@@ -368,6 +377,7 @@ private struct MenuBarAccountRow: View {
   let translucent: Bool
   let isSwitching: Bool
   let error: String?
+  let showsUsed: Bool
   let copyError: (String) -> Void
   let action: () -> Void
 
@@ -413,12 +423,12 @@ private struct MenuBarAccountRow: View {
           if let percentage = usage.usedPercentage {
             MenuBarQuotaRow(
               label: "Session", percentage: percentage,
-              reset: usage.resetsAt, palette: palette)
+              reset: usage.resetsAt, showsUsed: showsUsed, palette: palette)
           }
           if let percentage = usage.secondaryUsedPercentage {
             MenuBarQuotaRow(
               label: "Weekly", percentage: percentage,
-              reset: usage.secondaryResetsAt, palette: palette)
+              reset: usage.secondaryResetsAt, showsUsed: showsUsed, palette: palette)
           }
         }
         .padding(.horizontal, 11)
@@ -469,10 +479,13 @@ private struct MenuBarAccountRow: View {
     var parts = [account.identity, error ?? account.detail]
     if let usage = account.usage {
       if let usedPercentage = usage.usedPercentage {
-        parts.append("\(usedPercentage) percent used")
+        parts.append(UsagePercentagePreferences.label(
+          forUsed: usedPercentage, showsUsed: showsUsed))
       }
       if let secondaryUsedPercentage = usage.secondaryUsedPercentage {
-        parts.append("\(secondaryUsedPercentage) percent weekly used")
+        let label = UsagePercentagePreferences.label(
+          forUsed: secondaryUsedPercentage, showsUsed: showsUsed)
+        parts.append("Weekly \(label)")
       }
     }
     return parts.joined(separator: ", ")
@@ -483,8 +496,13 @@ private struct MenuBarQuotaRow: View {
   let label: String
   let percentage: Int
   let reset: Date?
+  let showsUsed: Bool
   let palette: MenuBarPalette
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var displayedPercentage: Int {
+    UsagePercentagePreferences.displayedPercentage(forUsed: percentage, showsUsed: showsUsed)
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
@@ -496,13 +514,13 @@ private struct MenuBarQuotaRow: View {
           Capsule().fill(palette.track)
           Capsule()
             .fill(palette.accent)
-            .frame(width: proxy.size.width * CGFloat(percentage) / 100)
+            .frame(width: proxy.size.width * CGFloat(displayedPercentage) / 100)
         }
       }
       .frame(height: 4)
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: percentage)
+      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: displayedPercentage)
       HStack(spacing: 8) {
-        Text("\(percentage)% used")
+        Text(UsagePercentagePreferences.label(forUsed: percentage, showsUsed: showsUsed))
           .font(AIMTheme.sans(10, weight: .medium))
           .foregroundStyle(palette.ink)
         Spacer(minLength: 0)

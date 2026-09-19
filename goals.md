@@ -10,6 +10,18 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Usage percentage preference (2026-09-19)
+
+- [x] Add a persistent Settings toggle between percentage left and percentage used.
+- [x] Apply the selected meaning to all main-window and Menubar quota labels, meters,
+  status-item percentages, tooltips, and accessibility labels.
+
+The setting defaults to percentage left and persists through `UserDefaults`. A reopened
+preference store retains percentage used. Conversion covers values below zero and above
+100 without changing the cached API data. The full native suite passes 172 core tests with
+two protected-copy opt-in skips, production and Preview model checks, and System, Light,
+and Dark UI contracts.
+
 ### Mac download and local release (2026-09-19)
 
 - [x] Make the README lead to the current Mac download state and keep source-build

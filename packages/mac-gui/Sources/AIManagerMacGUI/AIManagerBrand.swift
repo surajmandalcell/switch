@@ -87,12 +87,14 @@ enum AIManagerBrand {
     return image
   }
 
-  static func statusImage(groups: [[MenuBarAccountSnapshot]], in bundle: Bundle = .main) -> NSImage? {
+  static func statusImage(
+    groups: [[MenuBarAccountSnapshot]], showsUsed: Bool = false, in bundle: Bundle = .main
+  ) -> NSImage? {
     guard !groups.isEmpty else { return trayImage(in: bundle) }
     let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
     let labels = groups.map { group in group.map { account in
       NSAttributedString(
-        string: account.remainingPercentage.map { "\($0)%" } ?? "–",
+        string: account.displayedPercentage(showsUsed: showsUsed).map { "\($0)%" } ?? "–",
         attributes: [.font: font, .foregroundColor: NSColor.black])
     } }
     let glyphs = groups.map {
@@ -190,7 +192,9 @@ final class AIManagerStatusItemController: NSObject {
   var usesPopover: Bool { statusItem.menu == nil && popover.behavior == .transient }
   var popoverContentSize: NSSize { popover.contentSize }
   var statusTitle: String {
-    store.snapshot.statusAccounts.map { $0.remainingPercentage.map { "\($0)%" } ?? "–" }
+    store.snapshot.statusAccounts.map {
+      $0.displayedPercentage(showsUsed: showsUsed).map { "\($0)%" } ?? "–"
+    }
       .joined(separator: " ")
   }
   var statusAccessibilityLabel: String { statusItem.button?.accessibilityLabel() ?? "" }
@@ -199,13 +203,17 @@ final class AIManagerStatusItemController: NSObject {
   private let popover = NSPopover()
   private let store: MenuBarPopoverStore
   private let bundle: Bundle
+  private let defaults: UserDefaults
+  private var showsUsed: Bool { UsagePercentagePreferences.showsUsed(defaults: defaults) }
 
   init(
     bundle: Bundle = .main,
     snapshot: MenuBarSnapshot = .empty,
+    defaults: UserDefaults = .standard,
     actions: MenuBarPopoverActions
   ) {
     self.bundle = bundle
+    self.defaults = defaults
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     store = MenuBarPopoverStore(snapshot: snapshot, actions: actions)
     super.init()
@@ -283,9 +291,14 @@ final class AIManagerStatusItemController: NSObject {
     let accounts = snapshot.statusAccounts
     button.title = ""
     button.imagePosition = .imageOnly
-    button.image = AIManagerBrand.statusImage(groups: snapshot.statusAccountGroups, in: bundle)
+    button.image = AIManagerBrand.statusImage(
+      groups: snapshot.statusAccountGroups, showsUsed: showsUsed, in: bundle)
     let description = accounts.map { account in
-      let quota = account.remainingPercentage.map { "\($0)% remaining" } ?? "Limit not checked"
+      let quota = account.usage.flatMap { usage in
+        (usage.usedPercentage ?? usage.secondaryUsedPercentage).map {
+          UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed)
+        }
+      } ?? "Limit not checked"
       return "\(account.providerID.displayName), \(account.identity), \(quota)"
     }.joined(separator: "\n")
     button.toolTip = description.isEmpty ? applicationName : description

@@ -110,6 +110,11 @@ statistics. Optional fields are conditional:
 - Never manufacture a value from transcripts and never combine stale usage with Needs
   sign-in.
 
+Settings includes a persistent “Show percentage used” toggle, off by default. When off,
+every quota percentage shows the amount left; when on, every quota percentage shows the
+amount used. The selected meaning applies to main-window meters, Menubar cards, status-item
+percentages, tooltips, and accessibility labels, and survives app restarts.
+
 Daily activity uses a GitHub-style calendar instead of a date table. The user can select 7 days,
 1 month, or 1 year, initially 1 year. The selected range persists across app restarts.
 Selecting an account only changes the displayed account; it must not activate credentials
