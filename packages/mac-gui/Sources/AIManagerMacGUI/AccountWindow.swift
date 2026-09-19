@@ -2271,7 +2271,6 @@ enum HistoryHeaderLayout {
   static let height: CGFloat = 40
   static let countWidth: CGFloat = 128
   static let warningWidth: CGFloat = 32
-  static let statusWidth: CGFloat = 20
 }
 
 private struct HistoryPage: View {
@@ -2284,38 +2283,33 @@ private struct HistoryPage: View {
         HStack(spacing: 0) {
           Text("Conversations").font(AIMTheme.sans(12, weight: .semibold))
           Spacer(minLength: 8)
+          if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
+            WarningCopyButton(label: "Copy history warning") {
+              model.copyWarnings([historyIssueText])
+            }
+            .help(historyIssueText)
+            .frame(width: HistoryHeaderLayout.warningWidth, height: HistoryHeaderLayout.height)
+          }
           Group {
-            if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
-              WarningCopyButton(label: "Copy history warning") {
-                model.copyWarnings([historyIssueText])
+            if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
+              ProgressView().controlSize(.mini).scaleEffect(0.75)
+            } else {
+              HStack(spacing: 6) {
+                if let error = model.chatHistoryError {
+                  Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
+                    .help(error)
+                    .accessibilityLabel(error)
+                }
+                Text(historyCountText)
+                  .font(AIMTheme.sans(9))
+                  .foregroundStyle(AIMTheme.muted)
+                  .monospacedDigit()
+                  .contentTransition(.numericText())
               }
-              .help(historyIssueText)
-            } else {
-              Color.clear
             }
           }
-          .frame(width: HistoryHeaderLayout.warningWidth, height: HistoryHeaderLayout.height)
-          Group {
-            if let error = model.chatHistoryError {
-              Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
-                .help(error)
-                .accessibilityLabel(error)
-            } else if model.isChatHistoryLoading {
-              ProgressView().controlSize(.mini)
-            } else {
-              Color.clear
-            }
-          }
-          .frame(width: HistoryHeaderLayout.statusWidth, height: HistoryHeaderLayout.height)
-          Text(historyCountText)
-            .font(AIMTheme.sans(9))
-            .foregroundStyle(AIMTheme.muted)
-            .monospacedDigit()
-            .contentTransition(.numericText())
-            .frame(
-              width: HistoryHeaderLayout.countWidth,
-              height: HistoryHeaderLayout.height,
-              alignment: .trailing)
+          .frame(width: HistoryHeaderLayout.countWidth,
+            height: HistoryHeaderLayout.height, alignment: .trailing)
         }
         .padding(.leading, 14)
         .padding(.trailing, 8)
@@ -2510,7 +2504,7 @@ private struct ChatDetailPane: View {
   var body: some View {
     VStack(spacing: 0) {
       if let thread = selectedSummary {
-        HStack(spacing: 12) {
+        HStack(alignment: .bottom, spacing: 12) {
           VStack(alignment: .leading, spacing: 3) {
             Text(thread.title).font(AIMTheme.sans(14, weight: .semibold)).lineLimit(1)
             Text(threadContext(thread))
@@ -2883,47 +2877,27 @@ private struct ChatMessageRow: View {
       .font(AIMTheme.sans(9.5))
       .foregroundStyle(AIMTheme.muted)
 
-      switch message.role {
-      case .user:
-        ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 10)
-          .frame(maxWidth: 460, alignment: .leading)
-          .background(AIMTheme.chatUserSurface)
-          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      case .assistant:
-        HStack(alignment: .top, spacing: 12) {
-          Rectangle().fill(AIMTheme.titleArt).frame(width: 2)
-          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 12)
-        .frame(maxWidth: 620, alignment: .leading)
-      case .tool:
-        HStack(alignment: .top, spacing: 10) {
-          Rectangle().fill(AIMTheme.amber).frame(width: 2)
-          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .frame(maxWidth: 620, alignment: .leading)
-        .background(AIMTheme.chatCodeSurface)
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      case .other:
-        HStack(alignment: .top, spacing: 10) {
-          Rectangle().fill(AIMTheme.muted).frame(width: 2)
-          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+      ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+        .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .frame(maxWidth: 620, alignment: .leading)
-      }
+        .frame(maxWidth: message.role == .user ? 460 : 620, alignment: .leading)
+        .background(messageSurface)
+        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     }
     .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
     .padding(.horizontal, 12)
     .padding(.top, separated ? 10 : 4)
     .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     .onHover { hovered = $0 }
+  }
+
+  private var messageSurface: Color {
+    switch message.role {
+    case .user: AIMTheme.chatUserSurface
+    case .assistant: AIMTheme.panel2
+    case .tool: AIMTheme.chatCodeSurface
+    case .other: AIMTheme.panel3
+    }
   }
 }
 
@@ -3008,7 +2982,7 @@ private struct ChatPresentationBlockView: View {
   }
 }
 
-private struct ChatCodeBlock: View {
+struct ChatCodeBlock: View {
   let language: String?
   let preview: String
   let expandedText: String?
@@ -3030,14 +3004,12 @@ private struct ChatCodeBlock: View {
       .frame(height: 30)
       .background(AIMTheme.panel3)
 
-      ScrollView(.horizontal, showsIndicators: false) {
-        Text(visibleText)
-          .font(AIMTheme.mono(11))
-          .lineSpacing(3)
-          .textSelection(.enabled)
-          .fixedSize(horizontal: true, vertical: true)
-          .padding(12)
-      }
+      Text(visibleText)
+        .font(AIMTheme.mono(11))
+        .lineSpacing(3)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(12)
 
       if expandedText != nil {
         Button(expanded ? "Show less" : "Show more") { expanded.toggle() }

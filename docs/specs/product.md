@@ -87,9 +87,13 @@ older-message cutoff. Filters and search operate across the complete conversatio
 persisted choices, and paginate their results. Copy shown exports exactly the loaded filtered
 messages in order. Native rows remain virtual and parsing/search/rendering stays off the main
 thread. Large message presentation may be compact, but original text remains available for copying.
-The conversation header aligns its message count and recorded token total; omit a token value when
-the source has no reliable token counters. Sidebar counts include the word conversations. Reduce
-message outer padding and gaps while keeping prompt, response, tool, and other roles distinct.
+The conversation header aligns its message count and recorded token total with the
+conversation subtitle; omit a token value when the source has no reliable token counters.
+In the sidebar, replace the count with a small spinner only while the first page loads;
+keep counts visible during later refreshes. Sidebar counts include the word conversations.
+Give each message role a filled surface with shared leading content alignment instead of
+left border markers. Keep prompt, response, tool, and other roles distinct. Code blocks
+wrap long lines so vertical scrolling over their text continues through the conversation.
 
 ## 3. Usage presentation
 

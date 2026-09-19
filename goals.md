@@ -9,6 +9,18 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Conversation reader polish (2026-09-19)
+
+- [x] Put the small first-load spinner in the count position and keep the count
+  visible during later refreshes.
+- [x] Align message and token totals with the conversation subtitle.
+- [x] Use filled, aligned message surfaces and allow vertical scrolling over
+  code blocks as well as ordinary messages.
+
+Verified with native UI contracts in system, light, and dark appearances;
+the synthetic chat model check; and a Preview wheel test over both ordinary
+messages and fenced code. The wheel moved the conversation in both places.
+
 ### Repository file cleanup (2026-09-19)
 
 - [x] Remove unused community boilerplate and stale root guides after checking

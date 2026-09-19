@@ -391,7 +391,13 @@ enum AIManagerNativeContract {
     expect(HistoryHeaderLayout.height == 40, "Conversation header height changed")
     expect(HistoryHeaderLayout.countWidth >= 120, "Conversation count slot clips its label")
     expect(HistoryHeaderLayout.warningWidth == 32, "Conversation warning slot width changed")
-    expect(HistoryHeaderLayout.statusWidth == 20, "Conversation status slot width changed")
+    let codeHost = NSHostingView(rootView: ChatCodeBlock(
+      language: "swift", preview: String(repeating: "longCodeLine", count: 40),
+      expandedText: nil, sourceWasTruncated: false).frame(width: 300))
+    codeHost.frame = NSRect(x: 0, y: 0, width: 300, height: 120)
+    codeHost.layoutSubtreeIfNeeded()
+    expect(!views(in: codeHost).contains(where: { $0 is NSScrollView }),
+      "Code blocks capture vertical scrolling instead of letting the chat reader scroll")
     let pagingScroll = AIMOwnedScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 160))
     pagingScroll.documentView = PaginationTestDocument(frame: NSRect(x: 0, y: 0, width: 300, height: 1_000))
     var endCalls = 0

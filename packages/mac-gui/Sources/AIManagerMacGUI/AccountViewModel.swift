@@ -1627,7 +1627,7 @@ private enum DemoData {
             id: "demo-chat-accounts", threadID: "019f4b6d-accounts",
             title: "Polish the account import flow",
             preview: "The source rows now stay aligned and the review step is ready.",
-            project: "/Projects/Switch", minutesAgo: 8, messages: 6),
+            project: "/Projects/Switch", minutesAgo: 8, messages: 10, tokens: 15_200),
         chatThread(
             id: "demo-chat-linux", threadID: "019f4b6d-linux",
             title: "Verify the Linux release matrix",
@@ -1662,6 +1662,10 @@ private enum DemoData {
                 (.tool, "read_file\nAccountWindow.swift"),
                 (.other, "Checked the modal grid and row spacing."),
                 (.user, "Keep every source row visible and give the groups more breathing room."),
+                (.assistant, "The import step now groups each source with its location and chat count. The choice stays visible while the review panel updates below it."),
+                (.tool, "```swift\nlet sources = discoveredSources.filter(\\.isSupported)\nfor source in sources {\n  review(source)\n}\n```"),
+                (.other, "The selected source and review count matched after switching tabs."),
+                (.user, "Check scrolling over the message and code blocks too."),
                 (.assistant, "The source rows now stay aligned and the review step is ready."),
             ]
         case "demo-chat-linux":
@@ -1886,6 +1890,7 @@ private enum DemoData {
         project: String,
         minutesAgo: Int,
         messages: Int,
+        tokens: Int64? = nil,
         archived: Bool = false
     ) -> ChatThreadSummary {
         ChatThreadSummary(
@@ -1899,7 +1904,8 @@ private enum DemoData {
             messageCount: messages,
             fileByteCount: Int64(messages * 2_048),
             source: paths.sharedRoot.appending(path: "sessions/\(id).jsonl"),
-            unreadableRecordCount: 0)
+            unreadableRecordCount: 0,
+            totalTokens: tokens)
     }
 }
 #endif
