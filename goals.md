@@ -9,6 +9,13 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Repository file cleanup (2026-09-19)
+
+- [x] Remove unused community boilerplate and stale root guides after checking
+  references. Keep the credential security policy, license, active CI/release
+  workflows, dependency updates, and accepted design/research records. Move
+  issue-template redaction guidance into `SECURITY.md`.
+
 ### README visual refresh (2026-09-19)
 
 - [x] Replace long product prose with a short account-switching overview,
