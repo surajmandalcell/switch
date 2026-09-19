@@ -16,6 +16,18 @@ verification evidence.
   workflows, dependency updates, and accepted design/research records. Move
   issue-template redaction guidance into `SECURITY.md`.
 
+### Reset countdown and Preview names (2026-09-19)
+
+- [x] Show a precise, bold reset countdown in Menubar and account usage, updating
+  while either view remains open.
+- [x] Replace generic Preview email names and regenerate the README screenshots
+  from synthetic accounts.
+
+The shared formatter covers day/hour/minute boundaries and elapsed resets in
+the native contract. System, Light, and Dark contracts pass, as do Preview and
+production model checks. The README account and Menubar PNGs were regenerated
+from isolated Preview homes and visually checked with the new names and countdown.
+
 ### README visual refresh (2026-09-19)
 
 - [x] Replace long product prose with a short account-switching overview,

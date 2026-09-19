@@ -195,7 +195,9 @@ usage is enabled and cached, the card expands to show Session followed by Weekly
 Each 40-point quota row places its name above a full-width four-point progress bar,
 then its used percentage on the left and reset description on the right. Use 13-point
 spacing between limits, four-point top and ten-point bottom usage insets. Account names
-and quota labels are 11 points, used percentages ten, and reset descriptions nine.
+and quota labels are 11 points, used percentages ten, and bold reset descriptions nine.
+Show reset time as a live countdown in days, hours, and minutes, such as
+"Resets in 1 day 23h 59m", in both the Menubar and main account view.
 The whole popover, including cards and footer, is translucent over
 one native macOS backdrop blur. Card tints stay translucent; text and icons remain opaque.
 Use the existing native visual-effect wrapper and cached provider glyphs, without per-card

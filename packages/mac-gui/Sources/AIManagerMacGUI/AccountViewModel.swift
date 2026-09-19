@@ -1689,13 +1689,14 @@ private enum DemoData {
     }
 
     static let accounts = [
-        account(id: "7A08CA5E-F528-4E45-B730-DAF68B0A3133", email: "suraj@example.com", workspace: "personal", state: .verifiedWithCodex, detail: "Codex CLI account check completed at 10:15 AM."),
-        account(id: "5EA89BE0-D9A1-4727-983B-91640279C396", email: "studio@example.com", workspace: "design-team", state: .needsSignIn, detail: "Sign in before this account can launch Codex."),
-        account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "studio@example.com", workspace: "research-team", state: .imported, detail: "Imported locally. The account check has not run."),
+        account(id: "7A08CA5E-F528-4E45-B730-DAF68B0A3133", email: "ladygaga@gmail.com", workspace: "personal", state: .verifiedWithCodex, detail: "Codex CLI account check completed at 10:15 AM."),
+        account(id: "5EA89BE0-D9A1-4727-983B-91640279C396", email: "bankai39@gmail.com", workspace: "design-team", state: .needsSignIn, detail: "Sign in before this account can launch Codex."),
+        account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "joestar89@gmail.com", workspace: "research-team", state: .imported, detail: "Imported locally. The account check has not run."),
     ]
 
     static func usage(account: AccountRecord, offset: Int) -> CodexAccountUsageSnapshot {
         let used = [42, 68, 17][offset % 3]
+        let resetNow = Date()
         return CodexAccountUsageSnapshot(
             account: CodexAccountDetailsSnapshot(
                 kind: "chatgpt",
@@ -1714,12 +1715,12 @@ private enum DemoData {
                     primary: CodexRateLimitWindowSnapshot(
                         usedPercent: used,
                         windowDurationMinutes: 300,
-                        resetsAt: now.addingTimeInterval(Double(75 + offset * 20) * 60)
+                        resetsAt: resetNow.addingTimeInterval(Double(75 + offset * 20) * 60)
                     ),
                     secondary: CodexRateLimitWindowSnapshot(
                         usedPercent: min(used + 11, 100),
                         windowDurationMinutes: 10_080,
-                        resetsAt: now.addingTimeInterval(Double(2 + offset) * 86_400)
+                        resetsAt: resetNow.addingTimeInterval(Double(2 + offset) * 86_400)
                     ),
                     credits: CodexCreditsSnapshot(
                         hasCredits: true,
@@ -1737,7 +1738,7 @@ private enum DemoData {
                         primary: CodexRateLimitWindowSnapshot(
                             usedPercent: min(used + 8, 100),
                             windowDurationMinutes: 1_440,
-                            resetsAt: now.addingTimeInterval(Double(12 + offset) * 3_600)
+                            resetsAt: resetNow.addingTimeInterval(Double(12 + offset) * 3_600)
                         ),
                         secondary: nil,
                         credits: nil,
@@ -1757,13 +1758,13 @@ private enum DemoData {
                 CodexDailyUsageSnapshot(startDate: "2026-09-13", tokens: Int64(31_000 + offset * 4_000)),
                 CodexDailyUsageSnapshot(startDate: "2026-09-12", tokens: Int64(18_000 + offset * 3_000)),
             ],
-            fetchedAt: now.addingTimeInterval(Double(-offset * 480))
+            fetchedAt: resetNow.addingTimeInterval(Double(-offset * 480))
         )
     }
 
     static let discoveries = [
-        source(id: "default-home", path: "/Demo/Sources/.codex", email: "new@example.com", workspace: "personal", settings: ["config.toml", "AGENTS.md", "rules", "skills"], active: 248, archived: 19),
-        source(id: "orca-team", path: "/Demo/Sources/Orca/team", email: "studio@example.com", workspace: "research-team", settings: ["config.toml", "rules", "skills", "hooks.json"], active: 291, archived: 9),
+        source(id: "default-home", path: "/Demo/Sources/.codex", email: "ladygaga@gmail.com", workspace: "personal", settings: ["config.toml", "AGENTS.md", "rules", "skills"], active: 248, archived: 19),
+        source(id: "orca-team", path: "/Demo/Sources/Orca/team", email: "bankai39@gmail.com", workspace: "research-team", settings: ["config.toml", "rules", "skills", "hooks.json"], active: 291, archived: 9),
         DiscoveredSource(
             id: "needs-sign-in",
             path: URL(fileURLWithPath: "/Demo/Sources/Needs Sign-in", isDirectory: true),
@@ -1784,7 +1785,7 @@ private enum DemoData {
         ),
     ]
 
-    static let manualSource = source(id: "chosen-home", path: "/Demo/Sources/Chosen Home", email: "chosen@example.com", workspace: "freelance", settings: ["config.toml", "AGENTS.md"], active: 37, archived: 2)
+    static let manualSource = source(id: "chosen-home", path: "/Demo/Sources/Chosen Home", email: "joestar89@gmail.com", workspace: "freelance", settings: ["config.toml", "AGENTS.md"], active: 37, archived: 2)
 
     static func importPlan(source: DiscoveredSource, identity: AccountIdentity, mode: ImportMode, paths: ManagerPaths) -> ImportPlan {
         let id: UUID
