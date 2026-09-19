@@ -17,6 +17,7 @@ Thumbs.db
 release/
 artifacts/
 tmp/
+npm/vendor/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
