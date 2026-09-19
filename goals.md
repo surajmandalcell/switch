@@ -10,6 +10,14 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### TUI distribution (2026-09-20)
+
+- [x] Add a root `make tui` entry point that opens the existing terminal interface.
+- [ ] Package the native terminal executable as `switch-codex` for npm and npx without
+  duplicating account behavior in JavaScript.
+- [ ] Add a dedicated terminal getting-started section to the README and verify source,
+  packed npm, npx, and isolated global-install launches.
+
 ### Usage percentage preference (2026-09-19)
 
 - [x] Add a persistent Settings toggle between percentage left and percentage used.

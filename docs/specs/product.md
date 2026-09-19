@@ -334,7 +334,17 @@ center fixed independently of unequal left and right buttons. Modal
 content and actions use matching 16-point top and bottom spacing, and checkboxes align to the
 same 16-point panel content edge as their headings and rows.
 
-## 5. Verification contract
+## 5. Terminal distribution
+
+The existing `ai-manager` executable owns the terminal interface and opens it when
+run without arguments. The repository root provides `make tui` as the source checkout
+entry point. Publish the Apple Silicon macOS executable to npm as `switch-codex`, so
+`npx switch-codex` opens the interface and a global install exposes `ai-manager`.
+The root README has a dedicated terminal getting-started section with all three paths.
+The npm package contains the compiled executable and must not reimplement account logic
+or require a Swift build after registry installation.
+
+## 6. Verification contract
 
 Automated tests use synthetic credentials and isolated homes. A UI change must pass the
 focused Mac GUI contract, production and Preview model checks, System/Light/Dark snapshots,

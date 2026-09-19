@@ -18,6 +18,31 @@ later on Apple Silicon and uses Codex CLI for account sign-in and launching Code
 
 You can also [build Switch from source](docs/development.md#build-and-check).
 
+## Use Switch in the terminal
+
+Open the terminal interface without installing it:
+
+```bash
+npx switch-codex
+```
+
+Or install it globally:
+
+```bash
+npm install --global switch-codex
+ai-manager
+```
+
+The npm build currently supports Apple Silicon Macs. From a source checkout,
+the direct path is:
+
+```bash
+make tui
+```
+
+The terminal interface uses the same account store and switching engine as the
+Mac app. Run `ai-manager help` for non-interactive commands and JSON output.
+
 ## Start switching
 
 Switch saves your current Codex login when you first open it.
