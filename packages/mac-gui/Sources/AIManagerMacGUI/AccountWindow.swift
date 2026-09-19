@@ -1668,8 +1668,11 @@ private struct UsageMeter: View {
       }
       .frame(height: 5)
       if let reset = window.resetsAt {
-        Text("Resets \(reset.formatted(.relative(presentation: .named)))")
-          .font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+          Text(UsageResetLabel.text(until: reset, now: context.date))
+            .font(AIMTheme.sans(9, weight: .bold))
+            .foregroundStyle(AIMTheme.muted)
+        }
       }
     }
     .frame(maxWidth: .infinity)

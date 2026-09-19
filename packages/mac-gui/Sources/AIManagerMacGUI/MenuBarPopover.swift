@@ -5,21 +5,21 @@ import SwiftUI
 struct MenuBarUsageSnapshot: Equatable, Sendable {
   let usedPercentage: Int?
   let secondaryUsedPercentage: Int?
-  let resetDescription: String?
-  let secondaryResetDescription: String?
+  let resetsAt: Date?
+  let secondaryResetsAt: Date?
   let fetchedAt: Date?
 
   init(
     usedPercentage: Int?,
     secondaryUsedPercentage: Int? = nil,
-    resetDescription: String? = nil,
-    secondaryResetDescription: String? = nil,
+    resetsAt: Date? = nil,
+    secondaryResetsAt: Date? = nil,
     fetchedAt: Date? = nil
   ) {
     self.usedPercentage = usedPercentage.map { min(max($0, 0), 100) }
     self.secondaryUsedPercentage = secondaryUsedPercentage.map { min(max($0, 0), 100) }
-    self.resetDescription = resetDescription
-    self.secondaryResetDescription = secondaryResetDescription
+    self.resetsAt = resetsAt
+    self.secondaryResetsAt = secondaryResetsAt
     self.fetchedAt = fetchedAt
   }
 
@@ -31,8 +31,8 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     self.init(
       usedPercentage: session?.usedPercent,
       secondaryUsedPercentage: weekly?.usedPercent,
-      resetDescription: session?.resetsAt.map { "resets \($0.formatted(.relative(presentation: .named)))" },
-      secondaryResetDescription: weekly?.resetsAt.map { "resets \($0.formatted(.relative(presentation: .named)))" },
+      resetsAt: session?.resetsAt,
+      secondaryResetsAt: weekly?.resetsAt,
       fetchedAt: fetchedAt)
   }
 
@@ -413,12 +413,12 @@ private struct MenuBarAccountRow: View {
           if let percentage = usage.usedPercentage {
             MenuBarQuotaRow(
               label: "Session", percentage: percentage,
-              reset: usage.resetDescription, palette: palette)
+              reset: usage.resetsAt, palette: palette)
           }
           if let percentage = usage.secondaryUsedPercentage {
             MenuBarQuotaRow(
               label: "Weekly", percentage: percentage,
-              reset: usage.secondaryResetDescription, palette: palette)
+              reset: usage.secondaryResetsAt, palette: palette)
           }
         }
         .padding(.horizontal, 11)
@@ -482,7 +482,7 @@ private struct MenuBarAccountRow: View {
 private struct MenuBarQuotaRow: View {
   let label: String
   let percentage: Int
-  let reset: String?
+  let reset: Date?
   let palette: MenuBarPalette
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -506,10 +506,14 @@ private struct MenuBarQuotaRow: View {
           .font(AIMTheme.sans(10, weight: .medium))
           .foregroundStyle(palette.ink)
         Spacer(minLength: 0)
-        Text(reset ?? "")
-          .font(AIMTheme.sans(9))
-          .foregroundStyle(palette.muted)
-          .lineLimit(1)
+        if let reset {
+          TimelineView(.periodic(from: .now, by: 60)) { context in
+            Text(UsageResetLabel.text(until: reset, now: context.date))
+              .font(AIMTheme.sans(9, weight: .bold))
+              .foregroundStyle(palette.muted)
+              .lineLimit(1)
+          }
+        }
       }
     }
     .frame(height: MenuBarPopover.quotaRowHeight)
@@ -560,23 +564,25 @@ enum MenuBarPopoverPreviewData {
     accounts: [
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "66D91DF8-056C-4DD0-AF97-EAF45D74A8D2")!,
-        identity: "suraj@example.test", detail: "Codex CLI · Personal",
+        identity: "ladygaga@gmail.com", detail: "Codex CLI · Personal",
         isVerified: true, isActive: true,
         usage: MenuBarUsageSnapshot(
           usedPercentage: 42, secondaryUsedPercentage: 68,
-          resetDescription: "Resets in 2h", secondaryResetDescription: "Monday",
+          resetsAt: Date().addingTimeInterval(2 * 3_600),
+          secondaryResetsAt: Date().addingTimeInterval(2 * 86_400),
           fetchedAt: Date().addingTimeInterval(-120))),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "15431467-BF10-4BCB-9300-C785336CB1D1")!,
-        identity: "studio@example.test", detail: "Codex CLI · Studio",
+        identity: "bankai39@gmail.com", detail: "Codex CLI · Studio",
         isVerified: true, isActive: false,
         usage: MenuBarUsageSnapshot(
           usedPercentage: 18, secondaryUsedPercentage: 37,
-          resetDescription: "Resets tomorrow",
-          secondaryResetDescription: "Monday", fetchedAt: Date().addingTimeInterval(-480))),
+          resetsAt: Date().addingTimeInterval(75 * 60),
+          secondaryResetsAt: Date().addingTimeInterval(4 * 86_400),
+          fetchedAt: Date().addingTimeInterval(-480))),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "DB9AB65A-F894-426D-8A16-86772A8F054D")!,
-        identity: "needs-sign-in@example.test", detail: "Codex CLI · Personal",
+        identity: "joestar89@gmail.com", detail: "Codex CLI · Personal",
         isVerified: false, isActive: false),
     ])
 }

@@ -428,6 +428,19 @@ enum AIManagerNativeContract {
       secondary: nil, credits: nil, spendControlReached: nil), fetchedAt: activityEnd)
     expect(weeklyPrimary?.usedPercentage == nil && weeklyPrimary?.secondaryUsedPercentage == 1,
       "A weekly-only primary response is incorrectly labelled as five-hour usage")
+    let resetNow = Date(timeIntervalSince1970: 0)
+    expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(2 * 86_400 - 60), now: resetNow)
+      == "Resets in 1 day 23h 59m", "Reset countdown rounds almost two days up")
+    expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(2 * 86_400), now: resetNow)
+      == "Resets in 2 days 0h 0m", "Reset countdown drops exact days")
+    expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(86_400 + 2 * 3_600 + 3 * 60), now: resetNow)
+      == "Resets in 1 day 2h 3m", "Reset countdown drops hours or minutes")
+    expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(3_600), now: resetNow)
+      == "Resets in 1h 0m", "Reset countdown has the wrong hour boundary")
+    expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(59), now: resetNow)
+      == "Resets in <1m", "Reset countdown says zero minutes before reset")
+    expect(UsageResetLabel.text(until: resetNow, now: resetNow) == "Resets now",
+      "Reset countdown keeps counting after reset")
     failures.append(contentsOf: activityCalendarRenderFailures())
     failures.append(contentsOf: menuBarUsagePreferenceFailures())
     return failures
@@ -695,7 +708,7 @@ enum AIManagerNativeContract {
     expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
     expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
     expect(snapshot.accounts.compactMap(\.usage).contains(where: {
-      $0.resetDescription != nil && $0.fetchedAt != nil
+      $0.resetsAt != nil && $0.fetchedAt != nil
     }), "Preview menu snapshot lacks cached reset details")
 
     let controller = AIManagerStatusItemController(

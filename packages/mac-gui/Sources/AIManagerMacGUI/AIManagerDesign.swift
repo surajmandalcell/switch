@@ -33,6 +33,21 @@ enum AIMTranslucency {
   }
 }
 
+enum UsageResetLabel {
+  static func text(until reset: Date, now: Date = Date()) -> String {
+    let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
+    if minutes == 0 { return reset > now ? "Resets in <1m" : "Resets now" }
+    let days = minutes / 1_440
+    let hours = (minutes % 1_440) / 60
+    let remainingMinutes = minutes % 60
+    if days > 0 {
+      return "Resets in \(days) \(days == 1 ? "day" : "days") \(hours)h \(remainingMinutes)m"
+    }
+    if hours > 0 { return "Resets in \(hours)h \(remainingMinutes)m" }
+    return "Resets in \(remainingMinutes)m"
+  }
+}
+
 private struct AIMAdaptiveColor: ShapeStyle, Hashable {
   let light: UInt32
   let dark: UInt32
@@ -150,6 +165,7 @@ enum AIMTheme {
     case regular = "Regular"
     case medium = "Medium"
     case semibold = "SemiBold"
+    case bold = "Bold"
   }
 
   static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
@@ -247,6 +263,7 @@ private extension AIMTheme.FontWeight {
     case .regular: .regular
     case .medium: .medium
     case .semibold: .semibold
+    case .bold: .bold
     }
   }
 }
