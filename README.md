@@ -20,16 +20,16 @@ You can also [build Switch from source](docs/development.md#build-and-check).
 
 ## Use Switch in the terminal
 
-Open the terminal interface without installing it:
+Open the terminal interface without a global install:
 
 ```bash
-npx switch-codex
+npx --yes --package https://github.com/surajmandalcell/switch/releases/download/v3.0.0/switch-codex-3.0.0.tgz ai-manager
 ```
 
 Or install it globally:
 
 ```bash
-npm install --global switch-codex
+npm install --global https://github.com/surajmandalcell/switch/releases/download/v3.0.0/switch-codex-3.0.0.tgz
 ai-manager
 ```
 

@@ -13,10 +13,19 @@ verification evidence.
 ### TUI distribution (2026-09-20)
 
 - [x] Add a root `make tui` entry point that opens the existing terminal interface.
-- [ ] Package the native terminal executable as `switch-codex` for npm and npx without
+- [x] Package the native terminal executable as `switch-codex` for npm and npx without
   duplicating account behavior in JavaScript.
-- [ ] Add a dedicated terminal getting-started section to the README and verify source,
+- [x] Add a dedicated terminal getting-started section to the README and verify source,
   packed npm, npx, and isolated global-install launches.
+
+The public `switch-codex-3.0.0.tgz` release asset contains only the ad hoc signed
+Apple Silicon executable, package metadata, README, and license. `make tui`, the packed
+binary, an isolated global npm install, npx execution, package contents, and help output
+pass with synthetic temporary homes. Registry publication remains a separate npm account
+operation; the documented release-asset commands work now without a Swift build.
+The public package is
+https://github.com/surajmandalcell/switch/releases/download/v3.0.0/switch-codex-3.0.0.tgz
+with SHA-256 `f8602aeea01dd096f5984d8f8adcbb4a7093e1c297990f867e2984f6b65d89b3`.
 
 ### Usage percentage preference (2026-09-19)
 

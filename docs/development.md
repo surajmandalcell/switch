@@ -35,7 +35,7 @@ npm test
 npm pack
 ```
 
-`npm pack` builds the release CLI into the package; registry installs do not
+`npm pack` builds the release CLI into the package; packed installs do not
 need Swift or Xcode.
 
 On Linux, `scripts/check-linux.sh` checks the core, CLI, and isolated
