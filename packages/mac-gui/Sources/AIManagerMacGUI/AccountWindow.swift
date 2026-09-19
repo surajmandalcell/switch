@@ -1481,7 +1481,7 @@ private struct AccountUsagePanel: View {
               Spacer()
               usageStatus
             }
-            .padding(.bottom, 14)
+            .padding(.horizontal, 16).padding(.bottom, 14)
 
             let accountFacts = UsagePresentation.accountFacts(snapshot)
             let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
@@ -1495,7 +1495,7 @@ private struct AccountUsagePanel: View {
                   UsageFact(label: fact.label, value: fact.value)
                 }
               }
-              .padding(.bottom, 14)
+              .padding(.horizontal, 16).padding(.bottom, 14)
             }
 
             ForEach(Array(limitBuckets.enumerated()), id: \.element.key) { index, item in
@@ -1505,7 +1505,7 @@ private struct AccountUsagePanel: View {
                 windowLabel: windowLabel
               )
               .padding(.vertical, 12)
-              .padding(.horizontal, 12)
+              .padding(.horizontal, 16)
               .background(index.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
             }
 
@@ -1515,9 +1515,10 @@ private struct AccountUsagePanel: View {
 
             if !model.dailyUsage(for: account.id).isEmpty {
               UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
+                .padding(.horizontal, 16)
             }
           }
-          .padding(16)
+          .padding(.vertical, 16)
         } else {
           HStack(spacing: 12) {
             AIMIcon(name: .info, size: 15).foregroundStyle(AIMTheme.muted)
