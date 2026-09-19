@@ -9,6 +9,11 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### README account-switching focus (2026-09-19)
+
+- [x] Lead the README with the account-switching flow and menu-bar usage,
+  keeping storage and development details below the product explanation.
+
 ### Conversation header alignment (2026-09-19)
 
 - [x] Move loading/error and warning slots before the right-aligned conversation count
