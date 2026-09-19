@@ -12,16 +12,9 @@ are already running keep their current login.
 
 ## Get Switch for Mac
 
-[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/tag/v3.0.0-preview.1)
-and get the ZIP and checksum file. Check the ZIP with
-`shasum -a 256 -c checksums-v3.0.0-preview.1.txt`, unzip it, and move
-`Switch.app` to Applications. This preview requires macOS 14 or later on
-Apple Silicon. Install Codex CLI for live sign-in, usage checks, and launching Codex.
-
-> **Unnotarized preview.** macOS will not identify this as a verified developer
-> download. After trying to open Switch, go to **System Settings → Privacy & Security**
-> and click **Open Anyway**, then **Open**. [Apple explains this step](https://support.apple.com/en-gb/102445).
-> Do not disable Gatekeeper. A trusted, notarized release is still pending.
+[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.0.0/Switch-v3.0.0-mac-arm64.zip),
+unzip it, and move `Switch.app` to Applications. Switch requires macOS 14 or
+later on Apple Silicon and uses Codex CLI for account sign-in and launching Codex.
 
 You can also [build Switch from source](docs/development.md#build-and-check).
 

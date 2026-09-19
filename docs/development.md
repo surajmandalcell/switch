@@ -79,31 +79,27 @@ Local builds use an ad hoc signature. Maintainers can set
 records its Git revision and dirty-source state in `AIManagerSourceRevision`
 and `AIManagerSourceDirty`.
 
-`scripts/check-release-readiness.sh` checks local package readiness, not a
-trusted download. That requires Developer ID signing, notarization, a stapled
-ticket, Gatekeeper checks, and a release artifact.
+`scripts/check-release-readiness.sh` checks local package readiness.
 
 The first Switch version must be newer than the repository's legacy
-`v2.1.2` tag. For an ad hoc signed, unnotarized preview, run from a clean,
-pushed commit:
+`v2.1.2` tag. To publish an ad hoc signed release from a clean, pushed commit:
 
 ```bash
-scripts/release-macos.sh --preview v3.0.0-preview.1
+scripts/release-macos.sh --adhoc v3.0.0
 ```
 
-The preview archive is marked as a GitHub prerelease. The README and release
-notes must explain Apple's manual **Open Anyway** path. The preview uses no
-Apple signing identity or notarization key.
+The script marks the release as Latest and uploads its ZIP and checksum. It uses
+no Apple signing identity or notarization key.
 
 For a trusted download, run the release on a Mac with a **Developer ID Application**
 identity and an App Store Connect notary API key. Keep the `.p8` file outside
 this repository. Set `AI_MANAGER_SIGNING_IDENTITY`,
 `AI_MANAGER_NOTARY_KEY_PATH`, and `AI_MANAGER_NOTARY_KEY_ID` in your shell. Set
 `AI_MANAGER_NOTARY_ISSUER_ID` for a team API key; omit it for an individual key.
-Then commit and push the source and run a stable version, for example:
+Then commit and push the source and run a notarized version, for example:
 
 ```bash
-scripts/release-macos.sh v3.0.1
+scripts/release-macos.sh --notarized v3.0.1
 ```
 
 For this trusted path, the script checks the clean, pushed commit, runs native

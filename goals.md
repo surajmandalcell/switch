@@ -2,9 +2,9 @@
 
 Status: local release-candidate gates passed; the exact clean installation is recorded by
 the final receipt named in the closeout evidence. The installed app uses the real shared core.
-Only an uninstalled compile-time Preview build may use in-memory demo data. An ad hoc
-signed, unnotarized Switch preview is published with manual Gatekeeper steps. A trusted
-download still needs a Developer ID Application identity and notarization.
+Only an uninstalled compile-time Preview build may use in-memory demo data. The owner
+authorizes ad hoc signed builds as normal GitHub releases with concise install copy.
+Developer ID signing and notarization remain optional distribution upgrades.
 Decision date: 2026-09-11.
 Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
@@ -28,10 +28,12 @@ and Dark UI contracts.
   commands in the developer guide.
 - [x] Replace the tag-triggered GitHub Actions release with a local, versioned
   build, notarization, validation, checksum, and GitHub upload flow.
-- [x] Publish an ad hoc signed, unnotarized Switch preview from this Mac with
-  a checksum, an exact download link, and Apple's manual Open Anyway steps.
-- [ ] Publish a trusted Switch `.app` after the local Developer ID and
-  notarization gates pass.
+- [x] Publish an ad hoc signed Switch preview from this Mac with a checksum
+  and an exact download link.
+- [ ] Publish current Switch as the normal `v3.0.0` Latest release with a direct
+  README download and concise release notes.
+- [ ] Optionally publish a Developer ID signed and notarized artifact when those
+  credentials are available.
 
 The local preview release is `v3.0.0-preview.1` at
 https://github.com/surajmandalcell/switch/releases/tag/v3.0.0-preview.1.

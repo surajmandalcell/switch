@@ -5,21 +5,23 @@ set -euo pipefail
 fail() { printf 'RELEASE_NOT_READY: %s\n' "$1" >&2; exit 1; }
 
 preview=0
-if [[ "${1:-}" == "--preview" ]]; then
-  preview=1
-  shift
-fi
+adhoc=0
+case "${1:-}" in
+  --preview) preview=1; adhoc=1; shift ;;
+  --adhoc) adhoc=1; shift ;;
+  --notarized) shift ;;
+esac
 tag="${1:-}"
 [[ $# == 1 ]] || fail "pass one version tag"
 if (( preview )); then
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]] || \
     fail "pass a preview version such as v3.0.0-preview.1"
-  unset AI_MANAGER_SIGNING_IDENTITY
 else
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "pass a version such as v3.0.0"
 fi
+if (( adhoc )); then unset AI_MANAGER_SIGNING_IDENTITY; fi
 [[ "$(uname -s)" == Darwin ]] || fail "run this on a Mac"
-if (( !preview )); then
+if (( !adhoc )); then
   [[ "${AI_MANAGER_SIGNING_IDENTITY:-}" == 'Developer ID Application:'* ]] || \
     fail "set AI_MANAGER_SIGNING_IDENTITY to a Developer ID Application identity"
   security find-identity -v -p codesigning | grep -F "\"$AI_MANAGER_SIGNING_IDENTITY\"" >/dev/null || \
@@ -55,7 +57,7 @@ remote_head="$(git -C "$repo_root" ls-remote "$remote" "refs/heads/$branch" | aw
 if git -C "$repo_root" show-ref --verify --quiet "refs/tags/$tag"; then
   [[ "$(git -C "$repo_root" rev-list -n 1 "$tag")" == "$head" ]] || fail "$tag points to another commit"
 else
-  latest="$(git -C "$repo_root" tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | sed -n '1p')"
+  latest="$(git -C "$repo_root" tag --list | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
   [[ -z "$latest" || "$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -n 1)" == "$tag" ]] || \
     fail "choose a version newer than $latest"
 fi
@@ -73,17 +75,17 @@ fi
 
 cd "$repo_root"
 scripts/check-native.sh
-if (( preview )); then
+if (( adhoc )); then
   env -u AI_MANAGER_SIGNING_IDENTITY AI_MANAGER_VERSION="$version" scripts/build-native.sh
 else
   AI_MANAGER_VERSION="$version" scripts/build-native.sh
 fi
 bash packages/tui/Tests/acceptance.sh "$cli_path"
 
-if (( preview )); then
+if (( adhoc )); then
   scripts/check-release-readiness.sh "$app_path" "$cli_path"
   codesign -dv --verbose=4 "$app_path" 2>&1 | grep '^Signature=adhoc$' >/dev/null || \
-    fail "preview app must use an ad hoc signature"
+    fail "ad hoc release app must use an ad hoc signature"
 else
   notary_args=(--key "$AI_MANAGER_NOTARY_KEY_PATH" --key-id "$AI_MANAGER_NOTARY_KEY_ID")
   if [[ -n "${AI_MANAGER_NOTARY_ISSUER_ID:-}" ]]; then
@@ -108,13 +110,13 @@ ditto -c -k --sequesterRsrc --keepParent "$app_path" "$archive"
 (cd "$release_dir" && shasum -a 256 -c "$(basename "$checksum")")
 
 verify_dir="$(mktemp -d "$build_path/release-verify.XXXXXX")"
-if (( preview )); then
+if (( adhoc )); then
   trap 'rm -r "$verify_dir"' EXIT
 else
   trap 'rm -r "$payload_dir" "$verify_dir"' EXIT
 fi
 ditto -x -k "$archive" "$verify_dir"
-if (( preview )); then
+if (( adhoc )); then
   scripts/check-release-readiness.sh "$verify_dir/Switch.app" "$cli_path"
 else
   scripts/check-release-readiness.sh --public "$verify_dir/Switch.app" "$cli_path"
@@ -130,8 +132,11 @@ if [[ -z "$remote_tag" ]]; then
 fi
 if (( preview )); then
   gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
-    --title "Switch ${tag#v} (unnotarized preview)" --draft --prerelease \
+    --title "Switch ${tag#v} Preview" --draft --prerelease \
     --notes-file "$repo_root/docs/release-notes-preview.md"
+elif (( adhoc )); then
+  gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
+    --title "Switch $version" --draft --notes-file "$repo_root/docs/release-notes.md"
 else
   gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
     --title "Switch $version" --draft \

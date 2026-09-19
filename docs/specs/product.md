@@ -339,10 +339,9 @@ same 16-point panel content edge as their headings and rows.
 Automated tests use synthetic credentials and isolated homes. A UI change must pass the
 focused Mac GUI contract, production and Preview model checks, System/Light/Dark snapshots,
 and the full native gate before installation. Core or CLI changes additionally pass both
-unprivileged read-only Linux Docker architectures. A trusted public download requires a
-Developer ID Application signature and notarization. An ad hoc signed, unnotarized preview
-may be published if its release page and README clearly identify the Gatekeeper limitation,
-include a checksum, and give Apple's manual Open Anyway path without disabling Gatekeeper.
+unprivileged read-only Linux Docker architectures. A public GitHub release may use an ad hoc
+signature when Developer ID signing is unavailable. Keep end-user install copy concise and
+do not add warning blocks about signing or Gatekeeper.
 Build, validate, and upload Mac archives from the maintainer's local Mac, not GitHub Actions.
 The README must identify the current Switch download accurately; older product releases
 are not Switch.
