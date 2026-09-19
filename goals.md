@@ -2,9 +2,9 @@
 
 Status: local release-candidate gates passed; the exact clean installation is recorded by
 the final receipt named in the closeout evidence. The installed app uses the real shared core.
-Only an uninstalled compile-time Preview build may use in-memory demo data. A trusted
-public download remains blocked on a Developer ID Application identity and notarization;
-an explicitly labeled, ad hoc signed preview may be shared with manual Gatekeeper steps.
+Only an uninstalled compile-time Preview build may use in-memory demo data. An ad hoc
+signed, unnotarized Switch preview is published with manual Gatekeeper steps. A trusted
+download still needs a Developer ID Application identity and notarization.
 Decision date: 2026-09-11.
 Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
@@ -16,16 +16,21 @@ verification evidence.
   commands in the developer guide.
 - [x] Replace the tag-triggered GitHub Actions release with a local, versioned
   build, notarization, validation, checksum, and GitHub upload flow.
-- [ ] Publish an ad hoc signed, unnotarized Switch preview from this Mac with
+- [x] Publish an ad hoc signed, unnotarized Switch preview from this Mac with
   a checksum, an exact download link, and Apple's manual Open Anyway steps.
 - [ ] Publish a trusted Switch `.app` after the local Developer ID and
   notarization gates pass.
 
-The local script passes Bash syntax validation and rejects malformed versions,
-missing notary material, and unavailable Developer ID identities before a build
-or upload. GitHub currently offers only the older SPI release. This Mac has an
-Apple Development and an Apple Distribution identity, but no Developer ID
-Application identity, so the trusted archive and upload remain blocked.
+The local preview release is `v3.0.0-preview.1` at
+https://github.com/surajmandalcell/switch/releases/tag/v3.0.0-preview.1.
+Its ad hoc signed archive embeds clean revision `87c989658691` and version
+`3.0.0`. The native suite passed 172 tests with two opt-in skips; GUI contracts,
+CLI acceptance, local release readiness, archive extraction, and downloaded
+asset comparison passed. The uploaded ZIP SHA-256 is
+`de722fc0ff4d062698bf799dd17a2762e4f8130a89da8503a2da323b7e2caf8c`.
+The release is published as a prerelease with both assets and manual Open Anyway
+instructions. This Mac has no Developer ID Application identity, so trusted
+signing and notarization remain open.
 
 ### Conversation reader polish (2026-09-19)
 
