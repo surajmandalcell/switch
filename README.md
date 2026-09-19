@@ -12,17 +12,18 @@ are already running keep their current login.
 
 ## Get Switch for Mac
 
-**A public Switch download is not available yet.** The current GitHub releases
-contain the previous Subscription Proxy Inator app, not Switch. A Switch
-download needs Developer ID signing and Apple notarization first.
+[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/tag/v3.0.0-preview.1)
+and get the ZIP and checksum file. Check the ZIP with
+`shasum -a 256 -c checksums-v3.0.0-preview.1.txt`, unzip it, and move
+`Switch.app` to Applications. This preview requires macOS 14 or later on
+Apple Silicon. Install Codex CLI for live sign-in, usage checks, and launching Codex.
 
-When the first Switch release is published, download its
-`Switch-v*-mac-arm64.zip` from [GitHub Releases](https://github.com/surajmandalcell/switch/releases),
-unzip it, and move `Switch.app` to Applications.
+> **Unnotarized preview.** macOS will not identify this as a verified developer
+> download. After trying to open Switch, go to **System Settings → Privacy & Security**
+> and click **Open Anyway**, then **Open**. [Apple explains this step](https://support.apple.com/en-gb/102445).
+> Do not disable Gatekeeper. A trusted, notarized release is still pending.
 
-If you want to test it now, [build Switch from source on a Mac](docs/development.md#build-and-check).
-The app requires macOS 14 or later; Apple Silicon is the verified target.
-Codex CLI is needed for live sign-in, usage checks, and launching Codex.
+You can also [build Switch from source](docs/development.md#build-and-check).
 
 ## Start switching
 

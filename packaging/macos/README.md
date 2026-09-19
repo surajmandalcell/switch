@@ -10,12 +10,12 @@ The package records the source revision in `AIManagerSourceRevision` and marks
 uncommitted source in `AIManagerSourceDirty`. The default build uses an ad hoc
 signature. Set `AI_MANAGER_SIGNING_IDENTITY` only when a maintainer explicitly
 provides a signing identity. Identity builds enable hardened runtime and secure
-timestamping for both the app and CLI. Public direct distribution additionally
-requires a Developer ID Application identity and Apple notarization; the release
-script runs on a maintainer's Mac and fails before publication when its signing
-or notary credentials are absent or its public readiness check does not pass.
-It uploads the verified archive with `gh release create`. A local readiness
-result is not approval for public distribution. See
+timestamping for both the app and CLI. Trusted direct distribution additionally
+requires a Developer ID Application identity and Apple notarization. That path
+fails before publication when its signing or notary credentials are absent or
+its public readiness check does not pass. The separate preview path uses an
+ad hoc signature and clear manual Gatekeeper instructions. The local script
+uploads either verified archive with `gh release create`. See
 [`docs/development.md`](../../docs/development.md#packaging-and-release).
 
 Production builds never define `AI_MANAGER_PREVIEW`. The sample account model,
