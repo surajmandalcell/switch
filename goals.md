@@ -9,6 +9,21 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### Mac download and local release (2026-09-19)
+
+- [x] Make the README lead to the current Mac download state and keep source-build
+  commands in the developer guide.
+- [x] Replace the tag-triggered GitHub Actions release with a local, versioned
+  build, notarization, validation, checksum, and GitHub upload flow.
+- [ ] Publish the first Switch `.app` only after the local Developer ID and
+  notarization gates pass; replace the availability notice with the exact download.
+
+The local script passes Bash syntax validation and rejects malformed versions,
+missing notary material, and unavailable Developer ID identities before a build
+or upload. GitHub currently offers only the older SPI release. This Mac has an
+Apple Development and an Apple Distribution identity, but no Developer ID
+Application identity, so the public archive and upload remain blocked.
+
 ### Conversation reader polish (2026-09-19)
 
 - [x] Put the small first-load spinner in the count position and keep the count

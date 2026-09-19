@@ -335,7 +335,9 @@ Automated tests use synthetic credentials and isolated homes. A UI change must p
 focused Mac GUI contract, production and Preview model checks, System/Light/Dark snapshots,
 and the full native gate before installation. Core or CLI changes additionally pass both
 unprivileged read-only Linux Docker architectures. Public distribution still requires a
-Developer ID Application signature and notarization.
+Developer ID Application signature and notarization. Build, notarize, validate, and upload
+public Mac archives from the maintainer's local Mac, not GitHub Actions. The README must
+identify the current Switch download accurately; older product releases are not Switch.
 Before installed-app GUI actions, compare the packaged and `/Applications/Switch.app`
 executable SHA-256 values, verify the embedded revision against the committed build, and
 check that the running process maps the installed binary's inode. A stale process or

@@ -10,6 +10,32 @@ are already running keep their current login.
 
 *Synthetic Preview data. The account names and usage values are examples.*
 
+## Get Switch for Mac
+
+**A public Switch download is not available yet.** The current GitHub releases
+contain the previous Subscription Proxy Inator app, not Switch. A Switch
+download needs Developer ID signing and Apple notarization first.
+
+When the first Switch release is published, download its
+`Switch-v*-mac-arm64.zip` from [GitHub Releases](https://github.com/surajmandalcell/switch/releases),
+unzip it, and move `Switch.app` to Applications.
+
+If you want to test it now, [build Switch from source on a Mac](docs/development.md#build-and-check).
+The app requires macOS 14 or later; Apple Silicon is the verified target.
+Codex CLI is needed for live sign-in, usage checks, and launching Codex.
+
+## Start switching
+
+Switch saves your current Codex login when you first open it.
+
+1. Choose **Add Account** and sign in to another Codex account.
+2. Return to Switch and choose **Check Now**.
+3. Choose **Switch** in the menu bar, or **Set as Default** in the app.
+4. Choose **Open Codex** to start a new session with that account.
+
+Sign-in runs in a private temporary home. It does not replace your current
+login while you add another account.
+
 ## See your limits before you switch
 
 The menu bar shows remaining usage for the accounts you choose. Open its
@@ -41,18 +67,6 @@ flowchart LR
 
 Existing Codex sessions keep the credentials they already loaded.
 
-## Start switching
-
-Switch saves your current Codex login when you first open it.
-
-1. Choose **Add Account** and sign in to another Codex account.
-2. Return to Switch and choose **Check Now**.
-3. Choose **Switch** in the menu bar, or **Set as Default** in the app.
-4. Choose **Open Codex** to start a new session with that account.
-
-Sign-in runs in a private temporary home. It does not replace your current
-login while you add another account.
-
 ## More when you need it
 
 - **Check a saved account.** Validate its `auth.json` and refresh usage without making it the default.
@@ -64,24 +78,8 @@ login while you add another account.
 Codex CLI is the only enabled provider today. Claude Code, Gemini CLI, and
 Antigravity CLI appear as WIP choices in the Add Account catalog.
 
-## Try Switch
-
-The Mac app requires macOS 14 or later. Apple Silicon is the verified GUI
-target. Install Codex CLI for live sign-in, usage checks, and launching Codex.
-
-```bash
-scripts/check-native.sh
-scripts/build-native.sh
-open "/private/tmp/ai-manager-build/package/Switch.app"
-```
-
-To explore sample accounts without touching real credentials:
-
-```bash
-scripts/launch-switch.sh --preview
-```
-
-The public release still needs Developer ID signing and notarization. See
-[building and safety notes](docs/development.md) for the CLI, data layout,
-tests, and packaging. The [product specification](docs/specs/product.md)
-defines current behavior; [goals.md](goals.md) records verification.
+For sample accounts without real credentials, use the
+[isolated Preview build](docs/development.md#preview-with-sample-accounts).
+[Development and release notes](docs/development.md) cover packaging and
+safety. The [product specification](docs/specs/product.md) defines current
+behavior; [goals.md](goals.md) records verification.
