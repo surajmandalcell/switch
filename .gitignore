@@ -16,7 +16,7 @@ Thumbs.db
 
 release/
 artifacts/
-tmp/
+/tmp/
 npm/vendor/
 *.sqlite
 *.sqlite-shm
