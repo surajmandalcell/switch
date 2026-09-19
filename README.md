@@ -1,41 +1,25 @@
 # Switch
 
-Switch is a native macOS app for managing Codex accounts. It saves each
-account credential under `~/.switch/codex`, keeps one live `~/.codex` home for
-configuration and chat history, and switches credentials for new Codex sessions.
+**Switch Codex accounts without juggling sign-ins.**
 
-Codex CLI is the only enabled provider. Claude Code, Gemini CLI, and
-Antigravity CLI appear as WIP choices; their icons do not imply support.
+Switch keeps your Codex accounts ready in a native macOS app. See remaining
+usage in the menu bar, choose the account you want, and open Codex with it.
+Your current Codex session stays signed in while new sessions use the account
+you selected.
 
-The app and CLI use the same production account manager. The optional preview
-build uses in-memory sample data and is never installed over the production app.
+## Start switching
 
-## Accounts
+Switch saves your current Codex login when you first open it.
 
-Switch saves the current Codex login automatically when first opened.
-
-1. Choose Add Account and Codex CLI to start browser sign-in.
+1. Choose Add Account to save another Codex login.
 2. Finish signing in, then return to Switch and choose Check Now.
-3. Use Set as Default to select credentials for new sessions.
-4. Use Open Codex or Use & Open Codex to launch with the selected account.
+3. Select an account in the menu bar to use it for new Codex sessions.
+4. Choose Open Codex in the app to launch with that account.
 
-Sign-in uses a private temporary home, keeping the current account, settings,
-and chats unchanged. Pending sign-ins survive app restarts.
+You can also choose Set as Default in the account page. Switching does not
+interrupt Codex sessions that are already running.
 
-Advanced Import accepts an existing Codex folder or `auth.json`. Choose
-account access only, or include settings and chats. Review conflicts before
-importing; shared settings and chats do not belong to individual accounts.
-
-Check account files validates the saved credential and checks usage when
-possible. Refresh usage also works for newly imported accounts without
-making them the default. These checks use the saved JSON in a disposable
-private home. Usage checks need Codex CLI and access to its service.
-
-Drag accounts in the sidebar to save their order. Account menus also offer
-Move up, Move down, and Delete. Deleting the default account requires an
-eligible saved replacement; the confirmation identifies it.
-
-## Menubar
+## See your limits, then switch
 
 Enable Show in Menubar on an account to display its limits. Settings sets
 the default for accounts without an explicit choice. The status item groups
@@ -49,6 +33,28 @@ the popover reaches 80% of its display's visible height, then scroll.
 
 The popover uses Ivory in light mode and Espresso in dark mode, with one
 native backdrop blur. Reduce Transparency gives it opaque surfaces.
+
+## Manage accounts
+
+Codex CLI is the only enabled provider. Claude Code, Gemini CLI, and
+Antigravity CLI appear as WIP choices; their icons do not imply support.
+
+Sign-in uses a private temporary home. Your current account, settings, and
+chats stay unchanged while you add another login. Pending sign-ins survive
+app restarts.
+
+Advanced Import accepts an existing Codex folder or `auth.json`. Choose
+account access only, or include settings and chats. Review conflicts before
+importing; shared settings and chats do not belong to individual accounts.
+
+Check account files validates the saved credential and checks usage when
+possible. Refresh usage also works for newly imported accounts without
+making them the default. These checks use the saved JSON in a disposable
+private home. Usage checks need Codex CLI and access to its service.
+
+Drag accounts in the sidebar to save their order. Account menus also offer
+Move up, Move down, and Delete. Deleting the default account requires an
+eligible saved replacement; the confirmation identifies it.
 
 ## Chat history and activity
 
@@ -208,6 +214,9 @@ The repository contains one Swift package with three products:
 The app and CLI share account operations. Preview uses synthetic data without
 filesystem or account side effects. The earlier Electron gateway is legacy
 and is not required to build or run Switch.
+
+Switch saves each credential under `~/.switch/codex` and keeps one live
+`~/.codex` home for Codex settings and conversations.
 
 See the [product specification](docs/specs/product.md) for current behavior
 and [goals.md](goals.md) for milestones and verification. The
