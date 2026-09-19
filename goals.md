@@ -2,8 +2,9 @@
 
 Status: local release-candidate gates passed; the exact clean installation is recorded by
 the final receipt named in the closeout evidence. The installed app uses the real shared core.
-Only an uninstalled compile-time Preview build may use in-memory demo data. Public direct
-distribution remains blocked on a Developer ID Application identity and notarization.
+Only an uninstalled compile-time Preview build may use in-memory demo data. A trusted
+public download remains blocked on a Developer ID Application identity and notarization;
+an explicitly labeled, ad hoc signed preview may be shared with manual Gatekeeper steps.
 Decision date: 2026-09-11.
 Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
@@ -15,14 +16,16 @@ verification evidence.
   commands in the developer guide.
 - [x] Replace the tag-triggered GitHub Actions release with a local, versioned
   build, notarization, validation, checksum, and GitHub upload flow.
-- [ ] Publish the first Switch `.app` only after the local Developer ID and
-  notarization gates pass; replace the availability notice with the exact download.
+- [ ] Publish an ad hoc signed, unnotarized Switch preview from this Mac with
+  a checksum, an exact download link, and Apple's manual Open Anyway steps.
+- [ ] Publish a trusted Switch `.app` after the local Developer ID and
+  notarization gates pass.
 
 The local script passes Bash syntax validation and rejects malformed versions,
 missing notary material, and unavailable Developer ID identities before a build
 or upload. GitHub currently offers only the older SPI release. This Mac has an
 Apple Development and an Apple Distribution identity, but no Developer ID
-Application identity, so the public archive and upload remain blocked.
+Application identity, so the trusted archive and upload remain blocked.
 
 ### Conversation reader polish (2026-09-19)
 
