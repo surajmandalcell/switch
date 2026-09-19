@@ -82,7 +82,7 @@ bash packages/tui/Tests/acceptance.sh "$cli_path"
 
 if (( preview )); then
   scripts/check-release-readiness.sh "$app_path" "$cli_path"
-  codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q '^Signature=adhoc$' || \
+  codesign -dv --verbose=4 "$app_path" 2>&1 | grep '^Signature=adhoc$' >/dev/null || \
     fail "preview app must use an ad hoc signature"
 else
   notary_args=(--key "$AI_MANAGER_NOTARY_KEY_PATH" --key-id "$AI_MANAGER_NOTARY_KEY_ID")
