@@ -36,8 +36,8 @@ struct MockAccountViewModelCheck {
         let initialChatID = model.selectedChatID
         await model.searchChatHistory(query: "account import")
         precondition(model.chatHistory.matchingThreadCount == 1)
-        precondition(model.selectedChat?.messages.count == 6)
-        precondition(model.renderedChatMessages.count == 6)
+        precondition(model.selectedChat?.messages.count == 10)
+        precondition(model.renderedChatMessages.count == 10)
         await model.searchChatHistory(query: "no-such-chat")
         precondition(model.chatHistory.matchingThreadCount == 0)
         precondition(model.selectedChatID == initialChatID)
