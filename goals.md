@@ -9,6 +9,15 @@ Design revision: 2026-09-19. The current product contract is
 [`docs/specs/product.md`](docs/specs/product.md); this file retains milestone history and
 verification evidence.
 
+### README visual refresh (2026-09-19)
+
+- [x] Replace long product prose with a short account-switching overview,
+  separate technical notes, light/dark synthetic Preview screenshots, and a
+  diagram showing that Codex only replaces `auth.json` on a switch.
+- [x] Capture the current native Preview account window and both Menubar
+  appearances using isolated temporary homes. Both snapshot contracts pass;
+  committed PNGs contain only synthetic account data.
+
 ### README account-switching focus (2026-09-19)
 
 - [x] Lead the README with the account-switching flow and menu-bar usage,
