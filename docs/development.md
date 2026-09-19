@@ -27,8 +27,19 @@ open "/private/tmp/ai-manager-build/package/Switch.app"
 The app embeds that CLI at `Contents/Helpers/ai-manager`. **Open Codex** uses
 the helper so account activation and process launch share one lock.
 
+Run the terminal interface from the repository root with `make tui`. The npm
+package is assembled and checked locally with:
+
+```bash
+npm test
+npm pack
+```
+
+`npm pack` builds the release CLI into the package; registry installs do not
+need Swift or Xcode.
+
 On Linux, `scripts/check-linux.sh` checks the core, CLI, and isolated
-acceptance flow. The package needs no Node.js, Electron, local server, or
+acceptance flow. The Swift package needs no Node.js, Electron, local server, or
 provider configuration. Codex CLI is optional for discovery and offline tests,
 but required for live sign-in, usage checks, and launching Codex.
 
