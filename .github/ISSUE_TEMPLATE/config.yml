@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Security vulnerability
-    url: https://github.com/surajmandalcell/ai-manager/security/advisories/new
-    about: Report a security problem privately. Do not include credentials or private Codex data.
-  - name: Support and troubleshooting
-    url: https://github.com/surajmandalcell/ai-manager/blob/master/SUPPORT.md
-    about: Read the support guide before you ask a configuration question.

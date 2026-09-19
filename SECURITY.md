@@ -11,6 +11,9 @@ tokens, transcripts, private settings, or unredacted logs in a report. Use
 GitHub private vulnerability reporting and include the affected commit,
 operating system and architecture, reproduction steps, and security effect.
 
+For public defect reports, use synthetic homes and redact account identities,
+tokens, auth files, transcripts, and private paths.
+
 ## Security boundaries
 
 - Credentials stay in Codex-compatible private files.
