@@ -83,6 +83,28 @@ and `AIManagerSourceDirty`.
 public distribution. Public distribution still needs Developer ID signing,
 notarization, a stapled ticket, Gatekeeper checks, and a release artifact.
 
+The first public Switch version must be newer than the repository's legacy
+`v2.1.2` tag. Run the release on a Mac with a **Developer ID Application**
+identity and an App Store Connect notary API key. Keep the `.p8` file outside
+this repository. Set `AI_MANAGER_SIGNING_IDENTITY`,
+`AI_MANAGER_NOTARY_KEY_PATH`, and `AI_MANAGER_NOTARY_KEY_ID` in your shell. Set
+`AI_MANAGER_NOTARY_ISSUER_ID` for a team API key; omit it for an individual key.
+Then commit and push the source and run, for example:
+
+```bash
+scripts/release-macos.sh v3.0.0
+```
+
+The script checks the clean, pushed commit, runs native and CLI checks, builds
+the versioned app, notarizes and staples it, and checks Gatekeeper. It writes
+`release/Switch-v3.0.0-mac-arm64.zip` and `release/checksums-v3.0.0.txt`,
+checks the archived app, then creates the tag and uploads both files to a
+GitHub Release from this Mac. It downloads the uploaded ZIP and compares it
+with the local file before publishing the draft. The tag-triggered release
+workflow has been removed; native CI remains for source checks. If the upload
+fails, keep the files in `release/` and resume from the created tag after
+checking the draft release.
+
 ## Sources of truth
 
 | Product | Path | Role |

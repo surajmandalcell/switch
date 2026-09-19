@@ -12,9 +12,11 @@ signature. Set `AI_MANAGER_SIGNING_IDENTITY` only when a maintainer explicitly
 provides a signing identity. Identity builds enable hardened runtime and secure
 timestamping for both the app and CLI. Public direct distribution additionally
 requires a Developer ID Application identity and Apple notarization; the release
-workflow fails before publication when its signing or notary secrets are absent
-or its public readiness check does not pass. A local readiness result is not
-approval for public distribution.
+script runs on a maintainer's Mac and fails before publication when its signing
+or notary credentials are absent or its public readiness check does not pass.
+It uploads the verified archive with `gh release create`. A local readiness
+result is not approval for public distribution. See
+[`docs/development.md`](../../docs/development.md#packaging-and-release).
 
 Production builds never define `AI_MANAGER_PREVIEW`. The sample account model,
 mock actions, and Preview-only interface are compiled only by the uninstalled
