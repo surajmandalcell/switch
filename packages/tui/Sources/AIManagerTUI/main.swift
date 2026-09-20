@@ -7,6 +7,47 @@ import Darwin
 import Glibc
 #endif
 
+private enum TerminalKey {
+    case up
+    case down
+    case left
+    case right
+    case home
+    case end
+    case enter
+    case escape
+    case character(Character)
+}
+
+private enum TerminalScreen {
+    case accounts
+    case accountActions
+}
+
+private enum TerminalMainAction: CaseIterable, Equatable {
+    case addAccount
+    case importAccount
+    case checkLogin
+    case cancelLogin
+    case discover
+    case recover
+    case quit
+}
+
+private enum TerminalAccountAction: CaseIterable, Equatable {
+    case setDefault
+    case openCodex
+    case refreshLimits
+    case verifyFiles
+    case back
+}
+
+private struct TerminalMainActionResult {
+    let pendingSessions: [AccountLoginSession]
+    let message: String?
+    let shouldQuit: Bool
+}
+
 @main
 struct AIManagerCLI {
     static func main() async {
@@ -181,14 +222,31 @@ struct AIManagerCLI {
         var pendingSessions = try await menu.loading("Loading accounts") {
             try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
         }
+        let terminal = TerminalInput()
+        defer { terminal.restore() }
         let usageCache = try? CodexUsageStatisticsCache(
             databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"))
         var selectedAccountID: UUID?
+        var screen = TerminalScreen.accounts
+        var mainFocus = 0
+        var accountActionFocus = 0
+        var initializedFocus = false
         var message: String?
         while true {
             let status = try await manager.status()
             if !status.accounts.contains(where: { $0.id == selectedAccountID }) {
                 selectedAccountID = status.defaultAccountID ?? status.accounts.first?.id
+            }
+            let mainActions = TerminalMenu.mainActions(hasPendingLogins: !pendingSessions.isEmpty)
+            let mainItemCount = status.accounts.count + mainActions.count
+            if !initializedFocus {
+                mainFocus = status.accounts.firstIndex { $0.id == selectedAccountID } ?? 0
+                initializedFocus = true
+            }
+            mainFocus = min(max(0, mainFocus), max(0, mainItemCount - 1))
+            accountActionFocus = min(accountActionFocus, TerminalAccountAction.allCases.count - 1)
+            if screen == .accounts, status.accounts.indices.contains(mainFocus) {
+                selectedAccountID = status.accounts[mainFocus].id
             }
             let usage = await cachedUsage(usageCache, accountIDs: status.accounts.map(\.id))
             menu.render(
@@ -196,75 +254,226 @@ struct AIManagerCLI {
                 selectedAccountID: selectedAccountID,
                 usage: usage,
                 pendingLoginCount: pendingSessions.count,
+                screen: screen,
+                mainActions: mainActions,
+                mainFocus: mainFocus,
+                accountActionFocus: accountActionFocus,
                 message: message)
             message = nil
-            guard let choice = readLine(strippingNewline: true)?.lowercased() else { return }
-            print("")
+            guard var key = terminal.readKey() else { return }
             do {
-                if let number = Int(choice), status.accounts.indices.contains(number - 1) {
-                    selectedAccountID = status.accounts[number - 1].id
-                    continue
-                }
                 let selectedAccount = selectedAccountID.flatMap { id in
                     status.accounts.first { $0.id == id }
                 }
-                switch choice {
-                case "a":
-                    if let session = try await interactiveAddAccount(manager) { pendingSessions.append(session) }
-                case "m", "i": try await interactiveImport(manager)
-                case "c":
-                    if let session = chooseLoginSession(pendingSessions) {
-                        var result = try await manager.checkAccountLogin(id: session.id)
-                        if result.state == .credentialChoiceRequired {
-                            print("Credential: [k] Keep saved  [l] Use this login:", terminator: " ")
-                            let credentialChoice: ConflictChoice?
-                            switch readLine()?.lowercased() {
-                            case "k": credentialChoice = .keepShared
-                            case "l": credentialChoice = .useImported
-                            default: credentialChoice = nil
-                            }
-                            if let credentialChoice {
-                                result = try await manager.checkAccountLogin(
-                                    id: session.id, credentialChoice: credentialChoice)
-                            }
+
+                if terminal.acceptsLegacyCommands, case let .character(character) = key {
+                    let value = String(character).lowercased()
+                    if let number = Int(value), status.accounts.indices.contains(number - 1) {
+                        mainFocus = number - 1
+                        selectedAccountID = status.accounts[mainFocus].id
+                        continue
+                    }
+                    if value == "q" { return }
+                    let mainAction: TerminalMainAction? = switch value {
+                    case "a": .addAccount
+                    case "m", "i": .importAccount
+                    case "c": .checkLogin
+                    case "x": .cancelLogin
+                    case "d": .discover
+                    case "r": .recover
+                    default: nil
+                    }
+                    if let mainAction, let index = mainActions.firstIndex(of: mainAction) {
+                        screen = .accounts
+                        mainFocus = status.accounts.count + index
+                        key = .enter
+                    } else {
+                        let accountAction: TerminalAccountAction? = switch value {
+                        case "u": .setDefault
+                        case "o": .openCodex
+                        case "f": .refreshLimits
+                        case "v": .verifyFiles
+                        default: nil
                         }
-                        await output(SafeLoginCheck(result), json: false)
-                        if result.state == .completed { pendingSessions.removeAll { $0.id == session.id } }
-                    }
-                case "x":
-                    if let session = chooseLoginSession(pendingSessions),
-                       askYes("Cancel this login and remove its isolated staging files?") {
-                        try await manager.cancelAccountLogin(id: session.id)
-                        pendingSessions.removeAll { $0.id == session.id }
-                        print("Account login cancelled.")
-                    }
-                case "d": await printDiscovery(manager.discover())
-                case "", "u":
-                    if let selectedAccount {
-                        _ = try await manager.switchDefault(to: selectedAccount.id)
-                        message = "Using \(displayName(selectedAccount.identity)) as default."
-                    }
-                case "o":
-                    if let selectedAccount { _ = try await manager.activateAndRun(accountID: selectedAccount.id) }
-                case "f":
-                    if let selectedAccount {
-                        let result = await manager.checkAccount(accountID: selectedAccount.id)
-                        if let snapshot = result.usage {
-                            try? await usageCache?.upsertSuccess(accountID: selectedAccount.id, snapshot: snapshot)
+                        if let accountAction,
+                           let index = TerminalAccountAction.allCases.firstIndex(of: accountAction) {
+                            screen = .accountActions
+                            accountActionFocus = index
+                            key = .enter
                         }
-                        message = result.verification.detail
                     }
-                case "v":
-                    if let selectedAccount {
-                        message = await manager.verifyLocal(accountID: selectedAccount.id).detail
+                }
+
+                switch screen {
+                case .accounts:
+                    switch key {
+                    case .up:
+                        mainFocus = (mainFocus + mainItemCount - 1) % mainItemCount
+                    case .down:
+                        mainFocus = (mainFocus + 1) % mainItemCount
+                    case .home:
+                        mainFocus = 0
+                    case .end:
+                        mainFocus = mainItemCount - 1
+                    case .enter, .right:
+                        if status.accounts.indices.contains(mainFocus) {
+                            selectedAccountID = status.accounts[mainFocus].id
+                            accountActionFocus = 0
+                            screen = .accountActions
+                        } else if case .enter = key {
+                            let action = mainActions[mainFocus - status.accounts.count]
+                            let result = try await performMainAction(
+                                action,
+                                manager: manager,
+                                terminal: terminal,
+                                pendingSessions: pendingSessions)
+                            pendingSessions = result.pendingSessions
+                            message = result.message
+                            if result.shouldQuit { return }
+                        }
+                    case .escape:
+                        return
+                    case .left, .character:
+                        break
                     }
-                case "r": try await interactiveRecovery(manager)
-                case "q": return
-                default: message = "Choose an account number or one of the shown letters."
+                case .accountActions:
+                    switch key {
+                    case .up:
+                        accountActionFocus = (accountActionFocus + TerminalAccountAction.allCases.count - 1)
+                            % TerminalAccountAction.allCases.count
+                    case .down:
+                        accountActionFocus = (accountActionFocus + 1) % TerminalAccountAction.allCases.count
+                    case .home:
+                        accountActionFocus = 0
+                    case .end:
+                        accountActionFocus = TerminalAccountAction.allCases.count - 1
+                    case .left, .escape:
+                        screen = .accounts
+                    case .enter, .right:
+                        let action = TerminalAccountAction.allCases[accountActionFocus]
+                        if action == .back {
+                            screen = .accounts
+                        } else if let selectedAccount {
+                            message = try await performAccountAction(
+                                action,
+                                account: selectedAccount,
+                                manager: manager,
+                                terminal: terminal,
+                                menu: menu,
+                                usageCache: usageCache)
+                        }
+                    case .character:
+                        break
+                    }
                 }
             } catch {
                 message = "Error: \(error.localizedDescription)"
             }
+        }
+    }
+
+    private static func performMainAction(
+        _ action: TerminalMainAction,
+        manager: AccountManager,
+        terminal: TerminalInput,
+        pendingSessions: [AccountLoginSession]
+    ) async throws -> TerminalMainActionResult {
+        var sessions = pendingSessions
+        var message: String?
+        switch action {
+        case .addAccount:
+            if let session = try await terminal.withCookedInput({
+                try await interactiveAddAccount(manager, terminal: terminal)
+            }) {
+                sessions.append(session)
+            }
+        case .importAccount:
+            try await terminal.withCookedInput {
+                try await interactiveImport(manager, terminal: terminal)
+            }
+        case .checkLogin:
+            try await terminal.withCookedInput {
+                if let session = chooseLoginSession(sessions, terminal: terminal) {
+                    var result = try await manager.checkAccountLogin(id: session.id)
+                    if result.state == .credentialChoiceRequired {
+                        let credentialChoice = terminal.choose(
+                            "Credential",
+                            options: ["Keep saved", "Use this login"]
+                        ) {
+                            print("Credential: [k] Keep saved  [l] Use this login:", terminator: " ")
+                            switch readLine()?.lowercased() {
+                            case "k": return 0
+                            case "l": return 1
+                            default: return nil
+                            }
+                        }.map { $0 == 0 ? ConflictChoice.keepShared : .useImported }
+                        if let credentialChoice {
+                            result = try await manager.checkAccountLogin(
+                                id: session.id, credentialChoice: credentialChoice)
+                        }
+                    }
+                    await output(SafeLoginCheck(result), json: false)
+                    message = result.message
+                    if result.state == .completed { sessions.removeAll { $0.id == session.id } }
+                }
+            }
+        case .cancelLogin:
+            try await terminal.withCookedInput {
+                if let session = chooseLoginSession(sessions, terminal: terminal),
+                   askYes("Cancel this login and remove its isolated staging files?", terminal: terminal) {
+                    try await manager.cancelAccountLogin(id: session.id)
+                    sessions.removeAll { $0.id == session.id }
+                    message = "Account login cancelled."
+                }
+            }
+        case .discover:
+            await terminal.withCookedInput {
+                await printDiscovery(manager.discover())
+                print("Press Return to continue.", terminator: " ")
+                _ = readLine()
+            }
+        case .recover:
+            try await terminal.withCookedInput {
+                try await interactiveRecovery(manager, terminal: terminal)
+            }
+            message = "Recovery review finished."
+        case .quit:
+            return TerminalMainActionResult(
+                pendingSessions: sessions, message: nil, shouldQuit: true)
+        }
+        return TerminalMainActionResult(
+            pendingSessions: sessions, message: message, shouldQuit: false)
+    }
+
+    private static func performAccountAction(
+        _ action: TerminalAccountAction,
+        account: AccountRecord,
+        manager: AccountManager,
+        terminal: TerminalInput,
+        menu: TerminalMenu,
+        usageCache: CodexUsageStatisticsCache?
+    ) async throws -> String? {
+        switch action {
+        case .setDefault:
+            _ = try await manager.switchDefault(to: account.id)
+            return "Using \(displayName(account.identity)) as default."
+        case .openCodex:
+            _ = try await terminal.withCookedInput {
+                try await manager.activateAndRun(accountID: account.id)
+            }
+            return "Codex closed."
+        case .refreshLimits:
+            let result = try await menu.loading("Refreshing limits") {
+                await manager.checkAccount(accountID: account.id)
+            }
+            if let snapshot = result.usage {
+                try? await usageCache?.upsertSuccess(accountID: account.id, snapshot: snapshot)
+            }
+            return result.verification.detail
+        case .verifyFiles:
+            return await manager.verifyLocal(accountID: account.id).detail
+        case .back:
+            return nil
         }
     }
 
@@ -278,24 +487,39 @@ struct AIManagerCLI {
         })
     }
 
-    static func interactiveAddAccount(_ manager: AccountManager) async throws -> AccountLoginSession? {
+    private static func interactiveAddAccount(
+        _ manager: AccountManager,
+        terminal: TerminalInput
+    ) async throws -> AccountLoginSession? {
         print("Add Account")
-        for (index, provider) in AccountManager.providerCatalog.enumerated() {
-            let availability = provider.availability == .enabled ? "Available" : "Unavailable"
-            print("  \(index + 1). \(providerName(provider.id)) [\(availability)]")
+        let providers = AccountManager.providerCatalog
+        if !terminal.usesArrowNavigation {
+            for (index, provider) in providers.enumerated() {
+                let availability = provider.availability == .enabled ? "Available" : "Unavailable"
+                print("  \(index + 1). \(providerName(provider.id)) [\(availability)]")
+            }
         }
-        print("Provider number:", terminator: " ")
-        guard let value = readLine(), let index = Int(value),
-              AccountManager.providerCatalog.indices.contains(index - 1) else {
-            print("Invalid provider.")
+        let selectedProvider = terminal.choose(
+            "Provider",
+            options: providers.map { provider in
+                let suffix = provider.availability == .enabled ? "" : " (unavailable)"
+                return providerName(provider.id) + suffix
+            }
+        ) {
+            print("Provider number:", terminator: " ")
+            guard let value = readLine(), let number = Int(value) else { return nil }
+            return number - 1
+        }
+        guard let index = selectedProvider, providers.indices.contains(index) else {
+            print("Account login cancelled.")
             return nil
         }
-        let provider = AccountManager.providerCatalog[index - 1]
+        let provider = providers[index]
         guard provider.availability == .enabled else {
             print("Unavailable. \(provider.unavailableReason ?? "This provider cannot be added yet.")")
             return nil
         }
-        guard askYes("Start an isolated \(providerName(provider.id)) login?") else {
+        guard askYes("Start an isolated \(providerName(provider.id)) login?", terminal: terminal) else {
             print("Account login cancelled.")
             return nil
         }
@@ -305,30 +529,54 @@ struct AIManagerCLI {
         return started.session
     }
 
-    static func chooseLoginSession(_ sessions: [AccountLoginSession]) -> AccountLoginSession? {
+    private static func chooseLoginSession(
+        _ sessions: [AccountLoginSession],
+        terminal: TerminalInput
+    ) -> AccountLoginSession? {
         guard !sessions.isEmpty else { print("No pending account logins."); return nil }
-        for (index, session) in sessions.enumerated() {
-            print("  \(index + 1). \(providerName(session.providerID)) \(session.id.uuidString)")
+        if !terminal.usesArrowNavigation {
+            for (index, session) in sessions.enumerated() {
+                print("  \(index + 1). \(providerName(session.providerID)) \(session.id.uuidString)")
+            }
         }
-        print("Login number:", terminator: " ")
-        guard let value = readLine(), let index = Int(value), sessions.indices.contains(index - 1) else {
-            print("Invalid login.")
+        let selectedLogin = terminal.choose(
+            "Login",
+            options: sessions.map {
+                "\(providerName($0.providerID)) \($0.id.uuidString.prefix(8))"
+            }
+        ) {
+            print("Login number:", terminator: " ")
+            guard let value = readLine(), let number = Int(value) else { return nil }
+            return number - 1
+        }
+        guard let index = selectedLogin, sessions.indices.contains(index) else {
+            print("Login selection cancelled.")
             return nil
         }
-        return sessions[index - 1]
+        return sessions[index]
     }
 
-    static func interactiveImport(_ manager: AccountManager) async throws {
+    private static func interactiveImport(_ manager: AccountManager, terminal: TerminalInput) async throws {
         print("Codex home or auth.json path:", terminator: " ")
         guard let value = readLine(), !value.isEmpty else { return }
-        print("Mode: [1] Auth only  [2] Auth, settings, and chats:", terminator: " ")
-        let mode: ImportMode = readLine() == "2" ? .full : .authOnly
+        let selectedMode = terminal.choose(
+            "Mode",
+            options: ["Auth only", "Auth, settings, and chats"]
+        ) {
+            print("Mode: [1] Auth only  [2] Auth, settings, and chats:", terminator: " ")
+            return readLine() == "2" ? 1 : 0
+        }
+        guard let modeIndex = selectedMode else {
+            print("Import cancelled.")
+            return
+        }
+        let mode: ImportMode = modeIndex == 1 ? .full : .authOnly
         var plan = try await manager.planImport(source: URL(fileURLWithPath: NSString(string: value).expandingTildeInPath), mode: mode)
         printPlan(plan)
         var decisions: [String: ConflictChoice] = [:]
         for conflict in plan.conflicts {
             guard conflict.externalTarget != nil else {
-                decisions[conflict.relativePath] = try askConflict(conflict.relativePath)
+                decisions[conflict.relativePath] = try askConflict(conflict.relativePath, terminal: terminal)
                 continue
             }
             plan = try await manager.reviewExternalSetting(plan: plan, relativePath: conflict.relativePath)
@@ -341,9 +589,14 @@ struct AIManagerCLI {
             print("  Target: \(target.path)")
             print("  Size: \(bytes) bytes")
             print("  Fingerprint: \(reviewed.importedDigest)")
-            decisions[conflict.relativePath] = askYes("Use this imported linked setting?") ? .useImported : .keepShared
+            decisions[conflict.relativePath] = askYes(
+                "Use this imported linked setting?", terminal: terminal
+            ) ? .useImported : .keepShared
         }
-        guard askYes("Import this reviewed plan?") else { print("Import cancelled."); return }
+        guard askYes("Import this reviewed plan?", terminal: terminal) else {
+            print("Import cancelled.")
+            return
+        }
         let result = try await manager.importAccount(plan: plan, decisions: decisions)
         await output(result, json: false)
         if !result.unresolved.isEmpty {
@@ -351,19 +604,32 @@ struct AIManagerCLI {
         }
     }
 
-    static func interactiveRecovery(_ manager: AccountManager) async throws {
+    private static func interactiveRecovery(_ manager: AccountManager, terminal: TerminalInput) async throws {
         await output(try await manager.recover(), json: false)
         let conflicts = try await manager.status().pendingRecovery.filter { $0.phase == .conflicted }
         for operation in conflicts {
             print("Recovery conflict \(operation.id.uuidString) (\(operation.kind))")
             print("  Current data: \(operation.destination.path)")
             print("  Protected backup: \(operation.backup.path)")
-            print("[k] Keep current data  [b] Restore protected backup  [s] Skip:", terminator: " ")
+            let selection = terminal.choose(
+                "Recovery",
+                options: ["Keep current data", "Restore protected backup", "Skip"]
+            ) {
+                print("[k] Keep current data  [b] Restore protected backup  [s] Skip:", terminator: " ")
+                switch readLine()?.lowercased() {
+                case "k": return 0
+                case "b": return 1
+                default: return 2
+                }
+            }
             let choice: RecoveryConflictChoice
-            switch readLine()?.lowercased() {
-            case "k": choice = .preserveCurrent
-            case "b":
-                guard askYes("Restore the protected backup? The current data will be preserved inside it.") else {
+            switch selection {
+            case 0: choice = .preserveCurrent
+            case 1:
+                guard askYes(
+                    "Restore the protected backup? The current data will be preserved inside it.",
+                    terminal: terminal
+                ) else {
                     print("Recovery choice skipped.")
                     continue
                 }
@@ -406,7 +672,22 @@ struct AIManagerCLI {
         }
     }
 
-    static func askConflict(_ path: String) throws -> ConflictChoice {
+    private static func askConflict(_ path: String, terminal: TerminalInput? = nil) throws -> ConflictChoice {
+        if let terminal {
+            let selection = terminal.choose(
+                path,
+                options: ["Keep existing", "Use imported"]
+            ) {
+                print("\(path): [k] Keep existing  [i] Use imported:", terminator: " ")
+                switch readLine()?.lowercased() {
+                case "k": return 0
+                case "i": return 1
+                default: return nil
+                }
+            }
+            guard let selection else { throw CLIError.message("No choice made for \(path).") }
+            return selection == 0 ? .keepShared : .useImported
+        }
         print("\(path): [k] Keep existing  [i] Use imported:", terminator: " ")
         switch readLine()?.lowercased() {
         case "k": return .keepShared
@@ -444,7 +725,13 @@ struct AIManagerCLI {
         guard askYes(prompt) else { throw CLIError.cancelled }
     }
 
-    static func askYes(_ prompt: String) -> Bool {
+    private static func askYes(_ prompt: String, terminal: TerminalInput? = nil) -> Bool {
+        if let terminal {
+            return terminal.choose(prompt, options: ["Yes", "Cancel"], defaultIndex: 1) {
+                print("\(prompt) [y/N]", terminator: " ")
+                return readLine()?.lowercased() == "y" ? 0 : 1
+            } == 0
+        }
         print("\(prompt) [y/N]", terminator: " ")
         return readLine()?.lowercased() == "y"
     }
@@ -639,57 +926,115 @@ private struct TerminalMenu {
         selectedAccountID: UUID?,
         usage: [UUID: CodexAccountUsageSnapshot],
         pendingLoginCount: Int,
+        screen: TerminalScreen,
+        mainActions: [TerminalMainAction],
+        mainFocus: Int,
+        accountActionFocus: Int,
         message: String?
     ) {
         var lines: [String] = []
         lines.append(between("SWITCH", Self.timestamp(), width: width))
         lines.append("")
-        lines.append(status.accounts.isEmpty ? "No saved accounts. Press A to add one." : "Select a Codex account:")
-        lines.append("")
-        for (index, account) in status.accounts.enumerated() {
-            let selected = account.id == selectedAccountID
-            let marker = account.id == status.defaultAccountID ? "DEFAULT" : ""
-            let snapshot = usage[account.id].map(Self.usageView)
-            let window = snapshot?.weekly ?? snapshot?.session
-            let scope = snapshot?.weekly == nil ? "session" : "weekly"
-            let amount = window.flatMap { displayedPercentage($0.usedPercent) }
-            let label = amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
-                ?? "usage unavailable"
-            let row = "  \(index + 1). \(padded(Self.accountName(account.identity), to: 29))"
-                + "\(padded(marker, to: 10))\(label)"
-            lines.append(selected ? selectedLine(row) : fitted(row))
-        }
-        if pendingLoginCount > 0 {
+        switch screen {
+        case .accounts:
+            lines.append(status.accounts.isEmpty ? "No saved accounts" : "Accounts")
             lines.append("")
-            lines.append(muted("Pending account logins: \(pendingLoginCount)"))
-        }
-        lines.append("")
-        lines.append("Selected account details")
-        lines.append("------------------------")
-        if let account = status.accounts.first(where: { $0.id == selectedAccountID }) {
-            let view = usage[account.id].map(Self.usageView)
-            if let session = view?.session { lines.append(limitLine("session", window: session)) }
-            if let weekly = view?.weekly { lines.append(limitLine("weekly", window: weekly)) }
-            if view?.session == nil && view?.weekly == nil {
-                lines.append(muted("Usage has not been checked. Press F to refresh it."))
-            } else if let resetDate = view?.weekly?.resetsAt ?? view?.session?.resetsAt {
-                lines.append("reset        : \(Self.resetLabel(until: resetDate))")
+            for (index, account) in status.accounts.enumerated() {
+                let marker = account.id == status.defaultAccountID ? "DEFAULT" : ""
+                let snapshot = usage[account.id].map(Self.usageView)
+                let window = snapshot?.weekly ?? snapshot?.session
+                let scope = snapshot?.weekly == nil ? "session" : "weekly"
+                let amount = window.flatMap { displayedPercentage($0.usedPercent) }
+                let label = amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
+                    ?? "usage unavailable"
+                let row = "  \(padded(Self.accountName(account.identity), to: 32))"
+                    + "\(padded(marker, to: 10))\(label)"
+                lines.append(index == mainFocus ? selectedLine(row) : fitted(row))
             }
-        } else {
-            lines.append(muted("No account selected."))
+            if let account = status.accounts.first(where: { $0.id == selectedAccountID }) {
+                lines.append("")
+                lines.append(contentsOf: detailLines(account: account, usage: usage[account.id]))
+            }
+            lines.append("")
+            lines.append("Actions")
+            for (index, action) in mainActions.enumerated() {
+                let row = "  " + Self.mainActionLabel(action, pendingLoginCount: pendingLoginCount)
+                lines.append(status.accounts.count + index == mainFocus ? selectedLine(row) : fitted(row))
+            }
+            if let message { lines.append(""); lines.append(accent(message)) }
+            lines.append("")
+            lines.append(muted("↑↓ move   →/Enter select   Esc quit"))
+        case .accountActions:
+            guard let account = status.accounts.first(where: { $0.id == selectedAccountID }) else { break }
+            lines.append("Account")
+            lines.append(accent(Self.accountName(account.identity)))
+            lines.append("")
+            lines.append(contentsOf: detailLines(account: account, usage: usage[account.id]))
+            lines.append("")
+            lines.append("Actions")
+            for (index, action) in TerminalAccountAction.allCases.enumerated() {
+                let row = "  " + Self.accountActionLabel(action, isDefault: account.id == status.defaultAccountID)
+                lines.append(index == accountActionFocus ? selectedLine(row) : fitted(row))
+            }
+            if let message { lines.append(""); lines.append(accent(message)) }
+            lines.append("")
+            lines.append(muted("↑↓ move   Enter run   ←/Esc back"))
         }
-        lines.append("")
-        if let message { lines.append(accent(message)) }
-        lines.append("")
-        lines.append(commands("1-9", "select", "ENTER", "set default", "O", "open", "Q", "quit"))
-        lines.append(muted("A add account   M import   F refresh limits   V verify   R recover"))
-        lines.append(muted("C check login   X cancel login   D discover"))
 
         if clearsScreen { print("\u{1B}[2J\u{1B}[H", terminator: "") }
         print(lines.joined(separator: "\n"))
         if usesStyles { print(reset, terminator: "") }
-        print("› ", terminator: "")
         fflush(stdout)
+    }
+
+    static func mainActions(hasPendingLogins: Bool) -> [TerminalMainAction] {
+        TerminalMainAction.allCases.filter {
+            hasPendingLogins || ($0 != .checkLogin && $0 != .cancelLogin)
+        }
+    }
+
+    private func detailLines(
+        account: AccountRecord,
+        usage: CodexAccountUsageSnapshot?
+    ) -> [String] {
+        let view = usage.map(Self.usageView)
+        var lines: [String] = []
+        if let session = view?.session { lines.append(limitLine("session", window: session)) }
+        if let weekly = view?.weekly { lines.append(limitLine("weekly", window: weekly)) }
+        if view?.session == nil && view?.weekly == nil {
+            lines.append(muted("Usage has not been checked."))
+        } else if let resetDate = view?.weekly?.resetsAt ?? view?.session?.resetsAt {
+            lines.append("reset        : \(Self.resetLabel(until: resetDate))")
+        }
+        return lines
+    }
+
+    private static func mainActionLabel(
+        _ action: TerminalMainAction,
+        pendingLoginCount: Int
+    ) -> String {
+        switch action {
+        case .addAccount: "Add account"
+        case .importAccount: "Advanced import"
+        case .checkLogin: "Check pending login (\(pendingLoginCount))"
+        case .cancelLogin: "Cancel pending login"
+        case .discover: "Discover accounts"
+        case .recover: "Recover interrupted work"
+        case .quit: "Quit"
+        }
+    }
+
+    private static func accountActionLabel(
+        _ action: TerminalAccountAction,
+        isDefault: Bool
+    ) -> String {
+        switch action {
+        case .setDefault: isDefault ? "Set as default  ·  current" : "Set as default"
+        case .openCodex: "Open Codex"
+        case .refreshLimits: "Refresh limits"
+        case .verifyFiles: "Check account files"
+        case .back: "Back"
+        }
     }
 
     private func selectedLine(_ value: String) -> String {
@@ -704,12 +1049,6 @@ private struct TerminalMenu {
 
     private func muted(_ value: String) -> String {
         usesStyles ? "\u{1B}[2m" + value + reset : value
-    }
-
-    private func commands(_ values: String...) -> String {
-        stride(from: 0, to: values.count, by: 2).map { index in
-            accent(values[index]) + " " + values[index + 1]
-        }.joined(separator: "   ")
     }
 
     private func limitLine(_ name: String, window: CodexRateLimitWindowSnapshot) -> String {
@@ -772,6 +1111,142 @@ private struct TerminalMenu {
         return "in \(remainingMinutes)m"
     }
 
+}
+
+private final class TerminalInput {
+    private var original = termios()
+    private let attached: Bool
+    private let byteMode: Bool
+    private var hasOriginal = false
+    private var rawEnabled = false
+    let acceptsLegacyCommands: Bool
+    var usesArrowNavigation: Bool { byteMode }
+
+    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        attached = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
+        byteMode = attached || environment["AI_MANAGER_TUI_KEYS"] == "always"
+        acceptsLegacyCommands = !byteMode
+        if attached, tcgetattr(STDIN_FILENO, &original) == 0 {
+            hasOriginal = true
+            enableRaw()
+        }
+    }
+
+    deinit { restore() }
+
+    func readKey() -> TerminalKey? {
+        guard byteMode else {
+            guard let line = readLine(strippingNewline: true) else { return nil }
+            return line.first.map(TerminalKey.character) ?? .enter
+        }
+        guard let byte = readByte() else { return nil }
+        switch byte {
+        case 3, 27:
+            guard byte == 27, let second = readByte(timeoutMilliseconds: 30) else { return .escape }
+            guard second == 91 || second == 79,
+                  let third = readByte(timeoutMilliseconds: 30) else { return .escape }
+            switch third {
+            case 65: return .up
+            case 66: return .down
+            case 67: return .right
+            case 68: return .left
+            case 72: return .home
+            case 70: return .end
+            case 49, 52, 55, 56:
+                guard readByte(timeoutMilliseconds: 30) == 126 else { return .escape }
+                return third == 49 || third == 55 ? .home : .end
+            default: return .escape
+            }
+        case 10, 13:
+            return .enter
+        default:
+            return .character(Character(String(UnicodeScalar(byte))))
+        }
+    }
+
+    func withCookedInput<T>(_ operation: () async throws -> T) async rethrows -> T {
+        let shouldResume = rawEnabled
+        if shouldResume { restore() }
+        defer { if shouldResume { enableRaw() } }
+        return try await operation()
+    }
+
+    func choose(
+        _ prompt: String,
+        options: [String],
+        defaultIndex: Int = 0,
+        fallback: () -> Int?
+    ) -> Int? {
+        guard usesArrowNavigation, !options.isEmpty else { return fallback() }
+        var index = min(max(0, defaultIndex), options.count - 1)
+        enableRaw()
+        defer { restore() }
+        while true {
+            let position = options.count > 1 ? "  \(index + 1)/\(options.count)" : ""
+            print(
+                "\r\u{1B}[2K\(prompt): ← \u{1B}[7m \(options[index]) \u{1B}[0m →\(position)",
+                terminator: "")
+            fflush(stdout)
+            guard let key = readKey() else { return nil }
+            switch key {
+            case .up, .left:
+                index = (index + options.count - 1) % options.count
+            case .down, .right:
+                index = (index + 1) % options.count
+            case .home:
+                index = 0
+            case .end:
+                index = options.count - 1
+            case .enter:
+                print("\r\u{1B}[2K\(prompt): \(options[index])")
+                return index
+            case .escape:
+                print("\r\u{1B}[2K\(prompt): Cancelled")
+                return nil
+            case .character:
+                break
+            }
+        }
+    }
+
+    func restore() {
+        guard rawEnabled, hasOriginal else { return }
+        var settings = original
+        tcsetattr(STDIN_FILENO, TCSANOW, &settings)
+        rawEnabled = false
+    }
+
+    private func enableRaw() {
+        guard hasOriginal, !rawEnabled else { return }
+        var settings = original
+        cfmakeraw(&settings)
+        withUnsafeMutableBytes(of: &settings.c_cc) { bytes in
+            bytes[Int(VMIN)] = 1
+            bytes[Int(VTIME)] = 0
+        }
+        rawEnabled = tcsetattr(STDIN_FILENO, TCSANOW, &settings) == 0
+    }
+
+    private func readByte(timeoutMilliseconds: Int32? = nil) -> UInt8? {
+        if let timeoutMilliseconds {
+            var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+            #if canImport(Darwin)
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            #else
+            let ready = Glibc.poll(&descriptor, 1, timeoutMilliseconds)
+            #endif
+            guard ready > 0 else { return nil }
+        }
+        var byte: UInt8 = 0
+        let count = withUnsafeMutableBytes(of: &byte) { buffer in
+            #if canImport(Darwin)
+            Darwin.read(STDIN_FILENO, buffer.baseAddress, 1)
+            #else
+            Glibc.read(STDIN_FILENO, buffer.baseAddress, 1)
+            #endif
+        }
+        return count == 1 ? byte : nil
+    }
 }
 
 private struct SafeProvider: Encodable {

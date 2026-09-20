@@ -41,7 +41,8 @@ make tui
 ```
 
 The terminal interface uses the same account store and switching engine as the
-Mac app. Run `ai-manager help` for non-interactive commands and JSON output.
+Mac app. Use the arrow keys to move, Enter to select, and Escape to go back.
+Run `ai-manager help` for non-interactive commands and JSON output.
 
 ## Start switching
 

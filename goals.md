@@ -65,6 +65,21 @@ Its executable is installed at `~/.local/bin/ai-manager` with SHA-256
 `84668a398521adafc12ed53fc05465e8dc9bf274aaf59b23e450c3f2765d931f`; the installed
 copy matches the package, passes strict signature verification, and renders the loader.
 
+### TUI keyboard navigation (2026-09-20)
+
+- [x] Replace command-letter navigation on attached terminals with Up, Down, Left, Right,
+  Enter, and Escape controls.
+- [x] Add an account action screen and restore canonical terminal input around forms and
+  launched Codex processes.
+- [x] Preserve noninteractive command compatibility and verify real escape-sequence input.
+
+Raw-terminal acceptance sends real arrow, Home, Enter, Left, and Escape sequences through
+the account list, account action screen, provider selector, and recovery selector. A real PTY
+pass confirms immediate focus movement, limit refresh, return navigation, and canonical path
+input restoration. Provider, import-mode, conflict, recovery, and confirmation choices all use
+arrows and Enter on attached terminals. The npm/npx package check and unprivileged read-only
+ARM64 and AMD64 Linux TUI and CLI acceptance gates pass.
+
 ### Usage percentage preference (2026-09-19)
 
 - [x] Add a persistent Settings toggle between percentage left and percentage used.

@@ -345,13 +345,19 @@ The npm package contains the compiled executable and must not reimplement accoun
 or require a Swift build after package installation.
 
 The interactive terminal uses the approved **09 Amber Menu** structure: a compact
-character-cell account list, one inverse selected row, selected-account limits, numeric
-selection, and direct keyboard commands. It preserves every existing account operation.
+character-cell account list, one inverse selected row, selected-account limits, and
+arrow-key navigation. It preserves every existing account operation.
 It leaves foreground and background colors to the terminal and uses only native bold,
 dim, and inverse ANSI attributes, avoiding appearance detection. Piped output and
 `NO_COLOR` remain plain text. Show an animated loader immediately while the initial
 account refresh runs, then clear it before drawing the menu. Cached limits are displayed
 when present; the interface never manufactures missing usage.
+
+On an attached terminal, navigation uses raw keyboard input: Up and Down move focus,
+Right or Enter opens the focused account, Enter runs the focused action, and Left or
+Escape returns. The interface must not display or require command-letter navigation.
+Temporarily restore normal terminal input for free-text path entry and the launched Codex
+process, and always restore it when the interface exits.
 
 ## 6. Verification contract
 
