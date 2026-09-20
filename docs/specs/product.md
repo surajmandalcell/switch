@@ -344,6 +344,13 @@ The root README has a dedicated terminal getting-started section with all three 
 The npm package contains the compiled executable and must not reimplement account logic
 or require a Swift build after package installation.
 
+The interactive terminal uses the approved **09 Amber Menu** structure: a compact
+character-cell account list, one inverse selected row, selected-account limits, numeric
+selection, and direct keyboard commands. It preserves every existing account operation.
+Its ANSI colors use the Menubar's exact Ivory palette in light appearance and Espresso
+palette in dark appearance. Piped output and `NO_COLOR` remain plain text. Cached limits
+are displayed when present; the interface never manufactures missing usage.
+
 ## 6. Verification contract
 
 Automated tests use synthetic credentials and isolated homes. A UI change must pass the

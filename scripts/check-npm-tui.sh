@@ -30,11 +30,11 @@ installed="$test_root/global/bin/ai-manager"
 
 mkdir -p "$test_root/source-home" "$test_root/npx-home"
 printf 'q\n' | AI_MANAGER_ROOT="$test_root/source-home" "$installed" \
-  | rg -F '[a] Add Account  [m] Advanced Import' >/dev/null
+  | rg -F 'A add account   M import   F refresh limits' >/dev/null
 npm exec --yes --package "$tarball" -- ai-manager help \
   | rg -F 'ai-manager interactive' >/dev/null
 printf 'q\n' | AI_MANAGER_ROOT="$test_root/npx-home" \
   npm exec --yes --package "$tarball" -- ai-manager \
-  | rg -F '[d] Discover  [u] Use by default' >/dev/null
+  | rg -F 'C check login   X cancel login   D discover' >/dev/null
 
 printf '%s\n' 'NPM_TUI_PACKAGE_PASS'

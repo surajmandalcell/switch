@@ -25,7 +25,23 @@ pass with synthetic temporary homes. Registry publication remains a separate npm
 operation; the documented release-asset commands work now without a Swift build.
 The public package is
 https://github.com/surajmandalcell/switch/releases/download/v3.0.0/switch-codex-3.0.0.tgz
-with SHA-256 `f8602aeea01dd096f5984d8f8adcbb4a7093e1c297990f867e2984f6b65d89b3`.
+with SHA-256 `2ef5dc963dc89e7cda640a663bd7d9b0508ba2cb2e8fc63c3a28319a06b54247`.
+
+### TUI visual direction (2026-09-20)
+
+- [x] Produce twenty terminal-native directions using character cells, ANSI color,
+  inverse selection, text meters, and keyboard commands.
+- [x] Apply selected option 09, Amber Menu, to the real interactive executable.
+- [x] Match its light and dark ANSI colors to the Menubar's Ivory and Espresso palettes,
+  preserving plain piped output and all existing terminal operations.
+
+The terminal now presents one 72-column account menu with numeric selection, an inverse
+selected row, cached session and weekly limits, and direct default, open, refresh, add,
+import, verify, recovery, and login commands. Ivory and Espresso ANSI contracts, plain
+piped output, percentage-left and percentage-used display, source CLI acceptance, exact
+npm package installation, and npx execution pass with isolated synthetic homes. The full
+native gate passes 172 core tests with two protected-copy opt-in skips on macOS, Linux
+ARM64, and Linux AMD64, plus the release build and System, Light, and Dark UI contracts.
 
 ### Usage percentage preference (2026-09-19)
 
