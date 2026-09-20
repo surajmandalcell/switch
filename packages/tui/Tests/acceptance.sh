@@ -47,18 +47,30 @@ rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
 rg -F 'Only Codex CLI is available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
-printf 'q\n' | AI_MANAGER_TUI_STYLE=always AI_MANAGER_TUI_SPINNER=always \
+printf '\033[B\033[A\033' | AI_MANAGER_TUI_KEYS=always \
+  AI_MANAGER_TUI_STYLE=always AI_MANAGER_TUI_SPINNER=always \
   "$binary" interactive >"$test_root/tui-native.log"
 rg -F 'Loading accounts…' "$test_root/tui-native.log" >/dev/null
 grep -F "$(printf '\033[2K')" "$test_root/tui-native.log" >/dev/null
-grep -F "$(printf '\033[1m')" "$test_root/tui-native.log" >/dev/null
 grep -F "$(printf '\033[2m')" "$test_root/tui-native.log" >/dev/null
+grep -F "$(printf '\033[7m')" "$test_root/tui-native.log" >/dev/null
 if grep -F "$(printf '\033[38;2;')" "$test_root/tui-native.log" >/dev/null \
   || grep -F "$(printf '\033[48;2;')" "$test_root/tui-native.log" >/dev/null; then
   printf '%s\n' 'Terminal UI unexpectedly forced RGB colors.' >&2
   exit 1
 fi
-rg -F 'No saved accounts. Press A to add one.' "$test_root/tui-native.log" >/dev/null
+rg -F 'No saved accounts' "$test_root/tui-native.log" >/dev/null
+rg -F '↑↓ move   →/Enter select   Esc quit' "$test_root/tui-native.log" >/dev/null
+
+printf '\r\033[B\033[A\033\033' | AI_MANAGER_TUI_KEYS=always \
+  AI_MANAGER_TUI_STYLE=always "$binary" interactive >"$test_root/tui-choice.log"
+rg -F 'Provider: ←' "$test_root/tui-choice.log" >/dev/null
+rg -F '2/4' "$test_root/tui-choice.log" >/dev/null
+rg -F 'Account login cancelled.' "$test_root/tui-choice.log" >/dev/null
+if rg -F 'Provider number:' "$test_root/tui-choice.log" >/dev/null; then
+  printf '%s\n' 'Attached terminal prompt fell back to number entry.' >&2
+  exit 1
+fi
 
 if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
   printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2
@@ -149,7 +161,8 @@ cmp "$adopt_fixture/default-home/auth.json" "$adopted_credential"
 
 interactive_result="$test_root/interactive-result.log"
 printf 'm\n%s\n2\nk\nn\nn\nq\n' "$fixture/source-one" | "$binary" interactive >"$interactive_result"
-rg -F 'A add account   M import   F refresh limits' "$interactive_result" >/dev/null
+rg -F 'Advanced import' "$interactive_result" >/dev/null
+rg -F '↑↓ move   →/Enter select   Esc quit' "$interactive_result" >/dev/null
 rg -F 'Reviewed linked setting rules:' "$interactive_result" >/dev/null
 rg -e 'Target: .*/ai-manager-fixture/external-rules$' "$interactive_result" >/dev/null
 rg -e 'Size: [1-9][0-9]* bytes' "$interactive_result" >/dev/null
@@ -196,12 +209,14 @@ rg -F 'Import completed with unresolved items' "$test_root/full-error.log" >/dev
 account_id="$(jq -r '.account.id' "$full_result")"
 expected_accounts=2
 
-printf '1\nf\nq\n' | AI_MANAGER_TUI_PERCENTAGE=left AI_MANAGER_TUI_STYLE=always \
+printf '\033[H\r\033[B\033[B\r\033[D\033' | AI_MANAGER_TUI_KEYS=always \
+  AI_MANAGER_TUI_PERCENTAGE=left AI_MANAGER_TUI_STYLE=always \
   "$binary" interactive >"$test_root/interactive-usage.log"
 grep -F "$(printf '\033[7m')" "$test_root/interactive-usage.log" >/dev/null
+grep -F "$(printf '\033[1m')" "$test_root/interactive-usage.log" >/dev/null
 rg -F '75% session left' "$test_root/interactive-usage.log" >/dev/null
 rg -F 'session left : 75%' "$test_root/interactive-usage.log" >/dev/null
-printf 'q\n' | AI_MANAGER_TUI_PERCENTAGE=used \
+printf '\033' | AI_MANAGER_TUI_KEYS=always AI_MANAGER_TUI_PERCENTAGE=used \
   "$binary" interactive >"$test_root/interactive-usage-used.log"
 rg -F '25% session used' "$test_root/interactive-usage-used.log" >/dev/null
 
@@ -230,7 +245,8 @@ cmp "$saved_auth_path" "$fixture/default-home/auth.json"
 rg -F "$fixture/default-home" "$fixture/launch.log" >/dev/null
 
 interactive_open_result="$test_root/interactive-open.log"
-printf '1\no\nq\n' | "$binary" interactive >"$interactive_open_result"
+printf '\033[H\r\033[B\r\033[D\033' | AI_MANAGER_TUI_KEYS=always \
+  "$binary" interactive >"$interactive_open_result"
 skip_if_native_writer_unknown "$interactive_open_result" || true
 if rg -F 'Error:' "$interactive_open_result" >/dev/null; then
   cat "$interactive_open_result" >&2
@@ -293,10 +309,12 @@ jq -e --arg id "$direct_recovery_id" \
 interactive_recovery_id='22222222-2222-4222-8222-222222222222'
 cp "$fixture/recovery-fixtures/$interactive_recovery_id.json" "$transactions/$interactive_recovery_id.json"
 recovery_result="$test_root/interactive-recovery.log"
-printf 'r\nk\nq\n' | "$binary" interactive >"$recovery_result"
+printf '\033[F\033[A\r\r\033' | AI_MANAGER_TUI_KEYS=always \
+  "$binary" interactive >"$recovery_result"
 skip_if_native_writer_unknown "$recovery_result" || true
 rg -Fi "Recovery conflict $interactive_recovery_id (import)" "$recovery_result" >/dev/null
-rg -F '[k] Keep current data  [b] Restore protected backup  [s] Skip:' "$recovery_result" >/dev/null
+rg -F 'Recovery: ←' "$recovery_result" >/dev/null
+rg -F 'Keep current data' "$recovery_result" >/dev/null
 rg -F $'\tcompleted\tCurrent files were kept.' "$recovery_result" >/dev/null
 
 printf '%s\n' 'CLI acceptance passed.'
