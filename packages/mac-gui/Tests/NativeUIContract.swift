@@ -1202,7 +1202,7 @@ enum AIManagerNativeContract {
     let size = AIMTheme.windowControlSize
     return size == 48 && AIMTheme.railWidth == size
       && AIMTheme.topbarHeight == size && AIMTheme.modalTitlebarHeight == size
-      && AIMTheme.modalHeight == 648 && AIMTheme.addAccountModalHeight == 480
+      && AIMTheme.modalHeight == 648 && AIMTheme.addAccountModalHeight == 560
       && AIMTheme.modalOuterInset == 24
       && AIMTheme.modalSectionSpacing == 16
   }

@@ -284,7 +284,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
     expect(AIMTheme.modalTitlebarHeight == 48, "Modal titlebar is not 48 points high")
     expect(AIMTheme.modalHeight == 648, "Modal height does not preserve the source-row rhythm")
-    expect(AIMTheme.addAccountModalHeight == 480, "Add Account modal is not compact and stable")
+    expect(AIMTheme.addAccountModalHeight == 560, "Add Account modal clips its title or footer")
     expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
     expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
     failures.append(contentsOf: AIManagerNativeContract.presentationContractFailures())
