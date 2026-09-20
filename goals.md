@@ -83,6 +83,9 @@ The exact `switch-codex-3.0.0.tgz` package built from implementation commit `3c5
 has SHA-256 `1e91b2f2abdd50458539c702b60a59d06d82a686c702a7ac9aa535b78f5f6894`.
 Its four-file payload passes strict ad hoc signature verification, isolated global install,
 npx launch, and raw arrow-sequence navigation.
+The packaged executable is installed at `~/.local/bin/ai-manager` with SHA-256
+`729cfbc5be1d1528aaaa4ffabdadcbca16fe4c52c06c515a2434cc56b642505d`;
+the installed copy matches the package and passes strict signature and help checks.
 
 ### Usage percentage preference (2026-09-19)
 
