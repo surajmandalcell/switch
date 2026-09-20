@@ -78,7 +78,7 @@ fi
 printf '\r\033[B\033[A\033\033' | AI_MANAGER_TUI_KEYS=always \
   AI_MANAGER_TUI_STYLE=always "$binary" interactive >"$test_root/tui-choice.log"
 rg -F 'Provider: ←' "$test_root/tui-choice.log" >/dev/null
-rg -F '2/4' "$test_root/tui-choice.log" >/dev/null
+rg -F '2/5' "$test_root/tui-choice.log" >/dev/null
 rg -F 'Account login cancelled.' "$test_root/tui-choice.log" >/dev/null
 if rg -F 'Provider number:' "$test_root/tui-choice.log" >/dev/null; then
   printf '%s\n' 'Attached terminal prompt fell back to number entry.' >&2
