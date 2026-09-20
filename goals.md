@@ -3477,3 +3477,16 @@ with temporary synthetic homes before installation.
   production models, System/Light/Dark contracts, icon, single-instance, native-scroll, and TUI
   acceptance pass. Native interaction changed Monthly to the accessible 91,000-token total, and
   the Impeccable detector reported no findings.
+
+### Grouped usage filters and compact Menubar totals (2026-09-20)
+
+- [ ] Replace detached period pills with native contiguous segmented controls and use the same
+  grouped treatment for every compact usage-period selector.
+- [ ] Merge selected-account token statistics into Daily activity so one five-period control drives
+  the total and chart without a duplicate card or layout shift.
+- [ ] Add a Settings period choice for the compact Menubar token summary. Keep the quota percentage
+  beside its label and share the existing detail row with the token summary and reset countdown.
+- [ ] Add a cached LiteLLM price lookup following OpenUsage's source order and show an explicitly
+  labeled input-rate API equivalent plus cached/input/output comparisons without calling it spend.
+- [ ] Verify production and Preview models, grouped control geometry, narrow Menubar truncation,
+  System/Light/Dark renders, installed app interaction, TUI acceptance, and clean-install freshness.
