@@ -61,6 +61,9 @@ TUI, and isolated-home CLI gates pass with only the two authorized private-copy 
 The exact `switch-codex-3.0.0.tgz` package contains four expected files and passes ad hoc
 signature verification, isolated global installation, npx launch, loader output, native
 attribute output, and fixed-RGB rejection.
+Its executable is installed at `~/.local/bin/ai-manager` with SHA-256
+`84668a398521adafc12ed53fc05465e8dc9bf274aaf59b23e450c3f2765d931f`; the installed
+copy matches the package, passes strict signature verification, and renders the loader.
 
 ### Usage percentage preference (2026-09-19)
 
