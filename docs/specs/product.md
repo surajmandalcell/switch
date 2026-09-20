@@ -436,7 +436,9 @@ signature when Developer ID signing is unavailable. Keep end-user install copy c
 do not add warning blocks about signing or Gatekeeper.
 Build, validate, and upload Mac archives from the maintainer's local Mac, not GitHub Actions.
 The README must identify the current Switch download accurately; older product releases
-are not Switch.
+are not Switch. Lead with provider-neutral account switching and shared behavior. Keep
+provider-specific file paths, session behavior, and capability limits in concise provider
+notes instead of presenting Codex as the product model.
 Before installed-app GUI actions, compare the packaged and `/Applications/Switch.app`
 executable SHA-256 values, verify the embedded revision against the committed build, and
 check that the running process maps the installed binary's inode. A stale process or
