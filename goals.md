@@ -98,6 +98,9 @@ capture and the full CLI acceptance pass with each menu row aligned to column ze
 The exact `switch-codex-3.0.0.tgz` package built from fix commit `c0c176b` has SHA-256
 `601a7c6fb9aa2e9dabf61eb51b80558013ece2c19a863774852e0353efeebfbe` and passes the
 real-PTY layout regression after isolated installation.
+Its executable is installed at `~/.local/bin/ai-manager` with SHA-256
+`c2d3f533250f6f2d42330365712172881a6170e5e0b9c16f7c47bebd6c5ea5a2` and passes
+strict signature verification.
 
 ### Usage percentage preference (2026-09-19)
 
