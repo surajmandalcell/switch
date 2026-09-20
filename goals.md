@@ -3460,3 +3460,20 @@ with temporary synthetic homes before installation.
   the Impeccable layout detector reported no findings, and the Ponytail debt inventory is empty.
 - The canonical private final-install receipt owns the subsequent clean signed installation,
   embedded revision, executable hashes, process identity, and live Menubar acceptance.
+
+### Account token period correction (2026-09-20)
+
+- [x] Supersede the shared-home panel above with selected-account token statistics from the
+  durable account-day ledger. Put Today, Yesterday, Weekly, Monthly, and Yearly in one header row,
+  show one total at a time, and remove the redundant Shared Codex home row.
+- [x] Supersede the Menubar summary above. Keep the Menubar focused on account switching and quota
+  data, without presenting shared transcript totals as account usage.
+- [x] Connect the TUI to the same durable account-day ledger. Show the same five periods for the
+  selected account and let `w` cycle the active period.
+- A regression first failed because the period model did not exist. The fixed account-period test
+  covers all five labels, exact UTC boundaries, duplicate rows, invalid dates, and the 365-day
+  boundary. TUI acceptance proves the filter row and selected 1,200-token total.
+- The full native gate passes 174 tests with the two protected-copy opt-ins skipped. Preview and
+  production models, System/Light/Dark contracts, icon, single-instance, native-scroll, and TUI
+  acceptance pass. Native interaction changed Monthly to the accessible 91,000-token total, and
+  the Impeccable detector reported no findings.
