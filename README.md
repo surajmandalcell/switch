@@ -23,14 +23,14 @@ You can also [build Switch from source](docs/development.md#build-and-check).
 Open the terminal interface without a global install:
 
 ```bash
-npx --yes switch-codex
+npx --yes @smdl/switch
 ```
 
 Or install it globally:
 
 ```bash
-npm install --global switch-codex
-switch-codex
+npm install --global @smdl/switch
+switch
 ```
 
 The npm build currently supports Apple Silicon Macs. From a source checkout,
@@ -43,7 +43,7 @@ make tui
 The terminal interface uses the same account store and switching engine as the
 Mac app. Use the arrow keys to move, Enter to select, and Escape to go back.
 The existing `ai-manager` command remains available as an alias. Run
-`switch-codex help` for non-interactive commands and JSON output.
+`switch help` for non-interactive commands and JSON output.
 
 ## Start switching
 
@@ -103,4 +103,4 @@ For sample accounts without real credentials, use the
 [isolated Preview build](docs/development.md#preview-with-sample-accounts).
 [Development and release notes](docs/development.md) cover packaging and
 safety. The [product specification](docs/specs/product.md) defines current
-behavior; [goals.md](goals.md) records verification.
+behavior. Local ignored goal ledgers record current work and old verification.

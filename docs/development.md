@@ -134,6 +134,6 @@ checking the draft release.
 
 The app and CLI share the core account manager. The earlier Electron gateway
 is legacy and is not needed to build or run Switch. See the
-[product specification](specs/product.md), [milestones](../goals.md),
+[product specification](specs/product.md), local ignored goal ledgers,
 [macOS packaging notes](../packaging/macos/README.md), and
 [credential transaction decision](adr/0003-credential-transactions.md).
