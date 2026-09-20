@@ -47,15 +47,18 @@ rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
 rg -F 'Only Codex CLI is available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
-printf 'q\n' | AI_MANAGER_TUI_COLOR=always AI_MANAGER_TUI_THEME=light \
-  "$binary" interactive >"$test_root/tui-light.log"
-printf 'q\n' | AI_MANAGER_TUI_COLOR=always AI_MANAGER_TUI_THEME=dark \
-  "$binary" interactive >"$test_root/tui-dark.log"
-grep -F "$(printf '\033[48;2;240;236;226m')" "$test_root/tui-light.log" >/dev/null
-grep -F "$(printf '\033[38;2;75;112;110m')" "$test_root/tui-light.log" >/dev/null
-grep -F "$(printf '\033[48;2;41;39;34m')" "$test_root/tui-dark.log" >/dev/null
-grep -F "$(printf '\033[38;2;180;200;221m')" "$test_root/tui-dark.log" >/dev/null
-rg -F 'No saved accounts. Press A to add one.' "$test_root/tui-light.log" >/dev/null
+printf 'q\n' | AI_MANAGER_TUI_STYLE=always AI_MANAGER_TUI_SPINNER=always \
+  "$binary" interactive >"$test_root/tui-native.log"
+rg -F 'Loading accounts…' "$test_root/tui-native.log" >/dev/null
+grep -F "$(printf '\033[2K')" "$test_root/tui-native.log" >/dev/null
+grep -F "$(printf '\033[1m')" "$test_root/tui-native.log" >/dev/null
+grep -F "$(printf '\033[2m')" "$test_root/tui-native.log" >/dev/null
+if grep -F "$(printf '\033[38;2;')" "$test_root/tui-native.log" >/dev/null \
+  || grep -F "$(printf '\033[48;2;')" "$test_root/tui-native.log" >/dev/null; then
+  printf '%s\n' 'Terminal UI unexpectedly forced RGB colors.' >&2
+  exit 1
+fi
+rg -F 'No saved accounts. Press A to add one.' "$test_root/tui-native.log" >/dev/null
 
 if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
   printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2
@@ -193,8 +196,9 @@ rg -F 'Import completed with unresolved items' "$test_root/full-error.log" >/dev
 account_id="$(jq -r '.account.id' "$full_result")"
 expected_accounts=2
 
-printf '1\nf\nq\n' | AI_MANAGER_TUI_PERCENTAGE=left \
+printf '1\nf\nq\n' | AI_MANAGER_TUI_PERCENTAGE=left AI_MANAGER_TUI_STYLE=always \
   "$binary" interactive >"$test_root/interactive-usage.log"
+grep -F "$(printf '\033[7m')" "$test_root/interactive-usage.log" >/dev/null
 rg -F '75% session left' "$test_root/interactive-usage.log" >/dev/null
 rg -F 'session left : 75%' "$test_root/interactive-usage.log" >/dev/null
 printf 'q\n' | AI_MANAGER_TUI_PERCENTAGE=used \

@@ -177,8 +177,10 @@ struct AIManagerCLI {
     }
 
     static func interactive(_ manager: AccountManager, paths: ManagerPaths) async throws {
-        var pendingSessions = try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
         let menu = TerminalMenu()
+        var pendingSessions = try await menu.loading("Loading accounts") {
+            try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
+        }
         let usageCache = try? CodexUsageStatisticsCache(
             databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"))
         var selectedAccountID: UUID?
@@ -581,63 +583,55 @@ struct AIManagerCLI {
 }
 
 private struct TerminalMenu {
-    private struct RGB {
-        let red: Int
-        let green: Int
-        let blue: Int
-
-        var foreground: String { "\u{1B}[38;2;\(red);\(green);\(blue)m" }
-        var background: String { "\u{1B}[48;2;\(red);\(green);\(blue)m" }
-    }
-
-    private struct Palette {
-        let surface: RGB
-        let ink: RGB
-        let muted: RGB
-        let accent: RGB
-        let selectedInk: RGB
-
-        static let ivory = Palette(
-            surface: RGB(red: 240, green: 236, blue: 226),
-            ink: RGB(red: 50, green: 50, blue: 41),
-            muted: RGB(red: 107, green: 102, blue: 90),
-            accent: RGB(red: 75, green: 112, blue: 110),
-            selectedInk: RGB(red: 255, green: 253, blue: 246))
-        static let espresso = Palette(
-            surface: RGB(red: 41, green: 39, blue: 34),
-            ink: RGB(red: 241, green: 232, blue: 213),
-            muted: RGB(red: 200, green: 188, blue: 166),
-            accent: RGB(red: 180, green: 200, blue: 221),
-            selectedInk: RGB(red: 41, green: 39, blue: 34))
-    }
-
     private struct UsageView {
         let session: CodexRateLimitWindowSnapshot?
         let weekly: CodexRateLimitWindowSnapshot?
     }
 
-    private let palette: Palette
-    private let usesColor: Bool
+    private let usesStyles: Bool
     private let clearsScreen: Bool
+    private let animatesLoader: Bool
     private let showsUsed: Bool
     private let width = 72
     private let reset = "\u{1B}[0m"
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let appDefaults = UserDefaults(suiteName: "com.mandalsuraj.ai-manager")
-        let requestedAppearance = environment["AI_MANAGER_TUI_THEME"]
-            ?? appDefaults?.string(forKey: "appearanceMode")
-            ?? "system"
-        let dark = requestedAppearance == "dark"
-            || (requestedAppearance == "system" && Self.systemUsesDarkAppearance())
-        palette = dark ? .espresso : .ivory
         let attached = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
-        usesColor = environment["AI_MANAGER_TUI_COLOR"] == "always"
+        usesStyles = environment["AI_MANAGER_TUI_STYLE"] == "always"
             || (attached && environment["NO_COLOR"] == nil && environment["TERM"] != "dumb")
         clearsScreen = attached
+        animatesLoader = attached || environment["AI_MANAGER_TUI_SPINNER"] == "always"
         showsUsed = environment["AI_MANAGER_TUI_PERCENTAGE"].map { $0 == "used" }
             ?? appDefaults?.bool(forKey: "showUsageAsUsed")
             ?? false
+    }
+
+    func loading<T>(_ message: String, operation: () async throws -> T) async throws -> T {
+        guard animatesLoader else { return try await operation() }
+        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        FileHandle.standardOutput.write(Data("\r\(frames[0]) \(message)…".utf8))
+        let spinner = Task {
+            var index = 1
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                guard !Task.isCancelled else { break }
+                FileHandle.standardOutput.write(Data("\r\(frames[index]) \(message)…".utf8))
+                index = (index + 1) % frames.count
+            }
+        }
+        do {
+            let result = try await operation()
+            spinner.cancel()
+            await spinner.value
+            FileHandle.standardOutput.write(Data("\r\u{1B}[2K".utf8))
+            return result
+        } catch {
+            spinner.cancel()
+            await spinner.value
+            FileHandle.standardOutput.write(Data("\r\u{1B}[2K".utf8))
+            throw error
+        }
     }
 
     func render(
@@ -691,28 +685,25 @@ private struct TerminalMenu {
         lines.append(muted("A add account   M import   F refresh limits   V verify   R recover"))
         lines.append(muted("C check login   X cancel login   D discover"))
 
-        if usesColor { print(baseStyle, terminator: "") }
         if clearsScreen { print("\u{1B}[2J\u{1B}[H", terminator: "") }
         print(lines.joined(separator: "\n"))
-        if usesColor { print(reset, terminator: "") }
+        if usesStyles { print(reset, terminator: "") }
         print("› ", terminator: "")
         fflush(stdout)
     }
 
-    private var baseStyle: String { palette.surface.background + palette.ink.foreground }
-
     private func selectedLine(_ value: String) -> String {
         let line = fitted(value)
-        guard usesColor else { return ">" + String(line.dropFirst()) }
-        return palette.accent.background + palette.selectedInk.foreground + line + baseStyle
+        guard usesStyles else { return ">" + String(line.dropFirst()) }
+        return "\u{1B}[7m" + line + reset
     }
 
     private func accent(_ value: String) -> String {
-        usesColor ? palette.accent.foreground + value + baseStyle : value
+        usesStyles ? "\u{1B}[1m" + value + reset : value
     }
 
     private func muted(_ value: String) -> String {
-        usesColor ? palette.muted.foreground + value + baseStyle : value
+        usesStyles ? "\u{1B}[2m" + value + reset : value
     }
 
     private func commands(_ values: String...) -> String {
@@ -781,14 +772,6 @@ private struct TerminalMenu {
         return "in \(remainingMinutes)m"
     }
 
-    private static func systemUsesDarkAppearance() -> Bool {
-        #if os(macOS)
-        let global = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
-        return global?["AppleInterfaceStyle"] as? String == "Dark"
-        #else
-        return false
-        #endif
-    }
 }
 
 private struct SafeProvider: Encodable {
