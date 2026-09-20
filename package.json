@@ -1,5 +1,5 @@
 {
-  "name": "switch-codex",
+  "name": "@smdl/switch",
   "version": "3.0.0",
   "description": "Switch between saved Codex accounts from the terminal.",
   "license": "MIT",
@@ -23,7 +23,7 @@
     "arm64"
   ],
   "bin": {
-    "switch-codex": "npm/vendor/darwin-arm64/ai-manager",
+    "switch": "npm/vendor/darwin-arm64/ai-manager",
     "ai-manager": "npm/vendor/darwin-arm64/ai-manager"
   },
   "files": [
