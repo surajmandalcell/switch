@@ -3440,3 +3440,8 @@ with temporary synthetic homes before installation.
   explicit opt-ins. Preview, production, icon, System/Light/Dark, single-instance, and scrolling
   contracts passed. Light and Dark renders were inspected, the Impeccable layout detector reported
   no findings, and the Ponytail debt inventory is empty.
+- The production ledger populated all four periods in the installed app with exact accessible
+  values and an incomplete warning on the affected period. No credential, account selection,
+  Menubar preference, conversation, or cleanup state was changed. The canonical private install
+  receipt records the final clean packaged revision, matching executables, signatures, and running
+  process identity.
