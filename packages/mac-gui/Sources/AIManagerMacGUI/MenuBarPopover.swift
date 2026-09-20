@@ -8,22 +8,37 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
   let resetsAt: Date?
   let secondaryResetsAt: Date?
   let fetchedAt: Date?
+  let tokenPeriodLabel: String?
+  let tokens: Int64?
+  let apiPrice: CodexAPIPrice?
 
   init(
     usedPercentage: Int?,
     secondaryUsedPercentage: Int? = nil,
     resetsAt: Date? = nil,
     secondaryResetsAt: Date? = nil,
-    fetchedAt: Date? = nil
+    fetchedAt: Date? = nil,
+    tokenPeriodLabel: String? = nil,
+    tokens: Int64? = nil,
+    apiPrice: CodexAPIPrice? = nil
   ) {
     self.usedPercentage = usedPercentage.map { min(max($0, 0), 100) }
     self.secondaryUsedPercentage = secondaryUsedPercentage.map { min(max($0, 0), 100) }
     self.resetsAt = resetsAt
     self.secondaryResetsAt = secondaryResetsAt
     self.fetchedAt = fetchedAt
+    self.tokenPeriodLabel = tokenPeriodLabel
+    self.tokens = tokens
+    self.apiPrice = apiPrice
   }
 
-  init?(bucket: CodexRateLimitBucketSnapshot, fetchedAt: Date) {
+  init?(
+    bucket: CodexRateLimitBucketSnapshot,
+    fetchedAt: Date,
+    tokenPeriodLabel: String? = nil,
+    tokens: Int64? = nil,
+    apiPrice: CodexAPIPrice? = nil
+  ) {
     let primaryIsWeekly = bucket.primary?.windowDurationMinutes == 10_080
     let session = primaryIsWeekly ? bucket.secondary : bucket.primary
     let weekly = primaryIsWeekly ? bucket.primary : bucket.secondary
@@ -33,7 +48,10 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
       secondaryUsedPercentage: weekly?.usedPercent,
       resetsAt: session?.resetsAt,
       secondaryResetsAt: weekly?.resetsAt,
-      fetchedAt: fetchedAt)
+      fetchedAt: fetchedAt,
+      tokenPeriodLabel: tokenPeriodLabel,
+      tokens: tokens,
+      apiPrice: apiPrice)
   }
 
 }
@@ -423,12 +441,18 @@ private struct MenuBarAccountRow: View {
           if let percentage = usage.usedPercentage {
             MenuBarQuotaRow(
               label: "Session", percentage: percentage,
-              reset: usage.resetsAt, showsUsed: showsUsed, palette: palette)
+              reset: usage.resetsAt, showsUsed: showsUsed, palette: palette,
+              tokenPeriodLabel: usage.secondaryUsedPercentage == nil ? usage.tokenPeriodLabel : nil,
+              tokens: usage.secondaryUsedPercentage == nil ? usage.tokens : nil,
+              apiPrice: usage.secondaryUsedPercentage == nil ? usage.apiPrice : nil)
           }
           if let percentage = usage.secondaryUsedPercentage {
             MenuBarQuotaRow(
               label: "Weekly", percentage: percentage,
-              reset: usage.secondaryResetsAt, showsUsed: showsUsed, palette: palette)
+              reset: usage.secondaryResetsAt, showsUsed: showsUsed, palette: palette,
+              tokenPeriodLabel: usage.tokenPeriodLabel,
+              tokens: usage.tokens,
+              apiPrice: usage.apiPrice)
           }
         }
         .padding(.horizontal, 11)
@@ -487,6 +511,12 @@ private struct MenuBarAccountRow: View {
           forUsed: secondaryUsedPercentage, showsUsed: showsUsed)
         parts.append("Weekly \(label)")
       }
+      if let tokens = usage.tokens, let period = usage.tokenPeriodLabel {
+        parts.append("\(UsagePresentation.exactTokens(tokens)) tokens \(period)")
+        if let price = usage.apiPrice {
+          parts.append("\(UsagePresentation.formatCurrency(price.inputEquivalent(for: tokens))) API input-rate equivalent")
+        }
+      }
     }
     return parts.joined(separator: ", ")
   }
@@ -498,6 +528,9 @@ private struct MenuBarQuotaRow: View {
   let reset: Date?
   let showsUsed: Bool
   let palette: MenuBarPalette
+  let tokenPeriodLabel: String?
+  let tokens: Int64?
+  let apiPrice: CodexAPIPrice?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var displayedPercentage: Int {
@@ -506,9 +539,15 @@ private struct MenuBarQuotaRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text(label)
-        .font(AIMTheme.sans(11, weight: .medium))
-        .foregroundStyle(palette.ink)
+      HStack(spacing: 8) {
+        Text(label)
+          .font(AIMTheme.sans(11, weight: .medium))
+          .foregroundStyle(palette.ink)
+        Spacer(minLength: 0)
+        Text(UsagePercentagePreferences.label(forUsed: percentage, showsUsed: showsUsed))
+          .font(AIMTheme.sans(10, weight: .medium))
+          .foregroundStyle(palette.ink)
+      }
       GeometryReader { proxy in
         ZStack(alignment: .leading) {
           Capsule().fill(palette.track)
@@ -520,9 +559,14 @@ private struct MenuBarQuotaRow: View {
       .frame(height: 4)
       .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: displayedPercentage)
       HStack(spacing: 8) {
-        Text(UsagePercentagePreferences.label(forUsed: percentage, showsUsed: showsUsed))
-          .font(AIMTheme.sans(10, weight: .medium))
-          .foregroundStyle(palette.ink)
+        if let tokens, let tokenPeriodLabel {
+          Text(tokenSummary(tokens: tokens, period: tokenPeriodLabel))
+            .font(AIMTheme.sans(9, weight: .medium))
+            .foregroundStyle(palette.muted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(tokenHelp(tokens: tokens, period: tokenPeriodLabel))
+        }
         Spacer(minLength: 0)
         if let reset {
           TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -535,6 +579,21 @@ private struct MenuBarQuotaRow: View {
       }
     }
     .frame(height: MenuBarPopover.quotaRowHeight)
+  }
+
+  private func tokenSummary(tokens: Int64, period: String) -> String {
+    var text = "\(UsagePresentation.formatTokens(tokens)) \(period)"
+    if let apiPrice {
+      text += " · ≈\(UsagePresentation.formatCurrency(apiPrice.inputEquivalent(for: tokens))) API"
+    }
+    return text
+  }
+
+  private func tokenHelp(tokens: Int64, period: String) -> String {
+    var text = "\(UsagePresentation.exactTokens(tokens)) tokens used \(period)."
+    guard let apiPrice else { return text }
+    text += " \(UsagePresentation.formatCurrency(apiPrice.inputEquivalent(for: tokens))) at the \(apiPrice.model) API input rate. This is a rate comparison, not billed spend."
+    return text
   }
 }
 
@@ -588,7 +647,11 @@ enum MenuBarPopoverPreviewData {
           usedPercentage: 42, secondaryUsedPercentage: 68,
           resetsAt: Date().addingTimeInterval(2 * 3_600),
           secondaryResetsAt: Date().addingTimeInterval(2 * 86_400),
-          fetchedAt: Date().addingTimeInterval(-120))),
+          fetchedAt: Date().addingTimeInterval(-120),
+          tokenPeriodLabel: "since reset", tokens: 412_000_000,
+          apiPrice: CodexAPIPrice(
+            model: "gpt-5.6-sol", inputPerMillion: 4,
+            cachedInputPerMillion: 0.4, outputPerMillion: 20))),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "15431467-BF10-4BCB-9300-C785336CB1D1")!,
         identity: "bankai39@gmail.com", detail: "Codex CLI · Studio",
@@ -597,7 +660,11 @@ enum MenuBarPopoverPreviewData {
           usedPercentage: 18, secondaryUsedPercentage: 37,
           resetsAt: Date().addingTimeInterval(75 * 60),
           secondaryResetsAt: Date().addingTimeInterval(4 * 86_400),
-          fetchedAt: Date().addingTimeInterval(-480))),
+          fetchedAt: Date().addingTimeInterval(-480),
+          tokenPeriodLabel: "since reset", tokens: 128_000_000,
+          apiPrice: CodexAPIPrice(
+            model: "gpt-5.6-sol", inputPerMillion: 4,
+            cachedInputPerMillion: 0.4, outputPerMillion: 20))),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "DB9AB65A-F894-426D-8A16-86772A8F054D")!,
         identity: "joestar89@gmail.com", detail: "Codex CLI · Personal",

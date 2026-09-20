@@ -34,7 +34,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         let statusItemController = AIManagerStatusItemController(
             snapshot: menuBarSnapshot(
                 status: model.status,
-                usageSnapshots: model.usageSnapshots),
+                usageSnapshots: model.usageSnapshots,
+                dailyUsage: model.retainedDailyUsage,
+                apiPrice: model.apiPrice),
             actions: MenuBarPopoverActions(
                 openMainWindow: {
                     controller.present()
@@ -66,7 +68,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 self.applyAppearance()
                 statusItemController?.update(snapshot: self.menuBarSnapshot(
                     status: self.model.status,
-                    usageSnapshots: self.model.usageSnapshots))
+                    usageSnapshots: self.model.usageSnapshots,
+                    dailyUsage: self.model.retainedDailyUsage,
+                    apiPrice: self.model.apiPrice))
             }
         }
         model.$status
@@ -74,7 +78,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 statusItemController?.update(snapshot: self.menuBarSnapshot(
                     status: status,
-                    usageSnapshots: self.model.usageSnapshots))
+                    usageSnapshots: self.model.usageSnapshots,
+                    dailyUsage: self.model.retainedDailyUsage,
+                    apiPrice: self.model.apiPrice))
             }
             .store(in: &modelObservers)
         model.$usageSnapshots
@@ -82,7 +88,29 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 statusItemController?.update(snapshot: self.menuBarSnapshot(
                     status: self.model.status,
-                    usageSnapshots: usageSnapshots))
+                    usageSnapshots: usageSnapshots,
+                    dailyUsage: self.model.retainedDailyUsage,
+                    apiPrice: self.model.apiPrice))
+            }
+            .store(in: &modelObservers)
+        model.$retainedDailyUsage
+            .sink { [weak self, weak statusItemController] dailyUsage in
+                guard let self else { return }
+                statusItemController?.update(snapshot: self.menuBarSnapshot(
+                    status: self.model.status,
+                    usageSnapshots: self.model.usageSnapshots,
+                    dailyUsage: dailyUsage,
+                    apiPrice: self.model.apiPrice))
+            }
+            .store(in: &modelObservers)
+        model.$apiPrice
+            .sink { [weak self, weak statusItemController] apiPrice in
+                guard let self else { return }
+                statusItemController?.update(snapshot: self.menuBarSnapshot(
+                    status: self.model.status,
+                    usageSnapshots: self.model.usageSnapshots,
+                    dailyUsage: self.model.retainedDailyUsage,
+                    apiPrice: apiPrice))
             }
             .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
@@ -168,7 +196,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     private func menuBarSnapshot(
         status: ManagerStatus?,
-        usageSnapshots: [UUID: CodexAccountUsageSnapshot]
+        usageSnapshots: [UUID: CodexAccountUsageSnapshot],
+        dailyUsage: [UUID: [CodexDailyUsageSnapshot]],
+        apiPrice: CodexAPIPrice?
     ) -> MenuBarSnapshot {
         guard let status else { return .empty }
         return MenuBarSnapshot(
@@ -184,7 +214,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                         ? menuBarUsage(
                             for: account.id,
                             status: status,
-                            usageSnapshots: usageSnapshots)
+                            usageSnapshots: usageSnapshots,
+                            dailyUsage: dailyUsage,
+                            apiPrice: apiPrice)
                         : nil,
                     showsUsage: showsUsage,
                     providerID: account.identity.providerID)
@@ -195,12 +227,21 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private func menuBarUsage(
         for accountID: UUID,
         status: ManagerStatus,
-        usageSnapshots: [UUID: CodexAccountUsageSnapshot]
+        usageSnapshots: [UUID: CodexAccountUsageSnapshot],
+        dailyUsage: [UUID: [CodexDailyUsageSnapshot]],
+        apiPrice: CodexAPIPrice?
     ) -> MenuBarUsageSnapshot? {
         guard status.accounts.first(where: { $0.id == accountID })?.verification.state != .needsSignIn,
               let snapshot = usageSnapshots[accountID],
               let bucket = snapshot.rateLimits?.defaultBucket else { return nil }
-        return MenuBarUsageSnapshot(bucket: bucket, fetchedAt: snapshot.fetchedAt)
+        let rows = dailyUsage[accountID] ?? snapshot.dailyUsage
+        let period = MenuBarTokenPeriod.selected()
+        return MenuBarUsageSnapshot(
+            bucket: bucket,
+            fetchedAt: snapshot.fetchedAt,
+            tokenPeriodLabel: rows.isEmpty ? nil : period.summaryLabel,
+            tokens: rows.isEmpty ? nil : period.tokens(in: rows, usage: snapshot),
+            apiPrice: apiPrice)
     }
 
     private static func accountDetail(_ account: AccountRecord) -> String {
