@@ -1,7 +1,7 @@
 # Switch product specification
 
 Status: Initial accepted specification
-Revision: 2026-09-19
+Revision: 2026-09-20
 
 This document defines the current product model and user-visible contract. The ignored
 local `goals.md` tracks active work, and `goals.archive.md` keeps old evidence. If older
@@ -9,9 +9,9 @@ milestone text conflicts with this document, this specification owns current beh
 
 ## 1. Product model
 
-Switch manages provider authentication snapshots. Codex CLI is the only enabled provider
-in the current release. Claude Code, Gemini CLI, and Antigravity CLI may appear only in the
-Add Account catalog as inert WIP choices.
+Switch manages provider authentication snapshots. Codex CLI and Grok Build are enabled in
+the current release. Claude Code, Gemini CLI, and Antigravity CLI may appear only in the Add
+Account catalog as inert WIP choices.
 
 For Codex, `~/.codex` is the one live home. Its configuration, instructions, skills,
 plugins, conversations, databases, and other non-authentication state remain in place when
@@ -23,6 +23,15 @@ Saved credentials are regular owner-private files at `~/.switch/codex/<account-u
 The UUID is the stable internal identity and paths never contain an email address. Switch's
 registry, usage cache, transactions, backups, and recovery metadata live in its application
 support directory. Raw authentication is never stored in SQLite.
+
+For Grok Build, `~/.grok` (or `$GROK_HOME`) is the one live home. Switching atomically
+replaces only its `auth.json`; configuration, rules, plugins, MCP credentials, and sessions
+stay in place. Switch supports the official CLI's subscription OAuth entries (`oidc` and
+first-party external OAuth), not `XAI_API_KEY`. Saved credentials are owner-private files at
+`~/.switch/grok-build/<account-uuid>.json`. Add Account runs `grok login --oauth` with a
+private temporary `GROK_HOME`. The official CLI hot-reloads `auth.json`, so an existing Grok
+process may use the newly selected account on its next API call. Switch does not claim that
+existing Grok sessions retain their earlier account.
 
 Temporary or managed homes used for sign-in, verification, import, migration, or recovery
 are implementation details. Legacy internal links may still be repaired for compatibility,
@@ -51,8 +60,9 @@ opens Settings. Settings contains only:
    Body translucency is adjustable from 0% to 50%, initially 25% (75% opacity),
    and applies to the entire content area and its page titlebar without fading text or
    controls. Reduce Transparency makes these surfaces opaque. The rail stays distinct.
-2. **Data locations** — Codex home (`~/.codex`) and saved account vault
-   (`~/.switch/codex`), each with a plain-language purpose and an explicit Reveal action.
+2. **Data locations** — Codex home and vault (`~/.codex`, `~/.switch/codex`) plus
+   Grok Build home and vault (`~/.grok`, `~/.switch/grok-build`), each with a
+   plain-language purpose and an explicit Reveal action.
 3. **Menu bar defaults** — Show account usage, initially on. Accounts without an
    explicit override follow this default. Changing it preserves explicit account choices.
 4. Preview-only demo controls in Preview builds.
@@ -155,7 +165,7 @@ The menu popover contains only account switching, enabled limit data, a refresh 
 and refresh/Open App footer actions. It has no brand/count/refresh header, column header, session
 explanation, Add Account action, or Quit action. Account creation belongs in the main window.
 
-Each account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
+Each Codex account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
 in its action row. Both stateful actions use a single tick when false (Set as Default or
 Menubar display off), and an outlined double tick with two complete checkmarks when true
 (Using as default or Menubar display on). The icon reflects the current state, not the

@@ -1,10 +1,10 @@
 # Switch
 
-**Switch Codex accounts without signing in over and over.**
+**Switch AI accounts without signing in over and over.**
 
-Switch is a native macOS app that keeps your Codex logins ready. Check which
-account has room, select it from the menu bar, and open Codex. Sessions that
-are already running keep their current login.
+Switch is a native macOS account manager for supported AI coding tools. Keep
+multiple logins ready, select an account from the menu bar, and open the right
+tool without repeating its sign-in flow.
 
 ![Switch Preview showing saved accounts and usage limits in dark mode](docs/screenshots/accounts-dark.png)
 
@@ -12,9 +12,15 @@ are already running keep their current login.
 
 ## Get Switch for Mac
 
-[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.0.0/Switch-v3.0.0-mac-arm64.zip),
+[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.1.0/Switch-v3.1.0-mac-arm64.zip),
 unzip it, and move `Switch.app` to Applications. Switch requires macOS 14 or
-later on Apple Silicon and uses Codex CLI for account sign-in and launching Codex.
+later on Apple Silicon. Install the command-line tool for each provider you use.
+
+| Provider | Account switching | Usage limits |
+| --- | --- | --- |
+| Codex CLI | Supported | Supported |
+| [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Supported | Not exposed in Switch |
+| Claude Code, Gemini CLI, Antigravity CLI | WIP | WIP |
 
 You can also [build Switch from source](docs/development.md#build-and-check).
 
@@ -47,19 +53,19 @@ The existing `ai-manager` command remains available as an alias. Run
 
 ## Start switching
 
-Switch saves your current Codex login when you first open it.
+Choose **Add Account**, then select Codex CLI or Grok Build.
 
-1. Choose **Add Account** and sign in to another Codex account.
+1. Sign in through the provider's isolated temporary home.
 2. Return to Switch and choose **Check Now**.
 3. Choose **Switch** in the menu bar, or **Set as Default** in the app.
-4. Choose **Open Codex** to start a new session with that account.
+4. Choose **Open** to launch that provider with the selected account.
 
 Sign-in runs in a private temporary home. It does not replace your current
 login while you add another account.
 
 ## See your limits before you switch
 
-The menu bar shows remaining usage for the accounts you choose. Open its
+For Codex, the menu bar shows remaining usage for the accounts you choose. Open its
 popover to compare session and weekly limits, switch accounts, or refresh
 usage. Its status item shows up to four account percentages; the popover lists
 every saved account. You can set a default display preference.
@@ -68,7 +74,7 @@ every saved account. You can set a default display preference.
 | :---: | :---: |
 | ![Switch menu popover with three sample accounts in light mode](docs/screenshots/menubar-light.png) | ![Switch menu popover with three sample accounts in dark mode](docs/screenshots/menubar-dark.png) |
 
-## Only the login changes
+## Only the provider login changes
 
 For Codex CLI, Switch keeps one shared `~/.codex` home. Selecting a saved
 account atomically replaces its `auth.json` for new sessions. It leaves your
@@ -88,15 +94,19 @@ flowchart LR
 
 Existing Codex sessions keep the credentials they already loaded.
 
+For Grok Build, Switch atomically replaces only `~/.grok/auth.json`. Grok's
+configuration, rules, plugins, and sessions stay in `~/.grok`. The official
+CLI hot-reloads a changed credential for its next API call, so an already
+running Grok session may begin using the newly selected account.
+
 ## More when you need it
 
-- **Check a saved account.** Validate its `auth.json` and refresh usage without making it the default.
-- **Import an existing login.** Review an `auth.json` or Codex folder before adding it. Settings and chats are optional import scope.
-- **Find a conversation.** Search shared chat history, filter message roles, and load older messages as you scroll.
-- **Track activity.** Browse a daily calendar and retain token summaries after old conversations are removed.
-- **Clean up safely.** Preview exact conversations and caches, move conversations to recoverable trash, and restore them when needed.
+- **Check a saved account.** Validate its `auth.json` without making it the default; Codex checks also refresh usage.
+- **Import an existing Codex login.** Review an `auth.json` or Codex folder before adding it. Settings and chats are optional import scope.
+- **Explore Codex history.** Search shared conversations, track daily token activity, and retain summaries after old conversations are removed.
+- **Clean up safely.** Preview exact Codex conversations and caches, move them to recoverable trash, and restore them when needed.
 
-Codex CLI is the only enabled provider today. Claude Code, Gemini CLI, and
+Codex CLI and Grok Build are enabled providers. Claude Code, Gemini CLI, and
 Antigravity CLI appear as WIP choices in the Add Account catalog.
 
 For sample accounts without real credentials, use the

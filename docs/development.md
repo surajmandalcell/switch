@@ -24,8 +24,8 @@ open "/private/tmp/ai-manager-build/package/Switch.app"
 "/private/tmp/ai-manager-build/artifacts/ai-manager" help
 ```
 
-The app embeds that CLI at `Contents/Helpers/ai-manager`. **Open Codex** uses
-the helper so account activation and process launch share one lock.
+The app embeds that CLI at `Contents/Helpers/ai-manager`. Provider Open actions
+use the helper so account activation and process launch share one lock.
 
 Run the terminal interface from the repository root with `make tui`. The npm
 package is assembled and checked locally with:
@@ -40,8 +40,9 @@ need Swift or Xcode.
 
 On Linux, `scripts/check-linux.sh` checks the core, CLI, and isolated
 acceptance flow. The Swift package needs no Node.js, Electron, local server, or
-provider configuration. Codex CLI is optional for discovery and offline tests,
-but required for live sign-in, usage checks, and launching Codex.
+provider configuration. Codex CLI and Grok Build are optional for discovery and
+offline tests. Install the provider CLI for its live sign-in and launch flow;
+Codex CLI is also required for live usage checks.
 
 ## Preview with sample accounts
 
@@ -52,21 +53,28 @@ scripts/launch-switch.sh --preview
 This builds an uninstalled Preview app under
 `/private/tmp/ai-manager-build/preview`. Its accounts, usage, chats, and
 recovery states are synthetic and reset on launch. Add Account and Advanced
-Import can be explored without saving credentials or changing a Codex home.
+Import can be explored without saving credentials or changing a provider home.
 The production build excludes Preview data, and release readiness checks for
 that boundary.
 
 ## Credentials and shared data
 
 Switch saves owner-private, regular credential files under
-`~/.switch/codex/<account-uuid>.json`. Account identifiers are UUIDs, not
-email addresses. `~/.codex` remains the one live Codex home.
+`~/.switch/codex/<account-uuid>.json` and
+`~/.switch/grok-build/<account-uuid>.json`. Account identifiers are UUIDs, not
+email addresses. `~/.codex` and `~/.grok` remain the live provider homes.
 
 **Set as Default** atomically replaces only `~/.codex/auth.json` after
 identity and digest checks. Config, instructions, skills, plugins,
 conversations, and databases remain in place. Existing Codex processes keep
 their cached credentials. New sessions use the selected account. **Open Codex**
 activates its account before launching the shared home.
+
+For Grok Build, **Set as Default** atomically replaces only
+`~/.grok/auth.json` with a validated OAuth subscription session. It does not
+store or convert `XAI_API_KEY`. The official CLI reloads the auth file before
+its next API call. **Open Grok Build** activates the account and launches the
+official `grok` executable with `GROK_HOME=~/.grok`.
 
 Switch reviews imports, creates a backup, stages and validates changes, then
 publishes the account. A failed operation keeps the prior usable state and
@@ -96,7 +104,7 @@ The first Switch version must be newer than the repository's legacy
 `v2.1.2` tag. To publish an ad hoc signed release from a clean, pushed commit:
 
 ```bash
-scripts/release-macos.sh --adhoc v3.0.0
+scripts/release-macos.sh --adhoc v3.1.0
 ```
 
 The script marks the release as Latest and uploads its ZIP and checksum. It uses

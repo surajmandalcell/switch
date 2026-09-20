@@ -140,7 +140,7 @@ elif (( adhoc )); then
 else
   gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
     --title "Switch $version" --draft \
-    --notes "Native Switch for macOS 14 or later on Apple Silicon. Download the ZIP, unzip it, and move Switch.app to Applications. Codex CLI is required for live sign-in, usage checks, and launching Codex."
+    --notes-file "$repo_root/docs/release-notes.md"
 fi
 
 mkdir -p "$verify_dir/download"
