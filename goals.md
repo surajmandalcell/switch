@@ -32,19 +32,32 @@ with SHA-256 `2ef5dc963dc89e7cda640a663bd7d9b0508ba2cb2e8fc63c3a28319a06b54247`.
 - [x] Produce twenty terminal-native directions using character cells, ANSI color,
   inverse selection, text meters, and keyboard commands.
 - [x] Apply selected option 09, Amber Menu, to the real interactive executable.
-- [x] Match its light and dark ANSI colors to the Menubar's Ivory and Espresso palettes,
-  preserving plain piped output and all existing terminal operations.
+- [x] Initially match its ANSI colors to the Menubar palettes while preserving plain
+  piped output and all existing terminal operations; the next milestone supersedes color.
 
-The terminal now presents one 72-column account menu with numeric selection, an inverse
+The first pass presented one 72-column account menu with numeric selection, an inverse
 selected row, cached session and weekly limits, and direct default, open, refresh, add,
 import, verify, recovery, and login commands. Ivory and Espresso ANSI contracts, plain
 piped output, percentage-left and percentage-used display, source CLI acceptance, exact
 npm package installation, and npx execution pass with isolated synthetic homes. The full
 native gate passes 172 core tests with two protected-copy opt-in skips on macOS, Linux
 ARM64, and Linux AMD64, plus the release build and System, Light, and Dark UI contracts.
-The packaged executable is installed at `~/.local/bin/ai-manager`; its SHA-256 is
+That packaged executable was installed at `~/.local/bin/ai-manager`; its SHA-256 was
 `79f992e30a696e32cac99a75aa8f52d790cacd4d2b5ad0f4c4f9420a63e9c3cb` and its strict
 ad hoc signature, isolated launch, and Ivory render pass.
+
+### TUI native colors and startup feedback (2026-09-20)
+
+- [x] Remove fixed RGB palettes and appearance probing; keep terminal-default foreground
+  and background colors with native bold, dim, and inverse attributes.
+- [x] Draw an animated loader before the initial account refresh and clear it before the
+  first menu frame, while keeping piped output plain.
+
+The loader writes its first frame before refresh begins, animates only on a terminal, and
+clears before the menu. Focused acceptance rejects 24-bit foreground and background escape
+sequences and verifies native bold, dim, inverse, loader, and clear-line output. The full
+172-test macOS core gate and read-only unprivileged ARM64 and AMD64 Linux core, release,
+TUI, and isolated-home CLI gates pass with only the two authorized private-copy skips.
 
 ### Usage percentage preference (2026-09-19)
 

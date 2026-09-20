@@ -347,9 +347,11 @@ or require a Swift build after package installation.
 The interactive terminal uses the approved **09 Amber Menu** structure: a compact
 character-cell account list, one inverse selected row, selected-account limits, numeric
 selection, and direct keyboard commands. It preserves every existing account operation.
-Its ANSI colors use the Menubar's exact Ivory palette in light appearance and Espresso
-palette in dark appearance. Piped output and `NO_COLOR` remain plain text. Cached limits
-are displayed when present; the interface never manufactures missing usage.
+It leaves foreground and background colors to the terminal and uses only native bold,
+dim, and inverse ANSI attributes, avoiding appearance detection. Piped output and
+`NO_COLOR` remain plain text. Show an animated loader immediately while the initial
+account refresh runs, then clear it before drawing the menu. Cached limits are displayed
+when present; the interface never manufactures missing usage.
 
 ## 6. Verification contract
 
