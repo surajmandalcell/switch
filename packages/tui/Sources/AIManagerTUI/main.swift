@@ -125,7 +125,7 @@ struct AIManagerCLI {
             guard issue.localFingerprint == fingerprint else { throw AIManagerError.sourceChanged }
             try confirm(input, "Back up \(issue.localPath.path) under \(issue.backupRoot.path) and restore its link to \(issue.intendedTarget.path)?")
             await output(try await manager.repairLinkedSetting(accountID: accountID, relativePath: relativePath, reviewedFingerprint: fingerprint), json: input.json)
-        case "interactive": try await interactive(manager)
+        case "interactive": try await interactive(manager, paths: input.paths)
         default: throw CLIError.message("Unknown command '\(input.command)'. Run ai-manager help.")
         }
     }
@@ -176,20 +176,36 @@ struct AIManagerCLI {
         }
     }
 
-    static func interactive(_ manager: AccountManager) async throws {
+    static func interactive(_ manager: AccountManager, paths: ManagerPaths) async throws {
         var pendingSessions = try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
+        let menu = TerminalMenu()
+        let usageCache = try? CodexUsageStatisticsCache(
+            databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"))
+        var selectedAccountID: UUID?
+        var message: String?
         while true {
             let status = try await manager.status()
-            print("\nSwitch")
-            for (index, account) in status.accounts.enumerated() {
-                let marker = account.id == status.defaultAccountID ? "default" : account.verification.state.rawValue
-                print("  \(index + 1). \(displayName(account.identity)) [\(marker)]")
+            if !status.accounts.contains(where: { $0.id == selectedAccountID }) {
+                selectedAccountID = status.defaultAccountID ?? status.accounts.first?.id
             }
-            if !pendingSessions.isEmpty { print("  Pending account logins: \(pendingSessions.count)") }
-            print("\n[a] Add Account  [m] Advanced Import  [c] Check Login  [x] Cancel Login")
-            print("[d] Discover  [u] Use by default  [o] Open  [v] Verify  [r] Recover  [q] Quit")
+            let usage = await cachedUsage(usageCache, accountIDs: status.accounts.map(\.id))
+            menu.render(
+                status: status,
+                selectedAccountID: selectedAccountID,
+                usage: usage,
+                pendingLoginCount: pendingSessions.count,
+                message: message)
+            message = nil
             guard let choice = readLine(strippingNewline: true)?.lowercased() else { return }
+            print("")
             do {
+                if let number = Int(choice), status.accounts.indices.contains(number - 1) {
+                    selectedAccountID = status.accounts[number - 1].id
+                    continue
+                }
+                let selectedAccount = selectedAccountID.flatMap { id in
+                    status.accounts.first { $0.id == id }
+                }
                 switch choice {
                 case "a":
                     if let session = try await interactiveAddAccount(manager) { pendingSessions.append(session) }
@@ -221,17 +237,43 @@ struct AIManagerCLI {
                         print("Account login cancelled.")
                     }
                 case "d": await printDiscovery(manager.discover())
-                case "u": if let account = chooseAccount(status.accounts) { await output(try await manager.switchDefault(to: account.id), json: false) }
-                case "o": if let account = chooseAccount(status.accounts) { _ = try await manager.activateAndRun(accountID: account.id) }
-                case "v": if let account = chooseAccount(status.accounts) { await output(manager.verifyLocal(accountID: account.id), json: false) }
+                case "", "u":
+                    if let selectedAccount {
+                        _ = try await manager.switchDefault(to: selectedAccount.id)
+                        message = "Using \(displayName(selectedAccount.identity)) as default."
+                    }
+                case "o":
+                    if let selectedAccount { _ = try await manager.activateAndRun(accountID: selectedAccount.id) }
+                case "f":
+                    if let selectedAccount {
+                        let result = await manager.checkAccount(accountID: selectedAccount.id)
+                        if let snapshot = result.usage {
+                            try? await usageCache?.upsertSuccess(accountID: selectedAccount.id, snapshot: snapshot)
+                        }
+                        message = result.verification.detail
+                    }
+                case "v":
+                    if let selectedAccount {
+                        message = await manager.verifyLocal(accountID: selectedAccount.id).detail
+                    }
                 case "r": try await interactiveRecovery(manager)
                 case "q": return
-                default: print("Choose one of the shown letters.")
+                default: message = "Choose an account number or one of the shown letters."
                 }
             } catch {
-                print("Error: \(error.localizedDescription)")
+                message = "Error: \(error.localizedDescription)"
             }
         }
+    }
+
+    static func cachedUsage(
+        _ cache: CodexUsageStatisticsCache?, accountIDs: [UUID]
+    ) async -> [UUID: CodexAccountUsageSnapshot] {
+        guard let cache,
+              let entries = try? await cache.latest(for: accountIDs) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: entries.compactMap { entry in
+            entry.snapshot.map { (entry.accountID, $0) }
+        })
     }
 
     static func interactiveAddAccount(_ manager: AccountManager) async throws -> AccountLoginSession? {
@@ -536,6 +578,217 @@ struct AIManagerCLI {
     Only Codex CLI is available in this release. Login sessions survive restarts;
     use status to recover their IDs, then check-login or cancel-login.
     """
+}
+
+private struct TerminalMenu {
+    private struct RGB {
+        let red: Int
+        let green: Int
+        let blue: Int
+
+        var foreground: String { "\u{1B}[38;2;\(red);\(green);\(blue)m" }
+        var background: String { "\u{1B}[48;2;\(red);\(green);\(blue)m" }
+    }
+
+    private struct Palette {
+        let surface: RGB
+        let ink: RGB
+        let muted: RGB
+        let accent: RGB
+        let selectedInk: RGB
+
+        static let ivory = Palette(
+            surface: RGB(red: 240, green: 236, blue: 226),
+            ink: RGB(red: 50, green: 50, blue: 41),
+            muted: RGB(red: 107, green: 102, blue: 90),
+            accent: RGB(red: 75, green: 112, blue: 110),
+            selectedInk: RGB(red: 255, green: 253, blue: 246))
+        static let espresso = Palette(
+            surface: RGB(red: 41, green: 39, blue: 34),
+            ink: RGB(red: 241, green: 232, blue: 213),
+            muted: RGB(red: 200, green: 188, blue: 166),
+            accent: RGB(red: 180, green: 200, blue: 221),
+            selectedInk: RGB(red: 41, green: 39, blue: 34))
+    }
+
+    private struct UsageView {
+        let session: CodexRateLimitWindowSnapshot?
+        let weekly: CodexRateLimitWindowSnapshot?
+    }
+
+    private let palette: Palette
+    private let usesColor: Bool
+    private let clearsScreen: Bool
+    private let showsUsed: Bool
+    private let width = 72
+    private let reset = "\u{1B}[0m"
+
+    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        let appDefaults = UserDefaults(suiteName: "com.mandalsuraj.ai-manager")
+        let requestedAppearance = environment["AI_MANAGER_TUI_THEME"]
+            ?? appDefaults?.string(forKey: "appearanceMode")
+            ?? "system"
+        let dark = requestedAppearance == "dark"
+            || (requestedAppearance == "system" && Self.systemUsesDarkAppearance())
+        palette = dark ? .espresso : .ivory
+        let attached = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
+        usesColor = environment["AI_MANAGER_TUI_COLOR"] == "always"
+            || (attached && environment["NO_COLOR"] == nil && environment["TERM"] != "dumb")
+        clearsScreen = attached
+        showsUsed = environment["AI_MANAGER_TUI_PERCENTAGE"].map { $0 == "used" }
+            ?? appDefaults?.bool(forKey: "showUsageAsUsed")
+            ?? false
+    }
+
+    func render(
+        status: ManagerStatus,
+        selectedAccountID: UUID?,
+        usage: [UUID: CodexAccountUsageSnapshot],
+        pendingLoginCount: Int,
+        message: String?
+    ) {
+        var lines: [String] = []
+        lines.append(between("SWITCH", Self.timestamp(), width: width))
+        lines.append("")
+        lines.append(status.accounts.isEmpty ? "No saved accounts. Press A to add one." : "Select a Codex account:")
+        lines.append("")
+        for (index, account) in status.accounts.enumerated() {
+            let selected = account.id == selectedAccountID
+            let marker = account.id == status.defaultAccountID ? "DEFAULT" : ""
+            let snapshot = usage[account.id].map(Self.usageView)
+            let window = snapshot?.weekly ?? snapshot?.session
+            let scope = snapshot?.weekly == nil ? "session" : "weekly"
+            let amount = window.flatMap { displayedPercentage($0.usedPercent) }
+            let label = amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
+                ?? "usage unavailable"
+            let row = "  \(index + 1). \(padded(Self.accountName(account.identity), to: 29))"
+                + "\(padded(marker, to: 10))\(label)"
+            lines.append(selected ? selectedLine(row) : fitted(row))
+        }
+        if pendingLoginCount > 0 {
+            lines.append("")
+            lines.append(muted("Pending account logins: \(pendingLoginCount)"))
+        }
+        lines.append("")
+        lines.append("Selected account details")
+        lines.append("------------------------")
+        if let account = status.accounts.first(where: { $0.id == selectedAccountID }) {
+            let view = usage[account.id].map(Self.usageView)
+            if let session = view?.session { lines.append(limitLine("session", window: session)) }
+            if let weekly = view?.weekly { lines.append(limitLine("weekly", window: weekly)) }
+            if view?.session == nil && view?.weekly == nil {
+                lines.append(muted("Usage has not been checked. Press F to refresh it."))
+            } else if let resetDate = view?.weekly?.resetsAt ?? view?.session?.resetsAt {
+                lines.append("reset        : \(Self.resetLabel(until: resetDate))")
+            }
+        } else {
+            lines.append(muted("No account selected."))
+        }
+        lines.append("")
+        if let message { lines.append(accent(message)) }
+        lines.append("")
+        lines.append(commands("1-9", "select", "ENTER", "set default", "O", "open", "Q", "quit"))
+        lines.append(muted("A add account   M import   F refresh limits   V verify   R recover"))
+        lines.append(muted("C check login   X cancel login   D discover"))
+
+        if usesColor { print(baseStyle, terminator: "") }
+        if clearsScreen { print("\u{1B}[2J\u{1B}[H", terminator: "") }
+        print(lines.joined(separator: "\n"))
+        if usesColor { print(reset, terminator: "") }
+        print("› ", terminator: "")
+        fflush(stdout)
+    }
+
+    private var baseStyle: String { palette.surface.background + palette.ink.foreground }
+
+    private func selectedLine(_ value: String) -> String {
+        let line = fitted(value)
+        guard usesColor else { return ">" + String(line.dropFirst()) }
+        return palette.accent.background + palette.selectedInk.foreground + line + baseStyle
+    }
+
+    private func accent(_ value: String) -> String {
+        usesColor ? palette.accent.foreground + value + baseStyle : value
+    }
+
+    private func muted(_ value: String) -> String {
+        usesColor ? palette.muted.foreground + value + baseStyle : value
+    }
+
+    private func commands(_ values: String...) -> String {
+        stride(from: 0, to: values.count, by: 2).map { index in
+            accent(values[index]) + " " + values[index + 1]
+        }.joined(separator: "   ")
+    }
+
+    private func limitLine(_ name: String, window: CodexRateLimitWindowSnapshot) -> String {
+        guard let amount = displayedPercentage(window.usedPercent) else {
+            return "\(padded(name, to: 13)): unavailable"
+        }
+        let filled = Int((Double(amount) / 100 * 24).rounded())
+        let meter = String(repeating: "█", count: filled) + String(repeating: "░", count: 24 - filled)
+        return "\(padded(name + " " + (showsUsed ? "used" : "left"), to: 13)): "
+            + "\(padded("\(amount)%", to: 5))" + accent(meter)
+    }
+
+    private func displayedPercentage(_ used: Int?) -> Int? {
+        used.map { value in
+            let clamped = min(max(value, 0), 100)
+            return showsUsed ? clamped : 100 - clamped
+        }
+    }
+
+    private func fitted(_ value: String) -> String { padded(value, to: width) }
+
+    private func padded(_ value: String, to target: Int) -> String {
+        let clipped = String(value.prefix(target))
+        return clipped + String(repeating: " ", count: max(0, target - clipped.count))
+    }
+
+    private func between(_ leading: String, _ trailing: String, width: Int) -> String {
+        leading + String(repeating: " ", count: max(1, width - leading.count - trailing.count)) + trailing
+    }
+
+    private static func usageView(_ snapshot: CodexAccountUsageSnapshot) -> UsageView {
+        guard let bucket = snapshot.rateLimits?.defaultBucket else {
+            return .init(session: nil, weekly: nil)
+        }
+        if bucket.primary?.windowDurationMinutes == 10_080 {
+            return .init(session: bucket.secondary, weekly: bucket.primary)
+        }
+        return .init(session: bucket.primary, weekly: bucket.secondary)
+    }
+
+    private static func accountName(_ identity: AccountIdentity) -> String {
+        identity.email ?? identity.accountID ?? "Unresolved account"
+    }
+
+    private static func timestamp(now: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "dd MMM  HH:mm"
+        return formatter.string(from: now).uppercased()
+    }
+
+    private static func resetLabel(until reset: Date, now: Date = Date()) -> String {
+        let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
+        if minutes == 0 { return reset > now ? "in <1m" : "now" }
+        let days = minutes / 1_440
+        let hours = (minutes % 1_440) / 60
+        let remainingMinutes = minutes % 60
+        if days > 0 { return "in \(days)d \(hours)h \(remainingMinutes)m" }
+        if hours > 0 { return "in \(hours)h \(remainingMinutes)m" }
+        return "in \(remainingMinutes)m"
+    }
+
+    private static func systemUsesDarkAppearance() -> Bool {
+        #if os(macOS)
+        let global = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
+        return global?["AppleInterfaceStyle"] as? String == "Dark"
+        #else
+        return false
+        #endif
+    }
 }
 
 private struct SafeProvider: Encodable {

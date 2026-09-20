@@ -47,6 +47,16 @@ rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
 rg -F 'Only Codex CLI is available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
+printf 'q\n' | AI_MANAGER_TUI_COLOR=always AI_MANAGER_TUI_THEME=light \
+  "$binary" interactive >"$test_root/tui-light.log"
+printf 'q\n' | AI_MANAGER_TUI_COLOR=always AI_MANAGER_TUI_THEME=dark \
+  "$binary" interactive >"$test_root/tui-dark.log"
+grep -F "$(printf '\033[48;2;240;236;226m')" "$test_root/tui-light.log" >/dev/null
+grep -F "$(printf '\033[38;2;75;112;110m')" "$test_root/tui-light.log" >/dev/null
+grep -F "$(printf '\033[48;2;41;39;34m')" "$test_root/tui-dark.log" >/dev/null
+grep -F "$(printf '\033[38;2;180;200;221m')" "$test_root/tui-dark.log" >/dev/null
+rg -F 'No saved accounts. Press A to add one.' "$test_root/tui-light.log" >/dev/null
+
 if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
   printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2
   exit 1
@@ -136,7 +146,7 @@ cmp "$adopt_fixture/default-home/auth.json" "$adopted_credential"
 
 interactive_result="$test_root/interactive-result.log"
 printf 'm\n%s\n2\nk\nn\nn\nq\n' "$fixture/source-one" | "$binary" interactive >"$interactive_result"
-rg -F '[a] Add Account  [m] Advanced Import' "$interactive_result" >/dev/null
+rg -F 'A add account   M import   F refresh limits' "$interactive_result" >/dev/null
 rg -F 'Reviewed linked setting rules:' "$interactive_result" >/dev/null
 rg -e 'Target: .*/ai-manager-fixture/external-rules$' "$interactive_result" >/dev/null
 rg -e 'Size: [1-9][0-9]* bytes' "$interactive_result" >/dev/null
@@ -183,6 +193,14 @@ rg -F 'Import completed with unresolved items' "$test_root/full-error.log" >/dev
 account_id="$(jq -r '.account.id' "$full_result")"
 expected_accounts=2
 
+printf '1\nf\nq\n' | AI_MANAGER_TUI_PERCENTAGE=left \
+  "$binary" interactive >"$test_root/interactive-usage.log"
+rg -F '75% session left' "$test_root/interactive-usage.log" >/dev/null
+rg -F 'session left : 75%' "$test_root/interactive-usage.log" >/dev/null
+printf 'q\n' | AI_MANAGER_TUI_PERCENTAGE=used \
+  "$binary" interactive >"$test_root/interactive-usage-used.log"
+rg -F '25% session used' "$test_root/interactive-usage-used.log" >/dev/null
+
 "$binary" status --json \
   | jq -e --argjson expected "$expected_accounts" '(.accounts | length == $expected) and (.accounts | all(has("credentialDigest") | not))' >/dev/null
 verification_status=0
@@ -208,7 +226,7 @@ cmp "$saved_auth_path" "$fixture/default-home/auth.json"
 rg -F "$fixture/default-home" "$fixture/launch.log" >/dev/null
 
 interactive_open_result="$test_root/interactive-open.log"
-printf 'o\n1\nq\n' | "$binary" interactive >"$interactive_open_result"
+printf '1\no\nq\n' | "$binary" interactive >"$interactive_open_result"
 skip_if_native_writer_unknown "$interactive_open_result" || true
 if rg -F 'Error:' "$interactive_open_result" >/dev/null; then
   cat "$interactive_open_result" >&2
