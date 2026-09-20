@@ -25,7 +25,7 @@ pass with synthetic temporary homes. Registry publication remains a separate npm
 operation; the documented release-asset commands work now without a Swift build.
 The public package is
 https://github.com/surajmandalcell/switch/releases/download/v3.0.0/switch-codex-3.0.0.tgz
-with SHA-256 `2ef5dc963dc89e7cda640a663bd7d9b0508ba2cb2e8fc63c3a28319a06b54247`.
+with SHA-256 `6be3c3d6619536749e8d73fa1e77efa845a8ed39e4fea9d891c595bd4f5608fc`.
 
 ### TUI visual direction (2026-09-20)
 
@@ -58,6 +58,9 @@ clears before the menu. Focused acceptance rejects 24-bit foreground and backgro
 sequences and verifies native bold, dim, inverse, loader, and clear-line output. The full
 172-test macOS core gate and read-only unprivileged ARM64 and AMD64 Linux core, release,
 TUI, and isolated-home CLI gates pass with only the two authorized private-copy skips.
+The exact `switch-codex-3.0.0.tgz` package contains four expected files and passes ad hoc
+signature verification, isolated global installation, npx launch, loader output, native
+attribute output, and fixed-RGB rejection.
 
 ### Usage percentage preference (2026-09-19)
 
