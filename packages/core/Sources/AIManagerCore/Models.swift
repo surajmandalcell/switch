@@ -542,17 +542,85 @@ public struct LinkedSettingRepairResult: Codable, Sendable {
 
 public struct ManagerStatus: Codable, Equatable, Sendable {
     public var accounts: [AccountRecord]
-    public var defaultAccountID: UUID?
+    public var defaultAccountIDs: [String: UUID]
     public var sharedRoot: URL
     public var pendingRecovery: [RecoveryOperation]
     public var linkedSettingsDivergences: [LinkedSettingsDivergence]
 
-    public init(accounts: [AccountRecord], defaultAccountID: UUID?, sharedRoot: URL, pendingRecovery: [RecoveryOperation], linkedSettingsDivergences: [LinkedSettingsDivergence] = []) {
+    public init(
+        accounts: [AccountRecord],
+        defaultAccountID: UUID?,
+        defaultAccountIDs: [String: UUID] = [:],
+        sharedRoot: URL,
+        pendingRecovery: [RecoveryOperation],
+        linkedSettingsDivergences: [LinkedSettingsDivergence] = []
+    ) {
         self.accounts = accounts
-        self.defaultAccountID = defaultAccountID
+        self.defaultAccountIDs = defaultAccountIDs
+        if let defaultAccountID,
+           let providerID = accounts.first(where: { $0.id == defaultAccountID })?.identity.providerID,
+           self.defaultAccountIDs[providerID.rawValue] == nil {
+            self.defaultAccountIDs[providerID.rawValue] = defaultAccountID
+        }
         self.sharedRoot = sharedRoot
         self.pendingRecovery = pendingRecovery
         self.linkedSettingsDivergences = linkedSettingsDivergences
+    }
+
+    public var defaultAccountID: UUID? {
+        get { defaultAccountID(for: .codex) }
+        set { setDefaultAccountID(newValue, for: .codex) }
+    }
+
+    public func defaultAccountID(for providerID: ProviderID) -> UUID? {
+        defaultAccountIDs[providerID.rawValue]
+    }
+
+    public func isDefault(_ account: AccountRecord) -> Bool {
+        defaultAccountID(for: account.identity.providerID) == account.id
+    }
+
+    public var firstDefaultAccountID: UUID? {
+        accounts.first(where: isDefault)?.id
+    }
+
+    public mutating func setDefaultAccountID(_ accountID: UUID?, for providerID: ProviderID) {
+        if let accountID {
+            defaultAccountIDs[providerID.rawValue] = accountID
+        } else {
+            defaultAccountIDs.removeValue(forKey: providerID.rawValue)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case accounts, defaultAccountID, defaultAccountIDs, sharedRoot, pendingRecovery
+        case linkedSettingsDivergences
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        accounts = try values.decode([AccountRecord].self, forKey: .accounts)
+        defaultAccountIDs = try values.decodeIfPresent(
+            [String: UUID].self, forKey: .defaultAccountIDs) ?? [:]
+        if let legacy = try values.decodeIfPresent(UUID.self, forKey: .defaultAccountID),
+           let providerID = accounts.first(where: { $0.id == legacy })?.identity.providerID,
+           defaultAccountIDs[providerID.rawValue] == nil {
+            defaultAccountIDs[providerID.rawValue] = legacy
+        }
+        sharedRoot = try values.decode(URL.self, forKey: .sharedRoot)
+        pendingRecovery = try values.decode([RecoveryOperation].self, forKey: .pendingRecovery)
+        linkedSettingsDivergences = try values.decodeIfPresent(
+            [LinkedSettingsDivergence].self, forKey: .linkedSettingsDivergences) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(accounts, forKey: .accounts)
+        try values.encodeIfPresent(defaultAccountID, forKey: .defaultAccountID)
+        try values.encode(defaultAccountIDs, forKey: .defaultAccountIDs)
+        try values.encode(sharedRoot, forKey: .sharedRoot)
+        try values.encode(pendingRecovery, forKey: .pendingRecovery)
+        try values.encode(linkedSettingsDivergences, forKey: .linkedSettingsDivergences)
     }
 }
 

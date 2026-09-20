@@ -182,14 +182,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func switchAccountFromMenuBar(_ accountID: UUID) async throws {
-        guard model.status?.accounts.contains(where: {
+        guard let account = model.status?.accounts.first(where: {
             $0.id == accountID && Self.canSwitch($0)
-        }) == true else {
+        }) else {
             throw MenuBarActionError.accountUnavailable
         }
-        if model.status?.defaultAccountID == accountID { return }
+        if model.status?.defaultAccountID(for: account.identity.providerID) == accountID { return }
         await model.switchDefault(to: accountID)
-        guard model.status?.defaultAccountID == accountID else {
+        guard model.status?.defaultAccountID(for: account.identity.providerID) == accountID else {
             throw MenuBarActionError.switchFailed(model.errorMessage)
         }
     }
@@ -211,7 +211,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                         ?? "\(account.identity.providerID.displayName) account",
                     detail: Self.accountDetail(account),
                     isVerified: Self.canSwitch(account),
-                    isActive: account.id == status.defaultAccountID,
+                    isActive: status.isDefault(account),
                     usage: showsUsage
                         ? menuBarUsage(
                             for: account.id,

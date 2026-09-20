@@ -39,6 +39,7 @@ private enum TerminalAccountAction: CaseIterable, Equatable {
     case openCodex
     case refreshLimits
     case verifyFiles
+    case deleteAccount
     case back
 }
 
@@ -249,19 +250,20 @@ struct AIManagerCLI {
         var message: String?
         while true {
             let status = try await manager.status()
-            if !status.accounts.contains(where: { $0.id == selectedAccountID }) {
-                selectedAccountID = status.defaultAccountID ?? status.accounts.first?.id
+            let accounts = TerminalMenu.orderedAccounts(status.accounts)
+            if !accounts.contains(where: { $0.id == selectedAccountID }) {
+                selectedAccountID = status.firstDefaultAccountID ?? accounts.first?.id
             }
             let mainActions = TerminalMenu.mainActions(hasPendingLogins: !pendingSessions.isEmpty)
-            let mainItemCount = status.accounts.count + mainActions.count
+            let mainItemCount = accounts.count + mainActions.count
             if !initializedFocus {
-                mainFocus = status.accounts.firstIndex { $0.id == selectedAccountID } ?? 0
+                mainFocus = accounts.firstIndex { $0.id == selectedAccountID } ?? 0
                 initializedFocus = true
             }
             mainFocus = min(max(0, mainFocus), max(0, mainItemCount - 1))
             accountActionFocus = min(accountActionFocus, TerminalAccountAction.allCases.count - 1)
-            if screen == .accounts, status.accounts.indices.contains(mainFocus) {
-                selectedAccountID = status.accounts[mainFocus].id
+            if screen == .accounts, accounts.indices.contains(mainFocus) {
+                selectedAccountID = accounts[mainFocus].id
             }
             let usage = await cachedUsage(usageCache, accountIDs: status.accounts.map(\.id))
             let dailyUsage = await cachedDailyUsage(
@@ -287,9 +289,9 @@ struct AIManagerCLI {
 
                 if terminal.acceptsLegacyCommands, case let .character(character) = key {
                     let value = String(character).lowercased()
-                    if let number = Int(value), status.accounts.indices.contains(number - 1) {
+                    if let number = Int(value), accounts.indices.contains(number - 1) {
                         mainFocus = number - 1
-                        selectedAccountID = status.accounts[mainFocus].id
+                        selectedAccountID = accounts[mainFocus].id
                         continue
                     }
                     if value == "q" { return }
@@ -312,6 +314,7 @@ struct AIManagerCLI {
                         case "o": .openCodex
                         case "f": .refreshLimits
                         case "v": .verifyFiles
+                        case "z": .deleteAccount
                         default: nil
                         }
                         if let accountAction,
@@ -335,12 +338,12 @@ struct AIManagerCLI {
                     case .end:
                         mainFocus = mainItemCount - 1
                     case .enter, .right:
-                        if status.accounts.indices.contains(mainFocus) {
-                            selectedAccountID = status.accounts[mainFocus].id
+                        if accounts.indices.contains(mainFocus) {
+                            selectedAccountID = accounts[mainFocus].id
                             accountActionFocus = 0
                             screen = .accountActions
                         } else if case .enter = key {
-                            let action = mainActions[mainFocus - status.accounts.count]
+                            let action = mainActions[mainFocus - accounts.count]
                             let result = try await performMainAction(
                                 action,
                                 manager: manager,
@@ -496,6 +499,30 @@ struct AIManagerCLI {
             return result.verification.detail
         case .verifyFiles:
             return await manager.verifyLocal(accountID: account.id).detail
+        case .deleteAccount:
+            let status = try await manager.status()
+            let isDefault = status.defaultAccountID(for: account.identity.providerID) == account.id
+            let replacement = status.accounts.first {
+                $0.id != account.id
+                    && $0.identity.providerID == account.identity.providerID
+                    && $0.verification.state != .needsSignIn
+                    && $0.verification.state != .unsupported
+            }
+            if isDefault && replacement == nil {
+                return "Add another \(providerName(account.identity.providerID)) account before deleting its default."
+            }
+            let replacementText = replacement.map {
+                " \(displayName($0.identity)) will become the provider default."
+            } ?? ""
+            guard askYes(
+                "Remove \(displayName(account.identity)) from Switch?\(replacementText)",
+                terminal: terminal) else {
+                return "Account deletion cancelled."
+            }
+            _ = try await manager.deleteAccount(
+                accountID: account.id,
+                replacementDefaultAccountID: isDefault ? replacement?.id : nil)
+            return "Removed \(displayName(account.identity)) from Switch."
         case .back:
             return nil
         }
@@ -809,12 +836,18 @@ struct AIManagerCLI {
             print("Cancelled account login \(cancellation.sessionID.uuidString).")
         case let status as ManagerStatus:
             print("Shared settings: \(status.sharedRoot.path)")
-            print("Default account: \(status.defaultAccountID?.uuidString ?? "none")")
+            for providerID in [ProviderID.codex, .grokBuild] {
+                print("\(providerName(providerID)) default: "
+                    + "\(status.defaultAccountID(for: providerID)?.uuidString ?? "none")")
+            }
             for account in status.accounts { print("\(account.id.uuidString)\t\(displayName(account.identity))\t\(account.verification.state.rawValue)") }
             if !status.pendingRecovery.isEmpty { print("Pending recovery: \(status.pendingRecovery.count)") }
         case let snapshot as SafeStatusSnapshot:
             print("Shared settings: \(snapshot.sharedRoot.path)")
-            print("Default account: \(snapshot.defaultAccountID?.uuidString ?? "none")")
+            for providerID in [ProviderID.codex, .grokBuild] {
+                print("\(providerName(providerID)) default: "
+                    + "\(snapshot.defaultAccountIDs[providerID.rawValue]?.uuidString ?? "none")")
+            }
             for account in snapshot.accounts {
                 print("\(account.id.uuidString)\t\(displayName(account.identity))\t\(account.verification.state.rawValue)")
             }
@@ -829,7 +862,7 @@ struct AIManagerCLI {
             print("Saved \(displayName(result.account.identity)) at \(result.account.credentialFile.path).")
             print("Backup: \(result.backup.path); files: \(result.importedFiles); chats: \(result.importedChats)")
             for item in result.unresolved { print("Unresolved: \(item)") }
-        case let result as SwitchResult: print("Default account changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
+        case let result as SwitchResult: print("Provider default changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
         case let result as AccountDeletionResult:
             print("Removed account \(result.accountID.uuidString) from Switch.")
             if let replacement = result.replacementDefaultAccountID {
@@ -973,25 +1006,33 @@ private struct TerminalMenu {
         message: String?
     ) {
         var lines: [String] = []
+        let groups = Self.accountGroups(status.accounts)
+        let accounts = groups.flatMap(\.accounts)
         lines.append(between("SWITCH", Self.timestamp(), width: width))
         lines.append("")
         switch screen {
         case .accounts:
-            lines.append(status.accounts.isEmpty ? "No saved accounts" : "Accounts")
+            lines.append(accounts.isEmpty ? "No saved accounts" : "Accounts")
             lines.append("")
-            for (index, account) in status.accounts.enumerated() {
-                let marker = account.id == status.defaultAccountID ? "DEFAULT" : ""
-                let snapshot = usage[account.id].map(Self.usageView)
-                let window = snapshot?.weekly ?? snapshot?.session
-                let scope = snapshot?.weekly == nil ? "session" : "weekly"
-                let amount = window.flatMap { displayedPercentage($0.usedPercent) }
-                let label = account.identity.providerID == .codex
-                    ? (amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
-                        ?? "usage unavailable")
-                    : "Grok subscription"
-                let row = "  \(padded(Self.accountName(account.identity), to: 32))"
-                    + "\(padded(marker, to: 10))\(label)"
-                lines.append(index == mainFocus ? selectedLine(row) : fitted(row))
+            var accountIndex = 0
+            for (groupIndex, group) in groups.enumerated() {
+                lines.append(accent(group.providerID.displayName))
+                for account in group.accounts {
+                    let marker = status.isDefault(account) ? "DEFAULT" : ""
+                    let snapshot = usage[account.id].map(Self.usageView)
+                    let window = snapshot?.weekly ?? snapshot?.session
+                    let scope = snapshot?.weekly == nil ? "session" : "weekly"
+                    let amount = window.flatMap { displayedPercentage($0.usedPercent) }
+                    let label = account.identity.providerID == .codex
+                        ? (amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
+                            ?? "usage unavailable")
+                        : "Grok subscription"
+                    let row = "  \(padded(Self.accountName(account.identity), to: 32))"
+                        + "\(padded(marker, to: 10))\(label)"
+                    lines.append(accountIndex == mainFocus ? selectedLine(row) : fitted(row))
+                    accountIndex += 1
+                }
+                if groupIndex < groups.count - 1 { lines.append("") }
             }
             if let account = status.accounts.first(where: { $0.id == selectedAccountID }) {
                 lines.append("")
@@ -1003,7 +1044,7 @@ private struct TerminalMenu {
             lines.append("Actions")
             for (index, action) in mainActions.enumerated() {
                 let row = "  " + Self.mainActionLabel(action, pendingLoginCount: pendingLoginCount)
-                lines.append(status.accounts.count + index == mainFocus ? selectedLine(row) : fitted(row))
+                lines.append(accounts.count + index == mainFocus ? selectedLine(row) : fitted(row))
             }
             if let message { lines.append(""); lines.append(accent(message)) }
             lines.append("")
@@ -1021,7 +1062,7 @@ private struct TerminalMenu {
             for (index, action) in TerminalAccountAction.allCases.enumerated() {
                 let row = "  " + Self.accountActionLabel(
                     action,
-                    isDefault: account.id == status.defaultAccountID,
+                    isDefault: status.isDefault(account),
                     providerID: account.identity.providerID)
                 lines.append(index == accountActionFocus ? selectedLine(row) : fitted(row))
             }
@@ -1039,6 +1080,22 @@ private struct TerminalMenu {
     static func mainActions(hasPendingLogins: Bool) -> [TerminalMainAction] {
         TerminalMainAction.allCases.filter {
             hasPendingLogins || ($0 != .checkLogin && $0 != .cancelLogin)
+        }
+    }
+
+    static func orderedAccounts(_ accounts: [AccountRecord]) -> [AccountRecord] {
+        accountGroups(accounts).flatMap(\.accounts)
+    }
+
+    private static func accountGroups(
+        _ accounts: [AccountRecord]
+    ) -> [(providerID: ProviderID, accounts: [AccountRecord])] {
+        var providers: [ProviderID] = []
+        for account in accounts where !providers.contains(account.identity.providerID) {
+            providers.append(account.identity.providerID)
+        }
+        return providers.map { providerID in
+            (providerID, accounts.filter { $0.identity.providerID == providerID })
         }
     }
 
@@ -1077,13 +1134,13 @@ private struct TerminalMenu {
         pendingLoginCount: Int
     ) -> String {
         switch action {
-        case .addAccount: "Add account"
-        case .importAccount: "Advanced import"
-        case .checkLogin: "Check pending login (\(pendingLoginCount))"
-        case .cancelLogin: "Cancel pending login"
-        case .discover: "Discover accounts"
-        case .recover: "Recover interrupted work"
-        case .quit: "Quit"
+        case .addAccount: "⊕  Add account"
+        case .importAccount: "⇥  Advanced import"
+        case .checkLogin: "✓  Check pending login (\(pendingLoginCount))"
+        case .cancelLogin: "×  Cancel pending login"
+        case .discover: "⌕  Discover accounts"
+        case .recover: "↻  Recover interrupted work"
+        case .quit: "⏻  Quit"
         }
     }
 
@@ -1093,11 +1150,12 @@ private struct TerminalMenu {
         providerID: ProviderID
     ) -> String {
         switch action {
-        case .setDefault: isDefault ? "Set as default  ·  current" : "Set as default"
-        case .openCodex: "Open \(providerID == .codex ? "Codex" : providerID.displayName)"
-        case .refreshLimits: providerID == .codex ? "Refresh limits" : "Check account"
-        case .verifyFiles: "Check account files"
-        case .back: "Back"
+        case .setDefault: isDefault ? "✓✓ Using as default" : "✓  Set as default"
+        case .openCodex: "▶  Open \(providerID == .codex ? "Codex" : providerID.displayName)"
+        case .refreshLimits: providerID == .codex ? "↻  Refresh limits" : "↻  Check account"
+        case .verifyFiles: "⌕  Check account files"
+        case .deleteAccount: "−  Delete account"
+        case .back: "←  Back"
         }
     }
 
@@ -1392,6 +1450,7 @@ private struct SafeAccountSnapshot: Encodable {
 private struct SafeStatusSnapshot: Encodable {
     let accounts: [SafeAccount]
     let defaultAccountID: UUID?
+    let defaultAccountIDs: [String: UUID]
     let sharedRoot: URL
     let pendingRecovery: [SafeRecoveryOperation]
     let linkedSettingsDivergences: [LinkedSettingsDivergence]
@@ -1400,6 +1459,7 @@ private struct SafeStatusSnapshot: Encodable {
     init(_ snapshot: AccountSnapshot) {
         accounts = snapshot.status.accounts.map(SafeAccount.init)
         defaultAccountID = snapshot.status.defaultAccountID
+        defaultAccountIDs = snapshot.status.defaultAccountIDs
         sharedRoot = snapshot.status.sharedRoot
         pendingRecovery = snapshot.status.pendingRecovery.map(SafeRecoveryOperation.init)
         linkedSettingsDivergences = snapshot.status.linkedSettingsDivergences
@@ -1432,6 +1492,7 @@ private struct SafeAccount: Encodable {
 private struct StatusOutput: Encodable {
     let accounts: [SafeAccount]
     let defaultAccountID: UUID?
+    let defaultAccountIDs: [String: UUID]
     let sharedRoot: URL
     let pendingRecovery: [SafeRecoveryOperation]
     let linkedSettingsDivergences: [LinkedSettingsDivergence]
@@ -1439,6 +1500,7 @@ private struct StatusOutput: Encodable {
     init(_ status: ManagerStatus) {
         accounts = status.accounts.map(SafeAccount.init)
         defaultAccountID = status.defaultAccountID
+        defaultAccountIDs = status.defaultAccountIDs
         sharedRoot = status.sharedRoot
         pendingRecovery = status.pendingRecovery.map(SafeRecoveryOperation.init)
         linkedSettingsDivergences = status.linkedSettingsDivergences

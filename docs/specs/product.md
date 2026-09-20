@@ -1,7 +1,7 @@
 # Switch product specification
 
 Status: Initial accepted specification
-Revision: 2026-09-20
+Revision: 2026-09-21
 
 This document defines the current product model and user-visible contract. The ignored
 local `goals.md` tracks active work, and `goals.archive.md` keeps old evidence. If older
@@ -34,6 +34,12 @@ sheet accepts the authorization code or complete callback URL and sends it once 
 official CLI without saving it. The official CLI hot-reloads `auth.json`, so an existing Grok
 process may use the newly selected account on its next API call. Switch does not claim that
 existing Grok sessions retain their earlier account.
+
+Defaults are provider-scoped. Codex CLI and Grok Build each retain their own default account,
+matching the credential in that provider's live home. Switching one provider never changes the
+other provider's default. The TUI account list groups saved accounts by provider, preserves saved
+order within each group, and shows the default state inside each group. Deleting a provider default
+may select a replacement only from that same provider.
 
 Temporary or managed homes used for sign-in, verification, import, migration, or recovery
 are implementation details. Legacy internal links may still be repaired for compatibility,
@@ -396,8 +402,10 @@ The npm package contains the compiled executable and must not reimplement accoun
 or require a Swift build after package installation.
 
 The interactive terminal uses the approved **09 Amber Menu** structure: a compact
-character-cell account list, one inverse selected row, selected-account limits, and
-arrow-key navigation. It preserves every existing account operation.
+character-cell account list grouped by provider, one inverse selected row, selected-account
+limits, and arrow-key navigation. Each action starts with a compact semantic glyph while retaining
+its full text label. The TUI exposes account deletion with an explicit confirmation and preserves
+every existing account operation.
 It leaves foreground and background colors to the terminal and uses only native bold,
 dim, and inverse ANSI attributes, avoiding appearance detection. Piped output and
 `NO_COLOR` remain plain text. Show an animated loader immediately while the initial
