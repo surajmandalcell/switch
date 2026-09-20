@@ -3480,13 +3480,22 @@ with temporary synthetic homes before installation.
 
 ### Grouped usage filters and compact Menubar totals (2026-09-20)
 
-- [ ] Replace detached period pills with native contiguous segmented controls and use the same
+- [x] Replace detached period pills with native contiguous segmented controls and use the same
   grouped treatment for every compact usage-period selector.
-- [ ] Merge selected-account token statistics into Daily activity so one five-period control drives
+- [x] Merge selected-account token statistics into Daily activity so one five-period control drives
   the total and chart without a duplicate card or layout shift.
-- [ ] Add a Settings period choice for the compact Menubar token summary. Keep the quota percentage
+- [x] Add a Settings period choice for the compact Menubar token summary. Keep the quota percentage
   beside its label and share the existing detail row with the token summary and reset countdown.
-- [ ] Add a cached LiteLLM price lookup following OpenUsage's source order and show an explicitly
+- [x] Add a cached LiteLLM price lookup following OpenUsage's source order and show an explicitly
   labeled input-rate API equivalent plus cached/input/output comparisons without calling it spend.
-- [ ] Verify production and Preview models, grouped control geometry, narrow Menubar truncation,
+- [x] Verify production and Preview models, grouped control geometry, narrow Menubar truncation,
   System/Light/Dark renders, installed app interaction, TUI acceptance, and clean-install freshness.
+- The full native gate discovered 175 tests: 173 passed and the two protected-copy integrations
+  remained explicit opt-ins. Production and Preview models, System/Light/Dark contracts,
+  single-instance, native scrolling, the installed TUI, and read-only unprivileged ARM64 and AMD64
+  Linux contracts pass. Real-size renders preserve the 201/353-point Menubar popup geometry;
+  the Impeccable layout detector reported no findings.
+- The installed app interaction changed the joined Daily activity control from Yearly to Today and
+  back, updating both the chart and exact accessible total. Settings exposes all six Menubar periods.
+  The packaged and installed app and CLI hashes match, the embedded revision matches the clean
+  source commit, and the running process maps `/Applications/Switch.app/Contents/MacOS/AIManager`.
