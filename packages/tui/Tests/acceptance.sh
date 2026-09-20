@@ -229,6 +229,9 @@ grep -F "$(printf '\033[7m')" "$test_root/interactive-usage.log" >/dev/null
 grep -F "$(printf '\033[1m')" "$test_root/interactive-usage.log" >/dev/null
 rg -F '75% session left' "$test_root/interactive-usage.log" >/dev/null
 rg -F 'session left : 75%' "$test_root/interactive-usage.log" >/dev/null
+rg -F 'Token statistics' "$test_root/interactive-usage.log" >/dev/null
+rg -e 'Today.*Yesterday.*Weekly.*Monthly.*Yearly' "$test_root/interactive-usage.log" >/dev/null
+rg -F 'today      : 1,200 tokens' "$test_root/interactive-usage.log" >/dev/null
 printf '\033' | AI_MANAGER_TUI_KEYS=always AI_MANAGER_TUI_PERCENTAGE=used \
   "$binary" interactive >"$test_root/interactive-usage-used.log"
 rg -F '25% session used' "$test_root/interactive-usage-used.log" >/dev/null

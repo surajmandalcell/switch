@@ -202,6 +202,80 @@ public struct CodexDailyUsageSnapshot: Sendable, Equatable, Codable {
     }
 }
 
+public enum CodexTokenPeriod: String, CaseIterable, Sendable {
+    case today
+    case yesterday
+    case weekly
+    case monthly
+    case yearly
+
+    public var label: String {
+        switch self {
+        case .today: "Today"
+        case .yesterday: "Yesterday"
+        case .weekly: "Weekly"
+        case .monthly: "Monthly"
+        case .yearly: "Yearly"
+        }
+    }
+
+    public var dayCount: Int {
+        switch self {
+        case .today, .yesterday: 1
+        case .weekly: 7
+        case .monthly: 30
+        case .yearly: 365
+        }
+    }
+
+    public func dateRange(endingAt endDate: Date) -> ClosedRange<Date>? {
+        let calendar = Self.calendar
+        let today = calendar.startOfDay(for: endDate)
+        let endOffset = self == .yesterday ? -1 : 0
+        guard let end = calendar.date(byAdding: .day, value: endOffset, to: today),
+              let start = calendar.date(byAdding: .day, value: -(dayCount - 1), to: end)
+        else { return nil }
+        return start...end
+    }
+
+    public func tokens(in rows: [CodexDailyUsageSnapshot], endingAt endDate: Date) -> Int64 {
+        guard let range = dateRange(endingAt: endDate) else { return 0 }
+        return Self.tokens(in: rows, from: range.lowerBound, through: range.upperBound)
+    }
+
+    public static func tokens(
+        in rows: [CodexDailyUsageSnapshot],
+        from startDate: Date,
+        through endDate: Date
+    ) -> Int64 {
+        let calendar = Self.calendar
+        let start = calendar.startOfDay(for: startDate)
+        let end = calendar.startOfDay(for: endDate)
+        guard start <= end else { return 0 }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = calendar.timeZone
+        return rows.reduce(Int64(0)) { total, row in
+            guard let day = row.startDate,
+                  let date = formatter.date(from: day),
+                  formatter.string(from: date) == day,
+                  let tokens = row.tokens,
+                  tokens >= 0,
+                  date >= start,
+                  date <= end
+            else { return total }
+            let (sum, overflow) = total.addingReportingOverflow(tokens)
+            return overflow ? Int64.max : sum
+        }
+    }
+
+    private static let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
+}
+
 public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
     public let account: CodexAccountDetailsSnapshot?
     public let requiresOpenAIAuthentication: Bool?

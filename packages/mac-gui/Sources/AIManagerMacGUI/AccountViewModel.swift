@@ -106,6 +106,7 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var accountUsage: [UUID: CachedCodexAccountUsage] = [:]
     @Published private(set) var usageSnapshots: [UUID: CodexAccountUsageSnapshot] = [:]
     @Published private(set) var retainedDailyUsage: [UUID: [CodexDailyUsageSnapshot]] = [:]
+    @Published private(set) var apiPrice: CodexAPIPrice?
     @Published private(set) var usageRefreshAccountID: UUID?
     @Published private(set) var usageError: String?
     @Published private(set) var chatHistory = ChatHistorySnapshot()
@@ -125,6 +126,7 @@ final class AccountViewModel: ObservableObject {
     private let manager: AccountManager?
     private var usageCache: CodexUsageStatisticsCache?
     private let usageDatabaseURL: URL?
+    private let pricingResolver: CodexAPIPricingResolver?
     private var didPrepareUsageCache = false
     private var usageErrorAccountID: UUID?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
@@ -150,6 +152,8 @@ final class AccountViewModel: ObservableObject {
         self.paths = paths
         usageCache = nil
         usageDatabaseURL = paths.applicationSupport.appending(path: "cache/account-usage.sqlite")
+        pricingResolver = CodexAPIPricingResolver(
+            cacheURL: paths.applicationSupport.appending(path: "cache/model-pricing.json"))
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
             chatHistoryProvider = injectedChatHistoryProvider
@@ -176,6 +180,7 @@ final class AccountViewModel: ObservableObject {
         manager = nil
         usageCache = nil
         usageDatabaseURL = nil
+        pricingResolver = nil
         didPrepareUsageCache = true
         chatHistoryProvider = nil
         chatHistoryMonitor = nil
@@ -216,6 +221,7 @@ final class AccountViewModel: ObservableObject {
             }
         }
         await loadCachedUsage()
+        Task { await self.loadAPIPricing() }
         if shouldRefreshDefaultUsage {
             Task { await self.refreshDefaultUsage() }
         }
@@ -228,6 +234,7 @@ final class AccountViewModel: ObservableObject {
         do {
             try await reloadStatus(using: manager)
             await loadCachedUsage()
+            Task { await self.loadAPIPricing() }
             if shouldRefreshDefaultUsage { Task { await self.refreshDefaultUsage() } }
         } catch {
             errorMessage = "Couldn’t refresh accounts. \(error.localizedDescription)"
@@ -242,6 +249,7 @@ final class AccountViewModel: ObservableObject {
                 notice = "Accounts, sign-ins, and backup state refreshed."
             }
             await loadCachedUsage()
+            Task { await self.loadAPIPricing() }
             await refreshDefaultUsage()
             return
         }
@@ -299,6 +307,9 @@ final class AccountViewModel: ObservableObject {
         usageRefreshAccountID = nil
         usageError = nil
         usageErrorAccountID = nil
+        apiPrice = CodexAPIPrice(
+            model: "gpt-5.6-sol", inputPerMillion: 4,
+            cachedInputPerMillion: 0.4, outputPerMillion: 20)
         let demoThreads = scenario == .empty
             ? [] : (scenario == .historyStress ? DemoData.stressChatThreads : DemoData.chatThreads)
         chatHistory = ChatHistorySnapshot(
@@ -1146,6 +1157,17 @@ final class AccountViewModel: ObservableObject {
             usageError = CodexUsageStatisticsFailure.storageUnavailable.message
             usageErrorAccountID = nil
         }
+    }
+
+    private func loadAPIPricing() async {
+        guard let pricingResolver else { return }
+        let configURL = paths.defaultHome.appending(path: "config.toml")
+        let model = await Task.detached(priority: .utility) {
+            (try? Data(contentsOf: configURL, options: [.mappedIfSafe]))
+                .flatMap(CodexAPIPricingResolver.configuredModel)
+        }.value
+        guard let model, let price = try? await pricingResolver.price(for: model) else { return }
+        if apiPrice != price { apiPrice = price }
     }
 
     private func prepareUsageCache() async {
