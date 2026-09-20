@@ -177,6 +177,7 @@ extension ProviderID {
     public var displayName: String {
         switch self {
         case .codex: "Codex CLI"
+        case .grokBuild: "Grok Build"
         case .claudeCode: "Claude Code"
         case .geminiCLI: "Gemini CLI"
         case .antigravityCLI: "Antigravity CLI"

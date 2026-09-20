@@ -16,6 +16,7 @@ final class AccountOnboardingTests: XCTestCase {
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
             codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            grokExecutable: URL(fileURLWithPath: "/usr/bin/true"),
             isolationRoot: root
         )
         try fileManager.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
@@ -98,11 +99,71 @@ final class AccountOnboardingTests: XCTestCase {
             atPath: paths.applicationSupport.appending(path: "account-login").path))
         XCTAssertEqual(
             AccountManager.providerCatalog.map(\.id),
-            [.codex, .claudeCode, .geminiCLI, .antigravityCLI])
+            [.codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI])
         XCTAssertEqual(
             AccountManager.providerCatalog.map(\.displayName),
-            ["Codex CLI", "Claude Code", "Gemini CLI", "Antigravity CLI"])
-        XCTAssertEqual(AccountManager.providerCatalog.map(\.availability), [.enabled, .disabled, .disabled, .disabled])
+            ["Codex CLI", "Grok Build", "Claude Code", "Gemini CLI", "Antigravity CLI"])
+        XCTAssertEqual(
+            AccountManager.providerCatalog.map(\.availability),
+            [.enabled, .enabled, .disabled, .disabled, .disabled])
+    }
+
+    func testGrokLoginSwitchAndLaunchUseIsolatedOfficialCLIHome() async throws {
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            loginRunner: recorder.runner)
+
+        let firstLogin = try await manager.startAccountLogin(providerID: .grokBuild)
+        let firstHome = try XCTUnwrap(firstLogin.launchSpec.environment["GROK_HOME"])
+        XCTAssertEqual(firstLogin.launchSpec.arguments, ["login", "--oauth"])
+        XCTAssertNil(firstLogin.launchSpec.environment["XAI_API_KEY"])
+        _ = try writeGrokAuth(home: URL(fileURLWithPath: firstHome), user: "first")
+        let firstCheck = try await manager.checkAccountLogin(id: firstLogin.session.id)
+        let first = try XCTUnwrap(firstCheck.account)
+
+        let secondLogin = try await manager.startAccountLogin(providerID: .grokBuild)
+        let secondHome = try XCTUnwrap(secondLogin.launchSpec.environment["GROK_HOME"])
+        let secondAuth = try writeGrokAuth(
+            home: URL(fileURLWithPath: secondHome), user: "second")
+        let secondCheck = try await manager.checkAccountLogin(id: secondLogin.session.id)
+        let second = try XCTUnwrap(secondCheck.account)
+
+        var status = try await manager.status()
+        XCTAssertEqual(status.accounts.map(\.identity.providerID), [.grokBuild, .grokBuild])
+        XCTAssertEqual(status.defaultAccountID, first.id)
+
+        _ = try await manager.switchDefault(to: second.id)
+        status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountID, second.id)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.grokHome.appending(path: "auth.json")),
+            secondAuth)
+
+        let launch = try await manager.launchSpec(accountID: second.id)
+        XCTAssertEqual(launch.arguments, [])
+        XCTAssertEqual(launch.environment["GROK_HOME"], paths.grokHome.path)
+        XCTAssertNil(launch.environment["XAI_API_KEY"])
+        let check = await manager.checkAccount(accountID: second.id)
+        XCTAssertEqual(check.verification.state, .verifiedLocally)
+
+        let crashing = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            faultInjector: {
+                if $0 == .afterDefaultCredentialPublication {
+                    throw AIManagerError.operationFailed("stop")
+                }
+            })
+        await assertOnboardingThrows(try await crashing.switchDefault(to: first.id))
+
+        let recovered = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let recoveredStatus = try await recovered.refreshAccounts().status
+        XCTAssertEqual(recoveredStatus.defaultAccountID, second.id)
+        XCTAssertEqual(
+            try Data(contentsOf: paths.grokHome.appending(path: "auth.json")),
+            secondAuth)
     }
 
     func testStagedLoginUsesIsolatedHomeAndImportsOnCheck() async throws {
@@ -429,6 +490,28 @@ final class AccountOnboardingTests: XCTestCase {
                 "account_id": "account-\(account)",
             ]
         ])
+        let url = home.appending(path: "auth.json")
+        try auth.write(to: url, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return auth
+    }
+
+    @discardableResult
+    private func writeGrokAuth(home: URL, user: String) throws -> Data {
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        let auth = try JSONSerialization.data(withJSONObject: [
+            "https://auth.x.ai::synthetic-client": [
+                "key": "synthetic-access-\(user)",
+                "auth_mode": "oidc",
+                "create_time": "2026-09-20T00:00:00Z",
+                "user_id": "user-\(user)",
+                "email": "\(user)@example.test",
+                "refresh_token": "synthetic-refresh-\(user)",
+                "expires_at": "2030-01-01T00:00:00Z",
+                "oidc_issuer": "https://auth.x.ai",
+                "oidc_client_id": "synthetic-client",
+            ]
+        ], options: [.sortedKeys])
         let url = home.appending(path: "auth.json")
         try auth.write(to: url, options: .atomic)
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

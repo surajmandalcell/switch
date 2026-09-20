@@ -45,6 +45,7 @@ public actor AccountManager {
     private let paths: ManagerPaths
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
+    private let grokProvider: GrokProviderAdapter
     private let writerCheck: WriterCheck
     private let faultInjector: @Sendable (FaultPoint) throws -> Void
     private let verificationTimeout: TimeInterval
@@ -58,6 +59,7 @@ public actor AccountManager {
         self.paths = paths
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
+        self.grokProvider = GrokProviderAdapter(fileManager: fileManager)
         self.writerCheck = writerCheck ?? { home in await AccountManager.systemWriterCheck(home: home) }
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
@@ -143,6 +145,7 @@ public actor AccountManager {
 
     public static let providerCatalog: [ProviderDescriptor] = [
         .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
+        .init(id: .grokBuild, displayName: "Grok Build", availability: .enabled),
         .init(
             id: .claudeCode, displayName: "Claude Code", availability: .disabled,
             unavailableReason: "Claude Code account setup is not available yet."),
@@ -184,8 +187,12 @@ public actor AccountManager {
                 Self.providerCatalog.first(where: { $0.id == providerID })?.unavailableReason
                     ?? "Provider \(providerID.rawValue) is not available.")
         }
-        try provider.requireSupported(providerID)
-        guard let executable = resolveExecutable() else { throw AIManagerError.cliNotFound }
+        guard [ProviderID.codex, .grokBuild].contains(providerID) else {
+            throw AIManagerError.unsupportedSource(
+                "Provider \(providerID.rawValue) is not supported by this release.")
+        }
+        let executable = providerID == .codex ? resolveExecutable() : resolveGrokExecutable()
+        guard let executable else { throw AIManagerError.cliNotFound }
         let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date())
         let home = loginHome(session.id)
         try CoreSupport.privateDirectory(loginSessionsURL, fileManager: fileManager)
@@ -193,13 +200,21 @@ public actor AccountManager {
         try CoreSupport.privateDirectory(home, fileManager: fileManager)
         try saveLoginSession(session)
         var environment = ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: "OPENAI_API_KEY")
-        environment.removeValue(forKey: "CODEX_ACCESS_TOKEN")
-        environment["CODEX_HOME"] = home.path
+        let arguments: [String]
+        if providerID == .codex {
+            environment.removeValue(forKey: "OPENAI_API_KEY")
+            environment.removeValue(forKey: "CODEX_ACCESS_TOKEN")
+            environment["CODEX_HOME"] = home.path
+            arguments = ["-c", "cli_auth_credentials_store=\"file\"", "login"]
+        } else {
+            environment.removeValue(forKey: "XAI_API_KEY")
+            environment["GROK_HOME"] = home.path
+            arguments = ["login", "--oauth"]
+        }
         if let isolationRoot = paths.isolationRoot { environment["HOME"] = isolationRoot.path }
         let spec = LaunchSpec(
             executable: executable,
-            arguments: ["-c", "cli_auth_credentials_store=\"file\"", "login"],
+            arguments: arguments,
             environment: environment
         )
         do {
@@ -218,6 +233,10 @@ public actor AccountManager {
     ) async throws -> AccountLoginCheck {
         try ensureNoRecovery()
         let session = try loadLoginSession(id)
+        if session.providerID == .grokBuild {
+            return try await checkGrokAccountLogin(
+                session: session, credentialChoice: credentialChoice)
+        }
         try provider.requireSupported(session.providerID)
         let inspection = provider.inspect(home: loginHome(id))
         guard inspection.support == .supportedChatGPT, inspection.identity?.isResolved == true else {
@@ -254,6 +273,59 @@ public actor AccountManager {
             state: .completed,
             account: result.account,
             message: "Codex account access was saved."
+        )
+    }
+
+    private func checkGrokAccountLogin(
+        session: AccountLoginSession,
+        credentialChoice: ConflictChoice?
+    ) async throws -> AccountLoginCheck {
+        let inspection = grokProvider.inspect(home: loginHome(session.id))
+        guard inspection.support == .supportedOAuth, inspection.identity?.isResolved == true else {
+            let waiting = inspection.support == .missingAuth
+            return .init(
+                session: session,
+                state: waiting ? .waitingForLogin : .needsAttention,
+                message: waiting
+                    ? "Grok sign-in has not produced account access yet."
+                    : (inspection.error ?? "Grok sign-in did not produce supported account access.")
+            )
+        }
+        try grokProvider.validatePrivateCredentialFile(
+            loginHome(session.id).appending(path: "auth.json"))
+        let registry = try loadRegistry()
+        let matching = registry.accounts.first { account in
+            account.identity.providerID == .grokBuild
+                && inspection.identity.map {
+                    grokProvider.sameIdentity(account.identity, $0)
+                } == true
+        }
+        if let matching, matching.credentialDigest != inspection.digest, credentialChoice == nil {
+            return .init(
+                session: session,
+                state: .credentialChoiceRequired,
+                message: "This Grok account is already saved with different access. Choose which credential to keep."
+            )
+        }
+        let ownedLogin = loginRunner.cancel(session.id)
+        let account = try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            return try performGrokImport(
+                inspection: inspection,
+                source: loginHome(session.id),
+                keepExistingCredential: credentialChoice == .keepShared)
+        }
+        try await activateLoginAccountIfNeeded(account.id)
+        if ownedLogin {
+            try fileManager.removeItem(at: loginRoot(session.id))
+        } else {
+            try retireLoginSession(session.id)
+        }
+        return .init(
+            session: session,
+            state: .completed,
+            account: account,
+            message: "Grok account access was saved."
         )
     }
 
@@ -427,6 +499,10 @@ public actor AccountManager {
             guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
             }
+            if selected.identity.providerID == .grokBuild {
+                try grokProvider.validateManagedCredential(selected)
+                return try performGrokSwitch(to: accountID)
+            }
             try provider.validateManagedCredential(selected)
             return try performSwitch(to: accountID)
         }
@@ -556,8 +632,13 @@ public actor AccountManager {
             guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
             }
-            try provider.validateManagedCredential(selected)
-            _ = try performSwitch(to: accountID, captureOutgoingCredential: false)
+            if selected.identity.providerID == .grokBuild {
+                try grokProvider.validateManagedCredential(selected)
+                _ = try performGrokSwitch(to: accountID, captureOutgoingCredential: false)
+            } else {
+                try provider.validateManagedCredential(selected)
+                _ = try performSwitch(to: accountID, captureOutgoingCredential: false)
+            }
         }
     }
 
@@ -594,6 +675,16 @@ public actor AccountManager {
                 throw AIManagerError.accountNotFound
             }
             account = found
+            if account.identity.providerID == .grokBuild {
+                try grokProvider.validateManagedCredential(account)
+                let result = VerificationResult(
+                    state: .verifiedLocally,
+                    checkedAt: Date(),
+                    detail: "The saved Grok subscription OAuth session passed its local identity, digest, and permission checks."
+                )
+                try? recordAccountCheck(result, accountID: accountID, expected: account)
+                return .init(verification: result)
+            }
             guard account.identity.providerID == provider.id else {
                 let result = VerificationResult(
                     state: .unsupported,
@@ -676,6 +767,13 @@ public actor AccountManager {
         try ensureNoRecovery()
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+        if account.identity.providerID == .grokBuild {
+            return try grokLaunchSpec(
+                account: account,
+                registry: registry,
+                arguments: arguments,
+                workingDirectory: workingDirectory)
+        }
         try provider.validateManagedCredential(account)
         guard registry.defaultAccountID == accountID else {
             throw AIManagerError.operationFailed("Use this account before opening Codex.")
@@ -702,6 +800,36 @@ public actor AccountManager {
         )
     }
 
+    private func grokLaunchSpec(
+        account: AccountRecord,
+        registry: Registry,
+        arguments: [String],
+        workingDirectory: URL?
+    ) throws -> LaunchSpec {
+        try grokProvider.validateManagedCredential(account)
+        guard registry.defaultAccountID == account.id else {
+            throw AIManagerError.operationFailed("Use this account before opening Grok Build.")
+        }
+        let liveAuth = paths.grokHome.appending(path: "auth.json")
+        try grokProvider.validatePrivateCredentialFile(liveAuth)
+        let live = grokProvider.inspect(home: paths.grokHome)
+        guard live.support == .supportedOAuth,
+              let liveIdentity = live.identity,
+              grokProvider.sameIdentity(account.identity, liveIdentity) else {
+            throw AIManagerError.credentialConflict
+        }
+        guard let executable = resolveGrokExecutable() else { throw AIManagerError.cliNotFound }
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "XAI_API_KEY")
+        environment["GROK_HOME"] = paths.grokHome.path
+        if let isolationRoot = paths.isolationRoot { environment["HOME"] = isolationRoot.path }
+        return .init(
+            executable: executable,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory)
+    }
+
     @discardableResult
     public func activateAndRun(
         accountID: UUID,
@@ -709,18 +837,27 @@ public actor AccountManager {
         workingDirectory: URL? = nil
     ) async throws -> Int32 {
         var launched: Process?
+        var launchedProviderName = "Provider"
         try await lock.withAsyncLock {
             try ensureNoRecovery()
             let registry = try loadRegistry()
             guard let account = registry.accounts.first(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
             }
-            try provider.validateManagedCredential(account)
-            let live = provider.inspect(home: paths.defaultHome)
-            let alreadyActive = registry.defaultAccountID == accountID
-                && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
-            if !alreadyActive {
-                _ = try performSwitch(to: accountID)
+            launchedProviderName = account.identity.providerID.displayName
+            let alreadyActive: Bool
+            if account.identity.providerID == .grokBuild {
+                try grokProvider.validateManagedCredential(account)
+                let live = grokProvider.inspect(home: paths.grokHome)
+                alreadyActive = registry.defaultAccountID == accountID
+                    && live.identity.map { grokProvider.sameIdentity(account.identity, $0) } == true
+                if !alreadyActive { _ = try performGrokSwitch(to: accountID) }
+            } else {
+                try provider.validateManagedCredential(account)
+                let live = provider.inspect(home: paths.defaultHome)
+                alreadyActive = registry.defaultAccountID == accountID
+                    && live.identity.map { provider.sameIdentity(account.identity, $0) } == true
+                if !alreadyActive { _ = try performSwitch(to: accountID) }
             }
             let process = configuredProcess(
                 try launchSpec(
@@ -742,7 +879,7 @@ public actor AccountManager {
             launched = process
         }
         guard let launched else {
-            throw AIManagerError.operationFailed("Codex did not start.")
+            throw AIManagerError.operationFailed("\(launchedProviderName) did not start.")
         }
         launched.waitUntilExit()
         return launched.terminationStatus
@@ -962,8 +1099,13 @@ extension AccountManager {
     private var accountsRoot: URL {
         paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
     }
-    private func credentialFile(for accountID: UUID) -> URL {
-        paths.credentialStore.appending(path: "\(accountID.uuidString).json")
+    private func credentialFile(
+        for accountID: UUID,
+        providerID: ProviderID = .codex
+    ) -> URL {
+        let root = providerID == .grokBuild
+            ? paths.grokCredentialStore : paths.credentialStore
+        return root.appending(path: "\(accountID.uuidString).json")
     }
     private var transactionsURL: URL { paths.applicationSupport.appending(path: "transactions", directoryHint: .isDirectory) }
     private var loginSessionsURL: URL {
@@ -977,9 +1119,12 @@ extension AccountManager {
               CoreSupport.isContained(account.home, by: accountsRoot) else {
             throw AIManagerError.unsafePath("managed account home is outside the private account root")
         }
-        let expectedCredential = credentialFile(for: account.id)
+        let credentialRoot = account.identity.providerID == .grokBuild
+            ? paths.grokCredentialStore : paths.credentialStore
+        let expectedCredential = credentialFile(
+            for: account.id, providerID: account.identity.providerID)
         guard CoreSupport.sameLocation(account.credentialFile, expectedCredential),
-              CoreSupport.isContained(account.credentialFile, by: paths.credentialStore) else {
+              CoreSupport.isContained(account.credentialFile, by: credentialRoot) else {
             throw AIManagerError.unsafePath("saved credential is outside the private credential store")
         }
     }
@@ -1137,9 +1282,11 @@ extension AccountManager {
             guard CoreSupport.sameLocation(account.home, expected) else {
                 throw AIManagerError.unsafePath("managed account home is outside the private account root")
             }
-            let expectedCredential = credentialFile(for: account.id)
+            let expectedCredential = credentialFile(
+                for: account.id, providerID: account.identity.providerID)
             let legacyCredential = account.home.appending(path: "auth.json")
-            if account.credentialFile.standardizedFileURL.path == legacyCredential.standardizedFileURL.path {
+            if account.identity.providerID == .codex,
+               account.credentialFile.standardizedFileURL.path == legacyCredential.standardizedFileURL.path {
                 let legacy = provider.inspect(credentialFile: legacyCredential)
                 guard legacy.support == .supportedChatGPT,
                       let identity = legacy.identity,
@@ -1165,12 +1312,16 @@ extension AccountManager {
                     == expectedCredential.standardizedFileURL.path else {
                     throw AIManagerError.unsafePath("saved credential is outside the private credential store")
                 }
-                try provider.validatePrivateCredentialFile(account.credentialFile)
-                let saved = provider.inspect(credentialFile: account.credentialFile)
-                guard saved.support == .supportedChatGPT,
-                      let savedIdentity = saved.identity,
-                      provider.sameIdentity(account.identity, savedIdentity) else {
-                    throw AIManagerError.credentialConflict
+                if account.identity.providerID == .grokBuild {
+                    try grokProvider.validateManagedCredential(account)
+                } else {
+                    try provider.validatePrivateCredentialFile(account.credentialFile)
+                    let saved = provider.inspect(credentialFile: account.credentialFile)
+                    guard saved.support == .supportedChatGPT,
+                          let savedIdentity = saved.identity,
+                          provider.sameIdentity(account.identity, savedIdentity) else {
+                        throw AIManagerError.credentialConflict
+                    }
                 }
             }
         }
@@ -1470,6 +1621,113 @@ extension AccountManager {
         }
     }
 
+    private func performGrokImport(
+        inspection: AuthInspection,
+        source: URL,
+        keepExistingCredential: Bool
+    ) throws -> AccountRecord {
+        guard inspection.support == .supportedOAuth,
+              let identity = inspection.identity, identity.isResolved else {
+            throw AIManagerError.invalidSource("Grok auth.json does not contain a supported OAuth session.")
+        }
+        var registry = try loadRegistry()
+        let matching = registry.accounts.firstIndex {
+            $0.identity.providerID == .grokBuild
+                && grokProvider.sameIdentity($0.identity, identity)
+        }
+        let accountID = matching.map { registry.accounts[$0].id } ?? UUID()
+        let destination = accountsRoot.appending(path: accountID.uuidString)
+            .appending(path: "home", directoryHint: .isDirectory)
+        let savedCredential = credentialFile(for: accountID, providerID: .grokBuild)
+        let selectedInspection: AuthInspection
+        if keepExistingCredential, let matching {
+            selectedInspection = grokProvider.inspect(
+                credentialFile: registry.accounts[matching].credentialFile)
+            try grokProvider.validateManagedCredential(registry.accounts[matching])
+        } else {
+            selectedInspection = inspection
+        }
+
+        let operationID = UUID()
+        let backup = paths.applicationSupport.appending(
+            path: "backups/\(operationID.uuidString)", directoryHint: .isDirectory)
+        let staging = paths.applicationSupport.appending(
+            path: "staging/\(operationID.uuidString)/home", directoryHint: .isDirectory)
+        var operation = RecoveryOperation(
+            id: operationID,
+            kind: "import-grok",
+            phase: .prepared,
+            source: source,
+            destination: destination,
+            backup: backup,
+            touchedItems: [],
+            registryAccountID: accountID,
+            previousDefaultAccountID: registry.defaultAccountID,
+            registryCredentialDigest: selectedInspection.digest,
+            previousAccount: matching.map { registry.accounts[$0] },
+            setsDefaultAccount: false
+        )
+        try saveOperation(operation)
+        try CoreSupport.privateDirectory(backup, fileManager: fileManager)
+        if CoreSupport.entryExists(destination) {
+            try copyPortable(
+                destination,
+                to: backup.appending(path: "account-home", directoryHint: .isDirectory))
+        }
+        operation.phase = .backedUp
+        try saveOperation(operation)
+
+        try CoreSupport.privateDirectory(staging, fileManager: fileManager)
+        try CoreSupport.atomicWrite(
+            selectedInspection.data,
+            to: staging.appending(path: "auth.json"),
+            fileManager: fileManager)
+        operation.expectedDigest = try treeDigest(staging)
+        operation.previousDigest = CoreSupport.entryExists(destination)
+            ? try treeDigest(destination) : nil
+        operation.phase = .staged
+        try saveOperation(operation)
+        try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
+        try CoreSupport.publish(staging, replacing: destination, fileManager: fileManager)
+        try faultInjector(.afterHomePublication)
+        operation.phase = .published
+        try saveOperation(operation)
+
+        try replaceRecoverably(
+            source: destination.appending(path: "auth.json"),
+            destination: savedCredential,
+            operation: &operation,
+            backupName: "saved-credential.json")
+        let saved = grokProvider.inspect(credentialFile: savedCredential)
+        guard saved.support == .supportedOAuth,
+              let savedIdentity = saved.identity,
+              grokProvider.sameIdentity(identity, savedIdentity),
+              saved.digest == selectedInspection.digest else {
+            throw AIManagerError.credentialConflict
+        }
+        let verification = VerificationResult(
+            state: .imported,
+            checkedAt: Date(),
+            detail: "Grok subscription OAuth and private destination passed the offline check.")
+        let account = AccountRecord(
+            id: accountID,
+            identity: identity,
+            credentialFile: savedCredential,
+            home: destination,
+            source: source,
+            importedAt: matching.map { registry.accounts[$0].importedAt } ?? Date(),
+            verification: verification,
+            credentialDigest: saved.digest)
+        if let matching { registry.accounts[matching] = account }
+        else { registry.accounts.append(account) }
+        try saveRegistry(registry)
+        try faultInjector(.afterRegistryCommit)
+        operation.phase = .registryCommitted
+        try saveOperation(operation)
+        try finishOperation(&operation)
+        return account
+    }
+
     private func performImport(
         plan: ImportPlan,
         auth: Data,
@@ -1703,8 +1961,12 @@ extension AccountManager {
            outgoingInspection.support == .supportedChatGPT,
            let identity = outgoingInspection.identity, identity.isResolved {
             if let currentID = registry.defaultAccountID,
-               let index = registry.accounts.firstIndex(where: { $0.id == currentID }) {
-                guard provider.sameIdentity(registry.accounts[index].identity, identity) else { throw AIManagerError.credentialConflict }
+               let index = registry.accounts.firstIndex(where: {
+                   $0.id == currentID && $0.identity.providerID == .codex
+               }) {
+                guard provider.sameIdentity(registry.accounts[index].identity, identity) else {
+                    throw AIManagerError.credentialConflict
+                }
                 registeredOutgoingIndex = index
             } else {
                 registeredOutgoingIndex = registry.accounts.firstIndex(where: { provider.sameIdentity($0.identity, identity) })
@@ -1791,6 +2053,166 @@ extension AccountManager {
         try saveOperation(operation)
         try finishOperation(&operation)
         return .init(accountID: accountID, backup: backup, previousAccountID: previous)
+    }
+
+    private func performGrokSwitch(
+        to accountID: UUID,
+        captureOutgoingCredential: Bool = true
+    ) throws -> SwitchResult {
+        var registry = try loadRegistry()
+        guard let requested = registry.accounts.first(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
+        }
+        try grokProvider.validateManagedCredential(requested)
+
+        let liveAuth = paths.grokHome.appending(path: "auth.json")
+        let outgoingFileDigest = try credentialFingerprintIfPresent(liveAuth)
+        let outgoingInspection = grokProvider.inspect(home: paths.grokHome)
+        var registeredOutgoingIndex: Int?
+        var registeredOutgoingInspection: AuthInspection?
+        if captureOutgoingCredential,
+           outgoingInspection.support == .supportedOAuth,
+           let identity = outgoingInspection.identity, identity.isResolved {
+            if let currentID = registry.defaultAccountID,
+               let index = registry.accounts.firstIndex(where: {
+                   $0.id == currentID && $0.identity.providerID == .grokBuild
+               }) {
+                guard grokProvider.sameIdentity(registry.accounts[index].identity, identity) else {
+                    throw AIManagerError.credentialConflict
+                }
+                registeredOutgoingIndex = index
+            } else {
+                registeredOutgoingIndex = registry.accounts.firstIndex {
+                    $0.identity.providerID == .grokBuild
+                        && grokProvider.sameIdentity($0.identity, identity)
+                }
+            }
+            if let index = registeredOutgoingIndex {
+                let saved = grokProvider.inspect(
+                    credentialFile: registry.accounts[index].credentialFile)
+                guard saved.support == .supportedOAuth,
+                      let savedIdentity = saved.identity,
+                      grokProvider.sameIdentity(registry.accounts[index].identity, savedIdentity) else {
+                    throw AIManagerError.credentialConflict
+                }
+                let baseline = registry.accounts[index].credentialDigest
+                if saved.digest != baseline, outgoingInspection.digest != saved.digest {
+                    throw AIManagerError.credentialConflict
+                }
+                registeredOutgoingInspection = saved
+            }
+        }
+
+        let operationID = UUID()
+        let backup = paths.applicationSupport.appending(
+            path: "backups/\(operationID.uuidString)", directoryHint: .isDirectory)
+        let previousDefault = registry.defaultAccountID
+        var operation = RecoveryOperation(
+            id: operationID,
+            kind: "switch-grok",
+            phase: .prepared,
+            source: requested.credentialFile,
+            destination: liveAuth,
+            backup: backup,
+            touchedItems: [],
+            previousDigest: outgoingFileDigest,
+            registryAccountID: accountID,
+            previousDefaultAccountID: previousDefault)
+        try saveOperation(operation)
+        try CoreSupport.privateDirectory(backup, fileManager: fileManager)
+        if CoreSupport.entryExists(liveAuth) {
+            try copyPortable(liveAuth, to: backup.appending(path: "auth.json"))
+        }
+        operation.phase = .backedUp
+        try saveOperation(operation)
+
+        if let outgoingIndex = registeredOutgoingIndex,
+           let saved = registeredOutgoingInspection {
+            let baseline = registry.accounts[outgoingIndex].credentialDigest
+            let liveChanged = outgoingInspection.digest != baseline
+            let savedChanged = saved.digest != baseline
+            if liveChanged, !savedChanged {
+                operation.previousAccount = registry.accounts[outgoingIndex]
+                try replaceRecoverably(
+                    source: liveAuth,
+                    destination: registry.accounts[outgoingIndex].credentialFile,
+                    operation: &operation,
+                    backupName: "outgoing-saved-auth.json")
+                registry.accounts[outgoingIndex].credentialDigest = outgoingInspection.digest
+            } else if savedChanged {
+                registry.accounts[outgoingIndex].credentialDigest = saved.digest
+            }
+            try saveOperation(operation)
+            try saveRegistry(registry)
+        } else if captureOutgoingCredential,
+                  outgoingInspection.support == .supportedOAuth,
+                  let identity = outgoingInspection.identity, identity.isResolved {
+            let outgoingID = UUID()
+            let outgoingHome = accountsRoot.appending(path: outgoingID.uuidString)
+                .appending(path: "home", directoryHint: .isDirectory)
+            try createManagedGrokHome(auth: outgoingInspection.data, at: outgoingHome)
+            let outgoingCredential = credentialFile(for: outgoingID, providerID: .grokBuild)
+            try replaceRecoverably(
+                source: liveAuth,
+                destination: outgoingCredential,
+                operation: &operation,
+                backupName: "captured-outgoing-auth.json")
+            registry.accounts.append(.init(
+                id: outgoingID,
+                identity: identity,
+                credentialFile: outgoingCredential,
+                home: outgoingHome,
+                source: paths.grokHome,
+                importedAt: Date(),
+                verification: .init(
+                    state: .imported,
+                    checkedAt: Date(),
+                    detail: "Captured before changing the selected Grok account."),
+                credentialDigest: outgoingInspection.digest))
+            try saveRegistry(registry)
+        }
+
+        guard let incomingIndex = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
+        }
+        let incoming = registry.accounts[incomingIndex]
+        let incomingInspection = grokProvider.inspect(credentialFile: incoming.credentialFile)
+        guard incomingInspection.support == .supportedOAuth,
+              let incomingIdentity = incomingInspection.identity,
+              grokProvider.sameIdentity(incoming.identity, incomingIdentity) else {
+            throw AIManagerError.credentialConflict
+        }
+        if registry.defaultAccountID == accountID,
+           outgoingInspection.digest == incomingInspection.digest {
+            try finishOperation(&operation)
+            return .init(
+                accountID: accountID,
+                backup: backup,
+                previousAccountID: accountID)
+        }
+        guard try credentialFingerprintIfPresent(liveAuth) == outgoingFileDigest else {
+            throw AIManagerError.sourceChanged
+        }
+        operation.expectedDigest = incomingInspection.digest
+        try saveOperation(operation)
+        try CoreSupport.atomicWrite(incomingInspection.data, to: liveAuth, fileManager: fileManager)
+        try faultInjector(.afterDefaultCredentialPublication)
+        operation.phase = .published
+        try saveOperation(operation)
+        guard grokProvider.inspect(home: paths.grokHome).digest == incomingInspection.digest else {
+            throw AIManagerError.operationFailed("The committed Grok credential did not verify.")
+        }
+        registry.defaultAccountID = accountID
+        registry.accounts[incomingIndex].lastUsedAt = Date()
+        try saveRegistry(registry)
+        try faultInjector(.afterRegistryCommit)
+        operation.phase = .registryCommitted
+        try saveOperation(operation)
+        try finishOperation(&operation)
+        return .init(
+            accountID: accountID,
+            backup: backup,
+            previousAccountID: previousDefault)
     }
 
     private var usageReadsURL: URL {
@@ -1937,6 +2359,12 @@ extension AccountManager {
         }
     }
 
+    private func createManagedGrokHome(auth: Data, at home: URL) throws {
+        try CoreSupport.privateDirectory(home, fileManager: fileManager)
+        try CoreSupport.atomicWrite(
+            auth, to: home.appending(path: "auth.json"), fileManager: fileManager)
+    }
+
     private func resolveExecutable() -> URL? {
         if let explicit = paths.codexExecutable,
            let executable = validatedExecutable(explicit) {
@@ -1956,6 +2384,31 @@ extension AccountManager {
             URL(fileURLWithPath: "/usr/local/bin/codex"),
             URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
             userHome.appending(path: "Applications/ChatGPT.app/Contents/Resources/codex"),
+        ]
+        var seen = Set<String>()
+        for candidate in candidates {
+            let canonical = CoreSupport.canonical(candidate)
+            guard seen.insert(canonical.path).inserted else { continue }
+            if let executable = validatedExecutable(candidate) { return executable }
+        }
+        return nil
+    }
+
+    private func resolveGrokExecutable() -> URL? {
+        if let explicit = paths.grokExecutable,
+           let executable = validatedExecutable(explicit) {
+            return executable
+        }
+        if paths.isolationRoot != nil { return nil }
+        var candidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).appending(path: "grok") }
+        let userHome = fileManager.homeDirectoryForCurrentUser
+        candidates += [
+            userHome.appending(path: ".local/bin/grok"),
+            userHome.appending(path: ".grok/bin/grok"),
+            URL(fileURLWithPath: "/opt/homebrew/bin/grok"),
+            URL(fileURLWithPath: "/usr/local/bin/grok"),
         ]
         var seen = Set<String>()
         for candidate in candidates {
@@ -2473,17 +2926,20 @@ extension AccountManager {
     }
 
     private func affectedRecoveryHomes(_ operation: RecoveryOperation) throws -> [URL] {
-        guard ["import", "switch", "settings-link-repair", "usage-credential-refresh", "delete-account"].contains(operation.kind),
+        guard ["import", "import-grok", "switch", "switch-grok", "settings-link-repair", "usage-credential-refresh", "delete-account"].contains(operation.kind),
               CoreSupport.isContained(operation.backup, by: paths.applicationSupport) else {
             throw AIManagerError.invalidSource("Unknown or unsafe recovery operation.")
         }
         let registry = try loadRegistry()
-        var candidates = [paths.defaultHome, paths.sharedRoot, paths.credentialStore]
+        var candidates = [
+            paths.defaultHome, paths.sharedRoot, paths.credentialStore,
+            paths.grokHome, paths.grokCredentialStore,
+        ]
             + registry.accounts.map(\.home)
         if let previous = operation.previousAccount { candidates.append(previous.home) }
         var homes: [URL] = []
         switch operation.kind {
-        case "import":
+        case "import", "import-grok":
             let accountsRoot = paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
             guard CoreSupport.isContained(operation.destination, by: accountsRoot) else {
                 throw AIManagerError.unsafePath(operation.destination.path)
@@ -2495,6 +2951,15 @@ extension AccountManager {
                 throw AIManagerError.unsafePath(operation.destination.path)
             }
             homes.append(paths.defaultHome)
+            if let accountID = operation.registryAccountID,
+               let selected = registry.accounts.first(where: { $0.id == accountID }) {
+                homes.append(selected.home)
+            }
+        case "switch-grok":
+            guard CoreSupport.isContained(operation.destination, by: paths.grokHome) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+            homes.append(paths.grokHome)
             if let accountID = operation.registryAccountID,
                let selected = registry.accounts.first(where: { $0.id == accountID }) {
                 homes.append(selected.home)
@@ -2575,8 +3040,10 @@ extension AccountManager {
             if seen.insert(path).inserted {
                 let prior: URL
                 switch operation.kind {
-                case "import": prior = operation.backup.appending(path: "account-home", directoryHint: .isDirectory)
-                case "switch": prior = operation.backup.appending(path: "auth.json")
+                case "import", "import-grok":
+                    prior = operation.backup.appending(path: "account-home", directoryHint: .isDirectory)
+                case "switch", "switch-grok":
+                    prior = operation.backup.appending(path: "auth.json")
                 case "settings-link-repair":
                     throw AIManagerError.invalidSource("Settings-link recovery is missing its recorded item.")
                 default: throw AIManagerError.invalidSource("Unknown recovery operation kind.")
@@ -2668,8 +3135,12 @@ extension AccountManager {
         switch operation.kind {
         case "import":
             try reconcileImportRegistryKeepingCurrent(operation)
+        case "import-grok":
+            try reconcileGrokImportRegistryKeepingCurrent(operation)
         case "switch":
             try reconcileSwitchRegistryKeepingCurrent(operation)
+        case "switch-grok":
+            try reconcileGrokSwitchRegistryKeepingCurrent(operation)
         case "settings-link-repair":
             break
         default:
@@ -2756,6 +3227,63 @@ extension AccountManager {
         try saveRegistry(registry)
     }
 
+    private func reconcileGrokImportRegistryKeepingCurrent(
+        _ operation: RecoveryOperation
+    ) throws {
+        guard let accountID = operation.registryAccountID else {
+            throw AIManagerError.invalidSource(
+                "Grok import recovery is missing its account identifier.")
+        }
+        let inspection = grokProvider.inspect(home: operation.destination)
+        guard inspection.support == .supportedOAuth,
+              let identity = inspection.identity, identity.isResolved else {
+            throw AIManagerError.credentialConflict
+        }
+        var registry = try loadRegistry()
+        let savedCredential = credentialFile(for: accountID, providerID: .grokBuild)
+        if CoreSupport.entryExists(savedCredential) {
+            let saved = grokProvider.inspect(credentialFile: savedCredential)
+            if saved.digest != inspection.digest {
+                let preserved = operation.backup.appending(
+                    path: "recovery-conflict/saved-credential-before-reconcile.json")
+                if !CoreSupport.entryExists(preserved) {
+                    try copyPortable(savedCredential, to: preserved)
+                }
+                try CoreSupport.atomicWrite(
+                    inspection.data, to: savedCredential, fileManager: fileManager)
+            }
+        } else {
+            try CoreSupport.atomicWrite(
+                inspection.data, to: savedCredential, fileManager: fileManager)
+        }
+        let verification = VerificationResult(
+            state: .imported,
+            checkedAt: Date(),
+            detail: "The current Grok credential was retained during recovery and passed the offline check.")
+        if let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {
+            guard registry.accounts[index].identity.providerID == .grokBuild,
+                  grokProvider.sameIdentity(registry.accounts[index].identity, identity) else {
+                throw AIManagerError.credentialConflict
+            }
+            registry.accounts[index].identity = identity
+            registry.accounts[index].credentialFile = savedCredential
+            registry.accounts[index].source = operation.source
+            registry.accounts[index].verification = verification
+            registry.accounts[index].credentialDigest = inspection.digest
+        } else {
+            registry.accounts.append(.init(
+                id: accountID,
+                identity: identity,
+                credentialFile: savedCredential,
+                home: operation.destination,
+                source: operation.source,
+                importedAt: Date(),
+                verification: verification,
+                credentialDigest: inspection.digest))
+        }
+        try saveRegistry(registry)
+    }
+
     private func reconcileSwitchRegistryKeepingCurrent(_ operation: RecoveryOperation) throws {
         guard let accountID = operation.registryAccountID else {
             throw AIManagerError.invalidSource("Switch recovery is missing its account identifier.")
@@ -2780,6 +3308,38 @@ extension AccountManager {
             registry.accounts[selectedIndex].credentialDigest = currentDefault.digest
         }
         try provider.validateManagedCredential(registry.accounts[selectedIndex])
+        registry.defaultAccountID = accountID
+        registry.accounts[selectedIndex].lastUsedAt = Date()
+        try saveRegistry(registry)
+    }
+
+    private func reconcileGrokSwitchRegistryKeepingCurrent(
+        _ operation: RecoveryOperation
+    ) throws {
+        guard let accountID = operation.registryAccountID else {
+            throw AIManagerError.invalidSource(
+                "Grok switch recovery is missing its account identifier.")
+        }
+        let current = grokProvider.inspect(home: paths.grokHome)
+        guard current.support == .supportedOAuth,
+              let currentIdentity = current.identity, currentIdentity.isResolved else {
+            throw AIManagerError.credentialConflict
+        }
+        var registry = try loadRegistry()
+        try refreshManagedGrokCredentialsTouched(by: operation, registry: &registry)
+        guard let selectedIndex = registry.accounts.firstIndex(where: { $0.id == accountID }),
+              grokProvider.sameIdentity(
+                registry.accounts[selectedIndex].identity, currentIdentity) else {
+            throw AIManagerError.credentialConflict
+        }
+        if current.digest != registry.accounts[selectedIndex].credentialDigest {
+            try CoreSupport.atomicWrite(
+                current.data,
+                to: registry.accounts[selectedIndex].credentialFile,
+                fileManager: fileManager)
+            registry.accounts[selectedIndex].credentialDigest = current.digest
+        }
+        try grokProvider.validateManagedCredential(registry.accounts[selectedIndex])
         registry.defaultAccountID = accountID
         registry.accounts[selectedIndex].lastUsedAt = Date()
         try saveRegistry(registry)
@@ -2810,6 +3370,32 @@ extension AccountManager {
         }
     }
 
+    private func refreshManagedGrokCredentialsTouched(
+        by operation: RecoveryOperation,
+        registry: inout Registry
+    ) throws {
+        let verification = VerificationResult(
+            state: .imported,
+            checkedAt: Date(),
+            detail: "The current Grok credential was retained during recovery and passed the offline check.")
+        for target in try recoveryTargets(operation) {
+            guard let index = registry.accounts.firstIndex(where: {
+                $0.identity.providerID == .grokBuild
+                    && CoreSupport.sameLocation($0.credentialFile, target.destination)
+            }) else { continue }
+            let inspection = grokProvider.inspect(
+                credentialFile: registry.accounts[index].credentialFile)
+            guard inspection.support == .supportedOAuth,
+                  let identity = inspection.identity, identity.isResolved,
+                  grokProvider.sameIdentity(registry.accounts[index].identity, identity) else {
+                throw AIManagerError.credentialConflict
+            }
+            registry.accounts[index].identity = identity
+            registry.accounts[index].verification = verification
+            registry.accounts[index].credentialDigest = inspection.digest
+        }
+    }
+
     private func preserveRecoveryTargets(_ targets: [RecoveryTarget], under backup: URL) throws {
         let root = backup.appending(path: "recovery-conflict/current", directoryHint: .isDirectory)
         for (index, target) in targets.enumerated() where CoreSupport.entryExists(target.destination) {
@@ -2822,7 +3408,7 @@ extension AccountManager {
     }
 
     private func registryCommitted(_ operation: RecoveryOperation, registry: Registry) -> Bool {
-        if operation.kind == "switch" {
+        if ["switch", "switch-grok"].contains(operation.kind) {
             return registry.defaultAccountID == operation.registryAccountID
         }
         guard let accountID = operation.registryAccountID,
@@ -2845,7 +3431,7 @@ extension AccountManager {
     }
 
     private func restoreRegistry(_ operation: RecoveryOperation, registry: inout Registry) {
-        if operation.kind == "switch" {
+        if ["switch", "switch-grok"].contains(operation.kind) {
             registry.defaultAccountID = operation.previousDefaultAccountID
             if let previous = operation.previousAccount,
                let index = registry.accounts.firstIndex(where: { $0.id == previous.id }) {
@@ -2921,9 +3507,13 @@ extension AccountManager {
         }
         if operation.expectedDigest != nil {
             if !conflict, !fileManager.fileExists(atPath: operation.destination.path) {
-                let prior = operation.backup.appending(path: operation.kind == "switch" ? "auth.json" : "account-home")
+                let prior = operation.backup.appending(
+                    path: ["switch", "switch-grok"].contains(operation.kind)
+                        ? "auth.json" : "account-home")
                 if fileManager.fileExists(atPath: prior.path) {
-                    if operation.kind == "import" { try fileManager.copyItem(at: prior, to: operation.destination) }
+                    if ["import", "import-grok"].contains(operation.kind) {
+                        try fileManager.copyItem(at: prior, to: operation.destination)
+                    }
                     else { try copyPortable(prior, to: operation.destination) }
                 }
             }

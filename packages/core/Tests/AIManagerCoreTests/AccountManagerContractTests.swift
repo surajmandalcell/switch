@@ -66,6 +66,34 @@ final class AccountManagerContractTests: XCTestCase {
         }
     }
 
+    func testGrokAdapterAcceptsSubscriptionOAuthAndRejectsAPIKeys() throws {
+        let home = root.appending(path: "grok-adapter")
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        let auth = home.appending(path: "auth.json")
+        let adapter = GrokProviderAdapter(fileManager: fm)
+
+        try JSONSerialization.data(withJSONObject: [
+            "https://auth.x.ai::client": [
+                "key": "synthetic-token",
+                "auth_mode": "oidc",
+                "create_time": "2026-09-20T00:00:00Z",
+                "user_id": "synthetic-user",
+                "email": "person@example.test",
+            ]
+        ]).write(to: auth)
+        XCTAssertEqual(adapter.inspect(home: home).support, .supportedOAuth)
+
+        try JSONSerialization.data(withJSONObject: [
+            "xai::api_key": [
+                "key": "xai-synthetic",
+                "auth_mode": "api_key",
+                "create_time": "2026-09-20T00:00:00Z",
+                "user_id": "api-key-user",
+            ]
+        ]).write(to: auth, options: .atomic)
+        XCTAssertEqual(adapter.inspect(home: home).support, .unknown)
+    }
+
     func testCanonicalLocationIgnoresDirectoryHint() {
         let location = root.appending(path: "portable-home")
         let directory = URL(fileURLWithPath: location.path, isDirectory: true)
