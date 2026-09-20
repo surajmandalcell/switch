@@ -88,13 +88,26 @@ struct AIManagerCLI {
         case "import", "advanced-import": try await importAccount(input, manager: manager)
         case "use":
             let id = try input.requiredAccountID()
-            try confirm(input, "Use this account for new Codex sessions? Existing sessions will not change.")
+            let status = try await manager.status()
+            guard let account = status.accounts.first(where: { $0.id == id }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try confirm(
+                input,
+                "Use this account in \(providerName(account.identity.providerID))?")
             await output(try await manager.switchDefault(to: id), json: input.json)
         case "open":
             let id = try input.requiredAccountID()
+            let status = try await manager.status()
+            guard let account = status.accounts.first(where: { $0.id == id }) else {
+                throw AIManagerError.accountNotFound
+            }
             let code = try await manager.activateAndRun(
                 accountID: id, arguments: input.forwardedArguments)
-            if code != 0 { throw CLIError.message("Codex exited with status \(code).") }
+            if code != 0 {
+                throw CLIError.message(
+                    "\(providerName(account.identity.providerID)) exited with status \(code).")
+            }
         case "saved-auth":
             let id = try input.requiredAccountID()
             let status = try await manager.status()
@@ -119,7 +132,7 @@ struct AIManagerCLI {
                 json: input.json
             )
         case "profile":
-            throw CLIError.message("The profile command was removed. Use saved-auth to print the saved auth file, or open to start Codex.")
+            throw CLIError.message("The profile command was removed. Use saved-auth to print the saved auth file, or open to start the provider.")
         case "verify":
             await output(manager.verifyLocal(accountID: try input.requiredAccountID()), json: input.json)
         case "recover":
@@ -461,9 +474,10 @@ struct AIManagerCLI {
             _ = try await terminal.withCookedInput {
                 try await manager.activateAndRun(accountID: account.id)
             }
-            return "Codex closed."
+            return "\(providerName(account.identity.providerID)) closed."
         case .refreshLimits:
-            let result = try await menu.loading("Refreshing limits") {
+            let result = try await menu.loading(
+                account.identity.providerID == .codex ? "Refreshing limits" : "Checking account") {
                 await manager.checkAccount(accountID: account.id)
             }
             if let snapshot = result.usage {
@@ -833,14 +847,14 @@ struct AIManagerCLI {
     }
 
     static let usage = """
-    Switch manages file-based Codex accounts without using Keychain.
+    Switch manages file-based accounts for supported AI tools without using Keychain.
 
     Usage:
       ai-manager providers [--json]
       ai-manager refresh [--yes] [--json]
       ai-manager adopt [--yes] [--json]                     Alias for refresh
-      ai-manager add [codex] [--yes] [--json]               Start isolated browser sign-in
-      ai-manager start-login [codex] [--yes] [--json]       Alias for add
+      ai-manager add [codex|grok-build] [--yes] [--json]    Start isolated browser sign-in
+      ai-manager start-login [provider] [--yes] [--json]    Alias for add
       ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]
       ai-manager cancel-login <session-uuid> [--yes] [--json]
       ai-manager status [--json]                            Adopt first live account; list pending logins
@@ -849,7 +863,7 @@ struct AIManagerCLI {
       ai-manager advanced-import <path> [import options]     Import an existing Codex folder or auth.json
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
-      ai-manager open <account-uuid> [-- codex arguments]
+      ai-manager open <account-uuid> [-- provider arguments]
       ai-manager saved-auth <account-uuid>
       ai-manager remove <account-uuid> [--replacement <account-uuid>] [--yes] [--json]
       ai-manager verify <account-uuid> [--json]
@@ -861,10 +875,11 @@ struct AIManagerCLI {
 
     Isolation overrides: AI_MANAGER_ROOT, AI_MANAGER_DEFAULT_HOME,
     AI_MANAGER_CREDENTIAL_STORE, AI_MANAGER_SHARED_ROOT,
-    AI_MANAGER_CODEX_EXECUTABLE.
+    AI_MANAGER_CODEX_EXECUTABLE, AI_MANAGER_GROK_HOME,
+    AI_MANAGER_GROK_CREDENTIAL_STORE, AI_MANAGER_GROK_EXECUTABLE.
 
-    Provider IDs: codex, claude-code, gemini-cli, antigravity-cli.
-    Only Codex CLI is available in this release. Login sessions survive restarts;
+    Provider IDs: codex, grok-build, claude-code, gemini-cli, antigravity-cli.
+    Codex CLI and Grok Build are available in this release. Login sessions survive restarts;
     use status to recover their IDs, then check-login or cancel-login.
     """
 }
@@ -945,8 +960,10 @@ private struct TerminalMenu {
                 let window = snapshot?.weekly ?? snapshot?.session
                 let scope = snapshot?.weekly == nil ? "session" : "weekly"
                 let amount = window.flatMap { displayedPercentage($0.usedPercent) }
-                let label = amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
-                    ?? "usage unavailable"
+                let label = account.identity.providerID == .codex
+                    ? (amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
+                        ?? "usage unavailable")
+                    : "Grok subscription"
                 let row = "  \(padded(Self.accountName(account.identity), to: 32))"
                     + "\(padded(marker, to: 10))\(label)"
                 lines.append(index == mainFocus ? selectedLine(row) : fitted(row))
@@ -973,7 +990,10 @@ private struct TerminalMenu {
             lines.append("")
             lines.append("Actions")
             for (index, action) in TerminalAccountAction.allCases.enumerated() {
-                let row = "  " + Self.accountActionLabel(action, isDefault: account.id == status.defaultAccountID)
+                let row = "  " + Self.accountActionLabel(
+                    action,
+                    isDefault: account.id == status.defaultAccountID,
+                    providerID: account.identity.providerID)
                 lines.append(index == accountActionFocus ? selectedLine(row) : fitted(row))
             }
             if let message { lines.append(""); lines.append(accent(message)) }
@@ -997,6 +1017,9 @@ private struct TerminalMenu {
         account: AccountRecord,
         usage: CodexAccountUsageSnapshot?
     ) -> [String] {
+        if account.identity.providerID == .grokBuild {
+            return [muted("Grok Build does not expose subscription limits here.")]
+        }
         let view = usage.map(Self.usageView)
         var lines: [String] = []
         if let session = view?.session { lines.append(limitLine("session", window: session)) }
@@ -1026,12 +1049,13 @@ private struct TerminalMenu {
 
     private static func accountActionLabel(
         _ action: TerminalAccountAction,
-        isDefault: Bool
+        isDefault: Bool,
+        providerID: ProviderID
     ) -> String {
         switch action {
         case .setDefault: isDefault ? "Set as default  ·  current" : "Set as default"
-        case .openCodex: "Open Codex"
-        case .refreshLimits: "Refresh limits"
+        case .openCodex: "Open \(providerID == .codex ? "Codex" : providerID.displayName)"
+        case .refreshLimits: providerID == .codex ? "Refresh limits" : "Check account"
         case .verifyFiles: "Check account files"
         case .back: "Back"
         }

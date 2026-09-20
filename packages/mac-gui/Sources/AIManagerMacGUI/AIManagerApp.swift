@@ -171,10 +171,12 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         guard let status else { return .empty }
         return MenuBarSnapshot(
             accounts: status.accounts.map { account in
-                let showsUsage = MenuBarUsagePreferences.showsUsage(for: account.id)
+                let showsUsage = account.identity.providerID == .codex
+                    && MenuBarUsagePreferences.showsUsage(for: account.id)
                 return MenuBarAccountSnapshot(
                     id: account.id,
-                    identity: account.identity.email ?? "Codex account",
+                    identity: account.identity.email
+                        ?? "\(account.identity.providerID.displayName) account",
                     detail: Self.accountDetail(account),
                     isVerified: Self.canSwitch(account),
                     isActive: account.id == status.defaultAccountID,

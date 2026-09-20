@@ -52,8 +52,12 @@ struct MockAccountViewModelCheck {
         await model.reloadAfterActivation()
         precondition(model.showImport, "Returning to the app dismissed or reloaded the account dialog")
         precondition(model.status?.accounts.count == modalAccountCount)
-        precondition(model.providers.map(\.id) == [.codex, .claudeCode, .geminiCLI, .antigravityCLI])
-        precondition(model.providers.map(\.availability) == [.enabled, .disabled, .disabled, .disabled])
+        precondition(model.providers.map(\.id) == [
+            .codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI,
+        ])
+        precondition(model.providers.map(\.availability) == [
+            .enabled, .enabled, .disabled, .disabled, .disabled,
+        ])
         await model.startAccountLogin()
         precondition(model.accountLoginSession != nil)
         precondition(model.accountLoginState == .waitingForLogin)

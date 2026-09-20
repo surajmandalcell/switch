@@ -349,14 +349,15 @@ final class AccountViewModel: ObservableObject {
     func startAccountLogin() async {
         if let manager {
             let providerID = selectedProviderID
+            let providerName = providerID.displayName
             await perform(
                 failure: "Couldn’t start sign-in.",
-                recovery: "Confirm that the Codex CLI is installed, then try again."
+                recovery: "Confirm that \(providerName) is installed, then try again."
             ) {
                 let start = try await manager.startAccountLogin(providerID: providerID)
                 accountLoginSession = start.session
                 accountLoginState = .waitingForLogin
-                accountLoginMessage = "Finish signing in to Codex, then return here and choose Check Now."
+                accountLoginMessage = "Finish signing in to \(providerName), then return here and choose Check Now."
                 if !pendingLoginSessions.contains(where: { $0.id == start.session.id }) {
                     pendingLoginSessions.append(start.session)
                 }
@@ -387,9 +388,10 @@ final class AccountViewModel: ObservableObject {
     func checkAccountLogin(credentialChoice: ConflictChoice? = nil) async {
         guard let session = accountLoginSession else { return }
         if let manager {
+            let providerName = session.providerID.displayName
             await perform(
                 failure: "Couldn’t complete sign-in.",
-                recovery: "Finish the Codex sign-in and choose Check Now again."
+                recovery: "Finish the \(providerName) sign-in and choose Check Now again."
             ) {
                 let check = try await manager.checkAccountLogin(
                     id: session.id,
@@ -402,8 +404,9 @@ final class AccountViewModel: ObservableObject {
                     selectedAccountID = account.id
                     pendingLoginSessions.removeAll { $0.id == session.id }
                     let name = account.identity.email ?? account.identity.accountID ?? "The account"
+                    let providerName = account.identity.providerID.displayName
                     notice = status?.defaultAccountID == account.id
-                        ? "New Codex sessions will use \(name)."
+                        ? "New \(providerName) sessions will use \(name)."
                         : "\(name) was saved. Choose Use for New Sessions when you want to switch."
                     await loadCachedUsage()
                     Task { await self.refreshUsage(accountID: account.id) }
@@ -629,6 +632,8 @@ final class AccountViewModel: ObservableObject {
     func switchDefault(to requestedID: UUID? = nil) async {
         if let manager {
             guard let id = requestedID ?? selectedAccountID else { return }
+            let providerName = status?.accounts.first(where: { $0.id == id })?
+                .identity.providerID.displayName ?? "provider"
             await perform(
                 failure: "Couldn’t change the default account.",
                 recovery: "Resolve any item in Backup, then try again."
@@ -636,7 +641,7 @@ final class AccountViewModel: ObservableObject {
                 let result = try await manager.switchDefault(to: id)
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
-                notice = "New Codex sessions will use this account. Backup: \(result.backup.path)"
+                notice = "New \(providerName) sessions will use this account. Backup: \(result.backup.path)"
             }
             if status?.defaultAccountID == id {
                 await loadCachedUsage()
@@ -703,8 +708,10 @@ final class AccountViewModel: ObservableObject {
     func openAccount(_ requestedID: UUID? = nil) async {
         if let manager {
             guard let id = requestedID ?? selectedAccountID else { return }
+            let providerName = status?.accounts.first(where: { $0.id == id })?
+                .identity.providerID.displayName ?? "provider"
             await perform(
-                failure: "Couldn’t open Codex.",
+                failure: "Couldn’t open \(providerName).",
                 recovery: "Check the saved account, then try again."
             ) {
                 if status?.defaultAccountID != id {
@@ -721,9 +728,9 @@ final class AccountViewModel: ObservableObject {
                 let script = try makeLaunchArtifact(spec)
                 guard NSWorkspace.shared.open(script) else {
                     throw AIManagerError.operationFailed(
-                        "Terminal could not open the Codex launch file.")
+                        "Terminal could not open the \(providerName) launch file.")
                 }
-                notice = "Terminal accepted the Codex launch request."
+                notice = "Terminal accepted the \(providerName) launch request."
             }
             return
         }
@@ -1051,6 +1058,9 @@ final class AccountViewModel: ObservableObject {
     var shouldRefreshDefaultUsage: Bool {
         guard paths.isolationRoot == nil else { return false }
         guard let id = status?.defaultAccountID else { return false }
+        guard status?.accounts.first(where: { $0.id == id })?.identity.providerID == .codex else {
+            return false
+        }
         guard let cached = accountUsage[id] else { return true }
         if cached.failure != nil, let attemptedAt = cached.lastAttemptAt,
            Date().timeIntervalSince(attemptedAt) < 5 * 60 {
@@ -1586,14 +1596,16 @@ final class AccountViewModel: ObservableObject {
             at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         let url = directory.appending(path: "Open Switch Account.command")
-        var exports = spec.environment["CODEX_HOME"].map { ["export CODEX_HOME=\(shellQuote($0))"] } ?? []
+        var exports = ["CODEX_HOME", "GROK_HOME"].compactMap { key in
+            spec.environment[key].map { "export \(key)=\(shellQuote($0))" }
+        }
         if paths.isolationRoot != nil, let home = spec.environment["HOME"] {
             exports.append("export HOME=\(shellQuote(home))")
         }
         let command = ([spec.executable.path] + spec.arguments).map(shellQuote).joined(separator: " ")
         let workingDirectory = spec.workingDirectory.map { "cd \(shellQuote($0.path))\n" } ?? ""
         let contents = (
-            ["#!/bin/zsh", "set -e", "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN"]
+            ["#!/bin/zsh", "set -e", "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN XAI_API_KEY"]
                 + exports + [workingDirectory + "exec \(command)"]
         ).joined(separator: "\n") + "\n"
         try contents.write(to: url, atomically: true, encoding: .utf8)
