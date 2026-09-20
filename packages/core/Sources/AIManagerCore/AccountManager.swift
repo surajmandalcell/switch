@@ -276,6 +276,26 @@ public actor AccountManager {
         )
     }
 
+    public func submitAccountLoginCode(id: UUID, input: String) throws {
+        try ensureNoRecovery()
+        let session = try loadLoginSession(id)
+        guard session.providerID == .grokBuild else {
+            throw AIManagerError.unsupportedSource(
+                "Manual authorization codes are supported only for Grok Build.")
+        }
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.utf8.count <= 8_192,
+              value.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
+        else {
+            throw AIManagerError.operationFailed(
+                "Paste a valid Grok authorization code or callback URL.")
+        }
+        guard try loginRunner.submit(id, value) else {
+            throw AIManagerError.operationFailed(
+                "Grok sign-in is no longer waiting for an authorization code. Start sign-in again.")
+        }
+    }
+
     private func checkGrokAccountLogin(
         session: AccountLoginSession,
         credentialChoice: ConflictChoice?

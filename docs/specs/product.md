@@ -29,7 +29,9 @@ replaces only its `auth.json`; configuration, rules, plugins, MCP credentials, a
 stay in place. Switch supports the official CLI's subscription OAuth entries (`oidc` and
 first-party external OAuth), not `XAI_API_KEY`. Saved credentials are owner-private files at
 `~/.switch/grok-build/<account-uuid>.json`. Add Account runs `grok login --oauth` with a
-private temporary `GROK_HOME`. The official CLI hot-reloads `auth.json`, so an existing Grok
+private temporary `GROK_HOME`. If the browser cannot reach the loopback callback, the sign-in
+sheet accepts the authorization code or complete callback URL and sends it once to the waiting
+official CLI without saving it. The official CLI hot-reloads `auth.json`, so an existing Grok
 process may use the newly selected account on its next API call. Switch does not claim that
 existing Grok sessions retain their earlier account.
 
@@ -348,7 +350,7 @@ same 16-point panel content edge as their headings and rows.
 
 The existing `ai-manager` executable owns the terminal interface and opens it when
 run without arguments. The repository root provides `make tui` as the source checkout
-entry point. Distribute the Apple Silicon macOS executable as the `@smc/switch` npm
+entry point. Distribute the Apple Silicon macOS executable as the `@smdl/switch` npm
 package, so npx opens the interface and a global install exposes `switch` and
 the existing `ai-manager` alias.
 The root README has a dedicated terminal getting-started section with all three paths.

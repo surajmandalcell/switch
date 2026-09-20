@@ -166,6 +166,30 @@ final class AccountOnboardingTests: XCTestCase {
             secondAuth)
     }
 
+    func testGrokAuthorizationCodeGoesOnlyToTheWaitingCLI() async throws {
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            loginRunner: recorder.runner)
+        let grok = try await manager.startAccountLogin(providerID: .grokBuild)
+
+        try await manager.submitAccountLoginCode(
+            id: grok.session.id,
+            input: "  authorization-code  ")
+
+        XCTAssertEqual(recorder.lastSubmission?.0, grok.session.id)
+        XCTAssertEqual(recorder.lastSubmission?.1, "authorization-code")
+        await assertOnboardingThrows(
+            try await manager.submitAccountLoginCode(id: grok.session.id, input: " \n "))
+
+        let codex = try await manager.startAccountLogin(providerID: .codex)
+        await assertOnboardingThrows(
+            try await manager.submitAccountLoginCode(
+                id: codex.session.id,
+                input: "authorization-code"))
+    }
+
     func testStagedLoginUsesIsolatedHomeAndImportsOnCheck() async throws {
         let recorder = LoginRunnerRecorder()
         let manager = try AccountManager(
@@ -538,14 +562,20 @@ private final class LoginRunnerRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var launches = 0
     private var cancels = 0
+    private var submissions: [(UUID, String)] = []
 
     var launchCount: Int { lock.withLock { launches } }
     var cancelCount: Int { lock.withLock { cancels } }
+    var lastSubmission: (UUID, String)? { lock.withLock { submissions.last } }
 
     var runner: AccountLoginRunner {
         AccountLoginRunner(
             launch: { [self] _, _ in lock.withLock { launches += 1 } },
-            cancel: { [self] _ in lock.withLock { cancels += 1 }; return true }
+            cancel: { [self] _ in lock.withLock { cancels += 1 }; return true },
+            submit: { [self] id, input in
+                lock.withLock { submissions.append((id, input)) }
+                return true
+            }
         )
     }
 }

@@ -12,7 +12,7 @@ tool without repeating its sign-in flow.
 
 ## Get Switch for Mac
 
-[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.1.0/Switch-v3.1.0-mac-arm64.zip),
+[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.1.1/Switch-v3.1.1-mac-arm64.zip),
 unzip it, and move `Switch.app` to Applications. Switch requires macOS 14 or
 later on Apple Silicon. Install the command-line tool for each provider you use.
 
@@ -29,13 +29,13 @@ You can also [build Switch from source](docs/development.md#build-and-check).
 Open the terminal interface without a global install:
 
 ```bash
-npx --yes @smc/switch
+npx --yes @smdl/switch
 ```
 
 Or install it globally:
 
 ```bash
-npm install --global @smc/switch
+npm install --global @smdl/switch
 switch
 ```
 

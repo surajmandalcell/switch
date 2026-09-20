@@ -101,26 +101,35 @@ public struct AccountLoginRunner: @unchecked Sendable {
     /// Returns whether this process still owns, or observed completion of, the matching launch.
     public let launch: @Sendable (UUID, LaunchSpec) throws -> Void
     public let cancel: @Sendable (UUID) -> Bool
+    public let submit: @Sendable (UUID, String) throws -> Bool
 
     public init(
         launch: @escaping @Sendable (UUID, LaunchSpec) throws -> Void,
-        cancel: @escaping @Sendable (UUID) -> Bool = { _ in false }
+        cancel: @escaping @Sendable (UUID) -> Bool = { _ in false },
+        submit: @escaping @Sendable (UUID, String) throws -> Bool = { _, _ in false }
     ) {
         self.launch = launch
         self.cancel = cancel
+        self.submit = submit
     }
 
     public static let foundation = AccountLoginRunner(
         launch: { id, spec in try FoundationLoginProcesses.shared.launch(id: id, spec: spec) },
-        cancel: { id in FoundationLoginProcesses.shared.cancel(id: id) }
+        cancel: { id in FoundationLoginProcesses.shared.cancel(id: id) },
+        submit: { id, input in try FoundationLoginProcesses.shared.submit(input, id: id) }
     )
 }
 
 private final class FoundationLoginProcesses: @unchecked Sendable {
+    private struct RunningLogin {
+        let process: Process
+        let input: FileHandle?
+    }
+
     static let shared = FoundationLoginProcesses()
 
     private let lock = NSLock()
-    private var processes: [UUID: Process] = [:]
+    private var processes: [UUID: RunningLogin] = [:]
     private var completed: Set<UUID> = []
 
     func launch(id: UUID, spec: LaunchSpec) throws {
@@ -131,32 +140,41 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         process.currentDirectoryURL = spec.workingDirectory
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        let (input, childInput) = try privateTerminal(for: spec)
+        if let childInput { process.standardInput = childInput }
         process.terminationHandler = { [weak self] _ in
-            self?.lock.lock()
-            self?.processes.removeValue(forKey: id)
-            self?.completed.insert(id)
-            self?.lock.unlock()
+            guard let self else { return }
+            lock.lock()
+            let finished = processes.removeValue(forKey: id)
+            completed.insert(id)
+            lock.unlock()
+            try? finished?.input?.close()
         }
         lock.lock()
         completed.remove(id)
-        processes[id] = process
+        processes[id] = RunningLogin(process: process, input: input)
         lock.unlock()
         do {
             try process.run()
+            try? childInput?.close()
         } catch {
             lock.lock()
             processes.removeValue(forKey: id)
             lock.unlock()
+            try? input?.close()
+            try? childInput?.close()
             throw error
         }
     }
 
     func cancel(id: UUID) -> Bool {
         lock.lock()
-        let process = processes.removeValue(forKey: id)
+        let running = processes.removeValue(forKey: id)
         let observedCompletion = completed.remove(id) != nil
         lock.unlock()
-        guard let process else { return observedCompletion }
+        guard let running else { return observedCompletion }
+        let process = running.process
+        defer { try? running.input?.close() }
         guard process.isRunning else { return true }
         process.terminate()
         let deadline = Date().addingTimeInterval(1)
@@ -166,6 +184,37 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         process.waitUntilExit()
         return true
+    }
+
+    func submit(_ input: String, id: UUID) throws -> Bool {
+        lock.lock()
+        let running = processes[id]
+        lock.unlock()
+        guard let running, running.process.isRunning, let destination = running.input else {
+            return false
+        }
+        try destination.write(contentsOf: Data((input + "\n").utf8))
+        return true
+    }
+
+    private func privateTerminal(for spec: LaunchSpec) throws -> (FileHandle?, FileHandle?) {
+        guard spec.environment["GROK_HOME"] != nil, spec.arguments == ["login", "--oauth"] else {
+            return (nil, nil)
+        }
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+            throw AIManagerError.operationFailed("Could not open a private sign-in terminal.")
+        }
+        var settings = termios()
+        if tcgetattr(slave, &settings) == 0 {
+            settings.c_lflag &= ~tcflag_t(ECHO)
+            _ = tcsetattr(slave, TCSANOW, &settings)
+        }
+        return (
+            FileHandle(fileDescriptor: master, closeOnDealloc: true),
+            FileHandle(fileDescriptor: slave, closeOnDealloc: true)
+        )
     }
 }
 
