@@ -42,6 +42,9 @@ piped output, percentage-left and percentage-used display, source CLI acceptance
 npm package installation, and npx execution pass with isolated synthetic homes. The full
 native gate passes 172 core tests with two protected-copy opt-in skips on macOS, Linux
 ARM64, and Linux AMD64, plus the release build and System, Light, and Dark UI contracts.
+The packaged executable is installed at `~/.local/bin/ai-manager`; its SHA-256 is
+`79f992e30a696e32cac99a75aa8f52d790cacd4d2b5ad0f4c4f9420a63e9c3cb` and its strict
+ad hoc signature, isolated launch, and Ivory render pass.
 
 ### Usage percentage preference (2026-09-19)
 
