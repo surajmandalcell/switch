@@ -18,6 +18,8 @@ release/
 artifacts/
 /tmp/
 npm/vendor/
+/goals.md
+/goals.archive.md
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
