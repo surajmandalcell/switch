@@ -23,6 +23,7 @@
     "arm64"
   ],
   "bin": {
+    "switch-codex": "npm/vendor/darwin-arm64/ai-manager",
     "ai-manager": "npm/vendor/darwin-arm64/ai-manager"
   },
   "files": [
