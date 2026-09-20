@@ -134,6 +134,30 @@ final class CodexUsageStatisticsCacheTests: XCTestCase {
         XCTAssertEqual(retained.map(\.tokens), [42])
     }
 
+    func testTokenPeriodsUseOneAccountAndRollingUTCDays() throws {
+        let end = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-15T12:00:00Z"))
+        let rows = [
+            CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: 10),
+            CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: 5),
+            CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 20),
+            CodexDailyUsageSnapshot(startDate: "2026-09-09", tokens: 30),
+            CodexDailyUsageSnapshot(startDate: "2026-09-08", tokens: 40),
+            CodexDailyUsageSnapshot(startDate: "2026-08-17", tokens: 50),
+            CodexDailyUsageSnapshot(startDate: "2026-08-16", tokens: 60),
+            CodexDailyUsageSnapshot(startDate: "2025-09-16", tokens: 70),
+            CodexDailyUsageSnapshot(startDate: "2025-09-15", tokens: 80),
+            CodexDailyUsageSnapshot(startDate: "2026-02-30", tokens: 1_000),
+            CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: nil),
+        ]
+
+        XCTAssertEqual(CodexTokenPeriod.allCases.map(\.label), [
+            "Today", "Yesterday", "Weekly", "Monthly", "Yearly",
+        ])
+        XCTAssertEqual(
+            CodexTokenPeriod.allCases.map { $0.tokens(in: rows, endingAt: end) },
+            [15, 20, 65, 155, 285])
+    }
+
     func testSharedDailyActivityAggregatesProjectsAndSurvivesPurgeAndReopen() async throws {
         let ledger = root.appending(path: "activity/daily.sqlite")
         var cache: CodexUsageStatisticsCache? = try CodexUsageStatisticsCache(

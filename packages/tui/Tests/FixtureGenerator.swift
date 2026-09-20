@@ -90,7 +90,8 @@ if [ "$1 $2" = "app-server --stdio" ]; then
   IFS= read -r line
   printf '{"id":2,"result":{"account":{"type":"chatgpt","email":"%s","planType":"plus"},"requiresOpenaiAuth":false}}\n' "$email"
   printf '{"id":3,"result":{"accountId":"%s","ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":{"usedPercent":25}}}}\n' "$account_id"
-  printf '%s\n' '{"id":4,"result":{"summary":{"lifetimeTokens":1200},"dailyUsageBuckets":[]}}'
+  today="$(date -u +%F)"
+  printf '{"id":4,"result":{"summary":{"lifetimeTokens":1200},"dailyUsageBuckets":[{"startDate":"%s","tokens":1200}]}}\n' "$today"
   exit 0
 fi
 if [ "$3 $4" = "login status" ] || [ "$4 $5" = "login status" ]; then

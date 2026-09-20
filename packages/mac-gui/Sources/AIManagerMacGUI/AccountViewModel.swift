@@ -106,7 +106,6 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var accountUsage: [UUID: CachedCodexAccountUsage] = [:]
     @Published private(set) var usageSnapshots: [UUID: CodexAccountUsageSnapshot] = [:]
     @Published private(set) var retainedDailyUsage: [UUID: [CodexDailyUsageSnapshot]] = [:]
-    @Published private(set) var sharedDailyActivity: [CodexSharedDailyActivity] = []
     @Published private(set) var usageRefreshAccountID: UUID?
     @Published private(set) var usageError: String?
     @Published private(set) var chatHistory = ChatHistorySnapshot()
@@ -296,7 +295,6 @@ final class AccountViewModel: ObservableObject {
         usageSnapshots = Dictionary(uniqueKeysWithValues: accounts.enumerated().map { index, account in
             (account.id, DemoData.usage(account: account, offset: index))
         })
-        sharedDailyActivity = scenario == .empty ? [] : DemoData.sharedDailyActivity
         accountUsage = [:]
         usageRefreshAccountID = nil
         usageError = nil
@@ -1042,25 +1040,6 @@ final class AccountViewModel: ObservableObject {
         return (try? await usageCache?.projectActivity(on: formatter.string(from: date))) ?? []
     }
 
-    private func loadSharedDailyActivity() async {
-        await prepareUsageCache()
-        guard let usageCache else { return }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let end = calendar.startOfDay(for: Date())
-        guard let start = calendar.date(byAdding: .day, value: -29, to: end) else { return }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        formatter.timeZone = calendar.timeZone
-        do {
-            let rows = try await usageCache.sharedDailyActivity(
-                from: formatter.string(from: start), through: formatter.string(from: end))
-            if sharedDailyActivity != rows { sharedDailyActivity = rows }
-        } catch {
-            chatHistoryError = "Token activity could not be read. \(error.localizedDescription)"
-        }
-    }
-
     func usageError(for accountID: UUID) -> String? {
         if usageErrorAccountID == nil || usageErrorAccountID == accountID {
             if let usageError { return usageError }
@@ -1141,7 +1120,6 @@ final class AccountViewModel: ObservableObject {
             usageError = CodexUsageStatisticsFailure.storageUnavailable.message
             usageErrorAccountID = nil
         }
-        await loadSharedDailyActivity()
     }
 
     private func prepareUsageCache() async {
@@ -1309,7 +1287,6 @@ final class AccountViewModel: ObservableObject {
             do {
                 let snapshot = try await chatHistoryProvider.refresh(query: requestedChatHistoryQuery)
                 guard !Task.isCancelled else { return }
-                await loadSharedDailyActivity()
                 if hasScannedChatHistory {
                     applyChatHistory(snapshot, query: requestedChatHistoryQuery)
                     await selectVisibleChat()
@@ -1373,7 +1350,6 @@ final class AccountViewModel: ObservableObject {
         do {
             let snapshot = try await chatHistoryProvider.refresh(query: query)
             guard !Task.isCancelled else { return }
-            await loadSharedDailyActivity()
             hasScannedChatHistory = true
             applyChatHistory(snapshot, query: query)
             if chatHistoryError != nil { chatHistoryError = nil }
@@ -1639,27 +1615,6 @@ final class AccountViewModel: ObservableObject {
 #if AI_MANAGER_PREVIEW
 private enum DemoData {
     static let now = Date(timeIntervalSince1970: 1_789_281_000)
-    static var sharedDailyActivity: [CodexSharedDailyActivity] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        formatter.timeZone = calendar.timeZone
-        let today = calendar.startOfDay(for: Date())
-        let rows = [
-            (0, Int64(128_420), true),
-            (1, Int64(96_310), true),
-            (3, Int64(224_890), true),
-            (9, Int64(480_000), false),
-        ].compactMap { offset, tokens, isComplete in
-            calendar.date(byAdding: .day, value: -offset, to: today).map {
-                CodexSharedDailyActivity(
-                    day: formatter.string(from: $0), tokens: tokens, isComplete: isComplete)
-            }
-        }
-        return Array(rows.reversed())
-    }
-
     static let paths = ManagerPaths(
         applicationSupport: URL(fileURLWithPath: "/Switch Demo", isDirectory: true),
         defaultHome: URL(fileURLWithPath: "/Demo/Codex", isDirectory: true),

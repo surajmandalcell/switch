@@ -250,7 +250,6 @@ final class AIManagerStatusItemController: NSObject {
 
   static func contentSize(
     accounts: [MenuBarAccountSnapshot],
-    hasTokenStatistics: Bool = false,
     visibleScreenHeight: CGFloat
   ) -> NSSize {
     let listHeight: CGFloat
@@ -263,7 +262,6 @@ final class AIManagerStatusItemController: NSObject {
         + CGFloat(accounts.count) * MenuBarPopover.cardSpacing
     }
     let idealHeight = MenuBarPopover.footerHeight + listHeight
-      + (hasTokenStatistics ? MenuBarPopover.tokenStatisticsHeight : 0)
     let screenMaximum = max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.80))
     let height = min(max(idealHeight, MenuBarPopover.minimumHeight), screenMaximum)
     return NSSize(width: MenuBarPopover.width, height: height)
@@ -277,7 +275,6 @@ final class AIManagerStatusItemController: NSObject {
     popover.contentViewController?.view.layoutSubtreeIfNeeded()
     popover.contentSize = Self.contentSize(
       accounts: store.snapshot.accounts,
-      hasTokenStatistics: !store.snapshot.sharedDailyActivity.isEmpty,
       visibleScreenHeight: store.visibleScreenHeight)
   }
 

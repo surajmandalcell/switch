@@ -840,6 +840,7 @@ private struct AccountDetail: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
   let delete: () -> Void
+  @State private var tokenPeriod = CodexTokenPeriod.today
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var issues: [LinkedSettingsDivergence] {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
@@ -872,17 +873,14 @@ private struct AccountDetail: View {
             }
           }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
         }
-        if !model.sharedDailyActivity.isEmpty {
-          AIMPanel(title: "Token statistics") {
-            VStack(alignment: .leading, spacing: 10) {
-              Text("Shared Codex home")
-                .font(AIMTheme.sans(10, weight: .medium))
-                .foregroundStyle(AIMTheme.muted)
-              UsageTokenStatistics(
-                statistics: UsagePresentation.tokenStatistics(
-                  model.sharedDailyActivity, endingAt: Date()))
-            }
-            .padding(16)
+        let dailyUsage = model.dailyUsage(for: account.id)
+        if !dailyUsage.isEmpty {
+          AIMPanel(title: "Token statistics", headerAccessories: AnyView(
+            TokenPeriodPicker(selection: $tokenPeriod)
+          )) {
+            TokenStatistic(
+              period: tokenPeriod,
+              tokens: tokenPeriod.tokens(in: dailyUsage, endingAt: Date()))
           }
         }
         AccountUsagePanel(account: account, model: model)
@@ -995,13 +993,6 @@ enum UsagePresentation {
     var id: Date { date }
   }
 
-  struct TokenStatistic: Identifiable, Equatable {
-    let label: String
-    let tokens: Int64
-    let isComplete: Bool
-    var id: String { label }
-  }
-
   static func accountFacts(_ snapshot: CodexAccountUsageSnapshot) -> [Fact] {
     var facts: [Fact] = []
     if let allowed = snapshot.rateLimits?.ordinaryUsageAllowed {
@@ -1093,32 +1084,6 @@ enum UsagePresentation {
       guard let date = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
       return ActivityDay(date: date, tokens: tokensByDay[date, default: 0])
     }
-  }
-
-  static func tokenStatistics(
-    _ rows: [CodexSharedDailyActivity], endingAt endDate: Date
-  ) -> [TokenStatistic] {
-    let days = activityDays(rows.map {
-      CodexDailyUsageSnapshot(startDate: $0.day, tokens: $0.tokens)
-    }, endingAt: endDate, dayCount: 30)
-    let incompleteDays = Set(rows.compactMap { row in
-      row.isComplete ? nil : activityDate(row.day)
-    })
-    func statistic(_ label: String, _ period: ArraySlice<ActivityDay>) -> TokenStatistic {
-      let tokens = period.reduce(Int64(0)) { current, day in
-        let (sum, overflow) = current.addingReportingOverflow(day.tokens)
-        return overflow ? Int64.max : sum
-      }
-      return TokenStatistic(
-        label: label, tokens: tokens,
-        isComplete: !period.contains { incompleteDays.contains($0.date) })
-    }
-    return [
-      statistic("Today", days.suffix(1)),
-      statistic("Yesterday", days.dropLast().suffix(1)),
-      statistic("Last 7 Days", days.suffix(7)),
-      statistic("Last 30 Days", days[days.startIndex...]),
-    ]
   }
 
   static func exactTokens(_ value: Int64) -> String {
@@ -1732,44 +1697,51 @@ private struct UsageMeter: View {
 
 }
 
-private struct UsageTokenStatistics: View {
-  let statistics: [UsagePresentation.TokenStatistic]
+private struct TokenPeriodPicker: View {
+  @Binding var selection: CodexTokenPeriod
 
   var body: some View {
-    HStack(spacing: 0) {
-      ForEach(Array(statistics.enumerated()), id: \.element.id) { index, statistic in
-        if index > 0 {
-          Rectangle().fill(AIMTheme.lineSoft).frame(width: 1, height: 34)
-        }
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 4) {
-            Text(statistic.label)
-              .font(AIMTheme.sans(9, weight: .medium))
-              .foregroundStyle(AIMTheme.muted)
-              .lineLimit(1)
-            if !statistic.isComplete {
-              AIMIcon(name: .info, size: 9).foregroundStyle(AIMTheme.amber)
-            }
+    HStack(spacing: 2) {
+      ForEach(CodexTokenPeriod.allCases, id: \.self) { period in
+        Button { selection = period } label: {
+          Text(period.label)
+            .font(AIMTheme.sans(9, weight: .medium))
+            .foregroundStyle(selection == period ? AIMTheme.activeInk : AIMTheme.muted)
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(selection == period ? AIMTheme.active : AIMTheme.control.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+            .contentShape(Rectangle())
           }
-          Text(UsagePresentation.formatTokens(statistic.tokens))
-            .font(AIMTheme.mono(18, weight: .semibold))
-            .monospacedDigit()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(statistic.label)
-        .accessibilityValue(
-          "\(UsagePresentation.exactTokens(statistic.tokens)) tokens"
-            + (statistic.isComplete ? "" : ", incomplete source records"))
-        .help(
-          "\(statistic.label): \(UsagePresentation.exactTokens(statistic.tokens)) tokens"
-            + (statistic.isComplete ? "" : ". Some source records are incomplete."))
+        .buttonStyle(AIMPressButtonStyle())
+        .accessibilityLabel("Show \(period.label.lowercased()) token statistics")
+        .accessibilityAddTraits(selection == period ? .isSelected : [])
       }
     }
-    .padding(.vertical, 10)
-    .background(AIMTheme.panel2)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+}
+
+private struct TokenStatistic: View {
+  let period: CodexTokenPeriod
+  let tokens: Int64
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 6) {
+      Text(UsagePresentation.formatTokens(tokens))
+        .font(AIMTheme.mono(18, weight: .semibold))
+        .monospacedDigit()
+      Text("tokens")
+        .font(AIMTheme.sans(10, weight: .medium))
+        .foregroundStyle(AIMTheme.muted)
+      Spacer(minLength: 0)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 16)
+    .frame(height: 54)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(period.label)
+    .accessibilityValue("\(UsagePresentation.exactTokens(tokens)) tokens")
+    .help("\(period.label): \(UsagePresentation.exactTokens(tokens)) tokens")
   }
 }
 

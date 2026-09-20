@@ -598,7 +598,6 @@ private final class AcceptanceReceipts {
             origin: .zero,
             size: AIManagerStatusItemController.contentSize(
                 accounts: snapshot.accounts,
-                hasTokenStatistics: !snapshot.sharedDailyActivity.isEmpty,
                 visibleScreenHeight: 900))
         view.layoutSubtreeIfNeeded()
         writeSnapshot(of: view, filename: "menu-bar.png")

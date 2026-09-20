@@ -225,11 +225,13 @@ struct AIManagerCLI {
         let terminal = TerminalInput()
         defer { terminal.restore() }
         let usageCache = try? CodexUsageStatisticsCache(
-            databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"))
+            databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
+            activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
         var selectedAccountID: UUID?
         var screen = TerminalScreen.accounts
         var mainFocus = 0
         var accountActionFocus = 0
+        var tokenPeriod = CodexTokenPeriod.today
         var initializedFocus = false
         var message: String?
         while true {
@@ -249,10 +251,14 @@ struct AIManagerCLI {
                 selectedAccountID = status.accounts[mainFocus].id
             }
             let usage = await cachedUsage(usageCache, accountIDs: status.accounts.map(\.id))
+            let dailyUsage = await cachedDailyUsage(
+                usageCache, accountIDs: status.accounts.map(\.id))
             menu.render(
                 status: status,
                 selectedAccountID: selectedAccountID,
                 usage: usage,
+                dailyUsage: dailyUsage,
+                tokenPeriod: tokenPeriod,
                 pendingLoginCount: pendingSessions.count,
                 screen: screen,
                 mainActions: mainActions,
@@ -362,8 +368,12 @@ struct AIManagerCLI {
                                 menu: menu,
                                 usageCache: usageCache)
                         }
-                    case .character:
-                        break
+                    case let .character(character):
+                        if character.lowercased() == "w",
+                           let index = CodexTokenPeriod.allCases.firstIndex(of: tokenPeriod) {
+                            tokenPeriod = CodexTokenPeriod.allCases[
+                                (index + 1) % CodexTokenPeriod.allCases.count]
+                        }
                     }
                 }
             } catch {
@@ -485,6 +495,19 @@ struct AIManagerCLI {
         return Dictionary(uniqueKeysWithValues: entries.compactMap { entry in
             entry.snapshot.map { (entry.accountID, $0) }
         })
+    }
+
+    static func cachedDailyUsage(
+        _ cache: CodexUsageStatisticsCache?, accountIDs: [UUID]
+    ) async -> [UUID: [CodexDailyUsageSnapshot]] {
+        guard let cache else { return [:] }
+        var result: [UUID: [CodexDailyUsageSnapshot]] = [:]
+        for accountID in accountIDs {
+            if let rows = try? await cache.dailyUsage(for: accountID), !rows.isEmpty {
+                result[accountID] = rows
+            }
+        }
+        return result
     }
 
     private static func interactiveAddAccount(
@@ -925,6 +948,8 @@ private struct TerminalMenu {
         status: ManagerStatus,
         selectedAccountID: UUID?,
         usage: [UUID: CodexAccountUsageSnapshot],
+        dailyUsage: [UUID: [CodexDailyUsageSnapshot]],
+        tokenPeriod: CodexTokenPeriod,
         pendingLoginCount: Int,
         screen: TerminalScreen,
         mainActions: [TerminalMainAction],
@@ -953,7 +978,9 @@ private struct TerminalMenu {
             }
             if let account = status.accounts.first(where: { $0.id == selectedAccountID }) {
                 lines.append("")
-                lines.append(contentsOf: detailLines(account: account, usage: usage[account.id]))
+                lines.append(contentsOf: detailLines(
+                    account: account, usage: usage[account.id],
+                    dailyUsage: dailyUsage[account.id], tokenPeriod: tokenPeriod))
             }
             lines.append("")
             lines.append("Actions")
@@ -969,7 +996,9 @@ private struct TerminalMenu {
             lines.append("Account")
             lines.append(accent(Self.accountName(account.identity)))
             lines.append("")
-            lines.append(contentsOf: detailLines(account: account, usage: usage[account.id]))
+            lines.append(contentsOf: detailLines(
+                account: account, usage: usage[account.id],
+                dailyUsage: dailyUsage[account.id], tokenPeriod: tokenPeriod))
             lines.append("")
             lines.append("Actions")
             for (index, action) in TerminalAccountAction.allCases.enumerated() {
@@ -978,7 +1007,7 @@ private struct TerminalMenu {
             }
             if let message { lines.append(""); lines.append(accent(message)) }
             lines.append("")
-            lines.append(muted("↑↓ move   Enter run   ←/Esc back"))
+            lines.append(muted("↑↓ move   Enter run   w period   ←/Esc back"))
         }
 
         if clearsScreen { print("\u{1B}[2J\u{1B}[H", terminator: "") }
@@ -995,7 +1024,9 @@ private struct TerminalMenu {
 
     private func detailLines(
         account: AccountRecord,
-        usage: CodexAccountUsageSnapshot?
+        usage: CodexAccountUsageSnapshot?,
+        dailyUsage: [CodexDailyUsageSnapshot]?,
+        tokenPeriod: CodexTokenPeriod
     ) -> [String] {
         let view = usage.map(Self.usageView)
         var lines: [String] = []
@@ -1005,6 +1036,15 @@ private struct TerminalMenu {
             lines.append(muted("Usage has not been checked."))
         } else if let resetDate = view?.weekly?.resetsAt ?? view?.session?.resetsAt {
             lines.append("reset        : \(Self.resetLabel(until: resetDate))")
+        }
+        if let dailyUsage, !dailyUsage.isEmpty {
+            lines.append("")
+            lines.append("Token statistics")
+            lines.append(CodexTokenPeriod.allCases.map {
+                $0 == tokenPeriod ? "[\($0.label)]" : $0.label
+            }.joined(separator: "  "))
+            lines.append("\(tokenPeriod.label.lowercased())      : "
+                + "\(tokenPeriod.tokens(in: dailyUsage, endingAt: Date()).formatted()) tokens")
         }
         return lines
     }
