@@ -1220,6 +1220,7 @@ private final class TerminalInput {
         guard hasOriginal, !rawEnabled else { return }
         var settings = original
         cfmakeraw(&settings)
+        settings.c_oflag = original.c_oflag
         withUnsafeMutableBytes(of: &settings.c_cc) { bytes in
             bytes[Int(VMIN)] = 1
             bytes[Int(VTIME)] = 0

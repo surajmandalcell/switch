@@ -62,6 +62,17 @@ fi
 rg -F 'No saved accounts' "$test_root/tui-native.log" >/dev/null
 rg -F '↑↓ move   →/Enter select   Esc quit' "$test_root/tui-native.log" >/dev/null
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  mkdir -p "$test_root/pty-home"
+  printf '\033' | /usr/bin/script -q "$test_root/tui-pty.log" \
+    env AI_MANAGER_ROOT="$test_root/pty-home" "$binary" interactive >/dev/null
+  if rg -U -F $'No saved accounts\n\n\nActions\n' "$test_root/tui-pty.log" >/dev/null; then
+    printf '%s\n' 'Raw terminal mode emitted bare line feeds and shifted menu rows.' >&2
+    exit 1
+  fi
+  rg -U -F $'No saved accounts\r\n\r\n\r\nActions\r\n' "$test_root/tui-pty.log" >/dev/null
+fi
+
 printf '\r\033[B\033[A\033\033' | AI_MANAGER_TUI_KEYS=always \
   AI_MANAGER_TUI_STYLE=always "$binary" interactive >"$test_root/tui-choice.log"
 rg -F 'Provider: ←' "$test_root/tui-choice.log" >/dev/null
