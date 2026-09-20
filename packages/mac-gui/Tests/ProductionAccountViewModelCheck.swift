@@ -25,6 +25,18 @@ private struct SilentChatHistoryMonitor: ChatHistoryMonitoring {
 struct ProductionAccountViewModelCheck {
     @MainActor
     static func main() async throws {
+        try expect(AccountViewModel.usageRefreshInterval == 3 * 60,
+                   "Usage refresh cadence is not three minutes")
+        let refreshClock = Date(timeIntervalSince1970: 10_000)
+        try expect(!AccountViewModel.automaticUsageRefreshIsDue(
+            fetchedAt: refreshClock.addingTimeInterval(-179), failedAt: nil, now: refreshClock),
+            "Fresh usage was scheduled before three minutes")
+        try expect(AccountViewModel.automaticUsageRefreshIsDue(
+            fetchedAt: refreshClock.addingTimeInterval(-180), failedAt: nil, now: refreshClock),
+            "Three-minute-old usage was not scheduled")
+        try expect(!AccountViewModel.automaticUsageRefreshIsDue(
+            fetchedAt: nil, failedAt: refreshClock.addingTimeInterval(-299), now: refreshClock),
+            "A failed refresh ignored its five-minute cooldown")
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appending(
             path: "iia-directeur-gui-check-\(UUID().uuidString)", directoryHint: .isDirectory)
