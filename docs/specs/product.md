@@ -128,6 +128,12 @@ statistics. Optional fields are conditional:
 - Never manufacture a value from transcripts and never combine stale usage with Needs
   sign-in.
 
+Refresh stale usage for every saved Codex account at launch and every three minutes while
+the app runs. Use one cache-backed model for the main window and menu bar, so both update from
+the same completed refresh. The cadence is fixed and does not depend on opening the menu bar;
+manual refresh remains immediate, and a failed account waits five minutes before another
+automatic attempt.
+
 Settings includes a persistent “Show percentage used” toggle, off by default. When off,
 every quota percentage shows the amount left; when on, every quota percentage shows the
 amount used. The selected meaning applies to main-window meters, Menubar cards, status-item

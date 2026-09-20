@@ -73,6 +73,18 @@ enum AccountModalMode {
 
 @MainActor
 final class AccountViewModel: ObservableObject {
+    static let usageRefreshInterval: TimeInterval = 3 * 60
+
+    static func automaticUsageRefreshIsDue(
+        fetchedAt: Date?,
+        failedAt: Date?,
+        now: Date = Date()
+    ) -> Bool {
+        if let failedAt, now.timeIntervalSince(failedAt) < 5 * 60 { return false }
+        guard let fetchedAt else { return true }
+        return now.timeIntervalSince(fetchedAt) >= usageRefreshInterval
+    }
+
     #if AI_MANAGER_PREVIEW
     enum Scenario { case demo, empty, allStates, historyStress }
     #endif
@@ -222,9 +234,7 @@ final class AccountViewModel: ObservableObject {
         }
         await loadCachedUsage()
         Task { await self.loadAPIPricing() }
-        if shouldRefreshDefaultUsage {
-            Task { await self.refreshDefaultUsage() }
-        }
+        Task { await self.refreshStaleUsage() }
     }
 
     func reloadAfterActivation() async {
@@ -235,7 +245,7 @@ final class AccountViewModel: ObservableObject {
             try await reloadStatus(using: manager)
             await loadCachedUsage()
             Task { await self.loadAPIPricing() }
-            if shouldRefreshDefaultUsage { Task { await self.refreshDefaultUsage() } }
+            Task { await self.refreshStaleUsage() }
         } catch {
             errorMessage = "Couldn’t refresh accounts. \(error.localizedDescription)"
         }
@@ -1097,17 +1107,29 @@ final class AccountViewModel: ObservableObject {
     }
 
     var shouldRefreshDefaultUsage: Bool {
-        guard paths.isolationRoot == nil else { return false }
         guard let id = status?.defaultAccountID else { return false }
-        guard status?.accounts.first(where: { $0.id == id })?.identity.providerID == .codex else {
-            return false
+        return shouldRefreshUsage(accountID: id)
+    }
+
+    private func shouldRefreshUsage(accountID: UUID) -> Bool {
+        guard paths.isolationRoot == nil,
+              status?.accounts.contains(where: {
+                  $0.id == accountID && $0.identity.providerID == .codex
+              }) == true else { return false }
+        guard let cached = accountUsage[accountID] else { return true }
+        return Self.automaticUsageRefreshIsDue(
+            fetchedAt: cached.snapshot == nil ? nil : cached.fetchedAt,
+            failedAt: cached.failure == nil ? nil : cached.lastAttemptAt)
+    }
+
+    func refreshStaleUsage() async {
+        guard usageRefreshAccountID == nil else { return }
+        let accountIDs = status?.accounts.compactMap { account in
+            shouldRefreshUsage(accountID: account.id) ? account.id : nil
+        } ?? []
+        for accountID in accountIDs {
+            await refreshUsage(accountID: accountID)
         }
-        guard let cached = accountUsage[id] else { return true }
-        if cached.failure != nil, let attemptedAt = cached.lastAttemptAt,
-           Date().timeIntervalSince(attemptedAt) < 5 * 60 {
-            return false
-        }
-        return cached.snapshot == nil || cached.isStale
     }
 
     func refreshDefaultUsage() async {
@@ -1188,10 +1210,14 @@ final class AccountViewModel: ObservableObject {
         guard !didPrepareUsageCache, let usageDatabaseURL else { return }
         didPrepareUsageCache = true
         let activityURL = paths.applicationSupport.appending(path: "activity/daily.sqlite")
+        let refreshInterval = Self.usageRefreshInterval
         do {
             usageCache = try await Task.detached(priority: .utility) {
-                try CodexUsageStatisticsCache(databaseURL: usageDatabaseURL,
-                                              activityDatabaseURL: activityURL)
+                try CodexUsageStatisticsCache(
+                    databaseURL: usageDatabaseURL,
+                    policy: CodexUsageStatisticsCachePolicy(
+                        staleAfter: refreshInterval),
+                    activityDatabaseURL: activityURL)
             }.value
             if let usageCache { await chatHistoryProvider?.attachActivityCache(usageCache) }
         } catch {

@@ -113,6 +113,18 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     apiPrice: apiPrice))
             }
             .store(in: &modelObservers)
+        Timer.publish(
+            every: AccountViewModel.usageRefreshInterval,
+            on: .main,
+            in: .common
+        )
+        .autoconnect()
+        .sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.model.refreshStaleUsage()
+            }
+        }
+        .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
             applicationName: AIManagerBrand.bundleDisplayName(),
             addAccount: { [weak self] in self?.addAccountFromMenuBar() },
