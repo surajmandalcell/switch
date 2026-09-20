@@ -616,7 +616,8 @@ enum AIManagerNativeContract {
     if AccountActionCopy.copyAuthPath != "Copy auth path" {
       failures.append("Account auth-path action uses stale copy")
     }
-    if AccountActionCopy.useAndOpen != "Use & Open Codex"
+    if AccountActionCopy.useAndOpen(.codex) != "Use & Open Codex"
+      || AccountActionCopy.open(.grokBuild) != "Open Grok Build"
       || AccountActionCopy.delete != "Delete account"
     {
       failures.append("Account context actions use unexpected copy")
@@ -637,9 +638,9 @@ enum AIManagerNativeContract {
     if NSImage(systemSymbolName: AIMIcon.Name.menuBar.symbol, accessibilityDescription: nil) == nil {
       failures.append("The account menu-usage control has no native icon")
     }
-    if [ProviderID.codex, .claudeCode, .geminiCLI, .antigravityCLI].map(\.displayName)
-      != ["Codex CLI", "Claude Code", "Gemini CLI", "Antigravity CLI"]
-      || ProviderID(rawValue: "grok-build").displayName != "Grok Build"
+    if [ProviderID.codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI]
+      .map(\.displayName)
+      != ["Codex CLI", "Grok Build", "Claude Code", "Gemini CLI", "Antigravity CLI"]
     {
       failures.append("Provider names are not derived consistently")
     }

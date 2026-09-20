@@ -604,8 +604,12 @@ private struct Badge: View {
 enum AccountActionCopy {
   static let use = "Set as Default"
   static let usingDefault = "Using as default"
-  static let open = "Open Codex"
-  static let useAndOpen = "Use & Open Codex"
+  static func open(_ providerID: ProviderID) -> String {
+    "Open \(providerID == .codex ? "Codex" : providerID.displayName)"
+  }
+  static func useAndOpen(_ providerID: ProviderID) -> String {
+    "Use & Open \(providerID == .codex ? "Codex" : providerID.displayName)"
+  }
   static let check = "Check account files"
   static let copyAuthPath = "Copy auth path"
   static let delete = "Delete account"
@@ -720,7 +724,11 @@ private struct AccountsPage: View {
       Task { await model.switchDefault(to: account.id) }
     }
     .disabled(model.isBusy)
-    Button(isDefault ? AccountActionCopy.open : AccountActionCopy.useAndOpen) {
+    Button(
+      isDefault
+        ? AccountActionCopy.open(account.identity.providerID)
+        : AccountActionCopy.useAndOpen(account.identity.providerID)
+    ) {
       Task { await model.openAccount(account.id) }
     }
     .disabled(model.isBusy)
@@ -813,13 +821,13 @@ private struct EmptyAccountView: View {
         if !model.hasLoaded {
           HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text("Loading Codex accounts…").font(AIMTheme.sans(13, weight: .medium))
+            Text("Loading accounts…").font(AIMTheme.sans(13, weight: .medium))
           }
         } else {
           VStack(alignment: .leading, spacing: 10) {
             Text("Add your first account").font(AIMTheme.sans(18, weight: .semibold))
             Text(
-              "Switch found no saved account. Sign in to Codex or use Advanced Import for an existing folder."
+              "Switch found no saved account. Sign in to Codex or Grok Build, or use Advanced Import for an existing Codex folder."
             ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
             HStack(spacing: 6) {
               AIMButton(title: "Add account", icon: .plus, tone: .primary, disabled: model.isBusy) {
@@ -872,12 +880,17 @@ private struct AccountDetail: View {
             }
           }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
         }
-        AccountUsagePanel(account: account, model: model)
+        if account.identity.providerID == .codex {
+          AccountUsagePanel(account: account, model: model)
+        }
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
             DetailRow(label: "Saved auth", value: account.credentialFile.path)
             DetailRow(label: "Source", value: account.source.path, zebra: true)
-            DetailRow(label: "Codex home", value: model.paths.defaultHome.path)
+            DetailRow(
+              label: "\(account.identity.providerID.displayName) home",
+              value: account.identity.providerID == .grokBuild
+                ? model.paths.grokHome.path : model.paths.defaultHome.path)
             DetailRow(
               label: "Imported",
               value: account.importedAt.formatted(date: .abbreviated, time: .shortened), zebra: true
@@ -944,11 +957,14 @@ private struct AccountDetail: View {
       tone: .primary,
       disabled: model.isBusy
     ) { Task { await model.switchDefault() } }
-    AccountMenuBarUsageButton(accountID: account.id)
-      .id(account.id).disabled(model.isBusy)
+    if account.identity.providerID == .codex {
+      AccountMenuBarUsageButton(accountID: account.id)
+        .id(account.id).disabled(model.isBusy)
+    }
     AIMButton(
       title: account.id == model.status?.defaultAccountID
-        ? AccountActionCopy.open : AccountActionCopy.useAndOpen,
+        ? AccountActionCopy.open(account.identity.providerID)
+        : AccountActionCopy.useAndOpen(account.identity.providerID),
       icon: .play,
       disabled: model.isBusy
     ) {
@@ -2214,12 +2230,27 @@ private struct SettingsPage: View {
               model.showDataLocation(model.paths.defaultHome, name: "Codex home")
             }
             DataLocationRow(
-              title: "Saved account vault",
-              detail: "Switch keeps one private auth.json snapshot per saved account.",
+              title: "Codex account vault",
+              detail: "Private Codex auth.json snapshots.",
               path: model.paths.credentialStore.path,
               zebra: true
             ) {
-              model.showDataLocation(model.paths.credentialStore, name: "Saved account vault")
+              model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
+            }
+            DataLocationRow(
+              title: "Grok Build home",
+              detail: "Grok configuration, rules, plugins, sessions, and the active login.",
+              path: model.paths.grokHome.path
+            ) {
+              model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
+            }
+            DataLocationRow(
+              title: "Grok Build account vault",
+              detail: "Private Grok subscription OAuth snapshots.",
+              path: model.paths.grokCredentialStore.path,
+              zebra: true
+            ) {
+              model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
             }
           }
         }
@@ -3316,7 +3347,9 @@ private struct ProviderIcon: View {
 
   var body: some View {
     Group {
-      if let image = AIManagerBrand.providerImage(for: providerID) {
+      if let image = AIManagerBrand.providerImage(for: providerID)
+        ?? AIManagerBrand.providerGlyph(for: providerID)
+      {
         Image(nsImage: image)
           .resizable()
           .scaledToFit()
@@ -3345,6 +3378,10 @@ private struct AddAccountFlow: View {
 
   private var selectedProvider: ProviderDescriptor? {
     model.providers.first { $0.id == model.selectedProviderID }
+  }
+
+  private var selectedProviderName: String {
+    selectedProvider?.displayName ?? model.selectedProviderID.displayName
   }
 
   private var selectedIsDefault: Bool {
@@ -3404,7 +3441,12 @@ private struct AddAccountFlow: View {
               ProviderIcon(providerID: provider.id)
               VStack(alignment: .leading, spacing: 3) {
                 Text(provider.displayName).font(AIMTheme.sans(12, weight: .semibold))
-                Text(available ? "Account switching and usage are supported." : unavailableCopy(provider))
+                Text(
+                  available
+                    ? (provider.id == .codex
+                      ? "Account switching and usage are supported."
+                      : "Subscription account switching is supported.")
+                    : unavailableCopy(provider))
                   .font(AIMTheme.sans(10))
                   .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.74) : AIMTheme.muted)
                   .lineLimit(1)
@@ -3459,7 +3501,7 @@ private struct AddAccountFlow: View {
 
   private var signInPage: some View {
     VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMPanel(title: "Codex sign-in") {
+      AIMPanel(title: "\(selectedProviderName) sign-in") {
         VStack(alignment: .leading, spacing: 16) {
           HStack(alignment: .top, spacing: 12) {
             AIMIcon(
@@ -3469,10 +3511,10 @@ private struct AddAccountFlow: View {
             .foregroundStyle(
               model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue)
             VStack(alignment: .leading, spacing: 5) {
-              Text("Finish signing in to Codex")
+              Text("Finish signing in to \(selectedProviderName)")
                 .font(AIMTheme.sans(18, weight: .semibold))
               Text(
-                "Sign in through a private temporary home. The saved account becomes available for new Codex sessions after you finish."
+                "Sign in through a private temporary home. The saved account becomes available to \(selectedProviderName) after you finish."
               )
               .font(AIMTheme.sans(12))
               .foregroundStyle(AIMTheme.muted)
@@ -3481,7 +3523,7 @@ private struct AddAccountFlow: View {
           }
           Notice(
             text: model.accountLoginMessage
-              ?? "Finish signing in to Codex, then return here and choose Check Now.",
+              ?? "Finish signing in to \(selectedProviderName), then return here and choose Check Now.",
             tone: model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue
           )
           Group {
@@ -3534,12 +3576,16 @@ private struct AddAccountFlow: View {
         VStack(alignment: .leading, spacing: 12) {
           HStack(spacing: 10) {
             AIMIcon(name: .success, size: 22).foregroundStyle(AIMTheme.green)
-            Text(model.selectedAccount?.identity.heroName ?? "Codex account")
+            Text(model.selectedAccount?.identity.heroName ?? "\(selectedProviderName) account")
               .font(AIMTheme.sans(19, weight: .semibold))
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
             .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-          Text("The account is ready for new Codex sessions. Shared settings and chats stay in place.")
+          Text(
+            model.selectedProviderID == .codex
+              ? "The account is ready for new Codex sessions. Shared settings and chats stay in place."
+              : "The account is ready in Grok Build. Its settings and sessions stay in the shared Grok home."
+          )
             .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
           HStack(spacing: 6) {
             AIMButton(
@@ -3549,7 +3595,11 @@ private struct AddAccountFlow: View {
             ) {
               Task { await model.switchDefault() }
             }
-            AIMButton(title: "Open Codex", icon: .play, disabled: model.isBusy) {
+            AIMButton(
+              title: AccountActionCopy.open(model.selectedProviderID),
+              icon: .play,
+              disabled: model.isBusy
+            ) {
               Task { await model.openAccount() }
             }
           }
@@ -3558,7 +3608,7 @@ private struct AddAccountFlow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
-        if let accountID = model.selectedAccountID {
+        if model.selectedProviderID == .codex, let accountID = model.selectedAccountID {
           AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
             Task { await model.refreshUsage(accountID: accountID) }
           }
@@ -4035,6 +4085,7 @@ extension SourceSupport {
   fileprivate var label: String {
     switch self {
     case .supportedChatGPT: "ChatGPT account"
+    case .supportedOAuth: "Subscription OAuth"
     case .apiKey: "API key"
     case .missingAuth: "Missing auth"
     case .malformedAuth: "Malformed auth"
