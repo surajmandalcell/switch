@@ -840,7 +840,6 @@ private struct AccountDetail: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
   let delete: () -> Void
-  @State private var tokenPeriod = CodexTokenPeriod.today
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var issues: [LinkedSettingsDivergence] {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
@@ -872,16 +871,6 @@ private struct AccountDetail: View {
               VStack(alignment: .leading, spacing: 4) { actions }
             }
           }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-        }
-        let dailyUsage = model.dailyUsage(for: account.id)
-        if !dailyUsage.isEmpty {
-          AIMPanel(title: "Token statistics", headerAccessories: AnyView(
-            TokenPeriodPicker(selection: $tokenPeriod)
-          )) {
-            TokenStatistic(
-              period: tokenPeriod,
-              tokens: tokenPeriod.tokens(in: dailyUsage, endingAt: Date()))
-          }
         }
         AccountUsagePanel(account: account, model: model)
         AIMPanel(title: "Account details") {
@@ -1111,6 +1100,15 @@ enum UsagePresentation {
     value.formatted(.number.notation(.compactName))
   }
 
+  static func formatCurrency(_ value: Double) -> String {
+    if value >= 1_000 {
+      return "$" + (value / 1_000).formatted(
+        .number.precision(.fractionLength(0...1))) + "K"
+    }
+    return "$" + value.formatted(
+      .number.precision(.fractionLength(value < 10 ? 0...2 : 0...0)))
+  }
+
   private static func formatDays(_ value: Int64) -> String {
     "\(value) day\(value == 1 ? "" : "s")"
   }
@@ -1141,37 +1139,26 @@ enum UsagePresentation {
   }
 }
 
-enum UsageActivityRange: String, CaseIterable, Identifiable {
-  static let preferenceKey = "usageActivityRange"
-  case week = "7 days"
-  case month = "1 month"
-  case year = "1 year"
-
-  var id: Self { self }
-  var dayCount: Int {
-    switch self {
-    case .week: 7
-    case .month: 30
-    case .year: 365
-    }
-  }
-}
-
 struct UsageActivityCalendar: View {
   let rows: [CodexDailyUsageSnapshot]
   @ObservedObject var model: AccountViewModel
-  @AppStorage(UsageActivityRange.preferenceKey) private var storedRange = UsageActivityRange.year.rawValue
+  @AppStorage("usageTokenPeriod") private var storedPeriod = CodexTokenPeriod.yearly.rawValue
   @State private var selectedDate: Date?
   @State private var projects: [CodexProjectDailyActivity] = []
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-  private var range: UsageActivityRange {
-    get { UsageActivityRange(rawValue: storedRange) ?? .year }
-    nonmutating set { storedRange = newValue.rawValue }
+  private var period: CodexTokenPeriod {
+    get { CodexTokenPeriod(rawValue: storedPeriod) ?? .yearly }
+    nonmutating set { storedPeriod = newValue.rawValue }
+  }
+
+  private var periodSelection: Binding<CodexTokenPeriod> {
+    Binding(get: { period }, set: { period = $0 })
   }
 
   var body: some View {
-    let days = UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: range.dayCount)
+    let endDate = period.dateRange(endingAt: Date())?.upperBound ?? Date()
+    let days = UsagePresentation.activityDays(rows, endingAt: endDate, dayCount: period.dayCount)
     let maximumTokens = days.lazy.map(\.tokens).max() ?? 0
     let selectedDay = days.first { $0.date == selectedDate }
     let weeks = UsagePresentation.activityWeeks(for: days)
@@ -1185,30 +1172,13 @@ struct UsageActivityCalendar: View {
             .font(AIMTheme.mono(10, weight: .semibold))
         }
         Spacer()
-        HStack(spacing: 2) {
-          ForEach(UsageActivityRange.allCases) { option in
-            Button {
-              range = option
-              if let date = selectedDate,
-                 !UsagePresentation.activityDays(rows, endingAt: Date(), dayCount: option.dayCount)
-                   .contains(where: { $0.date == date }) {
-                selectedDate = nil
-              }
-            } label: {
-              Text(option.rawValue)
-                .font(AIMTheme.sans(9, weight: .medium))
-                .foregroundStyle(range == option ? AIMTheme.activeInk : AIMTheme.muted)
-                .padding(.horizontal, 9)
-                .frame(height: 24)
-                .background(range == option ? AIMTheme.active : AIMTheme.control.opacity(0.55))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(AIMPressButtonStyle())
-            .accessibilityLabel("Show \(option.rawValue) of activity")
-          }
-        }
+        TokenPeriodPicker(selection: periodSelection)
       }
-      if range == .week {
+      TokenStatistic(
+        period: period,
+        tokens: period.tokens(in: rows, endingAt: Date()),
+        price: model.apiPrice)
+      if period.dayCount <= 7 {
         HStack(spacing: 6) {
           ForEach(days) { day in
             VStack(spacing: 5) {
@@ -1252,7 +1222,12 @@ struct UsageActivityCalendar: View {
       }
     }
     .padding(.top, 14)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: range)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: period)
+    .onChange(of: storedPeriod) { _, _ in
+      if let selectedDate, !days.contains(where: { $0.date == selectedDate }) {
+        self.selectedDate = nil
+      }
+    }
     .onChange(of: model.selectedAccountID) { _, _ in
       selectedDate = nil
       projects = []
@@ -1266,7 +1241,7 @@ struct UsageActivityCalendar: View {
     }
   }
 
-  private var cellSize: CGFloat { range == .year ? 9 : 13 }
+  private var cellSize: CGFloat { period == .yearly ? 9 : 13 }
 }
 
 struct ActivityHeatmap: View {
@@ -1701,47 +1676,59 @@ private struct TokenPeriodPicker: View {
   @Binding var selection: CodexTokenPeriod
 
   var body: some View {
-    HStack(spacing: 2) {
+    Picker("Token period", selection: $selection) {
       ForEach(CodexTokenPeriod.allCases, id: \.self) { period in
-        Button { selection = period } label: {
-          Text(period.label)
-            .font(AIMTheme.sans(9, weight: .medium))
-            .foregroundStyle(selection == period ? AIMTheme.activeInk : AIMTheme.muted)
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .background(selection == period ? AIMTheme.active : AIMTheme.control.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-            .contentShape(Rectangle())
-          }
-        .buttonStyle(AIMPressButtonStyle())
-        .accessibilityLabel("Show \(period.label.lowercased()) token statistics")
-        .accessibilityAddTraits(selection == period ? .isSelected : [])
+        Text(period.label).tag(period)
       }
     }
+    .labelsHidden()
+    .pickerStyle(.segmented)
+    .controlSize(.small)
+    .fixedSize()
+    .accessibilityLabel("Token period")
   }
 }
 
 private struct TokenStatistic: View {
   let period: CodexTokenPeriod
   let tokens: Int64
+  let price: CodexAPIPrice?
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 6) {
+    HStack(alignment: .firstTextBaseline, spacing: 7) {
       Text(UsagePresentation.formatTokens(tokens))
         .font(AIMTheme.mono(18, weight: .semibold))
         .monospacedDigit()
       Text("tokens")
         .font(AIMTheme.sans(10, weight: .medium))
         .foregroundStyle(AIMTheme.muted)
+      if let price {
+        Text("·")
+          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.faint)
+        Text("≈\(UsagePresentation.formatCurrency(price.inputEquivalent(for: tokens))) API input rate")
+          .font(AIMTheme.sans(10, weight: .medium))
+          .foregroundStyle(AIMTheme.muted)
+          .lineLimit(1)
+      }
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 16)
-    .frame(height: 54)
+    .frame(height: 36)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(period.label)
-    .accessibilityValue("\(UsagePresentation.exactTokens(tokens)) tokens")
-    .help("\(period.label): \(UsagePresentation.exactTokens(tokens)) tokens")
+    .accessibilityValue(detail)
+    .help(detail)
+  }
+
+  private var detail: String {
+    var value = "\(UsagePresentation.exactTokens(tokens)) tokens"
+    guard let price else { return value }
+    value += ". API equivalents for \(price.model): "
+      + "input \(UsagePresentation.formatCurrency(price.inputEquivalent(for: tokens))), "
+      + "cached input \(price.cachedInputEquivalent(for: tokens).map(UsagePresentation.formatCurrency) ?? "unavailable"), "
+      + "output \(UsagePresentation.formatCurrency(price.outputEquivalent(for: tokens))). "
+      + "These are rate comparisons, not billed spend."
+    return value
   }
 }
 
@@ -2211,6 +2198,7 @@ private struct SettingsPage: View {
   @Binding var showFocusIndicators: Bool
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
+  @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset.rawValue
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
   @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -2243,8 +2231,31 @@ private struct SettingsPage: View {
           }
         }
         AIMPanel(title: "Menubar defaults") {
-          settingRow(isOn: $defaultShowUsage, title: "Show account usage") {
-            Text("Accounts without their own choice show cached usage in Menubar.")
+          VStack(spacing: 0) {
+            settingRow(isOn: $defaultShowUsage, title: "Show account usage") {
+              Text("Accounts without their own choice show cached usage in Menubar.")
+            }
+            HStack(spacing: 16) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text("Token summary").font(AIMTheme.sans(11, weight: .medium))
+                Text("Choose the period shown beside each account’s usage.")
+                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              }
+              Spacer(minLength: 20)
+              Picker("Menubar token period", selection: $menuTokenPeriod) {
+                ForEach(MenuBarTokenPeriod.allCases) { period in
+                  Text(period.label).tag(period.rawValue)
+                }
+              }
+              .labelsHidden()
+              .pickerStyle(.segmented)
+              .controlSize(.small)
+              .fixedSize()
+              .accessibilityLabel("Menubar token period")
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 48)
+            .background(AIMTheme.listStripe)
           }
         }
         #if AI_MANAGER_PREVIEW

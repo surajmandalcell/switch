@@ -1040,9 +1040,9 @@ private struct TerminalMenu {
         if let dailyUsage, !dailyUsage.isEmpty {
             lines.append("")
             lines.append("Token statistics")
-            lines.append(CodexTokenPeriod.allCases.map {
-                $0 == tokenPeriod ? "[\($0.label)]" : $0.label
-            }.joined(separator: "  "))
+            lines.append("[" + CodexTokenPeriod.allCases.map {
+                $0 == tokenPeriod ? "• \($0.label)" : "  \($0.label)"
+            }.joined(separator: "│") + "]")
             lines.append("\(tokenPeriod.label.lowercased())      : "
                 + "\(tokenPeriod.tokens(in: dailyUsage, endingAt: Date()).formatted()) tokens")
         }
