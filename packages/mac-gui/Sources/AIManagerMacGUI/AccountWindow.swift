@@ -872,6 +872,19 @@ private struct AccountDetail: View {
             }
           }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
         }
+        if !model.sharedDailyActivity.isEmpty {
+          AIMPanel(title: "Token statistics") {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("Shared Codex home")
+                .font(AIMTheme.sans(10, weight: .medium))
+                .foregroundStyle(AIMTheme.muted)
+              UsageTokenStatistics(
+                statistics: UsagePresentation.tokenStatistics(
+                  model.sharedDailyActivity, endingAt: Date()))
+            }
+            .padding(16)
+          }
+        }
         AccountUsagePanel(account: account, model: model)
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
@@ -982,6 +995,13 @@ enum UsagePresentation {
     var id: Date { date }
   }
 
+  struct TokenStatistic: Identifiable, Equatable {
+    let label: String
+    let tokens: Int64
+    let isComplete: Bool
+    var id: String { label }
+  }
+
   static func accountFacts(_ snapshot: CodexAccountUsageSnapshot) -> [Fact] {
     var facts: [Fact] = []
     if let allowed = snapshot.rateLimits?.ordinaryUsageAllowed {
@@ -1075,6 +1095,32 @@ enum UsagePresentation {
     }
   }
 
+  static func tokenStatistics(
+    _ rows: [CodexSharedDailyActivity], endingAt endDate: Date
+  ) -> [TokenStatistic] {
+    let days = activityDays(rows.map {
+      CodexDailyUsageSnapshot(startDate: $0.day, tokens: $0.tokens)
+    }, endingAt: endDate, dayCount: 30)
+    let incompleteDays = Set(rows.compactMap { row in
+      row.isComplete ? nil : activityDate(row.day)
+    })
+    func statistic(_ label: String, _ period: ArraySlice<ActivityDay>) -> TokenStatistic {
+      let tokens = period.reduce(Int64(0)) { current, day in
+        let (sum, overflow) = current.addingReportingOverflow(day.tokens)
+        return overflow ? Int64.max : sum
+      }
+      return TokenStatistic(
+        label: label, tokens: tokens,
+        isComplete: !period.contains { incompleteDays.contains($0.date) })
+    }
+    return [
+      statistic("Today", days.suffix(1)),
+      statistic("Yesterday", days.dropLast().suffix(1)),
+      statistic("Last 7 Days", days.suffix(7)),
+      statistic("Last 30 Days", days[days.startIndex...]),
+    ]
+  }
+
   static func exactTokens(_ value: Int64) -> String {
     value.formatted(.number)
   }
@@ -1096,7 +1142,7 @@ enum UsagePresentation {
     return result.isEmpty ? nil : result
   }
 
-  private static func formatTokens(_ value: Int64) -> String {
+  static func formatTokens(_ value: Int64) -> String {
     value.formatted(.number.notation(.compactName))
   }
 
@@ -1684,6 +1730,47 @@ private struct UsageMeter: View {
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: displayedPercentage)
   }
 
+}
+
+private struct UsageTokenStatistics: View {
+  let statistics: [UsagePresentation.TokenStatistic]
+
+  var body: some View {
+    HStack(spacing: 0) {
+      ForEach(Array(statistics.enumerated()), id: \.element.id) { index, statistic in
+        if index > 0 {
+          Rectangle().fill(AIMTheme.lineSoft).frame(width: 1, height: 34)
+        }
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(spacing: 4) {
+            Text(statistic.label)
+              .font(AIMTheme.sans(9, weight: .medium))
+              .foregroundStyle(AIMTheme.muted)
+              .lineLimit(1)
+            if !statistic.isComplete {
+              AIMIcon(name: .info, size: 9).foregroundStyle(AIMTheme.amber)
+            }
+          }
+          Text(UsagePresentation.formatTokens(statistic.tokens))
+            .font(AIMTheme.mono(18, weight: .semibold))
+            .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(statistic.label)
+        .accessibilityValue(
+          "\(UsagePresentation.exactTokens(statistic.tokens)) tokens"
+            + (statistic.isComplete ? "" : ", incomplete source records"))
+        .help(
+          "\(statistic.label): \(UsagePresentation.exactTokens(statistic.tokens)) tokens"
+            + (statistic.isComplete ? "" : ". Some source records are incomplete."))
+      }
+    }
+    .padding(.vertical, 10)
+    .background(AIMTheme.panel2)
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
 }
 
 private struct UsageFact: View {

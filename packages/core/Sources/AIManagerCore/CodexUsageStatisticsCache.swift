@@ -102,6 +102,18 @@ public struct CodexProjectDailyActivity: Sendable, Equatable {
     public let isComplete: Bool
 }
 
+public struct CodexSharedDailyActivity: Sendable, Equatable {
+    public let day: String
+    public let tokens: Int64
+    public let isComplete: Bool
+
+    public init(day: String, tokens: Int64, isComplete: Bool) {
+        self.day = day
+        self.tokens = tokens
+        self.isComplete = isComplete
+    }
+}
+
 struct CodexTranscriptActivity: Sendable {
     let threadID: String?
     let project: String?
@@ -465,6 +477,33 @@ public actor CodexUsageStatisticsCache {
             }
             guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
                 throw Self.databaseError(database, "Could not read project activity")
+            }
+            return rows
+        }
+    }
+
+    public func sharedDailyActivity(
+        from startDay: String, through endDay: String
+    ) throws -> [CodexSharedDailyActivity] {
+        guard Self.validDay(startDay), Self.validDay(endDay), startDay <= endDay,
+              let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            let statement = try Self.prepare(database, """
+                SELECT d.day, SUM(d.tokens), MIN(t.complete)
+                FROM project_days d JOIN activity_threads t USING(thread_id)
+                WHERE d.day BETWEEN ?1 AND ?2 GROUP BY d.day ORDER BY d.day
+                """)
+            defer { sqlite3_finalize(statement) }
+            Self.bind(startDay, to: statement, at: 1)
+            Self.bind(endDay, to: statement, at: 2)
+            var rows: [CodexSharedDailyActivity] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let day = Self.text(statement, column: 0) else { continue }
+                rows.append(.init(day: day, tokens: sqlite3_column_int64(statement, 1),
+                                  isComplete: sqlite3_column_int(statement, 2) != 0))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read shared daily activity")
             }
             return rows
         }
