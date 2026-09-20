@@ -3445,3 +3445,18 @@ with temporary synthetic homes before installation.
   Menubar preference, conversation, or cleanup state was changed. The canonical private install
   receipt records the final clean packaged revision, matching executables, signatures, and running
   process identity.
+
+### Menubar token statistics (2026-09-20)
+
+- [x] Show the retained shared-home Today, Yesterday, Last 7 Days, and Last 30 Days totals at the
+  top of the Menubar popup, ahead of the scrollable account list and fixed footer.
+- [x] Preserve exact totals and incomplete-source state in hover and accessibility output, and
+  omit the compact 66-point band until retained history exists.
+- [x] Keep all four labels readable at the real 344-point width and preserve the existing account
+  card, scrolling, palette, and footer behavior in System, Light, and Dark appearances.
+- The full native gate discovered 173 tests: 171 passed and the two protected-copy integrations
+  remained explicit opt-ins. Preview and production models, icon, System/Light/Dark, native
+  scrolling, and single-instance checks passed. The native render was inspected at actual size,
+  the Impeccable layout detector reported no findings, and the Ponytail debt inventory is empty.
+- The canonical private final-install receipt owns the subsequent clean signed installation,
+  embedded revision, executable hashes, process identity, and live Menubar acceptance.
