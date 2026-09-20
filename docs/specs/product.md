@@ -373,7 +373,11 @@ Account-list secondary text and menu cards identify the provider, such as Codex 
 than repeating verification language. Healthy identity badges use the provider name; only
 states that need action add a separate state badge. The Add Account and Advanced Import
 titlebars use one 48-point row for the title and edge-to-edge Close button. Close has a
-distinct opaque neutral surface, contrasting glyph, and bright red hover.
+distinct opaque neutral surface, contrasting glyph, and bright red hover. Add Account
+provider rows are single-choice buttons, not checkboxes. Clicking selects a provider,
+double-clicking an enabled provider selects it and continues, and the separate Continue
+action preserves the keyboard and assistive-technology path. Every Add Account step keeps
+its titlebar and footer fully visible inside the modal.
 Step tabs are 28 points high and centered horizontally in the bottom action row,
 alongside Continue, Check Now, or the current page's navigation actions. Keep their
 center fixed independently of unequal left and right buttons. Modal

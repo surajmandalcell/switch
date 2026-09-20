@@ -3537,7 +3537,8 @@ private struct AddAccountFlow: View {
               }
               Spacer()
               if available {
-                AIMIcon(name: selected ? .checkSquare : .square, size: 14)
+                AIMIcon(name: .check, size: 14)
+                  .opacity(selected ? 1 : 0)
               } else {
                 Badge(text: "WIP", color: AIMTheme.disabledControl, ink: AIMTheme.disabledInk)
               }
@@ -3555,9 +3556,17 @@ private struct AddAccountFlow: View {
           .buttonStyle(AIMPressButtonStyle())
           .disabled(!available)
           .opacity(available ? 1 : 0.64)
+          .simultaneousGesture(TapGesture(count: 2).onEnded {
+            guard available, !model.isBusy else { return }
+            model.selectedProviderID = provider.id
+            Task { await model.startAccountLogin() }
+          })
           .onHover { hoveredProviderID = $0 && available ? provider.id : nil }
           .accessibilityLabel(provider.displayName)
-          .accessibilityHint(available ? "Available" : unavailableCopy(provider))
+          .accessibilityValue(selected ? "Selected" : "")
+          .accessibilityAddTraits(selected ? .isSelected : [])
+          .accessibilityHint(
+            available ? "Select this provider. Double-click to continue." : unavailableCopy(provider))
         }
       }
       .background(AIMTheme.panel2)
@@ -3576,6 +3585,7 @@ private struct AddAccountFlow: View {
         ) {
           Task { await model.startAccountLogin() }
         }
+        .keyboardShortcut(.defaultAction)
       }
     }
     .padding(.horizontal, AIMTheme.modalOuterInset)
@@ -3908,10 +3918,8 @@ private struct SourcePage: View {
                 model.selectedSourceID = source.id
               } label: {
                 HStack(alignment: .top, spacing: 12) {
-                  AIMIcon(
-                    name: selected ? .checkSquare : .square,
-                    size: 14
-                  )
+                  AIMIcon(name: .check, size: 14)
+                    .opacity(selected ? 1 : 0)
                   .padding(.top, 2)
                   VStack(alignment: .leading, spacing: 3) {
                     Text(source.identity?.displayName ?? source.support.label).font(
@@ -3997,7 +4005,8 @@ private struct Choice: View {
   var body: some View {
     Button(action: action) {
       HStack(spacing: 7) {
-        AIMIcon(name: selected ? .checkSquare : .square, size: 14)
+        AIMIcon(name: .check, size: 14)
+          .opacity(selected ? 1 : 0)
         Text(title)
       }.font(AIMTheme.sans(11, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
         .foregroundStyle(
