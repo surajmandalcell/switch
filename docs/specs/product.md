@@ -151,19 +151,20 @@ retain known totals with an incomplete indication. Project totals remain separat
 totals, and selected days identify their shared-home provenance. One background file monitor and
 coalesced bounded worker scans maintain summaries independently of the visible page.
 
-Show the shared Codex home's retained local token activity in its own compact panel, separate
-from account Usage. Present Today, Yesterday, Last 7 Days, and Last 30 Days; rolling windows
-include the current UTC day. Show compact values with the exact token count in the tooltip and
-accessibility value. Omit the panel until retained local history exists, then preserve explicit
-zeroes. An incomplete indicator warns when a period includes source records with unknown fork
-boundaries, resets, or incomplete token counters.
+Show retained token statistics for the selected account in its own compact panel, separate from
+quota Usage. The panel header contains one row of period filters: Today, Yesterday, Weekly,
+Monthly, and Yearly. One filter is active at a time. The panel body shows only that period's total,
+with the exact token count in its tooltip and accessibility value. Rolling Weekly, Monthly, and
+Yearly periods include the current UTC day and cover 7, 30, and 365 days. Do not add an account or
+provider filter because the surrounding account view owns the statistic. Do not repeat a source
+label such as Shared Codex home. Omit the panel until that account has retained history, then
+preserve explicit zeroes. The TUI account screen uses the same periods and account-day data.
 
-The menu popover leads with a compact retained-token summary for the shared Codex home: Today,
-Yesterday, Last 7 Days, and Last 30 Days. Exact totals and incomplete-source state remain available
-to assistive technology and on hover. Account switching and enabled limit data follow in the
-scrollable body, with the refresh timestamp and refresh/Open App actions fixed in the footer. It has
-no brand/count/refresh header, column header, session explanation, Add Account action, or Quit
-action. Account creation belongs in the main window.
+Retained shared-home project totals continue to support history and cleanup but must not appear as
+the selected account's token statistics. The menu popover remains focused on account switching and
+enabled quota data. Its scrollable body is followed by the fixed refresh timestamp and refresh/Open
+App actions. It has no retained-token summary, brand/count/refresh header, column header, session
+explanation, Add Account action, or Quit action. Account creation belongs in the main window.
 
 Each account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
 in its action row. Both stateful actions use a single tick when false (Set as Default or
