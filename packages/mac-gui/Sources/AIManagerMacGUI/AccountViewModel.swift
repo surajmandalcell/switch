@@ -78,9 +78,11 @@ final class AccountViewModel: ObservableObject {
     static func automaticUsageRefreshIsDue(
         fetchedAt: Date?,
         failedAt: Date?,
+        onCadence: Bool = false,
         now: Date = Date()
     ) -> Bool {
         if let failedAt, now.timeIntervalSince(failedAt) < 5 * 60 { return false }
+        if onCadence { return true }
         guard let fetchedAt else { return true }
         return now.timeIntervalSince(fetchedAt) >= usageRefreshInterval
     }
@@ -234,7 +236,7 @@ final class AccountViewModel: ObservableObject {
         }
         await loadCachedUsage()
         Task { await self.loadAPIPricing() }
-        Task { await self.refreshStaleUsage() }
+        Task { await self.refreshAutomaticUsage() }
     }
 
     func reloadAfterActivation() async {
@@ -245,7 +247,7 @@ final class AccountViewModel: ObservableObject {
             try await reloadStatus(using: manager)
             await loadCachedUsage()
             Task { await self.loadAPIPricing() }
-            Task { await self.refreshStaleUsage() }
+            Task { await self.refreshAutomaticUsage() }
         } catch {
             errorMessage = "Couldn’t refresh accounts. \(error.localizedDescription)"
         }
@@ -1108,10 +1110,10 @@ final class AccountViewModel: ObservableObject {
 
     var shouldRefreshDefaultUsage: Bool {
         guard let id = status?.defaultAccountID else { return false }
-        return shouldRefreshUsage(accountID: id)
+        return shouldRefreshUsage(accountID: id, onCadence: false)
     }
 
-    private func shouldRefreshUsage(accountID: UUID) -> Bool {
+    private func shouldRefreshUsage(accountID: UUID, onCadence: Bool) -> Bool {
         guard paths.isolationRoot == nil,
               status?.accounts.contains(where: {
                   $0.id == accountID && $0.identity.providerID == .codex
@@ -1119,13 +1121,14 @@ final class AccountViewModel: ObservableObject {
         guard let cached = accountUsage[accountID] else { return true }
         return Self.automaticUsageRefreshIsDue(
             fetchedAt: cached.snapshot == nil ? nil : cached.fetchedAt,
-            failedAt: cached.failure == nil ? nil : cached.lastAttemptAt)
+            failedAt: cached.failure == nil ? nil : cached.lastAttemptAt,
+            onCadence: onCadence)
     }
 
-    func refreshStaleUsage() async {
+    func refreshAutomaticUsage(onCadence: Bool = false) async {
         guard usageRefreshAccountID == nil else { return }
         let accountIDs = status?.accounts.compactMap { account in
-            shouldRefreshUsage(accountID: account.id) ? account.id : nil
+            shouldRefreshUsage(accountID: account.id, onCadence: onCadence) ? account.id : nil
         } ?? []
         for accountID in accountIDs {
             await refreshUsage(accountID: accountID)

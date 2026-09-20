@@ -121,7 +121,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         .autoconnect()
         .sink { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.model.refreshStaleUsage()
+                await self?.model.refreshAutomaticUsage(onCadence: true)
             }
         }
         .store(in: &modelObservers)
