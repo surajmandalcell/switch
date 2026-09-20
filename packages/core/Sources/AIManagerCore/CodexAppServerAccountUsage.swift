@@ -219,20 +219,39 @@ public enum CodexTokenPeriod: String, CaseIterable, Sendable {
         }
     }
 
-    public func tokens(in rows: [CodexDailyUsageSnapshot], endingAt endDate: Date) -> Int64 {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let today = calendar.startOfDay(for: endDate)
-        let endOffset = self == .yesterday ? -1 : 0
-        let dayCount: Int = switch self {
+    public var dayCount: Int {
+        switch self {
         case .today, .yesterday: 1
         case .weekly: 7
         case .monthly: 30
         case .yearly: 365
         }
+    }
+
+    public func dateRange(endingAt endDate: Date) -> ClosedRange<Date>? {
+        let calendar = Self.calendar
+        let today = calendar.startOfDay(for: endDate)
+        let endOffset = self == .yesterday ? -1 : 0
         guard let end = calendar.date(byAdding: .day, value: endOffset, to: today),
               let start = calendar.date(byAdding: .day, value: -(dayCount - 1), to: end)
-        else { return 0 }
+        else { return nil }
+        return start...end
+    }
+
+    public func tokens(in rows: [CodexDailyUsageSnapshot], endingAt endDate: Date) -> Int64 {
+        guard let range = dateRange(endingAt: endDate) else { return 0 }
+        return Self.tokens(in: rows, from: range.lowerBound, through: range.upperBound)
+    }
+
+    public static func tokens(
+        in rows: [CodexDailyUsageSnapshot],
+        from startDate: Date,
+        through endDate: Date
+    ) -> Int64 {
+        let calendar = Self.calendar
+        let start = calendar.startOfDay(for: startDate)
+        let end = calendar.startOfDay(for: endDate)
+        guard start <= end else { return 0 }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
         formatter.timeZone = calendar.timeZone
@@ -249,6 +268,12 @@ public enum CodexTokenPeriod: String, CaseIterable, Sendable {
             return overflow ? Int64.max : sum
         }
     }
+
+    private static let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
 }
 
 public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
