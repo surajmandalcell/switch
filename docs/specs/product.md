@@ -358,6 +358,8 @@ Right or Enter opens the focused account, Enter runs the focused action, and Lef
 Escape returns. The interface must not display or require command-letter navigation.
 Temporarily restore normal terminal input for free-text path entry and the launched Codex
 process, and always restore it when the interface exits.
+Raw keyboard mode must preserve the terminal's existing output processing so every rendered
+line returns to column zero in Terminal, iTerm, and compatible emulators.
 
 ## 6. Verification contract
 

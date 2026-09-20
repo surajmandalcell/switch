@@ -87,6 +87,15 @@ The packaged executable is installed at `~/.local/bin/ai-manager` with SHA-256
 `729cfbc5be1d1528aaaa4ffabdadcbca16fe4c52c06c515a2434cc56b642505d`;
 the installed copy matches the package and passes strict signature and help checks.
 
+### TUI raw-mode line layout (2026-09-20)
+
+- [x] Preserve terminal output processing while raw keyboard input is enabled.
+- [x] Add a real macOS pseudo-terminal regression check for column-zero menu rows.
+
+The pre-fix PTY capture emits bare line feeds and reproduces the diagonal row drift seen in
+iTerm. Restoring the original output flags after `cfmakeraw` produces CRLF output; the same
+capture and the full CLI acceptance pass with each menu row aligned to column zero.
+
 ### Usage percentage preference (2026-09-19)
 
 - [x] Add a persistent Settings toggle between percentage left and percentage used.
