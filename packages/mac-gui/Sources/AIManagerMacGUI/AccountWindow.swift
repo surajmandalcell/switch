@@ -3369,6 +3369,7 @@ private struct ProviderIcon: View {
 private struct AddAccountFlow: View {
   @ObservedObject var model: AccountViewModel
   @State private var hoveredProviderID: ProviderID?
+  @State private var grokAuthorizationCode = ""
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var step: Int {
@@ -3386,6 +3387,19 @@ private struct AddAccountFlow: View {
 
   private var selectedIsDefault: Bool {
     model.selectedAccountID.map { $0 == model.status?.defaultAccountID } ?? false
+  }
+
+  private var hasGrokAuthorizationCode: Bool {
+    !grokAuthorizationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func submitGrokAuthorizationCode() {
+    let input = grokAuthorizationCode
+    Task {
+      if await model.submitGrokAuthorizationCode(input) {
+        grokAuthorizationCode = ""
+      }
+    }
   }
 
   var body: some View {
@@ -3520,6 +3534,32 @@ private struct AddAccountFlow: View {
               .foregroundStyle(AIMTheme.muted)
               .fixedSize(horizontal: false, vertical: true)
             }
+          }
+          if model.selectedProviderID == .grokBuild {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Authorization code or callback URL")
+                .font(AIMTheme.sans(12, weight: .semibold))
+              HStack(spacing: 8) {
+                SecureField("Paste from the Grok browser page", text: $grokAuthorizationCode)
+                  .textFieldStyle(.roundedBorder)
+                  .privacySensitive()
+                  .onSubmit(submitGrokAuthorizationCode)
+                  .accessibilityHint(
+                    "Use this when the browser displays a code instead of returning to Switch.")
+                AIMButton(
+                  title: "Submit Code",
+                  tone: .primary,
+                  disabled: model.isBusy || !hasGrokAuthorizationCode,
+                  action: submitGrokAuthorizationCode
+                )
+              }
+              Text("Switch sends this once to the waiting Grok CLI and does not save it.")
+                .font(AIMTheme.sans(11))
+                .foregroundStyle(AIMTheme.muted)
+            }
+            .padding(12)
+            .background(AIMTheme.panel2.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
           }
           Notice(
             text: model.accountLoginMessage

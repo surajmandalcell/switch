@@ -429,6 +429,22 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
+    func submitGrokAuthorizationCode(_ input: String) async -> Bool {
+        guard let session = accountLoginSession, session.providerID == .grokBuild else { return false }
+        var submitted = false
+        if let manager {
+            await perform(
+                failure: "Couldn’t submit the Grok authorization code.",
+                recovery: "Start Grok sign-in again if the code expired."
+            ) {
+                try await manager.submitAccountLoginCode(id: session.id, input: input)
+                accountLoginMessage = "Authorization code submitted. Waiting for Grok to finish signing in."
+                submitted = true
+            }
+        }
+        return submitted
+    }
+
     func cancelAccountLogin() async {
         guard let session = accountLoginSession else {
             resetAccountLogin()

@@ -6,7 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 
 if [[ "$(uname -s):$(uname -m)" != "Darwin:arm64" ]]; then
-  printf '%s\n' '@smc/switch currently packages the Apple Silicon macOS binary.' >&2
+  printf '%s\n' '@smdl/switch currently packages the Apple Silicon macOS binary.' >&2
   exit 1
 fi
 
