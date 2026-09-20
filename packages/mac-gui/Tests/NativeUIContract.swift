@@ -706,6 +706,8 @@ enum AIManagerNativeContract {
 
     expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
     expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
+    expect(MenuBarPopover.tokenStatisticsHeight == 66,
+      "Menu-bar token statistics do not use the compact approved height")
     expect(MenuBarPopover.accountHeaderHeight == 35, "Menu-bar account header does not match Soft rectangles")
     expect(MenuBarPopover.quotaRowHeight == 40, "Menu-bar quota rows do not match the approved design")
     expect(MenuBarPopover.footerHeight == 29, "Menu-bar footer does not match the approved design")
@@ -725,6 +727,9 @@ enum AIManagerNativeContract {
       accounts: [hiddenAccount], visibleScreenHeight: 900)
     let one = AIManagerStatusItemController.contentSize(
       accounts: Array(snapshot.accounts.prefix(1)), visibleScreenHeight: 900)
+    let oneWithStatistics = AIManagerStatusItemController.contentSize(
+      accounts: Array(snapshot.accounts.prefix(1)), hasTokenStatistics: true,
+      visibleScreenHeight: 900)
     let two = AIManagerStatusItemController.contentSize(
       accounts: Array(snapshot.accounts.prefix(2)), visibleScreenHeight: 900)
     let many = AIManagerStatusItemController.contentSize(
@@ -742,6 +747,8 @@ enum AIManagerNativeContract {
     expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 104, "Hidden usage leaves blank quota space")
     expect(one.height == 201, "One usage card has the wrong geometry")
+    expect(oneWithStatistics.height == 267,
+      "Token statistics do not reserve their compact Menubar band")
     expect(two.height == 353, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
@@ -749,6 +756,8 @@ enum AIManagerNativeContract {
     expect(fractionalScreen.height == 480, "Menu-bar screen cap rounds beyond 80%")
 
     expect(snapshot.accounts.first?.remainingPercentage == 58, "Preview menu snapshot lacks cached remaining quota")
+    expect(snapshot.sharedDailyActivity.count == 3,
+      "Preview menu snapshot does not exercise retained token statistics")
     expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
     expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
     expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
@@ -920,21 +929,23 @@ enum AIManagerNativeContract {
       expect(zip(actual, expected).allSatisfy { abs($0 - $1 / 255) < 0.035 },
         "\(label) does not match its approved palette: \(actual)")
     }
+    let accountSampleY = MenuBarPopover.tokenStatisticsHeight + 26
     expectPixel(NSPoint(x: 2, y: 26), hex: 0xF0ECE2, label: "Ivory shell")
-    expectPixel(NSPoint(x: 16, y: 26), hex: 0xFFFDF6, label: "Ivory account panel")
+    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6, label: "Ivory account panel")
     paletteWindow.appearance = NSAppearance(named: .darkAqua)
     paletteView.rootView = AnyView(
       MenuBarPopover(store: copyStore)
         .environment(\.colorScheme, .dark)
         .background(Color(hex: 0x292722)))
     expectPixel(NSPoint(x: 2, y: 26), hex: 0x292722, label: "Espresso shell")
-    expectPixel(NSPoint(x: 16, y: 26), hex: 0x3B372F, label: "Espresso account panel")
+    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0x3B372F, label: "Espresso account panel")
     paletteWindow.appearance = NSAppearance(named: .aqua)
     paletteView.rootView = AnyView(
       MenuBarPopover(store: copyStore)
         .environment(\.colorScheme, .light)
         .background(Color(hex: 0xF0ECE2)))
-    expectPixel(NSPoint(x: 16, y: 26), hex: 0xFFFDF6, label: "Restored Ivory account panel")
+    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6,
+      label: "Restored Ivory account panel")
 
     let glassView = NSHostingView(rootView: MenuBarPopover(store: copyStore))
     glassView.frame = NSRect(origin: .zero, size: originalSize)
