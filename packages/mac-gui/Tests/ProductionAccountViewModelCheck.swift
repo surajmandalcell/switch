@@ -34,8 +34,12 @@ struct ProductionAccountViewModelCheck {
         try expect(AccountViewModel.automaticUsageRefreshIsDue(
             fetchedAt: refreshClock.addingTimeInterval(-180), failedAt: nil, now: refreshClock),
             "Three-minute-old usage was not scheduled")
+        try expect(AccountViewModel.automaticUsageRefreshIsDue(
+            fetchedAt: refreshClock, failedAt: nil, onCadence: true, now: refreshClock),
+            "The fixed cadence skipped fresh cached usage")
         try expect(!AccountViewModel.automaticUsageRefreshIsDue(
-            fetchedAt: nil, failedAt: refreshClock.addingTimeInterval(-299), now: refreshClock),
+            fetchedAt: nil, failedAt: refreshClock.addingTimeInterval(-299),
+            onCadence: true, now: refreshClock),
             "A failed refresh ignored its five-minute cooldown")
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appending(
