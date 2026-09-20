@@ -156,6 +156,8 @@ final class CodexUsageStatisticsCacheTests: XCTestCase {
         XCTAssertEqual(
             CodexTokenPeriod.allCases.map { $0.tokens(in: rows, endingAt: end) },
             [15, 20, 65, 155, 285])
+        let since = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-09T18:00:00Z"))
+        XCTAssertEqual(CodexTokenPeriod.tokens(in: rows, from: since, through: end), 65)
     }
 
     func testSharedDailyActivityAggregatesProjectsAndSurvivesPurgeAndReopen() async throws {
