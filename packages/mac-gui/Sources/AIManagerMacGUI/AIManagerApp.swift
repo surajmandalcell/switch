@@ -34,8 +34,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         let statusItemController = AIManagerStatusItemController(
             snapshot: menuBarSnapshot(
                 status: model.status,
-                usageSnapshots: model.usageSnapshots,
-                sharedDailyActivity: model.sharedDailyActivity),
+                usageSnapshots: model.usageSnapshots),
             actions: MenuBarPopoverActions(
                 openMainWindow: {
                     controller.present()
@@ -67,8 +66,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 self.applyAppearance()
                 statusItemController?.update(snapshot: self.menuBarSnapshot(
                     status: self.model.status,
-                    usageSnapshots: self.model.usageSnapshots,
-                    sharedDailyActivity: self.model.sharedDailyActivity))
+                    usageSnapshots: self.model.usageSnapshots))
             }
         }
         model.$status
@@ -76,8 +74,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 statusItemController?.update(snapshot: self.menuBarSnapshot(
                     status: status,
-                    usageSnapshots: self.model.usageSnapshots,
-                    sharedDailyActivity: self.model.sharedDailyActivity))
+                    usageSnapshots: self.model.usageSnapshots))
             }
             .store(in: &modelObservers)
         model.$usageSnapshots
@@ -85,17 +82,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 statusItemController?.update(snapshot: self.menuBarSnapshot(
                     status: self.model.status,
-                    usageSnapshots: usageSnapshots,
-                    sharedDailyActivity: self.model.sharedDailyActivity))
-            }
-            .store(in: &modelObservers)
-        model.$sharedDailyActivity
-            .sink { [weak self, weak statusItemController] sharedDailyActivity in
-                guard let self else { return }
-                statusItemController?.update(snapshot: self.menuBarSnapshot(
-                    status: self.model.status,
-                    usageSnapshots: self.model.usageSnapshots,
-                    sharedDailyActivity: sharedDailyActivity))
+                    usageSnapshots: usageSnapshots))
             }
             .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
@@ -181,8 +168,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     private func menuBarSnapshot(
         status: ManagerStatus?,
-        usageSnapshots: [UUID: CodexAccountUsageSnapshot],
-        sharedDailyActivity: [CodexSharedDailyActivity]
+        usageSnapshots: [UUID: CodexAccountUsageSnapshot]
     ) -> MenuBarSnapshot {
         guard let status else { return .empty }
         return MenuBarSnapshot(
@@ -203,8 +189,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     showsUsage: showsUsage,
                     providerID: account.identity.providerID)
             },
-            lastRefreshedAt: usageSnapshots.values.map(\.fetchedAt).max(),
-            sharedDailyActivity: sharedDailyActivity)
+            lastRefreshedAt: usageSnapshots.values.map(\.fetchedAt).max())
     }
 
     private func menuBarUsage(

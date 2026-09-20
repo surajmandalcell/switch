@@ -362,21 +362,9 @@ enum AIManagerNativeContract {
     expect(
       activityDays.map(\.tokens) == [0, 0, 0, 0, 0, 8, 0],
       "Activity calendar does not fill, filter, or aggregate daily usage")
-    let tokenStatistics = UsagePresentation.tokenStatistics([
-      CodexSharedDailyActivity(day: "2026-09-15", tokens: 10, isComplete: true),
-      CodexSharedDailyActivity(day: "2026-09-14", tokens: 20, isComplete: true),
-      CodexSharedDailyActivity(day: "2026-09-09", tokens: 30, isComplete: true),
-      CodexSharedDailyActivity(day: "2026-09-08", tokens: 40, isComplete: false),
-      CodexSharedDailyActivity(day: "2026-08-17", tokens: 50, isComplete: true),
-      CodexSharedDailyActivity(day: "2026-08-16", tokens: 60, isComplete: false),
-    ], endingAt: activityEnd)
-    expect(tokenStatistics.map(\.label) == [
-      "Today", "Yesterday", "Last 7 Days", "Last 30 Days",
-    ], "Token statistics periods changed")
-    expect(tokenStatistics.map(\.tokens) == [10, 20, 60, 150],
-      "Token statistics include days outside their rolling periods")
-    expect(tokenStatistics.map(\.isComplete) == [true, true, true, false],
-      "Token statistics do not identify incomplete source periods")
+    expect(CodexTokenPeriod.allCases.map(\.label) == [
+      "Today", "Yesterday", "Weekly", "Monthly", "Yearly",
+    ], "Token statistics filters changed")
     let weeks = UsagePresentation.activityWeeks(for: activityDays)
     let heatmap = ActivityHeatmap(weeks: weeks, maximumTokens: 8,
       selectedDate: nil, size: 9, select: { _ in })
@@ -706,8 +694,6 @@ enum AIManagerNativeContract {
 
     expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
     expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
-    expect(MenuBarPopover.tokenStatisticsHeight == 66,
-      "Menu-bar token statistics do not use the compact approved height")
     expect(MenuBarPopover.accountHeaderHeight == 35, "Menu-bar account header does not match Soft rectangles")
     expect(MenuBarPopover.quotaRowHeight == 40, "Menu-bar quota rows do not match the approved design")
     expect(MenuBarPopover.footerHeight == 29, "Menu-bar footer does not match the approved design")
@@ -727,9 +713,6 @@ enum AIManagerNativeContract {
       accounts: [hiddenAccount], visibleScreenHeight: 900)
     let one = AIManagerStatusItemController.contentSize(
       accounts: Array(snapshot.accounts.prefix(1)), visibleScreenHeight: 900)
-    let oneWithStatistics = AIManagerStatusItemController.contentSize(
-      accounts: Array(snapshot.accounts.prefix(1)), hasTokenStatistics: true,
-      visibleScreenHeight: 900)
     let two = AIManagerStatusItemController.contentSize(
       accounts: Array(snapshot.accounts.prefix(2)), visibleScreenHeight: 900)
     let many = AIManagerStatusItemController.contentSize(
@@ -747,8 +730,6 @@ enum AIManagerNativeContract {
     expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
     expect(hidden.height == 104, "Hidden usage leaves blank quota space")
     expect(one.height == 201, "One usage card has the wrong geometry")
-    expect(oneWithStatistics.height == 267,
-      "Token statistics do not reserve their compact Menubar band")
     expect(two.height == 353, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
@@ -756,8 +737,6 @@ enum AIManagerNativeContract {
     expect(fractionalScreen.height == 480, "Menu-bar screen cap rounds beyond 80%")
 
     expect(snapshot.accounts.first?.remainingPercentage == 58, "Preview menu snapshot lacks cached remaining quota")
-    expect(snapshot.sharedDailyActivity.count == 3,
-      "Preview menu snapshot does not exercise retained token statistics")
     expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
     expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
     expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
@@ -929,7 +908,7 @@ enum AIManagerNativeContract {
       expect(zip(actual, expected).allSatisfy { abs($0 - $1 / 255) < 0.035 },
         "\(label) does not match its approved palette: \(actual)")
     }
-    let accountSampleY = MenuBarPopover.tokenStatisticsHeight + 26
+    let accountSampleY: CGFloat = 26
     expectPixel(NSPoint(x: 2, y: 26), hex: 0xF0ECE2, label: "Ivory shell")
     expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6, label: "Ivory account panel")
     paletteWindow.appearance = NSAppearance(named: .darkAqua)
