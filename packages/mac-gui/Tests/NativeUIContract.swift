@@ -362,6 +362,21 @@ enum AIManagerNativeContract {
     expect(
       activityDays.map(\.tokens) == [0, 0, 0, 0, 0, 8, 0],
       "Activity calendar does not fill, filter, or aggregate daily usage")
+    let tokenStatistics = UsagePresentation.tokenStatistics([
+      CodexSharedDailyActivity(day: "2026-09-15", tokens: 10, isComplete: true),
+      CodexSharedDailyActivity(day: "2026-09-14", tokens: 20, isComplete: true),
+      CodexSharedDailyActivity(day: "2026-09-09", tokens: 30, isComplete: true),
+      CodexSharedDailyActivity(day: "2026-09-08", tokens: 40, isComplete: false),
+      CodexSharedDailyActivity(day: "2026-08-17", tokens: 50, isComplete: true),
+      CodexSharedDailyActivity(day: "2026-08-16", tokens: 60, isComplete: false),
+    ], endingAt: activityEnd)
+    expect(tokenStatistics.map(\.label) == [
+      "Today", "Yesterday", "Last 7 Days", "Last 30 Days",
+    ], "Token statistics periods changed")
+    expect(tokenStatistics.map(\.tokens) == [10, 20, 60, 150],
+      "Token statistics include days outside their rolling periods")
+    expect(tokenStatistics.map(\.isComplete) == [true, true, true, false],
+      "Token statistics do not identify incomplete source periods")
     let weeks = UsagePresentation.activityWeeks(for: activityDays)
     let heatmap = ActivityHeatmap(weeks: weeks, maximumTokens: 8,
       selectedDate: nil, size: 9, select: { _ in })

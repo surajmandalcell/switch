@@ -3424,3 +3424,19 @@ with temporary synthetic homes before installation.
 - Two safety deferrals remain in `AccountManager.swift`: legacy mutation checks need a reliable
   home-scoped Codex lock/probe; automatic cleanup of unowned login homes needs durable proof that
   their process exited. Neither trigger is available. There are no markers without a trigger.
+
+### Retained token statistics (2026-09-20)
+
+- Accounts now show a separate Token statistics panel for the shared Codex home with Today,
+  Yesterday, Last 7 Days, and Last 30 Days. Compact values have exact tooltips and accessibility
+  values. Periods use retained UTC ledger days, and incomplete source periods carry a warning.
+- The panel reads one bounded daily aggregate from the durable project ledger and remains separate
+  from authoritative per-account Usage. It refreshes after startup and transcript indexing; source
+  conversation deletion, rebuildable-cache clearing, quota-cache purge, and process restart do not
+  erase the retained totals.
+- The new aggregation test covers project summation, range bounds, incomplete records, purge, and
+  reopen. The presentation contract covers exact day/week/month boundaries. The full native gate
+  discovered 173 tests: 171 executed successfully and the two protected-copy integrations remained
+  explicit opt-ins. Preview, production, icon, System/Light/Dark, single-instance, and scrolling
+  contracts passed. Light and Dark renders were inspected, the Impeccable layout detector reported
+  no findings, and the Ponytail debt inventory is empty.

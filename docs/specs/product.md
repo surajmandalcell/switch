@@ -151,6 +151,13 @@ retain known totals with an incomplete indication. Project totals remain separat
 totals, and selected days identify their shared-home provenance. One background file monitor and
 coalesced bounded worker scans maintain summaries independently of the visible page.
 
+Show the shared Codex home's retained local token activity in its own compact panel, separate
+from account Usage. Present Today, Yesterday, Last 7 Days, and Last 30 Days; rolling windows
+include the current UTC day. Show compact values with the exact token count in the tooltip and
+accessibility value. Omit the panel until retained local history exists, then preserve explicit
+zeroes. An incomplete indicator warns when a period includes source records with unknown fork
+boundaries, resets, or incomplete token counters.
+
 The menu popover contains only account switching, enabled limit data, a refresh timestamp,
 and refresh/Open App footer actions. It has no brand/count/refresh header, column header, session
 explanation, Add Account action, or Quit action. Account creation belongs in the main window.
