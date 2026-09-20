@@ -1,5 +1,5 @@
 {
-  "name": "@smdl/switch",
+  "name": "@smc/switch",
   "version": "3.1.0",
   "description": "Switch between saved AI coding-tool accounts from the terminal.",
   "license": "MIT",

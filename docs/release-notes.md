@@ -10,4 +10,4 @@ requires macOS 14 or later on Apple Silicon. Install Codex CLI or Grok Build for
 the provider you use. Grok Build does not expose subscription quota data to
 Switch, so Grok support is account switching only.
 
-The release also includes the `@smdl/switch` npm package for terminal use.
+The release also includes the `@smc/switch` npm package for terminal use.

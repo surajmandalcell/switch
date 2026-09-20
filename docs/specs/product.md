@@ -348,7 +348,7 @@ same 16-point panel content edge as their headings and rows.
 
 The existing `ai-manager` executable owns the terminal interface and opens it when
 run without arguments. The repository root provides `make tui` as the source checkout
-entry point. Distribute the Apple Silicon macOS executable as the `@smdl/switch` npm
+entry point. Distribute the Apple Silicon macOS executable as the `@smc/switch` npm
 package, so npx opens the interface and a global install exposes `switch` and
 the existing `ai-manager` alias.
 The root README has a dedicated terminal getting-started section with all three paths.

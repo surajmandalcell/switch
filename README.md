@@ -29,13 +29,13 @@ You can also [build Switch from source](docs/development.md#build-and-check).
 Open the terminal interface without a global install:
 
 ```bash
-npx --yes @smdl/switch
+npx --yes @smc/switch
 ```
 
 Or install it globally:
 
 ```bash
-npm install --global @smdl/switch
+npm install --global @smc/switch
 switch
 ```
 
