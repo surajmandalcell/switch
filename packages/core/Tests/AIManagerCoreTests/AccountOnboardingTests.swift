@@ -132,11 +132,11 @@ final class AccountOnboardingTests: XCTestCase {
 
         var status = try await manager.status()
         XCTAssertEqual(status.accounts.map(\.identity.providerID), [.grokBuild, .grokBuild])
-        XCTAssertEqual(status.defaultAccountID, first.id)
+        XCTAssertEqual(status.defaultAccountID(for: .grokBuild), first.id)
 
         _ = try await manager.switchDefault(to: second.id)
         status = try await manager.status()
-        XCTAssertEqual(status.defaultAccountID, second.id)
+        XCTAssertEqual(status.defaultAccountID(for: .grokBuild), second.id)
         XCTAssertEqual(
             try Data(contentsOf: paths.grokHome.appending(path: "auth.json")),
             secondAuth)
@@ -160,10 +160,89 @@ final class AccountOnboardingTests: XCTestCase {
 
         let recovered = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let recoveredStatus = try await recovered.refreshAccounts().status
-        XCTAssertEqual(recoveredStatus.defaultAccountID, second.id)
+        XCTAssertEqual(recoveredStatus.defaultAccountID(for: .grokBuild), second.id)
         XCTAssertEqual(
             try Data(contentsOf: paths.grokHome.appending(path: "auth.json")),
             secondAuth)
+    }
+
+    func testCodexAndGrokKeepIndependentDefaultAccounts() async throws {
+        _ = try writeAuth(home: paths.defaultHome, account: "codex-first", workspace: "personal")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            loginRunner: recorder.runner)
+        let initialStatus = try await manager.refreshAccounts().status
+        let codexFirst = try XCTUnwrap(initialStatus.accounts.first)
+
+        let firstLogin = try await manager.startAccountLogin(providerID: .grokBuild)
+        _ = try writeGrokAuth(
+            home: URL(fileURLWithPath: try XCTUnwrap(firstLogin.launchSpec.environment["GROK_HOME"])),
+            user: "grok-first")
+        let firstCheck = try await manager.checkAccountLogin(id: firstLogin.session.id)
+        let grokFirst = try XCTUnwrap(firstCheck.account)
+
+        let secondLogin = try await manager.startAccountLogin(providerID: .grokBuild)
+        _ = try writeGrokAuth(
+            home: URL(fileURLWithPath: try XCTUnwrap(secondLogin.launchSpec.environment["GROK_HOME"])),
+            user: "grok-second")
+        let secondCheck = try await manager.checkAccountLogin(id: secondLogin.session.id)
+        let grokSecond = try XCTUnwrap(secondCheck.account)
+        _ = try await manager.switchDefault(to: grokSecond.id)
+
+        var status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountID(for: .codex), codexFirst.id)
+        XCTAssertEqual(status.defaultAccountID(for: .grokBuild), grokSecond.id)
+
+        let codexSecondHome = root.appending(path: "codex-second")
+        _ = try writeAuth(home: codexSecondHome, account: "codex-second", workspace: "personal")
+        let codexSecondPlan = try await manager.planImport(source: codexSecondHome, mode: .authOnly)
+        let codexSecond = try await manager.importAccount(plan: codexSecondPlan).account
+        _ = try await manager.switchDefault(to: codexSecond.id)
+
+        status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountID(for: .codex), codexSecond.id)
+        XCTAssertEqual(status.defaultAccountID(for: .grokBuild), grokSecond.id)
+        XCTAssertNotEqual(grokFirst.id, grokSecond.id)
+        do {
+            _ = try await manager.deleteAccount(
+                accountID: grokSecond.id,
+                replacementDefaultAccountID: codexSecond.id)
+            XCTFail("Expected a cross-provider replacement to fail.")
+        } catch {
+            XCTAssertEqual(error as? AIManagerError, .invalidReplacementAccount)
+        }
+    }
+
+    func testLegacyGlobalDefaultMigratesBothLiveProviderDefaults() async throws {
+        _ = try writeAuth(home: paths.defaultHome, account: "codex", workspace: "personal")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(
+            paths: paths,
+            writerCheck: { _ in .inactive },
+            loginRunner: recorder.runner)
+        let refreshed = try await manager.refreshAccounts()
+        let codex = try XCTUnwrap(refreshed.status.accounts.first)
+
+        let login = try await manager.startAccountLogin(providerID: .grokBuild)
+        _ = try writeGrokAuth(
+            home: URL(fileURLWithPath: try XCTUnwrap(login.launchSpec.environment["GROK_HOME"])),
+            user: "grok")
+        let checked = try await manager.checkAccountLogin(id: login.session.id)
+        let grok = try XCTUnwrap(checked.account)
+
+        let registry = paths.applicationSupport.appending(path: "accounts.json")
+        var legacy = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registry)) as? [String: Any])
+        legacy.removeValue(forKey: "defaultAccountIDs")
+        legacy["defaultAccountID"] = grok.id.uuidString
+        try JSONSerialization.data(withJSONObject: legacy).write(to: registry)
+
+        let reopened = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let status = try await reopened.status()
+        XCTAssertEqual(status.defaultAccountID(for: .codex), codex.id)
+        XCTAssertEqual(status.defaultAccountID(for: .grokBuild), grok.id)
     }
 
     func testGrokAuthorizationCodeGoesOnlyToTheWaitingCLI() async throws {

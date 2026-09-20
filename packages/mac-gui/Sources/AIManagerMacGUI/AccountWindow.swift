@@ -640,7 +640,7 @@ private struct AccountsPage: View {
                 } label: {
                   AccountListRow(
                     account: account, selected: account.id == model.selectedAccountID,
-                    isDefault: account.id == model.status?.defaultAccountID, sidebarHover: sidebarHover)
+                    isDefault: model.status?.isDefault(account) == true, sidebarHover: sidebarHover)
                 }
                 .buttonStyle(AIMPressButtonStyle())
                 .contextMenu {
@@ -719,7 +719,7 @@ private struct AccountsPage: View {
 
   @ViewBuilder
   private func accountContextMenu(for account: AccountRecord) -> some View {
-    let isDefault = account.id == model.status?.defaultAccountID
+    let isDefault = model.status?.isDefault(account) == true
     Button(isDefault ? AccountActionCopy.usingDefault : AccountActionCopy.use) {
       Task { await model.switchDefault(to: account.id) }
     }
@@ -767,9 +767,9 @@ private struct AccountsPage: View {
 
   private func deletionMessage(for account: AccountRecord) -> String {
     let removal = "Remove this account's saved sign-in from Switch. Conversations and settings stay."
-    if account.id == model.status?.defaultAccountID,
+    if model.status?.isDefault(account) == true,
        let replacement = model.deletionReplacement(for: account.id) {
-      return "\(removal) \(replacement.identity.heroName) will become the default for new Codex sessions."
+      return "\(removal) \(replacement.identity.heroName) will become the default for new \(account.identity.providerID.displayName) sessions."
     }
     return removal
   }
@@ -941,7 +941,7 @@ private struct AccountDetail: View {
   }
   private var identityStatus: some View {
     HStack(spacing: 6) {
-      if account.id == model.status?.defaultAccountID {
+      if model.status?.isDefault(account) == true {
         Badge(text: "Default", color: AIMTheme.green.opacity(0.14), ink: AIMTheme.ink)
       }
       if let attention = account.verification.state.attentionLabel {
@@ -951,9 +951,9 @@ private struct AccountDetail: View {
   }
   @ViewBuilder private var actions: some View {
     AIMButton(
-      title: account.id == model.status?.defaultAccountID
+      title: model.status?.isDefault(account) == true
         ? AccountActionCopy.usingDefault : AccountActionCopy.use,
-      icon: account.id == model.status?.defaultAccountID ? .doubleCheck : .check,
+      icon: model.status?.isDefault(account) == true ? .doubleCheck : .check,
       tone: .primary,
       disabled: model.isBusy
     ) { Task { await model.switchDefault() } }
@@ -962,7 +962,7 @@ private struct AccountDetail: View {
         .id(account.id).disabled(model.isBusy)
     }
     AIMButton(
-      title: account.id == model.status?.defaultAccountID
+      title: model.status?.isDefault(account) == true
         ? AccountActionCopy.open(account.identity.providerID)
         : AccountActionCopy.useAndOpen(account.identity.providerID),
       icon: .play,
@@ -3456,7 +3456,8 @@ private struct AddAccountFlow: View {
   }
 
   private var selectedIsDefault: Bool {
-    model.selectedAccountID.map { $0 == model.status?.defaultAccountID } ?? false
+    guard let account = model.selectedAccount else { return false }
+    return model.status?.isDefault(account) == true
   }
 
   private var hasGrokAuthorizationCode: Bool {

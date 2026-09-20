@@ -105,6 +105,16 @@ printf '%s\\t%s\n' "$CODEX_HOME" "$*" >> '\(log)'
 """
 try write(fakeCodex, to: "fake-codex", permissions: 0o700)
 
+let fakeGrok = """
+#!/bin/sh
+if [ "$1 $2" = "login --oauth" ]; then
+  mkdir -p "$GROK_HOME"
+  printf '%s\n' '{"https://auth.x.ai::synthetic-client":{"auth_mode":"oidc","create_time":"2026-09-20T00:00:00Z","email":"grok@example.test","expires_at":"2030-01-01T00:00:00Z","key":"synthetic-access","oidc_client_id":"synthetic-client","oidc_issuer":"https://auth.x.ai","refresh_token":"synthetic-refresh","user_id":"user-grok"}}' > "$GROK_HOME/auth.json"
+  chmod 600 "$GROK_HOME/auth.json"
+fi
+"""
+try write(fakeGrok, to: "fake-grok", permissions: 0o700)
+
 func recoveryHeader(id: String) throws -> String {
     let accountID = UUID(uuidString: id)!.uuidString
     let destination = root.appending(path: "application-support/accounts/\(accountID)/home")

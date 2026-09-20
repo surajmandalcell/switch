@@ -18,6 +18,7 @@ swift "$(dirname "$0")/FixtureGenerator.swift" "$fixture" >/dev/null
 fixture="$(cd "$fixture" && pwd -P)"
 export AI_MANAGER_ROOT="$fixture"
 export AI_MANAGER_CODEX_EXECUTABLE="$fixture/fake-codex"
+export AI_MANAGER_GROK_EXECUTABLE="$fixture/fake-grok"
 
 writer_unknown_message='Error: Could not establish whether the default home is in use.'
 skip_if_native_writer_unknown() {
@@ -62,6 +63,11 @@ if grep -F "$(printf '\033[38;2;')" "$test_root/tui-native.log" >/dev/null \
   exit 1
 fi
 rg -F 'No saved accounts' "$test_root/tui-native.log" >/dev/null
+rg -F '⊕  Add account' "$test_root/tui-native.log" >/dev/null
+rg -F '⇥  Advanced import' "$test_root/tui-native.log" >/dev/null
+rg -F '⌕  Discover accounts' "$test_root/tui-native.log" >/dev/null
+rg -F '↻  Recover interrupted work' "$test_root/tui-native.log" >/dev/null
+rg -F '⏻  Quit' "$test_root/tui-native.log" >/dev/null
 rg -F '↑↓ move   →/Enter select   Esc quit' "$test_root/tui-native.log" >/dev/null
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -132,6 +138,26 @@ if rg -i 'access.token|refresh.token|synthetic\.' "$test_root/login-check.json" 
   printf '%s\n' 'Completed login output exposed authentication content.' >&2
   exit 1
 fi
+
+grok_start="$test_root/grok-start.json"
+"$binary" start-login grok-build --yes --json >"$grok_start"
+grok_login_id="$(jq -r '.session.id' "$grok_start")"
+for _ in {1..20}; do
+  [[ -f "$fixture/application-support/account-login/$grok_login_id/home/auth.json" ]] && break
+  sleep 0.05
+done
+"$binary" check-login "$grok_login_id" --yes --json \
+  | jq -e '.state == "completed" and .account.identity.providerID == "grok-build"' >/dev/null
+"$binary" status --json \
+  | jq -e '
+      .defaultAccountID == .defaultAccountIDs.codex
+      and .defaultAccountIDs.codex != null
+      and .defaultAccountIDs["grok-build"] != null
+    ' >/dev/null
+printf '\033' | AI_MANAGER_TUI_KEYS=always "$binary" interactive >"$test_root/tui-provider-groups.log"
+rg -F 'Codex CLI' "$test_root/tui-provider-groups.log" >/dev/null
+rg -F 'Grok Build' "$test_root/tui-provider-groups.log" >/dev/null
+[[ "$(rg -o 'DEFAULT' "$test_root/tui-provider-groups.log" | wc -l | tr -d ' ')" -eq 2 ]]
 
 cancel_start="$test_root/cancel-start.json"
 "$binary" add --yes --json >"$cancel_start"
@@ -220,7 +246,7 @@ jq -e '.importedChats == 1 and (.unresolved | length) == 1' "$full_result" >/dev
 rg -F 'Reviewed linked setting rules:' "$test_root/full-error.log" >/dev/null
 rg -F 'Import completed with unresolved items' "$test_root/full-error.log" >/dev/null
 account_id="$(jq -r '.account.id' "$full_result")"
-expected_accounts=2
+expected_accounts=3
 
 printf '\033[H\r\033[B\033[B\r\033[D\033' | AI_MANAGER_TUI_KEYS=always \
   AI_MANAGER_TUI_PERCENTAGE=left AI_MANAGER_TUI_STYLE=always \
@@ -230,6 +256,7 @@ grep -F "$(printf '\033[1m')" "$test_root/interactive-usage.log" >/dev/null
 rg -F '75% session left' "$test_root/interactive-usage.log" >/dev/null
 rg -F 'session left : 75%' "$test_root/interactive-usage.log" >/dev/null
 rg -F 'Token statistics' "$test_root/interactive-usage.log" >/dev/null
+rg -F '−  Delete account' "$test_root/interactive-usage.log" >/dev/null
 rg -e 'Today.*Yesterday.*Weekly.*Monthly.*Yearly' "$test_root/interactive-usage.log" >/dev/null
 rg -F 'today      : 1,200 tokens' "$test_root/interactive-usage.log" >/dev/null
 printf '\033' | AI_MANAGER_TUI_KEYS=always AI_MANAGER_TUI_PERCENTAGE=used \

@@ -217,7 +217,7 @@ final class AccountViewModel: ObservableObject {
             }
             let newStatus = status!
             if selectedAccountID == nil {
-                selectedAccountID = newStatus.defaultAccountID ?? newStatus.accounts.first?.id
+                selectedAccountID = newStatus.firstDefaultAccountID ?? newStatus.accounts.first?.id
             }
         }
         await loadCachedUsage()
@@ -270,9 +270,14 @@ final class AccountViewModel: ObservableObject {
         actionGeneration += 1
         self.scenario = scenario
         let accounts = scenario == .empty ? [] : DemoData.accounts
+        var defaultAccountIDs: [String: UUID] = [:]
+        for account in accounts where defaultAccountIDs[account.identity.providerID.rawValue] == nil {
+            defaultAccountIDs[account.identity.providerID.rawValue] = account.id
+        }
         status = ManagerStatus(
             accounts: accounts,
-            defaultAccountID: accounts.first?.id,
+            defaultAccountID: nil,
+            defaultAccountIDs: defaultAccountIDs,
             sharedRoot: paths.sharedRoot,
             pendingRecovery: scenario == .allStates
                 ? [DemoData.recovery(paths: paths), DemoData.recoveryConflict(paths: paths)] : [],
@@ -416,7 +421,7 @@ final class AccountViewModel: ObservableObject {
                     pendingLoginSessions.removeAll { $0.id == session.id }
                     let name = account.identity.email ?? account.identity.accountID ?? "The account"
                     let providerName = account.identity.providerID.displayName
-                    notice = status?.defaultAccountID == account.id
+                    notice = status?.isDefault(account) == true
                         ? "New \(providerName) sessions will use \(name)."
                         : "\(name) was saved. Choose Use for New Sessions when you want to switch."
                     await loadCachedUsage()
@@ -658,9 +663,10 @@ final class AccountViewModel: ObservableObject {
 
     func switchDefault(to requestedID: UUID? = nil) async {
         if let manager {
-            guard let id = requestedID ?? selectedAccountID else { return }
-            let providerName = status?.accounts.first(where: { $0.id == id })?
-                .identity.providerID.displayName ?? "provider"
+            guard let id = requestedID ?? selectedAccountID,
+                  let providerID = status?.accounts.first(where: { $0.id == id })?
+                    .identity.providerID else { return }
+            let providerName = providerID.displayName
             await perform(
                 failure: "Couldn’t change the default account.",
                 recovery: "Resolve any item in Backup, then try again."
@@ -670,7 +676,7 @@ final class AccountViewModel: ObservableObject {
                 selectedAccountID = id
                 notice = "New \(providerName) sessions will use this account. Backup: \(result.backup.path)"
             }
-            if status?.defaultAccountID == id {
+            if status?.defaultAccountID(for: providerID) == id {
                 await loadCachedUsage()
                 if shouldRefreshDefaultUsage {
                     Task { await self.refreshDefaultUsage() }
@@ -680,9 +686,10 @@ final class AccountViewModel: ObservableObject {
         }
         #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
-        guard let id = requestedID ?? selectedAccountID, var current = status else { return }
+        guard let id = requestedID ?? selectedAccountID, var current = status,
+              let account = current.accounts.first(where: { $0.id == id }) else { return }
         await perform {
-            current.defaultAccountID = id
+            current.setDefaultAccountID(id, for: account.identity.providerID)
             status = current
             selectedAccountID = id
             notice = "Future demo sessions will use this account. Existing sessions are unchanged."
@@ -734,14 +741,15 @@ final class AccountViewModel: ObservableObject {
 
     func openAccount(_ requestedID: UUID? = nil) async {
         if let manager {
-            guard let id = requestedID ?? selectedAccountID else { return }
-            let providerName = status?.accounts.first(where: { $0.id == id })?
-                .identity.providerID.displayName ?? "provider"
+            guard let id = requestedID ?? selectedAccountID,
+                  let providerID = status?.accounts.first(where: { $0.id == id })?
+                    .identity.providerID else { return }
+            let providerName = providerID.displayName
             await perform(
                 failure: "Couldn’t open \(providerName).",
                 recovery: "Check the saved account, then try again."
             ) {
-                if status?.defaultAccountID != id {
+                if status?.defaultAccountID(for: providerID) != id {
                     _ = try await manager.switchDefault(to: id)
                     try await reloadStatus(using: manager)
                     selectedAccountID = id
@@ -766,8 +774,8 @@ final class AccountViewModel: ObservableObject {
         await perform {
             guard let id = requestedID ?? selectedAccountID,
                   var current = status,
-                  current.accounts.contains(where: { $0.id == id }) else { return }
-            current.defaultAccountID = id
+                  let account = current.accounts.first(where: { $0.id == id }) else { return }
+            current.setDefaultAccountID(id, for: account.identity.providerID)
             status = current
             selectedAccountID = id
             notice = "Demo account opened. No Terminal process was started."
@@ -839,13 +847,17 @@ final class AccountViewModel: ObservableObject {
 
     func canDeleteAccount(_ accountID: UUID) -> Bool {
         guard let current = status,
-              current.accounts.contains(where: { $0.id == accountID }) else { return false }
-        return current.defaultAccountID != accountID || deletionReplacement(for: accountID) != nil
+              let account = current.accounts.first(where: { $0.id == accountID }) else { return false }
+        return current.defaultAccountID(for: account.identity.providerID) != accountID
+            || deletionReplacement(for: accountID) != nil
     }
 
     func deletionReplacement(for accountID: UUID) -> AccountRecord? {
+        guard let providerID = status?.accounts.first(where: { $0.id == accountID })?
+            .identity.providerID else { return nil }
         let candidates = status?.accounts.filter {
-            $0.id != accountID && $0.verification.state != .needsSignIn
+            $0.id != accountID && $0.identity.providerID == providerID
+                && $0.verification.state != .needsSignIn
                 && $0.verification.state != .unsupported
         } ?? []
         for preferred in [selectedAccountID, previousSelectedAccountID] {
@@ -862,7 +874,7 @@ final class AccountViewModel: ObservableObject {
             errorMessage = "No saved account is available as a replacement."
             return
         }
-        let replacement = status?.defaultAccountID == accountID
+        let replacement = status?.defaultAccountID(for: account.identity.providerID) == accountID
             ? deletionReplacement(for: accountID)?.id : nil
         if let manager {
             await perform(
@@ -886,7 +898,7 @@ final class AccountViewModel: ObservableObject {
                     usageErrorAccountID = nil
                 }
                 if selectedAccountID == accountID {
-                    selectedAccountID = status?.defaultAccountID ?? status?.accounts.first?.id
+                    selectedAccountID = status?.firstDefaultAccountID ?? status?.accounts.first?.id
                 }
                 let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
                 notice = "\(accountName) was deleted from Switch."
@@ -898,14 +910,16 @@ final class AccountViewModel: ObservableObject {
         await perform {
             guard var current = status else { return }
             current.accounts.removeAll { $0.id == accountID }
-            if current.defaultAccountID == accountID { current.defaultAccountID = replacement }
+            if current.defaultAccountID(for: account.identity.providerID) == accountID {
+                current.setDefaultAccountID(replacement, for: account.identity.providerID)
+            }
             current.linkedSettingsDivergences.removeAll { $0.accountID == accountID }
             status = current
             accountHistory[accountID] = nil
             accountUsage[accountID] = nil
             usageSnapshots[accountID] = nil
             if selectedAccountID == accountID {
-                selectedAccountID = current.defaultAccountID ?? current.accounts.first?.id
+                selectedAccountID = current.firstDefaultAccountID ?? current.accounts.first?.id
             }
             let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
             notice = "\(accountName) was deleted from the demo."

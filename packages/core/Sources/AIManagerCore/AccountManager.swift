@@ -21,7 +21,52 @@ public actor AccountManager {
 
     private struct Registry: Codable {
         var accounts: [AccountRecord] = []
-        var defaultAccountID: UUID?
+        var defaultAccountIDs: [String: UUID] = [:]
+        var needsDefaultMigration = false
+
+        var defaultAccountID: UUID? {
+            get { defaultAccountID(for: .codex) }
+            set { setDefaultAccountID(newValue, for: .codex) }
+        }
+
+        init() {}
+
+        func defaultAccountID(for providerID: ProviderID) -> UUID? {
+            defaultAccountIDs[providerID.rawValue]
+        }
+
+        mutating func setDefaultAccountID(_ accountID: UUID?, for providerID: ProviderID) {
+            if let accountID {
+                defaultAccountIDs[providerID.rawValue] = accountID
+            } else {
+                defaultAccountIDs.removeValue(forKey: providerID.rawValue)
+            }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case accounts, defaultAccountID, defaultAccountIDs
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            accounts = try values.decodeIfPresent([AccountRecord].self, forKey: .accounts) ?? []
+            let decodedDefaults = try values.decodeIfPresent(
+                [String: UUID].self, forKey: .defaultAccountIDs)
+            defaultAccountIDs = decodedDefaults ?? [:]
+            needsDefaultMigration = decodedDefaults == nil
+            if let legacy = try values.decodeIfPresent(UUID.self, forKey: .defaultAccountID),
+               let providerID = accounts.first(where: { $0.id == legacy })?.identity.providerID,
+               defaultAccountIDs[providerID.rawValue] == nil {
+                defaultAccountIDs[providerID.rawValue] = legacy
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(accounts, forKey: .accounts)
+            try values.encodeIfPresent(defaultAccountID, forKey: .defaultAccountID)
+            try values.encode(defaultAccountIDs, forKey: .defaultAccountIDs)
+        }
     }
 
     private struct RecoveryTarget {
@@ -79,6 +124,7 @@ public actor AccountManager {
         return .init(
             accounts: registry.accounts,
             defaultAccountID: registry.defaultAccountID,
+            defaultAccountIDs: registry.defaultAccountIDs,
             sharedRoot: paths.sharedRoot,
             pendingRecovery: try pendingOperations(),
             linkedSettingsDivergences: try inspectLinkedSettings(accounts: codexAccounts)
@@ -533,16 +579,21 @@ public actor AccountManager {
         replacementDefaultAccountID: UUID? = nil
     ) async throws -> AccountDeletionResult {
         let initial = try loadRegistry()
-        guard initial.accounts.contains(where: { $0.id == accountID }) else {
+        guard let initialAccount = initial.accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
         }
+        let providerID = initialAccount.identity.providerID
+        let initialDefaultAccountID = initial.defaultAccountID(for: providerID)
         if let replacementDefaultAccountID {
             guard replacementDefaultAccountID != accountID,
-                  initial.accounts.contains(where: { $0.id == replacementDefaultAccountID }) else {
+                  initial.accounts.contains(where: {
+                      $0.id == replacementDefaultAccountID
+                          && $0.identity.providerID == providerID
+                  }) else {
                 throw AIManagerError.invalidReplacementAccount
             }
         }
-        if initial.defaultAccountID == accountID {
+        if initialDefaultAccountID == accountID {
             guard let replacementDefaultAccountID else {
                 throw AIManagerError.defaultAccountReplacementRequired
             }
@@ -555,10 +606,10 @@ public actor AccountManager {
             guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
             }
-            guard registry.defaultAccountID != accountID else {
+            let account = registry.accounts[index]
+            guard registry.defaultAccountID(for: account.identity.providerID) != accountID else {
                 throw AIManagerError.defaultAccountReplacementRequired
             }
-            let account = registry.accounts[index]
             try validateDeleteTargets(account)
 
             let operationID = UUID()
@@ -573,7 +624,8 @@ public actor AccountManager {
                 backup: backup,
                 touchedItems: [],
                 registryAccountID: accountID,
-                previousDefaultAccountID: registry.defaultAccountID,
+                previousDefaultAccountID: registry.defaultAccountID(
+                    for: account.identity.providerID),
                 previousAccount: account
             )
             try saveOperation(operation)
@@ -634,7 +686,7 @@ public actor AccountManager {
             try finishOperation(&operation)
             return .init(
                 accountID: accountID,
-                replacementDefaultAccountID: initial.defaultAccountID == accountID
+                replacementDefaultAccountID: initialDefaultAccountID == accountID
                     ? replacementDefaultAccountID : nil,
                 removedManagedHome: !CoreSupport.entryExists(account.home),
                 removedCredential: !CoreSupport.entryExists(account.credentialFile)
@@ -646,12 +698,11 @@ public actor AccountManager {
         try await lock.withAsyncLock {
             try ensureNoRecovery()
             let registry = try loadRegistry()
-            guard registry.defaultAccountID == nil || registry.defaultAccountID == accountID else {
-                return
-            }
             guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
             }
+            let current = registry.defaultAccountID(for: selected.identity.providerID)
+            guard current == nil || current == accountID else { return }
             if selected.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(selected)
                 _ = try performGrokSwitch(to: accountID, captureOutgoingCredential: false)
@@ -827,7 +878,7 @@ public actor AccountManager {
         workingDirectory: URL?
     ) throws -> LaunchSpec {
         try grokProvider.validateManagedCredential(account)
-        guard registry.defaultAccountID == account.id else {
+        guard registry.defaultAccountID(for: .grokBuild) == account.id else {
             throw AIManagerError.operationFailed("Use this account before opening Grok Build.")
         }
         let liveAuth = paths.grokHome.appending(path: "auth.json")
@@ -869,7 +920,7 @@ public actor AccountManager {
             if account.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(account)
                 let live = grokProvider.inspect(home: paths.grokHome)
-                alreadyActive = registry.defaultAccountID == accountID
+                alreadyActive = registry.defaultAccountID(for: .grokBuild) == accountID
                     && live.identity.map { grokProvider.sameIdentity(account.identity, $0) } == true
                 if !alreadyActive { _ = try performGrokSwitch(to: accountID) }
             } else {
@@ -1345,12 +1396,51 @@ extension AccountManager {
                 }
             }
         }
-        if let defaultID = registry.defaultAccountID,
-           !registry.accounts.contains(where: { $0.id == defaultID }) {
-            throw AIManagerError.invalidSource("The default account is missing from the registry.")
+        let migratedDefaults = registry.needsDefaultMigration
+        if registry.needsDefaultMigration {
+            for providerID in [ProviderID.codex, .grokBuild]
+                where registry.defaultAccountID(for: providerID) == nil {
+                if let accountID = liveDefaultAccountID(
+                    for: providerID, accounts: registry.accounts) {
+                    registry.setDefaultAccountID(accountID, for: providerID)
+                }
+            }
         }
-        if migratedCredential { try saveRegistry(registry) }
+        for (provider, defaultID) in registry.defaultAccountIDs {
+            guard registry.accounts.contains(where: {
+                $0.id == defaultID && $0.identity.providerID.rawValue == provider
+            }) else {
+                throw AIManagerError.invalidSource(
+                    "A provider default account is missing from the registry.")
+            }
+        }
+        registry.needsDefaultMigration = false
+        if migratedCredential || migratedDefaults { try saveRegistry(registry) }
         return registry
+    }
+
+    private func liveDefaultAccountID(
+        for providerID: ProviderID,
+        accounts: [AccountRecord]
+    ) -> UUID? {
+        switch providerID {
+        case .codex:
+            let live = provider.inspect(home: paths.defaultHome)
+            guard live.support == .supportedChatGPT, let identity = live.identity else { return nil }
+            return accounts.first {
+                $0.identity.providerID == providerID
+                    && provider.sameIdentity($0.identity, identity)
+            }?.id
+        case .grokBuild:
+            let live = grokProvider.inspect(home: paths.grokHome)
+            guard live.support == .supportedOAuth, let identity = live.identity else { return nil }
+            return accounts.first {
+                $0.identity.providerID == providerID
+                    && grokProvider.sameIdentity($0.identity, identity)
+            }?.id
+        default:
+            return nil
+        }
     }
 
     private func saveRegistry(_ registry: Registry) throws {
@@ -1682,7 +1772,7 @@ extension AccountManager {
             backup: backup,
             touchedItems: [],
             registryAccountID: accountID,
-            previousDefaultAccountID: registry.defaultAccountID,
+            previousDefaultAccountID: registry.defaultAccountID(for: .grokBuild),
             registryCredentialDigest: selectedInspection.digest,
             previousAccount: matching.map { registry.accounts[$0] },
             setsDefaultAccount: false
@@ -1980,7 +2070,7 @@ extension AccountManager {
         if captureOutgoingCredential,
            outgoingInspection.support == .supportedChatGPT,
            let identity = outgoingInspection.identity, identity.isResolved {
-            if let currentID = registry.defaultAccountID,
+            if let currentID = registry.defaultAccountID(for: .codex),
                let index = registry.accounts.firstIndex(where: {
                    $0.id == currentID && $0.identity.providerID == .codex
                }) {
@@ -2093,7 +2183,7 @@ extension AccountManager {
         if captureOutgoingCredential,
            outgoingInspection.support == .supportedOAuth,
            let identity = outgoingInspection.identity, identity.isResolved {
-            if let currentID = registry.defaultAccountID,
+            if let currentID = registry.defaultAccountID(for: .grokBuild),
                let index = registry.accounts.firstIndex(where: {
                    $0.id == currentID && $0.identity.providerID == .grokBuild
                }) {
@@ -2126,7 +2216,7 @@ extension AccountManager {
         let operationID = UUID()
         let backup = paths.applicationSupport.appending(
             path: "backups/\(operationID.uuidString)", directoryHint: .isDirectory)
-        let previousDefault = registry.defaultAccountID
+        let previousDefault = registry.defaultAccountID(for: .grokBuild)
         var operation = RecoveryOperation(
             id: operationID,
             kind: "switch-grok",
@@ -2202,7 +2292,7 @@ extension AccountManager {
               grokProvider.sameIdentity(incoming.identity, incomingIdentity) else {
             throw AIManagerError.credentialConflict
         }
-        if registry.defaultAccountID == accountID,
+        if registry.defaultAccountID(for: .grokBuild) == accountID,
            outgoingInspection.digest == incomingInspection.digest {
             try finishOperation(&operation)
             return .init(
@@ -2222,7 +2312,7 @@ extension AccountManager {
         guard grokProvider.inspect(home: paths.grokHome).digest == incomingInspection.digest else {
             throw AIManagerError.operationFailed("The committed Grok credential did not verify.")
         }
-        registry.defaultAccountID = accountID
+        registry.setDefaultAccountID(accountID, for: .grokBuild)
         registry.accounts[incomingIndex].lastUsedAt = Date()
         try saveRegistry(registry)
         try faultInjector(.afterRegistryCommit)
@@ -3328,7 +3418,7 @@ extension AccountManager {
             registry.accounts[selectedIndex].credentialDigest = currentDefault.digest
         }
         try provider.validateManagedCredential(registry.accounts[selectedIndex])
-        registry.defaultAccountID = accountID
+        registry.setDefaultAccountID(accountID, for: .codex)
         registry.accounts[selectedIndex].lastUsedAt = Date()
         try saveRegistry(registry)
     }
@@ -3360,7 +3450,7 @@ extension AccountManager {
             registry.accounts[selectedIndex].credentialDigest = current.digest
         }
         try grokProvider.validateManagedCredential(registry.accounts[selectedIndex])
-        registry.defaultAccountID = accountID
+        registry.setDefaultAccountID(accountID, for: .grokBuild)
         registry.accounts[selectedIndex].lastUsedAt = Date()
         try saveRegistry(registry)
     }
@@ -3429,7 +3519,8 @@ extension AccountManager {
 
     private func registryCommitted(_ operation: RecoveryOperation, registry: Registry) -> Bool {
         if ["switch", "switch-grok"].contains(operation.kind) {
-            return registry.defaultAccountID == operation.registryAccountID
+            let providerID: ProviderID = operation.kind == "switch-grok" ? .grokBuild : .codex
+            return registry.defaultAccountID(for: providerID) == operation.registryAccountID
         }
         guard let accountID = operation.registryAccountID,
               let expectedCredential = operation.registryCredentialDigest else { return false }
@@ -3452,7 +3543,8 @@ extension AccountManager {
 
     private func restoreRegistry(_ operation: RecoveryOperation, registry: inout Registry) {
         if ["switch", "switch-grok"].contains(operation.kind) {
-            registry.defaultAccountID = operation.previousDefaultAccountID
+            let providerID: ProviderID = operation.kind == "switch-grok" ? .grokBuild : .codex
+            registry.setDefaultAccountID(operation.previousDefaultAccountID, for: providerID)
             if let previous = operation.previousAccount,
                let index = registry.accounts.firstIndex(where: { $0.id == previous.id }) {
                 registry.accounts[index] = previous
@@ -3673,7 +3765,8 @@ extension AccountManager {
             )
         }
 
-        guard registry.defaultAccountID == operation.previousDefaultAccountID else {
+        let providerID = operation.previousAccount?.identity.providerID ?? .codex
+        guard registry.defaultAccountID(for: providerID) == operation.previousDefaultAccountID else {
             operation.phase = .conflicted
             try saveOperation(operation)
             return .init(
