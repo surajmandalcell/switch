@@ -82,6 +82,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
 struct MenuBarSnapshot: Equatable, Sendable {
   let accounts: [MenuBarAccountSnapshot]
   let lastRefreshedAt: Date?
+  let sharedDailyActivity: [CodexSharedDailyActivity]
 
   var statusAccounts: [MenuBarAccountSnapshot] {
     statusAccountGroups.flatMap { $0 }
@@ -104,10 +105,12 @@ struct MenuBarSnapshot: Equatable, Sendable {
 
   init(
     accounts: [MenuBarAccountSnapshot],
-    lastRefreshedAt: Date? = nil
+    lastRefreshedAt: Date? = nil,
+    sharedDailyActivity: [CodexSharedDailyActivity] = []
   ) {
     self.accounts = accounts
     self.lastRefreshedAt = lastRefreshedAt ?? accounts.compactMap(\.usage?.fetchedAt).max()
+    self.sharedDailyActivity = sharedDailyActivity
   }
 }
 
@@ -230,6 +233,7 @@ struct MenuBarPopover: View {
   @State private var refreshHovered = false
   static let width: CGFloat = 344
   static let minimumHeight: CGFloat = 104
+  static let tokenStatisticsHeight: CGFloat = 66
   static let footerHeight: CGFloat = 29
   static let listInset: CGFloat = 10
   static let cardSpacing: CGFloat = 10
@@ -259,11 +263,13 @@ struct MenuBarPopover: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      if !store.snapshot.sharedDailyActivity.isEmpty { tokenStatistics }
       accountList
       footer
     }
     .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
       accounts: store.snapshot.accounts,
+      hasTokenStatistics: !store.snapshot.sharedDailyActivity.isEmpty,
       visibleScreenHeight: store.visibleScreenHeight).height)
     .background {
       if reduceTransparency {
@@ -280,6 +286,46 @@ struct MenuBarPopover: View {
     .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
     .focusEffectDisabled(!showFocusIndicators)
     .clipShape(RoundedRectangle(cornerRadius: Self.popupRadius))
+  }
+
+  private var tokenStatistics: some View {
+    HStack(spacing: 0) {
+      ForEach(Array(UsagePresentation.tokenStatistics(
+        store.snapshot.sharedDailyActivity, endingAt: Date()).enumerated()), id: \.element.id
+      ) { index, statistic in
+        if index > 0 {
+          Rectangle().fill(palette.line).frame(width: 1, height: 30)
+        }
+        VStack(alignment: .leading, spacing: 2) {
+          HStack(spacing: 3) {
+            Text(statistic.label)
+              .font(AIMTheme.sans(9, weight: .medium))
+              .foregroundStyle(palette.muted)
+              .lineLimit(1)
+            if !statistic.isComplete {
+              AIMIcon(name: .info, size: 8).foregroundStyle(AIMTheme.amber)
+            }
+          }
+          Text(UsagePresentation.formatTokens(statistic.tokens))
+            .font(AIMTheme.mono(14, weight: .semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(statistic.label)
+        .accessibilityValue(
+          "\(UsagePresentation.exactTokens(statistic.tokens)) tokens"
+            + (statistic.isComplete ? "" : ", incomplete source records"))
+        .help(
+          "\(statistic.label): \(UsagePresentation.exactTokens(statistic.tokens)) tokens"
+            + (statistic.isComplete ? "" : ". Some source records are incomplete."))
+      }
+    }
+    .padding(.horizontal, 10)
+    .frame(height: Self.tokenStatisticsHeight)
+    .overlay(alignment: .bottom) { Rectangle().fill(palette.line).frame(height: 1) }
   }
 
   @ViewBuilder
@@ -602,6 +648,21 @@ enum MenuBarPopoverPreviewData {
         id: UUID(uuidString: "DB9AB65A-F894-426D-8A16-86772A8F054D")!,
         identity: "joestar89@gmail.com", detail: "Codex CLI · Personal",
         isVerified: false, isActive: false),
+    ],
+    sharedDailyActivity: [
+      CodexSharedDailyActivity(day: day(0), tokens: 128_420, isComplete: true),
+      CodexSharedDailyActivity(day: day(1), tokens: 96_310, isComplete: true),
+      CodexSharedDailyActivity(day: day(9), tokens: 480_000, isComplete: false),
     ])
+
+  private static func day(_ offset: Int) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withFullDate]
+    formatter.timeZone = calendar.timeZone
+    let date = calendar.date(byAdding: .day, value: -offset, to: Date()) ?? Date()
+    return formatter.string(from: date)
+  }
 }
 #endif

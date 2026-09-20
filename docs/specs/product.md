@@ -158,9 +158,12 @@ accessibility value. Omit the panel until retained local history exists, then pr
 zeroes. An incomplete indicator warns when a period includes source records with unknown fork
 boundaries, resets, or incomplete token counters.
 
-The menu popover contains only account switching, enabled limit data, a refresh timestamp,
-and refresh/Open App footer actions. It has no brand/count/refresh header, column header, session
-explanation, Add Account action, or Quit action. Account creation belongs in the main window.
+The menu popover leads with a compact retained-token summary for the shared Codex home: Today,
+Yesterday, Last 7 Days, and Last 30 Days. Exact totals and incomplete-source state remain available
+to assistive technology and on hover. Account switching and enabled limit data follow in the
+scrollable body, with the refresh timestamp and refresh/Open App actions fixed in the footer. It has
+no brand/count/refresh header, column header, session explanation, Add Account action, or Quit
+action. Account creation belongs in the main window.
 
 Each account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
 in its action row. Both stateful actions use a single tick when false (Set as Default or
