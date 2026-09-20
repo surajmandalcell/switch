@@ -25,8 +25,11 @@ tarball="$test_root/$(printf '%s' "$pack_json" | node -e '
 
 npm install --global --prefix "$test_root/global" "$tarball" >/dev/null
 installed="$test_root/global/bin/ai-manager"
+switch_installed="$test_root/global/bin/switch-codex"
 [[ -x "$installed" ]]
+[[ -x "$switch_installed" ]]
 "$installed" help | rg -F 'ai-manager interactive' >/dev/null
+"$switch_installed" help | rg -F 'ai-manager interactive' >/dev/null
 
 mkdir -p "$test_root/source-home" "$test_root/npx-home"
 printf 'q\n' | AI_MANAGER_ROOT="$test_root/source-home" "$installed" \
@@ -34,7 +37,7 @@ printf 'q\n' | AI_MANAGER_ROOT="$test_root/source-home" "$installed" \
 npm exec --yes --package "$tarball" -- ai-manager help \
   | rg -F 'ai-manager interactive' >/dev/null
 printf 'q\n' | AI_MANAGER_ROOT="$test_root/npx-home" \
-  npm exec --yes --package "$tarball" -- ai-manager \
+  npm exec --yes --package "$tarball" -- switch-codex \
   | rg -F 'Discover accounts' >/dev/null
 
 printf '%s\n' 'NPM_TUI_PACKAGE_PASS'
