@@ -95,6 +95,9 @@ the installed copy matches the package and passes strict signature and help chec
 The pre-fix PTY capture emits bare line feeds and reproduces the diagonal row drift seen in
 iTerm. Restoring the original output flags after `cfmakeraw` produces CRLF output; the same
 capture and the full CLI acceptance pass with each menu row aligned to column zero.
+The exact `switch-codex-3.0.0.tgz` package built from fix commit `c0c176b` has SHA-256
+`601a7c6fb9aa2e9dabf61eb51b80558013ece2c19a863774852e0353efeebfbe` and passes the
+real-PTY layout regression after isolated installation.
 
 ### Usage percentage preference (2026-09-19)
 
