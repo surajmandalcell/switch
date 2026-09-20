@@ -249,7 +249,8 @@ final class AIManagerStatusItemController: NSObject {
   }
 
   static func contentSize(
-    accounts: [MenuBarAccountSnapshot], visibleScreenHeight: CGFloat
+    accounts: [MenuBarAccountSnapshot],
+    visibleScreenHeight: CGFloat
   ) -> NSSize {
     let listHeight: CGFloat
     if accounts.isEmpty {
@@ -273,7 +274,8 @@ final class AIManagerStatusItemController: NSObject {
     store.update(visibleScreenHeight: screen?.visibleFrame.height ?? Self.fallbackScreenHeight)
     popover.contentViewController?.view.layoutSubtreeIfNeeded()
     popover.contentSize = Self.contentSize(
-      accounts: store.snapshot.accounts, visibleScreenHeight: store.visibleScreenHeight)
+      accounts: store.snapshot.accounts,
+      visibleScreenHeight: store.visibleScreenHeight)
   }
 
   private func configureButton() {

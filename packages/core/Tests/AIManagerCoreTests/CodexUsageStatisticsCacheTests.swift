@@ -134,6 +134,62 @@ final class CodexUsageStatisticsCacheTests: XCTestCase {
         XCTAssertEqual(retained.map(\.tokens), [42])
     }
 
+    func testTokenPeriodsUseOneAccountAndRollingUTCDays() throws {
+        let end = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-15T12:00:00Z"))
+        let rows = [
+            CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: 10),
+            CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: 5),
+            CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 20),
+            CodexDailyUsageSnapshot(startDate: "2026-09-09", tokens: 30),
+            CodexDailyUsageSnapshot(startDate: "2026-09-08", tokens: 40),
+            CodexDailyUsageSnapshot(startDate: "2026-08-17", tokens: 50),
+            CodexDailyUsageSnapshot(startDate: "2026-08-16", tokens: 60),
+            CodexDailyUsageSnapshot(startDate: "2025-09-16", tokens: 70),
+            CodexDailyUsageSnapshot(startDate: "2025-09-15", tokens: 80),
+            CodexDailyUsageSnapshot(startDate: "2026-02-30", tokens: 1_000),
+            CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: nil),
+        ]
+
+        XCTAssertEqual(CodexTokenPeriod.allCases.map(\.label), [
+            "Today", "Yesterday", "Weekly", "Monthly", "Yearly",
+        ])
+        XCTAssertEqual(
+            CodexTokenPeriod.allCases.map { $0.tokens(in: rows, endingAt: end) },
+            [15, 20, 65, 155, 285])
+        let since = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-09T18:00:00Z"))
+        XCTAssertEqual(CodexTokenPeriod.tokens(in: rows, from: since, through: end), 65)
+    }
+
+    func testSharedDailyActivityAggregatesProjectsAndSurvivesPurgeAndReopen() async throws {
+        let ledger = root.appending(path: "activity/daily.sqlite")
+        var cache: CodexUsageStatisticsCache? = try CodexUsageStatisticsCache(
+            databaseURL: database, activityDatabaseURL: ledger)
+        try await cache?.recordTranscriptActivity(.init(
+            threadID: "first", project: "/Projects/first", firstEvent: "2026-09-14T10:00:00Z",
+            eventCount: 2, totalTokens: 30,
+            days: ["2026-09-14": 10, "2026-09-15": 20], complete: true), fallbackID: "first")
+        try await cache?.recordTranscriptActivity(.init(
+            threadID: "second", project: "/Projects/second", firstEvent: "2026-09-15T11:00:00Z",
+            eventCount: 1, totalTokens: 30,
+            days: ["2026-09-15": 30], complete: false), fallbackID: "second")
+        try await cache?.purgeAll()
+        cache = nil
+
+        let reopened = try CodexUsageStatisticsCache(
+            databaseURL: database, activityDatabaseURL: ledger)
+        let rows = try await reopened.sharedDailyActivity(
+            from: "2026-09-14", through: "2026-09-15")
+        XCTAssertEqual(rows.map(\.day), ["2026-09-14", "2026-09-15"])
+        XCTAssertEqual(rows.map(\.tokens), [10, 50])
+        XCTAssertEqual(rows.map(\.isComplete), [true, false])
+        let outside = try await reopened.sharedDailyActivity(
+            from: "2026-09-16", through: "2026-09-30")
+        let reversed = try await reopened.sharedDailyActivity(
+            from: "2026-09-15", through: "2026-09-14")
+        XCTAssertEqual(outside, [])
+        XCTAssertEqual(reversed, [])
+    }
+
     func testEnforcesRetentionPerAccountAndTotalRowLimits() async throws {
         let first = UUID()
         let second = UUID()

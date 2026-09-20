@@ -127,8 +127,12 @@ every quota percentage shows the amount left; when on, every quota percentage sh
 amount used. The selected meaning applies to main-window meters, Menubar cards, status-item
 percentages, tooltips, and accessibility labels, and survives app restarts.
 
-Daily activity uses a GitHub-style calendar instead of a date table. The user can select 7 days,
-1 month, or 1 year, initially 1 year. The selected range persists across app restarts.
+Daily activity uses a GitHub-style calendar instead of a date table. Its header uses one native
+segmented control whose items touch: only the outside ends are rounded and faint dividers separate
+the interior items. Today, Yesterday, Weekly, Monthly, and Yearly drive both the visible token total
+and the activity range, initially Yearly. Use the same native grouped treatment for compact,
+mutually exclusive period filters elsewhere; do not render a row of detached pills. The selected
+range persists across app restarts.
 Selecting an account only changes the displayed account; it must not activate credentials
 or wait on file reads, queries, or repeated calendar aggregation. Build each displayed
 calendar's days, weeks, and token maximum once per body update, rather than once per cell.
@@ -163,9 +167,39 @@ retain known totals with an incomplete indication. Project totals remain separat
 totals, and selected days identify their shared-home provenance. One background file monitor and
 coalesced bounded worker scans maintain summaries independently of the visible page.
 
-The menu popover contains only account switching, enabled limit data, a refresh timestamp,
-and refresh/Open App footer actions. It has no brand/count/refresh header, column header, session
-explanation, Add Account action, or Quit action. Account creation belongs in the main window.
+Show retained token statistics for the selected account inside the existing Daily activity
+section, not in a separate panel. The section header contains one grouped row of Today, Yesterday,
+Weekly, Monthly, and Yearly filters. One filter is active at a time. A fixed-height summary line
+shows only that period's total, with the exact token count in its tooltip and accessibility value;
+async price availability must not move surrounding content. Rolling Weekly, Monthly, and Yearly
+periods include the current UTC day and cover 7, 30, and 365 days. Do not add an account or provider
+filter because the surrounding account view owns the statistic. Do not repeat a source label such
+as Shared Codex home. Omit Daily activity until that account has retained history, then preserve
+explicit zeroes. The TUI account screen uses the same periods and account-day data and renders its
+filter as one contiguous group.
+
+The Menubar account card includes one compact token summary without adding another row to its
+geometry. Put the quota percentage on the same line as Session or Weekly. Reuse the existing detail
+line for the configured token period at the left and reset countdown at the right. Settings owns a
+native segmented choice for Since reset, Today, Yesterday, Weekly, Monthly, or Yearly; Since reset
+is the default. Since-reset totals use the weekly window start when the service returns a duration
+and reset time, and otherwise fall back to Weekly without inventing precision.
+
+Show an API-equivalent comparison beside the selected token total when the shared Codex config has
+a model with published pricing. Follow OpenUsage's pricing source pattern: prefer the public
+LiteLLM model catalog, cache its raw response for 24 hours, and use a stale valid cache when offline.
+The Codex account feed supplies aggregate tokens but not an input/output/cache breakdown, so never
+present the comparison as billed cost. Label the visible value as an input-rate equivalent and put
+the configured model plus cached-input, input, and output equivalents in help and accessibility
+text. Keep tokens visible when pricing is unavailable.
+
+Retained shared-home project totals continue to support history and cleanup but must not appear as
+the selected account's token statistics. The menu popover remains focused on account switching,
+enabled quota data, and the compact account token summary. Its scrollable body is followed by the
+fixed refresh timestamp and refresh/Open
+App actions. It has no separate token-statistics band, brand/count/refresh header, column header,
+session explanation, Add Account action, or Quit action. Account creation belongs in the main
+window.
 
 Each Codex account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
 in its action row. Both stateful actions use a single tick when false (Set as Default or

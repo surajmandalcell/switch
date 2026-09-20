@@ -362,6 +362,13 @@ enum AIManagerNativeContract {
     expect(
       activityDays.map(\.tokens) == [0, 0, 0, 0, 0, 8, 0],
       "Activity calendar does not fill, filter, or aggregate daily usage")
+    expect(CodexTokenPeriod.allCases.map(\.label) == [
+      "Today", "Yesterday", "Weekly", "Monthly", "Yearly",
+    ], "Token statistics filters changed")
+    expect(CodexTokenPeriod.allCases.map(\.dayCount) == [1, 1, 7, 30, 365],
+      "Token activity periods no longer drive matching calendar ranges")
+    expect(UsagePresentation.formatCurrency(1_648) == "$1.6K",
+      "API-equivalent currency is not compact enough for the menu bar")
     let weeks = UsagePresentation.activityWeeks(for: activityDays)
     let heatmap = ActivityHeatmap(weeks: weeks, maximumTokens: 8,
       selectedDate: nil, size: 9, select: { _ in })
@@ -504,6 +511,34 @@ enum AIManagerNativeContract {
     var failures: [String] = []
     let first = UUID()
     let second = UUID()
+    if MenuBarTokenPeriod.selected(defaults: defaults) != .sinceReset {
+      failures.append("Menu-bar token period does not default to since reset")
+    }
+    defaults.set(MenuBarTokenPeriod.monthly.rawValue, forKey: MenuBarTokenPeriod.preferenceKey)
+    if MenuBarTokenPeriod.selected(defaults: defaults) != .monthly {
+      failures.append("Menu-bar token period does not persist")
+    }
+    let reset = ISO8601DateFormatter().date(from: "2026-09-21T00:00:00Z")!
+    let now = ISO8601DateFormatter().date(from: "2026-09-15T12:00:00Z")!
+    let usage = CodexAccountUsageSnapshot(
+      account: nil, requiresOpenAIAuthentication: nil,
+      rateLimits: CodexRateLimitsSnapshot(
+        accountID: nil, ordinaryUsageAllowed: nil,
+        defaultBucket: CodexRateLimitBucketSnapshot(
+          id: nil, name: nil, plan: nil, model: nil, primary: nil,
+          secondary: CodexRateLimitWindowSnapshot(
+            usedPercent: 39, windowDurationMinutes: 10_080, resetsAt: reset),
+          credits: nil, spendControlReached: nil),
+        buckets: [:]),
+      usage: nil, dailyUsage: [], fetchedAt: now)
+    let rows = [
+      CodexDailyUsageSnapshot(startDate: "2026-09-13", tokens: 100),
+      CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: 40),
+      CodexDailyUsageSnapshot(startDate: "2026-09-15", tokens: 60),
+    ]
+    if MenuBarTokenPeriod.sinceReset.tokens(in: rows, usage: usage, now: now) != 100 {
+      failures.append("Since-reset token summary ignores the weekly reset boundary")
+    }
     if !MenuBarUsagePreferences.showsUsage(for: first, defaults: defaults) {
       failures.append("Menu-bar usage does not default to on")
     }
@@ -906,21 +941,23 @@ enum AIManagerNativeContract {
       expect(zip(actual, expected).allSatisfy { abs($0 - $1 / 255) < 0.035 },
         "\(label) does not match its approved palette: \(actual)")
     }
+    let accountSampleY: CGFloat = 26
     expectPixel(NSPoint(x: 2, y: 26), hex: 0xF0ECE2, label: "Ivory shell")
-    expectPixel(NSPoint(x: 16, y: 26), hex: 0xFFFDF6, label: "Ivory account panel")
+    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6, label: "Ivory account panel")
     paletteWindow.appearance = NSAppearance(named: .darkAqua)
     paletteView.rootView = AnyView(
       MenuBarPopover(store: copyStore)
         .environment(\.colorScheme, .dark)
         .background(Color(hex: 0x292722)))
     expectPixel(NSPoint(x: 2, y: 26), hex: 0x292722, label: "Espresso shell")
-    expectPixel(NSPoint(x: 16, y: 26), hex: 0x3B372F, label: "Espresso account panel")
+    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0x3B372F, label: "Espresso account panel")
     paletteWindow.appearance = NSAppearance(named: .aqua)
     paletteView.rootView = AnyView(
       MenuBarPopover(store: copyStore)
         .environment(\.colorScheme, .light)
         .background(Color(hex: 0xF0ECE2)))
-    expectPixel(NSPoint(x: 16, y: 26), hex: 0xFFFDF6, label: "Restored Ivory account panel")
+    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6,
+      label: "Restored Ivory account panel")
 
     let glassView = NSHostingView(rootView: MenuBarPopover(store: copyStore))
     glassView.frame = NSRect(origin: .zero, size: originalSize)
