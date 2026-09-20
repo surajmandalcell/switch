@@ -10,6 +10,9 @@ public struct ManagerPaths: Sendable {
     }
     public var orcaAccountsRoot: URL
     public var codexExecutable: URL?
+    public var grokHome: URL
+    public var grokCredentialStore: URL
+    public var grokExecutable: URL?
     public var isolationRoot: URL?
 
     public init(
@@ -19,6 +22,9 @@ public struct ManagerPaths: Sendable {
         sharedRoot: URL,
         orcaAccountsRoot: URL,
         codexExecutable: URL? = nil,
+        grokHome: URL? = nil,
+        grokCredentialStore: URL? = nil,
+        grokExecutable: URL? = nil,
         isolationRoot: URL? = nil
     ) {
         self.applicationSupport = applicationSupport
@@ -28,6 +34,11 @@ public struct ManagerPaths: Sendable {
         _ = sharedRoot
         self.orcaAccountsRoot = orcaAccountsRoot
         self.codexExecutable = codexExecutable
+        self.grokHome = grokHome
+            ?? defaultHome.deletingLastPathComponent().appending(path: ".grok", directoryHint: .isDirectory)
+        self.grokCredentialStore = grokCredentialStore
+            ?? applicationSupport.appending(path: "credential-store/grok-build", directoryHint: .isDirectory)
+        self.grokExecutable = grokExecutable
         self.isolationRoot = isolationRoot
     }
 
@@ -39,7 +50,9 @@ public struct ManagerPaths: Sendable {
             credentialStore: home.appending(path: ".switch/codex", directoryHint: .isDirectory),
             defaultHome: home.appending(path: ".codex", directoryHint: .isDirectory),
             sharedRoot: home.appending(path: ".codex", directoryHint: .isDirectory),
-            orcaAccountsRoot: support.appending(path: "Orca/codex-accounts", directoryHint: .isDirectory)
+            orcaAccountsRoot: support.appending(path: "Orca/codex-accounts", directoryHint: .isDirectory),
+            grokHome: home.appending(path: ".grok", directoryHint: .isDirectory),
+            grokCredentialStore: home.appending(path: ".switch/grok-build", directoryHint: .isDirectory)
         )
     }
 
@@ -53,6 +66,8 @@ public struct ManagerPaths: Sendable {
             paths.applicationSupport = value.appending(path: "application-support", directoryHint: .isDirectory)
             paths.credentialStore = value.appending(path: ".switch/codex", directoryHint: .isDirectory)
             paths.defaultHome = value.appending(path: "default-home", directoryHint: .isDirectory)
+            paths.grokHome = value.appending(path: "grok-home", directoryHint: .isDirectory)
+            paths.grokCredentialStore = value.appending(path: ".switch/grok-build", directoryHint: .isDirectory)
             paths.orcaAccountsRoot = value.appending(path: "orca-accounts", directoryHint: .isDirectory)
         }
         if let value = url("AI_MANAGER_SHARED_ROOT"), url("AI_MANAGER_DEFAULT_HOME") == nil,
@@ -61,8 +76,11 @@ public struct ManagerPaths: Sendable {
         }
         if let value = url("AI_MANAGER_DEFAULT_HOME"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.defaultHome = value }
         if let value = url("AI_MANAGER_CREDENTIAL_STORE"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.credentialStore = value }
+        if let value = url("AI_MANAGER_GROK_HOME"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.grokHome = value }
+        if let value = url("AI_MANAGER_GROK_CREDENTIAL_STORE"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.grokCredentialStore = value }
         if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.orcaAccountsRoot = value }
         if let value = url("AI_MANAGER_CODEX_EXECUTABLE") { paths.codexExecutable = value }
+        if let value = url("AI_MANAGER_GROK_EXECUTABLE") { paths.grokExecutable = value }
         return paths
     }
 }
@@ -83,6 +101,7 @@ public struct ProviderID: RawRepresentable, Codable, Hashable, Sendable {
     }
 
     public static let codex = ProviderID(rawValue: "codex")
+    public static let grokBuild = ProviderID(rawValue: "grok-build")
 
     public init(from decoder: Decoder) throws {
         self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
@@ -96,6 +115,7 @@ public struct ProviderID: RawRepresentable, Codable, Hashable, Sendable {
 
 public enum AuthMode: String, Codable, Sendable {
     case chatGPT
+    case oauth
     case apiKey
     case unknown
 }
@@ -118,7 +138,14 @@ public struct AccountIdentity: Codable, Hashable, Sendable {
     }
 
     public var isResolved: Bool {
-        providerID == .codex && authMode == .chatGPT && userID != nil && accountID != nil
+        switch providerID {
+        case .codex:
+            authMode == .chatGPT && userID != nil && accountID != nil
+        case .grokBuild:
+            authMode == .oauth && userID != nil && accountID != nil
+        default:
+            false
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -225,6 +252,7 @@ public struct HistorySummary: Codable, Equatable, Sendable {
 
 public enum SourceSupport: String, Codable, Sendable {
     case supportedChatGPT
+    case supportedOAuth
     case apiKey
     case missingAuth
     case malformedAuth
