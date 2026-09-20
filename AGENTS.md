@@ -1,7 +1,8 @@
 # Switch instructions
 
-For implementation, tests, UI, packaging, or documentation, read [goals.md](goals.md) first.
-It owns the current native macOS Codex account-manager scope and acceptance gates.
+For implementation, tests, UI, packaging, or documentation, read `goals.md` when present.
+It is the ignored local active ledger. Move old completed detail to the adjacent
+`goals.archive.md`; the global goals rule owns this convention.
 
 The existing Electron gateway and its provider, routing, platform, and branch-cleanup requirements are legacy.
 Where they conflict with `goals.md`, follow the native app plan.
@@ -13,4 +14,4 @@ Do not access the user's login Keychain for account discovery or testing.
 
 Work on the existing branch. Do not execute or push the inherited remote branch-deletion workflow.
 Remove that workflow behavior in G1 before an implementation push.
-Record completed milestones and their verification in `goals.md`.
+Record current milestones in `goals.md`, then archive old completed detail.
