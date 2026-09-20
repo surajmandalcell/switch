@@ -12,7 +12,7 @@ tool without repeating its sign-in flow.
 
 ## Get Switch for Mac
 
-[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.1.1/Switch-v3.1.1-mac-arm64.zip),
+[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.1.2/Switch-v3.1.2-mac-arm64.zip),
 unzip it, and move `Switch.app` to Applications. Switch requires macOS 14 or
 later on Apple Silicon. Install the command-line tool for each provider you use.
 
@@ -63,12 +63,12 @@ Choose **Add Account**, then select Codex CLI or Grok Build.
 Sign-in runs in a private temporary home. It does not replace your current
 login while you add another account.
 
-## See your limits before you switch
+## See account status before you switch
 
-For Codex, the menu bar shows remaining usage for the accounts you choose. Open its
-popover to compare session and weekly limits, switch accounts, or refresh
-usage. Its status item shows up to four account percentages; the popover lists
-every saved account. You can set a default display preference.
+The menu bar lists every saved account and the current default for each provider.
+When a provider exposes usage data, Switch also shows its available limits and refreshes
+them at launch and every three minutes. The status item can show up to four account
+percentages, and the popover lists every account without inventing unavailable data.
 
 | Light | Dark |
 | :---: | :---: |
@@ -76,35 +76,40 @@ every saved account. You can set a default display preference.
 
 ## Only the provider login changes
 
-For Codex CLI, Switch keeps one shared `~/.codex` home. Selecting a saved
-account atomically replaces its `auth.json` for new sessions. It leaves your
-settings, skills, and conversations where they are.
+Switch keeps each provider's settings, extensions, and work history in its shared home.
+Selecting an account changes only that provider's credential file. Each provider keeps
+its own default account, and all providers use the same switching engine.
 
 ```mermaid
 flowchart LR
-    A["Personal Codex account"] --> S["Switch account"]
-    B["Studio Codex account"] --> S
-    subgraph H["Shared ~/.codex home"]
-        AUTH["auth.json<br/>replaced"]
-        CONFIG["Settings and skills<br/>unchanged"]
-        CHATS["Conversations and databases<br/>unchanged"]
+    A["Personal account"] --> S["Provider adapter"]
+    B["Work account"] --> S
+    subgraph H["Shared provider home"]
+        AUTH["Credential<br/>replaced"]
+        CONFIG["Settings and extensions<br/>unchanged"]
+        HISTORY["History and data<br/>unchanged"]
     end
-    S --> AUTH --> NEW["New Codex sessions"]
+    S --> AUTH --> NEW["New provider sessions"]
 ```
 
-Existing Codex sessions keep the credentials they already loaded.
+Provider notes:
 
-For Grok Build, Switch atomically replaces only `~/.grok/auth.json`. Grok's
-configuration, rules, plugins, and sessions stay in `~/.grok`. The official
-CLI hot-reloads a changed credential for its next API call, so an already
-running Grok session may begin using the newly selected account.
+- **Codex CLI:** Switch replaces only `~/.codex/auth.json`. Existing sessions keep the
+  credential they already loaded. Usage limits, history, activity, imports, and Cleanup
+  are available.
+- **Grok Build:** Switch replaces only `~/.grok/auth.json`. The official CLI reloads that
+  file before its next API call. Account switching is available; usage data is not exposed.
 
 ## More when you need it
 
-- **Check a saved account.** Validate its `auth.json` without making it the default; Codex checks also refresh usage.
-- **Import an existing Codex login.** Review an `auth.json` or Codex folder before adding it. Settings and chats are optional import scope.
-- **Explore Codex history.** Search shared conversations, track daily token activity, and retain summaries after old conversations are removed.
-- **Clean up safely.** Preview exact Codex conversations and caches, move them to recoverable trash, and restore them when needed.
+- **Check a saved account.** Validate its credential without making it the default, and
+  refresh usage when the provider exposes it.
+- **Import an existing account.** Review a credential or provider home before adding it.
+  Extra settings and history remain optional where supported.
+- **Explore supported history.** Search conversations, track daily token activity, and
+  retain summaries when the provider supplies compatible data.
+- **Clean up safely.** Preview supported conversations and caches, move them to
+  recoverable trash, and restore them when needed.
 
 Codex CLI and Grok Build are enabled providers. Claude Code, Gemini CLI, and
 Antigravity CLI appear as WIP choices in the Add Account catalog.
