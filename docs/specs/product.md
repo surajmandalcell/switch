@@ -64,7 +64,11 @@ remains unknown and blocks destructive changes; unlocked stale runtime files are
 The rail and View menu use this order: Accounts, Backup, Chat History, Settings. Command+,
 opens Settings. Settings contains only:
 
-1. **App behavior** — Minimize to menu bar and the optional keyboard-focus indicator.
+1. **App behavior** — Open at Login, Minimize to menu bar, and the optional
+   keyboard-focus indicator. Open at Login is off by default and uses the macOS login-item
+   service as its source of truth. When enabled, a login launch starts quietly in the menu
+   bar without opening the main window; an ordinary launch still opens the window. If macOS
+   requires approval, Settings explains that state and offers an explicit route to Login Items.
    Body translucency is adjustable from 0% to 50%, initially 25% (75% opacity),
    and applies to the entire content area and its page titlebar without fading text or
    controls. Reduce Transparency makes these surfaces opaque. The rail stays distinct.
@@ -139,11 +143,12 @@ every quota percentage shows the amount left; when on, every quota percentage sh
 amount used. The selected meaning applies to main-window meters, Menubar cards, status-item
 percentages, tooltips, and accessibility labels, and survives app restarts.
 
-Daily activity uses a GitHub-style calendar instead of a date table. Its header uses one native
-segmented control whose items touch: only the outside ends are rounded and faint dividers separate
+Daily activity uses a GitHub-style calendar instead of a date table. Its header uses one themed
+grouped control whose items touch: only the outside ends are rounded and faint dividers separate
 the interior items. Today, Yesterday, Weekly, Monthly, and Yearly drive both the visible token total
-and the activity range, initially Yearly. Use the same native grouped treatment for compact,
-mutually exclusive period filters elsewhere; do not render a row of detached pills. The selected
+and the activity range, initially Yearly. Use the same custom grouped treatment for compact,
+mutually exclusive period filters elsewhere, including project colors and hover, focus, selected,
+pressed, and disabled states; do not render a row of native controls or detached pills. The selected
 range persists across app restarts.
 Selecting an account only changes the displayed account; it must not activate credentials
 or wait on file reads, queries, or repeated calendar aggregation. Build each displayed
@@ -193,7 +198,7 @@ filter as one contiguous group.
 The Menubar account card includes one compact token summary without adding another row to its
 geometry. Put the quota percentage on the same line as Session or Weekly. Reuse the existing detail
 line for the configured token period at the left and reset countdown at the right. Settings owns a
-native segmented choice for Since reset, Today, Yesterday, Weekly, Monthly, or Yearly; Since reset
+themed grouped choice for Since reset, Today, Yesterday, Weekly, Monthly, or Yearly; Since reset
 is the default. Since-reset totals use the weekly window start when the service returns a duration
 and reset time, and otherwise fall back to Weekly without inventing precision.
 
