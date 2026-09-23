@@ -1,5 +1,6 @@
 import AIManagerCore
 import AppKit
+import CoreServices
 import SwiftUI
 
 struct AIManagerNativeViewSnapshot: Codable {
@@ -278,6 +279,25 @@ enum AIManagerNativeContract {
     expect(AIMTheme.Dark.hover == 0x303238, "Dark hover color changed")
     expect(AIMTheme.Dark.selection == 0x393C43, "Dark selection color changed")
     expect(AIMTheme.Dark.menuChrome == 0x18191B, "Dark menu chrome color changed")
+
+    let loginEvent = NSAppleEventDescriptor(
+      eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
+      targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
+      transactionID: AETransactionID(kAnyTransactionID))
+    loginEvent.setParam(
+      NSAppleEventDescriptor(boolean: true),
+      forKeyword: AEKeyword(keyAELaunchedAsLogInItem))
+    let ordinaryEvent = NSAppleEventDescriptor(
+      eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
+      targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
+      transactionID: AETransactionID(kAnyTransactionID))
+    expect(AIManagerLaunchContext.launchedAsLoginItem(event: loginEvent),
+      "A login-item launch opens the main window")
+    expect(!AIManagerLaunchContext.launchedAsLoginItem(event: ordinaryEvent),
+      "An ordinary launch is mistaken for a login-item launch")
+    expect(LaunchAtLoginSettings.detail(for: .enabled).contains("menu bar")
+      && LaunchAtLoginSettings.detail(for: .requiresApproval).contains("System Settings"),
+      "Open-at-login status copy does not explain the current system state")
 
     let hover = AIMSidebarHover()
     hover.update("first-account", inside: true)

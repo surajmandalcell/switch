@@ -1,6 +1,17 @@
 import AIManagerCore
 import AppKit
+import CoreServices
+import ServiceManagement
 import SwiftUI
+
+enum AIManagerLaunchContext {
+  static func launchedAsLoginItem(
+    event: NSAppleEventDescriptor? = NSAppleEventManager.shared().currentAppleEvent
+  ) -> Bool {
+    event?.eventID == AEEventID(kAEOpenApplication)
+      && event?.paramDescriptor(forKeyword: AEKeyword(keyAELaunchedAsLogInItem)) != nil
+  }
+}
 
 @MainActor final class AIManagerWindow: NSWindow {
   static let fixedSize = NSSize(width: 1120, height: 740)
@@ -1688,20 +1699,98 @@ private struct UsageMeter: View {
 
 }
 
+struct AIMSegmentedPicker<Option: Hashable>: View {
+  let options: [Option]
+  @Binding var selection: Option
+  let accessibilityLabel: String
+  let label: (Option) -> String
+  @State private var hovered: Option?
+  @FocusState private var focused: Option?
+  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
+
+  var body: some View {
+    HStack(spacing: 0) {
+      ForEach(Array(options.enumerated()), id: \.element) { index, option in
+        Button {
+          selection = option
+        } label: {
+          Text(label(option))
+            .font(AIMTheme.sans(10, weight: .medium))
+            .foregroundStyle(
+              !isEnabled ? AIMTheme.disabledInk : selection == option ? AIMTheme.activeInk : AIMTheme.ink)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background {
+              Rectangle().fill(
+                !isEnabled ? AIMTheme.disabledControl
+                  : selection == option ? AIMTheme.active
+                  : hovered == option ? AIMTheme.controlHover : AIMTheme.control)
+            }
+            .overlay {
+              if focused == option, focusIndicatorsEnabled {
+                Rectangle().stroke(AIMTheme.blue, lineWidth: 2)
+              }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AIMSegmentButtonStyle(reduceMotion: reduceMotion))
+        .focused($focused, equals: option)
+        .onHover { inside in
+          if inside { hovered = option }
+          else if hovered == option { hovered = nil }
+        }
+        .onMoveCommand { direction in move(from: option, direction: direction) }
+        .accessibilityAddTraits(selection == option ? .isSelected : [])
+
+        if index < options.count - 1 {
+          Rectangle().fill(AIMTheme.line).frame(width: 1, height: 16)
+            .accessibilityHidden(true)
+        }
+      }
+    }
+    .background(isEnabled ? AIMTheme.control : AIMTheme.disabledControl)
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .overlay { RoundedRectangle(cornerRadius: AIMTheme.radius).stroke(AIMTheme.line, lineWidth: 1) }
+    .fixedSize()
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(accessibilityLabel)
+  }
+
+  private func move(from option: Option, direction: MoveCommandDirection) {
+    guard let index = options.firstIndex(of: option) else { return }
+    let next: Int
+    switch direction {
+    case .left: next = max(0, index - 1)
+    case .right: next = min(options.count - 1, index + 1)
+    default: return
+    }
+    selection = options[next]
+    focused = options[next]
+  }
+}
+
+private struct AIMSegmentButtonStyle: ButtonStyle {
+  let reduceMotion: Bool
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .brightness(configuration.isPressed ? -0.035 : 0)
+      .opacity(configuration.isPressed ? 0.92 : 1)
+      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.press), value: configuration.isPressed)
+  }
+}
+
 private struct TokenPeriodPicker: View {
   @Binding var selection: CodexTokenPeriod
 
   var body: some View {
-    Picker("Token period", selection: $selection) {
-      ForEach(CodexTokenPeriod.allCases, id: \.self) { period in
-        Text(period.label).tag(period)
-      }
-    }
-    .labelsHidden()
-    .pickerStyle(.segmented)
-    .controlSize(.small)
-    .fixedSize()
-    .accessibilityLabel("Token period")
+    AIMSegmentedPicker(
+      options: CodexTokenPeriod.allCases,
+      selection: $selection,
+      accessibilityLabel: "Token period",
+      label: \.label)
   }
 }
 
@@ -2209,9 +2298,78 @@ enum CleanupDateRange: String, CaseIterable, Identifiable {
   }
 }
 
+@MainActor
+final class LaunchAtLoginSettings: ObservableObject {
+  @Published private(set) var status: SMAppService.Status
+  @Published private(set) var errorMessage: String?
+  private let service: SMAppService
+
+  init(service: SMAppService = .mainApp) {
+    self.service = service
+    status = service.status
+  }
+
+  var isOn: Bool {
+    switch status {
+    case .enabled, .requiresApproval: true
+    default: false
+    }
+  }
+
+  var canChange: Bool {
+    switch status {
+    case .notFound: false
+    default: true
+    }
+  }
+
+  var requiresApproval: Bool {
+    if case .requiresApproval = status { true } else { false }
+  }
+
+  var detail: String {
+    if let errorMessage { return "Switch couldn’t update its login item: \(errorMessage)" }
+    return Self.detail(for: status)
+  }
+
+  static func detail(for status: SMAppService.Status) -> String {
+    switch status {
+    case .notRegistered: "Open Switch in the menu bar when you sign in."
+    case .enabled: "Switch opens in the menu bar when you sign in."
+    case .requiresApproval: "Approval is required in System Settings before Switch can open at login."
+    case .notFound: "This build cannot be registered as a login item."
+    @unknown default: "Login-item status is unavailable."
+    }
+  }
+
+  func setEnabled(_ enabled: Bool) {
+    errorMessage = nil
+    do {
+      if enabled {
+        try service.register()
+      } else {
+        try service.unregister()
+      }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    refresh(clearError: false)
+  }
+
+  func refresh(clearError: Bool = true) {
+    status = service.status
+    if clearError { errorMessage = nil }
+  }
+
+  func openLoginItems() {
+    SMAppService.openSystemSettingsLoginItems()
+  }
+}
+
 private struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
   @Binding var showFocusIndicators: Bool
+  @StateObject private var launchAtLogin = LaunchAtLoginSettings()
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset.rawValue
@@ -2223,13 +2381,14 @@ private struct SettingsPage: View {
       VStack(spacing: 8) {
         AIMPanel(title: "App behavior") {
           VStack(spacing: 0) {
-            settingRow(isOn: $minimizeToTray, title: "Minimize to Menubar") {
+            launchAtLoginRow
+            settingRow(isOn: $minimizeToTray, title: "Minimize to Menubar", zebra: true) {
               Text("Hide the window and keep Switch available from its menu-bar icon.")
             }
-            settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators", zebra: true) {
+            settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators") {
               Text("Show outlines only while keyboard controls have focus.")
             }
-            settingRow(isOn: $showUsageAsUsed, title: "Show percentage used") {
+            settingRow(isOn: $showUsageAsUsed, title: "Show percentage used", zebra: true) {
               Text("Turn off to show the percentage left in every usage view.")
             }
             HStack(spacing: 16) {
@@ -2258,16 +2417,13 @@ private struct SettingsPage: View {
                   .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
               }
               Spacer(minLength: 20)
-              Picker("Menubar token period", selection: $menuTokenPeriod) {
-                ForEach(MenuBarTokenPeriod.allCases) { period in
-                  Text(period.label).tag(period.rawValue)
-                }
+              AIMSegmentedPicker(
+                options: MenuBarTokenPeriod.allCases.map(\.rawValue),
+                selection: $menuTokenPeriod,
+                accessibilityLabel: "Menubar token period"
+              ) { value in
+                MenuBarTokenPeriod(rawValue: value)?.label ?? value
               }
-              .labelsHidden()
-              .pickerStyle(.segmented)
-              .controlSize(.small)
-              .fixedSize()
-              .accessibilityLabel("Menubar token period")
             }
             .padding(.horizontal, 16)
             .frame(minHeight: 48)
@@ -2332,7 +2488,33 @@ private struct SettingsPage: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }
+    .padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    .onAppear { launchAtLogin.refresh() }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+      launchAtLogin.refresh()
+    }
+  }
+
+  private var launchAtLoginRow: some View {
+    HStack(spacing: 16) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Open at Login").font(AIMTheme.sans(11, weight: .medium))
+        Text(launchAtLogin.detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 24)
+      if launchAtLogin.requiresApproval {
+        AIMButton(title: "Open Login Items", action: launchAtLogin.openLoginItems)
+      }
+      Toggle("", isOn: Binding(
+        get: { launchAtLogin.isOn },
+        set: launchAtLogin.setEnabled))
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+        .disabled(!launchAtLogin.canChange)
+        .accessibilityLabel("Open at Login")
+    }
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
   }
 
   private func settingRow<Description: View>(

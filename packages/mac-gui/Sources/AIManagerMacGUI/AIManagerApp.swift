@@ -13,6 +13,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.disableRelaunchOnLogin()
         AppFonts.register()
         AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
@@ -138,7 +139,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.menuController = menuController
         menuController.install()
-        controller.present()
+        if !AIManagerLaunchContext.launchedAsLoginItem() { controller.present() }
         Task { await model.load() }
     }
 
