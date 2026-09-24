@@ -1152,7 +1152,7 @@ final class AccountViewModel: ObservableObject {
         usageErrorAccountID = nil
         defer { usageRefreshAccountID = nil }
         let result = await manager.checkAccount(accountID: accountID)
-        try? await reloadStatus(using: manager)
+        try? await reloadStatus(using: manager, refreshHistory: false)
         if result.verification.state == .needsSignIn {
             usageSnapshots.removeValue(forKey: accountID)
             try? await recordUsageFailure(.authenticationRequired, accountID: accountID)
@@ -1649,14 +1649,19 @@ final class AccountViewModel: ObservableObject {
         errorMessage = unavailableReason ?? "Switch is unavailable until its private data folder can be opened."
     }
 
-    private func reloadStatus(using manager: AccountManager) async throws {
+    private func reloadStatus(
+        using manager: AccountManager,
+        refreshHistory: Bool = true
+    ) async throws {
         let newStatus = try await manager.status()
-        let sharedHistory = await manager.historySummary(for: paths.sharedRoot)
-        let summaries = Dictionary(uniqueKeysWithValues: newStatus.accounts.map {
-            ($0.id, sharedHistory)
-        })
         if status != newStatus { status = newStatus }
-        if accountHistory != summaries { accountHistory = summaries }
+        if refreshHistory {
+            let sharedHistory = await manager.historySummary(for: paths.sharedRoot)
+            let summaries = Dictionary(uniqueKeysWithValues: newStatus.accounts.map {
+                ($0.id, sharedHistory)
+            })
+            if accountHistory != summaries { accountHistory = summaries }
+        }
     }
 
     private func apply(_ snapshot: AccountSnapshot) {
