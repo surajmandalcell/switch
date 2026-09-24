@@ -5,6 +5,7 @@ import Combine
 @MainActor
 private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private let model = AccountViewModel(paths: .environment())
+    private let fanService = MacFanService()
     private var windowController: AIManagerWindowController<AccountWindow>?
     private var statusItemController: AIManagerStatusItemController?
     private var menuController: AIManagerMenuController?
@@ -55,6 +56,12 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     for accountID in accountIDs {
                         await self.model.refreshUsage(accountID: accountID)
                     }
+                },
+                readFanSnapshot: { [fanService] in
+                    await fanService.snapshot()
+                },
+                setFanMode: { [fanService] mode in
+                    try await fanService.apply(mode)
                 }
             ))
         self.statusItemController = statusItemController

@@ -72,7 +72,8 @@ targets.append(
     .executableTarget(
         name: "AIManagerMacGUI",
         dependencies: ["AIManagerCore"],
-        path: "packages/mac-gui/Sources/AIManagerMacGUI"
+        path: "packages/mac-gui/Sources/AIManagerMacGUI",
+        linkerSettings: [.linkedFramework("IOKit")]
     )
 )
 #endif
