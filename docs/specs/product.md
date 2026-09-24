@@ -77,7 +77,8 @@ opens Settings. Settings contains only:
    plain-language purpose and an explicit Reveal action.
 3. **Menu bar defaults** — Show account usage, initially on. Accounts without an
    explicit override follow this default. Changing it preserves explicit account choices.
-4. Preview-only demo controls in Preview builds.
+4. Demo controls only in locally launched Preview builds. Production and installed builds
+   must not compile or render them.
 
 Settings never lists files as “Linked entries,” never implies that each account owns a
 separate configuration or chat library, and never exposes internal managed-home topology.
