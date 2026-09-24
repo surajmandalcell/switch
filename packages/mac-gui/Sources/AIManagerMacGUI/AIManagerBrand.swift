@@ -187,7 +187,7 @@ enum AIManagerBrand {
 }
 
 @MainActor
-final class AIManagerStatusItemController: NSObject, NSPopoverDelegate {
+final class AIManagerStatusItemController: NSObject {
   var isPresent: Bool { statusItem.button?.image?.isTemplate == true }
   var usesPopover: Bool { statusItem.menu == nil && popover.behavior == .transient }
   var popoverContentSize: NSSize { popover.contentSize }
@@ -221,7 +221,6 @@ final class AIManagerStatusItemController: NSObject, NSPopoverDelegate {
     let content = MenuBarPopover(store: store)
     popover.behavior = .transient
     popover.animates = false
-    popover.delegate = self
     popover.contentViewController = NSHostingController(rootView: content)
     resizePopover()
 
@@ -255,15 +254,14 @@ final class AIManagerStatusItemController: NSObject, NSPopoverDelegate {
   ) -> NSSize {
     let listHeight: CGFloat
     if accounts.isEmpty {
-      listHeight = MenuBarPopover.minimumHeight
-        - MenuBarPopover.footerHeight - MenuBarPopover.fanSectionHeight
+      listHeight = MenuBarPopover.minimumHeight - MenuBarPopover.footerHeight
     } else {
       listHeight = MenuBarPopover.listInset * 2
         + accounts.map(MenuBarPopover.accountRowHeight).reduce(0, +)
         // NSTableView includes intercell spacing after its last row too.
         + CGFloat(accounts.count) * MenuBarPopover.cardSpacing
     }
-    let idealHeight = MenuBarPopover.footerHeight + MenuBarPopover.fanSectionHeight + listHeight
+    let idealHeight = MenuBarPopover.footerHeight + listHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.80))
     let height = min(max(idealHeight, MenuBarPopover.minimumHeight), screenMaximum)
     return NSSize(width: MenuBarPopover.width, height: height)
@@ -323,13 +321,5 @@ final class AIManagerStatusItemController: NSObject, NSPopoverDelegate {
 
   private func closePopover() {
     popover.performClose(nil)
-  }
-
-  func popoverWillShow(_ notification: Notification) {
-    store.startFanMonitoring()
-  }
-
-  func popoverDidClose(_ notification: Notification) {
-    store.stopFanMonitoring()
   }
 }
