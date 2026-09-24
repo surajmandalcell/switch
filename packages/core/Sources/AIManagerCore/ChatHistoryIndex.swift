@@ -204,6 +204,56 @@ public struct ChatHistorySnapshot: Sendable, Equatable {
     }
 }
 
+struct ChatHistoryRefreshMetrics: Sendable, Equatable {
+    let fullyParsedFileCount: Int
+    let incrementallyParsedFileCount: Int
+    let parsedByteCount: Int64
+    let metadataAppliedThreadCount: Int
+
+    static let zero = ChatHistoryRefreshMetrics(
+        fullyParsedFileCount: 0,
+        incrementallyParsedFileCount: 0,
+        parsedByteCount: 0,
+        metadataAppliedThreadCount: 0)
+}
+
+private struct TranscriptSummaryMessageState: Codable, Sendable {
+    let sequence: Int
+    let text: String
+}
+
+private struct TranscriptMessageStatsState: Codable, Sendable {
+    let count: Int
+    let meaningfulCount: Int
+    let firstMeaningful: TranscriptSummaryMessageState?
+    let lastMeaningful: TranscriptSummaryMessageState?
+    let last: TranscriptSummaryMessageState?
+}
+
+private struct TranscriptParseState: Codable, Sendable {
+    let parsedByteCount: Int64
+    let boundaryByteCount: Int
+    let boundaryDigest: String
+    let endedAtRecordBoundary: Bool
+    let sequence: Int
+    let threadID: String?
+    let workingDirectory: String?
+    let latestDate: Date
+    let responseUsers: TranscriptMessageStatsState
+    let eventUsers: TranscriptMessageStatsState
+    let assistants: TranscriptMessageStatsState
+    let tools: TranscriptMessageStatsState
+    let others: TranscriptMessageStatsState
+    let unreadableRecords: Int
+    let activityDays: [String: Int64]
+    let previousTokens: Int64
+    let activityEventCount: Int
+    let firstActivityEvent: String
+    let activityComplete: Bool
+    let inheritedHistory: Bool
+    let hasSessionMetadata: Bool
+}
+
 public actor ChatHistoryIndex {
     fileprivate struct FileSignature: Sendable, Equatable {
         let byteCount: Int64
@@ -218,8 +268,10 @@ public actor ChatHistoryIndex {
 
     private struct CachedThread: Sendable {
         let signature: FileSignature
+        let transcriptSummary: ChatThreadSummary
         let summary: ChatThreadSummary
         let searchText: String
+        let parseState: TranscriptParseState?
         var activityRecorded = false
     }
 
@@ -235,6 +287,21 @@ public actor ChatHistoryIndex {
         let byThreadID: [String: SQLiteThreadMetadata]
 
         static let empty = ThreadMetadataIndex(byPath: [:], byThreadID: [:])
+
+        func metadata(path: String, threadID: String) -> SQLiteThreadMetadata? {
+            byPath[path] ?? byThreadID[threadID]
+        }
+    }
+
+    private struct ThreadMetadataSignature: Sendable, Equatable {
+        let database: FileSignature?
+        let writeAheadLog: FileSignature?
+    }
+
+    private struct ParseJob: Sendable {
+        let candidate: Candidate
+        let previousSignature: FileSignature?
+        let previousState: TranscriptParseState?
     }
 
     private enum WorkerResult: Sendable {
@@ -266,6 +333,7 @@ public actor ChatHistoryIndex {
         let totalTokens: Int64?
         let searchText: String
         let activityRecorded: Bool?
+        let parseState: TranscriptParseState?
     }
 
     private struct PersistentFailure: Codable {
@@ -290,6 +358,9 @@ public actor ChatHistoryIndex {
     private var refreshTask: Task<Int, Error>?
     private var isClearingCache = false
     private var refreshGeneration = 0
+    private var lastRefreshMetrics = ChatHistoryRefreshMetrics.zero
+    private var cachedThreadMetadata: ThreadMetadataIndex?
+    private var cachedThreadMetadataSignature: ThreadMetadataSignature?
 
     public init(home: URL, cacheFile: URL? = nil, maximumWorkerCount: Int? = nil) {
         self.home = CoreSupport.home(for: home).standardizedFileURL
@@ -301,6 +372,10 @@ public actor ChatHistoryIndex {
 
     public func attachActivityCache(_ cache: CodexUsageStatisticsCache) {
         activityCache = cache
+    }
+
+    func refreshMetrics() -> ChatHistoryRefreshMetrics {
+        lastRefreshMetrics
     }
 
     public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
@@ -324,9 +399,12 @@ public actor ChatHistoryIndex {
     private func scan() async throws -> Int {
         try Task.checkCancellation()
         loadPersistentCacheIfNeeded()
-        let metadataTask = Task.detached(priority: .utility) { [home] in
-            Self.threadMetadata(in: home)
-        }
+        let metadataSignature = Self.threadMetadataSignature(in: home)
+        let shouldReadMetadata = cachedThreadMetadata == nil
+            || cachedThreadMetadataSignature != metadataSignature
+        let metadataTask = shouldReadMetadata
+            ? Task.detached(priority: .utility) { [home] in Self.threadMetadata(in: home) }
+            : nil
         let candidates = try Self.transcriptCandidates(in: home)
         let currentPaths = Set(candidates.map { $0.url.path })
         let removedCachedFile = cache.keys.contains(where: { !currentPaths.contains($0) })
@@ -345,13 +423,32 @@ public actor ChatHistoryIndex {
                 && failedSignatures[path] != candidate.signature
         }
         var libraryChanged = removedCachedFile || removedFailedFile || !changed.isEmpty
-        let parsed = await parseConcurrently(changed)
+        let jobs = changed.map { candidate in
+            let previous = cache[candidate.url.path]
+            return ParseJob(
+                candidate: candidate,
+                previousSignature: previous?.signature,
+                previousState: previous?.parseState)
+        }
+        let parsed = await parseConcurrently(jobs)
         try Task.checkCancellation()
+
+        var fullyParsedFileCount = 0
+        var incrementallyParsedFileCount = 0
+        var parsedByteCount: Int64 = 0
+        var parsedPaths = Set<String>()
 
         for result in parsed {
             switch result {
             case let .parsed(candidate, transcript):
                 let path = candidate.url.path
+                parsedPaths.insert(path)
+                parsedByteCount += transcript.parsedByteCount
+                if transcript.wasIncremental {
+                    incrementallyParsedFileCount += 1
+                } else {
+                    fullyParsedFileCount += 1
+                }
                 if let activityCache {
                     let fallback = CoreSupport.digest(Data(
                         (home.path + "\u{0}" + candidate.url.lastPathComponent).utf8))
@@ -359,8 +456,10 @@ public actor ChatHistoryIndex {
                 }
                 cache[path] = CachedThread(
                     signature: candidate.signature,
+                    transcriptSummary: transcript.summary,
                     summary: transcript.summary,
                     searchText: transcript.searchText,
+                    parseState: transcript.parseState,
                     activityRecorded: activityCache != nil)
                 orderedCacheIsDirty = true
                 failedSignatures[path] = nil
@@ -382,8 +481,24 @@ public actor ChatHistoryIndex {
             }
         }
 
-        let metadata = await metadataTask.value
-        if apply(metadata: metadata) { libraryChanged = true }
+        let previousMetadata = cachedThreadMetadata ?? .empty
+        let metadata = await metadataTask?.value ?? previousMetadata
+        var metadataPaths = shouldReadMetadata
+            ? pathsWithChangedMetadata(from: previousMetadata, to: metadata)
+            : []
+        for path in parsedPaths {
+            guard let cached = cache[path],
+                  metadata.metadata(
+                    path: path, threadID: cached.transcriptSummary.threadID) != nil
+            else { continue }
+            metadataPaths.insert(path)
+        }
+        if shouldReadMetadata {
+            cachedThreadMetadata = metadata
+            cachedThreadMetadataSignature = metadataSignature
+        }
+        let metadataResult = apply(metadata: metadata, paths: metadataPaths)
+        if metadataResult.changed { libraryChanged = true }
         if persistentCacheNeedsMigration { libraryChanged = true }
 
         if libraryChanged {
@@ -391,7 +506,13 @@ public actor ChatHistoryIndex {
             persistCache()
         }
 
-        return changed.count
+        lastRefreshMetrics = ChatHistoryRefreshMetrics(
+            fullyParsedFileCount: fullyParsedFileCount,
+            incrementallyParsedFileCount: incrementallyParsedFileCount,
+            parsedByteCount: parsedByteCount,
+            metadataAppliedThreadCount: metadataResult.visitedCount)
+
+        return fullyParsedFileCount
     }
 
     public func search(query: String, limit: Int = 1_000) -> ChatHistorySnapshot {
@@ -605,8 +726,22 @@ public actor ChatHistoryIndex {
                 source: URL(fileURLWithPath: item.path),
                 unreadableRecordCount: item.unreadableRecordCount,
                 totalTokens: item.totalTokens)
+            let parseState = item.parseState.flatMap {
+                validParseState($0, signature: signature) ? $0 : nil
+            }
+            let transcriptSummary = parseState.map {
+                TranscriptParser.summary(
+                    path: item.path,
+                    archived: item.archived,
+                    signature: signature,
+                    state: $0)
+            } ?? summary
             cache[item.path] = CachedThread(
-                signature: signature, summary: summary, searchText: item.searchText,
+                signature: signature,
+                transcriptSummary: transcriptSummary,
+                summary: summary,
+                searchText: item.searchText,
+                parseState: parseState,
                 activityRecorded: item.activityRecorded ?? false)
         }
         for item in document.failures where validPersistentPath(item.path) {
@@ -639,7 +774,9 @@ public actor ChatHistoryIndex {
                 fileByteCount: summary.fileByteCount,
                 unreadableRecordCount: summary.unreadableRecordCount,
                 totalTokens: summary.totalTokens,
-                searchText: cached.searchText, activityRecorded: cached.activityRecorded)
+                searchText: cached.searchText,
+                activityRecorded: cached.activityRecorded,
+                parseState: cached.parseState)
         }
         let failures = failedSignatures.keys.sorted().compactMap { path -> PersistentFailure? in
             guard let signature = failedSignatures[path] else { return nil }
@@ -659,44 +796,65 @@ public actor ChatHistoryIndex {
         }
     }
 
-    private func apply(metadata index: ThreadMetadataIndex) -> Bool {
+    private func apply(
+        metadata index: ThreadMetadataIndex,
+        paths: Set<String>
+    ) -> (changed: Bool, visitedCount: Int) {
         var changed = false
-        for path in cache.keys.sorted() {
+        var visitedCount = 0
+        for path in paths.sorted() {
             guard let cached = cache[path] else { continue }
+            visitedCount += 1
             let current = cached.summary
-            let metadata = index.byPath[path] ?? index.byThreadID[current.threadID]
+            let transcript = cached.transcriptSummary
+            let metadata = index.metadata(path: path, threadID: transcript.threadID)
             let workingDirectory = ChatTitlePolicy.nonempty(metadata?.workingDirectory)
-                ?? current.workingDirectory
+                ?? transcript.workingDirectory
             let title = ChatTitlePolicy.resolvedTitle(
                 explicitName: metadata?.name,
                 databaseTitle: metadata?.title,
-                transcriptTitle: current.title,
+                transcriptTitle: transcript.title,
                 workingDirectory: workingDirectory)
             let preview = ChatTitlePolicy.meaningfulCompact(metadata?.preview, maximumCharacters: 180)
-                ?? ChatTitlePolicy.meaningfulCompact(current.preview, maximumCharacters: 180)
+                ?? ChatTitlePolicy.meaningfulCompact(transcript.preview, maximumCharacters: 180)
                 ?? ChatTitlePolicy.projectLabel(workingDirectory: workingDirectory)
             let summary = ChatThreadSummary(
-                id: current.id,
-                threadID: metadata?.threadID ?? current.threadID,
+                id: transcript.id,
+                threadID: metadata?.threadID ?? transcript.threadID,
                 title: title,
                 preview: preview,
                 workingDirectory: workingDirectory,
-                updatedAt: metadata?.updatedAt ?? current.updatedAt,
-                archived: metadata?.archived ?? current.archived,
-                messageCount: current.messageCount,
-                fileByteCount: current.fileByteCount,
-                source: current.source,
-                unreadableRecordCount: current.unreadableRecordCount,
-                totalTokens: current.totalTokens)
+                updatedAt: metadata?.updatedAt ?? transcript.updatedAt,
+                archived: metadata?.archived ?? transcript.archived,
+                messageCount: transcript.messageCount,
+                fileByteCount: transcript.fileByteCount,
+                source: transcript.source,
+                unreadableRecordCount: transcript.unreadableRecordCount,
+                totalTokens: transcript.totalTokens)
             let searchText = Self.searchText(for: summary)
             guard summary != current || searchText != cached.searchText else { continue }
             cache[path] = CachedThread(
-                signature: cached.signature, summary: summary, searchText: searchText,
+                signature: cached.signature,
+                transcriptSummary: transcript,
+                summary: summary,
+                searchText: searchText,
+                parseState: cached.parseState,
                 activityRecorded: cached.activityRecorded)
             orderedCacheIsDirty = true
             changed = true
         }
-        return changed
+        return (changed, visitedCount)
+    }
+
+    private func pathsWithChangedMetadata(
+        from previous: ThreadMetadataIndex,
+        to current: ThreadMetadataIndex
+    ) -> Set<String> {
+        Set(cache.compactMap { path, cached in
+            previous.metadata(path: path, threadID: cached.transcriptSummary.threadID)
+                == current.metadata(path: path, threadID: cached.transcriptSummary.threadID)
+                ? nil : path
+        })
     }
 
     private static func searchText(for summary: ChatThreadSummary) -> String {
@@ -729,6 +887,54 @@ public actor ChatHistoryIndex {
         return ThreadMetadataIndex(byPath: byPath, byThreadID: byThreadID)
     }
 
+    private static func threadMetadataSignature(in home: URL) -> ThreadMetadataSignature {
+        let database = home.appending(path: "state_5.sqlite")
+        return ThreadMetadataSignature(
+            database: fileSignature(at: database),
+            writeAheadLog: fileSignature(at: URL(fileURLWithPath: database.path + "-wal")))
+    }
+
+    private static func fileSignature(at url: URL) -> FileSignature? {
+        guard let values = try? url.resourceValues(forKeys: [
+            .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey,
+        ]), values.isRegularFile == true, values.isSymbolicLink != true
+        else { return nil }
+        return FileSignature(
+            byteCount: Int64(values.fileSize ?? 0),
+            modifiedAt: values.contentModificationDate ?? .distantPast)
+    }
+
+    private func validParseState(
+        _ state: TranscriptParseState,
+        signature: FileSignature
+    ) -> Bool {
+        func valid(_ stats: TranscriptMessageStatsState) -> Bool {
+            let messages = [stats.firstMeaningful, stats.lastMeaningful, stats.last].compactMap { $0 }
+            return stats.count >= 0
+                && stats.meaningfulCount >= 0
+                && stats.meaningfulCount <= stats.count
+                && messages.allSatisfy { $0.sequence >= 0 && $0.text.count <= 256 }
+        }
+        return state.parsedByteCount == signature.byteCount
+            && (0...4_096).contains(state.boundaryByteCount)
+            && state.boundaryByteCount <= state.parsedByteCount
+            && state.boundaryDigest.count <= 128
+            && state.sequence >= 0
+            && state.unreadableRecords >= 0
+            && state.activityEventCount >= 0
+            && state.previousTokens >= 0
+            && state.activityDays.count <= 100_000
+            && state.activityDays.allSatisfy { $0.key.count <= 32 && $0.value >= 0 }
+            && (state.threadID?.count ?? 0) <= 1_024
+            && (state.workingDirectory?.count ?? 0) <= 4_096
+            && state.firstActivityEvent.count <= 4_096
+            && valid(state.responseUsers)
+            && valid(state.eventUsers)
+            && valid(state.assistants)
+            && valid(state.tools)
+            && valid(state.others)
+    }
+
     private func validPersistentPath(_ path: String) -> Bool {
         let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
         guard standardized == path else { return false }
@@ -737,31 +943,36 @@ public actor ChatHistoryIndex {
         }
     }
 
-    private func parseConcurrently(_ candidates: [Candidate]) async -> [WorkerResult] {
-        guard !candidates.isEmpty else { return [] }
+    private func parseConcurrently(_ jobs: [ParseJob]) async -> [WorkerResult] {
+        guard !jobs.isEmpty else { return [] }
         return await withTaskGroup(of: WorkerResult.self, returning: [WorkerResult].self) { group in
             var nextIndex = 0
             var results: [WorkerResult] = []
 
             func addNext() {
-                guard nextIndex < candidates.count else { return }
-                let candidate = candidates[nextIndex]
+                guard nextIndex < jobs.count else { return }
+                let job = jobs[nextIndex]
                 nextIndex += 1
                 group.addTask(priority: .utility) {
                     guard !Task.isCancelled else { return .cancelled }
                     do {
+                        let state = try TranscriptParser.resumableState(
+                            candidate: job.candidate,
+                            previousSignature: job.previousSignature,
+                            previousState: job.previousState)
                         return .parsed(
-                            candidate,
-                            try TranscriptParser.parse(candidate, includeMessages: false))
+                            job.candidate,
+                            try TranscriptParser.parse(
+                                job.candidate, includeMessages: false, resuming: state))
                     } catch is CancellationError {
                         return .cancelled
                     } catch {
-                        return .failed(candidate)
+                        return .failed(job.candidate)
                     }
                 }
             }
 
-            for _ in 0..<min(workerCount, candidates.count) { addNext() }
+            for _ in 0..<min(workerCount, jobs.count) { addNext() }
             while let result = await group.next() {
                 results.append(result)
                 if Task.isCancelled { group.cancelAll() }
@@ -829,6 +1040,9 @@ private struct ParsedTranscript: Sendable {
     let searchText: String
     let references: [ChatMessageReference]
     let activity: CodexTranscriptActivity
+    let parseState: TranscriptParseState?
+    let parsedByteCount: Int64
+    let wasIncremental: Bool
 }
 
 private enum TranscriptParser {
@@ -848,6 +1062,22 @@ private enum TranscriptParser {
         var lastMeaningful: RawMessage?
         var references: [ChatMessageReference] = []
 
+        init() {}
+
+        init(state: TranscriptMessageStatsState, role: ChatMessageRole) {
+            count = state.count
+            meaningfulCount = state.meaningfulCount
+            firstMeaningful = state.firstMeaningful.map {
+                RawMessage(sequence: $0.sequence, role: role, text: $0.text, timestamp: nil)
+            }
+            lastMeaningful = state.lastMeaningful.map {
+                RawMessage(sequence: $0.sequence, role: role, text: $0.text, timestamp: nil)
+            }
+            last = state.last.map {
+                RawMessage(sequence: $0.sequence, role: role, text: $0.text, timestamp: nil)
+            }
+        }
+
         mutating func record(_ message: RawMessage, offset: UInt64, byteCount: Int, indexed: Bool) {
             count += 1
             if first == nil { first = message }
@@ -862,13 +1092,88 @@ private enum TranscriptParser {
                     byteCount: byteCount, role: message.role, timestamp: message.timestamp))
             }
         }
+
+        func persistentState() -> TranscriptMessageStatsState {
+            func message(_ value: RawMessage?) -> TranscriptSummaryMessageState? {
+                guard let value,
+                      let text = ChatTitlePolicy.compact(value.text, maximumCharacters: 180)
+                else { return nil }
+                return TranscriptSummaryMessageState(sequence: value.sequence, text: text)
+            }
+            return TranscriptMessageStatsState(
+                count: count,
+                meaningfulCount: meaningfulCount,
+                firstMeaningful: message(firstMeaningful),
+                lastMeaningful: message(lastMeaningful),
+                last: message(last))
+        }
+    }
+
+    static func resumableState(
+        candidate: ChatHistoryIndex.Candidate,
+        previousSignature: ChatHistoryIndex.FileSignature?,
+        previousState: TranscriptParseState?
+    ) throws -> TranscriptParseState? {
+        guard let previousSignature,
+              let previousState,
+              candidate.signature.byteCount > previousSignature.byteCount,
+              previousState.parsedByteCount == previousSignature.byteCount,
+              previousState.endedAtRecordBoundary,
+              previousState.boundaryByteCount <= previousSignature.byteCount,
+              let digest = try? boundaryDigest(
+                url: candidate.url,
+                endOffset: previousSignature.byteCount,
+                byteCount: previousState.boundaryByteCount),
+              digest == previousState.boundaryDigest
+        else { return nil }
+        return previousState
+    }
+
+    static func summary(
+        path: String,
+        archived: Bool,
+        signature: ChatHistoryIndex.FileSignature,
+        state: TranscriptParseState
+    ) -> ChatThreadSummary {
+        let users = state.eventUsers.count > 0 ? state.eventUsers : state.responseUsers
+        let lastMessage = [users.lastMeaningful, state.assistants.last]
+            .compactMap { $0 }
+            .max { $0.sequence < $1.sequence }
+        let source = URL(fileURLWithPath: path)
+        return ChatThreadSummary(
+            id: path,
+            threadID: state.threadID ?? source.deletingPathExtension().lastPathComponent,
+            title: ChatTitlePolicy.resolvedTitle(
+                explicitName: nil,
+                databaseTitle: nil,
+                transcriptTitle: users.firstMeaningful?.text,
+                workingDirectory: state.workingDirectory),
+            preview: ChatTitlePolicy.meaningfulCompact(
+                lastMessage?.text, maximumCharacters: 180)
+                ?? ChatTitlePolicy.projectLabel(workingDirectory: state.workingDirectory),
+            workingDirectory: state.workingDirectory,
+            updatedAt: state.latestDate,
+            archived: archived,
+            messageCount: users.meaningfulCount
+                + state.assistants.count
+                + state.tools.count
+                + state.others.count,
+            fileByteCount: signature.byteCount,
+            source: source,
+            unreadableRecordCount: state.unreadableRecords,
+            totalTokens: state.activityEventCount > 0
+                && state.activityComplete
+                && !state.inheritedHistory
+                ? state.previousTokens : nil)
     }
 
     static func parse(
         _ candidate: ChatHistoryIndex.Candidate,
-        includeMessages: Bool
+        includeMessages: Bool,
+        resuming state: TranscriptParseState? = nil
     ) throws -> ParsedTranscript {
-        let reader = try JSONLReader(url: candidate.url)
+        let startOffset = state?.parsedByteCount ?? 0
+        let reader = try JSONLReader(url: candidate.url, startingAt: UInt64(startOffset))
         let fractionalDateParser: ISO8601DateFormatter?
         let wholeSecondDateParser: ISO8601DateFormatter?
         do {
@@ -882,23 +1187,33 @@ private enum TranscriptParser {
         let dayParser = ISO8601DateFormatter()
         dayParser.formatOptions = [.withFullDate]
         dayParser.timeZone = TimeZone(secondsFromGMT: 0)
-        var activityDays: [String: Int64] = [:]
-        var previousTokens: Int64 = 0
-        var activityEventCount = 0
-        var firstActivityEvent = ""
-        var activityComplete = true
-        var inheritedHistory = false
-        var hasSessionMetadata = false
-        var threadID: String?
-        var workingDirectory: String?
-        var latestDate = candidate.signature.modifiedAt
-        var responseUsers = MessageStats()
-        var eventUsers = MessageStats()
-        var assistants = MessageStats()
-        var tools = MessageStats()
-        var others = MessageStats()
-        var unreadableRecords = 0
-        var sequence = 0
+        var activityDays = state?.activityDays ?? [:]
+        var previousTokens = state?.previousTokens ?? 0
+        var activityEventCount = state?.activityEventCount ?? 0
+        var firstActivityEvent = state?.firstActivityEvent ?? ""
+        var activityComplete = state?.activityComplete ?? true
+        var inheritedHistory = state?.inheritedHistory ?? false
+        var hasSessionMetadata = state?.hasSessionMetadata ?? false
+        var threadID = state?.threadID
+        var workingDirectory = state?.workingDirectory
+        var latestDate = max(state?.latestDate ?? .distantPast, candidate.signature.modifiedAt)
+        var responseUsers = state.map {
+            MessageStats(state: $0.responseUsers, role: .user)
+        } ?? MessageStats()
+        var eventUsers = state.map {
+            MessageStats(state: $0.eventUsers, role: .user)
+        } ?? MessageStats()
+        var assistants = state.map {
+            MessageStats(state: $0.assistants, role: .assistant)
+        } ?? MessageStats()
+        var tools = state.map {
+            MessageStats(state: $0.tools, role: .tool)
+        } ?? MessageStats()
+        var others = state.map {
+            MessageStats(state: $0.others, role: .other)
+        } ?? MessageStats()
+        var unreadableRecords = state?.unreadableRecords ?? 0
+        var sequence = state?.sequence ?? 0
 
         while let rawRecord = try reader.next() {
             sequence += 1
@@ -1060,12 +1375,65 @@ private enum TranscriptParser {
         let current = try? candidate.url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let unchanged = Int64(current?.fileSize ?? -1) == candidate.signature.byteCount
             && current?.contentModificationDate == candidate.signature.modifiedAt
+        let parsedByteCount = max(0, candidate.signature.byteCount - startOffset)
+        let parseState: TranscriptParseState?
+        if !includeMessages, unchanged {
+            let boundaryByteCount = min(4_096, Int(candidate.signature.byteCount))
+            parseState = TranscriptParseState(
+                parsedByteCount: candidate.signature.byteCount,
+                boundaryByteCount: boundaryByteCount,
+                boundaryDigest: try boundaryDigest(
+                    url: candidate.url,
+                    endOffset: candidate.signature.byteCount,
+                    byteCount: boundaryByteCount),
+                endedAtRecordBoundary: reader.lastRecordEndedWithNewline,
+                sequence: sequence,
+                threadID: threadID,
+                workingDirectory: workingDirectory,
+                latestDate: latestDate,
+                responseUsers: responseUsers.persistentState(),
+                eventUsers: eventUsers.persistentState(),
+                assistants: assistants.persistentState(),
+                tools: tools.persistentState(),
+                others: others.persistentState(),
+                unreadableRecords: unreadableRecords,
+                activityDays: activityDays,
+                previousTokens: previousTokens,
+                activityEventCount: activityEventCount,
+                firstActivityEvent: firstActivityEvent,
+                activityComplete: activityComplete,
+                inheritedHistory: inheritedHistory,
+                hasSessionMetadata: hasSessionMetadata)
+        } else {
+            parseState = nil
+        }
         return ParsedTranscript(
             summary: summary, searchText: searchText, references: references,
             activity: CodexTranscriptActivity(
                 threadID: threadID, project: workingDirectory, firstEvent: firstActivityEvent,
                 eventCount: activityEventCount, totalTokens: previousTokens, days: activityDays,
-                complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged))
+                complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged),
+            parseState: parseState,
+            parsedByteCount: parsedByteCount,
+            wasIncremental: state != nil)
+    }
+
+    private static func boundaryDigest(
+        url: URL,
+        endOffset: Int64,
+        byteCount: Int
+    ) throws -> String {
+        guard endOffset >= 0,
+              byteCount >= 0,
+              Int64(byteCount) <= endOffset
+        else { throw AIManagerError.sourceChanged }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(endOffset - Int64(byteCount)))
+        guard let data = try handle.read(upToCount: byteCount), data.count == byteCount else {
+            throw AIManagerError.sourceChanged
+        }
+        return CoreSupport.digest(data)
     }
 
     static func message(_ reference: ChatMessageReference, handle: FileHandle, path: String) throws -> ChatMessage? {
@@ -1224,7 +1592,7 @@ private enum ChatTitlePolicy {
         return trimmed
     }
 
-    private static func compact(_ value: String?, maximumCharacters: Int) -> String? {
+    static func compact(_ value: String?, maximumCharacters: Int) -> String? {
         guard let value = nonempty(value) else { return nil }
         let compacted = value
             .split(whereSeparator: \.isWhitespace)
