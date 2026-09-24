@@ -134,17 +134,27 @@ struct MenuBarPopoverActions {
   let openMainWindow: () -> Void
   let switchAccount: (UUID) async throws -> Void
   let refreshUsage: () async -> Void
+  let readFanSnapshot: () async -> FanSnapshot
+  let setFanMode: (FanControlMode) async throws -> FanSnapshot
   let copyText: ((String) -> Void)?
 
   init(
     openMainWindow: @escaping () -> Void,
     switchAccount: @escaping (UUID) async throws -> Void,
     refreshUsage: @escaping () async -> Void = {},
+    readFanSnapshot: @escaping () async -> FanSnapshot = {
+      .unavailable("Fan monitoring is unavailable.")
+    },
+    setFanMode: @escaping (FanControlMode) async throws -> FanSnapshot = { _ in
+      throw FanControlError.helperUnavailable
+    },
     copyText: ((String) -> Void)? = nil
   ) {
     self.openMainWindow = openMainWindow
     self.switchAccount = switchAccount
     self.refreshUsage = refreshUsage
+    self.readFanSnapshot = readFanSnapshot
+    self.setFanMode = setFanMode
     self.copyText = copyText
   }
 }
@@ -156,16 +166,28 @@ final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var isRefreshingUsage = false
   @Published private(set) var visibleScreenHeight: CGFloat
   @Published private(set) var rowErrors: [UUID: String] = [:]
+  @Published private(set) var fanSnapshot = FanSnapshot.loading
+  @Published private(set) var changingFanMode: FanControlMode?
+  @Published private(set) var fanControlError: String?
 
   let actions: MenuBarPopoverActions
   var didSwitch: (() -> Void)?
   var didRequestDismissal: (() -> Void)?
+  private var fanMonitorTask: Task<Void, Never>?
 
-  init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions, visibleScreenHeight: CGFloat = 900) {
+  init(
+    snapshot: MenuBarSnapshot,
+    actions: MenuBarPopoverActions,
+    visibleScreenHeight: CGFloat = 900,
+    fanSnapshot: FanSnapshot = .loading
+  ) {
     self.snapshot = snapshot
     self.actions = actions
     self.visibleScreenHeight = visibleScreenHeight
+    self.fanSnapshot = fanSnapshot
   }
+
+  deinit { fanMonitorTask?.cancel() }
 
   func update(visibleScreenHeight: CGFloat) {
     if self.visibleScreenHeight != visibleScreenHeight { self.visibleScreenHeight = visibleScreenHeight }
@@ -192,6 +214,46 @@ final class MenuBarPopoverStore: ObservableObject {
     isRefreshingUsage = true
     defer { isRefreshingUsage = false }
     await actions.refreshUsage()
+  }
+
+  var isFanMonitoring: Bool { fanMonitorTask != nil }
+
+  func startFanMonitoring() {
+    guard fanMonitorTask == nil else { return }
+    fanMonitorTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        guard let self else { return }
+        await refreshFan()
+        do { try await Task.sleep(for: MacFanService.refreshInterval) }
+        catch { return }
+      }
+    }
+  }
+
+  func stopFanMonitoring() {
+    fanMonitorTask?.cancel()
+    fanMonitorTask = nil
+  }
+
+  func refreshFan() async {
+    let snapshot = await actions.readFanSnapshot()
+    guard !Task.isCancelled else { return }
+    fanSnapshot = snapshot
+  }
+
+  func selectFanMode(_ mode: FanControlMode) {
+    guard fanSnapshot.controlAvailable, changingFanMode == nil else { return }
+    changingFanMode = mode
+    fanControlError = nil
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { changingFanMode = nil }
+      do {
+        fanSnapshot = try await actions.setFanMode(mode)
+      } catch {
+        fanControlError = error.localizedDescription
+      }
+    }
   }
 
   func copyError(_ error: String) {
@@ -228,7 +290,7 @@ final class MenuBarPopoverStore: ObservableObject {
 }
 
 struct MenuBarPalette {
-  let surface, card, ink, muted, track, accent, active, line: Color
+  let surface, card, ink, muted, track, accent, active, line, fanAccent, fanAccentInk: Color
   static let ivory = MenuBarPalette(dark: false)
   static let espresso = MenuBarPalette(dark: true)
 
@@ -241,14 +303,17 @@ struct MenuBarPalette {
     accent = Color(hex: dark ? 0xB4C8DD : 0x4B706E)
     active = Color(hex: dark ? 0x504A3E : 0xE9E7DF)
     line = Color(hex: dark ? 0x534A3B : 0xDCD8CC)
+    fanAccent = Color(hex: dark ? 0xD9AD67 : 0xA47B42)
+    fanAccentInk = Color(hex: dark ? 0x2B241A : 0xFFF9EC)
   }
 }
 
 struct MenuBarPopover: View {
   @State private var refreshHovered = false
   static let width: CGFloat = 344
-  static let minimumHeight: CGFloat = 104
+  static let minimumHeight: CGFloat = 160
   static let footerHeight: CGFloat = 29
+  static let fanSectionHeight: CGFloat = 56
   static let listInset: CGFloat = 10
   static let cardSpacing: CGFloat = 10
   static let accountHeaderHeight: CGFloat = 35
@@ -278,6 +343,7 @@ struct MenuBarPopover: View {
   var body: some View {
     VStack(spacing: 0) {
       accountList
+      fanRow
       footer
     }
     .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
@@ -298,6 +364,19 @@ struct MenuBarPopover: View {
     .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
     .focusEffectDisabled(!showFocusIndicators)
     .clipShape(RoundedRectangle(cornerRadius: Self.popupRadius))
+  }
+
+  private var fanRow: some View {
+    MenuBarFanRow(
+      snapshot: store.fanSnapshot,
+      changingMode: store.changingFanMode,
+      error: store.fanControlError,
+      palette: palette,
+      translucent: !reduceTransparency,
+      action: store.selectFanMode)
+      .padding(.horizontal, Self.listInset)
+      .frame(height: Self.fanSectionHeight)
+      .overlay(alignment: .top) { Rectangle().fill(palette.line).frame(height: 1) }
   }
 
   @ViewBuilder
@@ -386,6 +465,143 @@ struct MenuBarPopover: View {
     .padding(.horizontal, 10)
     .frame(height: Self.footerHeight)
     .overlay(alignment: .top) { Rectangle().fill(palette.line).frame(height: 1) }
+  }
+}
+
+private struct MenuBarFanRow: View {
+  let snapshot: FanSnapshot
+  let changingMode: FanControlMode?
+  let error: String?
+  let palette: MenuBarPalette
+  let translucent: Bool
+  let action: (FanControlMode) -> Void
+
+  private var detail: String {
+    guard let rpm = snapshot.rpm, let percent = snapshot.percent else {
+      return snapshot.message ?? "Unavailable"
+    }
+    return "\(rpm.formatted()) RPM · \(percent)% use"
+  }
+
+  private var help: String {
+    error ?? snapshot.message ?? "Choose how Switch controls every detected fan."
+  }
+
+  var body: some View {
+    HStack(spacing: 9) {
+      ZStack {
+        RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius)
+          .fill(palette.fanAccent.opacity(0.13))
+        if changingMode == nil {
+          AIMIcon(name: .fan, size: 12).foregroundStyle(palette.fanAccent)
+        } else {
+          ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+        }
+      }
+      .frame(width: 25, height: 25)
+
+      VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 4) {
+          Text("Fan")
+            .font(AIMTheme.sans(10, weight: .semibold))
+          if !snapshot.controlAvailable {
+            AIMIcon(name: .warning, size: 8)
+              .foregroundStyle(palette.fanAccent)
+          }
+        }
+        Text(detail)
+          .font(AIMTheme.mono(9, weight: .medium))
+          .foregroundStyle(palette.muted)
+          .lineLimit(1)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      MenuBarFanModePicker(
+        selection: snapshot.mode,
+        enabled: snapshot.controlAvailable && changingMode == nil,
+        palette: palette,
+        action: action)
+    }
+    .padding(.horizontal, 9)
+    .frame(height: 46)
+    .background(palette.card.opacity(translucent ? 0.94 : 1))
+    .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.cardRadius))
+    .help(help)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Fan, \(detail)")
+    .accessibilityHint(help)
+  }
+}
+
+private struct MenuBarFanModePicker: View {
+  let selection: FanControlMode?
+  let enabled: Bool
+  let palette: MenuBarPalette
+  let action: (FanControlMode) -> Void
+  @State private var hovered: FanControlMode?
+  @FocusState private var focused: FanControlMode?
+
+  var body: some View {
+    HStack(spacing: 0) {
+      ForEach(Array(FanControlMode.allCases.enumerated()), id: \.element) { index, mode in
+        Button { action(mode) } label: {
+          Text(mode.title)
+            .font(AIMTheme.sans(9, weight: .medium))
+            .foregroundStyle(foreground(for: mode))
+            .frame(width: 39, height: 23)
+            .background(background(for: mode))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AIMPressButtonStyle())
+        .disabled(!enabled)
+        .focused($focused, equals: mode)
+        .onHover { inside in
+          if inside, enabled { hovered = mode }
+          else if hovered == mode { hovered = nil }
+        }
+        .onMoveCommand { direction in move(from: mode, direction: direction) }
+        .accessibilityLabel("Set fan mode to \(mode.title)")
+        .accessibilityAddTraits(selection == mode ? .isSelected : [])
+
+        if index < FanControlMode.allCases.count - 1 {
+          Rectangle().fill(palette.line).frame(width: 1, height: 13)
+            .accessibilityHidden(true)
+        }
+      }
+    }
+    .background(palette.active.opacity(enabled ? 0.72 : 0.44))
+    .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
+    .overlay {
+      RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius)
+        .stroke(palette.line, lineWidth: 1)
+    }
+    .fixedSize()
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Fan mode")
+  }
+
+  private func foreground(for mode: FanControlMode) -> Color {
+    if selection == mode { return palette.fanAccentInk.opacity(enabled ? 1 : 0.78) }
+    return palette.muted.opacity(enabled ? 1 : 0.65)
+  }
+
+  private func background(for mode: FanControlMode) -> Color {
+    if selection == mode { return palette.fanAccent.opacity(enabled ? 1 : 0.54) }
+    if hovered == mode { return palette.ink.opacity(0.08) }
+    return .clear
+  }
+
+  private func move(from mode: FanControlMode, direction: MoveCommandDirection) {
+    guard enabled, let index = FanControlMode.allCases.firstIndex(of: mode) else { return }
+    let next: Int
+    switch direction {
+    case .left: next = max(0, index - 1)
+    case .right: next = min(FanControlMode.allCases.count - 1, index + 1)
+    default: return
+    }
+    let newMode = FanControlMode.allCases[next]
+    focused = newMode
+    action(newMode)
   }
 }
 

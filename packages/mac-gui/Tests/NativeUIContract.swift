@@ -729,6 +729,25 @@ enum AIManagerNativeContract {
     if calls != 1 || store.canRefreshUsage {
       failures.append("Menubar refresh runs for hidden or unsupported accounts")
     }
+    let fanSample = FanHardwareSample(
+      index: 0, actualRPM: 3_000, targetRPM: 3_600, maximumRPM: 6_000, rawMode: 1)
+    var fanReads = 0
+    let fanStore = MenuBarPopoverStore(
+      snapshot: .empty,
+      actions: MenuBarPopoverActions(
+        openMainWindow: {}, switchAccount: { _ in },
+        readFanSnapshot: {
+          fanReads += 1
+          return FanSnapshot(samples: [fanSample], controlAvailable: false)
+        }))
+    fanStore.startFanMonitoring()
+    try? await Task.sleep(for: .milliseconds(40))
+    fanStore.stopFanMonitoring()
+    let readsAfterStop = fanReads
+    try? await Task.sleep(for: .milliseconds(40))
+    if readsAfterStop != 1 || fanReads != readsAfterStop || fanStore.isFanMonitoring {
+      failures.append("Menubar fan monitoring does not start once and stop with the popover")
+    }
     return failures
   }
 
@@ -746,7 +765,8 @@ enum AIManagerNativeContract {
     controllerDefaults.removePersistentDomain(forName: defaultsDomain)
 
     expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
-    expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
+    expect(MenuBarPopover.minimumHeight == 160, "Menu-bar popover does not reserve the fan row")
+    expect(MenuBarPopover.fanSectionHeight == 56, "Menu-bar fan row is not compact")
     expect(MenuBarPopover.accountHeaderHeight == 35, "Menu-bar account header does not match Soft rectangles")
     expect(MenuBarPopover.quotaRowHeight == 40, "Menu-bar quota rows do not match the approved design")
     expect(MenuBarPopover.footerHeight == 29, "Menu-bar footer does not match the approved design")
@@ -778,12 +798,12 @@ enum AIManagerNativeContract {
       accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 601)
     for size in [empty, hidden, one, two, many, shortScreen, tallScreen, fractionalScreen] {
       expect(size.width == 344, "Menu-bar popover width changes with its contents")
-      expect(size.height >= 104, "Menu-bar popover is shorter than its empty state")
+      expect(size.height >= 160, "Menu-bar popover is shorter than its empty state")
     }
-    expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
-    expect(hidden.height == 104, "Hidden usage leaves blank quota space")
-    expect(one.height == 201, "One usage card has the wrong geometry")
-    expect(two.height == 353, "Two usage cards have the wrong geometry")
+    expect(empty.height == 160, "Empty menu-bar popover does not use its compact minimum height")
+    expect(hidden.height == 160, "Hidden usage leaves blank quota space")
+    expect(one.height == 257, "One usage card has the wrong geometry")
+    expect(two.height == 409, "Two usage cards have the wrong geometry")
     expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
     expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
     expect(tallScreen.height == 1600, "Menu-bar retains a fixed cap below 80% of a tall screen")
@@ -839,7 +859,7 @@ enum AIManagerNativeContract {
       for scroll in scrolls {
         let documentHeight = scroll.documentView?.frame.height ?? 0
         let viewportHeight = scroll.contentView.bounds.height
-        let neededHeight = documentHeight + 20 + 29
+        let neededHeight = documentHeight + 20 + 29 + 56
         let cap = floor(screenHeight * 0.8)
         print("POPOVER_VIEWPORT accounts=\(accounts.count) document=\(documentHeight) viewport=\(viewportHeight) popup=\(expectedSize.height) cap=\(cap)")
         if neededHeight <= cap {
@@ -898,6 +918,22 @@ enum AIManagerNativeContract {
       expect(account.remainingPercentage == 100 - min(max(used, 0), 100),
         "Remaining quota fails at \(used) percent used")
     }
+    let coolSamples = [
+      FanHardwareSample(index: 0, actualRPM: 3_000, targetRPM: 3_600, maximumRPM: 6_000, rawMode: 1),
+      FanHardwareSample(index: 1, actualRPM: 4_000, targetRPM: 3_000, maximumRPM: 5_000, rawMode: 1),
+    ]
+    let coolFan = FanSnapshot(samples: coolSamples, controlAvailable: true)
+    expect(coolFan.rpm == 4_000 && coolFan.percent == 80,
+      "Fan row does not pair the highest RPM with its percentage of maximum")
+    expect(coolFan.mode == .cool, "Fan row does not recognize a 60-percent target")
+    expect(FanSnapshot(samples: coolSamples.map {
+      FanHardwareSample(index: $0.index, actualRPM: $0.actualRPM,
+        targetRPM: $0.maximumRPM, maximumRPM: $0.maximumRPM, rawMode: 1)
+    }, controlAvailable: true).mode == .maximum, "Fan row does not recognize maximum mode")
+    expect(FanSnapshot(samples: coolSamples.map {
+      FanHardwareSample(index: $0.index, actualRPM: $0.actualRPM,
+        targetRPM: nil, maximumRPM: $0.maximumRPM, rawMode: 0)
+    }, controlAvailable: true).mode == .automatic, "Fan row does not recognize automatic mode")
     let weekly = MenuBarAccountSnapshot(
       id: UUID(), identity: "weekly@example.test", detail: "", isVerified: true,
       isActive: true, usage: MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 96))
