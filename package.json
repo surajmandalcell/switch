@@ -1,6 +1,6 @@
 {
   "name": "@smdl/switch",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Switch between saved AI coding-tool accounts from the terminal.",
   "license": "MIT",
   "author": "Suraj Mandal",
