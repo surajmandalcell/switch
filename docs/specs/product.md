@@ -291,19 +291,7 @@ has usage display enabled. Keep the icon's space fixed while showing progress.
 The popover is 344 points wide,
 uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
 Open App button with a subtle hover tint. Its native host fits all account cards and the
-footer. A fixed fan row between the account list and footer uses the same Soft rectangles
-palette: the left side shows a native fan glyph, the highest current fan RPM, and that
-fan's percentage of maximum speed; the right side is one contiguous Auto/Cool/Max control.
-Auto restores system control, Cool requests 60% of each fan's maximum RPM, and Max requests
-full speed. Keep fan reads off the main thread and inactive while the popover is closed;
-refresh immediately on open and every three seconds while visible. Reuse one SMC connection
-and read only the fan keys. Hardware writes are available only through a detected smctld
-privileged helper so its read-back verification and thermal guard remain authoritative.
-When that helper is absent or incompatible, keep monitoring available and present the three
-choices as visibly unavailable with a concise setup explanation; never write the SMC directly,
-fake a selected mode, trigger authorization on menu open, or compete with another controller.
-The native host includes the fan row when growing up to 80% of the visible height of the
-display containing its status-item
+footer, growing up to 80% of the visible height of the display containing its status-item
 button. This display-specific rule supersedes the previous smallest-display cap. There is
 no additional 900-point cap, and the list scrolls only when its contents exceed that
 available height. Below that cap every account and quota row fits without a scrollbar;
