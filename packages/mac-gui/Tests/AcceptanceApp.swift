@@ -257,16 +257,6 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 enum AIManagerMacGUIAcceptanceApp {
     @MainActor
     static func main() {
-        if CommandLine.arguments.contains("--fan-read") {
-            let completed = DispatchSemaphore(value: 0)
-            Task.detached {
-                let snapshot = await MacFanService().snapshot()
-                print("FAN_READ rpm=\(snapshot.rpm.map(String.init) ?? "none") percent=\(snapshot.percent.map(String.init) ?? "none") control=\(snapshot.controlAvailable)")
-                completed.signal()
-            }
-            _ = completed.wait(timeout: .now() + 5)
-            return
-        }
         let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
         guard let instanceLock = AIManagerSingleInstance.acquireOrActivate(
             bundleIdentifier: bundleIdentifier) else { return }
@@ -601,12 +591,7 @@ private final class AcceptanceReceipts {
         let store = MenuBarPopoverStore(
             snapshot: snapshot,
             actions: MenuBarPopoverActions(
-                openMainWindow: {}, switchAccount: { _ in }),
-            fanSnapshot: FanSnapshot(
-                samples: [FanHardwareSample(
-                    index: 0, actualRPM: 3_462, targetRPM: 3_466,
-                    maximumRPM: 5_777, rawMode: 1)],
-                controlAvailable: true))
+                openMainWindow: {}, switchAccount: { _ in }))
         let view = NSHostingView(rootView: MenuBarPopover(store: store))
         view.appearance = appearance
         view.frame = NSRect(
