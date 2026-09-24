@@ -183,6 +183,11 @@ archived or copied transcripts. Unknown fork boundaries and reset or incomplete 
 retain known totals with an incomplete indication. Project totals remain separate from account
 totals, and selected days identify their shared-home provenance. One background file monitor and
 coalesced bounded worker scans maintain summaries independently of the visible page.
+The monitor ignores shared-home writes outside active conversations, archived conversations, and
+thread metadata. It coalesces bursts before it refreshes. An append-only JSONL change parses only
+the verified appended bytes after the first complete scan; replacement, truncation, or an unsafe
+record boundary falls back to a complete parse. Thread metadata is read and applied only when the
+database or its write-ahead files change. An unchanged hidden app performs no transcript scan.
 
 Show retained token statistics for the selected account inside the existing Daily activity
 section, not in a separate panel. The section header contains one grouped row of Today, Yesterday,
