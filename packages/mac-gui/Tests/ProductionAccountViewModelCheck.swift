@@ -130,16 +130,35 @@ struct ProductionAccountViewModelCheck {
         for _ in 0..<100 where await eventHistory.refreshCount() == 0 {
             try await Task.sleep(for: .milliseconds(10))
         }
-        try await Task.sleep(for: .milliseconds(350))
-        try Data("event".utf8).write(to: paths.sharedRoot.appending(path: "history-event-probe"))
-        for _ in 0..<200 where await eventHistory.refreshCount() < 2 {
+        let initialEventRefreshCount = await eventHistory.refreshCount()
+        try Data("irrelevant".utf8).write(
+            to: paths.sharedRoot.appending(path: "history-event-probe"))
+        try await Task.sleep(for: .milliseconds(750))
+        let afterIrrelevantEventCount = await eventHistory.refreshCount()
+        try expect(afterIrrelevantEventCount == initialEventRefreshCount,
+                   "An unrelated shared-home write refreshed Chat History")
+        let eventDirectory = paths.sharedRoot.appending(
+            path: "sessions/2026/09/14", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: eventDirectory, withIntermediateDirectories: true)
+        let eventFile = eventDirectory.appending(path: "history-event.jsonl")
+        try Data().write(to: eventFile)
+        let eventHandle = try FileHandle(forWritingTo: eventFile)
+        for index in 0..<8 {
+            try eventHandle.seekToEnd()
+            try eventHandle.write(contentsOf: Data("{\"event\":\(index)}\n".utf8))
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        try eventHandle.close()
+        for _ in 0..<200 where await eventHistory.refreshCount() < initialEventRefreshCount + 1 {
             try await Task.sleep(for: .milliseconds(10))
         }
-        let eventRefreshCount = await eventHistory.refreshCount()
+        try await Task.sleep(for: .milliseconds(750))
+        let eventRefreshCount = await eventHistory.refreshCount() - initialEventRefreshCount
         eventWatch.cancel()
         await eventWatch.value
-        try expect(eventRefreshCount >= 2,
-                   "Chat History did not refresh after a file-system change")
+        try expect(eventRefreshCount == 1,
+                   "A burst of conversation writes did not produce one history refresh")
+        try fileManager.removeItem(at: eventFile)
 
         let model = AccountViewModel(paths: paths, manager: manager)
         try expect(!model.isUnavailable, "Production model was unavailable")
