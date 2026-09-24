@@ -1103,12 +1103,21 @@ final class JSONLReader {
     private var offset = 0
     private var bufferOffset: UInt64 = 0
     private(set) var lastRecordOffset: UInt64 = 0
+    private(set) var lastRecordEndedWithNewline = true
     private var reachedEnd = false
     private let maximumRecordBytes: Int
 
-    init(url: URL, maximumRecordBytes: Int = 64 * 1_024 * 1_024) throws {
+    init(
+        url: URL,
+        maximumRecordBytes: Int = 64 * 1_024 * 1_024,
+        startingAt startOffset: UInt64 = 0
+    ) throws {
         self.maximumRecordBytes = maximumRecordBytes
         handle = try FileHandle(forReadingFrom: url)
+        if startOffset > 0 {
+            try handle.seek(toOffset: startOffset)
+            bufferOffset = startOffset
+        }
     }
 
     deinit { try? handle.close() }
@@ -1120,6 +1129,7 @@ final class JSONLReader {
                     throw AIManagerError.invalidSource("A JSONL record exceeds the validation limit.")
                 }
                 lastRecordOffset = bufferOffset + UInt64(offset)
+                lastRecordEndedWithNewline = true
                 let record = Data(buffer[offset..<newline])
                 offset = newline + 1
                 compactIfNeeded()
@@ -1132,6 +1142,7 @@ final class JSONLReader {
                     throw AIManagerError.invalidSource("A JSONL record exceeds the validation limit.")
                 }
                 lastRecordOffset = bufferOffset + UInt64(offset)
+                lastRecordEndedWithNewline = false
                 let record = Data(buffer[offset...])
                 offset = buffer.count
                 return record.isEmpty ? nil : record

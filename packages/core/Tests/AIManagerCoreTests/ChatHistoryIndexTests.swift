@@ -418,6 +418,41 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(renamed.reparsedFileCount, 0)
         XCTAssertEqual(renamed.threads.first?.title, "Reader typography polish")
         XCTAssertGreaterThan(renamed.libraryRevision, initial.libraryRevision)
+
+        try deleteThreadMetadata()
+        let fallback = try await index.refresh()
+
+        XCTAssertEqual(fallback.reparsedFileCount, 0)
+        XCTAssertEqual(fallback.threads.first?.title, "Make the reader calm and legible")
+    }
+
+    func testMetadataChangeTouchesOnlyItsThread() async throws {
+        let named = try transcript(
+            directory: "sessions/2026/09/14", filename: "named-only.jsonl",
+            records: standardRecords(id: "named-only", prompt: "Named transcript"))
+        _ = try transcript(
+            directory: "sessions/2026/09/14", filename: "unchanged.jsonl",
+            records: standardRecords(id: "unchanged", prompt: "Unchanged transcript"))
+        try createThreadDatabase(
+            threadID: "named-only",
+            rolloutPath: named.path,
+            name: "First name",
+            title: "Named transcript",
+            preview: "Named preview",
+            workingDirectory: "/Projects/Switch")
+        let index = ChatHistoryIndex(home: root)
+        _ = try await index.refresh()
+
+        try updateThreadName("Second name")
+        let updated = try await index.refresh()
+        let metrics = await index.refreshMetrics()
+
+        XCTAssertEqual(updated.reparsedFileCount, 0)
+        XCTAssertEqual(
+            updated.threads.first(where: { $0.threadID == "named-only" })?.title,
+            "Second name")
+        XCTAssertEqual(metrics.metadataAppliedThreadCount, 1)
+        XCTAssertEqual(metrics.parsedByteCount, 0)
     }
 
     func testLegacyFallbackSkipsBootstrapContext() async throws {
@@ -497,10 +532,103 @@ final class ChatHistoryIndexTests: XCTestCase {
         try handle.close()
         let updated = try await index.refresh()
 
-        XCTAssertEqual(updated.reparsedFileCount, 1)
+        XCTAssertEqual(updated.reparsedFileCount, 0)
         XCTAssertGreaterThan(updated.libraryRevision, unchanged.libraryRevision)
         XCTAssertEqual(updated.totalThreadCount, 2)
         XCTAssertEqual(updated.unreadableRecordCount, 1)
+    }
+
+    func testAppendReadsOnlyNewBytesAndSkipsUnchangedMetadata() async throws {
+        let file = try transcript(
+            directory: "sessions/2026/09/13", filename: "growing.jsonl",
+            records: standardRecords(id: "growing", prompt: "Initial request"))
+        let index = ChatHistoryIndex(home: root, maximumWorkerCount: 2)
+        _ = try await index.refresh()
+        let appended = try encodedLines([[
+            "timestamp": "2026-09-13T04:00:02Z",
+            "type": "response_item",
+            "payload": [
+                "type": "message", "role": "assistant",
+                "content": [["type": "output_text", "text": "Appended response"]],
+            ],
+        ]])
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: appended)
+        try handle.close()
+
+        let updated = try await index.refresh()
+        let metrics = await index.refreshMetrics()
+
+        XCTAssertEqual(updated.reparsedFileCount, 0)
+        XCTAssertEqual(updated.threads.first?.messageCount, 2)
+        XCTAssertEqual(updated.threads.first?.preview, "Appended response")
+        XCTAssertEqual(metrics.fullyParsedFileCount, 0)
+        XCTAssertEqual(metrics.incrementallyParsedFileCount, 1)
+        XCTAssertEqual(metrics.parsedByteCount, Int64(appended.count))
+        XCTAssertEqual(metrics.metadataAppliedThreadCount, 0)
+    }
+
+    func testPersistentCacheResumesAnAppendAfterRestart() async throws {
+        let cacheFile = root.appending(path: "manager/cache/chat-history-v1.json")
+        let file = try transcript(
+            directory: "sessions/2026/09/13", filename: "restart.jsonl",
+            records: standardRecords(id: "restart", prompt: "Before restart"))
+        _ = try await ChatHistoryIndex(home: root, cacheFile: cacheFile).refresh()
+        let reopened = ChatHistoryIndex(home: root, cacheFile: cacheFile)
+        _ = try await reopened.refresh()
+        let appended = try encodedLines([[
+            "timestamp": "2026-09-13T04:00:02Z",
+            "type": "response_item",
+            "payload": [
+                "type": "message", "role": "assistant",
+                "content": [["type": "output_text", "text": "After restart"]],
+            ],
+        ]])
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: appended)
+        try handle.close()
+
+        let updated = try await reopened.refresh()
+        let metrics = await reopened.refreshMetrics()
+
+        XCTAssertEqual(updated.reparsedFileCount, 0)
+        XCTAssertEqual(updated.threads.first?.preview, "After restart")
+        XCTAssertEqual(metrics.incrementallyParsedFileCount, 1)
+        XCTAssertEqual(metrics.parsedByteCount, Int64(appended.count))
+    }
+
+    func testUnsafeAppendBoundaryFallsBackToFullParse() async throws {
+        let directory = root.appending(
+            path: "sessions/2026/09/13", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: "partial.jsonl")
+        var initial = try encodedLines(standardRecords(id: "partial", prompt: "Before append"))
+        initial.removeLast()
+        try initial.write(to: file)
+        let index = ChatHistoryIndex(home: root)
+        _ = try await index.refresh()
+        let appended = try encodedLines([[
+            "timestamp": "2026-09-13T04:00:02Z",
+            "type": "response_item",
+            "payload": [
+                "type": "message", "role": "assistant",
+                "content": [["type": "output_text", "text": "Safe fallback"]],
+            ],
+        ]])
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0x0A]) + appended)
+        try handle.close()
+
+        let updated = try await index.refresh()
+        let metrics = await index.refreshMetrics()
+
+        XCTAssertEqual(updated.reparsedFileCount, 1)
+        XCTAssertEqual(updated.threads.first?.messageCount, 2)
+        XCTAssertEqual(metrics.fullyParsedFileCount, 1)
+        XCTAssertEqual(metrics.incrementallyParsedFileCount, 0)
     }
 
     func testIndexNeverFollowsTranscriptSymlinks() async throws {
@@ -639,5 +767,13 @@ final class ChatHistoryIndexTests: XCTestCase {
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         sqlite3_bind_text(statement, 1, name, -1, transient)
         XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
+    }
+
+    private func deleteThreadMetadata() throws {
+        let database = root.appending(path: "state_5.sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, "DELETE FROM threads", nil, nil, nil), SQLITE_OK)
     }
 }
