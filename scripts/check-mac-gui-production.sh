@@ -34,6 +34,14 @@ if LC_ALL=C rg -q 'Switch Demo|/Demo/Sources/|Demo data refreshed|Demo import co
   exit 1
 fi
 
+swift build --disable-sandbox --build-path "$build_path" --configuration debug --product AIManager
+production_app="$products_path/AIManager"
+if LC_ALL=C rg -q 'Demo states|Sample accounts|Issues and backups|Refresh demo data|Show demo error' \
+  < <(/usr/bin/strings "$production_app"); then
+  printf '%s\n' 'Production app contains Preview-only demo controls.' >&2
+  exit 1
+fi
+
 mkdir -p "$test_root/home" "$test_root/codex-home" "$test_root/manager" "$test_root/tmp"
 HOME="$test_root/home" \
 CFFIXED_USER_HOME="$test_root/home" \
