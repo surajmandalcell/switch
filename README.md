@@ -12,7 +12,7 @@ tool without repeating its sign-in flow.
 
 ## Get Switch for Mac
 
-[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.2.0/Switch-v3.2.0-mac-arm64.zip),
+[Download Switch for Mac](https://github.com/surajmandalcell/switch/releases/download/v3.2.1/Switch-v3.2.1-mac-arm64.zip),
 unzip it, and move `Switch.app` to Applications. Switch requires macOS 14 or
 later on Apple Silicon. Install the command-line tool for each provider you use.
 
@@ -69,16 +69,6 @@ The menu bar lists every saved account and the current default for each provider
 When a provider exposes usage data, Switch also shows its available limits and refreshes
 them at launch and every three minutes. The status item can show up to four account
 percentages, and the popover lists every account without inventing unavailable data.
-
-The popover also shows current fan RPM and percentage of maximum speed. Monitoring runs
-only while the popover is open. Auto, Cool, and Max become available when the
-[smctl](https://github.com/leaperone/smctl) daemon is installed; Switch keeps fan control
-read-only otherwise. To enable guarded control:
-
-```bash
-brew install leaperone/smctl/smctl
-sudo smctl daemon install
-```
 
 | Light | Dark |
 | :---: | :---: |

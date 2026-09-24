@@ -104,7 +104,7 @@ The first Switch version must be newer than the repository's legacy
 `v2.1.2` tag. To publish an ad hoc signed release from a clean, pushed commit:
 
 ```bash
-scripts/release-macos.sh --adhoc v3.2.0
+scripts/release-macos.sh --adhoc v3.2.1
 ```
 
 The script marks the release as Latest and uploads its ZIP and checksum. It uses
