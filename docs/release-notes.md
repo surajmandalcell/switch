@@ -1,13 +1,13 @@
 Switch is a native macOS app for keeping multiple AI coding-tool accounts ready
 and switching the account used by new sessions.
 
-This release adds an Open at Login setting backed by the macOS login-item service.
-When enabled, Switch starts quietly in the menu bar after sign-in. Normal launches
-still open the main window, and Settings links to Login Items when macOS requires
-approval.
+This release fixes the idle CPU spikes caused by Chat History reacting to unrelated
+provider-home writes and repeatedly rereading growing transcripts. Switch now filters
+and coalesces relevant file events, resumes JSONL parsing from a verified append
+boundary, and reapplies thread metadata only when it changes.
 
-The token-period controls now use the same compact Switch styling in the main
-window and Settings, with clear selected, hover, focus, pressed, and disabled states.
+Usage in the app and menu bar still refreshes at launch and every three minutes.
+Open at Login and the compact Switch grouped controls remain available in Settings.
 
 Download the Mac ZIP, unzip it, and move `Switch.app` to Applications. Switch
 requires macOS 14 or later on Apple Silicon. Install Codex CLI or Grok Build for
