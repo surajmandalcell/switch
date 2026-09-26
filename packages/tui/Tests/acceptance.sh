@@ -37,17 +37,18 @@ skip_if_native_writer_unknown() {
       and .[0].availability == "enabled"
       and .[1].displayName == "Grok Build"
       and .[1].availability == "enabled"
-      and (.[2:] | all(.availability == "disabled"))
+      and .[2].availability == "enabled"
+      and (.[3:] | all(.availability == "disabled"))
     ' >/dev/null
-if "$binary" add claude-code --json >"$test_root/disabled-provider.json" 2>"$test_root/disabled-provider.log"; then
-  printf '%s\n' 'Expected a disabled provider to remain unavailable.' >&2
+if "$binary" add claude-code --yes --json >"$test_root/disabled-provider.json" 2>"$test_root/disabled-provider.log"; then
+  printf '%s\n' 'Expected the isolated fixture to have no Claude Code CLI.' >&2
   exit 1
 fi
-rg -F 'Claude Code account setup is not available yet.' "$test_root/disabled-provider.log" >/dev/null
+rg -F 'Claude Code CLI was not found.' "$test_root/disabled-provider.log" >/dev/null
 "$binary" help >"$test_root/help.log"
-rg -F 'ai-manager add [codex|grok-build]' "$test_root/help.log" >/dev/null
+rg -F 'ai-manager add [codex|grok-build|claude-code]' "$test_root/help.log" >/dev/null
 rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
-rg -F 'Codex CLI and Grok Build are available in this release.' "$test_root/help.log" >/dev/null
+rg -F 'Codex CLI, Grok Build, and Claude Code are available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
 printf '\033[B\033[A\033' | AI_MANAGER_TUI_KEYS=always \

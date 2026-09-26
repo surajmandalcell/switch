@@ -747,7 +747,7 @@ private struct AccountsPage: View {
       Task { await model.checkAccount(account.id) }
     }
     .disabled(model.isBusy)
-    Button(AccountActionCopy.copyAuthPath) {
+    Button(account.identity.providerID == .claudeCode ? "Copy config path" : AccountActionCopy.copyAuthPath) {
       model.copySavedAuthPath(for: account.id)
     }
     Divider()
@@ -896,12 +896,14 @@ private struct AccountDetail: View {
         }
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
-            DetailRow(label: "Saved auth", value: account.credentialFile.path)
+            DetailRow(label: account.identity.providerID == .claudeCode ? "Profile config" : "Saved auth",
+                      value: account.credentialFile.path)
             DetailRow(label: "Source", value: account.source.path, zebra: true)
             DetailRow(
               label: "\(account.identity.providerID.displayName) home",
-              value: account.identity.providerID == .grokBuild
-                ? model.paths.grokHome.path : model.paths.defaultHome.path)
+              value: account.identity.providerID == .claudeCode ? account.home.path
+                : account.identity.providerID == .grokBuild
+                  ? model.paths.grokHome.path : model.paths.defaultHome.path)
             DetailRow(
               label: "Imported",
               value: account.importedAt.formatted(date: .abbreviated, time: .shortened), zebra: true
@@ -984,7 +986,8 @@ private struct AccountDetail: View {
     AIMIconButton(icon: .search, label: AccountActionCopy.check, disabled: model.isBusy) {
       Task { await model.checkAccount(account.id) }
     }
-    AIMIconButton(icon: .copy, label: AccountActionCopy.copyAuthPath) {
+    AIMIconButton(icon: .copy,
+                  label: account.identity.providerID == .claudeCode ? "Copy config path" : AccountActionCopy.copyAuthPath) {
       model.copySavedAuthPath(for: account.id)
     }
     AIMIconButton(
@@ -3884,11 +3887,11 @@ private struct AddAccountFlow: View {
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
             .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-          Text(
-            model.selectedProviderID == .codex
-              ? "The account is ready for new Codex sessions. Shared settings and chats stay in place."
-              : "The account is ready in Grok Build. Its settings and sessions stay in the shared Grok home."
-          )
+          Text(model.selectedProviderID == .codex
+            ? "The account is ready for new Codex sessions. Shared settings and chats stay in place."
+            : model.selectedProviderID == .claudeCode
+              ? "The account is ready in its own Claude Code profile. Your usual Claude session stays in place."
+              : "The account is ready in Grok Build. Its settings and sessions stay in the shared Grok home.")
             .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
           HStack(spacing: 6) {
             AIMButton(
