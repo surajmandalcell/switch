@@ -90,7 +90,7 @@ final class AccountOnboardingTests: XCTestCase {
             loginRunner: recorder.runner
         )
 
-        for providerID in [ProviderID.claudeCode, .geminiCLI, .antigravityCLI] {
+        for providerID in [ProviderID.geminiCLI, .antigravityCLI] {
             await assertOnboardingThrows(try await manager.startAccountLogin(providerID: providerID))
         }
 
@@ -105,7 +105,60 @@ final class AccountOnboardingTests: XCTestCase {
             ["Codex CLI", "Grok Build", "Claude Code", "Gemini CLI", "Antigravity CLI"])
         XCTAssertEqual(
             AccountManager.providerCatalog.map(\.availability),
-            [.enabled, .enabled, .disabled, .disabled, .disabled])
+            [.enabled, .enabled, .enabled, .disabled, .disabled])
+    }
+
+    func testClaudeProfilesKeepIndependentConfigAndDefault() async throws {
+        paths.claudeExecutable = URL(fileURLWithPath: "/usr/bin/true")
+        let recorder = LoginRunnerRecorder()
+        let profiles = try ClaudeCodeProfiles(
+            paths: paths, fileManager: fileManager, loginRunner: recorder.runner,
+            statusCheck: { spec in
+                let config = try XCTUnwrap(spec.environment["CLAUDE_CONFIG_DIR"])
+                let id = URL(fileURLWithPath: config).deletingLastPathComponent().lastPathComponent
+                return .init(loggedIn: true, email: "\(id)@example.test")
+            },
+            logout: { _ in })
+
+        let firstLogin = try profiles.startLogin()
+        let secondLogin = try profiles.startLogin()
+        XCTAssertEqual(recorder.launchCount, 2)
+        XCTAssertEqual(firstLogin.launchSpec.arguments, ["auth", "login"])
+        XCTAssertNotEqual(firstLogin.launchSpec.environment["CLAUDE_CONFIG_DIR"],
+                          secondLogin.launchSpec.environment["CLAUDE_CONFIG_DIR"])
+        XCTAssertNil(firstLogin.launchSpec.environment["ANTHROPIC_API_KEY"])
+        let firstCheck = try await profiles.checkLogin(firstLogin.session.id)
+        let secondCheck = try await profiles.checkLogin(secondLogin.session.id)
+        let first = try XCTUnwrap(firstCheck.account)
+        let second = try XCTUnwrap(secondCheck.account)
+        XCTAssertEqual(first.identity.providerID, .claudeCode)
+        XCTAssertEqual(try profiles.defaultID(), first.id)
+
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let initialStatus = try await manager.status()
+        XCTAssertEqual(initialStatus.accounts.map(\.id), [first.id, second.id])
+        let switched = try await manager.switchDefault(to: second.id)
+        XCTAssertTrue(fileManager.fileExists(atPath: switched.backup.path))
+        let switchedStatus = try await manager.status()
+        XCTAssertEqual(switchedStatus.defaultAccountID(for: .claudeCode), second.id)
+        let reordered = try await manager.reorderAccounts([second.id, first.id])
+        XCTAssertEqual(reordered.accounts.map(\.id), [second.id, first.id])
+        let launch = try await manager.launchSpec(accountID: second.id)
+        XCTAssertEqual(launch.environment["CLAUDE_CONFIG_DIR"], second.home.path)
+        XCTAssertEqual(launch.executable, paths.claudeExecutable)
+        XCTAssertFalse(fileManager.fileExists(atPath: root.appending(path: ".claude").path))
+
+        let verified = await profiles.check(second.id)
+        XCTAssertEqual(verified.verification.state, .verifiedLocally)
+        let wrongIdentity = try ClaudeCodeProfiles(
+            paths: paths, fileManager: fileManager, loginRunner: recorder.runner,
+            statusCheck: { _ in .init(loggedIn: true, email: "different@example.test") },
+            logout: { _ in })
+        let mismatch = await wrongIdentity.check(second.id)
+        XCTAssertEqual(mismatch.verification.state, .needsSignIn)
+        let removed = try await profiles.delete(first.id, replacement: nil)
+        XCTAssertTrue(removed.removedManagedHome)
+        XCTAssertEqual(try profiles.accounts().map(\.id), [second.id])
     }
 
     func testGrokLoginSwitchAndLaunchUseIsolatedOfficialCLIHome() async throws {

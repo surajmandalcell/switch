@@ -91,6 +91,7 @@ public actor AccountManager {
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
+    private let claudeProfiles: ClaudeCodeProfiles
     private let writerCheck: WriterCheck
     private let faultInjector: @Sendable (FaultPoint) throws -> Void
     private let verificationTimeout: TimeInterval
@@ -105,6 +106,8 @@ public actor AccountManager {
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
         self.grokProvider = GrokProviderAdapter(fileManager: fileManager)
+        self.claudeProfiles = try ClaudeCodeProfiles(paths: paths, fileManager: fileManager,
+                                                      loginRunner: loginRunner)
         self.writerCheck = writerCheck ?? { home in await AccountManager.systemWriterCheck(home: home) }
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
@@ -121,10 +124,19 @@ public actor AccountManager {
     public func status() throws -> ManagerStatus {
         let registry = try loadRegistry()
         let codexAccounts = registry.accounts.filter { $0.identity.providerID == provider.id }
+        let claudeAccounts = try claudeProfiles.accounts()
+        let allAccounts = registry.accounts + claudeAccounts
+        let savedOrder = try claudeProfiles.accountOrder()
+        let positions = Dictionary(uniqueKeysWithValues: savedOrder.enumerated().map { ($0.element, $0.offset) })
+        var defaults = registry.defaultAccountIDs
+        defaults[ProviderID.claudeCode.rawValue] = try claudeProfiles.defaultID()
         return .init(
-            accounts: registry.accounts,
+            accounts: allAccounts.enumerated().sorted { left, right in
+                (positions[left.element.id] ?? savedOrder.count + left.offset)
+                    < (positions[right.element.id] ?? savedOrder.count + right.offset)
+            }.map(\.element),
             defaultAccountID: registry.defaultAccountID,
-            defaultAccountIDs: registry.defaultAccountIDs,
+            defaultAccountIDs: defaults,
             sharedRoot: paths.sharedRoot,
             pendingRecovery: try pendingOperations(),
             linkedSettingsDivergences: try inspectLinkedSettings(accounts: codexAccounts)
@@ -132,17 +144,22 @@ public actor AccountManager {
     }
 
     public func reorderAccounts(_ accountIDs: [UUID]) throws -> ManagerStatus {
+        let claudeIDs = Set(try claudeProfiles.accounts().map(\.id))
         try lock.withLock {
             try ensureNoRecovery()
             var registry = try loadRegistryLocked()
-            guard accountIDs.count == registry.accounts.count,
-                  Set(accountIDs) == Set(registry.accounts.map(\.id)) else {
+            let registryIDs = accountIDs.filter { !claudeIDs.contains($0) }
+            guard accountIDs.count == registry.accounts.count + claudeIDs.count,
+                  Set(registryIDs) == Set(registry.accounts.map(\.id)),
+                  accountIDs.count == Set(accountIDs).count else {
                 throw AIManagerError.sourceChanged
             }
-            guard accountIDs != registry.accounts.map(\.id) else { return }
-            let accounts = Dictionary(uniqueKeysWithValues: registry.accounts.map { ($0.id, $0) })
-            registry.accounts = accountIDs.compactMap { accounts[$0] }
-            try saveRegistry(registry)
+            if registryIDs != registry.accounts.map(\.id) {
+                let accounts = Dictionary(uniqueKeysWithValues: registry.accounts.map { ($0.id, $0) })
+                registry.accounts = registryIDs.compactMap { accounts[$0] }
+                try saveRegistry(registry)
+            }
+            if !claudeIDs.isEmpty { try claudeProfiles.reorder(accountIDs) }
         }
         return try status()
     }
@@ -192,9 +209,7 @@ public actor AccountManager {
     public static let providerCatalog: [ProviderDescriptor] = [
         .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
         .init(id: .grokBuild, displayName: "Grok Build", availability: .enabled),
-        .init(
-            id: .claudeCode, displayName: "Claude Code", availability: .disabled,
-            unavailableReason: "Claude Code account setup is not available yet."),
+        .init(id: .claudeCode, displayName: "Claude Code", availability: .enabled),
         .init(
             id: .geminiCLI, displayName: "Gemini CLI", availability: .disabled,
             unavailableReason: "Gemini CLI account setup is not available yet."),
@@ -222,12 +237,13 @@ public actor AccountManager {
             status: current,
             providers: Self.providerCatalog,
             discoveries: includeDiscoveries ? await discover() : [],
-            pendingLoginSessions: try loadLoginSessions()
+            pendingLoginSessions: try loadLoginSessions() + claudeProfiles.pending()
         )
     }
 
     public func startAccountLogin(providerID: ProviderID) async throws -> AccountLoginStart {
         try ensureNoRecovery()
+        if providerID == .claudeCode { return try claudeProfiles.startLogin() }
         guard Self.providerCatalog.first(where: { $0.id == providerID })?.availability == .enabled else {
             throw AIManagerError.unsupportedSource(
                 Self.providerCatalog.first(where: { $0.id == providerID })?.unavailableReason
@@ -278,6 +294,9 @@ public actor AccountManager {
         credentialChoice: ConflictChoice? = nil
     ) async throws -> AccountLoginCheck {
         try ensureNoRecovery()
+        if try claudeProfiles.pending().contains(where: { $0.id == id }) {
+            return try await claudeProfiles.checkLogin(id)
+        }
         let session = try loadLoginSession(id)
         if session.providerID == .grokBuild {
             return try await checkGrokAccountLogin(
@@ -396,6 +415,9 @@ public actor AccountManager {
     }
 
     public func cancelAccountLogin(id: UUID) async throws {
+        if try claudeProfiles.pending().contains(where: { $0.id == id }) {
+            return try await claudeProfiles.cancelLogin(id)
+        }
         _ = try loadLoginSession(id)
         guard try !pendingOperations().contains(where: {
             CoreSupport.isContained($0.source, by: loginRoot(id))
@@ -559,7 +581,10 @@ public actor AccountManager {
     }
 
     public func switchDefault(to accountID: UUID) async throws -> SwitchResult {
-        try await lock.withAsyncLock {
+        if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
+            return try claudeProfiles.makeDefault(accountID)
+        }
+        return try await lock.withAsyncLock {
             try ensureNoRecovery()
             let registry = try loadRegistry()
             guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
@@ -578,6 +603,9 @@ public actor AccountManager {
         accountID: UUID,
         replacementDefaultAccountID: UUID? = nil
     ) async throws -> AccountDeletionResult {
+        if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
+            return try await claudeProfiles.delete(accountID, replacement: replacementDefaultAccountID)
+        }
         let initial = try loadRegistry()
         guard let initialAccount = initial.accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
@@ -739,6 +767,9 @@ public actor AccountManager {
         reader: CodexAppServerAccountReader = .init(),
         limits: CodexAppServerLimits = .init()
     ) async -> AccountCheckResult {
+        if (try? claudeProfiles.accounts().contains(where: { $0.id == accountID })) == true {
+            return await claudeProfiles.check(accountID)
+        }
         let account: AccountRecord
         do {
             let registry = try loadRegistry()
@@ -836,6 +867,10 @@ public actor AccountManager {
 
     public func launchSpec(accountID: UUID, arguments: [String] = [], workingDirectory: URL? = nil) throws -> LaunchSpec {
         try ensureNoRecovery()
+        if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
+            return try claudeProfiles.launchSpec(accountID, arguments: arguments,
+                                                  workingDirectory: workingDirectory)
+        }
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
         if account.identity.providerID == .grokBuild {
@@ -907,6 +942,14 @@ public actor AccountManager {
         arguments: [String] = [],
         workingDirectory: URL? = nil
     ) async throws -> Int32 {
+        if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
+            _ = try claudeProfiles.makeDefault(accountID)
+            let process = configuredProcess(try claudeProfiles.launchSpec(
+                accountID, arguments: arguments, workingDirectory: workingDirectory))
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
         var launched: Process?
         var launchedProviderName = "Provider"
         try await lock.withAsyncLock {

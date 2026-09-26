@@ -13,6 +13,7 @@ public struct ManagerPaths: Sendable {
     public var grokHome: URL
     public var grokCredentialStore: URL
     public var grokExecutable: URL?
+    public var claudeExecutable: URL?
     public var isolationRoot: URL?
 
     public init(
@@ -25,6 +26,7 @@ public struct ManagerPaths: Sendable {
         grokHome: URL? = nil,
         grokCredentialStore: URL? = nil,
         grokExecutable: URL? = nil,
+        claudeExecutable: URL? = nil,
         isolationRoot: URL? = nil
     ) {
         self.applicationSupport = applicationSupport
@@ -39,6 +41,7 @@ public struct ManagerPaths: Sendable {
         self.grokCredentialStore = grokCredentialStore
             ?? applicationSupport.appending(path: "credential-store/grok-build", directoryHint: .isDirectory)
         self.grokExecutable = grokExecutable
+        self.claudeExecutable = claudeExecutable
         self.isolationRoot = isolationRoot
     }
 
@@ -81,6 +84,7 @@ public struct ManagerPaths: Sendable {
         if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.orcaAccountsRoot = value }
         if let value = url("AI_MANAGER_CODEX_EXECUTABLE") { paths.codexExecutable = value }
         if let value = url("AI_MANAGER_GROK_EXECUTABLE") { paths.grokExecutable = value }
+        if let value = url("AI_MANAGER_CLAUDE_EXECUTABLE") { paths.claudeExecutable = value }
         return paths
     }
 }
@@ -143,6 +147,8 @@ public struct AccountIdentity: Codable, Hashable, Sendable {
             authMode == .chatGPT && userID != nil && accountID != nil
         case .grokBuild:
             authMode == .oauth && userID != nil && accountID != nil
+        case .claudeCode:
+            authMode == .oauth && email != nil
         default:
             false
         }
