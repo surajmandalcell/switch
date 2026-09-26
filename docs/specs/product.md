@@ -9,9 +9,9 @@ milestone text conflicts with this document, this specification owns current beh
 
 ## 1. Product model
 
-Switch manages provider authentication snapshots. Codex CLI and Grok Build are enabled in
-the current release. Claude Code, Gemini CLI, and Antigravity CLI may appear only in the Add
-Account catalog as inert WIP choices.
+Switch manages provider authentication snapshots. Codex CLI, Grok Build, and Claude Code
+are enabled in the current release. Gemini CLI and Antigravity CLI remain inert WIP choices
+in the Add Account catalog.
 
 For Codex, `~/.codex` is the one live home. Its configuration, instructions, skills,
 plugins, conversations, databases, and other non-authentication state remain in place when
@@ -35,11 +35,18 @@ official CLI without saving it. The official CLI hot-reloads `auth.json`, so an 
 process may use the newly selected account on its next API call. Switch does not claim that
 existing Grok sessions retain their earlier account.
 
+Claude Code profiles use separate, stable `CLAUDE_CONFIG_DIR` paths. Claude Code owns their
+credentials, including any macOS Keychain entries; Switch does not copy or parse them. A
+Claude default selects the profile for launches through Switch and its host app, so separate
+profiles can remain signed in at the same time. It does not silently replace the login used
+by a plain `claude` command launched elsewhere.
+
 Defaults are provider-scoped. Codex CLI and Grok Build each retain their own default account,
-matching the credential in that provider's live home. Switching one provider never changes the
-other provider's default. The TUI account list groups saved accounts by provider, preserves saved
-order within each group, and shows the default state inside each group. Deleting a provider default
-may select a replacement only from that same provider.
+matching the credential in that provider's live home. Claude Code retains a separate default
+for Switch-launched sessions. Switching one provider never changes another provider's default.
+The TUI account list groups saved accounts by provider, preserves order within each group,
+and shows the default state inside each group. Deleting a provider default may select a
+replacement only from that same provider.
 
 Temporary or managed homes used for sign-in, verification, import, migration, or recovery
 are implementation details. Legacy internal links may still be repaired for compatibility,
