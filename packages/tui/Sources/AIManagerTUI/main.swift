@@ -909,7 +909,7 @@ struct AIManagerCLI {
       ai-manager providers [--json]
       ai-manager refresh [--yes] [--json]
       ai-manager adopt [--yes] [--json]                     Alias for refresh
-      ai-manager add [codex|grok-build] [--yes] [--json]    Start isolated browser sign-in
+      ai-manager add [codex|grok-build|claude-code] [--yes] [--json]    Start isolated browser sign-in
       ai-manager start-login [provider] [--yes] [--json]    Alias for add
       ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]
       ai-manager cancel-login <session-uuid> [--yes] [--json]
@@ -920,7 +920,7 @@ struct AIManagerCLI {
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
       ai-manager open <account-uuid> [-- provider arguments]
-      ai-manager saved-auth <account-uuid>
+      ai-manager saved-auth <account-uuid>                Print saved auth or Claude config path
       ai-manager remove <account-uuid> [--replacement <account-uuid>] [--yes] [--json]
       ai-manager verify <account-uuid> [--json]
       ai-manager recover [--yes] [--json]
@@ -932,10 +932,11 @@ struct AIManagerCLI {
     Isolation overrides: AI_MANAGER_ROOT, AI_MANAGER_DEFAULT_HOME,
     AI_MANAGER_CREDENTIAL_STORE, AI_MANAGER_SHARED_ROOT,
     AI_MANAGER_CODEX_EXECUTABLE, AI_MANAGER_GROK_HOME,
-    AI_MANAGER_GROK_CREDENTIAL_STORE, AI_MANAGER_GROK_EXECUTABLE.
+    AI_MANAGER_GROK_CREDENTIAL_STORE, AI_MANAGER_GROK_EXECUTABLE,
+    AI_MANAGER_CLAUDE_EXECUTABLE.
 
     Provider IDs: codex, grok-build, claude-code, gemini-cli, antigravity-cli.
-    Codex CLI and Grok Build are available in this release. Login sessions survive restarts;
+    Codex CLI, Grok Build, and Claude Code are available in this release. Login sessions survive restarts;
     use status to recover their IDs, then check-login or cancel-login.
     """
 }
