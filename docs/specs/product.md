@@ -7,6 +7,11 @@ This document defines the current product model and user-visible contract. The i
 local `goals.md` tracks active work, and `goals.archive.md` keeps old evidence. If older
 milestone text conflicts with this document, this specification owns current behavior.
 
+The app icon is the owner's selected red emergency-stop electrical switch on
+an ivory tile. It appears in the standalone Dock and Spotlight and in the
+MacPowerToys Switch launcher, window, and Dock identity. The original vector
+mark remains the small menu-bar template.
+
 ## 1. Product model
 
 Switch manages provider authentication snapshots. Codex CLI, Grok Build, and Claude Code
