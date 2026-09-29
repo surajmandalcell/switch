@@ -126,8 +126,7 @@ enum AIManagerBrand {
     var failures: [String] = []
     for (name, fileExtension) in [
       ("AppIcon", "icns"), ("AppIcon", "png"),
-      ("AppIconLight", "svg"), ("AppIconLight", "png"),
-      ("AppIconDark", "svg"), ("AppIconDark", "png"),
+      ("AppIconLight", "png"), ("AppIconDark", "png"),
       ("SwitchMarkPixelTrace", "svg"), ("SwitchMarkMenubar", "svg"),
       ("TrayTemplate", "png"), ("TrayTemplate@2x", "png"),
     ] where resourceURL(named: name, extension: fileExtension, bundle: bundle) == nil {

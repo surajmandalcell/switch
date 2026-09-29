@@ -11,6 +11,7 @@ iconset="$build_root/AppIcon.iconset"
 
 command -v rsvg-convert >/dev/null
 command -v iconutil >/dev/null
+command -v sips >/dev/null
 command -v xmllint >/dev/null
 command -v rg >/dev/null
 
@@ -18,8 +19,7 @@ rm -rf "$build_root"
 mkdir -p "$expected" "$actual" "$iconset"
 
 for svg in \
-  AppIcon.svg AppIconLight.svg AppIconDark.svg ManagerMark.svg \
-  SwitchMarkMenubar.svg SwitchMarkPixelTrace.svg \
+  ManagerMark.svg SwitchMarkMenubar.svg SwitchMarkPixelTrace.svg \
   ProviderClaudeCode.svg ProviderGeminiCLI.svg
 do
   xmllint --noout "$icons/$svg"
@@ -54,7 +54,7 @@ then
   exit 1
 fi
 
-for consumer in AppIconLight.svg AppIconDark.svg ManagerMark.svg SwitchMarkMenubar.svg
+for consumer in ManagerMark.svg SwitchMarkMenubar.svg
 do
   rg -q 'SwitchMarkPixelTrace\.svg' "$icons/$consumer"
 done
@@ -85,30 +85,13 @@ rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkMenubar.svg" \
 cmp "$expected/SwitchMarkMenubar.png" "$actual/SwitchMarkMenubar.png"
 cmp "$actual/SwitchMarkMenubar.png" "$icons/SwitchMarkMenubar.png"
 
-for appearance in Light Dark
+test -s "$icons/AppIconEmergencyStop.png"
+[[ "$(sips -g pixelWidth "$icons/AppIconEmergencyStop.png" | awk '/pixelWidth/ {print $2}')" == 1024 ]]
+[[ "$(sips -g pixelHeight "$icons/AppIconEmergencyStop.png" | awk '/pixelHeight/ {print $2}')" == 1024 ]]
+for name in AppIcon AppIconLight AppIconDark
 do
-  rg -F -q '<image x="245" y="258" width="520" height="520" xlink:href="SwitchMarkPixelTrace.svg"/>' \
-    "$icons/AppIcon${appearance}.svg"
-  rg -F -q 'stroke-width="1"' "$icons/AppIcon${appearance}.svg"
-  rsvg-convert --width 1024 --height 1024 "$icons/AppIcon${appearance}.svg" \
-    --output "$actual/AppIcon${appearance}.png"
-  cmp "$actual/AppIcon${appearance}.png" "$icons/AppIcon${appearance}.png"
+  cmp "$icons/AppIconEmergencyStop.png" "$icons/$name.png"
 done
-rg -F -q 'stop-color="#f7f7f5"' "$icons/AppIconLight.svg"
-rg -F -q 'stop-color="#ecece9"' "$icons/AppIconLight.svg"
-rg -F -q 'stop-color="#ddddda"' "$icons/AppIconLight.svg"
-rg -F -q 'fill="#222222" mask="url(#pixel-mark-light)"' "$icons/AppIconLight.svg"
-rg -F -q 'stop-opacity="0.07"' "$icons/AppIconLight.svg"
-rg -F -q 'id="top-sheen-light"' "$icons/AppIconLight.svg"
-rg -F -q 'stop-opacity="0.035"' "$icons/AppIconLight.svg"
-rg -F -q 'stop-color="#e7e7e4"' "$icons/AppIconDark.svg"
-rg -F -q 'stop-color="#d9d9d6"' "$icons/AppIconDark.svg"
-rg -F -q 'stop-color="#cbcbc7"' "$icons/AppIconDark.svg"
-rg -F -q 'fill="#1b1b1b" mask="url(#pixel-mark-dark)"' "$icons/AppIconDark.svg"
-rg -F -q 'stop-opacity="0.05"' "$icons/AppIconDark.svg"
-rg -F -q 'id="top-sheen-dark"' "$icons/AppIconDark.svg"
-rg -F -q 'stop-opacity="0.028"' "$icons/AppIconDark.svg"
-cmp "$icons/AppIconLight.png" "$icons/AppIcon.png"
 
 rsvg-convert --width 18 --height 18 --page-width 22 --page-height 22 --left 2 --top 2 \
   "$icons/SwitchMarkMenubar.svg" --output "$actual/TrayTemplate.png"
@@ -119,12 +102,13 @@ cmp "$actual/TrayTemplate@2x.png" "$icons/TrayTemplate@2x.png"
 
 for size in 16 32 128 256 512
 do
-  rsvg-convert --width "$size" --height "$size" "$icons/AppIconLight.svg" \
-    --output "$iconset/icon_${size}x${size}.png"
-  rsvg-convert --width "$((size * 2))" --height "$((size * 2))" "$icons/AppIconLight.svg" \
-    --output "$iconset/icon_${size}x${size}@2x.png"
+  sips -s format png -z "$size" "$size" "$icons/AppIconEmergencyStop.png" \
+    --out "$iconset/icon_${size}x${size}.png" >/dev/null
+  sips -s format png -z "$((size * 2))" "$((size * 2))" \
+    "$icons/AppIconEmergencyStop.png" \
+    --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil --convert icns "$iconset" --output "$actual/AppIcon.icns"
 cmp "$actual/AppIcon.icns" "$icons/AppIcon.icns"
 
-printf '%s\n' 'Pixel trace icon contract passed.'
+printf '%s\n' 'Switch icon contract passed.'
