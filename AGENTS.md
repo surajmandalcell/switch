@@ -2,7 +2,7 @@
 
 For implementation, tests, UI, packaging, or documentation, read `goals.md` when present.
 It is the ignored local active ledger. Move old completed detail to the adjacent
-`goals.archive.md`; the `goal-ledger` skill owns this convention.
+`goals.archive.md`; the `dev-workflow` skill owns this convention.
 
 The existing Electron gateway and its provider, routing, platform, and branch-cleanup requirements are legacy.
 Where they conflict with `goals.md`, follow the native app plan.
