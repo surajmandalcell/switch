@@ -56,7 +56,7 @@ struct MockAccountViewModelCheck {
             .codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI,
         ])
         precondition(model.providers.map(\.availability) == [
-            .enabled, .enabled, .disabled, .disabled, .disabled,
+            .enabled, .enabled, .enabled, .disabled, .disabled,
         ])
         await model.startAccountLogin()
         precondition(model.accountLoginSession != nil)

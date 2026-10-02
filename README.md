@@ -20,7 +20,8 @@ later on Apple Silicon. Install the command-line tool for each provider you use.
 | --- | --- | --- |
 | Codex CLI | Supported | Supported |
 | [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Supported | Not exposed in Switch |
-| Claude Code, Gemini CLI, Antigravity CLI | WIP | WIP |
+| Claude Code | Supported, as separate profiles | Not exposed in Switch |
+| Gemini CLI, Antigravity CLI | WIP | WIP |
 
 You can also [build Switch from source](docs/development.md#build-and-check).
 
@@ -53,7 +54,7 @@ The existing `ai-manager` command remains available as an alias. Run
 
 ## Start switching
 
-Choose **Add Account**, then select Codex CLI or Grok Build.
+Choose **Add Account**, then select Codex CLI, Grok Build, or Claude Code.
 
 1. Sign in through the provider's isolated temporary home.
 2. Return to Switch and choose **Check Now**.
@@ -99,6 +100,9 @@ Provider notes:
   are available.
 - **Grok Build:** Switch replaces only `~/.grok/auth.json`. The official CLI reloads that
   file before its next API call. Account switching is available; usage data is not exposed.
+- **Claude Code:** Each account is a separate profile with its own
+  `CLAUDE_CONFIG_DIR`, so several can stay signed in. The default applies to
+  sessions launched through Switch; a plain `claude` command keeps its own login.
 
 ## More when you need it
 
@@ -111,7 +115,7 @@ Provider notes:
 - **Clean up safely.** Preview supported conversations and caches, move them to
   recoverable trash, and restore them when needed.
 
-Codex CLI and Grok Build are enabled providers. Claude Code, Gemini CLI, and
+Codex CLI, Grok Build, and Claude Code are enabled providers. Gemini CLI and
 Antigravity CLI appear as WIP choices in the Add Account catalog.
 
 For sample accounts without real credentials, use the
