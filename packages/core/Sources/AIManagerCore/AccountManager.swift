@@ -857,7 +857,36 @@ public actor AccountManager {
                 "Usage for \(account.identity.providerID.displayName) accounts is not available yet.")
         }
         let credential = try registryCredential(account, fileID: file.id)
-        return try await spec.fetch(credential).usage
+        let result = try await spec.fetch(credential)
+        if let refreshed = result.updated?.files[file.id], !credential.isLive,
+           account.identity.providerID == .grokBuild {
+            try? persistRefreshedGrokCredential(account, refreshed)
+        }
+        return result.usage
+    }
+
+    /// Saves tokens that Switch refreshed for a non-default Grok account. The vault copy is the only
+    /// holder of that refresh token. The write is dropped when anything changed since the fetch began.
+    private func persistRefreshedGrokCredential(_ account: AccountRecord, _ data: Data) throws {
+        try lock.withLock {
+            try ensureNoRecovery()
+            var registry = try loadRegistryLocked()
+            guard let index = registry.accounts.firstIndex(where: { $0.id == account.id }),
+                  registry.defaultAccountID(for: .grokBuild) != account.id,
+                  grokProvider.inspect(credentialFile: registry.accounts[index].credentialFile).digest
+                    == registry.accounts[index].credentialDigest,
+                  registry.accounts[index].credentialDigest == account.credentialDigest else { return }
+            let scratch = registry.accounts[index].credentialFile.deletingLastPathComponent()
+                .appending(path: ".refresh-\(UUID().uuidString).tmp")
+            defer { try? fileManager.removeItem(at: scratch) }
+            try CoreSupport.atomicWrite(data, to: scratch, fileManager: fileManager)
+            let inspection = grokProvider.inspect(credentialFile: scratch)
+            guard inspection.support == .supportedOAuth, let identity = inspection.identity,
+                  grokProvider.sameIdentity(registry.accounts[index].identity, identity) else { return }
+            try CoreSupport.atomicWrite(data, to: registry.accounts[index].credentialFile, fileManager: fileManager)
+            registry.accounts[index].credentialDigest = inspection.digest
+            try saveRegistry(registry)
+        }
     }
 
     private func registryCredential(_ account: AccountRecord, fileID: String) throws -> ProviderCredential {
