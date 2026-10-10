@@ -195,6 +195,14 @@ enum ClaudeUsage {
         return result.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
+    /// True when the latest `❯` selection marker in a trust prompt points at a "No" option.
+    static func trustSelectionIsNo(_ text: String) -> Bool {
+        let plain = stripANSI(text)
+        guard let marker = plain.range(of: "❯", options: .backwards) else { return false }
+        let line = plain[marker.upperBound...].prefix { $0 != "\n" }
+        return line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("no")
+    }
+
     /// True once the panel shows a Current session value, or says the account has no quota.
     static func panelIsComplete(_ text: String) -> Bool {
         let flat = squash(stripANSI(text))
@@ -414,6 +422,7 @@ enum ClaudeUsageProbe {
         var lastTrust = Date.distantPast
         var trustKeys = 0
         var commandSent = false
+        var enters = 0
         var stopAt: Date?
         while Date() < deadline {
             try Task.checkCancellation()
@@ -429,24 +438,38 @@ enum ClaudeUsageProbe {
             let now = Date()
             let flat = String(ClaudeUsage.stripANSI(screen).lowercased().unicodeScalars
                 .filter(CharacterSet.alphanumerics.contains))
-            // Our private folder is new to Claude Code: accept its trust question (default answer Yes).
+            // Our private folder is new to Claude Code: accept its trust question. Current versions
+            // preselect "No, exit", so move the selection to the Yes option before confirming.
             let asksTrust = ["doyoutrust", "trustthisfolder", "trustthefiles", "quicksafetycheck"].contains(where: flat.contains)
             if asksTrust {
-                if trustKeys < 3, now.timeIntervalSince(lastTrust) >= 1, now.timeIntervalSince(lastOutput) >= 0.3 {
-                    send("\r")
+                if trustKeys < 4, now.timeIntervalSince(lastTrust) >= 1, now.timeIntervalSince(lastOutput) >= 0.3 {
+                    if ClaudeUsage.trustSelectionIsNo(screen) {
+                        send("\u{1B}[B")
+                    } else {
+                        send("\r")
+                        // Start fresh so the answered prompt no longer reads as pending.
+                        buffer.removeAll()
+                        screen = ""
+                        lastOutput = now
+                    }
                     trustKeys += 1
                     lastTrust = now
                 }
             } else if !commandSent,
-                      (!buffer.isEmpty && now.timeIntervalSince(lastOutput) >= 1) || now.timeIntervalSince(start) >= 5 {
+                      (!buffer.isEmpty && now.timeIntervalSince(lastOutput) >= 1.5) || now.timeIntervalSince(start) >= 8 {
+                // Type the command, then confirm it separately: a burst ending in Return reads as a
+                // paste and does not submit.
                 buffer.removeAll()
                 screen = ""
-                send("/usage\r")
+                send("/usage")
                 commandSent = true
                 lastEnter = now
             } else if commandSent {
-                if stopAt == nil, now.timeIntervalSince(lastEnter) >= 0.8 {
+                // One Return after the command settles, then at most two retries if no panel shows.
+                let wait: TimeInterval = enters == 0 ? 0.8 : 4
+                if stopAt == nil, enters < 3, now.timeIntervalSince(lastEnter) >= wait {
                     send("\r")
+                    enters += 1
                     lastEnter = now
                 }
                 if stopAt == nil, ClaudeUsage.panelIsComplete(screen) { stopAt = now.addingTimeInterval(1.5) }
