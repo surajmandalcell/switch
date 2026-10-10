@@ -6,7 +6,7 @@ extension ProviderCatalog {
         fields: [.apiKey("BOBSHELL_API_KEY")],
         dashboard: "https://bob.ibm.com", statusPage: nil,
         usage: { credential in
-            let key = try credential.require("apiKey")
+            let key = try IBMBobUsage.clean(credential.require("apiKey"))
             let auth = IBMBobUsage.isJWT(key) ? "Bearer \(key)" : "Apikey \(key)"
             let headers = ["Authorization": auth, "Content-Type": "application/json"]
             let profile = try await HTTP.json("https://api.us-east.bob.ibm.com/admin/v1/profile", headers: headers)
@@ -32,6 +32,13 @@ extension ProviderCatalog {
 }
 
 enum IBMBobUsage {
+    /// Drops the quotes an env file may leave around the key, as CodexBar's settings reader does.
+    static func clean(_ key: String) throws -> String {
+        let cleaned = key.trimmingCharacters(in: CharacterSet(charactersIn: "\"'").union(.whitespacesAndNewlines))
+        guard !cleaned.isEmpty else { throw ProviderError.missingCredential("Add the BOBSHELL_API_KEY for this account.") }
+        return cleaned
+    }
+
     static func key(_ instance: JSON, _ team: JSON) -> String {
         "\(instance["instance_id"].string ?? "")/\(team["id"].string ?? "")"
     }
@@ -69,10 +76,12 @@ enum IBMBobUsage {
                 used += max(0, usage)
                 limit = limit.flatMap { total in cap.map { total + $0 } }
                 if let date = instance["refresh_at"].date { refresh = min(refresh ?? date, date) }
-                let name = [instance["instance_name"].string ?? instance["name"].string, team["name"].string]
-                    .compactMap { $0 }.joined(separator: " - ")
-                rows.append(UsageRow(name.isEmpty ? "Team" : name,
-                                     cap.map { "\(Fmt.number(max(0, usage))) / \(Fmt.number($0))" } ?? Fmt.number(max(0, usage)),
+                let instanceName = instance["instance_name"].string ?? instance["name"].string ?? instance["instance_id"].string ?? ""
+                let teamName = team["name"].string ?? team["id"].string ?? "Team"
+                let amount = cap.map { "\(Fmt.number(max(0, usage))) / \(Fmt.number($0)) Bobcoins" }
+                    ?? "\(Fmt.number(max(0, usage))) Bobcoins used"
+                rows.append(UsageRow(instanceName.isEmpty || instanceName == teamName ? teamName : "\(instanceName) - \(teamName)",
+                                     [amount, instance["plan_name"].string].compactMap { $0 }.joined(separator: " · "),
                                      progress: cap.flatMap { $0 > 0 ? usage / $0 : nil }))
             }
         }
@@ -80,6 +89,7 @@ enum IBMBobUsage {
         let total = limit.flatMap { $0 > 0 ? $0 : nil }
         let window = UsageWindow(
             id: "monthly", title: "Bobcoins", usedPercent: total.map { used / $0 * 100 }, resetsAt: refresh,
+            windowMinutes: 30 * 24 * 60,
             detail: total.map { "\(Fmt.number(used)) / \(Fmt.number($0)) Bobcoins" } ?? "\(Fmt.number(used)) Bobcoins used")
         return ProviderUsage(windows: [window], sections: [UsageSection("Teams", rows)],
                              plan: plans.isEmpty ? nil : plans.joined(separator: ", "))

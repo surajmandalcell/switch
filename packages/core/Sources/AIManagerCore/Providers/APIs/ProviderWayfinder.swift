@@ -5,6 +5,7 @@ extension ProviderCatalog {
         id: "wayfinder", name: "Wayfinder",
         fields: [CredentialField("baseURL", "Gateway URL", secure: false, optional: true,
                                  placeholder: "http://127.0.0.1:8088", env: ["WAYFINDER_GATEWAY_URL"])],
+        dashboard: "http://127.0.0.1:8088/router",
         usage: { credential in
             var base = credential["baseURL"] ?? "http://127.0.0.1:8088"
             while base.hasSuffix("/") { base.removeLast() }
@@ -12,7 +13,13 @@ extension ProviderCatalog {
                   parts.scheme == "https" || parts.scheme == "http" else {
                 throw ProviderError.missingCredential("The Wayfinder gateway URL must be http or https without a login.")
             }
-            let health = try await HTTP.json(base + "/healthz")
+            let health: JSON
+            do {
+                health = try await HTTP.json(base + "/healthz")
+            } catch ProviderError.network {
+                throw ProviderError.network("Could not reach the Wayfinder gateway. Start it with `wayfinder-router serve` "
+                    + "(default http://127.0.0.1:8088) or fix the Gateway URL.")
+            }
             let models = try await HTTP.json(base + "/router/models")
             let savings = try? await HTTP.json(base + "/v1/savings?period=30d")
             let metrics = try? await HTTP.send(base + "/metrics", headers: ["Accept": "text/plain"])
@@ -34,8 +41,13 @@ enum WayfinderUsage {
         } else {
             label = "Local gateway"
         }
-        var gateway = [UsageRow("Status", label), UsageRow("Models", Fmt.number(Double(models["models"].array.count)))]
+        let modelCount = models["models"].array.count
+        var gateway = [UsageRow("Status", label), UsageRow("Models", Fmt.number(Double(modelCount)))]
         if let metrics, let ms = averageDecisionMilliseconds(metrics) { gateway.append(UsageRow("Avg decision", "\(Fmt.number(ms, digits: 1)) ms")) }
+        // Raw health word plus the offline and dry-run markers, as CodexBar's Gateway line.
+        let markers = [health["offline"].bool == true ? "offline" : nil, models["dry_run"].bool == true ? "dry run" : nil]
+        gateway.append(UsageRow("Gateway", ([health["status"].string ?? "unknown", "\(modelCount) model\(modelCount == 1 ? "" : "s")"]
+            + markers.compactMap { $0 }).joined(separator: " · ")))
         var sections = [UsageSection("Gateway", gateway)]
         if let savings {
             let requests = savings["requests"].double ?? 0
@@ -43,7 +55,7 @@ enum WayfinderUsage {
             var rows: [UsageRow] = []
             if requests > 0, saved > 0 {
                 let percent = savings["saved_pct"].double.map { "\(Fmt.number($0, digits: 1))% vs highest-cost route" }
-                let dollars = savings["priced"].bool == true ? Fmt.money(saved) : nil
+                let dollars = savings["priced"].bool == true ? (saved < 0.01 ? "<$0.01" : Fmt.money(saved)) : nil
                 rows.append(UsageRow("Saved (30d)", [dollars, percent].compactMap { $0 }.joined(separator: ", ")))
             }
             let routes = savings["by_route"].object.map { ($0.key, $0.value["requests"].double ?? 0) }
@@ -51,7 +63,7 @@ enum WayfinderUsage {
             rows += routes.map { UsageRow($0.0, Fmt.number($0.1)) }
             sections.append(UsageSection("Routes (30d)", rows))
         }
-        return ProviderUsage(sections: sections)
+        return ProviderUsage(sections: sections, plan: label, organization: "\(modelCount) model\(modelCount == 1 ? "" : "s") · local gateway")
     }
 
     /// Mean of the Prometheus router decision latency histogram, in milliseconds.
