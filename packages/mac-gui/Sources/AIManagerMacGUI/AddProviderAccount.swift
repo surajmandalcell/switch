@@ -19,7 +19,9 @@ struct ProviderChooserPage: View {
   @FocusState private var searchFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-  private var choices: [ProviderChoice] { ProviderChoices.all(descriptors: model.providers) }
+  private var choices: [ProviderChoice] {
+    ProviderChoices.all(descriptors: model.providers, signedIn: model.signedInProviderIDs)
+  }
   private var visible: [ProviderChoice] { ProviderChoices.filter(choices, query: query) }
   private var selected: ProviderChoice? { visible.first { $0.id == model.selectedProviderID } }
 
@@ -65,6 +67,7 @@ struct ProviderChooserPage: View {
       keepSelectionVisible()
     }
     .onChange(of: query) { _, _ in keepSelectionVisible() }
+    .task { await model.detectSignedInProviders() }
   }
 
   private var searchField: some View {
@@ -109,6 +112,11 @@ struct ProviderChooserPage: View {
             .lineLimit(1)
         }
         Spacer()
+        if choice.signedInOnThisMac {
+          Badge(
+            text: ProviderChoices.signedInLabel, color: AIMTheme.green.opacity(0.14),
+            ink: isSelected ? AIMTheme.activeInk : AIMTheme.ink)
+        }
         if choice.available {
           AIMIcon(name: .check, size: 14).opacity(isSelected ? 1 : 0)
         } else {
@@ -137,7 +145,9 @@ struct ProviderChooserPage: View {
     })
     .onHover { hoveredID = $0 && choice.available ? choice.id : nil }
     .accessibilityLabel(choice.name)
-    .accessibilityValue(isSelected ? "Selected" : "")
+    .accessibilityValue(
+      [isSelected ? "Selected" : nil, choice.signedInOnThisMac ? ProviderChoices.signedInLabel : nil]
+        .compactMap { $0 }.joined(separator: ", "))
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .accessibilityHint(
       choice.available

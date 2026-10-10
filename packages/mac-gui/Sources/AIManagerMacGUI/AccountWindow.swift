@@ -1566,12 +1566,20 @@ private struct AccountUsagePanel: View {
               UsageBucket(
                 bucket: item.value,
                 fallbackName: item.key,
+                accountID: account.id,
+                refresh: { Task { await model.refreshUsage(accountID: account.id) } },
                 windowLabel: windowLabel
               )
               .padding(.vertical, 12)
               .padding(.horizontal, 16)
               .background(index.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
             }
+
+            HiddenUsageRowsNote(
+              accountID: account.id,
+              rowIDs: limitBuckets.flatMap { item in
+                ["primary", "secondary"].map { "\(item.key)/\($0)" }
+              })
 
             if !limitBuckets.contains(where: { UsagePresentation.hasRateLimits($0.value) }) {
               UsageUnavailableRow(text: "Rate limits unavailable")
@@ -1656,7 +1664,23 @@ private struct AccountUsagePanel: View {
 private struct UsageBucket: View {
   let bucket: CodexRateLimitBucketSnapshot
   let fallbackName: String
+  let accountID: UUID
+  let refresh: () -> Void
   let windowLabel: (CodexRateLimitWindowSnapshot?, String) -> String
+  @AppStorage private var hiddenRaw: String
+
+  init(
+    bucket: CodexRateLimitBucketSnapshot, fallbackName: String, accountID: UUID,
+    refresh: @escaping () -> Void,
+    windowLabel: @escaping (CodexRateLimitWindowSnapshot?, String) -> String
+  ) {
+    self.bucket = bucket
+    self.fallbackName = fallbackName
+    self.accountID = accountID
+    self.refresh = refresh
+    self.windowLabel = windowLabel
+    _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: accountID))
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -1673,12 +1697,19 @@ private struct UsageBucket: View {
         }
       }
       if UsagePresentation.hasWindow(bucket.primary) || UsagePresentation.hasWindow(bucket.secondary) {
+        let hidden = HiddenUsageRows.parse(hiddenRaw)
+        let primaryID = "\(fallbackName)/primary"
+        let secondaryID = "\(fallbackName)/secondary"
         HStack(spacing: 20) {
-          if let primary = bucket.primary, UsagePresentation.hasWindow(primary) {
+          if let primary = bucket.primary, UsagePresentation.hasWindow(primary),
+             !hidden.contains(primaryID) {
             UsageMeter(title: windowLabel(primary, "Current window"), window: primary)
+              .usageRowMenu(accountID: accountID, rowID: primaryID, refresh: refresh)
           }
-          if let secondary = bucket.secondary, UsagePresentation.hasWindow(secondary) {
+          if let secondary = bucket.secondary, UsagePresentation.hasWindow(secondary),
+             !hidden.contains(secondaryID) {
             UsageMeter(title: windowLabel(secondary, "Secondary window"), window: secondary)
+              .usageRowMenu(accountID: accountID, rowID: secondaryID, refresh: refresh)
           }
         }
       }
@@ -1725,6 +1756,7 @@ private struct UsageMeter: View {
         Spacer()
         Text(UsagePercentagePreferences.label(forUsed: used, showsUsed: showsUsed))
           .font(AIMTheme.mono(10, weight: .semibold))
+          .flipsUsedAndLeft(showsUsed)
       }
       GeometryReader { geometry in
         ZStack(alignment: .leading) {
@@ -1738,7 +1770,7 @@ private struct UsageMeter: View {
       .frame(height: 5)
       if let reset = window.resetsAt {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-          Text(UsageResetLabel.text(until: reset, now: context.date))
+          ResetTimeText(reset: reset, now: context.date)
             .font(AIMTheme.sans(9, weight: .bold))
             .foregroundStyle(AIMTheme.muted)
         }
@@ -2431,6 +2463,17 @@ enum SettingsCopy {
     "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
   static let hideEmails = "Hide email addresses"
   static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
+  static let resetTimes = "Reset times"
+  static let resetTimesHelp = "Show a countdown or the exact time. Click any reset text to switch."
+  static let timeFormat = "Time format"
+  static let timeFormatHelp = "Hour style for exact reset times."
+  static let menuShortcut = "Menu shortcut"
+  static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
+  static let refreshOnOpen = "Refresh when the menu opens"
+  static let refreshOnOpenHelp = "Check usage each time the popover opens."
+  static let resetSettings = "Reset settings"
+  static let resetSettingsHelp =
+    "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."
   static let notificationsTitle = "Notifications"
   /// Title, help text, and the UserDefaults key of each toggle. All off by default.
   static let notificationRows: [(title: String, help: String, key: String)] = [
@@ -2459,6 +2502,11 @@ struct SettingsPage: View {
   @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset.rawValue
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
   @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
+  @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
+  @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
+  @AppStorage(PopoverRefreshPreference.key) private var refreshOnOpen = false
+  @State private var confirmsReset = false
+  @State private var resetCount = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     AIMScrollView {
@@ -2478,6 +2526,29 @@ struct SettingsPage: View {
             settingRow(isOn: $checkProviderStatus, title: SettingsCopy.checkProviderStatus) {
               Text(SettingsCopy.checkProviderStatusHelp)
             }
+            choiceRow(
+              SettingsCopy.resetTimes, SettingsCopy.resetTimesHelp, options: [false, true],
+              selection: $resetIsExact, accessibilityLabel: "Reset time format", zebra: true
+            ) { $0 ? "Exact time" : "Countdown" }
+            choiceRow(
+              SettingsCopy.timeFormat, SettingsCopy.timeFormatHelp,
+              options: HourFormat.allCases.map(\.rawValue), selection: $hourFormat,
+              accessibilityLabel: "Hour format"
+            ) { HourFormat(rawValue: $0)?.label ?? $0 }
+            HStack(spacing: 16) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(SettingsCopy.menuShortcut).font(AIMTheme.sans(11, weight: .medium))
+                Text(SettingsCopy.menuShortcutHelp)
+                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              }
+              Spacer(minLength: 24)
+              ShortcutRecorder().id(resetCount)
+            }
+            .padding(.horizontal, 16).frame(minHeight: 48)
+            .background(AIMTheme.panel2.opacity(0.55))
+            settingRow(isOn: $refreshOnOpen, title: SettingsCopy.refreshOnOpen) {
+              Text(SettingsCopy.refreshOnOpenHelp)
+            }
             HStack(spacing: 16) {
               VStack(alignment: .leading, spacing: 2) {
                 Text("Body translucency").font(AIMTheme.sans(11, weight: .medium))
@@ -2489,7 +2560,7 @@ struct SettingsPage: View {
                 .frame(width: 160).accessibilityLabel("Body translucency")
               Text("\(Int(translucency))%")
                 .font(AIMTheme.mono(10)).frame(width: 32, alignment: .trailing)
-            }.padding(.horizontal, 16).frame(minHeight: 48)
+            }.padding(.horizontal, 16).frame(minHeight: 48).background(AIMTheme.panel2.opacity(0.55))
           }
         }
         AIMPanel(title: SettingsCopy.notificationsTitle) {
@@ -2530,6 +2601,18 @@ struct SettingsPage: View {
           settingRow(isOn: $hideEmails, title: SettingsCopy.hideEmails) {
             Text(SettingsCopy.hideEmailsHelp)
           }
+        }
+        AIMPanel(title: "Reset") {
+          HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(SettingsCopy.resetSettings).font(AIMTheme.sans(11, weight: .medium))
+              Text(SettingsCopy.resetSettingsHelp)
+                .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            }
+            Spacer(minLength: 24)
+            AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
+          }
+          .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         }
         AIMPanel(title: "Menubar defaults") {
           VStack(spacing: 0) {
@@ -2617,6 +2700,13 @@ struct SettingsPage: View {
     }
     .padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
     .onAppear { launchAtLogin.refresh() }
+    .confirmationDialog(
+      "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
+    ) {
+      Button("Reset settings", role: .destructive, action: resetSettings)
+    } message: {
+      Text("Accounts, saved sign-ins, and Open at Login stay as they are.")
+    }
     .onChange(of: checkProviderStatus) { model.providerStatusSettingChanged() }
     .task {
       await notificationPermission.refresh()
@@ -2626,6 +2716,32 @@ struct SettingsPage: View {
       launchAtLogin.refresh()
       Task { await notificationPermission.refresh() }
     }
+  }
+
+  private func resetSettings() {
+    SettingsReset.reset()
+    GlobalShortcut.shared.apply(nil)
+    resetCount += 1
+    model.providerStatusSettingChanged()
+  }
+
+  /// A row with a label, help text, and a grouped choice on the right.
+  private func choiceRow<Option: Hashable>(
+    _ title: String, _ help: String, options: [Option], selection: Binding<Option>,
+    accessibilityLabel: String, zebra: Bool = false, label: @escaping (Option) -> String
+  ) -> some View {
+    HStack(spacing: 16) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(AIMTheme.sans(11, weight: .medium))
+        Text(help).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+      }
+      Spacer(minLength: 20)
+      AIMSegmentedPicker(
+        options: options, selection: selection, accessibilityLabel: accessibilityLabel, label: label)
+    }
+    .padding(.horizontal, 16)
+    .frame(minHeight: 48)
+    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 
   /// A toggle that asks macOS for notification permission the first time it turns on.

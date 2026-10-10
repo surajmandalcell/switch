@@ -10,10 +10,13 @@ struct ProviderChoice: Identifiable, Equatable {
   let subtitle: String
   let available: Bool
   let unavailableReason: String?
+  /// The official login of this provider is already present on this Mac.
+  var signedInOnThisMac = false
 }
 
 enum ProviderChoices {
   static let builtIn: [ProviderID] = [.codex, .grokBuild, .claudeCode]
+  static let signedInLabel = "Signed in on this Mac"
 
   /// Every generic provider, alphabetical. Built once: the list never changes while the app runs.
   static let generic: [ProviderChoice] = ProviderCatalog.addable
@@ -24,8 +27,11 @@ enum ProviderChoices {
         unavailableReason: nil)
     }
 
-  /// Codex CLI, Grok Build, and Claude Code first, then the generic providers.
-  static func all(descriptors: [ProviderDescriptor]) -> [ProviderChoice] {
+  /// Codex CLI, Grok Build, and Claude Code first, then the generic providers that are already
+  /// signed in on this Mac, then the rest. Each group is alphabetical.
+  static func all(
+    descriptors: [ProviderDescriptor], signedIn: Set<ProviderID> = []
+  ) -> [ProviderChoice] {
     let first = builtIn.compactMap { id in descriptors.first { $0.id == id } }.map { provider in
       ProviderChoice(
         id: provider.id, name: provider.displayName,
@@ -36,7 +42,13 @@ enum ProviderChoices {
           : (provider.unavailableReason ?? "Account setup is not available in this version."),
         available: provider.availability == .enabled, unavailableReason: provider.unavailableReason)
     }
-    return first + generic
+    guard !signedIn.isEmpty else { return first + generic }
+    let live = generic.filter { signedIn.contains($0.id) }.map { choice -> ProviderChoice in
+      var marked = choice
+      marked.signedInOnThisMac = true
+      return marked
+    }
+    return first + live + generic.filter { !signedIn.contains($0.id) }
   }
 
   /// Rows whose name or id contains every word of the query. Diacritics and case are ignored.

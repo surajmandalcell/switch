@@ -391,10 +391,30 @@ struct ProductionAccountViewModelCheck {
         try expect(try Data(contentsOf: authOnlySource.appending(path: "auth.json")) == authOnlyData,
                    "Account deletion changed the original auth source")
 
+        try await checkSignedInDetection(model)
         try await checkProviderUsage(root: root)
         try await checkUnavailableState(root: root)
         try await checkDefaultDeletion(root: root)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")
+    }
+
+    /// Add Account marks a provider whose live login already exists, from a synthetic Kilo file in
+    /// the temporary home, and leaves every other provider unmarked.
+    @MainActor
+    private static func checkSignedInDetection(_ model: AccountViewModel) async throws {
+        await model.detectSignedInProviders()
+        try expect(model.signedInProviderIDs.isEmpty, "A provider looked signed in on an empty home: \(model.signedInProviderIDs.map(\.rawValue))")
+        let file = model.paths.userHome.appending(path: ".local/share/kilo/auth.json")
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"kilo":{"type":"api","key":"synthetic-kilo-key"}}"#.utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        await model.detectSignedInProviders()
+        try expect(model.signedInProviderIDs == [ProviderID(rawValue: "kilo")],
+                   "Detection found \(model.signedInProviderIDs.map(\.rawValue))")
+        let choices = ProviderChoices.all(descriptors: model.providers, signedIn: model.signedInProviderIDs)
+        try expect(choices.dropFirst(3).first?.id.rawValue == "kilo" && choices.dropFirst(3).first?.signedInOnThisMac == true,
+                   "A signed-in provider does not sort first")
     }
 
     /// Usage of non-Codex accounts: cadence, cooldown, private cache, instant load, cleanup.

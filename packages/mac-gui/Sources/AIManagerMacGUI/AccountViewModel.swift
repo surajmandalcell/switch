@@ -111,6 +111,8 @@ final class AccountViewModel: ObservableObject {
     @Published var accountLoginState: AccountLoginState?
     @Published var accountLoginMessage: String?
     @Published var selectedProviderID: ProviderID = .codex
+    /// Providers whose login is already present on this Mac, found when Add Account opens.
+    @Published private(set) var signedInProviderIDs: Set<ProviderID> = []
     @Published var importMode: ImportMode = .authOnly
     @Published var selectedSourceID: String?
     @Published var importPlan: ImportPlan?
@@ -628,6 +630,25 @@ final class AccountViewModel: ObservableObject {
         if isDemo { return DemoData.liveIdentity(providerID) }
         #endif
         return nil
+    }
+
+    /// Marks every file-based provider whose real login exists on this Mac. Each read runs on the
+    /// account manager's actor, not on the main actor, and changes nothing.
+    func detectSignedInProviders() async {
+        // A spec whose files are all optional (Muse) reads as signed in on an empty home, so it
+        // cannot be detected from files alone.
+        let specs = ProviderCatalog.addable.filter { $0.style == .files && $0.files.contains { !$0.optional } }
+        var found: Set<ProviderID> = []
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            found = Set(specs.map(\.id).filter { DemoData.signedInOnThisMac.contains($0.rawValue) })
+        } else {
+            for spec in specs where await liveProviderIdentity(spec.id) != nil { found.insert(spec.id) }
+        }
+        #else
+        for spec in specs where await liveProviderIdentity(spec.id) != nil { found.insert(spec.id) }
+        #endif
+        if found != signedInProviderIDs { signedInProviderIDs = found }
     }
 
     func openDashboard(_ url: URL) {
@@ -2135,6 +2156,9 @@ enum DemoData {
                 detail: "Saved locally. Usage has not been checked yet."),
             lastUsedAt: nil, credentialDigest: "demo-\(providerID.rawValue)-credential")
     }
+
+    /// Providers the Preview treats as already signed in on this Mac.
+    static let signedInOnThisMac: Set<String> = ["gemini-cli", "cursor", "kilo"]
 
     static func liveIdentity(_ providerID: ProviderID) -> CredentialIdentity? {
         switch providerID.rawValue {

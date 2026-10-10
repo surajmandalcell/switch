@@ -78,6 +78,100 @@ struct ProviderStatusDot: View {
   }
 }
 
+// MARK: - Reset time, headline, and row menu
+
+/// A reset line. Click it to flip between the countdown and the exact time, everywhere at once.
+/// Hovering shows the other format.
+struct ResetTimeText: View {
+  let reset: Date
+  let now: Date
+  @AppStorage(ResetDisplay.exactKey) private var exact = false
+  @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
+
+  private func text(exact: Bool) -> String {
+    UsageResetLabel.text(
+      until: reset, now: now, exact: exact, hourFormat: HourFormat(rawValue: hourFormat) ?? .auto)
+  }
+
+  var body: some View {
+    Text(text(exact: exact))
+      .contentShape(Rectangle())
+      .onTapGesture { exact.toggle() }
+      .help(text(exact: !exact))
+      .accessibilityAddTraits(.isButton)
+      .accessibilityHint(exact ? "Shows the countdown" : "Shows the exact time")
+  }
+}
+
+extension View {
+  /// Click a usage headline such as "52% left" to flip between left and used everywhere.
+  func flipsUsedAndLeft(_ showsUsed: Bool) -> some View {
+    self
+      .contentShape(Rectangle())
+      .onTapGesture {
+        UserDefaults.standard.set(!showsUsed, forKey: UsagePercentagePreferences.showsUsedKey)
+      }
+      .help(showsUsed ? "Click to show the percentage left" : "Click to show the percentage used")
+      .accessibilityAddTraits(.isButton)
+  }
+}
+
+/// Right-click menu of a usage row: hide it, show every hidden row, refresh.
+private struct UsageRowMenu: ViewModifier {
+  let rowID: String
+  let refresh: () -> Void
+  @AppStorage private var hiddenRaw: String
+
+  init(accountID: UUID, rowID: String, refresh: @escaping () -> Void) {
+    self.rowID = rowID
+    self.refresh = refresh
+    _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: accountID))
+  }
+
+  func body(content: Content) -> some View {
+    content.contextMenu {
+      Button("Hide this row") {
+        hiddenRaw = HiddenUsageRows.encode(HiddenUsageRows.parse(hiddenRaw).union([rowID]))
+      }
+      Button("Show all hidden rows") { hiddenRaw = "" }.disabled(hiddenRaw.isEmpty)
+      Divider()
+      Button("Refresh usage", action: refresh)
+    }
+  }
+}
+
+extension View {
+  func usageRowMenu(accountID: UUID, rowID: String, refresh: @escaping () -> Void) -> some View {
+    modifier(UsageRowMenu(accountID: accountID, rowID: rowID, refresh: refresh))
+  }
+}
+
+/// "2 hidden rows · Show all" under a Usage panel. Nothing when no row is hidden.
+struct HiddenUsageRowsNote: View {
+  /// Every row id the panel can show, so ids of rows that no longer exist are not counted.
+  let rowIDs: [String]
+  @AppStorage private var hiddenRaw: String
+
+  init(accountID: UUID, rowIDs: [String]) {
+    self.rowIDs = rowIDs
+    _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: accountID))
+  }
+
+  static func text(count: Int) -> String { "\(count) hidden \(count == 1 ? "row" : "rows")" }
+
+  var body: some View {
+    let count = HiddenUsageRows.parse(hiddenRaw).intersection(rowIDs).count
+    if count > 0 {
+      HStack(spacing: 10) {
+        Text(Self.text(count: count)).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        Spacer(minLength: 8)
+        AIMButton(title: "Show all") { hiddenRaw = "" }
+      }
+      .padding(.horizontal, 16).padding(.top, 8)
+    }
+  }
+}
+
 // MARK: - Claude Code activity
 
 /// Today, Yesterday, and the last 30 days of local Claude Code usage across every profile.
@@ -132,6 +226,14 @@ struct ClaudeActivityPanel: View {
 struct ProviderUsagePanel: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
+  /// Newline-joined ids of the rows this account hides (see `HiddenUsageRows`).
+  @AppStorage private var hiddenRaw: String
+
+  init(account: AccountRecord, model: AccountViewModel) {
+    self.account = account
+    self.model = model
+    _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: account.id))
+  }
 
   /// Grok Build always shows the section; Claude Code profiles only once usage has arrived.
   static func applies(to account: AccountRecord, in model: AccountViewModel) -> Bool {
@@ -175,13 +277,19 @@ struct ProviderUsagePanel: View {
       }
       .padding(.horizontal, 16).padding(.bottom, 14)
 
-      let windows = usage.windows
+      let windows = HiddenUsageRows.visible(
+        usage.windows, hidden: HiddenUsageRows.parse(hiddenRaw), id: \.id)
       ForEach(Array(stride(from: 0, to: windows.count, by: 2)), id: \.self) { start in
         let pair = Array(windows[start..<min(start + 2, windows.count)])
         TimelineView(.periodic(from: .now, by: 60)) { context in
           HStack(alignment: .top, spacing: 20) {
-            ForEach(pair) { window in ProviderWindowMeter(window: window, now: context.date) }
-            if pair.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+            ForEach(pair) { window in
+              ProviderWindowMeter(window: window, now: context.date)
+                .usageRowMenu(accountID: account.id, rowID: window.id) {
+                  Task { await model.refreshProviderUsage(accountID: account.id) }
+                }
+            }
+            if pair.count == 1 { Color.clear.frame(maxWidth: .infinity).frame(height: 0) }
           }
         }
         .padding(.vertical, 12).padding(.horizontal, 16)
@@ -198,6 +306,8 @@ struct ProviderUsagePanel: View {
         ProviderSectionRows(section: section)
           .padding(.vertical, 10).padding(.horizontal, 16)
       }
+
+      HiddenUsageRowsNote(accountID: account.id, rowIDs: usage.windows.map(\.id))
 
       if usage.windows.isEmpty, usage.cost.map(ProviderCostRow.hasContent) != true, usage.sections.isEmpty {
         UsageUnavailableRow(text: "No usage values returned")
@@ -274,6 +384,8 @@ struct ProviderWindowMeter: View {
   let window: UsageWindow
   let now: Date
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
+  /// Read so the accessibility value redraws when the reset format changes.
+  @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var meter: UsagePace.MeterState { UsagePace.meterState(window, now: now) }
@@ -305,6 +417,7 @@ struct ProviderWindowMeter: View {
         Spacer(minLength: 4)
         Text(used.map { UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed) } ?? "–")
           .font(AIMTheme.mono(10, weight: .semibold))
+          .flipsUsedAndLeft(showsUsed)
       }
       GeometryReader { geometry in
         ZStack(alignment: .leading) {
@@ -324,7 +437,7 @@ struct ProviderWindowMeter: View {
       .help(UsagePace.tooltip(state) ?? "")
       HStack(alignment: .firstTextBaseline, spacing: 8) {
         if let reset = window.resetsAt {
-          Text(UsageResetLabel.text(until: reset, now: now))
+          ResetTimeText(reset: reset, now: now)
             .font(AIMTheme.sans(9, weight: .bold)).foregroundStyle(AIMTheme.muted)
         }
         Spacer(minLength: 4)
@@ -339,12 +452,20 @@ struct ProviderWindowMeter: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(window.title)
     .accessibilityValue(accessibilityValue(state))
+    .accessibilityAction(named: "Switch between used and left") {
+      UserDefaults.standard.set(!showsUsed, forKey: UsagePercentagePreferences.showsUsedKey)
+    }
+    .accessibilityAction(named: "Switch between countdown and exact reset time") {
+      UserDefaults.standard.set(!ResetDisplay.isExact(), forKey: ResetDisplay.exactKey)
+    }
   }
 
   private func accessibilityValue(_ state: UsagePace.MeterState) -> String {
     var parts: [String] = []
     if let used { parts.append(UsagePercentagePreferences.label(forUsed: used, showsUsed: showsUsed)) }
-    if let reset = window.resetsAt { parts.append(UsageResetLabel.text(until: reset, now: now)) }
+    if let reset = window.resetsAt {
+      parts.append(UsageResetLabel.text(until: reset, now: now, exact: resetIsExact))
+    }
     if let detail = window.detail { parts.append(detail) }
     if let tip = UsagePace.tooltip(state) { parts.append(tip) }
     return parts.joined(separator: ", ")
@@ -355,6 +476,7 @@ struct ProviderWindowMeter: View {
 
 struct ProviderCostRow: View {
   let cost: UsageCost
+  @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
 
   static func hasContent(_ cost: UsageCost) -> Bool {
     cost.used != nil || cost.balance != nil || cost.limit != nil
@@ -373,8 +495,13 @@ struct ProviderCostRow: View {
           UsageFact(label: "Balance", value: Fmt.money(balance, currency: cost.currency))
         }
         if let reset = cost.resetsAt {
-          UsageFact(label: "Resets", value: UsageResetLabel.text(until: reset, now: context.date)
+          UsageFact(label: "Resets", value: UsageResetLabel.text(
+            until: reset, now: context.date, exact: resetIsExact)
             .replacingOccurrences(of: "Resets ", with: ""))
+            .contentShape(Rectangle())
+            .onTapGesture { resetIsExact.toggle() }
+            .help("Click to switch between countdown and exact time")
+            .accessibilityAddTraits(.isButton)
         }
         Spacer(minLength: 0)
       }

@@ -183,13 +183,16 @@ struct MenuBarPopoverActions {
   let switchAccount: (UUID) async throws -> Void
   let refreshUsage: () async -> Void
   let copyText: ((String) -> Void)?
+  let openSettings: () -> Void
 
   init(
     openMainWindow: @escaping () -> Void,
     switchAccount: @escaping (UUID) async throws -> Void,
     refreshUsage: @escaping () async -> Void = {},
-    copyText: ((String) -> Void)? = nil
+    copyText: ((String) -> Void)? = nil,
+    openSettings: @escaping () -> Void = {}
   ) {
+    self.openSettings = openSettings
     self.openMainWindow = openMainWindow
     self.switchAccount = switchAccount
     self.refreshUsage = refreshUsage
@@ -423,10 +426,11 @@ struct MenuBarPopover: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(AIMPressButtonStyle())
+      .keyboardShortcut("r", modifiers: .command)
       .disabled(!store.canRefreshUsage)
       .onHover { refreshHovered = $0 }
       .accessibilityLabel("Refresh enabled account usage")
-      .help("Refresh enabled account usage")
+      .help("Refresh enabled account usage (⌘R)")
       if let refreshedAt = store.snapshot.lastRefreshedAt {
         Text("Refreshed \(refreshedAt.formatted(.relative(presentation: .numeric)))")
           .font(AIMTheme.sans(9))
@@ -619,6 +623,7 @@ private struct MenuBarQuotaRow: View {
         Text(UsagePercentagePreferences.label(forUsed: percentage, showsUsed: showsUsed))
           .font(AIMTheme.sans(10, weight: .medium))
           .foregroundStyle(palette.ink)
+          .flipsUsedAndLeft(showsUsed)
       }
       GeometryReader { proxy in
         ZStack(alignment: .leading) {
@@ -649,7 +654,7 @@ private struct MenuBarQuotaRow: View {
         Spacer(minLength: 0)
         if let reset {
           TimelineView(.periodic(from: .now, by: 60)) { context in
-            Text(UsageResetLabel.text(until: reset, now: context.date))
+            ResetTimeText(reset: reset, now: context.date)
               .font(AIMTheme.sans(9, weight: .bold))
               .foregroundStyle(palette.muted)
               .lineLimit(1)

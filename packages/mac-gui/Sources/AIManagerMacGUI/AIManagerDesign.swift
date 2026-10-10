@@ -34,7 +34,13 @@ enum AIMTranslucency {
 }
 
 enum UsageResetLabel {
-  static func text(until reset: Date, now: Date = Date()) -> String {
+  /// `exact` and `hourFormat` default to the Settings choices; pass them to pin a format.
+  static func text(
+    until reset: Date, now: Date = Date(), exact: Bool? = nil, hourFormat: HourFormat? = nil
+  ) -> String {
+    if exact ?? ResetDisplay.isExact() {
+      return ResetDisplay.exactText(reset, now: now, hourFormat: hourFormat ?? ResetDisplay.hourFormat())
+    }
     let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
     if minutes == 0 { return reset > now ? "Resets in <1m" : "Resets now" }
     let days = minutes / 1_440
