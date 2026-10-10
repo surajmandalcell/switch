@@ -818,6 +818,10 @@ public actor AccountManager {
     /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
     /// accounts only; Codex and Grok registry accounts are never rewritten from here.
     public func readProviderUsage(accountID: UUID) async throws -> ProviderUsage {
+        try await fetchProviderUsage(accountID: accountID).sanitized()
+    }
+
+    private func fetchProviderUsage(accountID: UUID) async throws -> ProviderUsage {
         if try providerStore.contains(accountID) {
             let spec = try providerStore.spec(forAccount: accountID)
             let stored = try providerStore.credential(for: accountID)

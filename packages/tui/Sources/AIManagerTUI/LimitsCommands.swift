@@ -477,7 +477,7 @@ enum LimitsCommands {
         guard !windows.isEmpty else { return nil }
         return ProviderUsage(windows: windows, plan: snapshot.account?.plan,
                              email: snapshot.account?.email ?? account.identity.email,
-                             fetchedAt: snapshot.fetchedAt)
+                             fetchedAt: snapshot.fetchedAt).sanitized()
     }
 
     /// At most `concurrency` fetches at once, each cut off after `timeout` seconds. Results keep input order.

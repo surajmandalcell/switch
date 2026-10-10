@@ -107,6 +107,42 @@ public struct ProviderUsage: Codable, Equatable, Sendable {
     public var isEmpty: Bool {
         windows.isEmpty && cost == nil && sections.isEmpty && plan == nil && email == nil
     }
+
+    /// Provider text with control characters replaced, so a hostile response cannot inject
+    /// terminal escape sequences into the TUI or CLI output.
+    public func sanitized() -> ProviderUsage {
+        var copy = self
+        copy.windows = windows.map {
+            var window = $0
+            window.id = window.id.printable
+            window.title = window.title.printable
+            window.detail = window.detail?.printable
+            return window
+        }
+        copy.sections = sections.map { section in
+            UsageSection(section.title?.printable, section.rows.map {
+                var row = $0
+                row.label = row.label.printable
+                row.value = row.value.printable
+                return row
+            })
+        }
+        copy.cost?.currency = cost?.currency.printable ?? "USD"
+        copy.cost?.period = cost?.period?.printable
+        copy.plan = plan?.printable
+        copy.email = email?.printable
+        copy.organization = organization?.printable
+        return copy
+    }
+}
+
+extension String {
+    /// Replaces C0, DEL, and C1 control characters with spaces.
+    public var printable: String {
+        String(String.UnicodeScalarView(unicodeScalars.map {
+            $0.value < 0x20 || (0x7F...0x9F).contains($0.value) ? " " : $0
+        }))
+    }
 }
 
 // MARK: - Credentials
@@ -316,9 +352,9 @@ public enum ProviderError: LocalizedError, Equatable, Sendable {
         switch self {
         case .missingCredential(let text), .unauthorized(let text), .rateLimited(let text),
              .unavailable(let text), .parse(let text), .network(let text), .unsupported(let text):
-            text
+            text.printable
         case .http(let code, let text):
-            text.isEmpty ? "The provider returned HTTP \(code)." : text
+            text.isEmpty ? "The provider returned HTTP \(code)." : text.printable
         }
     }
 
