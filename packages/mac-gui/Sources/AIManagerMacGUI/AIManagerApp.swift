@@ -49,12 +49,16 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 },
                 refreshUsage: { [weak self] in
                     guard let self else { return }
-                    let accountIDs = self.model.status?.accounts.filter {
-                        $0.identity.providerID == .codex && MenuBarUsagePreferences.showsUsage(for: $0.id)
-                    }.map(\.id) ?? []
-                    for accountID in accountIDs {
-                        await self.model.refreshUsage(accountID: accountID)
+                    let accounts = self.model.status?.accounts.filter {
+                        MenuBarUsagePreferences.showsUsage(for: $0.id)
+                    } ?? []
+                    for account in accounts where account.identity.providerID == .codex {
+                        await self.model.refreshUsage(accountID: account.id)
                     }
+                    await self.model.refreshProviderUsage(accountIDs: accounts.filter {
+                        $0.identity.providerID != .codex
+                            && ProviderCatalog.spec($0.identity.providerID) != nil
+                    }.map(\.id))
                 }
             ))
         self.statusItemController = statusItemController
@@ -104,6 +108,17 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     apiPrice: self.model.apiPrice))
             }
             .store(in: &modelObservers)
+        model.$providerUsage
+            .sink { [weak self, weak statusItemController] providerUsage in
+                guard let self else { return }
+                statusItemController?.update(snapshot: self.menuBarSnapshot(
+                    status: self.model.status,
+                    usageSnapshots: self.model.usageSnapshots,
+                    dailyUsage: self.model.retainedDailyUsage,
+                    apiPrice: self.model.apiPrice,
+                    providerUsage: providerUsage))
+            }
+            .store(in: &modelObservers)
         model.$apiPrice
             .sink { [weak self, weak statusItemController] apiPrice in
                 guard let self else { return }
@@ -126,6 +141,15 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         .store(in: &modelObservers)
+        // Other providers keep their own five-minute cadence.
+        Timer.publish(every: ProviderUsagePolicy.interval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.model.refreshProviderUsage(onCadence: true)
+                }
+            }
+            .store(in: &modelObservers)
         let menuController = AIManagerMenuController(
             applicationName: AIManagerBrand.bundleDisplayName(),
             addAccount: { [weak self] in self?.addAccountFromMenuBar() },
@@ -211,32 +235,50 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         status: ManagerStatus?,
         usageSnapshots: [UUID: CodexAccountUsageSnapshot],
         dailyUsage: [UUID: [CodexDailyUsageSnapshot]],
-        apiPrice: CodexAPIPrice?
+        apiPrice: CodexAPIPrice?,
+        providerUsage: [UUID: ProviderUsageState]? = nil
     ) -> MenuBarSnapshot {
         guard let status else { return .empty }
+        let providerUsage = providerUsage ?? model.providerUsage
         return MenuBarSnapshot(
             accounts: status.accounts.map { account in
-                let showsUsage = account.identity.providerID == .codex
-                    && MenuBarUsagePreferences.showsUsage(for: account.id)
+                let providerID = account.identity.providerID
+                let isCodex = providerID == .codex
+                let state = providerUsage[account.id]
+                // Claude profiles join once their usage arrives; other providers always have a spec.
+                let supportsUsage = isCodex || ProviderCatalog.spec(providerID) != nil
+                    || state?.usage != nil
+                let showsUsage = supportsUsage && MenuBarUsagePreferences.showsUsage(for: account.id)
+                let usage: MenuBarUsageSnapshot?
+                if !showsUsage {
+                    usage = nil
+                } else if isCodex {
+                    usage = menuBarUsage(
+                        for: account.id,
+                        status: status,
+                        usageSnapshots: usageSnapshots,
+                        dailyUsage: dailyUsage,
+                        apiPrice: apiPrice)
+                } else if let providerUsage = state?.usage, state?.needsSignIn != true,
+                          account.verification.state != .needsSignIn {
+                    usage = MenuBarUsageSnapshot(providerUsage: providerUsage)
+                } else {
+                    usage = nil
+                }
                 return MenuBarAccountSnapshot(
                     id: account.id,
-                    identity: account.identity.email
-                        ?? "\(account.identity.providerID.displayName) account",
+                    identity: isCodex
+                        ? account.identity.email ?? "\(providerID.displayName) account"
+                        : account.identity.accountLabel,
                     detail: Self.accountDetail(account),
                     isVerified: Self.canSwitch(account),
                     isActive: status.isDefault(account),
-                    usage: showsUsage
-                        ? menuBarUsage(
-                            for: account.id,
-                            status: status,
-                            usageSnapshots: usageSnapshots,
-                            dailyUsage: dailyUsage,
-                            apiPrice: apiPrice)
-                        : nil,
+                    usage: usage,
                     showsUsage: showsUsage,
-                    providerID: account.identity.providerID)
+                    providerID: providerID)
             },
-            lastRefreshedAt: usageSnapshots.values.map(\.fetchedAt).max())
+            lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
+                + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max())
     }
 
     private func menuBarUsage(
@@ -261,7 +303,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     private static func accountDetail(_ account: AccountRecord) -> String {
         let workspace = account.identity.workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return [account.identity.providerID.displayName, workspace]
+        return [account.identity.providerID.guiName, workspace]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value

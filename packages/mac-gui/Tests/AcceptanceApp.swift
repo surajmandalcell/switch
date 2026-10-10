@@ -181,7 +181,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let statusItemController = AIManagerStatusItemController(
-            snapshot: MenuBarPopoverPreviewData.snapshot,
+            snapshot: MenuBarPopoverPreviewData.fullSnapshot,
             actions: MenuBarPopoverActions(
                 openMainWindow: {
                     controller.present()
@@ -193,7 +193,16 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 }
             ))
         self.statusItemController = statusItemController
+        if let appearance = AcceptanceConfiguration.appearance {
+            statusItemController.updateAppearance(NSAppearance(named: appearance == .dark ? .darkAqua : .aqua))
+        }
         controller.present()
+        if CommandLine.arguments.contains("--popover") {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(900))
+                statusItemController.showPopoverForPreview()
+            }
+        }
     }
 
     private func runContractOnly(in window: NSWindow?) async {
@@ -221,6 +230,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureAccountModal() async {
+        if let provider = PreviewArguments.value("select"),
+           let account = model.status?.accounts.first(where: { $0.identity.providerID.rawValue == provider }) {
+            model.selectedAccountID = account.id
+        }
         if AcceptanceConfiguration.opensImport {
             await model.beginAdvancedImport()
         } else if AcceptanceConfiguration.opensAdd {
@@ -291,6 +304,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     failures.append(contentsOf: AIManagerNativeContract.accountActionFailures())
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
     failures.append(contentsOf: AIManagerNativeContract.menuBarPopoverFailures())
+    failures.append(contentsOf: AIManagerNativeContract.providerUIFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
             UserDefaults.standard.string(forKey: "appearanceMode") == mode,

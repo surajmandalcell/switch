@@ -390,9 +390,128 @@ struct ProductionAccountViewModelCheck {
         try expect(try Data(contentsOf: authOnlySource.appending(path: "auth.json")) == authOnlyData,
                    "Account deletion changed the original auth source")
 
+        try await checkProviderUsage(root: root)
         try await checkUnavailableState(root: root)
         try await checkDefaultDeletion(root: root)
         print("PRODUCTION_ACCOUNT_VIEW_MODEL_PASS")
+    }
+
+    /// Usage of non-Codex accounts: cadence, cooldown, private cache, instant load, cleanup.
+    @MainActor
+    private static func checkProviderUsage(root: URL) async throws {
+        let now = Date(timeIntervalSince1970: 50_000)
+        let fresh = ProviderUsage(windows: [UsageWindow(id: "s", title: "Session", usedPercent: 10)],
+                                  fetchedAt: now.addingTimeInterval(-299))
+        let stale = ProviderUsage(fetchedAt: now.addingTimeInterval(-300))
+        func state(_ usage: ProviderUsage?, error: String? = nil, checked: Date? = nil,
+                   refreshing: Bool = false) -> ProviderUsageState {
+            ProviderUsageState(usage: usage, error: error, checkedAt: checked, isRefreshing: refreshing)
+        }
+        try expect(ProviderUsagePolicy.interval == 5 * 60 && ProviderUsagePolicy.failureCooldown == 5 * 60
+                   && ProviderUsagePolicy.fetchTimeout == 60 && ProviderUsagePolicy.maxConcurrent == 4,
+                   "Provider usage limits changed")
+        try expect(ProviderUsagePolicy.isDue(nil, onCadence: false, now: now), "An unchecked account was not due")
+        try expect(!ProviderUsagePolicy.isDue(state(fresh), onCadence: false, now: now),
+                   "Usage under five minutes old was refreshed")
+        try expect(ProviderUsagePolicy.isDue(state(stale), onCadence: false, now: now),
+                   "Usage five minutes old was not refreshed")
+        try expect(ProviderUsagePolicy.isDue(state(fresh), onCadence: true, now: now),
+                   "The fixed tick skipped fresh cached usage")
+        try expect(!ProviderUsagePolicy.isDue(
+            state(fresh, error: "x", checked: now.addingTimeInterval(-299)), onCadence: true, now: now),
+            "A failed account ignored its five-minute wait")
+        try expect(ProviderUsagePolicy.isDue(
+            state(fresh, error: "x", checked: now.addingTimeInterval(-300)), onCadence: true, now: now),
+            "A failed account was never retried")
+        try expect(!ProviderUsagePolicy.isDue(state(stale, refreshing: true), onCadence: true, now: now),
+                   "An account already refreshing was started twice")
+        try expect(ProviderUsagePolicy.failure(ProviderError.unauthorized("Sign in")).needsSignIn
+                   && !ProviderUsagePolicy.failure(ProviderError.network("Offline")).needsSignIn,
+                   "Only authorization failures ask for a new sign-in")
+        do {
+            _ = try await ProviderUsageCache.withTimeout(0.05) {
+                try await Task.sleep(for: .seconds(5))
+                return 1
+            }
+            throw CheckFailure(message: "A slow usage fetch did not time out")
+        } catch is CheckFailure {
+            throw CheckFailure(message: "A slow usage fetch did not time out")
+        } catch {}
+        let quick = try await ProviderUsageCache.withTimeout(5) { 7 }
+        try expect(quick == 7, "A quick fetch lost its result")
+
+        let fileManager = FileManager.default
+        let testRoot = root.appending(path: "provider-usage")
+        let paths = ManagerPaths(
+            applicationSupport: testRoot.appending(path: "support"),
+            defaultHome: testRoot.appending(path: "live"),
+            sharedRoot: testRoot.appending(path: "live"),
+            orcaAccountsRoot: testRoot.appending(path: "orca"),
+            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: testRoot)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let model = AccountViewModel(paths: paths, manager: manager)
+        await model.load()
+        let saved = await model.addProviderAccount(
+            providerID: ProviderID(rawValue: "openrouter"), fields: ["apiKey": "sk-or-synthetic-0001"])
+        try expect(saved && model.errorMessage == nil, "Saving a typed credential failed: \(model.errorMessage ?? "")")
+        let account = try expect(model.selectedAccount, "The saved provider account was not selected")
+        try expect(account.identity.providerID.rawValue == "openrouter"
+                   && model.accountLoginState == .completed
+                   && model.status?.isDefault(account) == true,
+                   "A saved provider account was not selected, completed, and made the provider default")
+        try expect(account.identity.accountLabel.hasPrefix("OpenRouter ···"),
+                   "A key-only account has no distinguishing label")
+        let failed = await model.addProviderAccount(providerID: ProviderID(rawValue: "openrouter"), fields: [:])
+        try expect(!failed && model.errorMessage?.contains("Enter the API key") == true,
+                   "A missing credential did not report an inline error")
+        model.errorMessage = nil
+        let savedSecond = await model.addProviderAccount(
+            providerID: ProviderID(rawValue: "openrouter"), fields: ["apiKey": "sk-or-synthetic-0002"])
+        let second = try expect(model.selectedAccount, "The second provider account was not selected")
+        try expect(savedSecond && second.id != account.id && model.status?.isDefault(second) == false,
+                   "A second key replaced the provider default")
+
+        // No network in isolation: a refresh leaves the state alone.
+        await model.refreshProviderUsage(accountID: account.id)
+        try expect(model.providerUsage[account.id]?.isRefreshing != true, "An isolated refresh started a fetch")
+
+        // The cache is private and a new model shows it before any check.
+        let cacheURL = ProviderUsageCache.url(in: paths.applicationSupport)
+        let cached = ProviderUsage(
+            windows: [UsageWindow(id: "s", title: "Session", usedPercent: 33, resetsAt: Date().addingTimeInterval(3_600),
+                                  windowMinutes: 300, detail: "33 / 100 requests")],
+            cost: UsageCost(balance: 4.2), plan: "Pro", fetchedAt: Date().addingTimeInterval(-60))
+        try ProviderUsageCache.save([account.id: cached], to: cacheURL)
+        let mode = try fileManager.attributesOfItem(atPath: cacheURL.path)[.posixPermissions] as? Int
+        try expect(mode == 0o600, "The usage cache is not owner-private")
+        try ProviderUsageCache.save([account.id: cached, second.id: cached, UUID(): stale], to: cacheURL)
+        try expect(ProviderUsageCache.load(from: cacheURL).count == 3 && ProviderUsageCache.load(from: cacheURL)[account.id] == cached,
+                   "The usage cache did not round-trip")
+        try expect(try fileManager.contentsOfDirectory(atPath: cacheURL.deletingLastPathComponent().path)
+                   .allSatisfy { !$0.hasSuffix(".tmp") }, "An atomic cache write left a temporary file")
+        let reopened = AccountViewModel(paths: paths, manager: manager)
+        await reopened.load()
+        let shown = try expect(reopened.providerUsage[account.id], "Cached usage was not loaded at launch")
+        try expect(shown.usage == cached && shown.error == nil && !shown.isRefreshing,
+                   "Cached usage is not shown as last known values")
+        try expect(reopened.providerUsage.count == 2, "Usage of an unknown account entered the model")
+        var publications = 0
+        let observation = reopened.objectWillChange.sink { publications += 1 }
+        await reopened.refreshProviderUsage(accountID: account.id)
+        await reopened.refreshProviderUsage()
+        withExtendedLifetime(observation) {}
+        try expect(publications == 0, "An isolated provider refresh republished the interface")
+
+        await reopened.deleteAccount(second.id)
+        try expect(reopened.errorMessage == nil, "Deleting a provider account failed: \(reopened.errorMessage ?? "")")
+        try expect(reopened.providerUsage[second.id] == nil && reopened.providerUsage[account.id] != nil,
+                   "Deleting an account kept its usage or dropped another account's")
+        for _ in 0..<100 where ProviderUsageCache.load(from: cacheURL)[second.id] != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try expect(ProviderUsageCache.load(from: cacheURL)[second.id] == nil
+                   && ProviderUsageCache.load(from: cacheURL)[account.id] == cached,
+                   "Deleting an account left its usage in the cache file")
     }
 
     @MainActor

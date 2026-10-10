@@ -626,6 +626,8 @@ enum AIManagerNativeContract {
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
     let dragModel = AccountViewModel(scenario: .allStates)
+    // The fixture is the three Codex accounts; generic accounts follow them in the real list.
+    dragModel.status?.accounts = dragModel.status?.accounts.filter { $0.identity.providerID == .codex } ?? []
     if let accounts = dragModel.status?.accounts, accounts.count == 3 {
       let cases: [(CGFloat, UUID?)] = [
         (-45, nil), (-44, accounts[0].id), (-1, accounts[0].id),
@@ -702,6 +704,126 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// Generic provider UI: icons, menu cards, pace colors, and the detail and Add Account views.
+  @MainActor static func providerUIFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    // Icons: 96 packaged monochrome marks, each one renders, aliases resolve, licence ships.
+    let bundle = Bundle.main
+    let directory = bundle.resourceURL?.appending(path: "Icons/ProviderIcons", directoryHint: .isDirectory)
+    let files = directory.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
+    let icons = files.filter { $0.hasPrefix("ProviderIcon-") && $0.hasSuffix(".svg") }
+    expect(icons.count == 96, "Packaged provider icons are missing: found \(icons.count) of 96")
+    expect(files.contains("LICENSE-CodexBar.txt"), "The CodexBar MIT notice is not packaged with the icons")
+    func rendersInk(_ image: NSImage) -> Bool {
+      guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: 48, pixelsHigh: 48, bitsPerSample: 8,
+        samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+        bytesPerRow: 0, bitsPerPixel: 0),
+        let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return false }
+      NSGraphicsContext.saveGraphicsState()
+      NSGraphicsContext.current = context
+      image.draw(in: NSRect(x: 0, y: 0, width: 48, height: 48))
+      NSGraphicsContext.restoreGraphicsState()
+      var ink = 0
+      for x in 0..<48 { for y in 0..<48 where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 { ink += 1 } }
+      return ink > 12
+    }
+    for file in icons {
+      let name = String(file.dropFirst("ProviderIcon-".count).dropLast(".svg".count))
+      let image = NSImage(contentsOf: directory!.appending(path: file))
+      expect(image.map(rendersInk) == true, "Provider icon \(name) renders blank")
+      expect(AIManagerBrand.providerIcon(for: ProviderID(rawValue: name)).isTemplate,
+             "Provider icon \(name) is not a template image")
+    }
+    for (id, target) in AIManagerBrand.providerIconAliases {
+      expect(AIManagerBrand.providerGlyphNames[target] != nil || icons.contains("ProviderIcon-\(target).svg"),
+             "Icon alias \(id) -> \(target) has no artwork")
+    }
+    for spec in ProviderCatalog.all {
+      let icon = AIManagerBrand.providerIcon(for: spec.id)
+      expect(icon.size.width > 0 && icon.isTemplate, "\(spec.name) has no template icon or monogram")
+      expect(icon === AIManagerBrand.providerIcon(for: spec.id), "\(spec.name) icon is not cached")
+    }
+    let monogram = AIManagerBrand.monogram(for: ProviderID(rawValue: "no-such-provider"))
+    expect(monogram.isTemplate && rendersInk(monogram), "The monogram fallback is blank or not a template")
+    expect(AIManagerBrand.providerIconName(for: .geminiCLI) == "gemini"
+      && AIManagerBrand.providerIconName(for: .antigravityCLI) == "antigravity"
+      && AIManagerBrand.providerIconName(for: .grokBuild) == "grok"
+      && AIManagerBrand.providerIconName(for: .claudeCode) == "claude",
+      "Provider icon aliases are wrong")
+
+    // Menu cards for generic accounts.
+    let sessionLast = ProviderUsage(windows: [
+      UsageWindow(id: "w", title: "Weekly", usedPercent: 40.4, windowMinutes: 10_080),
+      UsageWindow(id: "s", title: "Session", usedPercent: 20, windowMinutes: 300),
+    ])
+    let card = MenuBarUsageSnapshot(providerUsage: sessionLast)
+    expect(card?.primaryLabel == "Session" && card?.secondaryLabel == "Weekly"
+      && card?.usedPercentage == 20 && card?.secondaryUsedPercentage == 40,
+      "Generic menu card does not put the session-like window first")
+    expect(MenuBarUsageSnapshot(providerUsage: ProviderUsage()) == nil,
+      "An empty provider usage still makes a menu card")
+    let balanceOnly = MenuBarUsageSnapshot(providerUsage: ProviderUsage(
+      cost: UsageCost(balance: 12.4, currency: "USD")))
+    expect(balanceOnly?.balanceText == "$12.40" && balanceOnly?.usedPercentage == nil,
+      "Balance-only usage is not one compact balance line")
+    let balanceAccount = MenuBarAccountSnapshot(
+      id: UUID(), identity: "OpenRouter", detail: "", isVerified: true, isActive: true,
+      usage: balanceOnly, providerID: ProviderID(rawValue: "openrouter"))
+    expect(MenuBarPopover.accountRowHeight(balanceAccount) == 67, "Balance card has the wrong height")
+    let threeWindows = MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
+      UsageWindow(id: "a", title: "A", usedPercent: 10), UsageWindow(id: "b", title: "B", usedPercent: 20),
+      UsageWindow(id: "c", title: "C", usedPercent: 30)]))
+    expect(threeWindows?.secondaryLabel == "B" && threeWindows?.secondaryUsedPercentage == 20,
+      "Generic menu cards show more than their first two windows")
+    let full = MenuBarPopoverPreviewData.fullSnapshot
+    expect(full.accounts.count == 7 && full.accounts.suffix(4).allSatisfy { $0.usage != nil },
+      "Preview menu does not show the four generic cards")
+    expect(full.statusAccounts.count == 4, "Status item shows more or fewer than four accounts")
+    expect(AIManagerBrand.statusImage(groups: full.statusAccountGroups) != nil, "Status image failed")
+
+    // Pace colors follow the used share and never the Used or Left view.
+    let fills = [
+      UsagePace.MeterState.level(.normal, label: nil), .healthy(projectedFraction: 0.8),
+      .closeToLimit(label: "", projectedFraction: 0.95), .runningOut(eta: nil, projectedFraction: nil), .spent,
+    ].map { ProviderWindowMeter.fill(for: $0) }
+    expect(fills[0] == fills[1] && fills[2] != fills[1] && fills[3] != fills[1] && fills[3] == fills[4]
+      && fills[2] != fills[3], "Meter colors do not map blue, yellow, and red")
+
+    // Account detail, usage, and Add Account views lay out for a synthetic generic account.
+    let model = AccountViewModel(scenario: .demo)
+    guard let gemini = model.status?.accounts.first(where: { $0.identity.providerID == .geminiCLI }) else {
+      return failures + ["Demo lacks the Gemini CLI account"]
+    }
+    expect(gemini.usesGenericDetail && !(model.status?.accounts.first?.usesGenericDetail ?? true),
+      "Only non-Codex, non-Grok, non-Claude accounts use the generic detail")
+    expect(gemini.identity.accountLabel == "ada.lovelace@example.test", "Generic account label ignores email")
+    let keyAccount = DemoData.genericAccount(ProviderID(rawValue: "openrouter"))
+    expect(keyAccount.identity.accountLabel.hasPrefix("OpenRouter ···"),
+      "Key-only account label does not use the provider and a key tail")
+    let sizes = [NSSize(width: 840, height: 800)]
+    let views: [AnyView] = [
+      AnyView(ProviderAccountDetail(account: gemini, model: model) {}),
+      AnyView(ProviderUsagePanel(account: gemini, model: model)),
+      AnyView(ProviderChooserPage(model: model, step: 1) {}),
+      AnyView(SecretCredentialsPage(spec: ProviderCatalog.spec(ProviderID(rawValue: "zai"))!, model: model) {}),
+      AnyView(FilesCredentialsPage(spec: ProviderCatalog.spec(.geminiCLI)!, model: model) {}),
+    ]
+    for view in views {
+      for size in sizes {
+        let host = NSHostingView(rootView: view.environment(\.aimDarkMode, false)
+          .frame(width: size.width, height: size.height))
+        host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        expect(host.fittingSize.width > 0 && host.fittingSize.height > 0, "A provider view collapsed")
+      }
+    }
+    return failures
+  }
+
   static func menuBarRefreshFailures() async -> [String] {
     var calls = 0
     var wasBusy = false
@@ -724,8 +846,18 @@ enum AIManagerNativeContract {
     await store.refreshUsage()
     store.update(snapshot: MenuBarSnapshot(accounts: [MenuBarAccountSnapshot(
       id: UUID(), identity: "unsupported@example.test", detail: "", isVerified: true,
-      isActive: false, providerID: .claudeCode)]))
+      isActive: false, providerID: ProviderID(rawValue: "no-such-provider"))]))
     await store.refreshUsage()
+    store.update(snapshot: MenuBarSnapshot(accounts: [MenuBarAccountSnapshot(
+      id: UUID(), identity: "generic@example.test", detail: "", isVerified: true,
+      isActive: false, providerID: ProviderID(rawValue: "openrouter"))]))
+    let genericCanRefresh = store.canRefreshUsage
+    store.update(snapshot: MenuBarSnapshot(accounts: [MenuBarAccountSnapshot(
+      id: UUID(), identity: "unsupported@example.test", detail: "", isVerified: true,
+      isActive: false, providerID: ProviderID(rawValue: "no-such-provider"))]))
+    if !genericCanRefresh {
+      return ["Menubar refresh ignores accounts of a generic provider"]
+    }
     if calls != 1 || store.canRefreshUsage {
       failures.append("Menubar refresh runs for hidden or unsupported accounts")
     }

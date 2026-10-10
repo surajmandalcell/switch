@@ -11,6 +11,15 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
   let tokenPeriodLabel: String?
   let tokens: Int64?
   let apiPrice: CodexAPIPrice?
+  /// Names of the first and second quota. Codex uses Session and Weekly; other providers use
+  /// the titles of their first two windows.
+  let primaryLabel: String
+  let secondaryLabel: String
+  /// Short amount text of a window, such as "620 / 1,000 requests".
+  let primaryDetail: String?
+  let secondaryDetail: String?
+  /// One compact line for accounts that report only a balance, such as "$12.40".
+  let balanceText: String?
 
   init(
     usedPercentage: Int?,
@@ -20,7 +29,12 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     fetchedAt: Date? = nil,
     tokenPeriodLabel: String? = nil,
     tokens: Int64? = nil,
-    apiPrice: CodexAPIPrice? = nil
+    apiPrice: CodexAPIPrice? = nil,
+    primaryLabel: String = "Session",
+    secondaryLabel: String = "Weekly",
+    primaryDetail: String? = nil,
+    secondaryDetail: String? = nil,
+    balanceText: String? = nil
   ) {
     self.usedPercentage = usedPercentage.map { min(max($0, 0), 100) }
     self.secondaryUsedPercentage = secondaryUsedPercentage.map { min(max($0, 0), 100) }
@@ -30,6 +44,35 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     self.tokenPeriodLabel = tokenPeriodLabel
     self.tokens = tokens
     self.apiPrice = apiPrice
+    self.primaryLabel = primaryLabel
+    self.secondaryLabel = secondaryLabel
+    self.primaryDetail = primaryDetail
+    self.secondaryDetail = secondaryDetail
+    self.balanceText = balanceText
+  }
+
+  /// First two windows of a non-Codex provider, session-like windows first. Nil when the usage
+  /// has neither a percentage window nor a balance, so the card stays a plain header.
+  init?(providerUsage usage: ProviderUsage) {
+    func isSessionLike(_ window: UsageWindow) -> Bool {
+      window.title.localizedCaseInsensitiveContains("session") || (window.windowMinutes ?? .max) <= 300
+    }
+    let windows = usage.windows.filter { $0.usedPercent != nil }
+    let ordered = windows.filter(isSessionLike) + windows.filter { !isSessionLike($0) }
+    let balance = usage.cost?.balance.map { Fmt.money($0, currency: usage.cost?.currency ?? "USD") }
+    guard !ordered.isEmpty || balance != nil else { return nil }
+    let first = ordered.first, second = ordered.dropFirst().first
+    self.init(
+      usedPercentage: first?.usedPercent.map { Int($0.rounded()) },
+      secondaryUsedPercentage: second?.usedPercent.map { Int($0.rounded()) },
+      resetsAt: first?.resetsAt,
+      secondaryResetsAt: second?.resetsAt,
+      fetchedAt: usage.fetchedAt,
+      primaryLabel: first?.title ?? "Session",
+      secondaryLabel: second?.title ?? "Weekly",
+      primaryDetail: first?.detail,
+      secondaryDetail: second?.detail,
+      balanceText: ordered.isEmpty ? balance : nil)
   }
 
   init?(
@@ -84,6 +127,11 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     self.isActive = isActive
     self.usage = showsUsage ? usage : nil
     self.showsUsage = showsUsage
+  }
+
+  /// Codex and every provider with a usage spec can be refreshed from the popover.
+  var supportsUsageRefresh: Bool {
+    providerID == .codex || ProviderCatalog.spec(providerID) != nil
   }
 
   var remainingPercentage: Int? {
@@ -184,7 +232,7 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   var canRefreshUsage: Bool {
-    !isRefreshingUsage && snapshot.accounts.contains { $0.showsUsage && $0.providerID == .codex }
+    !isRefreshingUsage && snapshot.accounts.contains { $0.showsUsage && $0.supportsUsageRefresh }
   }
 
   func refreshUsage() async {
@@ -260,9 +308,14 @@ struct MenuBarPopover: View {
   static let cardRadius: CGFloat = 7
   static let buttonRadius: CGFloat = 3
 
+  static let balanceRowHeight: CGFloat = 18
+
   static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     let quotaCount = [account.usage?.secondaryUsedPercentage, account.usage?.usedPercentage]
       .compactMap { $0 }.count
+    if account.showsUsage, quotaCount == 0, account.usage?.balanceText != nil {
+      return accountHeaderHeight + 4 + balanceRowHeight + 10
+    }
     guard account.showsUsage, quotaCount > 0 else { return accountHeaderHeight }
     return accountHeaderHeight + 14 + CGFloat(quotaCount) * quotaRowHeight
       + CGFloat(max(0, quotaCount - 1)) * quotaSpacing
@@ -402,13 +455,8 @@ private struct MenuBarAccountRow: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 8) {
-        Group {
-          if let image = AIManagerBrand.providerGlyph(for: account.providerID) {
-            Image(nsImage: image).resizable().scaledToFit()
-          } else {
-            AIMIcon(name: .terminal, size: 12)
-          }
-        }
+        Image(nsImage: AIManagerBrand.providerIcon(for: account.providerID))
+          .resizable().scaledToFit()
         .frame(width: 12, height: 12)
         .foregroundStyle(palette.muted)
         .accessibilityHidden(true)
@@ -435,24 +483,42 @@ private struct MenuBarAccountRow: View {
       .frame(height: MenuBarPopover.accountHeaderHeight)
 
       if let usage = account.usage, account.showsUsage,
+         usage.usedPercentage == nil, usage.secondaryUsedPercentage == nil,
+         let balance = usage.balanceText
+      {
+        HStack(spacing: 8) {
+          Text("Balance")
+            .font(AIMTheme.sans(11, weight: .medium))
+          Spacer(minLength: 0)
+          Text(balance)
+            .font(AIMTheme.sans(11, weight: .semibold))
+            .monospacedDigit()
+        }
+        .frame(height: MenuBarPopover.balanceRowHeight)
+        .padding(.horizontal, 11)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+      } else if let usage = account.usage, account.showsUsage,
          usage.usedPercentage != nil || usage.secondaryUsedPercentage != nil
       {
         VStack(spacing: MenuBarPopover.quotaSpacing) {
           if let percentage = usage.usedPercentage {
             MenuBarQuotaRow(
-              label: "Session", percentage: percentage,
+              label: usage.primaryLabel, percentage: percentage,
               reset: usage.resetsAt, showsUsed: showsUsed, palette: palette,
               tokenPeriodLabel: usage.secondaryUsedPercentage == nil ? usage.tokenPeriodLabel : nil,
               tokens: usage.secondaryUsedPercentage == nil ? usage.tokens : nil,
-              apiPrice: usage.secondaryUsedPercentage == nil ? usage.apiPrice : nil)
+              apiPrice: usage.secondaryUsedPercentage == nil ? usage.apiPrice : nil,
+              detail: usage.primaryDetail)
           }
           if let percentage = usage.secondaryUsedPercentage {
             MenuBarQuotaRow(
-              label: "Weekly", percentage: percentage,
+              label: usage.secondaryLabel, percentage: percentage,
               reset: usage.secondaryResetsAt, showsUsed: showsUsed, palette: palette,
               tokenPeriodLabel: usage.tokenPeriodLabel,
               tokens: usage.tokens,
-              apiPrice: usage.apiPrice)
+              apiPrice: usage.apiPrice,
+              detail: usage.secondaryDetail)
           }
         }
         .padding(.horizontal, 11)
@@ -468,7 +534,7 @@ private struct MenuBarAccountRow: View {
     .accessibilityHint(
       account.isActive
         ? "Active account"
-        : account.isVerified ? "Use for new Codex sessions" : "Open the app to sign in")
+        : account.isVerified ? "Use for new \(sessionName) sessions" : "Open the app to sign in")
   }
 
   @ViewBuilder private var switchControl: some View {
@@ -495,12 +561,17 @@ private struct MenuBarAccountRow: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: MenuBarPopover.buttonRadius))
     } else {
-      MenuBarActionButton(palette: palette, action: action)
+      MenuBarActionButton(palette: palette, sessionName: sessionName, action: action)
     }
+  }
+
+  private var sessionName: String {
+    account.providerID == .codex ? "Codex" : account.providerID.guiName
   }
 
   private var accessibilityLabel: String {
     var parts = [account.identity, error ?? account.detail]
+    if let balance = account.usage?.balanceText { parts.append("Balance \(balance)") }
     if let usage = account.usage {
       if let usedPercentage = usage.usedPercentage {
         parts.append(UsagePercentagePreferences.label(
@@ -509,7 +580,7 @@ private struct MenuBarAccountRow: View {
       if let secondaryUsedPercentage = usage.secondaryUsedPercentage {
         let label = UsagePercentagePreferences.label(
           forUsed: secondaryUsedPercentage, showsUsed: showsUsed)
-        parts.append("Weekly \(label)")
+        parts.append("\(usage.secondaryLabel) \(label)")
       }
       if let tokens = usage.tokens, let period = usage.tokenPeriodLabel {
         parts.append("\(UsagePresentation.exactTokens(tokens)) tokens \(period)")
@@ -531,6 +602,7 @@ private struct MenuBarQuotaRow: View {
   let tokenPeriodLabel: String?
   let tokens: Int64?
   let apiPrice: CodexAPIPrice?
+  var detail: String? = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var displayedPercentage: Int {
@@ -566,6 +638,13 @@ private struct MenuBarQuotaRow: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .help(tokenHelp(tokens: tokens, period: tokenPeriodLabel))
+        } else if let detail {
+          Text(detail)
+            .font(AIMTheme.sans(9, weight: .medium))
+            .foregroundStyle(palette.muted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(detail)
         }
         Spacer(minLength: 0)
         if let reset {
@@ -601,6 +680,7 @@ private struct MenuBarActionButton: View {
   var title = "Switch"
   var disabled = false
   let palette: MenuBarPalette
+  var sessionName = "Codex"
   let action: () -> Void
   @State private var isHovered = false
 
@@ -630,7 +710,7 @@ private struct MenuBarActionButton: View {
     .disabled(disabled)
     .onHover { isHovered = $0 && !disabled }
     .accessibilityLabel(disabled ? "Active account"
-      : title == "Switch" ? "Use this account for new Codex sessions" : title)
+      : title == "Switch" ? "Use this account for new \(sessionName) sessions" : title)
   }
 }
 
@@ -670,5 +750,20 @@ enum MenuBarPopoverPreviewData {
         identity: "joestar89@gmail.com", detail: "Codex CLI · Personal",
         isVerified: false, isActive: false),
     ])
+
+  /// The Codex preview cards plus the synthetic generic-provider cards (balance, two windows,
+  /// credits, session and weekly). The live Preview status item shows this one.
+  static var fullSnapshot: MenuBarSnapshot {
+    MenuBarSnapshot(accounts: snapshot.accounts + DemoData.genericAccounts.enumerated().map { index, account in
+      MenuBarAccountSnapshot(
+        id: account.id,
+        identity: account.identity.accountLabel,
+        detail: account.identity.providerID.guiName,
+        isVerified: true, isActive: index != 3,
+        usage: MenuBarUsageSnapshot(
+          providerUsage: DemoData.providerUsage(for: account.identity.providerID, offset: index)),
+        providerID: account.identity.providerID)
+    })
+  }
 }
 #endif

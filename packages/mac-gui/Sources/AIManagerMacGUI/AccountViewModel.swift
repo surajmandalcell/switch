@@ -123,6 +123,8 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var apiPrice: CodexAPIPrice?
     @Published private(set) var usageRefreshAccountID: UUID?
     @Published private(set) var usageError: String?
+    /// Usage of every account whose provider is not Codex. Codex keeps its own pipeline above.
+    @Published private(set) var providerUsage: [UUID: ProviderUsageState] = [:]
     @Published private(set) var chatHistory = ChatHistorySnapshot()
     @Published private(set) var selectedChatID: String?
     @Published private(set) var selectedChat: ChatThreadDetail?
@@ -142,6 +144,8 @@ final class AccountViewModel: ObservableObject {
     private let usageDatabaseURL: URL?
     private let pricingResolver: CodexAPIPricingResolver?
     private var didPrepareUsageCache = false
+    private let providerUsageCacheURL: URL?
+    private var providerUsageCacheLoaded = false
     private var usageErrorAccountID: UUID?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
     private let chatHistoryMonitor: (any ChatHistoryMonitoring)?
@@ -165,6 +169,7 @@ final class AccountViewModel: ObservableObject {
     ) {
         self.paths = paths
         usageCache = nil
+        providerUsageCacheURL = ProviderUsageCache.url(in: paths.applicationSupport)
         usageDatabaseURL = paths.applicationSupport.appending(path: "cache/account-usage.sqlite")
         pricingResolver = CodexAPIPricingResolver(
             cacheURL: paths.applicationSupport.appending(path: "cache/model-pricing.json"))
@@ -192,6 +197,7 @@ final class AccountViewModel: ObservableObject {
     init(scenario: Scenario = .demo, demoPaths: ManagerPaths? = nil) {
         paths = demoPaths ?? DemoData.paths
         manager = nil
+        providerUsageCacheURL = nil
         usageCache = nil
         usageDatabaseURL = nil
         pricingResolver = nil
@@ -235,8 +241,10 @@ final class AccountViewModel: ObservableObject {
             }
         }
         await loadCachedUsage()
+        await loadProviderUsageCache()
         Task { await self.loadAPIPricing() }
         Task { await self.refreshAutomaticUsage() }
+        Task { await self.refreshProviderUsage() }
     }
 
     func reloadAfterActivation() async {
@@ -248,6 +256,7 @@ final class AccountViewModel: ObservableObject {
             await loadCachedUsage()
             Task { await self.loadAPIPricing() }
             Task { await self.refreshAutomaticUsage() }
+            Task { await self.refreshProviderUsage() }
         } catch {
             errorMessage = "Couldn’t refresh accounts. \(error.localizedDescription)"
         }
@@ -263,6 +272,7 @@ final class AccountViewModel: ObservableObject {
             await loadCachedUsage()
             Task { await self.loadAPIPricing() }
             await refreshDefaultUsage()
+            await refreshProviderUsage(accountIDs: providerUsageAccountIDs)
             return
         }
         #if AI_MANAGER_PREVIEW
@@ -281,7 +291,7 @@ final class AccountViewModel: ObservableObject {
         guard isDemo else { return }
         actionGeneration += 1
         self.scenario = scenario
-        let accounts = scenario == .empty ? [] : DemoData.accounts
+        let accounts = scenario == .empty ? [] : DemoData.accounts + DemoData.genericAccounts
         var defaultAccountIDs: [String: UUID] = [:]
         for account in accounts where defaultAccountIDs[account.identity.providerID.rawValue] == nil {
             defaultAccountIDs[account.identity.providerID.rawValue] = account.id
@@ -317,9 +327,11 @@ final class AccountViewModel: ObservableObject {
         accountHistory = Dictionary(uniqueKeysWithValues: accounts.map {
             ($0.id, HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true))
         })
-        usageSnapshots = Dictionary(uniqueKeysWithValues: accounts.enumerated().map { index, account in
-            (account.id, DemoData.usage(account: account, offset: index))
+        usageSnapshots = Dictionary(uniqueKeysWithValues: accounts.enumerated().compactMap { index, account in
+            account.identity.providerID == .codex
+                ? (account.id, DemoData.usage(account: account, offset: index)) : nil
         })
+        providerUsage = scenario == .empty ? [:] : DemoData.providerUsageStates
         accountUsage = [:]
         usageRefreshAccountID = nil
         usageError = nil
@@ -377,7 +389,7 @@ final class AccountViewModel: ObservableObject {
     func startAccountLogin() async {
         if let manager {
             let providerID = selectedProviderID
-            let providerName = providerID.displayName
+            let providerName = providerID.guiName
             await perform(
                 failure: "Couldn’t start sign-in.",
                 recovery: "Confirm that \(providerName) is installed, then try again."
@@ -389,18 +401,35 @@ final class AccountViewModel: ObservableObject {
                 if !pendingLoginSessions.contains(where: { $0.id == start.session.id }) {
                     pendingLoginSessions.append(start.session)
                 }
+                if start.opensInTerminal {
+                    // Switch never launches a generic sign-in itself: Terminal runs the saved command.
+                    let spec = ProviderCatalog.spec(providerID)
+                    let keys = ["HOME"] + (spec?.files.compactMap(\.homeEnv) ?? [])
+                        + (spec?.loginEnv.keys.sorted() ?? [])
+                    let script = try makeLaunchArtifact(
+                        start.launchSpec, name: "Sign In to Switch Account.command", exportKeys: keys)
+                    if paths.isolationRoot != nil {
+                        accountLoginMessage = "Sign-in file prepared for isolated validation. Terminal was not opened."
+                    } else {
+                        guard NSWorkspace.shared.open(script) else {
+                            throw AIManagerError.operationFailed(
+                                "Terminal could not open the \(providerName) sign-in file.")
+                        }
+                        accountLoginMessage = "Terminal opened. Finish signing in to \(providerName) there, then return here and choose Check Now."
+                    }
+                }
             }
             return
         }
         #if AI_MANAGER_PREVIEW
         guard isDemo else { reportUnavailable(); return }
         await perform {
-            guard selectedProviderID == .codex else {
+            guard selectedProviderID == .codex || ProviderCatalog.spec(selectedProviderID) != nil else {
                 throw AIManagerError.unsupportedSource("This provider is not available yet.")
             }
             let session = AccountLoginSession(
                 id: UUID(uuidString: "45A9767B-D942-41B6-88D8-2410E367B815")!,
-                providerID: .codex,
+                providerID: selectedProviderID,
                 createdAt: DemoData.now
             )
             accountLoginSession = session
@@ -416,7 +445,7 @@ final class AccountViewModel: ObservableObject {
     func checkAccountLogin(credentialChoice: ConflictChoice? = nil) async {
         guard let session = accountLoginSession else { return }
         if let manager {
-            let providerName = session.providerID.displayName
+            let providerName = session.providerID.guiName
             await perform(
                 failure: "Couldn’t complete sign-in.",
                 recovery: "Finish the \(providerName) sign-in and choose Check Now again."
@@ -432,12 +461,12 @@ final class AccountViewModel: ObservableObject {
                     selectedAccountID = account.id
                     pendingLoginSessions.removeAll { $0.id == session.id }
                     let name = account.identity.email ?? account.identity.accountID ?? "The account"
-                    let providerName = account.identity.providerID.displayName
+                    let providerName = account.identity.providerID.guiName
                     notice = status?.isDefault(account) == true
                         ? "New \(providerName) sessions will use \(name)."
                         : "\(name) was saved. Choose Use for New Sessions when you want to switch."
                     await loadCachedUsage()
-                    Task { await self.refreshUsage(accountID: account.id) }
+                    Task { await self.refreshAnyUsage(accountID: account.id) }
                 }
             }
             return
@@ -448,7 +477,9 @@ final class AccountViewModel: ObservableObject {
             accountLoginState = .completed
             accountLoginMessage = "Demo account access was saved in memory."
             pendingLoginSessions.removeAll { $0.id == session.id }
-            if let account = status?.accounts.first {
+            if session.providerID != .codex {
+                selectedAccountID = addDemoProviderAccount(session.providerID).id
+            } else if let account = status?.accounts.first {
                 selectedAccountID = account.id
             }
         }
@@ -498,6 +529,106 @@ final class AccountViewModel: ObservableObject {
         #else
         reportUnavailable()
         #endif
+    }
+
+    // MARK: Generic provider accounts
+
+    /// Environment variable that may prefill a credential field. Never read in Preview or in an
+    /// isolated validation run.
+    func environmentPrefill(for field: CredentialField) -> String? {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return nil }
+        #endif
+        guard paths.isolationRoot == nil else { return nil }
+        let environment = ProcessInfo.processInfo.environment
+        return field.env.lazy.compactMap { environment[$0] }
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// Saves typed credentials for a `.secret` provider. Returns true when the account was saved.
+    func addProviderAccount(providerID: ProviderID, fields: [String: String]) async -> Bool {
+        var saved = false
+        if let manager {
+            await perform(
+                failure: "Couldn’t save the account.",
+                recovery: "Check the credentials and try again."
+            ) {
+                let record = try await manager.addProviderAccount(providerID: providerID, fields: fields)
+                try await reloadStatus(using: manager)
+                finishProviderAccount(record)
+                saved = true
+            }
+        } else {
+            #if AI_MANAGER_PREVIEW
+            guard isDemo else { reportUnavailable(); return false }
+            await perform {
+                finishProviderAccount(addDemoProviderAccount(providerID))
+                saved = true
+            }
+            #else
+            reportUnavailable()
+            #endif
+        }
+        if saved, let id = selectedAccountID { Task { await self.refreshAnyUsage(accountID: id) } }
+        return saved
+    }
+
+    /// Saves the sign-in that the provider's own app or CLI currently holds.
+    func importLiveProviderAccount(providerID: ProviderID) async -> Bool {
+        var saved = false
+        if let manager {
+            await perform(
+                failure: "Couldn’t import the current sign-in.",
+                recovery: "Sign in with the official app or CLI, then try again."
+            ) {
+                let record = try await manager.importLiveProviderAccount(providerID: providerID)
+                try await reloadStatus(using: manager)
+                finishProviderAccount(record)
+                saved = true
+            }
+        } else {
+            #if AI_MANAGER_PREVIEW
+            guard isDemo else { reportUnavailable(); return false }
+            await perform {
+                finishProviderAccount(addDemoProviderAccount(providerID))
+                saved = true
+            }
+            #else
+            reportUnavailable()
+            #endif
+        }
+        if saved, let id = selectedAccountID { Task { await self.refreshAnyUsage(accountID: id) } }
+        return saved
+    }
+
+    /// Identity of the sign-in that the provider currently holds, read without changing anything.
+    func liveProviderIdentity(_ providerID: ProviderID) async -> CredentialIdentity? {
+        if let manager { return await manager.liveProviderIdentity(providerID: providerID) }
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return DemoData.liveIdentity(providerID) }
+        #endif
+        return nil
+    }
+
+    func openDashboard(_ url: URL) {
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            notice = "The dashboard opens in production. The browser was not opened from Preview."
+            return
+        }
+        #endif
+        if paths.isolationRoot != nil {
+            notice = "Dashboard link validated in isolation. The browser was not opened."
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func finishProviderAccount(_ record: AccountRecord) {
+        selectedAccountID = record.id
+        accountLoginState = .completed
+        accountLoginMessage = "\(record.identity.providerID.guiName) account was saved."
+        notice = nil
     }
 
     func discover(explicit: URL? = nil) async {
@@ -678,7 +809,7 @@ final class AccountViewModel: ObservableObject {
             guard let id = requestedID ?? selectedAccountID,
                   let providerID = status?.accounts.first(where: { $0.id == id })?
                     .identity.providerID else { return }
-            let providerName = providerID.displayName
+            let providerName = providerID.guiName
             await perform(
                 failure: "Couldn’t change the default account.",
                 recovery: "Resolve any item in Backup, then try again."
@@ -756,7 +887,7 @@ final class AccountViewModel: ObservableObject {
             guard let id = requestedID ?? selectedAccountID,
                   let providerID = status?.accounts.first(where: { $0.id == id })?
                     .identity.providerID else { return }
-            let providerName = providerID.displayName
+            let providerName = providerID.guiName
             await perform(
                 failure: "Couldn’t open \(providerName).",
                 recovery: "Check the saved account, then try again."
@@ -905,6 +1036,10 @@ final class AccountViewModel: ObservableObject {
                 accountUsage[accountID] = nil
                 usageSnapshots[accountID] = nil
                 retainedDailyUsage[accountID] = nil
+                if providerUsage[accountID] != nil {
+                    providerUsage[accountID] = nil
+                    persistProviderUsage()
+                }
                 if usageErrorAccountID == accountID {
                     usageError = nil
                     usageErrorAccountID = nil
@@ -930,6 +1065,7 @@ final class AccountViewModel: ObservableObject {
             accountHistory[accountID] = nil
             accountUsage[accountID] = nil
             usageSnapshots[accountID] = nil
+            providerUsage[accountID] = nil
             if selectedAccountID == accountID {
                 selectedAccountID = current.firstDefaultAccountID ?? current.accounts.first?.id
             }
@@ -1069,6 +1205,23 @@ final class AccountViewModel: ObservableObject {
     }
 
     #if AI_MANAGER_PREVIEW
+    /// Adds (or reuses) a synthetic saved account for a generic provider.
+    func addDemoProviderAccount(_ providerID: ProviderID) -> AccountRecord {
+        guard var current = status else { preconditionFailure("Demo status is missing") }
+        if let existing = current.accounts.first(where: { $0.identity.providerID == providerID }) {
+            return existing
+        }
+        let record = DemoData.genericAccount(providerID)
+        current.accounts.append(record)
+        if current.defaultAccountID(for: providerID) == nil {
+            current.setDefaultAccountID(record.id, for: providerID)
+        }
+        status = current
+        providerUsage[record.id] = ProviderUsageState(
+            usage: DemoData.providerUsage(for: providerID, offset: 0), checkedAt: DemoData.now)
+        return record
+    }
+
     func showDemoError() {
         guard isDemo else { return }
         errorMessage = "The selected account needs sign-in before it can be opened."
@@ -1176,6 +1329,128 @@ final class AccountViewModel: ObservableObject {
             usageError = CodexUsageStatisticsFailure.storageUnavailable.message
             usageErrorAccountID = nil
         }
+    }
+
+    // MARK: Generic provider usage
+
+    var providerUsageAccountIDs: [UUID] {
+        status?.accounts.filter { $0.identity.providerID != .codex }.map(\.id) ?? []
+    }
+
+    private func setProviderUsage(_ id: UUID, _ state: ProviderUsageState?) {
+        if providerUsage[id] != state { providerUsage[id] = state }
+    }
+
+    /// Shows the last good values before the first network check finishes.
+    func loadProviderUsageCache() async {
+        guard let url = providerUsageCacheURL, !providerUsageCacheLoaded else { return }
+        providerUsageCacheLoaded = true
+        let cached = await Task.detached(priority: .utility) { ProviderUsageCache.load(from: url) }.value
+        let known = Set(providerUsageAccountIDs)
+        var merged = providerUsage
+        for (id, usage) in cached where known.contains(id) && merged[id] == nil {
+            merged[id] = ProviderUsageState(usage: usage, checkedAt: usage.fetchedAt)
+        }
+        if merged != providerUsage { providerUsage = merged }
+    }
+
+    /// Automatic pass: only accounts that are due. `onCadence` is the fixed timer tick.
+    func refreshProviderUsage(onCadence: Bool = false) async {
+        let due = providerUsageAccountIDs.filter {
+            ProviderUsagePolicy.isDue(providerUsage[$0], onCadence: onCadence)
+        }
+        await runProviderUsage(due)
+    }
+
+    /// Manual refresh: immediate, ignoring age and the failure cooldown.
+    func refreshProviderUsage(accountIDs: [UUID]) async {
+        await runProviderUsage(accountIDs.filter { providerUsage[$0]?.isRefreshing != true })
+    }
+
+    func refreshProviderUsage(accountID: UUID) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            notice = "Demo usage is illustrative. No provider was contacted."
+            return
+        }
+        #endif
+        await refreshProviderUsage(accountIDs: [accountID])
+    }
+
+    /// Refreshes one saved account with the pipeline of its provider.
+    func refreshAnyUsage(accountID: UUID) async {
+        if status?.accounts.first(where: { $0.id == accountID })?.identity.providerID == .codex {
+            await refreshUsage(accountID: accountID)
+        } else {
+            await refreshProviderUsage(accountID: accountID)
+        }
+    }
+
+    private func runProviderUsage(_ requested: [UUID]) async {
+        let known = Set(providerUsageAccountIDs)
+        let ids = requested.filter(known.contains)
+        guard !ids.isEmpty, paths.isolationRoot == nil, let manager else { return }
+        for id in ids {
+            var state = providerUsage[id] ?? ProviderUsageState()
+            state.isRefreshing = true
+            setProviderUsage(id, state)
+        }
+        await withTaskGroup(of: (UUID, Result<ProviderUsage, Error>).self) { group in
+            var pending = ids[...]
+            func launch(_ id: UUID) {
+                group.addTask { await Self.fetchProviderUsage(manager, id) }
+            }
+            for _ in 0..<min(ProviderUsagePolicy.maxConcurrent, ids.count) {
+                if let id = pending.popFirst() { launch(id) }
+            }
+            while let (id, result) = await group.next() {
+                applyProviderUsage(id, result)
+                if let next = pending.popFirst() { launch(next) }
+            }
+        }
+        persistProviderUsage()
+    }
+
+    nonisolated private static func fetchProviderUsage(
+        _ manager: AccountManager, _ id: UUID
+    ) async -> (UUID, Result<ProviderUsage, Error>) {
+        do {
+            let usage = try await ProviderUsageCache.withTimeout(ProviderUsagePolicy.fetchTimeout) {
+                try await manager.readProviderUsage(accountID: id)
+            }
+            return (id, .success(usage))
+        } catch {
+            return (id, .failure(error))
+        }
+    }
+
+    private func applyProviderUsage(_ id: UUID, _ result: Result<ProviderUsage, Error>) {
+        guard providerUsageAccountIDs.contains(id) else {
+            providerUsage[id] = nil
+            return
+        }
+        var state = providerUsage[id] ?? ProviderUsageState()
+        state.isRefreshing = false
+        state.checkedAt = Date()
+        switch result {
+        case .success(let usage):
+            state.usage = usage
+            state.error = nil
+            state.needsSignIn = false
+        case .failure(let error):
+            let failure = ProviderUsagePolicy.failure(error)
+            state.error = failure.message
+            state.needsSignIn = failure.needsSignIn
+            // Stale numbers never sit beside a sign-in request.
+            if failure.needsSignIn { state.usage = nil }
+        }
+        setProviderUsage(id, state)
+    }
+
+    private func persistProviderUsage() {
+        guard let url = providerUsageCacheURL else { return }
+        let snapshot = providerUsage.compactMapValues(\.usage)
+        Task.detached(priority: .utility) { try? ProviderUsageCache.save(snapshot, to: url) }
     }
 
     private func loadCachedUsage() async {
@@ -1677,16 +1952,18 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    private func makeLaunchArtifact(_ spec: LaunchSpec) throws -> URL {
+    private func makeLaunchArtifact(
+        _ spec: LaunchSpec, name: String = "Open Switch Account.command", exportKeys: [String]? = nil
+    ) throws -> URL {
         let directory = paths.applicationSupport.appending(path: "Launch", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
-        let url = directory.appending(path: "Open Switch Account.command")
-        var exports = ["CODEX_HOME", "GROK_HOME", "CLAUDE_CONFIG_DIR"].compactMap { key in
+        let url = directory.appending(path: name)
+        var exports = (exportKeys ?? ["CODEX_HOME", "GROK_HOME", "CLAUDE_CONFIG_DIR"]).compactMap { key in
             spec.environment[key].map { "export \(key)=\(shellQuote($0))" }
         }
-        if paths.isolationRoot != nil, let home = spec.environment["HOME"] {
+        if exportKeys == nil, paths.isolationRoot != nil, let home = spec.environment["HOME"] {
             exports.append("export HOME=\(shellQuote(home))")
         }
         let command = ([spec.executable.path] + spec.arguments).map(shellQuote).joined(separator: " ")
@@ -1712,8 +1989,114 @@ final class AccountViewModel: ObservableObject {
 }
 
 #if AI_MANAGER_PREVIEW
-private enum DemoData {
+enum DemoData {
     static let now = Date(timeIntervalSince1970: 1_789_281_000)
+
+    // Synthetic generic-provider accounts: no credential, no network.
+    static let genericAccounts: [AccountRecord] = [
+        genericAccount(ProviderID(rawValue: "openrouter")),
+        genericAccount(.geminiCLI),
+        genericAccount(ProviderID(rawValue: "cursor")),
+        genericAccount(ProviderID(rawValue: "zai")),
+    ]
+
+    static func genericAccount(_ providerID: ProviderID) -> AccountRecord {
+        let email: String?
+        let key: String
+        switch providerID.rawValue {
+        case "openrouter": (email, key) = (nil, "or-9f3a1c27d84e")
+        case "gemini-cli": (email, key) = ("ada.lovelace@example.test", "gemini-ada")
+        case "cursor": (email, key) = ("grace.hopper@example.test", "cursor-grace")
+        case "zai": (email, key) = (nil, "zai-71b0e55c09aa")
+        default: (email, key) = (nil, "demo-\(providerID.rawValue)-5d2f")
+        }
+        let spec = ProviderCatalog.spec(providerID)
+        // Stable identifiers so the checks and screenshots can name these accounts.
+        let literal: String? = [
+            "openrouter": "0E0A1001-7F3A-4C27-9D84-5B1E2A6C0001",
+            "gemini-cli": "0E0A1002-7F3A-4C27-9D84-5B1E2A6C0002",
+            "cursor": "0E0A1003-7F3A-4C27-9D84-5B1E2A6C0003",
+            "zai": "0E0A1004-7F3A-4C27-9D84-5B1E2A6C0004",
+        ][providerID.rawValue]
+        let digest = literal.flatMap(UUID.init(uuidString:)) ?? UUID()
+        return AccountRecord(
+            id: digest,
+            identity: AccountIdentity(
+                providerID: providerID, email: email, userID: key,
+                authMode: spec?.style == .files ? .oauth : .apiKey),
+            credentialFile: URL(fileURLWithPath: "/Demo/.switch/\(providerID.rawValue)/\(digest.uuidString).json"),
+            home: URL(fileURLWithPath: "/Demo/Accounts/\(providerID.rawValue)", isDirectory: true),
+            source: URL(fileURLWithPath: "/Demo/Sources/\(providerID.rawValue)", isDirectory: true),
+            importedAt: now.addingTimeInterval(-3 * 86_400),
+            verification: VerificationResult(
+                state: .verifiedLocally, checkedAt: now,
+                detail: "Saved locally. Usage has not been checked yet."),
+            lastUsedAt: nil, credentialDigest: "demo-\(providerID.rawValue)-credential")
+    }
+
+    static func liveIdentity(_ providerID: ProviderID) -> CredentialIdentity? {
+        switch providerID.rawValue {
+        case "gemini-cli": CredentialIdentity(key: "gemini-ada", email: "ada.lovelace@example.test")
+        case "cursor": CredentialIdentity(key: "cursor-grace", email: "grace.hopper@example.test", plan: "Pro")
+        case "windsurf", "kiro": nil
+        default: CredentialIdentity(key: "demo-live-5d2f", email: "demo.user@example.test")
+        }
+    }
+
+    /// Usage whose resets are relative to the real clock, so countdowns and pace stay lifelike.
+    static var providerUsageStates: [UUID: ProviderUsageState] {
+        var result: [UUID: ProviderUsageState] = [:]
+        for (offset, account) in genericAccounts.enumerated() {
+            let providerID = account.identity.providerID
+            var state = ProviderUsageState(
+                usage: providerUsage(for: providerID, offset: offset), checkedAt: Date())
+            if providerID.rawValue == "zai" {
+                state.error = "The provider is rate limiting usage checks. Switch will retry later."
+            }
+            result[account.id] = state
+        }
+        return result
+    }
+
+    static func providerUsage(for providerID: ProviderID, offset: Int) -> ProviderUsage {
+        let now = Date()
+        func window(_ id: String, _ title: String, used: Double, minutes: Int, resetsIn: TimeInterval,
+                    detail: String? = nil) -> UsageWindow {
+            UsageWindow(id: id, title: title, usedPercent: used, resetsAt: now.addingTimeInterval(resetsIn),
+                        windowMinutes: minutes, detail: detail)
+        }
+        switch providerID.rawValue {
+        case "openrouter":
+            return ProviderUsage(
+                cost: UsageCost(used: 37.6, balance: 12.4, currency: "USD", period: "This month"),
+                sections: [UsageSection("Key", [UsageRow("Label", "dev-laptop"), UsageRow("Free tier", "No")])],
+                fetchedAt: now.addingTimeInterval(-90))
+        case "gemini-cli":
+            return ProviderUsage(
+                windows: [
+                    window("pro", "Pro models", used: 62, minutes: 1_440, resetsIn: 10 * 3_600,
+                           detail: "620 / 1,000 requests"),
+                    window("flash", "Flash models", used: 18, minutes: 1_440, resetsIn: 10 * 3_600,
+                           detail: "180 / 1,000 requests"),
+                ],
+                plan: "Code Assist", email: "ada.lovelace@example.test", fetchedAt: now.addingTimeInterval(-150))
+        case "cursor":
+            return ProviderUsage(
+                windows: [window("requests", "Included requests", used: 66, minutes: 43_200,
+                                 resetsIn: 9 * 86_400 + 2 * 3_600, detail: "330 / 500 requests")],
+                cost: UsageCost(used: 4.1, limit: 50, balance: 18.25, currency: "USD", period: "This cycle"),
+                sections: [UsageSection("Plan", [UsageRow("Seats", "1"), UsageRow("On-demand", "Enabled")])],
+                plan: "Pro", email: "grace.hopper@example.test", fetchedAt: now.addingTimeInterval(-240))
+        default:
+            return ProviderUsage(
+                windows: [
+                    window("session", "Session", used: 24, minutes: 300, resetsIn: 2 * 3_600 + 20 * 60),
+                    window("weekly", "Weekly", used: 38, minutes: 10_080, resetsIn: 3 * 86_400 + 4 * 3_600),
+                ],
+                plan: "Coding Plan", fetchedAt: now.addingTimeInterval(-780))
+        }
+    }
+
     static let paths = ManagerPaths(
         applicationSupport: URL(fileURLWithPath: "/Switch Demo", isDirectory: true),
         defaultHome: URL(fileURLWithPath: "/Demo/Codex", isDirectory: true),
