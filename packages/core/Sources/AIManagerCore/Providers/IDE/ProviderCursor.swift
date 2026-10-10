@@ -133,6 +133,7 @@ enum CursorUsage {
 
     /// Today, Yesterday and Last 30 days from the usage events the Cursor dashboard lists, newest first.
     /// ponytail: at most 5 pages of 1000 events; a period the pages do not reach is left out, not guessed.
+    /// Page further, or use Cursor's aggregate endpoint, if heavy users see missing days.
     static func spendSection(cookie: [String: String], now: Date = Date()) async -> MajorsSpend.Report? {
         let calendar = Calendar.current
         let start = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now)) ?? now
