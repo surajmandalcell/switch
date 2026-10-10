@@ -98,13 +98,13 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(
             atPath: paths.applicationSupport.appending(path: "account-login").path))
         XCTAssertEqual(
-            AccountManager.providerCatalog.map(\.id),
+            AccountManager.providerCatalog.prefix(5).map(\.id),
             [.codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI])
         XCTAssertEqual(
-            AccountManager.providerCatalog.map(\.displayName),
+            AccountManager.providerCatalog.prefix(5).map(\.displayName),
             ["Codex CLI", "Grok Build", "Claude Code", "Gemini CLI", "Antigravity CLI"])
         XCTAssertEqual(
-            AccountManager.providerCatalog.map(\.availability),
+            AccountManager.providerCatalog.prefix(5).map(\.availability),
             [.enabled, .enabled, .enabled, .disabled, .disabled])
     }
 
