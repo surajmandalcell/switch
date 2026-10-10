@@ -24,13 +24,21 @@ extension ProviderCatalog {
             }
             let now = Int(Date().timeIntervalSince1970)
             async let account = try? OllamaUsage.send(key, "POST", "/api/me", ts: now)
-            let response = try await OllamaUsage.send(key, "GET", "/api/usage", ts: now)
-            if response.status == 401 || response.status == 403 {
+            async let activity = try? OllamaUsage.send(key, "GET", "/api/usage", ts: now)
+            // /api/balance is the documented source (monthly credits, legacy session and weekly limits,
+            // purchased credits). /api/usage adds the four-week spend and is the fallback.
+            let balance = try await OllamaUsage.send(key, "GET", "/api/balance", ts: now)
+            let me = await account.flatMap { $0.status == 200 ? try? $0.json() : nil }
+            let spend = await activity.flatMap { $0.status == 200 ? try? $0.json() : nil }
+            if balance.status == 401 || balance.status == 403 {
                 throw ProviderError.unauthorized("Not signed in to Ollama Cloud. Run ollama signin.")
             }
-            try HTTP.check(response)
-            let me = await account.flatMap { $0.status == 200 ? try? $0.json() : nil }
-            return try OllamaUsage.map(response.json(), account: me)
+            if (200..<300).contains(balance.status), let json = try? balance.json(),
+               json["included"].exists || json["purchased"].exists {
+                return try OllamaUsage.map(balance: json, usage: spend, account: me)
+            }
+            guard let spend else { try HTTP.check(balance); throw ProviderError.parse("Ollama returned no usage limits.") }
+            return try OllamaUsage.map(spend, account: me)
         })
 }
 
@@ -52,6 +60,42 @@ enum OllamaUsage {
         let uri = "\(path)?ts=\(ts)"
         return try await HTTP.send("https://ollama.com\(uri)", method: method,
                                    headers: ["Authorization": try authorization(key, method: method, requestURI: uri)])
+    }
+
+    /// Current plans carry a monthly dollar allowance; legacy plans keep session and weekly limits as
+    /// percent REMAINING. `purchased.balance_usd` is the extra credit used after the allowance runs out.
+    /// `usage` (`/api/usage`) only adds the four-week spend and fills limits that `balance` lacks.
+    static func map(balance: JSON, usage: JSON?, account: JSON?) throws -> ProviderUsage {
+        let included = balance["included"]
+        var windows: [UsageWindow] = []
+        for (id, title, minutes) in [("session", "Session", 300), ("weekly", "Weekly", 10_080)] {
+            guard let remaining = included[id]["remaining_percent"].double else { continue }
+            let reset = included[id]["resets_at"].date
+            windows.append(UsageWindow(id: id, title: title, usedPercent: 100 - remaining, resetsAt: reset,
+                                       windowMinutes: reset == nil ? nil : minutes))
+        }
+        var cost: UsageCost?
+        let purchased = balance.at("purchased.balance_usd").double.map { max(0, $0) }
+        if let allowance = included["allowance_usd"].double, allowance > 0, let left = included["balance_usd"].double {
+            let used = min(allowance, max(0, allowance - left))
+            let from = included.at("period.from").date, until = included.at("period.until").date
+            let minutes = from.flatMap { start in until.map { Int($0.timeIntervalSince(start) / 60) } }.flatMap { $0 > 0 ? $0 : nil }
+            var monthly = UsageWindow.amounts(id: "monthly", title: "Monthly", used: used, limit: allowance,
+                                              resetsAt: until, windowMinutes: minutes ?? 43_200)
+            monthly?.detail = "\(Fmt.money(used)) / \(Fmt.money(allowance))"
+            windows += monthly.map { [$0] } ?? []
+            cost = UsageCost(used: used, limit: allowance, balance: purchased, period: "Monthly credits", resetsAt: until)
+        } else if let purchased {
+            cost = UsageCost(balance: purchased)
+        }
+        guard !windows.isEmpty || cost != nil else { throw ProviderError.parse("Ollama returned no usage limits.") }
+        var sections: [UsageSection] = []
+        if let spend = usage?.at("activity.cost").double {
+            sections.append(UsageSection(nil, [UsageRow("Cost, last 4 weeks", Fmt.money(spend))]))
+        }
+        let plan = (account?["Plan"].string ?? account?["plan"].string)?.capitalized
+        return ProviderUsage(windows: windows, cost: cost, sections: sections, plan: plan,
+                             email: account?["Email"].string ?? account?["email"].string)
     }
 
     static func map(_ usage: JSON, account: JSON?) throws -> ProviderUsage {
