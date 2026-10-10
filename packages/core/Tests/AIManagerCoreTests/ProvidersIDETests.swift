@@ -256,6 +256,13 @@ final class ProvidersIDETests: XCTestCase {
 
     // MARK: Windsurf
 
+    func testWindsurfProtoRejectsOversizedLengths() {
+        // Field 1, wire type 2, then a 10-byte varint length of UInt64.max.
+        let hostile = Data([0x0A] + [UInt8](repeating: 0xFF, count: 9) + [0x01])
+        XCTAssertThrowsError(try WindsurfProto.fields(hostile))
+        XCTAssertThrowsError(try WindsurfProto.fields(Data([0x0A, 0x05, 0x01])))
+    }
+
     func testWindsurfProtoRoundTrip() throws {
         let request = WindsurfProto.encodeRequest(authToken: "tok")
         let decoded = try WindsurfProto.fields(request)
