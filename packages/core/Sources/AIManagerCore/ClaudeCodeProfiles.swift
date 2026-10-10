@@ -313,6 +313,13 @@ struct ClaudeCodeProfiles {
         "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_AWS_API_KEY", "ANTHROPIC_BASE_URL",
         "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+        // Links to a parent Claude Code or agent session. When Switch itself was started from one,
+        // a child that inherits them waits on that session and never draws its screen.
+        "CLAUDECODE", "CLAUDE_PID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_EFFORT", "ORCA_AGENT_SESSION_ID",
+        "ORCA_AGENT_SESSION_SPAWN_TOKEN", "ORCA_STRUCTURED_SESSION",
     ]
 
     private func launchSpec(executable: URL, home: URL, arguments: [String]) -> LaunchSpec {
@@ -632,6 +639,10 @@ extension ClaudeCodeProfiles {
         do { result = .success(try await fetchUsage(accountID)) } catch is CancellationError {
             throw CancellationError()
         } catch { result = .failure(error) }
+        // A blocked start clears as soon as the owner allows access, so it is not cached.
+        if case .failure(let error) = result, error as? ProviderError == ClaudeUsageProbe.silentStart {
+            return try result.get()
+        }
         Self.usageCache.store(accountID, result)
         return try result.get()
     }

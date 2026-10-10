@@ -145,6 +145,29 @@ final class ClaudeProbeTextTests: XCTestCase {
 
     // MARK: Probe
 
+    func testSilentClaudeReportsThePermissionHintWithoutRetrying() async throws {
+#if !os(macOS)
+        throw XCTSkip("The Claude Code usage probe needs a macOS pseudo terminal.")
+#endif
+        let root = FileManager.default.temporaryDirectory.appending(path: "claude-silent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runs = root.appending(path: "runs.txt")
+        let claude = root.appending(path: "claude")
+        // Like a child blocked on a privacy prompt: it starts and prints nothing.
+        try "#!/bin/sh\necho run >> '\(runs.path)'\nexec sleep 60\n".write(to: claude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
+        do {
+            _ = try await ClaudeUsageProbe.run(configDir: root.appending(path: "cfg"), executable: claude,
+                                               environment: ["PATH": "/usr/bin:/bin"],
+                                               workingDirectory: root.appending(path: "cwd"), timeout: 2)
+            XCTFail("A silent start must fail")
+        } catch {
+            XCTAssertEqual(error as? ProviderError, ClaudeUsageProbe.silentStart)
+        }
+        XCTAssertEqual(try String(contentsOf: runs, encoding: .utf8), "run\n", "no second attempt")
+    }
+
     func testProbeRunsAgainWhenTheFirstPanelHasNoSessionRow() async throws {
 #if !os(macOS)
         throw XCTSkip("The Claude Code usage probe needs a macOS pseudo terminal.")
