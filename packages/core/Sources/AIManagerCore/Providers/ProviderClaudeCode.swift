@@ -147,16 +147,23 @@ enum ClaudeUsage {
             }
             sections = [UsageSection("Rate limit resets", rows)]
         }
+        if let enabled = extra["is_enabled"].bool {
+            sections.append(UsageSection("Usage credits", [UsageRow("Status", enabled ? "On" : "Off")]))
+        }
         return ProviderUsage(windows: windows, cost: cost, sections: sections, plan: plan(credentials))
     }
 
     /// "Max 20x" from the credentials `subscriptionType` and `rateLimitTier`.
     static func plan(_ credentials: JSON?) -> String? {
         let oauth = (credentials ?? JSON(nil))["claudeAiOauth"]
-        guard let type = oauth["subscriptionType"].string else { return nil }
+        return planName(type: oauth["subscriptionType"].string, tier: oauth["rateLimitTier"].string)
+    }
+
+    /// "Max 5x" from "max" and a tier such as "default_claude_max_5x".
+    static func planName(type: String?, tier: String?) -> String? {
+        guard let type, !type.isEmpty else { return nil }
         var plan = type.prefix(1).uppercased() + type.dropFirst()
-        if let tier = oauth["rateLimitTier"].string,
-           let multiplier = tier.range(of: #"\d+x"#, options: .regularExpression) {
+        if let tier, let multiplier = tier.range(of: #"\d+x"#, options: .regularExpression) {
             plan += " " + tier[multiplier]
         }
         return plan
@@ -169,48 +176,25 @@ enum ClaudeUsage {
     // MARK: `/usage` panel text
 
     /// Lower-case letters and digits only, so spacing lost to terminal redraws never breaks a match.
-    private static func squash(_ text: String) -> String {
+    static func squash(_ text: String) -> String {
         String(text.lowercased().unicodeScalars.filter(CharacterSet.alphanumerics.contains))
-    }
-
-    private static let escapes = try! NSRegularExpression(
-        pattern: #"\u001B(?:\[([0-?]*)[ -/]*([@-~])|\][\s\S]*?(?:\u0007|\u001B\\)|[()#][ -~]|[@-Z\\-_])"#)
-
-    // ponytail: no cursor-addressed screen replay (CodexBar's ClaudeCLIScreen); port it if redraws garble /usage text.
-    /// Removes terminal escapes; cursor moves become spaces or line breaks so rows stay apart.
-    static func stripANSI(_ text: String) -> String {
-        let source = text as NSString
-        var result = ""
-        var last = 0
-        for match in escapes.matches(in: text, range: NSRange(location: 0, length: source.length)) {
-            result += source.substring(with: NSRange(location: last, length: match.range.location - last))
-            last = match.range.location + match.range.length
-            guard match.range(at: 2).location != NSNotFound else { continue }
-            let final = source.substring(with: match.range(at: 2))
-            let amount = Int(source.substring(with: match.range(at: 1))) ?? 1
-            if final == "C" { result += String(repeating: " ", count: min(amount, 200)) }
-            if ["B", "E", "H", "f"].contains(final) { result += "\n" }
-        }
-        result += source.substring(from: last)
-        return result.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
     /// True when the latest `❯` selection marker in a trust prompt points at a "No" option.
     static func trustSelectionIsNo(_ text: String) -> Bool {
-        let plain = stripANSI(text)
+        let plain = ClaudeTerminalScreen.render(text)
         guard let marker = plain.range(of: "❯", options: .backwards) else { return false }
         let line = plain[marker.upperBound...].prefix { $0 != "\n" }
         return line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("no")
     }
 
-    /// True once the panel shows a Current session value, or says the account has no quota.
-    static func panelIsComplete(_ text: String) -> Bool {
-        let flat = squash(stripANSI(text))
-        let quota = flat.components(separatedBy: "whatscontributingtoyourlimitsusage").first ?? flat
-        if let label = quota.range(of: "currentsession"), quota[label.upperBound...].contains(where: { $0.isNumber }),
-           stripANSI(text).range(of: #"[0-9]{1,3}(?:\.[0-9]+)?\s*%"#, options: .regularExpression) != nil {
-            return true
-        }
+    /// True once the panel shows both a Current session and a Current week value, or says why it has none.
+    static func panelIsComplete(_ text: String) -> Bool { isComplete(rendered: ClaudeTerminalScreen.render(text)) }
+
+    static func isComplete(rendered: String) -> Bool {
+        let ids = Set(windows(rendered: rendered, now: Date()).map(\.id))
+        if ids.contains("session") && ids.contains("weekly") { return true }
+        let flat = squash(rendered)
         return flat.contains("failedtoloadusagedata")
             || (flat.contains("currentlyusingyoursubscription") && flat.contains("claudecodeusage"))
     }
@@ -265,7 +249,12 @@ enum ClaudeUsage {
 
     /// Parses the text of Claude Code's `/usage` panel (ported from CodexBar's ClaudeStatusProbe).
     static func parseUsageText(_ raw: String, now: Date = Date()) throws -> ProviderUsage {
-        let lines = stripANSI(raw).components(separatedBy: "\n")
+        try parse(rendered: ClaudeTerminalScreen.render(raw), now: now)
+    }
+
+    /// The quota windows on a rendered panel: Session first, then Weekly, then each model row.
+    static func windows(rendered: String, now: Date) -> [UsageWindow] {
+        let lines = rendered.components(separatedBy: "\n")
         let starts = lines.indices.filter { label(lines[$0]) != nil }
         var order: [String] = []
         var rows: [String: UsageWindow] = [:]
@@ -276,6 +265,7 @@ enum ClaudeUsage {
             var used: Double?
             var reset: String?
             for line in lines[start..<end] {
+                if used != nil, line.allSatisfy(\.isWhitespace) { break } // a blank line ends the row
                 used = used ?? percentUsed(line)
                 reset = reset ?? resetText(line)
             }
@@ -287,10 +277,14 @@ enum ClaudeUsage {
             rows[info.key] = .init(id: info.key, title: info.title, usedPercent: used,
                                    resetsAt: reset.flatMap { resetDate($0, now: now) }, windowMinutes: info.minutes)
         }
-        let windows = (["session", "weekly"] + order).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        return (["session", "weekly"] + order).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
             .compactMap { rows[$0] }
+    }
+
+    static func parse(rendered: String, now: Date) throws -> ProviderUsage {
+        let windows = windows(rendered: rendered, now: now)
         guard !windows.isEmpty else {
-            let flat = squash(stripANSI(raw))
+            let flat = squash(rendered)
             if flat.contains("failedtoloadusagedata") || flat.contains("loadingusage") {
                 throw ProviderError.unavailable("Claude Code could not load usage data.")
             }
@@ -299,7 +293,29 @@ enum ClaudeUsage {
             }
             throw ProviderError.parse("Claude Code did not show a usage panel.")
         }
-        return ProviderUsage(windows: windows, fetchedAt: now)
+        // The header names the plan: "Opus 5.5 with xhigh effort · Claude Max".
+        let plan = rendered.range(of: #"·\s*Claude (Max|Pro|Team|Enterprise)\b"#, options: .regularExpression)
+            .map { String(rendered[$0].split(separator: " ").last ?? "") }
+        return ProviderUsage(windows: windows, sections: [usageCredits(rendered: rendered)].compactMap { $0 },
+                             plan: plan, fetchedAt: now)
+    }
+
+    /// The panel's last block: "Usage credits" and a line such as "Usage credits are off · /usage-credits to turn
+    /// them on". Any other text on that line (amounts, limits) is kept as it is shown.
+    static func usageCredits(rendered: String) -> UsageSection? {
+        let lines = rendered.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let heading = lines.lastIndex(where: { $0.lowercased() == "usage credits" }),
+              let line = lines[(heading + 1)...].first(where: { !$0.isEmpty }),
+              !line.lowercased().hasPrefix("esc ") else { return nil }
+        let parts = line.components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("/usage-credits") }
+        let off = line.range(of: #"(?i)\b(are|is) off\b|\bdisabled\b"#, options: .regularExpression) != nil
+        var rows = [UsageRow("Status", off ? "Off" : "On")]
+        // "Usage credits are on" only repeats the state; any other text is detail the panel gave.
+        for part in parts where part.range(of: #"(?i)^usage credits (are|is) (on|off)$"#, options: .regularExpression) == nil {
+            rows.append(UsageRow(part.contains(where: \.isNumber) ? "Amount" : "Detail", part))
+        }
+        return UsageSection("Usage credits", rows)
     }
 
     /// Reset texts such as "Resets 5am (Europe/Vienna)", "Resets Dec 2 at 12am", "Resets 9:30pm".
@@ -351,8 +367,29 @@ enum ClaudeUsage {
 enum ClaudeUsageProbe {
     /// Opens Claude Code in a pseudo terminal for one config dir, types `/usage`, and parses the panel.
     /// Runs without tools, hooks or MCP servers, in a private empty folder, and always kills the child.
+    /// An attempt that ends without a Session row is repeated once; the second result is kept as is.
     static func run(configDir: URL, executable: URL, environment: [String: String]? = nil,
                     workingDirectory: URL? = nil, timeout: TimeInterval = 25) async throws -> ProviderUsage {
+        var first: ProviderUsage?
+        do {
+            let usage = try await attempt(configDir: configDir, executable: executable, environment: environment,
+                                          workingDirectory: workingDirectory, timeout: timeout)
+            if usage.windows.contains(where: { $0.id == "session" }) { return usage }
+            first = usage
+        } catch let error as ProviderError {
+            guard case .unavailable = error else { throw error }
+        }
+        do {
+            return try await attempt(configDir: configDir, executable: executable, environment: environment,
+                                     workingDirectory: workingDirectory, timeout: timeout)
+        } catch {
+            if let first { return first }
+            throw error
+        }
+    }
+
+    private static func attempt(configDir: URL, executable: URL, environment: [String: String]?,
+                                workingDirectory: URL?, timeout: TimeInterval) async throws -> ProviderUsage {
 #if canImport(Darwin)
         let fileManager = FileManager.default
         let directory = workingDirectory
@@ -366,7 +403,8 @@ enum ClaudeUsageProbe {
 
         var primary: Int32 = -1
         var secondary: Int32 = -1
-        var size = winsize(ws_row: 100, ws_col: 160, ws_xpixel: 0, ws_ypixel: 0)
+        var size = winsize(ws_row: UInt16(ClaudeTerminalScreen.defaultRows), ws_col: UInt16(ClaudeTerminalScreen.defaultColumns),
+                           ws_xpixel: 0, ws_ypixel: 0)
         guard openpty(&primary, &secondary, nil, nil, &size) == 0 else {
             throw ProviderError.unavailable("Claude Code could not be started.")
         }
@@ -415,78 +453,89 @@ enum ClaudeUsageProbe {
 
         let start = Date()
         let deadline = start.addingTimeInterval(timeout)
-        var buffer = Data()
-        var screen = ""
+        // Every byte goes through a virtual screen; the panel is read from the rendered rows, never the stream.
+        var screen = ClaudeTerminalScreen()
+        var text = ""
+        var flat = ""
+        var received = 0
+        var complete = false
         var lastOutput = start
         var lastEnter = start
         var lastTrust = Date.distantPast
         var trustKeys = 0
         var commandSent = false
         var enters = 0
-        var stopAt: Date?
+        var completeSince: Date?
+        func take(_ chunk: Data) {
+            screen.feed(chunk)
+            text = screen.text
+            flat = ClaudeUsage.squash(text)
+            complete = commandSent && ClaudeUsage.isComplete(rendered: text)
+        }
         while Date() < deadline {
             try Task.checkCancellation()
             let chunk = drain()
             if !chunk.isEmpty {
-                buffer.append(chunk)
-                guard buffer.count < 4_000_000 else { throw ProviderError.unavailable("Claude Code printed too much.") }
+                received += chunk.count
+                guard received < 8_000_000 else { throw ProviderError.unavailable("Claude Code printed too much.") }
                 lastOutput = Date()
-                screen = String(decoding: buffer, as: UTF8.self)
+                take(chunk)
                 // Terminal UIs ask where the cursor is and wait for the answer.
                 if chunk.range(of: Data([0x1B, 0x5B, 0x36, 0x6E])) != nil { send("\u{1B}[1;1R") }
             }
             let now = Date()
-            let flat = String(ClaudeUsage.stripANSI(screen).lowercased().unicodeScalars
-                .filter(CharacterSet.alphanumerics.contains))
             // Our private folder is new to Claude Code: accept its trust question. Current versions
             // preselect "No, exit", so move the selection to the Yes option before confirming.
             let asksTrust = ["doyoutrust", "trustthisfolder", "trustthefiles", "quicksafetycheck"].contains(where: flat.contains)
             if asksTrust {
                 if trustKeys < 4, now.timeIntervalSince(lastTrust) >= 1, now.timeIntervalSince(lastOutput) >= 0.3 {
-                    if ClaudeUsage.trustSelectionIsNo(screen) {
+                    if ClaudeUsage.trustSelectionIsNo(text) {
                         send("\u{1B}[B")
                     } else {
                         send("\r")
                         // Start fresh so the answered prompt no longer reads as pending.
-                        buffer.removeAll()
-                        screen = ""
+                        screen = ClaudeTerminalScreen()
+                        text = ""
+                        flat = ""
+                        received = 0
                         lastOutput = now
                     }
                     trustKeys += 1
                     lastTrust = now
                 }
             } else if !commandSent,
-                      (!buffer.isEmpty && now.timeIntervalSince(lastOutput) >= 1.5) || now.timeIntervalSince(start) >= 8 {
+                      (received > 0 && now.timeIntervalSince(lastOutput) >= 1.5) || now.timeIntervalSince(start) >= 8 {
                 // Type the command, then confirm it separately: a burst ending in Return reads as a
                 // paste and does not submit.
-                buffer.removeAll()
-                screen = ""
                 send("/usage")
                 commandSent = true
                 lastEnter = now
             } else if commandSent {
-                // One Return after the command settles, then at most two retries if no panel shows.
+                // One Return after the command settles, then at most two retries while no panel shows.
                 let wait: TimeInterval = enters == 0 ? 0.8 : 4
-                if stopAt == nil, enters < 3, now.timeIntervalSince(lastEnter) >= wait {
+                if enters < 3, now.timeIntervalSince(lastEnter) >= wait,
+                   enters == 0 || !(flat.contains("currentsession") || flat.contains("loadingusage")) {
                     send("\r")
                     enters += 1
                     lastEnter = now
                 }
-                if stopAt == nil, ClaudeUsage.panelIsComplete(screen) { stopAt = now.addingTimeInterval(1.5) }
-                if let stopAt, now >= stopAt { break }
+                // Stop once both rows show and the screen has been still for a second (model rows
+                // arrive last); a panel that keeps changing is cut off after 5 seconds.
+                if complete { completeSince = completeSince ?? now } else { completeSince = nil }
+                if let completeSince, now.timeIntervalSince(lastOutput) >= 1 || now.timeIntervalSince(completeSince) >= 5 { break }
             }
             if !process.isRunning {
-                buffer.append(drain())
-                screen = String(decoding: buffer, as: UTF8.self)
+                let rest = drain()
+                if !rest.isEmpty { take(rest) }
                 break
             }
             try await Task.sleep(nanoseconds: 60_000_000)
         }
         guard commandSent else { throw ProviderError.unavailable("Claude Code did not become ready in time.") }
         do {
-            return try ClaudeUsage.parseUsageText(screen)
+            return try ClaudeUsage.parse(rendered: text, now: Date())
         } catch {
-            if stopAt == nil, process.isRunning { throw ProviderError.unavailable("Claude Code did not show usage in time.") }
+            if !complete, process.isRunning { throw ProviderError.unavailable("Claude Code did not show usage in time.") }
             throw error
         }
 #else
