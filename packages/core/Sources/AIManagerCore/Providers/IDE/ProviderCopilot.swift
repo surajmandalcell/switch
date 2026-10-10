@@ -67,6 +67,7 @@ enum CopilotUsage {
         guard let response = try? await HTTP.send("https://api.github.com/user/orgs?per_page=100", headers: headers),
               response.status == 200, let list = try? response.json() else { return [] }
         // ponytail: probes at most 10 organizations per refresh until one answers; remembered per token.
+        // Raise the cap or add an organization field if a user's billing org sits past the tenth.
         for login in list.array.compactMap({ $0["login"].string }).prefix(10) {
             if let section = await summary(login).section {
                 rememberedOrgs.set(memory, login)
