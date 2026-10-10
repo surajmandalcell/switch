@@ -146,6 +146,9 @@ final class ClaudeProbeTextTests: XCTestCase {
     // MARK: Probe
 
     func testProbeRunsAgainWhenTheFirstPanelHasNoSessionRow() async throws {
+#if !os(macOS)
+        throw XCTSkip("The Claude Code usage probe needs a macOS pseudo terminal.")
+#endif
         let root = FileManager.default.temporaryDirectory.appending(path: "claude-probe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

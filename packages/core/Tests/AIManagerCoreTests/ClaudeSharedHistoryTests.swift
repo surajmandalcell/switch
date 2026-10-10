@@ -346,6 +346,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
     }
 
     func testProbeTypesUsageParsesPanelAndPassesSafeFlags() async throws {
+        try requireMacProbe()
         let log = root.appending(path: "invocation.txt")
         let panel = root.appending(path: "panel.txt")
         try write("""
@@ -378,6 +379,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
     }
 
     func testProbeTimesOutAndKillsTheChild() async throws {
+        try requireMacProbe()
         let pidFile = root.appending(path: "pid.txt")
         let claude = try fakeClaude("echo $$ > '\(pidFile.path)'\nexec sleep 60")
         let started = Date()
@@ -395,7 +397,15 @@ final class ClaudeSharedHistoryTests: XCTestCase {
         XCTAssertNotEqual(kill(pid, 0), 0, "child still running")
     }
 
+    /// The Claude Code usage probe needs a macOS pseudo terminal.
+    private func requireMacProbe() throws {
+#if !os(macOS)
+        throw XCTSkip("The Claude Code usage probe needs a macOS pseudo terminal.")
+#endif
+    }
+
     func testProfileUsageProbesOnceInsideTheRateLimitWindow() async throws {
+        try requireMacProbe()
         let counter = root.appending(path: "runs.txt")
         let panel = root.appending(path: "panel.txt")
         try write("Current session\n7% used (Resets 5am (UTC))\nCurrent week (all models)\n20% used (Resets Dec 2 at 12am (UTC))\n",

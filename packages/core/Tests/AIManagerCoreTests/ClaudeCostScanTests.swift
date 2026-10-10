@@ -118,7 +118,8 @@ final class ClaudeCostScanTests: XCTestCase {
         XCTAssertEqual(day.cacheReadTokens, 10000)
         XCTAssertEqual(day.cacheWriteTokens, 3000 + 4000)
         // 5m at 3.75, 1h at 2x input = 6, legacy all 5m, read at 0.3.
-        let expected = (1000 * 3.75 + 2000 * 6 + 10000 * 0.3 + 4000 * 3.75) / 1e6
+        let parts: [Double] = [1000 * 3.75, 2000 * 6, 10000 * 0.3, 4000 * 3.75]
+        let expected = parts.reduce(0, +) / 1e6
         XCTAssertEqual(try XCTUnwrap(day.costUSD), expected, accuracy: 1e-9)
 
         let fastRate = ModelRate(input: 3, output: 15, fastMultiplier: 2)
