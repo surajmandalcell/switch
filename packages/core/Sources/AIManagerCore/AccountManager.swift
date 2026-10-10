@@ -1028,6 +1028,17 @@ public actor AccountManager {
                 usage: result.state == .needsSignIn ? nil : snapshot
             )
         } catch {
+            // Codex reports an expired or revoked sign-in as an RPC failure carrying the HTTP 401.
+            if case CodexAppServerError.rpcFailure(_, let message) = error,
+               message.contains("token_expired") || message.contains("401 Unauthorized") {
+                let result = VerificationResult(
+                    state: .needsSignIn,
+                    checkedAt: Date(),
+                    detail: "Codex says this sign-in expired. Sign in again to read its usage."
+                )
+                try? recordAccountCheck(result, accountID: accountID, expected: account)
+                return .init(verification: result)
+            }
             let detail = error as? AIManagerError == .cliNotFound
                 ? "The saved auth.json passed local checks. Codex CLI was not found, so account and usage checks were unavailable."
                 : "The saved auth.json passed local checks. Codex account and usage checks were unavailable."

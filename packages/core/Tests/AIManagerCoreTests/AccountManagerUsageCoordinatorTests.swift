@@ -410,6 +410,20 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertEqual(status.accounts.first?.verification.state, .verifiedLocally)
     }
 
+    func testCheckMarksNeedsSignInWhenCodexReportsAnExpiredToken() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAccount("token-expired", manager: manager)
+
+        let result = await manager.checkAccount(
+            accountID: account.id,
+            reader: .init(transport: ExpiredTokenTransport(), environment: { [:] })
+        )
+
+        XCTAssertEqual(result.verification.state, .needsSignIn)
+        XCTAssertTrue(result.verification.detail.contains("Sign in again"))
+        XCTAssertNil(result.usage)
+    }
+
     func testCheckMarksNeedsSignInOnlyWhenBackendRequiresAuthentication() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let account = try await importAccount("expired", manager: manager)
@@ -584,6 +598,18 @@ private struct FailingUsageTransport: CodexAppServerRPCTransport {
         limits: CodexAppServerLimits
     ) async throws -> [Data] {
         throw InjectedUsageFailure.read
+    }
+}
+
+private struct ExpiredTokenTransport: CodexAppServerRPCTransport {
+    func performAccountRead(
+        launch: CodexAppServerLaunch,
+        limits: CodexAppServerLimits
+    ) async throws -> [Data] {
+        throw CodexAppServerError.rpcFailure(
+            code: -32603,
+            message: "failed to fetch codex rate limits: GET https://chatgpt.com/backend-api/wham/usage "
+                + "failed: 401 Unauthorized; body={\"error\":{\"code\":\"token_expired\"}}")
     }
 }
 
