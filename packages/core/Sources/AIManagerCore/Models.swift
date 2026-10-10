@@ -15,6 +15,10 @@ public struct ManagerPaths: Sendable {
     public var grokExecutable: URL?
     public var claudeExecutable: URL?
     public var isolationRoot: URL?
+    /// Home that generic providers resolve CLI credential paths against.
+    public var userHome: URL { defaultHome.deletingLastPathComponent() }
+    /// Private vault for saved credentials, `~/.switch`.
+    public var vaultRoot: URL { credentialStore.deletingLastPathComponent() }
 
     public init(
         applicationSupport: URL,
@@ -150,7 +154,7 @@ public struct AccountIdentity: Codable, Hashable, Sendable {
         case .claudeCode:
             authMode == .oauth && email != nil
         default:
-            false
+            email != nil || userID != nil
         }
     }
 

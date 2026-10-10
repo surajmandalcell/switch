@@ -52,6 +52,8 @@ public struct AccountLoginSession: Codable, Sendable, Identifiable {
 public struct AccountLoginStart: Sendable {
     public var session: AccountLoginSession
     public var launchSpec: LaunchSpec
+    /// True when the caller must run `launchSpec` in Terminal; Switch does not launch it.
+    public var opensInTerminal: Bool = false
 
     public init(session: AccountLoginSession, launchSpec: LaunchSpec) {
         self.session = session

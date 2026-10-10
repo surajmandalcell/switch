@@ -92,6 +92,8 @@ public actor AccountManager {
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
     private let claudeProfiles: ClaudeCodeProfiles
+    private let providerStore: ProviderAccountStore
+    private let providerSpecs: [ProviderSpec]
     private let writerCheck: WriterCheck
     private let faultInjector: @Sendable (FaultPoint) throws -> Void
     private let verificationTimeout: TimeInterval
@@ -101,13 +103,16 @@ public actor AccountManager {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }) throws {
+    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
         self.grokProvider = GrokProviderAdapter(fileManager: fileManager)
         self.claudeProfiles = try ClaudeCodeProfiles(paths: paths, fileManager: fileManager,
                                                       loginRunner: loginRunner)
+        self.providerSpecs = providerSpecs
+        self.providerStore = try ProviderAccountStore(paths: paths, fileManager: fileManager,
+                                                      specs: providerSpecs)
         self.writerCheck = writerCheck ?? { home in await AccountManager.systemWriterCheck(home: home) }
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
@@ -125,11 +130,12 @@ public actor AccountManager {
         let registry = try loadRegistry()
         let codexAccounts = registry.accounts.filter { $0.identity.providerID == provider.id }
         let claudeAccounts = try claudeProfiles.accounts()
-        let allAccounts = registry.accounts + claudeAccounts
+        let allAccounts = registry.accounts + claudeAccounts + (try providerStore.accounts())
         let savedOrder = try claudeProfiles.accountOrder()
         let positions = Dictionary(uniqueKeysWithValues: savedOrder.enumerated().map { ($0.element, $0.offset) })
         var defaults = registry.defaultAccountIDs
         defaults[ProviderID.claudeCode.rawValue] = try claudeProfiles.defaultID()
+        defaults.merge(try providerStore.defaults()) { _, new in new }
         return .init(
             accounts: allAccounts.enumerated().sorted { left, right in
                 (positions[left.element.id] ?? savedOrder.count + left.offset)
@@ -145,11 +151,12 @@ public actor AccountManager {
 
     public func reorderAccounts(_ accountIDs: [UUID]) throws -> ManagerStatus {
         let claudeIDs = Set(try claudeProfiles.accounts().map(\.id))
+        let externalIDs = claudeIDs.union(try providerStore.accounts().map(\.id))
         try lock.withLock {
             try ensureNoRecovery()
             var registry = try loadRegistryLocked()
-            let registryIDs = accountIDs.filter { !claudeIDs.contains($0) }
-            guard accountIDs.count == registry.accounts.count + claudeIDs.count,
+            let registryIDs = accountIDs.filter { !externalIDs.contains($0) }
+            guard accountIDs.count == registry.accounts.count + externalIDs.count,
                   Set(registryIDs) == Set(registry.accounts.map(\.id)),
                   accountIDs.count == Set(accountIDs).count else {
                 throw AIManagerError.sourceChanged
@@ -159,7 +166,7 @@ public actor AccountManager {
                 registry.accounts = registryIDs.compactMap { accounts[$0] }
                 try saveRegistry(registry)
             }
-            if !claudeIDs.isEmpty { try claudeProfiles.reorder(accountIDs) }
+            if !externalIDs.isEmpty { try claudeProfiles.reorder(accountIDs) }
         }
         return try status()
     }
@@ -206,17 +213,29 @@ public actor AccountManager {
         }
     }
 
-    public static let providerCatalog: [ProviderDescriptor] = [
-        .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
-        .init(id: .grokBuild, displayName: "Grok Build", availability: .enabled),
-        .init(id: .claudeCode, displayName: "Claude Code", availability: .enabled),
-        .init(
-            id: .geminiCLI, displayName: "Gemini CLI", availability: .disabled,
-            unavailableReason: "Gemini CLI account setup is not available yet."),
-        .init(
-            id: .antigravityCLI, displayName: "Antigravity CLI", availability: .disabled,
-            unavailableReason: "Antigravity CLI account setup is not available yet."),
-    ]
+    public static let providerCatalog: [ProviderDescriptor] = descriptors(for: ProviderCatalog.all)
+
+    /// Codex, Grok Build, and Claude Code first, then every generic spec. A spec supersedes the
+    /// disabled placeholder with the same id.
+    static func descriptors(for specs: [ProviderSpec]) -> [ProviderDescriptor] {
+        let builtIn: [ProviderID] = [.codex, .grokBuild, .claudeCode]
+        let generic = specs.filter { !builtIn.contains($0.id) }
+        let placeholders: [ProviderDescriptor] = [
+            .init(
+                id: .geminiCLI, displayName: "Gemini CLI", availability: .disabled,
+                unavailableReason: "Gemini CLI account setup is not available yet."),
+            .init(
+                id: .antigravityCLI, displayName: "Antigravity CLI", availability: .disabled,
+                unavailableReason: "Antigravity CLI account setup is not available yet."),
+        ].filter { placeholder in !generic.contains { $0.id == placeholder.id } }
+        return [
+            .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
+            .init(id: .grokBuild, displayName: "Grok Build", availability: .enabled),
+            .init(id: .claudeCode, displayName: "Claude Code", availability: .enabled),
+        ] + placeholders + generic.map {
+            ProviderDescriptor(id: $0.id, displayName: $0.name, availability: .enabled)
+        }
+    }
 
     public func refreshAccounts(includeDiscoveries: Bool = true) async throws -> AccountSnapshot {
         if try !pendingOperations().isEmpty {
@@ -235,15 +254,23 @@ public actor AccountManager {
         }
         return .init(
             status: current,
-            providers: Self.providerCatalog,
+            providers: Self.descriptors(for: providerSpecs),
             discoveries: includeDiscoveries ? await discover() : [],
             pendingLoginSessions: try loadLoginSessions() + claudeProfiles.pending()
+                + providerStore.pending()
         )
     }
 
     public func startAccountLogin(providerID: ProviderID) async throws -> AccountLoginStart {
         try ensureNoRecovery()
         if providerID == .claudeCode { return try claudeProfiles.startLogin() }
+        if ![.codex, .grokBuild].contains(providerID),
+           let spec = providerSpecs.first(where: { $0.id == providerID }),
+           spec.style == .files, spec.login != nil {
+            var start = try providerStore.startLogin(providerID)
+            start.opensInTerminal = true
+            return start
+        }
         guard Self.providerCatalog.first(where: { $0.id == providerID })?.availability == .enabled else {
             throw AIManagerError.unsupportedSource(
                 Self.providerCatalog.first(where: { $0.id == providerID })?.unavailableReason
@@ -296,6 +323,9 @@ public actor AccountManager {
         try ensureNoRecovery()
         if try claudeProfiles.pending().contains(where: { $0.id == id }) {
             return try await claudeProfiles.checkLogin(id)
+        }
+        if try providerStore.pending().contains(where: { $0.id == id }) {
+            return try providerStore.checkLogin(id)
         }
         let session = try loadLoginSession(id)
         if session.providerID == .grokBuild {
@@ -417,6 +447,9 @@ public actor AccountManager {
     public func cancelAccountLogin(id: UUID) async throws {
         if try claudeProfiles.pending().contains(where: { $0.id == id }) {
             return try await claudeProfiles.cancelLogin(id)
+        }
+        if try providerStore.pending().contains(where: { $0.id == id }) {
+            return try providerStore.cancelLogin(id)
         }
         _ = try loadLoginSession(id)
         guard try !pendingOperations().contains(where: {
@@ -581,6 +614,7 @@ public actor AccountManager {
     }
 
     public func switchDefault(to accountID: UUID) async throws -> SwitchResult {
+        if try providerStore.contains(accountID) { return try providerStore.makeDefault(accountID) }
         if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
             return try claudeProfiles.makeDefault(accountID)
         }
@@ -603,6 +637,9 @@ public actor AccountManager {
         accountID: UUID,
         replacementDefaultAccountID: UUID? = nil
     ) async throws -> AccountDeletionResult {
+        if try providerStore.contains(accountID) {
+            return try providerStore.delete(accountID, replacement: replacementDefaultAccountID)
+        }
         if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
             return try await claudeProfiles.delete(accountID, replacement: replacementDefaultAccountID)
         }
@@ -762,11 +799,103 @@ public actor AccountManager {
         return snapshot
     }
 
+    // MARK: Generic providers
+
+    public func addProviderAccount(providerID: ProviderID, fields: [String: String]) async throws -> AccountRecord {
+        try providerStore.addSecret(providerID, fields: fields)
+    }
+
+    @discardableResult
+    public func importLiveProviderAccount(providerID: ProviderID) throws -> AccountRecord {
+        try providerStore.importLive(providerID)
+    }
+
+    /// Read-only identity of the login currently in the provider's real home.
+    public func liveProviderIdentity(providerID: ProviderID) -> CredentialIdentity? {
+        providerStore.liveIdentity(providerID)
+    }
+
+    /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
+    /// accounts only; Codex and Grok registry accounts are never rewritten from here.
+    public func readProviderUsage(accountID: UUID) async throws -> ProviderUsage {
+        if try providerStore.contains(accountID) {
+            let spec = try providerStore.spec(forAccount: accountID)
+            let stored = try providerStore.credential(for: accountID)
+            let result = try await spec.fetch(stored.credential)
+            if let updated = result.updated {
+                try providerStore.persist(accountID, updated, live: stored.live, liveDigest: stored.liveDigest)
+            }
+            return result.usage
+        }
+        guard let account = try loadRegistry().accounts.first(where: { $0.id == accountID }) else {
+            if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
+                throw ProviderError.unsupported("Usage for Claude Code profiles is not available yet.")
+            }
+            throw AIManagerError.accountNotFound
+        }
+        guard let spec = providerSpecs.first(where: { $0.id == account.identity.providerID }),
+              let file = spec.files.first else {
+            throw ProviderError.unsupported(
+                "Usage for \(account.identity.providerID.displayName) accounts is not available yet.")
+        }
+        let credential = try registryCredential(account, fileID: file.id)
+        return try await spec.fetch(credential).usage
+    }
+
+    private func registryCredential(_ account: AccountRecord, fileID: String) throws -> ProviderCredential {
+        let providerID = account.identity.providerID
+        if try loadRegistry().defaultAccountID(for: providerID) == account.id {
+            let live: Data?
+            switch providerID {
+            case .grokBuild:
+                let found = grokProvider.inspect(home: paths.grokHome)
+                live = found.support == .supportedOAuth
+                    && found.identity.map({ grokProvider.sameIdentity(account.identity, $0) }) == true
+                    ? found.data : nil
+            case .codex:
+                let found = provider.inspect(home: paths.defaultHome)
+                live = found.support == .supportedChatGPT
+                    && found.identity.map({ provider.sameIdentity(account.identity, $0) }) == true
+                    ? found.data : nil
+            default:
+                live = nil
+            }
+            if let live { return ProviderCredential(files: [fileID: live], isLive: true) }
+        }
+        let values = try account.credentialFile.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true, let size = values.fileSize, size <= CoreSupport.maxAuthBytes else {
+            throw AIManagerError.credentialConflict
+        }
+        return ProviderCredential(files: [fileID: try Data(contentsOf: account.credentialFile)])
+    }
+
+    private func checkProviderAccount(_ accountID: UUID) async -> AccountCheckResult {
+        let result: VerificationResult
+        do {
+            _ = try await readProviderUsage(accountID: accountID)
+            result = .init(state: .verifiedLocally, checkedAt: Date(),
+                           detail: "The provider accepted this account and returned usage.")
+        } catch let error as ProviderError {
+            let state: VerificationState = error.needsSignIn ? .needsSignIn
+                : { if case .unsupported = error { return .unsupported } else { return .imported } }()
+            result = .init(state: state, checkedAt: Date(),
+                           detail: error.errorDescription ?? "The provider check failed.")
+        } catch {
+            result = .init(state: .imported, checkedAt: Date(),
+                           detail: error.localizedDescription)
+        }
+        try? providerStore.recordCheck(accountID, result)
+        return .init(verification: result)
+    }
+
     public func checkAccount(
         accountID: UUID,
         reader: CodexAppServerAccountReader = .init(),
         limits: CodexAppServerLimits = .init()
     ) async -> AccountCheckResult {
+        if (try? providerStore.contains(accountID)) == true {
+            return await checkProviderAccount(accountID)
+        }
         if (try? claudeProfiles.accounts().contains(where: { $0.id == accountID })) == true {
             return await claudeProfiles.check(accountID)
         }
