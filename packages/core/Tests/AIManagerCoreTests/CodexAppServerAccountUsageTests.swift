@@ -125,6 +125,35 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
         XCTAssertFalse(encoded.lowercased().contains("refresh_token"))
     }
 
+    func testReaderMergesBackendExtrasUsingTheCopiedAuthFile() async throws {
+        let instant = Date(timeIntervalSince1970: 1_789_000_100)
+        let payload = Data(#"{"exp":\#(Int(instant.timeIntervalSince1970) + 3_600)}"#.utf8).base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        let auth = ["tokens": ["access_token": "e30.\(payload).synthetic", "account_id": "account-synthetic"]]
+        try JSONSerialization.data(withJSONObject: auth).write(to: source.authFile)
+        let transport = SyntheticAccountTransport(records: [
+            response(id: 2, result: ["requiresOpenaiAuth": false]),
+            response(id: 3, result: [:]),
+            response(id: 4, result: [:]),
+        ])
+        let reader = CodexAppServerAccountReader(
+            transport: transport, environment: { [:] }, now: { instant },
+            extras: CodexWhamClient { url, _ in
+                HTTPResponse(
+                    status: 200,
+                    data: Data(url.hasSuffix("usage")
+                        ? #"{"credits":{"balance":"796.4"}}"#.utf8
+                        : #"{"available_count":4,"credits":[]}"#.utf8),
+                    headers: [:])
+            })
+        let snapshot = try await reader.read(executable: URL(fileURLWithPath: "/synthetic/codex"), source: source)
+        XCTAssertEqual(snapshot.extras?.resetCredits?.count, 4)
+        XCTAssertEqual(snapshot.extras?.creditsBalance, "796.4")
+        let encoded = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("synthetic."))
+        XCTAssertFalse(encoded.lowercased().contains("access_token"))
+    }
+
     func testReaderPreservesAbsentBackendFieldsAsNil() async throws {
         let transport = SyntheticAccountTransport(records: [
             response(id: 2, result: ["requiresOpenaiAuth": false]),

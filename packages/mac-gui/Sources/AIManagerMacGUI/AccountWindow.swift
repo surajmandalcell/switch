@@ -1048,6 +1048,7 @@ enum UsagePresentation {
   struct Fact: Identifiable, Equatable {
     let label: String
     let value: String
+    var help: String? = nil
     var id: String { label }
   }
 
@@ -1068,7 +1069,23 @@ enum UsagePresentation {
       facts.append(Fact(
         label: "Authentication", value: required ? "Sign-in required" : "Not required"))
     }
+    if let fact = resetCreditsFact(snapshot.extras?.resetCredits) { facts.append(fact) }
+    if let balance = snapshot.extras?.creditsBalance, !hasBucketCredits(snapshot),
+       let text = CodexCreditsText.text(balance: balance) {
+      facts.append(Fact(label: "Credits", value: text))
+    }
     return facts
+  }
+
+  /// "Reset credits: 2" with the soonest expiry; the tooltip lists every expiry.
+  static func resetCreditsFact(_ credits: CodexResetCredits?) -> Fact? {
+    credits.map { Fact(label: "Reset credits", value: $0.summary, help: $0.expiryList) }
+  }
+
+  private static func hasBucketCredits(_ snapshot: CodexAccountUsageSnapshot) -> Bool {
+    let buckets = [snapshot.rateLimits?.defaultBucket].compactMap { $0 }
+      + (snapshot.rateLimits.map { Array($0.buckets.values) } ?? [])
+    return buckets.contains { credits($0.credits) != nil }
   }
 
   static func summaryFacts(_ summary: CodexUsageSummarySnapshot?) -> [Fact] {
@@ -1096,8 +1113,8 @@ enum UsagePresentation {
     guard let credits else { return nil }
     if credits.unlimited == true { return "Unlimited" }
     if let balance = nonempty(credits.balance) {
-      // Codex sends a fixed-point string such as "62367.4009760000".
-      return Double(balance).map { Fmt.number($0, digits: 2) } ?? balance
+      // Codex sends a fixed-point string such as "796.4009760000".
+      return CodexCreditsText.text(balance: balance) ?? balance
     }
     if let hasCredits = credits.hasCredits { return hasCredits ? "Available" : "None" }
     return nil
@@ -1516,23 +1533,37 @@ private struct AccountUsagePanel: View {
   }
 
   private var limitBuckets: [(key: String, value: CodexRateLimitBucketSnapshot)] {
-    guard let limits = snapshot?.rateLimits else { return [] }
     var result: [(String, CodexRateLimitBucketSnapshot)] = []
     var seen = Set<String>()
-    if let bucket = limits.defaultBucket {
-      let key = bucket.id ?? "default"
-      if UsagePresentation.hasContent(bucket) {
-        seen.insert(key)
-        result.append((key, bucket))
+    if let limits = snapshot?.rateLimits {
+      if let bucket = limits.defaultBucket {
+        let key = bucket.id ?? "default"
+        if UsagePresentation.hasContent(bucket) {
+          seen.insert(key)
+          result.append((key, bucket))
+        }
+      }
+      for (key, bucket) in limits.buckets.sorted(by: { $0.key.localizedStandardCompare($1.key) == .orderedAscending }) {
+        let identity = bucket.id ?? key
+        guard seen.insert(identity).inserted else { continue }
+        if UsagePresentation.hasContent(bucket) { result.append((key, bucket)) }
       }
     }
-    for (key, bucket) in limits.buckets.sorted(by: { $0.key.localizedStandardCompare($1.key) == .orderedAscending }) {
-      let identity = bucket.id ?? key
-      guard seen.insert(identity).inserted else { continue }
-      if UsagePresentation.hasContent(bucket) { result.append((key, bucket)) }
+    // Model buckets such as Spark from the ChatGPT backend, when the app-server did not list them.
+    let titles = Set(result.map { Self.title(of: $0.1, key: $0.0) })
+    for bucket in snapshot?.extras?.additionalBuckets ?? [] {
+      let key = bucket.id ?? bucket.name ?? "extra"
+      guard seen.insert(key).inserted, !titles.contains(Self.title(of: bucket, key: key)) else { continue }
+      result.append((key, bucket))
     }
     return result
   }
+
+  static func title(of bucket: CodexRateLimitBucketSnapshot, key: String) -> String {
+    CodexBucketNaming.title(id: bucket.id, name: bucket.name, model: bucket.model, fallback: key)
+  }
+
+  private var monthlyCredits: CodexMonthlyCredits? { snapshot?.extras?.monthlyCredits }
 
   var body: some View {
     AIMPanel(title: "Usage", importance: .primary) {
@@ -1540,7 +1571,7 @@ private struct AccountUsagePanel: View {
         if let snapshot {
           VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-              Text(snapshot.account?.plan?.capitalized ?? "Codex usage")
+              Text(CodexPlanNames.display(snapshot.account?.plan) ?? "Codex usage")
                 .font(AIMTheme.sans(13, weight: .semibold))
               Spacer()
               usageStatus
@@ -1552,7 +1583,7 @@ private struct AccountUsagePanel: View {
             if !accountFacts.isEmpty || !summaryFacts.isEmpty {
               HStack(alignment: .top, spacing: 12) {
                 ForEach(accountFacts) { fact in
-                  UsageFact(label: fact.label, value: fact.value)
+                  UsageFact(label: fact.label, value: fact.value, help: fact.help)
                 }
                 Spacer(minLength: 12)
                 ForEach(summaryFacts) { fact in
@@ -1567,21 +1598,29 @@ private struct AccountUsagePanel: View {
                 bucket: item.value,
                 fallbackName: item.key,
                 accountID: account.id,
-                refresh: { Task { await model.refreshUsage(accountID: account.id) } },
-                windowLabel: windowLabel
+                refresh: { Task { await model.refreshUsage(accountID: account.id) } }
               )
               .padding(.vertical, 12)
               .padding(.horizontal, 16)
               .background(index.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
             }
 
+            if let monthlyCredits {
+              MonthlyCreditsRow(
+                accountID: account.id, credits: monthlyCredits,
+                background: limitBuckets.count.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe
+              ) {
+                Task { await model.refreshUsage(accountID: account.id) }
+              }
+            }
+
             HiddenUsageRowsNote(
               accountID: account.id,
               rowIDs: limitBuckets.flatMap { item in
                 ["primary", "secondary"].map { "\(item.key)/\($0)" }
-              })
+              } + (monthlyCredits == nil ? [] : [MonthlyCreditsRow.rowID]))
 
-            if !limitBuckets.contains(where: { UsagePresentation.hasRateLimits($0.value) }) {
+            if monthlyCredits == nil, !limitBuckets.contains(where: { UsagePresentation.hasRateLimits($0.value) }) {
               UsageUnavailableRow(text: "Rate limits unavailable")
             }
 
@@ -1649,16 +1688,6 @@ private struct AccountUsagePanel: View {
     }
   }
 
-  private func windowLabel(
-    _ window: CodexRateLimitWindowSnapshot?,
-    fallback: String
-  ) -> String {
-    guard let minutes = window?.windowDurationMinutes else { return fallback }
-    if minutes >= 10_080 { return "Weekly window" }
-    if minutes.isMultiple(of: 60) { return "\(minutes / 60)-hour window" }
-    return "\(minutes)-minute window"
-  }
-
 }
 
 private struct UsageBucket: View {
@@ -1666,50 +1695,40 @@ private struct UsageBucket: View {
   let fallbackName: String
   let accountID: UUID
   let refresh: () -> Void
-  let windowLabel: (CodexRateLimitWindowSnapshot?, String) -> String
   @AppStorage private var hiddenRaw: String
 
   init(
     bucket: CodexRateLimitBucketSnapshot, fallbackName: String, accountID: UUID,
-    refresh: @escaping () -> Void,
-    windowLabel: @escaping (CodexRateLimitWindowSnapshot?, String) -> String
+    refresh: @escaping () -> Void
   ) {
     self.bucket = bucket
     self.fallbackName = fallbackName
     self.accountID = accountID
     self.refresh = refresh
-    self.windowLabel = windowLabel
     _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: accountID))
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .firstTextBaseline, spacing: 12) {
-        Text(bucket.name ?? fallbackName)
+        Text(AccountUsagePanel.title(of: bucket, key: fallbackName))
           .font(AIMTheme.sans(11, weight: .semibold)).lineLimit(1)
         if let model = bucket.model, !model.isEmpty {
           Text(model).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted).lineLimit(1)
         }
         Spacer()
-        if let plan = UsagePresentation.nonempty(bucket.plan) {
-          Text(plan.capitalized)
+        if let plan = CodexPlanNames.display(UsagePresentation.nonempty(bucket.plan)) {
+          Text(plan)
             .font(AIMTheme.sans(9, weight: .medium)).foregroundStyle(AIMTheme.muted)
         }
       }
-      if UsagePresentation.hasWindow(bucket.primary) || UsagePresentation.hasWindow(bucket.secondary) {
+      let rows = bucket.windowRows(idPrefix: "\(fallbackName)/")
+      if !rows.isEmpty {
         let hidden = HiddenUsageRows.parse(hiddenRaw)
-        let primaryID = "\(fallbackName)/primary"
-        let secondaryID = "\(fallbackName)/secondary"
         HStack(spacing: 20) {
-          if let primary = bucket.primary, UsagePresentation.hasWindow(primary),
-             !hidden.contains(primaryID) {
-            UsageMeter(title: windowLabel(primary, "Current window"), window: primary)
-              .usageRowMenu(accountID: accountID, rowID: primaryID, refresh: refresh)
-          }
-          if let secondary = bucket.secondary, UsagePresentation.hasWindow(secondary),
-             !hidden.contains(secondaryID) {
-            UsageMeter(title: windowLabel(secondary, "Secondary window"), window: secondary)
-              .usageRowMenu(accountID: accountID, rowID: secondaryID, refresh: refresh)
+          ForEach(rows.filter { !hidden.contains($0.id) }) { row in
+            UsageMeter(window: row.usage)
+              .usageRowMenu(accountID: accountID, rowID: row.id, refresh: refresh)
           }
         }
       }
@@ -1738,48 +1757,44 @@ struct UsageUnavailableRow: View {
   }
 }
 
+/// A Codex window drawn with the same pace tick, colors, and tooltip as generic providers.
 private struct UsageMeter: View {
-  let title: String
-  let window: CodexRateLimitWindowSnapshot
-  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  let window: UsageWindow
 
-  private var used: Int { min(max(window.usedPercent ?? 0, 0), 100) }
-  private var displayedPercentage: Int {
-    UsagePercentagePreferences.displayedPercentage(forUsed: used, showsUsed: showsUsed)
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 60)) { context in
+      ProviderWindowMeter(window: window, now: context.date)
+    }
+  }
+}
+
+/// The team or enterprise monthly credit pool from the account's `individual_limit`.
+private struct MonthlyCreditsRow: View {
+  static let rowID = "monthly-credits"
+  let accountID: UUID
+  let credits: CodexMonthlyCredits
+  let background: Color
+  let refresh: () -> Void
+  @AppStorage private var hiddenRaw: String
+
+  init(
+    accountID: UUID, credits: CodexMonthlyCredits, background: Color, refresh: @escaping () -> Void
+  ) {
+    self.accountID = accountID
+    self.credits = credits
+    self.background = background
+    self.refresh = refresh
+    _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: accountID))
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(title).font(AIMTheme.sans(11, weight: .medium))
-        Spacer()
-        Text(UsagePercentagePreferences.label(forUsed: used, showsUsed: showsUsed))
-          .font(AIMTheme.mono(10, weight: .semibold))
-          .flipsUsedAndLeft(showsUsed)
-      }
-      GeometryReader { geometry in
-        ZStack(alignment: .leading) {
-          Rectangle().fill(AIMTheme.control)
-          Rectangle()
-            .fill(used >= 90 ? AIMTheme.red : (used >= 70 ? AIMTheme.amber : AIMTheme.blue))
-            .frame(width: geometry.size.width * CGFloat(displayedPercentage) / 100)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-      }
-      .frame(height: 5)
-      if let reset = window.resetsAt {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-          ResetTimeText(reset: reset, now: context.date)
-            .font(AIMTheme.sans(9, weight: .bold))
-            .foregroundStyle(AIMTheme.muted)
-        }
-      }
+    if !HiddenUsageRows.parse(hiddenRaw).contains(Self.rowID) {
+      UsageMeter(window: credits.window)
+        .usageRowMenu(accountID: accountID, rowID: Self.rowID, refresh: refresh)
+        .padding(.vertical, 12).padding(.horizontal, 16)
+        .background(background)
     }
-    .frame(maxWidth: .infinity)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: displayedPercentage)
   }
-
 }
 
 struct AIMSegmentedPicker<Option: Hashable>: View {
@@ -1923,11 +1938,13 @@ private struct TokenStatistic: View {
 struct UsageFact: View {
   let label: String
   let value: String
+  var help: String? = nil
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(label).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
       Text(value).font(AIMTheme.sans(11, weight: .medium)).monospacedDigit()
     }
+    .help(help ?? "")
   }
 }
 

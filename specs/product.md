@@ -222,6 +222,20 @@ statistics. Optional fields are conditional:
   window, and daily-activity section.
 - Render a value such as zero, `false`, `None`, or `Available` when the service explicitly
   returned it; absence alone removes the row.
+- Codex plan names: `prolite` Pro 100, `pro` Pro 200, `promax` Pro 500,
+  `self_serve_business_prolite` Business Premium; any other id keeps its capitalized text.
+- Name each Codex window by its duration (300 minutes Session, 10 080 Weekly), never by slot.
+  Order two windows shorter first; a lone weekly window takes the primary slot, also for the
+  menu-bar percentage. Title a model bucket by its limit name, and "Spark" for GPT-5.3-Codex-Spark.
+  Codex meters use the generic pace tick, colors, and tooltip.
+- Show credits as dollars plus floored credits (4 cents each), such as `$31.84 · 796 credits`.
+- After the app-server read, Switch also calls `wham/usage` and `wham/rate-limit-reset-credits`
+  with the private copy's ChatGPT access token and account id. It never refreshes the token: an
+  expired token skips these extras. They add a "Reset credits: N" fact (soonest expiry, every
+  expiry in its tooltip), model buckets the app-server did not list, a credits fact when no
+  bucket has one, and a "Monthly credits" window from `individual_limit` (root, `rate_limit`, or
+  `spend_control`). Code review percent, workspace `remaining_balance`, and the
+  suspicious-reset guard are not shown.
 - Keep actionable core states: “Usage has not been checked,” a refresh error, or the absence
   of all rate-limit windows.
 - Never manufacture a value from transcripts and never combine stale usage with Needs

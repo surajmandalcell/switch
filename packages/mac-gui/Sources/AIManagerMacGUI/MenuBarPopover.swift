@@ -82,19 +82,20 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     tokens: Int64? = nil,
     apiPrice: CodexAPIPrice? = nil
   ) {
-    let primaryIsWeekly = bucket.primary?.windowDurationMinutes == 10_080
-    let session = primaryIsWeekly ? bucket.secondary : bucket.primary
-    let weekly = primaryIsWeekly ? bucket.primary : bucket.secondary
-    guard session?.usedPercent != nil || weekly?.usedPercent != nil else { return nil }
+    // Shorter window first; a lone weekly window takes the primary slot.
+    let rows = bucket.windowRows()
+    guard let first = rows.first?.window else { return nil }
+    let second = rows.dropFirst().first?.window
     self.init(
-      usedPercentage: session?.usedPercent,
-      secondaryUsedPercentage: weekly?.usedPercent,
-      resetsAt: session?.resetsAt,
-      secondaryResetsAt: weekly?.resetsAt,
+      usedPercentage: first.usedPercent,
+      secondaryUsedPercentage: second?.usedPercent,
+      resetsAt: first.resetsAt,
+      secondaryResetsAt: second?.resetsAt,
       fetchedAt: fetchedAt,
       tokenPeriodLabel: tokenPeriodLabel,
       tokens: tokens,
-      apiPrice: apiPrice)
+      apiPrice: apiPrice,
+      primaryLabel: second == nil && first.windowDurationMinutes == 10_080 ? "Weekly" : "Session")
   }
 
 }

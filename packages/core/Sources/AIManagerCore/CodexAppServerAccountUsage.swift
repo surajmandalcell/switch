@@ -283,6 +283,8 @@ public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
     public let usage: CodexUsageSummarySnapshot?
     public let dailyUsage: [CodexDailyUsageSnapshot]
     public let fetchedAt: Date
+    /// ChatGPT backend extras; nil when the token was expired or the calls failed.
+    public let extras: CodexWhamExtras?
 
     public init(
         account: CodexAccountDetailsSnapshot?,
@@ -290,7 +292,8 @@ public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
         rateLimits: CodexRateLimitsSnapshot?,
         usage: CodexUsageSummarySnapshot?,
         dailyUsage: [CodexDailyUsageSnapshot],
-        fetchedAt: Date
+        fetchedAt: Date,
+        extras: CodexWhamExtras? = nil
     ) {
         self.account = account
         self.requiresOpenAIAuthentication = requiresOpenAIAuthentication
@@ -298,6 +301,7 @@ public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
         self.usage = usage
         self.dailyUsage = dailyUsage
         self.fetchedAt = fetchedAt
+        self.extras = extras
     }
 }
 
@@ -305,15 +309,18 @@ public struct CodexAppServerAccountReader: Sendable {
     private let transport: any CodexAppServerRPCTransport
     private let environment: @Sendable () -> [String: String]
     private let now: @Sendable () -> Date
+    private let extras: CodexWhamClient?
 
     public init(
         transport: any CodexAppServerRPCTransport = ProcessCodexAppServerRPCTransport(),
         environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment },
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        extras: CodexWhamClient? = CodexWhamClient()
     ) {
         self.transport = transport
         self.environment = environment
         self.now = now
+        self.extras = extras
     }
 
     public func read(
@@ -329,7 +336,17 @@ public struct CodexAppServerAccountReader: Sendable {
             source: source
         )
         let records = try await transport.performAccountRead(launch: launch, limits: limits)
-        return try Self.decode(records: records, fetchedAt: now())
+        let snapshot = try Self.decode(records: records, fetchedAt: now())
+        // Read after the app-server exits so a token it refreshed in this private copy is used.
+        guard let extras = await extras?.fetch(authFile: source.authFile, now: now()) else { return snapshot }
+        return CodexAccountUsageSnapshot(
+            account: snapshot.account,
+            requiresOpenAIAuthentication: snapshot.requiresOpenAIAuthentication,
+            rateLimits: snapshot.rateLimits,
+            usage: snapshot.usage,
+            dailyUsage: snapshot.dailyUsage,
+            fetchedAt: snapshot.fetchedAt,
+            extras: extras)
     }
 
     static func scrubbedEnvironment(_ source: [String: String], codexHome: URL) -> [String: String] {
