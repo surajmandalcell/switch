@@ -15,8 +15,8 @@ mark remains the small menu-bar template.
 ## 1. Product model
 
 Switch manages provider authentication snapshots. Codex CLI, Grok Build, and Claude Code
-are enabled in the current release. Gemini CLI and Antigravity CLI remain inert WIP choices
-in the Add Account catalog.
+use the dedicated engines below. Every other provider uses the generic provider layer in
+section 1a.
 
 For Codex, `~/.codex` is the one live home. Its configuration, instructions, skills,
 plugins, conversations, databases, and other non-authentication state remain in place when
@@ -43,8 +43,49 @@ existing Grok sessions retain their earlier account.
 Claude Code profiles use separate, stable `CLAUDE_CONFIG_DIR` paths. Claude Code owns their
 credentials, including any macOS Keychain entries; Switch does not copy or parse them. A
 Claude default selects the profile for launches through Switch and its host app, so separate
-profiles can remain signed in at the same time. It does not silently replace the login used
-by a plain `claude` command launched elsewhere.
+profiles can remain signed in at the same time. Every profile shares one history with
+`~/.claude` through symlinks (projects, history.jsonl, settings.json, CLAUDE.md, commands,
+agents, skills, plugins, and similar shared items); `.claude.json`, `.credentials.json`, and
+per-account policy caches stay per profile. Existing profile data is backed up and merged
+without overwriting before a link replaces it. The default is written to
+`~/.switch/claude/active`. An opt-in shell integration (Settings) makes a plain `claude`
+command use it; without it, a plain `claude` keeps its own login. Claude usage reads a
+file-based access token read-only when one exists, otherwise the CLI's `/usage` panel, at
+most every ten minutes per profile. Switch never spends a Claude refresh token.
+
+## 1a. Generic providers
+
+Switch includes every usage provider from OpenUsage and CodexBar that can work without the
+macOS Keychain or browser cookie stores. Each provider is a `ProviderSpec` with one of two
+credential styles:
+
+- **Files**: the official CLI or app owns credential files, a JSON member of a shared file,
+  or key/value rows of its database (for example `~/.gemini/oauth_creds.json`, the
+  `opencode-go` member of OpenCode's auth.json, or Cursor's `cursorAuth/*` rows). Switching
+  backs up the live bytes (newest ten per provider), saves the outgoing login into its own
+  vault entry (capturing rotated tokens, and auto-saving an unsaved login), and atomically
+  writes only the selected account's bytes. Conversations, settings, and every other file,
+  member, or row stay in place. Sign-in runs the official command in Terminal against a
+  private temporary home, then imports it; "Import current sign-in" saves the live login.
+- **Secret**: API keys, access tokens, or a pasted Cookie header. Switching selects the
+  default saved account.
+
+Saved credentials live at `~/.switch/<provider>/<account-uuid>.json` (0600). The index and
+backups live in application support `provider-accounts/`. A usage check for the live
+account of a Files provider reads the live bytes and never spends a refresh token that the
+CLI also holds; vault-only accounts may refresh, and the new tokens are saved. Refreshed live
+bytes are written back only when the live file is unchanged.
+
+Usage uses one normalized model: rate windows (used share, reset time, window length),
+money (spend, limit, balance), short detail rows, plan, and identity. The first window drives
+the menu-bar percentage. Missing values are omitted, never invented. Provider requests use
+HTTPS (plain HTTP only for loopback, RFC 1918, and `.local` gateways) and never follow a
+redirect to another host.
+
+Dropped on purpose: hooks, the QuickJS plugin engine, browser cookie import, Keychain
+reads, keepalive, adaptive refresh, agent sessions, widgets, iCloud sync, Sparkle,
+telemetry, local HTTP API, proxy settings, and merge-icons mode. Providers that only work
+through those (CodeRabbit's local CLI, MuseAI's page scrape) are left out.
 
 Defaults are provider-scoped. Codex CLI and Grok Build each retain their own default account,
 matching the credential in that provider's live home. Claude Code retains a separate default

@@ -121,5 +121,5 @@ Antigravity CLI appear as WIP choices in the Add Account catalog.
 For sample accounts without real credentials, use the
 [isolated Preview build](docs/development.md#preview-with-sample-accounts).
 [Development and release notes](docs/development.md) cover packaging and
-safety. The [product specification](docs/specs/product.md) defines current
+safety. The [product specification](specs/product.md) defines current
 behavior. Local ignored goal ledgers record current work and old verification.
