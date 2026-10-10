@@ -29,6 +29,16 @@ extension ProviderCatalog {
             if china, let balance = try? await HTTP.json("https://www.bigmodel.cn/api/biz/account/query-customer-account-report", headers: headers) {
                 ZaiUsage.addBalance(balance, to: &usage)
             }
+            // Optional token analytics per model (hourly for today, daily for 30 days); a failure hides them.
+            let team = query.isEmpty ? "" : "&type=3"
+            for (days, title) in [(1, "Hourly tokens"), (30, "Daily tokens")] {
+                let range = ZaiUsage.timeRange(days: days)
+                if let json = try? await HTTP.json("\(base)/api/monitor/usage/model-usage?startTime=\(range.start)&endTime=\(range.end)\(team)",
+                                                   headers: headers),
+                   let section = ZaiUsage.modelUsage(json, title: title) {
+                    usage.sections.append(section)
+                }
+            }
             return usage
         })
 }
@@ -106,8 +116,53 @@ enum ZaiUsage {
             sections.append(UsageSection("MCP usage by tool", rows))
         }
         if windows.isEmpty { sections.append(UsageSection(nil, [UsageRow("Quota", "No usage data")])) }
+        if limits.contains(where: { $0.type == "CREDIT_LIMIT" }) { sections.append(UsageSection(nil, [quotaRate(now)])) }
         let plan = ["planName", "plan", "plan_type", "packageName", "level"].lazy.compactMap { data[$0].string }.first
         return ProviderUsage(windows: windows, sections: sections, plan: plan)
+    }
+
+    /// Credit plans charge 1x in peak hours (Mon-Fri 06:00-10:00 UTC) and 0.5x otherwise. No endpoint reports
+    /// this; it is a function of the clock (docs.z.ai/devpack/overview).
+    static func quotaRate(_ now: Date) -> UsageRow {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let parts = utc.dateComponents([.weekday, .hour], from: now)
+        let weekday = parts.weekday ?? 2, hour = parts.hour ?? 0   // 1 = Sunday
+        let isPeak = (2...6).contains(weekday) && (6..<10).contains(hour)
+        var boundary = utc.startOfDay(for: now).addingTimeInterval(TimeInterval((isPeak ? 10 : 6) * 3600))
+        if !isPeak {
+            if hour >= 6 { boundary = boundary.addingTimeInterval(86_400) }
+            while [1, 7].contains(utc.component(.weekday, from: boundary)) { boundary = boundary.addingTimeInterval(86_400) }
+        }
+        let minutes = max(1, Int((boundary.timeIntervalSince(now) / 60).rounded(.up)))
+        let wait = minutes >= 1440 ? "\(minutes / 1440)d \(minutes / 60 % 24)h" : minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+        return UsageRow("Quota rate", "\(isPeak ? "Peak" : "Off-peak") (\(isPeak ? "off-peak" : "peak") in \(wait))")
+    }
+
+    /// Local-time `yyyy-MM-dd HH:mm:ss` bounds, percent-encoded: `days` back from midnight to the end of this hour.
+    static func timeRange(days: Int, now: Date = Date()) -> (start: String, end: String) {
+        let calendar = Calendar.current
+        let start = calendar.date(byAdding: .day, value: -days, to: calendar.startOfDay(for: now)) ?? now
+        var end = calendar.dateComponents([.year, .month, .day, .hour], from: now)
+        end.minute = 59
+        end.second = 59
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        func encode(_ date: Date) -> String {
+            formatter.string(from: date).addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        }
+        return (encode(start), encode(calendar.date(from: end) ?? now))
+    }
+
+    /// Token totals per model from `/api/monitor/usage/model-usage`, largest first.
+    static func modelUsage(_ json: JSON, title: String) -> UsageSection? {
+        guard json["success"].bool == true else { return nil }
+        let totals = json.at("data.modelDataList").array.compactMap { model -> (String, Int)? in
+            let sum = model["tokensUsage"].array.reduce(0.0) { $0 + max(0, $1.double ?? 0) }
+            return sum > 0 ? (model["modelName"].string ?? "Unknown", Int(min(sum, 1e15))) : nil
+        }.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }
+        return totals.isEmpty ? nil : UsageSection(title, totals.prefix(20).map { UsageRow($0.0, MajorsSpend.compact($0.1)) })
     }
 
     private static func amount(_ limit: Limit, unit: String) -> String? {
@@ -120,5 +175,9 @@ enum ZaiUsage {
         let data = json["data"]
         guard json["success"].bool == true, let balance = data["availableBalance"].double ?? data["balance"].double else { return }
         usage.cost = UsageCost(used: data["totalSpendAmount"].double, balance: balance, currency: "CNY", period: "Account balance")
+        let rows = [("Recharged", "rechargeAmount"), ("Granted", "giveAmount")].compactMap { label, key -> UsageRow? in
+            data[key].double.flatMap { $0 > 0 ? UsageRow(label, Fmt.money($0, currency: "CNY")) : nil }
+        }
+        if !rows.isEmpty { usage.sections.append(UsageSection("Account balance", rows)) }
     }
 }

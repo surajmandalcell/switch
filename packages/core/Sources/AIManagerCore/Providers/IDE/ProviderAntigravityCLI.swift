@@ -43,10 +43,11 @@ extension ProviderCatalog {
                     let body: [String: Any] = IDEAuth.project(assist).map { ["project": $0] } ?? [:]
                     let summary = try? await IDEAuth.cloudCode(
                         "retrieveUserQuotaSummary", token: token, body: body, userAgent: agent)
-                    if let summary, AntigravityCLIUsage.hasSummary(summary) { return (assist, summary, nil) }
+                    if let summary, AntigravityCLIUsage.hasMeasured(summary) { return (assist, summary, nil) }
+                    // No measured bucket (older build or unmeasured summary): read the per-model quotas.
                     let models = try await IDEAuth.cloudCode(
                         "fetchAvailableModels", token: token, body: body, userAgent: agent)
-                    return (assist, nil, models)
+                    return (assist, summary, models)
                 })
             let claims = (file["id_token"] as? String).flatMap(Fmt.jwtClaims)
             let usage = try AntigravityCLIUsage.map(assist: assist, summary: summary, models: models, claims: claims)
@@ -80,16 +81,17 @@ enum AntigravityCLIUsage {
 
     static func hasSummary(_ summary: JSON) -> Bool { groups(summary).exists }
 
-    /// Pure mapper. A parsed quota summary is authoritative even when it holds no known bucket; the
-    /// per-model fallback runs only when the response has no summary. Follows OpenUsage, which ships
-    /// fixtures for the four bucket ids; CodexBar reads the same shape.
+    /// True when the summary holds at least one measured pool bucket.
+    static func hasMeasured(_ summary: JSON) -> Bool { !summaryWindows(summary).isEmpty }
+
+    /// Pure mapper. A summary with measured buckets wins. One without (an unmeasured or older build) falls
+    /// back to the per-model quotas when they are present, and is otherwise reported as empty.
+    /// OpenUsage ships fixtures for the four bucket ids; CodexBar reads the same shape.
     static func map(assist: JSON, summary: JSON?, models: JSON?, claims: JSON?) throws -> ProviderUsage {
-        let windows: [UsageWindow]
-        if let summary, hasSummary(summary) {
-            windows = summaryWindows(summary)
-        } else if let models {
+        var windows = summary.map(summaryWindows) ?? []
+        if windows.isEmpty, let models {
             windows = modelWindows(models)
-        } else {
+        } else if windows.isEmpty, summary.map(hasSummary) != true {
             throw ProviderError.parse("Antigravity returned no quota.")
         }
         return ProviderUsage(windows: windows, plan: GeminiCLIUsage.plan(assist, claims: claims),
@@ -113,9 +115,15 @@ enum AntigravityCLIUsage {
             guard let bucket = found[entry.bucket],
                   let fraction = bucket["remainingFraction"].double ?? bucket.at("remaining.remainingFraction").double
             else { return nil }
-            return UsageWindow(id: entry.id, title: entry.title, usedPercent: ((1 - min(max(fraction, 0), 1)) * 100).rounded(),
-                               resetsAt: bucket["resetTime"].date, windowMinutes: entry.minutes)
+            return pool(id: entry.id, title: entry.title, used: ((1 - min(max(fraction, 0), 1)) * 100).rounded(),
+                        reset: bucket["resetTime"].date, minutes: entry.minutes)
         }
+    }
+
+    /// A 5-hour pool with no usage has not started its window yet; the reset then only restates the window.
+    private static func pool(id: String, title: String, used: Double, reset: Date?, minutes: Int) -> UsageWindow {
+        UsageWindow(id: id, title: title, usedPercent: used, resetsAt: reset, windowMinutes: minutes,
+                    detail: minutes == 300 && used == 0 ? "Not started" : nil)
     }
 
     /// Legacy 5-hour pools from `fetchAvailableModels`; a model without quota info is dropped, never read as empty.
@@ -129,8 +137,7 @@ enum AntigravityCLIUsage {
             pools[pool] = (fraction, model.at("quotaInfo.resetTime").date)
         }
         return [("session", "Gemini 5-hour"), ("claude-session", "Claude 5-hour")].compactMap { id, title in
-            pools[id].map { UsageWindow(id: id, title: title, usedPercent: (1 - $0.fraction) * 100,
-                                        resetsAt: $0.reset, windowMinutes: 300) }
+            pools[id].map { pool(id: id, title: title, used: (1 - $0.fraction) * 100, reset: $0.reset, minutes: 300) }
         }
     }
 

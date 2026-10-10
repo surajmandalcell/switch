@@ -38,7 +38,11 @@ extension ProviderCatalog {
                     let assist = try await IDEAuth.cloudCode(
                         "loadCodeAssist", token: token,
                         body: ["metadata": ["ideType": "GEMINI_CLI", "pluginType": "GEMINI"]])
-                    let project = IDEAuth.project(assist)
+                    if GeminiCLIUsage.consumerShutdown(assist, claims: (file["id_token"] as? String).flatMap(Fmt.jwtClaims)) {
+                        throw ProviderError.unavailable("Google no longer serves Gemini CLI for personal accounts. Use the Antigravity CLI provider.")
+                    }
+                    var project = IDEAuth.project(assist)
+                    if project == nil { project = await GeminiCLIUsage.discoverProject(token: token) }
                     let quota = try await IDEAuth.cloudCode(
                         "retrieveUserQuota", token: token, body: project.map { ["project": $0] } ?? [:])
                     return (assist, quota)
@@ -55,6 +59,27 @@ extension ProviderCatalog {
 }
 
 enum GeminiCLIUsage {
+    /// Since 2026-06-18 Google answers consumer accounts with HTTP 200 and no current tier, listing the
+    /// tier under `ineligibleTiers` as UNSUPPORTED_CLIENT. A named paid tier or a Workspace (`hd`) claim
+    /// is not covered by the shutdown.
+    static func consumerShutdown(_ assist: JSON, claims: JSON?) -> Bool {
+        !assist["currentTier"].exists && assist.at("paidTier.name").string == nil && claims?["hd"].string == nil
+            && assist["ineligibleTiers"].array.contains { $0["reasonCode"].string == "UNSUPPORTED_CLIENT" }
+    }
+
+    /// Quota project when `loadCodeAssist` names none: the `gen-lang-client*` or `generative-language` project.
+    static func discoverProject(token: String) async -> String? {
+        guard let list = try? await HTTP.json("https://cloudresourcemanager.googleapis.com/v1/projects",
+                                              headers: HTTP.bearer(token)) else { return nil }
+        return pickProject(list)
+    }
+
+    static func pickProject(_ list: JSON) -> String? {
+        let projects = list["projects"].array
+        return (projects.first { $0["projectId"].string?.hasPrefix("gen-lang-client") == true }
+            ?? projects.first { $0["labels"]["generative-language"].exists })?["projectId"].string
+    }
+
     /// Pure mapper, unit tested with fixture JSON. Each family keeps its lowest remaining fraction.
     static func map(quota: JSON, assist: JSON, claims: JSON?) throws -> ProviderUsage {
         guard quota["buckets"].exists else { throw ProviderError.parse("Gemini returned no quota buckets.") }
