@@ -78,8 +78,9 @@ enum WindsurfProto {
             switch tag & 7 {
             case 0: out.append((number, .varint(try read())))
             case 2:
-                let length = Int(try read())
-                guard length >= 0, i + length <= b.count else { throw ProviderError.parse("The Windsurf response is truncated.") }
+                guard let length = Int(exactly: try read()), length <= b.count - i else {
+                    throw ProviderError.parse("The Windsurf response is truncated.")
+                }
                 out.append((number, .bytes(Data(b[i..<i + length])))); i += length
             case 1: i += 8
             case 5: i += 4
