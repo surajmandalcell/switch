@@ -319,6 +319,10 @@ enum AIManagerNativeContract {
       UsagePresentation.credits(CodexCreditsSnapshot(
         hasCredits: false, unlimited: nil, balance: nil)) == "None",
       "Explicit false credits are hidden")
+    expect(
+      UsagePresentation.credits(CodexCreditsSnapshot(
+        hasCredits: true, unlimited: nil, balance: "62367.4009760000")) == "62,367.4",
+      "Fixed-point credit balances are not formatted")
     expect(UsagePresentation.spendControl(nil) == nil, "Missing spend control is visible")
     expect(UsagePresentation.spendControl(false) == "Not reached", "Explicit false spend control is hidden")
     let missingAccountFields = CodexAccountUsageSnapshot(

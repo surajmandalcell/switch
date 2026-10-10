@@ -1095,7 +1095,10 @@ enum UsagePresentation {
   static func credits(_ credits: CodexCreditsSnapshot?) -> String? {
     guard let credits else { return nil }
     if credits.unlimited == true { return "Unlimited" }
-    if let balance = nonempty(credits.balance) { return balance }
+    if let balance = nonempty(credits.balance) {
+      // Codex sends a fixed-point string such as "62367.4009760000".
+      return Double(balance).map { Fmt.number($0, digits: 2) } ?? balance
+    }
     if let hasCredits = credits.hasCredits { return hasCredits ? "Available" : "None" }
     return nil
   }
