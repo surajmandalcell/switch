@@ -67,9 +67,11 @@ enum Sub2ApiUsage {
             rows.append(UsageRow("\(title) tokens", "\(Fmt.number(totals["total_tokens"].double ?? 0)) (\(money(totals["actual_cost"].double ?? 0)))"))
         }
         let plan = json["planName"].string
+        let expires = sub["expires_at"].date ?? json["expires_at"].date
         return ProviderUsage(
             windows: windows,
             cost: unit.uppercased() == "USD" ? balance.map { UsageCost(balance: $0) } : nil,
-            sections: [UsageSection("Usage summary", rows)], plan: plan)
+            sections: [UsageSection("Usage summary", rows), PluginFmt.renewal(nil, expires: expires)],
+            plan: plan, organization: plan)
     }
 }

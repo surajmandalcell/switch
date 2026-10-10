@@ -6,6 +6,8 @@ extension ProviderCatalog {
         fields: [
             .apiKey("LITELLM_API_KEY"),
             CredentialField("baseURL", "Base URL", secure: false, placeholder: "https://litellm.example.com"),
+            CredentialField("modelActivity", "Show model activity (true or blank)", secure: false, optional: true,
+                            env: ["LITELLM_MODEL_USAGE_ENABLED"]),
         ],
         dashboard: "https://docs.litellm.ai/docs/proxy/users",
         usage: { credential in
@@ -38,7 +40,22 @@ extension ProviderCatalog {
             } else if let teamID = info["team_id"].string {
                 team = try await get("team/info?team_id=\(encoded(teamID))")
             }
-            return try LiteLLMUsage.map(key: keyRoot, user: user, team: team)
+            // Optional history must never discard the budgets that were already fetched.
+            var activity: UsageSection?
+            if let userID = info["user_id"].string, credential["modelActivity"] == "true" {
+                let end = LiteLLMUsage.day(now)
+                let start = LiteLLMUsage.day(now.addingTimeInterval(-29 * 86_400))
+                var pages: [JSON] = []
+                for page in 1...3 {
+                    guard let json = try? await get("user/daily/activity?user_id=\(encoded(userID))&start_date=\(start)"
+                                                    + "&end_date=\(end)&page=\(page)&page_size=1000") else { break }
+                    pages.append(json)
+                    let meta = json["metadata"]
+                    if meta["has_more"].bool != true && page >= (meta["total_pages"].int ?? 1) { break }
+                }
+                activity = LiteLLMUsage.modelActivity(pages)
+            }
+            return try LiteLLMUsage.map(key: keyRoot, user: user, team: team, activity: activity)
         })
 }
 
@@ -75,7 +92,7 @@ enum LiteLLMUsage {
 
     /// `key` is the `/key/info` response; `user` the `/user/info` response (key has a user_id) or
     /// `team` the `/team/info` response (key has only a team_id).
-    static func map(key: JSON, user: JSON?, team: JSON?) throws -> ProviderUsage {
+    static func map(key: JSON, user: JSON?, team: JSON?, activity: UsageSection? = nil) throws -> ProviderUsage {
         let info = key["info"]
         let userID = info["user_id"].string, teamID = info["team_id"].string
         guard userID != nil || teamID != nil else {
@@ -97,9 +114,33 @@ enum LiteLLMUsage {
             guard let team else { throw ProviderError.parse("LiteLLM team info is missing.") }
             teamBudget = budget(team["team_info"], team: true)
         }
+        // key.expires is the plugin's subscriptionExpiresAt.
+        let sections = [activity, info["expires"].date.map { PluginFmt.renewal(nil, expires: $0) }].compactMap { $0 }
         return ProviderUsage(windows: [personal?.window, teamBudget?.window].compactMap { $0 },
-                             cost: (personal ?? teamBudget)?.cost, plan: "API", email: email,
+                             cost: (personal ?? teamBudget)?.cost, sections: sections, plan: "API", email: email,
                              organization: teamBudget?.alias)
+    }
+
+    /// "Model activity · 30d UTC": the 20 busiest models over the `user/daily/activity` pages.
+    static func modelActivity(_ pages: [JSON]) -> UsageSection? {
+        var totals: [String: [Double]] = [:]
+        let fields = ["prompt_tokens", "completion_tokens", "total_tokens", "api_requests"]
+        for page in pages {
+            for day in page["results"].array {
+                for (name, value) in day.at("breakdown.models").object {
+                    let metrics = value["metrics"].exists ? value["metrics"] : value
+                    var sum = totals[name] ?? [0, 0, 0, 0]
+                    for (index, field) in fields.enumerated() { sum[index] += metrics[field].double ?? 0 }
+                    totals[name] = sum
+                }
+            }
+        }
+        let rows = totals.sorted { $0.value[2] != $1.value[2] ? $0.value[2] > $1.value[2] : $0.key < $1.key }
+            .prefix(20).map { name, sum in
+                PluginFmt.row(name, "\(Int(sum[2])) tokens · \(Int(sum[3])) requests",
+                              "Input \(Int(sum[0])) · Output \(Int(sum[1]))")
+            }
+        return rows.isEmpty ? nil : UsageSection("Model activity · 30d UTC", rows)
     }
 
     /// Spend-only fallback for keys that cannot read `/key/info`.

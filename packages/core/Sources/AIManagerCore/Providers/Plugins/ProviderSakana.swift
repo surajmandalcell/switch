@@ -31,8 +31,12 @@ enum SakanaUsage {
            let balance = capture("<h2[^>]*>\\s*Credit balance\\s*</h2>[\\s\\S]{0,900}?<p[^>]*tabular-nums[^\"]*\"[^>]*>\\$?([0-9][0-9,]*(?:\\.[0-9]+)?)</p>", paygHTML).flatMap(amount) {
             let spent = capture("<h2[^>]*>\\s*Usage\\s*</h2>\\s*<span[^>]*>\\s*Total(?:<!--\\s*-->)?:\\s*(?:<!--\\s*-->)?\\$?([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*</span>", paygHTML).flatMap(amount)
             cost = UsageCost(used: spent, balance: balance, period: "Pay as you go")
+            // The usage date range ("Sep 1 - Sep 21") sits in a button; strip its comments and extra spaces.
+            let period = capture("aria-label=\"Usage date range\"[^>]*>([\\s\\S]*?)</button>", paygHTML)?
+                .replacingOccurrences(of: "<!--.*?-->", with: "", options: .regularExpression)
+                .split(whereSeparator: \.isWhitespace).joined(separator: " ")
             sections.append(UsageSection("Extra usage", [UsageRow("Balance", Fmt.money(balance))]
-                + (spent.map { [UsageRow("Usage", Fmt.money($0))] } ?? [])))
+                + (spent.map { [PluginFmt.row("Usage", Fmt.money($0), period.flatMap { $0.isEmpty ? nil : String($0.prefix(120)) })] } ?? [])))
         }
         return ProviderUsage(windows: windows, cost: cost, sections: sections, plan: plan.isEmpty ? nil : plan)
     }

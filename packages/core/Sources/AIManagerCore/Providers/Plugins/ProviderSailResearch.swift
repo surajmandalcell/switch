@@ -35,6 +35,6 @@ enum SailResearchUsage {
             sections: [UsageSection("Organization billing", [
                 UsageRow("Credit balance", balance.map { Fmt.money($0) } ?? "Unavailable"),
                 UsageRow("\(labels[range] ?? range) spend", Fmt.money(spend / 100)),
-            ])])
+            ])], plan: "API key")
     }
 }

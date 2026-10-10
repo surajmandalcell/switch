@@ -68,14 +68,27 @@ enum AixyUsage {
                           used: known ? (spent ?? 0) + (reserved ?? 0) : nil,
                           startsAt: raw["starts_at"].date, resetsAt: raw["resets_at"].date)
         }
-        // Menu bar shows the first window: known budgets first, hard before monitor, fullest first.
+        // Hard budgets first, then known, then fullest. The first two known budgets lead the windows
+        // (the menu bar shows the first); every other budget follows in the same order.
         budgets.sort {
-            ($0.known ? 0 : 1, $0.hard ? 0 : 1, -$0.percent, $0.id) < ($1.known ? 0 : 1, $1.hard ? 0 : 1, -$1.percent, $1.id)
+            ($0.hard ? 0 : 1, $0.known ? 0 : 1, -$0.percent, $0.id) < ($1.hard ? 0 : 1, $1.known ? 0 : 1, -$1.percent, $1.id)
         }
-        var sections = [UsageSection("Aixy key", [
+        let selected = Array(budgets.filter(\.known).prefix(2))
+        let windows = selected.map(\.window) + budgets.filter { budget in !selected.contains { $0.id == budget.id } }.map(\.window)
+        var keyRows: [UsageRow] = [
             .init("Key", key["name"].string ?? keyID),
             .init("Project", key["project_name"].string ?? key["project_id"].string ?? ""),
-        ])]
+        ]
+        if let observed = root["as_of"].date { keyRows.append(.init("Observed", PluginFmt.iso(observed))) }
+        var sections = [UsageSection("Aixy key", keyRows)]
+        sections.append(UsageSection("Applicable budgets", budgets.map { budget in
+            budget.known
+                ? PluginFmt.row(budget.title, "\(Fmt.money(budget.remaining ?? 0)) / \(Fmt.money(budget.limit)) remaining",
+                                "\(Fmt.money(budget.spent ?? 0)) spent"
+                                    + (budget.hard ? " · \(Fmt.money(budget.reserved ?? 0)) reserved" : ""),
+                                progress: budget.percent / 100)
+                : UsageRow(budget.title, "Unavailable")
+        }))
         var cost: UsageCost?
         let usage = root["usage"]
         if usage.exists {
@@ -86,9 +99,12 @@ enum AixyUsage {
                 .init("Requests", Fmt.number(requests)),
                 .init("Tokens", Fmt.number(usage["total_tokens"].double ?? 0)),
                 .init("Attributed spend", spend.map { Fmt.money($0) } ?? "Unavailable"),
-                .init("Cost coverage", "\(Fmt.number(attributed)) / \(Fmt.number(requests)) requests"),
+                PluginFmt.row("Cost coverage", "\(Fmt.number(attributed)) / \(Fmt.number(requests)) requests",
+                              "\(Fmt.number(usage["partial_requests"].double ?? 0)) partial"),
             ]))
+        } else {
+            sections.append(.init("Last 7 days · this key", [.init("Usage", "Unavailable")]))
         }
-        return ProviderUsage(windows: budgets.map(\.window), cost: cost, sections: sections, plan: "API key")
+        return ProviderUsage(windows: windows, cost: cost, sections: sections, plan: "API key")
     }
 }

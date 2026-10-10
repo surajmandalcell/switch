@@ -53,6 +53,6 @@ enum HelmcodeUsage {
             let currency = credits?["currency"].string?.uppercased() ?? "EUR"
             if currency.count == 3 { cost = UsageCost(balance: max(0, balance / 1e6), currency: currency, period: "Prepaid balance") }
         }
-        return ProviderUsage(windows: windows, cost: cost, organization: organization)
+        return ProviderUsage(windows: windows, cost: cost, plan: "Dashboard session", organization: organization)
     }
 }

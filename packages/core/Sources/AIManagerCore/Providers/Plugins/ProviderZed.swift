@@ -38,6 +38,7 @@ enum ZedUsage {
             let cap = spend["limit_in_cents"].double.map { $0 / 100 }
             cost = UsageCost(used: cents / 100, limit: cap, period: "Current billing period")
             rows.append(UsageRow("Token spend", Fmt.money(cents / 100)))
+            rows.append(UsageRow("Spend limit", cap.map { Fmt.money($0) } ?? "Not reported"))
             if let cap { rows.append(UsageRow("Remaining budget", Fmt.money(max(0, cap - cents / 100)))) }
         }
         let name = plan.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }.joined(separator: " ")

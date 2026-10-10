@@ -55,10 +55,12 @@ enum NeuralwattUsage {
         }
         let allowance = root["key"]["allowance"]
         let allowanceLimit = allowance["limit_usd"].double ?? 0
+        // The key window is named after its period: "Key Monthly".
+        let keyTitle = "Key \((allowance["period"].string ?? "allowance").lowercased().capitalized)"
         if allowance["blocked"].bool == true {
-            windows.append(UsageWindow(id: "key", title: "Key allowance", usedPercent: 100))
+            windows.append(UsageWindow(id: "key", title: keyTitle, usedPercent: 100))
         } else if let spent = allowance["spent_usd"].double,
-                  let window = UsageWindow.amounts(id: "key", title: "Key allowance", used: spent,
+                  let window = UsageWindow.amounts(id: "key", title: keyTitle, used: spent,
                                                    limit: allowanceLimit) {
             windows.append(window)
         }
@@ -67,6 +69,7 @@ enum NeuralwattUsage {
         return ProviderUsage(
             windows: windows,
             cost: remaining.map { UsageCost(limit: granted, balance: $0, period: "Prepaid balance") },
+            sections: [PluginFmt.renewal(sub["auto_renew"].bool == false || consumed == nil || included == nil ? nil : end)],
             plan: plan.map { "\($0.capitalized) plan" } ?? accounting?.capitalized)
     }
 }

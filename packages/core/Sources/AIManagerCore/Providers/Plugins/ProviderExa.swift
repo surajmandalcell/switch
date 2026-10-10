@@ -30,6 +30,7 @@ enum ExaUsage {
             throw ProviderError.parse("Exa returned an unrecognized API key usage response.")
         }
         return ProviderUsage(cost: UsageCost(used: spend, period: "This month (UTC)"),
-                             sections: [.init("API key this month (UTC)", [.init("Spend", Fmt.money(spend))])])
+                             sections: [.init("API key this month (UTC)", [.init("Spend", Fmt.money(spend))])],
+                             plan: "Service key")
     }
 }

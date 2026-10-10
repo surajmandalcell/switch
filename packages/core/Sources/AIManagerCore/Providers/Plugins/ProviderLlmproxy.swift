@@ -61,6 +61,6 @@ enum LlmproxyUsage {
             sections: [UsageSection("Totals", [UsageRow("Requests", Fmt.number(requests)),
                                                UsageRow("Tokens", Fmt.number(tokens))]),
                        UsageSection("Providers", rows)],
-            organization: "\(active)/\(credentials) active keys")
+            plan: "quota-stats", organization: "\(active)/\(credentials) active keys")
     }
 }

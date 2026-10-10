@@ -30,7 +30,14 @@ enum DeepinfraUsage {
             rows.insert(.init("Status", "Suspended" + (checklist["suspend_reason"].string.map { ": \($0)" } ?? "")), at: 0)
         }
         let limit = checklist["limit"].double
+        // The plugin's only window: full when suspended or money is owed, empty when the balance is credit.
+        let reason = checklist["suspend_reason"].string?.trimmingCharacters(in: .whitespaces) ?? ""
+        let status = suspended ? (reason.isEmpty ? "Suspended · " : "Suspended: \(reason) · ") : ""
+        let balanceText = balance > 0 ? "\(Fmt.money(balance)) owed" : "\(Fmt.money(max(0, -balance))) available"
+        let window = UsageWindow(id: "balance", title: "Balance", usedPercent: suspended || balance >= 0 ? 100 : 0,
+                                 detail: "\(status)\(balanceText) · \(Fmt.money(monthCost)) spent this month")
         return ProviderUsage(
+            windows: [window],
             cost: UsageCost(used: recent, limit: (limit ?? 0) > 0 ? limit : nil, balance: balance <= 0 ? -balance : nil,
                             period: "Billing cycle"),
             sections: [.init("Balance", rows)])

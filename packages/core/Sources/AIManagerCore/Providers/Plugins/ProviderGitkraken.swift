@@ -43,6 +43,7 @@ enum GitkrakenUsage {
                 rows.append(.init("Rest of organization", "\(Fmt.number(pool.used - shared, digits: 2)) credits"))
             }
         }
+        if personal.limit <= 0, (pool?.limit ?? 0) <= 0 { rows.append(.init("Reset", PluginFmt.iso(resetsAt))) }
         func window(_ id: String, _ title: String, _ q: Quota?) -> UsageWindow? {
             guard let q, q.limit > 0 else { return nil }
             return .amounts(id: id, title: title, used: q.used, limit: q.limit, resetsAt: resetsAt, windowMinutes: 10_080,

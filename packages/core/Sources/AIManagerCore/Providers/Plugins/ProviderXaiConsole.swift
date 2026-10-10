@@ -46,14 +46,23 @@ enum XaiConsoleUsage {
         let remaining = -raw / 100
         var rows = [UsageRow("Prepaid balance", Fmt.money(remaining))]
         var spent: Double?
+        var sections: [UsageSection] = []
         if let series = history?["timeSeries"], series.exists {
-            let total = series.array.flatMap { $0["dataPoints"].array }.reduce(0.0) { $0 + ($1["values"][0].double ?? 0) }
+            let points = series.array.flatMap { $0["dataPoints"].array }
+            let total = points.reduce(0.0) { $0 + ($1["values"][0].double ?? 0) }
             let partial = history?["limitReached"].bool == true
             spent = total
             rows.append(UsageRow(partial ? "Last 30 days (partial)" : "Last 30 days", Fmt.money(total)))
+            // The plugin charts daily spend; the newest seven days stand in for the chart.
+            var days: [String: Double] = [:]
+            for point in points {
+                if let date = point["timestamp"].date { days[PluginFmt.day(date), default: 0] += point["values"][0].double ?? 0 }
+            }
+            sections.append(UsageSection("Daily spend", days.sorted { $0.key > $1.key }.prefix(7)
+                .map { UsageRow($0.key, Fmt.money($0.value)) }))
         }
         return ProviderUsage(
             cost: UsageCost(used: spent, balance: remaining, period: spent == nil ? "Prepaid credits" : "Last 30 days"),
-            sections: [UsageSection("Billing summary", rows)])
+            sections: [UsageSection("Billing summary", rows)] + sections, plan: "Management API")
     }
 }

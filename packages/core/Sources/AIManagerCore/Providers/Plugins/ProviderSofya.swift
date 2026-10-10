@@ -25,6 +25,6 @@ enum SofyaUsage {
             windows.append(UsageWindow(id: "monthly", title: "Monthly credits", usedPercent: nil, resetsAt: reset))
         }
         return ProviderUsage(windows: windows, sections: [UsageSection("Account credits", rows)],
-                             plan: freeTier == true ? "Free tier" : freeTier == false ? "Pay as you go" : nil)
+                             plan: freeTier == true ? "Free tier" : freeTier == false ? "Pay as you go" : "API")
     }
 }

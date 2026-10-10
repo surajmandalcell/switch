@@ -73,8 +73,9 @@ enum PerplexityUsage {
             windows.append(UsageWindow(id: "credits", title: "Credits", usedPercent: 100, resetsAt: renewal,
                                        detail: "0 / 0 credits"))
         }
-        if let window = UsageWindow.amounts(id: "bonus", title: "Bonus credits", used: promoUsed, limit: promo,
+        if var window = UsageWindow.amounts(id: "bonus", title: "Bonus credits", used: promoUsed, limit: promo,
                                             resetsAt: promoExpiry, unit: "bonus") {
+            if let promoExpiry { window.detail = (window.detail ?? "") + " · exp. \(PluginFmt.monthDay(promoExpiry))" }
             windows.append(window)
         }
         if let window = UsageWindow.amounts(id: "purchased", title: "Purchased", used: purchasedUsed, limit: purchased,

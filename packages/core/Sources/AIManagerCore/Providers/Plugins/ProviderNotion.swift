@@ -34,6 +34,7 @@ extension ProviderCatalog {
 enum NotionUsage {
     struct Identity: Equatable {
         var email: String?
+        var userID: String?
         var workspaceID: String?
         var workspaceName: String?
         var tier: String?
@@ -75,7 +76,7 @@ enum NotionUsage {
         let chosen = wanted.flatMap { w in workspaces.first { normalize($0.id) == w } }
             ?? workspaces.first { ["business", "enterprise"].contains($0.record["subscription_tier"].string?.lowercased() ?? "") }
             ?? workspaces.first
-        return Identity(email: user["email"].string, workspaceID: chosen?.id,
+        return Identity(email: user["email"].string, userID: userID, workspaceID: chosen?.id,
                         workspaceName: chosen?.record["name"].string, tier: chosen?.record["subscription_tier"].string)
     }
 
@@ -112,7 +113,9 @@ enum NotionUsage {
                    resetsIn: usage["resetsInSeconds"].double, now: now),
             window(usage["billingPeriodWindow"], id: "monthly", title: "Monthly", rolling: false, resetsIn: nil, now: now),
         ].compactMap { $0 }
-        return ProviderUsage(windows: windows, plan: identity.tier?.capitalized, email: identity.email,
-                             organization: identity.workspaceName)
+        // CodexBar's identity accountID; the contract has no field for it.
+        let account = identity.userID.map { [UsageSection("Account", [UsageRow("User ID", $0)])] } ?? []
+        return ProviderUsage(windows: windows, sections: account, plan: identity.tier?.capitalized,
+                             email: identity.email, organization: identity.workspaceName)
     }
 }

@@ -47,6 +47,8 @@ enum ZenMuxUsage {
         return ProviderUsage(
             windows: [try window("session", "5-hour quota", data["quota_5_hour"], minutes: 300),
                       try window("weekly", "Weekly quota", data["quota_7_day"], minutes: 10080)],
-            cost: cost, sections: sections, plan: "\(tier.capitalized) plan")
+            cost: cost,
+            sections: sections + [PluginFmt.renewal(nil, expires: data.at("plan.expires_at").date)],
+            plan: "\(tier.capitalized) plan" + (status.isEmpty || status.lowercased() == "healthy" ? "" : " · \(status.capitalized)"))
     }
 }
