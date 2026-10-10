@@ -26,7 +26,10 @@ swiftc \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ChatHistoryMonitor.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderUsageStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderChoices.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/QuotaNotificationLogic.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ClaudeActivity.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \
+  "$repo_root/packages/mac-gui/Tests/FeatureLogicChecks.swift" \
   "$repo_root/packages/mac-gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
 

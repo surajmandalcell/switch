@@ -125,6 +125,13 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var usageError: String?
     /// Usage of every account whose provider is not Codex. Codex keeps its own pipeline above.
     @Published private(set) var providerUsage: [UUID: ProviderUsageState] = [:]
+    /// Last good incident of each provider that has a saved account. Empty when status checks are off.
+    @Published private(set) var providerStatus: [ProviderID: ProviderStatusEntry] = [:]
+    /// Local Claude Code usage across all profiles, from the log scan.
+    @Published private(set) var claudeActivity: ClaudeActivitySummary?
+    @Published private(set) var isClaudeActivityLoading = false
+    @Published private(set) var claudeShellIntegrationOn = false
+    @Published private(set) var claudeShellIntegrationError: String?
     @Published private(set) var chatHistory = ChatHistorySnapshot()
     @Published private(set) var selectedChatID: String?
     @Published private(set) var selectedChat: ChatThreadDetail?
@@ -146,6 +153,9 @@ final class AccountViewModel: ObservableObject {
     private var didPrepareUsageCache = false
     private let providerUsageCacheURL: URL?
     private var providerUsageCacheLoaded = false
+    private let statusPoller = ProviderStatusPoller()
+    private let claudeCostCacheURL: URL?
+    private let claudePricing: ClaudePricingSource?
     private var usageErrorAccountID: UUID?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
     private let chatHistoryMonitor: (any ChatHistoryMonitoring)?
@@ -171,8 +181,10 @@ final class AccountViewModel: ObservableObject {
         usageCache = nil
         providerUsageCacheURL = ProviderUsageCache.url(in: paths.applicationSupport)
         usageDatabaseURL = paths.applicationSupport.appending(path: "cache/account-usage.sqlite")
-        pricingResolver = CodexAPIPricingResolver(
-            cacheURL: paths.applicationSupport.appending(path: "cache/model-pricing.json"))
+        let pricingCacheURL = paths.applicationSupport.appending(path: "cache/model-pricing.json")
+        pricingResolver = CodexAPIPricingResolver(cacheURL: pricingCacheURL)
+        claudeCostCacheURL = paths.applicationSupport.appending(path: "claude-cost-cache.json")
+        claudePricing = ClaudePricingSource(cacheURL: pricingCacheURL)
         do {
             manager = try injectedManager ?? AccountManager(paths: paths)
             chatHistoryProvider = injectedChatHistoryProvider
@@ -198,6 +210,8 @@ final class AccountViewModel: ObservableObject {
         paths = demoPaths ?? DemoData.paths
         manager = nil
         providerUsageCacheURL = nil
+        claudeCostCacheURL = nil
+        claudePricing = nil
         usageCache = nil
         usageDatabaseURL = nil
         pricingResolver = nil
@@ -242,6 +256,7 @@ final class AccountViewModel: ObservableObject {
         }
         await loadCachedUsage()
         await loadProviderUsageCache()
+        await loadClaudeShellIntegration()
         Task { await self.loadAPIPricing() }
         Task { await self.refreshAutomaticUsage() }
         Task { await self.refreshProviderUsage() }
@@ -273,6 +288,7 @@ final class AccountViewModel: ObservableObject {
             Task { await self.loadAPIPricing() }
             await refreshDefaultUsage()
             await refreshProviderUsage(accountIDs: providerUsageAccountIDs)
+            Task { await self.refreshSideChecks(forceClaudeActivity: true) }
             return
         }
         #if AI_MANAGER_PREVIEW
@@ -332,6 +348,10 @@ final class AccountViewModel: ObservableObject {
                 ? (account.id, DemoData.usage(account: account, offset: index)) : nil
         })
         providerUsage = scenario == .empty ? [:] : DemoData.providerUsageStates
+        providerStatus = scenario == .empty || !ProviderStatusPoller.isEnabled() ? [:] : DemoData.providerStatus
+        claudeActivity = nil
+        claudeShellIntegrationOn = false
+        claudeShellIntegrationError = nil
         accountUsage = [:]
         usageRefreshAccountID = nil
         usageError = nil
@@ -460,7 +480,7 @@ final class AccountViewModel: ObservableObject {
                     try await reloadStatus(using: manager)
                     selectedAccountID = account.id
                     pendingLoginSessions.removeAll { $0.id == session.id }
-                    let name = account.identity.email ?? account.identity.accountID ?? "The account"
+                    let name = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "The account")
                     let providerName = account.identity.providerID.guiName
                     notice = status?.isDefault(account) == true
                         ? "New \(providerName) sessions will use \(name)."
@@ -1047,7 +1067,7 @@ final class AccountViewModel: ObservableObject {
                 if selectedAccountID == accountID {
                     selectedAccountID = status?.firstDefaultAccountID ?? status?.accounts.first?.id
                 }
-                let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
+                let accountName = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "Account")
                 notice = "\(accountName) was deleted from Switch."
             }
             return
@@ -1069,7 +1089,7 @@ final class AccountViewModel: ObservableObject {
             if selectedAccountID == accountID {
                 selectedAccountID = current.firstDefaultAccountID ?? current.accounts.first?.id
             }
-            let accountName = account.identity.email ?? account.identity.accountID ?? "Account"
+            let accountName = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "Account")
             notice = "\(accountName) was deleted from the demo."
         }
         #else
@@ -1219,6 +1239,7 @@ final class AccountViewModel: ObservableObject {
         status = current
         providerUsage[record.id] = ProviderUsageState(
             usage: DemoData.providerUsage(for: providerID, offset: 0), checkedAt: DemoData.now)
+        if providerID == .claudeCode { claudeActivity = DemoData.claudeActivity }
         return record
     }
 
@@ -1359,7 +1380,88 @@ final class AccountViewModel: ObservableObject {
         let due = providerUsageAccountIDs.filter {
             ProviderUsagePolicy.isDue(providerUsage[$0], onCadence: onCadence)
         }
+        Task { await self.refreshSideChecks() }
         await runProviderUsage(due)
+    }
+
+    /// Provider incident status and the Claude log scan ride along with every refresh pass. Both
+    /// throttle themselves, so extra calls are cheap.
+    private func refreshSideChecks(forceClaudeActivity: Bool = false) async {
+        async let status: Void = refreshProviderStatus()
+        async let activity: Void = refreshClaudeActivity(force: forceClaudeActivity)
+        _ = await (status, activity)
+    }
+
+    // MARK: Provider status
+
+    /// Providers with at least one saved account.
+    var providerStatusIDs: [ProviderID] {
+        Array(Set(status?.accounts.map(\.identity.providerID) ?? []))
+    }
+
+    /// Fetches due incident feeds; keeps the last good value on failure. With "Check provider
+    /// status" off it makes no request and clears the indicators.
+    func refreshProviderStatus() async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return }
+        #endif
+        guard paths.isolationRoot == nil, manager != nil else { return }
+        let entries = await statusPoller.poll(providerStatusIDs, enabled: ProviderStatusPoller.isEnabled())
+        if entries != providerStatus { providerStatus = entries }
+    }
+
+    /// Called when the Settings toggle changes.
+    func providerStatusSettingChanged() {
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            providerStatus = ProviderStatusPoller.isEnabled() ? DemoData.providerStatus : [:]
+            return
+        }
+        #endif
+        Task { await refreshProviderStatus() }
+    }
+
+    // MARK: Claude Code activity and shell integration
+
+    /// Scans local Claude Code logs off the main actor, at most every 15 minutes unless `force`.
+    func refreshClaudeActivity(force: Bool = false) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return }
+        #endif
+        guard paths.isolationRoot == nil, manager != nil, !isClaudeActivityLoading,
+              let cacheURL = claudeCostCacheURL, let pricing = claudePricing,
+              status?.accounts.contains(where: { $0.identity.providerID == .claudeCode }) == true,
+              ClaudeActivity.isDue(computedAt: claudeActivity?.computedAt, force: force)
+        else { return }
+        isClaudeActivityLoading = true
+        defer { isClaudeActivityLoading = false }
+        let summary = try? await Task.detached(priority: .utility) {
+            try await ClaudeActivity.compute(cacheURL: cacheURL, pricing: pricing)
+        }.value
+        if let summary { claudeActivity = summary }  // a failed scan keeps the last good numbers
+    }
+
+    func loadClaudeShellIntegration() async {
+        guard let manager else { return }
+        claudeShellIntegrationOn = await manager.claudeShellIntegrationInstalled()
+    }
+
+    /// Adds or removes the one `~/.zshrc` line that makes a plain `claude` use the default account.
+    func setClaudeShellIntegration(_ enabled: Bool) async {
+        claudeShellIntegrationError = nil
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            claudeShellIntegrationOn = enabled
+            return
+        }
+        #endif
+        guard let manager else { return }
+        do {
+            try await manager.setClaudeShellIntegration(enabled)
+        } catch {
+            claudeShellIntegrationError = "Couldn’t update the shell setup. \(error.localizedDescription)"
+        }
+        claudeShellIntegrationOn = await manager.claudeShellIntegrationInstalled()
     }
 
     /// Manual refresh: immediate, ignoring age and the failure cooldown.
@@ -2056,6 +2158,46 @@ enum DemoData {
             result[account.id] = state
         }
         return result
+    }
+
+    /// Synthetic incidents: a minor one for Codex (yellow dot), a major one for Gemini CLI (red),
+    /// and scheduled maintenance for Claude Code (yellow).
+    static var providerStatus: [ProviderID: ProviderStatusEntry] {
+        let now = Date()
+        return [
+            .codex: ProviderStatusEntry(
+                incident: ProviderIncident(
+                    indicator: .minor, description: "Elevated error rates for Codex tasks",
+                    updatedAt: now.addingTimeInterval(-14 * 60)),
+                checkedAt: now),
+            .geminiCLI: ProviderStatusEntry(
+                incident: ProviderIncident(
+                    indicator: .major, description: "Gemini CLI requests are failing for some users",
+                    updatedAt: now.addingTimeInterval(-42 * 60)),
+                checkedAt: now),
+            .claudeCode: ProviderStatusEntry(
+                incident: ProviderIncident(
+                    indicator: .maintenance, description: "Scheduled maintenance for Claude Code",
+                    updatedAt: now.addingTimeInterval(-3_600)),
+                checkedAt: now),
+        ]
+    }
+
+    /// Synthetic Claude Code activity across all profiles.
+    static var claudeActivity: ClaudeActivitySummary {
+        ClaudeActivitySummary(
+            rows: [
+                ClaudeActivityRow(
+                    label: "Today", tokens: 18_400_000, costUSD: 12.37,
+                    detail: "Input 410,000, output 190,000, cache read 16,900,000, cache write 900,000 tokens."),
+                ClaudeActivityRow(
+                    label: "Yesterday", tokens: 31_900_000, costUSD: 21.08,
+                    detail: "Input 720,000, output 330,000, cache read 29,000,000, cache write 1,850,000 tokens."),
+                ClaudeActivityRow(
+                    label: "Last 30 days", tokens: 612_000_000, costUSD: 403.9,
+                    detail: "Input 14,000,000, output 6,100,000, cache read 560,000,000, cache write 31,900,000 tokens."),
+            ],
+            unpricedModels: ["claude-preview-synthetic"], computedAt: Date())
     }
 
     static func providerUsage(for providerID: ProviderID, offset: Int) -> ProviderUsage {

@@ -824,6 +824,83 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// Settings rows for notifications, status checks, Claude terminals and privacy, the provider
+  /// status dot, and the Claude activity section.
+  @MainActor static func featureUIFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    func fits(_ view: some View, width: CGFloat = 840, height: CGFloat = 1_800) -> NSHostingView<AnyView> {
+      let host = NSHostingView(rootView: AnyView(view.environment(\.aimDarkMode, false)
+        .frame(width: width, height: height)))
+      host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+      host.layoutSubtreeIfNeeded()
+      return host
+    }
+
+    // Settings rows and their defaults.
+    expect(SettingsCopy.notificationRows.map(\.title) == ["Almost Out", "Pace alerts", "Available again", "Sign in again"],
+      "Settings > Notifications does not list the four toggles")
+    expect(Set(SettingsCopy.notificationRows.map(\.key)).count == 4, "Notification toggles share a preference key")
+    expect(SettingsCopy.claudeShell == "Use the selected Claude account in terminals"
+      && SettingsCopy.claudeShellHelp
+        == "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept.",
+      "The Claude terminal setting copy changed")
+    expect(SettingsCopy.checkProviderStatus == "Check provider status" && SettingsCopy.hideEmails == "Hide email addresses",
+      "A Settings row title changed")
+    let suite = "switch-contract-\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: suite) {
+      expect(SettingsCopy.notificationRows.allSatisfy { !defaults.bool(forKey: $0.key) },
+        "A notification toggle is on by default")
+      expect(!EmailPrivacy.isEnabled(defaults: defaults) && ProviderStatusPoller.isEnabled(defaults: defaults),
+        "Hide email addresses is not off, or provider status is not on, by default")
+      defaults.removePersistentDomain(forName: suite)
+    }
+    let demo = AccountViewModel(scenario: .demo)
+    let settings = fits(SettingsPage(model: demo, showFocusIndicators: .constant(false)))
+    expect(settings.fittingSize.width > 0 && settings.fittingSize.height > 0, "Settings collapsed")
+
+    // Status dot: yellow for minor and maintenance, red for major and critical, nothing otherwise.
+    func entry(_ indicator: ProviderIncident.Indicator) -> ProviderStatusEntry {
+      ProviderStatusEntry(
+        incident: ProviderIncident(indicator: indicator, description: "Elevated errors",
+                                   updatedAt: Date().addingTimeInterval(-300)),
+        checkedAt: Date())
+    }
+    for indicator in [ProviderIncident.Indicator.minor, .maintenance, .major, .critical] {
+      expect(ProviderStatusDot.text(entry(indicator))?.hasPrefix("Elevated errors · updated ") == true,
+        "\(indicator) has no status tooltip")
+      expect(NSHostingView(rootView: ProviderStatusDot(entry: entry(indicator))).fittingSize.width >= 7,
+        "\(indicator) draws no dot")
+    }
+    for indicator in [ProviderIncident.Indicator.none, .unknown] {
+      expect(ProviderStatusDot.text(entry(indicator)) == nil, "\(indicator) has a status tooltip")
+      expect(NSHostingView(rootView: ProviderStatusDot(entry: entry(indicator))).fittingSize.width < 1,
+        "\(indicator) draws a dot")
+    }
+    expect(ProviderStatusDot.text(nil) == nil, "A provider with no status has a tooltip")
+    let hover = AIMSidebarHover()
+    if let account = demo.status?.accounts.first {
+      func row(_ status: ProviderStatusEntry?) -> NSSize {
+        fits(AccountListRow(account: account, selected: false, isDefault: false, sidebarHover: hover,
+                            providerStatus: status), width: 240, height: 80).fittingSize
+      }
+      expect(row(entry(.major)).height == row(nil).height, "A status dot changed the sidebar row height")
+    }
+    expect(demo.providerStatus[.codex]?.incident.severity == .warning, "The Preview lacks a synthetic incident")
+
+    // Claude activity section.
+    expect(ClaudeActivityPanel.title == "Claude Code activity (all profiles)"
+      && ClaudeActivityPanel.estimateLabel == "API-equivalent estimate", "Claude activity labels changed")
+    _ = demo.addDemoProviderAccount(.claudeCode)
+    expect(demo.claudeActivity?.rows.count == 3 && demo.claudeActivity?.unpricedModels.isEmpty == false,
+      "The Preview has no synthetic Claude activity")
+    expect(fits(ClaudeActivityPanel(model: demo), width: 700, height: 400).fittingSize.height > 0,
+      "Claude activity collapsed")
+    return failures
+  }
+
   static func menuBarRefreshFailures() async -> [String] {
     var calls = 0
     var wasBusy = false

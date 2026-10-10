@@ -11,6 +11,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var instanceActivationObserver: NSObjectProtocol?
     private var appearanceObserver: NSObjectProtocol?
     private var modelObservers = Set<AnyCancellable>()
+    private var quotaNotifier: QuotaNotifier?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.disableRelaunchOnLogin()
@@ -21,6 +22,10 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             rootView: AccountWindow(model: model)
         )
         windowController = controller
+        quotaNotifier = QuotaNotifier(model: model) {
+            controller.present()
+            NSApp.activate(ignoringOtherApps: true)
+        }
         instanceActivationObserver = DistributedNotificationCenter.default().addObserver(
             forName: AIManagerSingleInstance.activationNotification(
                 bundleIdentifier: AIManagerSingleInstance.bundleIdentifier()),
@@ -267,9 +272,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return MenuBarAccountSnapshot(
                     id: account.id,
-                    identity: isCodex
-                        ? account.identity.email ?? "\(providerID.displayName) account"
-                        : account.identity.accountLabel,
+                    identity: account.identity.notificationLabel,
                     detail: Self.accountDetail(account),
                     isVerified: Self.canSwitch(account),
                     isActive: status.isDefault(account),

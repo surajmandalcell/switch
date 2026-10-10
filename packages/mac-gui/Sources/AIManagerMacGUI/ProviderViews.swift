@@ -50,6 +50,83 @@ struct ProviderGlyph: View {
   }
 }
 
+// MARK: - Provider status
+
+/// A small yellow (minor or maintenance) or red (major or critical) dot beside a provider name.
+/// Nothing when the provider has no incident or its status is unknown. The tooltip and the
+/// accessibility value hold the incident description and how recently it was updated.
+struct ProviderStatusDot: View {
+  let entry: ProviderStatusEntry?
+  var size: CGFloat = 7
+
+  /// Description plus "updated <relative time>", or nil when no dot shows.
+  static func text(_ entry: ProviderStatusEntry?, now: Date = Date()) -> String? {
+    guard let entry, entry.incident.severity != nil else { return nil }
+    return entry.incident.summary(checkedAt: entry.checkedAt, now: now)
+  }
+
+  var body: some View {
+    if let entry, let severity = entry.incident.severity, let text = Self.text(entry) {
+      Circle()
+        .fill(severity == .critical ? AIMTheme.red : AIMTheme.amber)
+        .frame(width: size, height: size)
+        .help(text)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Provider status")
+        .accessibilityValue(text)
+    }
+  }
+}
+
+// MARK: - Claude Code activity
+
+/// Today, Yesterday, and the last 30 days of local Claude Code usage across every profile.
+/// Never attributed to the selected account.
+struct ClaudeActivityPanel: View {
+  static let title = "Claude Code activity (all profiles)"
+  static let estimateLabel = "API-equivalent estimate"
+  @ObservedObject var model: AccountViewModel
+
+  var body: some View {
+    AIMPanel(title: Self.title) {
+      VStack(spacing: 0) {
+        if let summary = model.claudeActivity {
+          ForEach(Array(summary.rows.enumerated()), id: \.offset) { index, row in
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+              Text(row.label).font(AIMTheme.sans(11, weight: .medium)).frame(width: 118, alignment: .leading)
+              Text("\(UsagePresentation.formatTokens(Int64(row.tokens))) tokens")
+                .font(AIMTheme.mono(11)).monospacedDigit()
+              Spacer(minLength: 8)
+              Text(row.costUSD.map { "≈ \(Fmt.money($0))" } ?? "No price")
+                .font(AIMTheme.mono(11, weight: .semibold)).monospacedDigit()
+            }
+            .padding(.horizontal, 16).frame(minHeight: 40)
+            .background(index.isMultiple(of: 2) ? Color.clear : AIMTheme.panel2.opacity(0.55))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(row.label)
+            .accessibilityValue("\(UsagePresentation.exactTokens(Int64(row.tokens))) tokens, "
+              + (row.costUSD.map { "\(Fmt.money($0)) \(Self.estimateLabel.lowercased())" } ?? "no price"))
+            .help(row.detail)
+          }
+          VStack(alignment: .leading, spacing: 3) {
+            Text("\(Self.estimateLabel). Covers every Claude Code profile on this Mac, not only this account.")
+            if !summary.unpricedModels.isEmpty {
+              Text("No price for \(summary.unpricedModels.joined(separator: ", ")). Their cost is not included.")
+            }
+          }
+          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16).padding(.vertical, 10)
+        } else {
+          UsageUnavailableRow(
+            text: model.isClaudeActivityLoading
+              ? "Scanning local Claude Code logs…" : "Claude Code activity is not available yet.")
+        }
+      }
+    }
+  }
+}
+
 // MARK: - Usage panel
 
 struct ProviderUsagePanel: View {
@@ -327,7 +404,7 @@ struct ProviderSectionRows: View {
           if let progress = row.progress {
             ProgressRail(fraction: progress).frame(width: 56)
           }
-          Text(row.value).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+          Text(EmailPrivacy.display(row.value)).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
             .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
         }
         .frame(minHeight: 24)
@@ -358,12 +435,14 @@ struct ProviderAccountDetail: View {
   @ObservedObject var model: AccountViewModel
   let delete: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @AppStorage(EmailPrivacy.key) private var hideEmails = false
 
   private var spec: ProviderSpec? { ProviderCatalog.spec(account.identity.providerID) }
   private var state: ProviderUsageState? { model.providerUsage[account.id] }
   private var isDefault: Bool { model.status?.isDefault(account) == true }
   private var name: String {
-    account.identity.email ?? state?.usage?.email ?? account.identity.accountLabel
+    EmailPrivacy.display(
+      account.identity.email ?? state?.usage?.email ?? account.identity.accountLabel, hide: hideEmails)
   }
   private var subtitle: String {
     [account.identity.providerID.guiName, state?.usage?.plan?.capitalized, state?.usage?.organization]
@@ -377,11 +456,14 @@ struct ProviderAccountDetail: View {
           VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
               Text(name).font(AIMTheme.sans(20, weight: .semibold)).lineLimit(1).textSelection(.enabled)
-              Text(subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-                .textSelection(.enabled)
+              HStack(spacing: 6) {
+                ProviderStatusDot(entry: model.providerStatus[account.identity.providerID])
+                Text(subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+                  .textSelection(.enabled)
+              }
             }
             if account.verification.state.attentionLabel != nil {
-              Text(account.verification.detail).font(AIMTheme.sans(11))
+              Text(EmailPrivacy.display(account.verification.detail)).font(AIMTheme.sans(11))
                 .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
             }
             ViewThatFits(in: .horizontal) {
