@@ -59,6 +59,6 @@ enum LithosAIUsage {
         }
         return ProviderUsage(cost: UsageCost(balance: balance, period: "Prepaid credits"),
                              sections: [UsageSection("Billing", rows)],
-                             email: me.at("user.email").string, organization: me.at("activeOrganization.name").string)
+                             plan: "Browser session", email: me.at("user.email").string, organization: me.at("activeOrganization.name").string)
     }
 }

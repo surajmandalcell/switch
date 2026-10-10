@@ -42,11 +42,15 @@ enum ClawrouterUsage {
         let providers = json.at("usage.providers").array.map {
             (name: $0["provider"].string ?? "Unknown", requests: $0["requestCount"].int ?? 0,
              tokens: $0["totalTokens"].int ?? 0, cost: micros($0["actualCostMicros"]) ?? 0)
-        }.sorted { ($0.cost, $0.requests) > ($1.cost, $1.requests) }
+        }.sorted {
+            if $0.cost != $1.cost { return $0.cost > $1.cost }
+            if $0.requests != $1.requests { return $0.requests > $1.requests }
+            return $0.name.localizedCompare($1.name) == .orderedAscending
+        }
 
         func usd(_ value: Double) -> String { String(format: "$%.6f", value) }
-        var rows = [UsageRow("Requests", "\(requests) (\(success) succeeded, \(errors) failed)"),
-                    UsageRow("Tokens", "\(total) (\(input) input, \(output) output)"),
+        var rows = [PluginFmt.row("Requests", "\(requests)", "\(success) succeeded · \(errors) failed"),
+                    PluginFmt.row("Tokens", "\(total)", "\(input) input · \(output) output"),
                     UsageRow("Actual cost", usd(actual)), UsageRow("Budget ledger", ledger)]
         var windows: [UsageWindow] = []
         var cost: UsageCost?
@@ -56,13 +60,14 @@ enum ClawrouterUsage {
                                        resetsAt: resetsAt, windowMinutes: nil, detail: "\(usd(spent)) / \(Fmt.money(limit))")]
             }
             cost = UsageCost(used: spent, limit: limit, period: "This month", resetsAt: resetsAt)
-            rows.append(.init("Monthly budget", "\(usd(spent)) / \(Fmt.money(limit))" + (remaining.map { " (\(usd($0)) remaining)" } ?? "")))
+            rows.append(PluginFmt.row("Monthly budget", "\(usd(spent)) / $\(String(format: "%.2f", limit))",
+                                      remaining.map { "\(usd($0)) remaining" }))
         } else if actual > 0 {
             cost = UsageCost(used: actual, period: "This month", resetsAt: resetsAt)
         }
         var sections = [UsageSection("Usage", rows)]
         sections.append(.init("Routed providers", providers.prefix(20).map {
-            UsageRow($0.name, "\($0.requests) requests, \(usd($0.cost)), \($0.tokens) tokens")
+            PluginFmt.row($0.name, "\($0.requests) requests", "\(usd($0.cost)) · \($0.tokens) tokens")
         }))
         return ProviderUsage(windows: windows, cost: cost, sections: sections,
                              plan: budget["configured"].bool == true ? "Managed monthly budget" : "Unmetered",

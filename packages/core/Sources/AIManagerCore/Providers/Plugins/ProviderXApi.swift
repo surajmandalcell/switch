@@ -35,8 +35,9 @@ enum XApiUsage {
         return ProviderUsage(
             cost: UsageCost(balance: paid + free, period: "Prepaid credits"),
             sections: [UsageSection("Credits", [
+                UsageRow("Balance", Fmt.money(paid + free)),
                 UsageRow("Purchased credits", Fmt.money(paid)),
                 UsageRow("Free credits", Fmt.money(free)),
-            ])])
+            ])], plan: "Browser session")
     }
 }

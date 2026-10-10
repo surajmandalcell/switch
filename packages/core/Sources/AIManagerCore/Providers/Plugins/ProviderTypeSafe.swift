@@ -82,11 +82,19 @@ enum TypeSafeUsage {
         let cycle = billing["cycleLabel"].string
         let plan = billing["plan"].string.map { $0 == "free_plan" ? "Free" : $0.split(whereSeparator: { "_-".contains($0) }).map(\.capitalized).joined(separator: " ") }
         var rows = [UsageRow(cycle.map { "Spent (\($0))" } ?? "Spent", Fmt.money(spent))]
-        for credit in billing["credits"].array {
+        // The plan label is the account plan, not a row. At most 24 rows: when credits overflow, the last
+        // slot counts the ones left out.
+        let slots = 23 - rows.count
+        let credits = billing["credits"].array.compactMap { credit -> UsageRow? in
             guard let amount = credit["amount"].double, let left = credit["remaining"].double, left > 0,
-                  let expires = credit["expiresAt"].date else { continue }
-            rows.append(UsageRow("Credit", "\(Fmt.number(left)) of \(Fmt.number(amount)), expires \(expires.formatted(.dateTime.month(.abbreviated).day()))"))
-            if rows.count == 6 { break }
+                  let expires = credit["expiresAt"].date else { return nil }
+            return UsageRow("Credit", "\(Fmt.number(left)) of \(Fmt.number(amount)), expires \(PluginFmt.monthDay(expires))")
+        }
+        if credits.count > slots {
+            rows += credits.prefix(slots - 1)
+            rows.append(UsageRow("Additional credits", String(credits.count - (slots - 1))))
+        } else {
+            rows += credits
         }
         return ProviderUsage(cost: UsageCost(used: spent, balance: balance, period: cycle), sections: [UsageSection("Billing", rows)], plan: plan)
     }

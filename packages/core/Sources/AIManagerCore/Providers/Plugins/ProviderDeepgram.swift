@@ -57,6 +57,7 @@ enum DeepgramUsage {
         if t("tts_characters") > 0 { rows.append(.init("TTS characters", Fmt.number(t("tts_characters")))) }
         if let start, let end { rows.append(.init("Period", "\(start) to \(end)")) }
         return ProviderUsage(sections: [.init("Usage summary", rows)],
+                             plan: projects.count > 1 ? "\(projects.count) projects" : projects.first.map { "Project: \($0)" },
                              organization: projects.count > 1 ? "\(projects.count) projects" : projects.first)
     }
 }

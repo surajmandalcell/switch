@@ -48,7 +48,7 @@ enum PoeUsage {
         guard let points = balance["current_point_balance"].double else {
             throw ProviderError.parse("Failed to parse the Poe balance response.")
         }
-        struct Entry { var date: Date; var points: Double; var cost: Double?; var model: String }
+        struct Entry { var date: Date; var points: Double; var cost: Double?; var model: String; var usageType: String }
         let cutoff = now.addingTimeInterval(-30 * 86400)
         let entries: [Entry] = history.compactMap { row in
             guard let date = entryDate(row["creation_time"].exists ? row["creation_time"]
@@ -56,7 +56,7 @@ enum PoeUsage {
                   date >= cutoff else { return nil }
             let cost = (row["cost_points"].double ?? row["points"].double ?? row["point_cost"].double ?? 0)
             return Entry(date: date, points: max(0, cost), cost: (row["cost_usd"].double ?? row["usd"].double),
-                         model: row["bot_name"].string ?? "unknown")
+                         model: row["bot_name"].string ?? "unknown", usageType: row["usage_type"].string ?? "unknown")
         }
         func summary(_ list: [Entry]) -> UsageRow? {
             guard !list.isEmpty else { return nil }
@@ -67,7 +67,8 @@ enum PoeUsage {
         }
         var rows = [UsageRow("Current balance", "\(compact(points)) points")]
         let day = now.addingTimeInterval(-86400), week = now.addingTimeInterval(-7 * 86400)
-        for (label, list) in [("Last 24 hours", entries.filter { $0.date >= day }),
+        for (label, list) in [("Today (UTC)", entries.filter { PluginFmt.day($0.date) == PluginFmt.day(now) }),
+                              ("Last 24 hours", entries.filter { $0.date >= day }),
                               ("Last 7 days", entries.filter { $0.date >= week }),
                               ("Last 30 days", entries)] {
             if let row = summary(list) { rows.append(UsageRow(label, row.value)) }
@@ -77,6 +78,25 @@ enum PoeUsage {
         if let top = byModel.sorted(by: { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }).first {
             rows.append(UsageRow("Top model", "\(top.key) · \(compact(top.value)) points"))
         }
-        return ProviderUsage(sections: [UsageSection("Points", rows)])
+        var byType: [String: Double] = [:]
+        for entry in entries { byType[entry.usageType, default: 0] += entry.points }
+        let mix = byType.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(2)
+        if !mix.isEmpty {
+            rows.append(UsageRow("Usage mix", mix.map { "\($0.key): \(compact($0.value)) points" }.joined(separator: " · ")))
+        }
+        // The three newest requests, newest first.
+        for (index, entry) in entries.sorted(by: { $0.date > $1.date }).prefix(3).enumerated() {
+            rows.append(index == 0
+                ? PluginFmt.row("Recent activity", "\(PluginFmt.shortTime(entry.date)) · \(entry.model)",
+                                "\(compact(entry.points)) points")
+                : PluginFmt.row(PluginFmt.shortTime(entry.date), entry.model, "\(compact(entry.points)) points"))
+        }
+        var sections = [UsageSection("Points", rows)]
+        // The plugin charts daily points; the newest seven days stand in for the chart.
+        var byDay: [String: Double] = [:]
+        for entry in entries { byDay[PluginFmt.day(entry.date), default: 0] += entry.points }
+        sections.append(UsageSection("Daily points", byDay.sorted { $0.key > $1.key }.prefix(7)
+            .map { UsageRow($0.key, "\(compact($0.value)) points") }))
+        return ProviderUsage(sections: sections, plan: "Balance: \(compact(points)) points")
     }
 }

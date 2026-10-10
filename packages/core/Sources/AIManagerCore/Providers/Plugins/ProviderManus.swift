@@ -45,12 +45,16 @@ enum ManusUsage {
                                             limit: monthly, unit: "credits") {
             windows.append(window)
         }
-        if let window = UsageWindow.amounts(id: "daily", title: "Daily refresh", used: maxRefresh - refresh,
+        // The refresh interval ("DAILY") names the window: "Daily: 200 / 300".
+        let interval = data["refreshInterval"].string.map { $0.lowercased().capitalized }
+        if var window = UsageWindow.amounts(id: "daily", title: interval ?? "Daily refresh", used: maxRefresh - refresh,
                                             limit: maxRefresh, resetsAt: reset, unit: "credits") {
+            window.detail = "\(interval.map { "\($0): " } ?? "")\(Fmt.number(refresh.rounded())) / \(Fmt.number(maxRefresh.rounded()))"
             windows.append(window)
         }
         let rows = [UsageRow("Total credits", Fmt.number(total.rounded())),
                     UsageRow("Free credits", Fmt.number(free.rounded()))]
-        return ProviderUsage(windows: windows, sections: [UsageSection("Balance", rows)])
+        return ProviderUsage(windows: windows, sections: [UsageSection("Balance", rows)],
+                             plan: "Balance: \(Fmt.number(total.rounded())) credits")
     }
 }

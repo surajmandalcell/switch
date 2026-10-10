@@ -24,7 +24,8 @@ enum ElevenlabsUsage {
                                        ("professional-voices", "Professional voices",
                                         "professional_voice_slots_used", "professional_voice_limit")] {
             if let used = data[used].double, let max = data[max].double,
-               let window = UsageWindow.amounts(id: id, title: title, used: used, limit: max) {
+               var window = UsageWindow.amounts(id: id, title: title, used: used, limit: max) {
+                window.detail = "\(Fmt.number(used)) / \(Fmt.number(max))"
                 windows.append(window)
             }
         }

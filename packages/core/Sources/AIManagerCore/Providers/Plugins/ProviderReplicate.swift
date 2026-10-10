@@ -72,7 +72,7 @@ enum ReplicateUsage {
         var rows = [UsageRow("Spent this month", Fmt.money(used))]
         if let balance { rows.append(UsageRow("Credit balance", Fmt.money(balance))) }
         return ProviderUsage(cost: UsageCost(used: used, balance: balance, period: "This month"),
-                             sections: [UsageSection("Billing", rows)],
+                             sections: [UsageSection("Billing", rows), UsageSection("Account", [UsageRow("Username", account.username)])],
                              organization: account.isOrganization ? account.username : nil)
     }
 }

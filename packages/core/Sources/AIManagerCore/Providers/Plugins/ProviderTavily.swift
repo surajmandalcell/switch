@@ -35,6 +35,6 @@ enum TavilyUsage {
             UsageWindow.amounts(id: "plan", title: "Plan credits", used: used, limit: limit, unit: "credits"),
             keyLimit.flatMap { UsageWindow.amounts(id: "key", title: "API key", used: keyUsed, limit: $0, unit: "credits") },
         ].compactMap { $0 }
-        return ProviderUsage(windows: windows, sections: sections, plan: account["current_plan"].string)
+        return ProviderUsage(windows: windows, sections: sections, plan: account["current_plan"].string?.trimmingCharacters(in: .whitespaces) ?? "API key")
     }
 }

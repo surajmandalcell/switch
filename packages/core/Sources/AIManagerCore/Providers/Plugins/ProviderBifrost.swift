@@ -64,6 +64,30 @@ enum BifrostUsage {
                       resetsAt: resetsAt, seconds: seconds)
     }
 
+    /// Drops the region and vendor prefixes, the "-v1:0" suffix, and a trailing date from a model id.
+    private static func modelName(_ raw: String) -> String {
+        var name = raw
+        for pattern in [#"^(us-gov|us|eu|apac|global)\."#,
+                        #"^(ai21|amazon|anthropic|cohere|deepseek|luma|meta|mistral|openai|qwen|stability|twelvelabs|writer)\."#,
+                        #"-v\d+:\d+$"#, #"(?:-|\s)(?:\d{8}|\d{4}-\d{2}-\d{2})$"#, #"[ \t-]+$"#] {
+            name = name.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return name.isEmpty ? raw : name
+    }
+
+    /// 1,200 -> "1.2K", 2,500,000 -> "2.5M".
+    private static func tokenCount(_ value: Int) -> String {
+        let magnitude = Double(abs(value)), sign = value < 0 ? "-" : ""
+        for (threshold, divisor, unit) in [(999_500_000.0, 1e9, "B"), (999_500.0, 1e6, "M"), (1000.0, 1000.0, "K")]
+        where magnitude >= threshold {
+            let scaled = magnitude / divisor
+            var text = String(format: scaled >= 10 ? "%.0f" : "%.1f", scaled)
+            if text.hasSuffix(".0") { text.removeLast(2) }
+            return sign + text + unit
+        }
+        return String(value)
+    }
+
     private struct Scope { var id: String, title: String?, body: JSON }
     private struct Budget {
         var id: String, scope: Scope, source: String?, limit: Double, used: Double, timing: Timing, models: [JSON]
@@ -138,27 +162,42 @@ enum BifrostUsage {
             }
         }
         if root["is_active"].bool == false {
-            windows.insert(UsageWindow(id: "bifrost-key-inactive", title: "Key inactive", usedPercent: nil), at: 0)
+            // The plugin puts this first among the extra windows, after the two lead budget windows.
+            windows.insert(UsageWindow(id: "bifrost-key-inactive", title: "Key inactive", usedPercent: nil),
+                           at: min(2, rootBudgets.count))
         }
 
         var sections: [UsageSection] = []
         let first = budgets.first { $0.scope.id.isEmpty }
         let models = (first?.models ?? []).map {
-            (name: $0["model"].string ?? "Model", cost: $0["total_cost"].double, tokens: $0["total_tokens"].double)
+            (raw: $0["model"].string ?? "Model", provider: $0["provider"].string, cost: $0["total_cost"].double,
+             tokens: $0["total_tokens"].double.map { Int($0) })
         }.filter { ($0.cost ?? 0) != 0 || ($0.tokens ?? 0) != 0 }
-            .sorted { ($0.cost ?? 0, $0.tokens ?? 0) > ($1.cost ?? 0, $1.tokens ?? 0) }
+            .sorted {
+                if ($0.cost ?? 0) != ($1.cost ?? 0) { return ($0.cost ?? 0) > ($1.cost ?? 0) }
+                if ($0.tokens ?? 0) != ($1.tokens ?? 0) { return ($0.tokens ?? 0) > ($1.tokens ?? 0) }
+                return $0.raw < $1.raw
+            }
         if !models.isEmpty {
-            var rows = models.prefix(5).map {
-                UsageRow(String($0.name.prefix(120)), $0.cost.map { Fmt.money($0) } ?? "-")
+            let visible = Array(models.prefix(5))
+            let names = visible.map { modelName($0.raw) }
+            let mixed = Set(visible.compactMap(\.provider)).count > 1
+            var rows = visible.enumerated().map { index, model -> UsageRow in
+                let duplicate = names.filter { $0 == names[index] }.count > 1
+                let label = [mixed ? model.provider : nil, duplicate ? model.raw : names[index]]
+                    .compactMap { $0 }.joined(separator: " · ")
+                return PluginFmt.row(String(label.prefix(120)), model.cost.map { Fmt.money($0) } ?? "—",
+                                     model.tokens.map { "\(tokenCount($0)) tokens" })
             }
             if models.count > 5 { rows.append(.init("Other models", String(models.count - 5))) }
             sections.append(.init("Models", rows))
         }
         if budgets.count > 1 || budgets.contains(where: { !$0.scope.id.isEmpty }) {
             sections.append(.init("Budgets", budgets.prefix(24).map { budget in
-                UsageRow(title(budget.scope, budget.source ?? "Budget \(budget.id)"),
-                         budget.limit > 0 ? "\(Fmt.money(budget.used)) / \(Fmt.money(budget.limit))" : Fmt.money(budget.used),
-                         progress: budget.limit > 0 ? budget.used / budget.limit : nil)
+                PluginFmt.row(title(budget.scope, budget.source ?? "Budget \(budget.id)"),
+                              budget.limit > 0 ? "\(Fmt.money(budget.used)) / \(Fmt.money(budget.limit))" : Fmt.money(budget.used),
+                              budget.timing.label,
+                              progress: budget.limit > 0 ? budget.used / budget.limit : nil)
             }))
         }
         let cost = first.map {

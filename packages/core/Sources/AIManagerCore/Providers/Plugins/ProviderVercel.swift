@@ -17,6 +17,9 @@ enum VercelUsage {
         guard let balance = json["balance"].double, let spent = json["total_used"].double, spent >= 0 else {
             throw ProviderError.parse("Vercel AI Gateway returned an unrecognized credit balance.")
         }
-        return ProviderUsage(cost: UsageCost(used: spent, balance: balance, period: "Lifetime"))
+        return ProviderUsage(cost: UsageCost(used: spent, balance: balance, period: "Lifetime"),
+                             sections: [UsageSection("Team credits", [UsageRow("Available balance", Fmt.money(balance)),
+                                                                      UsageRow("Lifetime spend", Fmt.money(spent))])],
+                             plan: "API")
     }
 }

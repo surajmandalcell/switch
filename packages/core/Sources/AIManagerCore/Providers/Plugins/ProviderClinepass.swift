@@ -29,6 +29,7 @@ enum ClinepassUsage {
             windows.append(UsageWindow(id: type, title: title, usedPercent: percent, resetsAt: limit["resetsAt"].date,
                                        windowMinutes: minutes))
         }
-        return ProviderUsage(windows: windows)
+        // Switch signs in with an API key only; CodexBar also reports "Browser" for a CLI session.
+        return ProviderUsage(windows: windows, plan: "API key")
     }
 }

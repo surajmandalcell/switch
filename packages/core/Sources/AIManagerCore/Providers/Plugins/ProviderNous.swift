@@ -62,15 +62,23 @@ enum NousUsage {
             window.detail = "\(Fmt.money(max(0, remaining))) left of \(Fmt.money(monthly))"
             windows.append(window)
         }
+        var subscriptionRows: [UsageRow] = []
+        if let remaining {
+            let grant = (monthly ?? 0) > 0 ? " of \(Fmt.money(monthly!))" : ""
+            subscriptionRows.append(UsageRow("Subscription credits", "\(Fmt.money(max(0, remaining)))\(grant) left"))
+        } else if let monthly {
+            subscriptionRows.append(UsageRow("Monthly grant", Fmt.money(monthly)))
+        }
+        if let rollover, rollover > 0 { subscriptionRows.append(UsageRow("Rollover credits", Fmt.money(rollover))) }
+        if let renewal { subscriptionRows.append(UsageRow("Renews", PluginFmt.monthDay(renewal))) }
         var rows: [UsageRow] = []
-        if let rollover, rollover > 0 { rows.append(UsageRow("Rollover credits", Fmt.money(rollover))) }
         if let purchased { rows.append(UsageRow("Top-up credits", Fmt.money(purchased))) }
         if let total { rows.append(UsageRow("Total usable", Fmt.money(total))) }
         let plan = sub["plan"].string ?? (access["has_active_subscription"].bool == true ? "Subscription" : nil)
         return ProviderUsage(
             windows: windows,
             cost: (total ?? purchased).map { UsageCost(balance: $0, period: "Usable credits") },
-            sections: [UsageSection("Credits", rows)], plan: plan,
+            sections: [UsageSection("Subscription", subscriptionRows), UsageSection("Credits", rows)], plan: plan,
             email: root.at("user.email").string, organization: root.at("organisation.name").string)
     }
 }

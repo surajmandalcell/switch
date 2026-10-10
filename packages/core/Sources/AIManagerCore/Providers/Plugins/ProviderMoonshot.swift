@@ -32,8 +32,10 @@ enum MoonshotUsage {
             rows.append(UsageRow("Voucher balance", Fmt.money(voucher, currency: currency)))
         }
         if cash < 0 { rows.append(UsageRow("In deficit", Fmt.money(-cash, currency: currency))) }
+        let deficit = cash < 0 ? " · \(Fmt.money(-cash, currency: currency)) in deficit" : ""
         return ProviderUsage(
             cost: UsageCost(balance: balance, currency: currency),
-            sections: [UsageSection("Balance", rows)])
+            sections: [UsageSection("Balance", rows)],
+            plan: "Balance: \(Fmt.money(balance, currency: currency))\(deficit)")
     }
 }

@@ -41,12 +41,18 @@ enum V0Usage {
             return [UsageWindow(id: id, title: title, usedPercent: max(0, limit - remaining) / limit * 100, resetsAt: reset,
                                 detail: "\(Fmt.number(remaining, digits: 2)) / \(Fmt.number(limit, digits: 2)) left")]
         }
-        var rows = [UsageRow("Billing type", type)]
+        func remainingRow(_ label: String, _ remaining: Double?, _ limit: Double) -> UsageRow {
+            PluginFmt.row(label, remaining.map { Fmt.number($0, digits: 2) } ?? "Unavailable",
+                          "\(remaining == nil ? "limit" : "of") \(Fmt.number(limit, digits: 2))")
+        }
+        var rows = [remainingRow("Billing remaining", remaining, limit)]
         if let onDemand = data.at("onDemand.balance").double { rows.append(UsageRow("On-demand balance", Fmt.number(onDemand, digits: 2))) }
+        rows.append(remainingRow("Rate-limit remaining", rateLeft, rateMax))
+        rows.append(UsageRow("Billing type", type))
         if let scope { rows.append(UsageRow("Scope", String(scope.prefix(120)))) }
         return ProviderUsage(
             windows: window("billing", "Billing", limit: limit, remaining: remaining, reset: reset)
                 + window("rate-limit", "Rate limit", limit: rateMax, remaining: rateLeft, reset: rateLimit["reset"].date),
-            sections: [UsageSection("v0 API", rows)])
+            sections: [UsageSection("v0 API", rows)], plan: "API key")
     }
 }

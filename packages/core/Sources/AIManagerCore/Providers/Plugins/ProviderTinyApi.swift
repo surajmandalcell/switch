@@ -17,6 +17,7 @@ enum TinyApiUsage {
             throw ProviderError.parse("TinyApi credits response is missing a valid available balance.")
         }
         // The balance is in TinyApi credits, not money, so it stays a row instead of a UsageCost.
-        return ProviderUsage(sections: [UsageSection("Credits", [UsageRow("Available credits", "\(Fmt.number(balance, digits: 2)) credits")])])
+        return ProviderUsage(sections: [UsageSection("Credits", [UsageRow("Available credits", "\(Fmt.number(balance, digits: 2)) credits")])],
+                             plan: "Browser session")
     }
 }

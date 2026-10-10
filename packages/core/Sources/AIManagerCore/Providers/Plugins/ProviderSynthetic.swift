@@ -23,6 +23,7 @@ enum SyntheticUsage {
     private struct Quota {
         var window: UsageWindow
         var cost: UsageCost?
+        var nextRegen: Double?
     }
 
     static func map(_ json: JSON) throws -> ProviderUsage {
@@ -54,7 +55,10 @@ enum SyntheticUsage {
             }
         }
         guard !quotas.isEmpty else { throw ProviderError.parse("Failed to parse Synthetic response: missing quota data.") }
-        return ProviderUsage(windows: quotas.map(\.window), cost: quotas.compactMap(\.cost).first,
+        // The plugin's cost.nextRegenAmount: credits that return at the next tick.
+        let regen = quotas.first { $0.cost != nil }?.nextRegen
+        let sections = regen.map { [UsageSection("Weekly credits", [UsageRow("Next regen", Fmt.money($0))])] } ?? []
+        return ProviderUsage(windows: quotas.map(\.window), cost: quotas.compactMap(\.cost).first, sections: sections,
                              plan: first(root, plans) ?? first(data, plans))
     }
 
@@ -85,15 +89,22 @@ enum SyntheticUsage {
         }
         guard let percent = used else { return nil }
         let reset = resets.lazy.compactMap { json[$0].date }.first
-        let window = UsageWindow(id: id, title: title, usedPercent: percent, resetsAt: reset, windowMinutes: minutes(json), detail: amount)
+        let span = minutes(json)
+        let tick = normalized(number(json, ["tickPercent", "tick_percent", "nextTickPercent", "next_tick_percent"]))
+        let detail = [amount, reset == nil ? windowDescription(span) : nil,
+                      tick.map { "Next regen \(Fmt.number($0, digits: 1))%" }].compactMap { $0 }.joined(separator: " · ")
+        let window = UsageWindow(id: id, title: title, usedPercent: percent, resetsAt: reset, windowMinutes: span,
+                                 detail: detail.isEmpty ? nil : detail)
 
         var cost: UsageCost?
+        var regen: Double?
         if let max = currency(json, ["maxCredits", "max_credits"]) {
             let left = currency(json, ["remainingCredits", "remaining_credits"])
             let spent = currency(json, ["usedCredits", "used_credits"]) ?? left.map { Swift.max(0, max - $0) } ?? window.usedPercent.map { $0 / 100 * max }
             cost = UsageCost(used: spent, limit: max, period: "Weekly", resetsAt: reset)
+            regen = currency(json, ["nextRegenCredits", "next_regen_credits"])
         }
-        return Quota(window: window, cost: cost)
+        return Quota(window: window, cost: cost, nextRegen: regen)
     }
 
     private static func minutes(_ json: JSON) -> Int? {
@@ -103,7 +114,24 @@ enum SyntheticUsage {
                               (["windowSeconds", "window_seconds", "periodSeconds", "period_seconds"], 1.0 / 60)] {
             if let value = number(json, keys) { return Int((value * scale).rounded()) }
         }
-        return nil
+        // Text such as "5h", "30 min" or "7 days".
+        guard let text = first(json, ["window", "windowLabel", "window_label", "period", "periodLabel", "period_label"])?
+            .lowercased().filter({ !$0.isWhitespace }),
+              let match = text.range(of: #"^([0-9]*\.?[0-9]+)(minutes?|mins?|m|hours?|hrs?|hr|h|days?|d)$"#,
+                                     options: .regularExpression) else { return nil }
+        let body = text[match]
+        let unitStart = body.firstIndex { $0.isLetter }!
+        guard let amount = Double(body[..<unitStart]) else { return nil }
+        let unit = body[unitStart...]
+        let scale: Double = unit.hasPrefix("m") ? 1 : unit.hasPrefix("h") ? 60 : 1440
+        return Int((amount * scale).rounded())
+    }
+
+    /// "5 hours window" for a quota that reports no reset time.
+    private static func windowDescription(_ minutes: Int?) -> String? {
+        guard let minutes, minutes > 0 else { return nil }
+        let (count, unit) = minutes % 1440 == 0 ? (minutes / 1440, "day") : minutes % 60 == 0 ? (minutes / 60, "hour") : (minutes, "minute")
+        return "\(count) \(unit)\(count == 1 ? "" : "s") window"
     }
 
     private static func number(_ json: JSON, _ keys: [String]) -> Double? { keys.lazy.compactMap { json[$0].double }.first }

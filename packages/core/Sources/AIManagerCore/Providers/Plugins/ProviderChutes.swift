@@ -190,6 +190,9 @@ enum ChutesUsage {
             windows.append(window("monthly", "Monthly quota", monthly, minutes: 43200, resets: parsed.renewal))
         }
         for (index, quota) in parsed.fallback.enumerated() { windows.append(window("quota-\(index)", "Quota", quota)) }
-        return ProviderUsage(windows: windows, plan: parsed.plan ?? (parsed.active == false ? "No active subscription" : nil))
+        let plan = parsed.plan ?? (parsed.active == false ? "No active subscription"
+                                   : parsed.active == nil && windows.isEmpty ? "No usage data" : nil)
+        let renews = parsed.renewal ?? parsed.monthly?.resetsAt
+        return ProviderUsage(windows: windows, sections: [PluginFmt.renewal(renews)], plan: plan)
     }
 }
