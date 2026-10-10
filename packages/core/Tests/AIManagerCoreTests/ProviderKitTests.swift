@@ -20,6 +20,52 @@ final class ProviderKitTests: XCTestCase {
         XCTAssertEqual(ProviderError.parse("bad\u{1B}[0m").errorDescription, "bad [0m")
     }
 
+    func testChartsRoundTripSanitizeAndDecodeOldCache() throws {
+        let day = Date(timeIntervalSince1970: 1_790_000_000)
+        let chart = UsageChart(id: "c\u{1B}", title: "Spend\u{7}", unit: "USD",
+                               points: [UsagePoint(label: "Oct 3\u{1B}", date: day, value: 2.1)])
+        let usage = ProviderUsage(plan: "Pro", fetchedAt: day, charts: [chart])
+        XCTAssertFalse(usage.isEmpty)
+        let clean = usage.sanitized().charts[0]
+        XCTAssertEqual([clean.id, clean.title, clean.points[0].label], ["c ", "Spend ", "Oct 3 "])
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(ProviderUsage.self, from: encoder.encode(usage)), usage)
+        // Cached JSON written before charts existed has no `charts` key.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(usage)) as? [String: Any])
+        object["charts"] = nil
+        let old = try decoder.decode(ProviderUsage.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(old.charts, [])
+        XCTAssertEqual(old.plan, "Pro")
+    }
+
+    func testDailyChartFillsMissingDaysAndFormatsUnits() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000) // 2026-09-21T14:13:20Z
+        let chart = try XCTUnwrap(UsageChart.daily(id: "d", title: "Daily", unit: "USD",
+                                                   values: ["2026-09-21": 1.5, "2026-09-19T10:00:00Z": 0.5, "2026-08-01": 9],
+                                                   fill: (4, now)))
+        XCTAssertEqual(chart.points.map(\.label), ["Sep 18", "Sep 19", "Sep 20", "Sep 21"])
+        XCTAssertEqual(chart.points.map(\.value), [0, 0.5, 0, 1.5])
+        XCTAssertEqual(chart.total, 2)
+        XCTAssertEqual(chart.peak?.label, "Sep 21")
+        XCTAssertEqual(chart.format(1.5), "$1.50")
+        XCTAssertEqual(UsageChart(id: "t", title: "T", unit: "tokens", points: []).format(1234), "1,234")
+        XCTAssertEqual(UsageChart(id: "t", title: "T", unit: "EUR", points: []).format(2), "\u{20AC}2.00")
+        XCTAssertNil(UsageChart.daily(id: "e", title: "E", unit: "USD", values: [:]))
+        // An empty chart never reaches a usage value.
+        XCTAssertTrue(ProviderUsage(charts: [UsageChart(id: "x", title: "X", unit: "USD", points: [])]).charts.isEmpty)
+    }
+
+    func testOverageSurvivesAndSubCentMoneyKeepsDecimals() {
+        XCTAssertEqual(UsageWindow(id: "w", title: "W", usedPercent: 130).usedPercent, 130)
+        XCTAssertEqual(UsageWindow(id: "w", title: "W", usedPercent: -4).usedPercent, 0)
+        XCTAssertEqual(Fmt.money(0.0042), "$0.0042")
+        XCTAssertEqual(Fmt.money(0.005), "$0.005")
+        XCTAssertEqual(Fmt.money(0), "$0.00")
+        XCTAssertEqual(Fmt.money(12.4), "$12.40")
+        XCTAssertEqual(Fmt.money(0.0123), "$0.01")
+    }
+
     func testPrivateHostsAllowPlainHTTPOnly() {
         for host in ["localhost", "127.0.0.1", "10.2.3.4", "192.168.1.9", "172.16.0.1", "172.31.255.255",
                      "nas.local"] {

@@ -1,8 +1,5 @@
 # Switch product specification
 
-Status: Initial accepted specification
-Revision: 2026-09-21
-
 This document defines the current product model and user-visible contract. The ignored
 local `goals.md` tracks active work, and `goals.archive.md` keeps old evidence. If older
 milestone text conflicts with this document, this specification owns current behavior.
@@ -84,8 +81,7 @@ redirect to another host.
 
 Dropped on purpose: hooks, the QuickJS plugin engine, browser cookie import, Keychain
 reads, keepalive, adaptive refresh, agent sessions, widgets, iCloud sync, Sparkle,
-telemetry, local HTTP API, proxy settings, and merge-icons mode. Providers that only work
-through those (CodeRabbit's local CLI, MuseAI's page scrape) are left out.
+telemetry, local HTTP API, proxy settings, and merge-icons mode, with the providers that need them.
 
 Defaults are provider-scoped. Codex CLI and Grok Build each retain their own default account,
 matching the credential in that provider's live home. Claude Code retains a separate default
@@ -93,10 +89,6 @@ for Switch-launched sessions. Switching one provider never changes another provi
 The TUI account list groups saved accounts by provider, preserves order within each group,
 and shows the default state inside each group. Deleting a provider default may select a
 replacement only from that same provider.
-
-Temporary or managed homes used for sign-in, verification, import, migration, or recovery
-are implementation details. Legacy internal links may still be repaired for compatibility,
-but the interface must not describe linked entries as part of the product's everyday model.
 
 After a restart, checking a completed sign-in reads the private staged credential and uses
 the same identity, digest, and transaction checks as an auth-only import. An unrelated
@@ -119,19 +111,18 @@ opens Settings. Settings contains only:
 
 1. **App behavior** — Open at Login, Minimize to menu bar, and the optional
    keyboard-focus indicator. Open at Login is off by default and uses the macOS login-item
-   service as its source of truth. When enabled, a login launch starts quietly in the menu
-   bar without opening the main window; an ordinary launch still opens the window. If macOS
-   requires approval, Settings explains that state and offers an explicit route to Login Items.
-   Body translucency is adjustable from 0% to 50%, initially 25% (75% opacity),
-   and applies to the entire content area and its page titlebar without fading text or
-   controls. Reduce Transparency makes these surfaces opaque. The rail stays distinct.
+   service as its source of truth; a login launch starts quietly in the menu bar, an ordinary
+   launch opens the window, and if macOS requires approval, Settings explains it and links to
+   Login Items. Body translucency is adjustable from 0% to 50%, initially 25%, across the
+   content area and page titlebar without fading text or controls; Reduce Transparency makes
+   these surfaces opaque. The rail stays distinct.
    **Reset times** (Countdown, the default, or Exact time) and **Time format** (Auto, 12-hour,
    24-hour) set how every reset text reads, such as "Resets in 2h 5m" or "Resets 5:30 PM"
    ("tomorrow", a weekday, or a date when it is not today). Clicking any reset text switches the
    same choice everywhere; hovering shows the other format. Clicking a usage percentage such as
    "52% left" switches Show percentage used the same way. **Menu shortcut** records a global
    shortcut (Command, Option, or Control plus a key; Delete clears) that opens or closes the
-   menu popover from anywhere; it is off by default (Carbon hot key, no dependency).
+   menu popover from anywhere; it is off by default.
    **Refresh when the menu opens** is off by default.
    **Reset settings** (own panel, behind a confirmation) returns every Settings choice, the
    per-account Menubar and hidden-row choices, and the shortcut to their defaults; accounts,
@@ -160,8 +151,7 @@ Settings never lists files as “Linked entries,” never implies that each acco
 separate configuration or chat library, and never exposes internal managed-home topology.
 An account-specific legacy repair may appear on that account only when action is required.
 
-Cleanup is resumed on 2026-09-19. Replace the frozen prototype with a disclosure tree for
-shared active/archived conversations grouped by project, account usage samples, and the shared
+Cleanup is a disclosure tree for shared active/archived conversations grouped by project, account usage samples, and the shared
 conversation index. Conversations are shared data and are never attributed to the selected account.
 Provide date ranges, older-than shortcuts, all time, and a custom interval. Conversation dates mean
 last updated; a selected conversation is removed as a whole. Untimestamped indexes support all time.
@@ -172,27 +162,23 @@ before removing a source; reject changed/unsafe files and active or unknown writ
 settings, account registry/defaults, backups, Codex databases, and the activity ledger protected.
 Show linked or foreign-owned conversation files as protected entries; they never block selection
 of safe files and cannot enter a removal review.
-The time-range select uses a custom themed trigger and option list, with keyboard navigation,
-selected-state feedback, and Escape dismissal. Expanded tree and account-cache checkbox rows
-align to the leading edge at their nesting level; no disclosure content is centered.
-Attach the compact option list to the trigger with a three-point gap, matching width, three-point
-corners, and no native popover arrow or chrome. Outside clicks dismiss it. Cleanup groups use
-clear headings, aligned counts and brief descriptions; keep selection totals and Review together.
-Secondary gray buttons use stronger neutral fills and borders in both appearances without
-changing the established hover behavior or fading foreground text.
+The time-range select is a custom themed trigger and option list (keyboard navigation, selected
+state, Escape and outside-click dismissal), attached to the trigger with a three-point gap,
+matching width, three-point corners, and no native popover chrome. Expanded rows align to the
+leading edge at their nesting level. Cleanup groups use clear headings, aligned counts and brief
+descriptions; keep selection totals and Review together. Secondary gray buttons use stronger
+neutral fills and borders in both appearances, with the established hover behavior.
 
-Chat History loads messages in chronological pages as the reader scrolls, without a permanent
-older-message cutoff. Filters and search operate across the complete conversation, retain their
-persisted choices, and paginate their results. Copy shown exports exactly the loaded filtered
-messages in order. Native rows remain virtual and parsing/search/rendering stays off the main
-thread. Large message presentation may be compact, but original text remains available for copying.
-The conversation header aligns its message count and recorded token total with the
-conversation subtitle; omit a token value when the source has no reliable token counters.
-In the sidebar, replace the count with a small spinner only while the first page loads;
-keep counts visible during later refreshes. Sidebar counts include the word conversations.
-Give each message role a filled surface with shared leading content alignment instead of
-left border markers. Keep prompt, response, tool, and other roles distinct. Code blocks
-wrap long lines so vertical scrolling over their text continues through the conversation.
+Chat History loads messages in chronological pages as the reader scrolls, with no permanent
+older-message cutoff. Filters and search cover the complete conversation, keep their persisted
+choices, and paginate results. Copy shown exports exactly the loaded filtered messages in order.
+Native rows stay virtual and parsing, search, and rendering stay off the main thread; large
+messages may be compact but keep their original text for copying. The conversation header aligns
+its message count and token total with the subtitle, omitting the token value when the source has
+no reliable counters. The sidebar shows a small spinner in place of the count only while the first
+page loads, and counts include the word conversations. Each message role has a filled surface with
+shared leading alignment, not left border markers; prompt, response, tool, and other roles stay
+distinct. Code blocks wrap long lines so vertical scrolling continues through the conversation.
 
 ## 3. Usage presentation
 
@@ -213,6 +199,17 @@ Command-R (View > Refresh Usage, and in the popover) refreshes now. Right-clicki
 item opens a menu with Open, Refresh Usage, Settings, and Quit. The Claude
 account page also shows Claude Code activity for all profiles from the local transcripts,
 priced as an API-equivalent estimate.
+
+A provider with a daily series (30 days, or its native span) returns a chart: id, title, unit
+(USD, tokens, requests, credits, or a currency code), and dated points. The detail page draws one
+72-point bar chart each below the windows, with the title and the total (or the hovered or
+arrow-key-focused day and its exact value) in the header row and a VoiceOver summary such as
+"30 days, total $12.40, peak $2.10 on Oct 3". The Claude Code activity panel charts its 30-day
+cost the same way. Menu cards show no charts. `switch usage --json` adds
+`charts` (schema `switch.limits.v1`, additive) and the CLI and TUI draw one ▁▂▃▄▅▆▇█ line each.
+A window may report more than 100 percent used (overage): text shows the real percent
+("130% used", or "0% left"), and every bar fill is clamped to its track. Sub-cent money shows up
+to four decimals ("$0.0042").
 
 Usage refresh reads the selected saved credential in a disposable private home and never
 activates that account. The main Usage panel shows returned rate-limit windows and returned
@@ -260,22 +257,17 @@ mutually exclusive period filters elsewhere, including project colors and hover,
 pressed, and disabled states; do not render a row of native controls or detached pills. The selected
 range persists across app restarts.
 Selecting an account only changes the displayed account; it must not activate credentials
-or wait on file reads, queries, or repeated calendar aggregation. Build each displayed
-calendar's days, weeks, and token maximum once per body update, rather than once per cell.
-The full account pane must remain responsive during ordinary selection, including accounts
-with a year of activity. Measure the real pane's layout and drawing, not only its calendar
-or the selected-ID setter. Defer expensive display work when necessary without showing
-the previous account's data under the new identity.
+or wait on file reads, queries, or repeated calendar aggregation. Build each calendar's
+days, weeks, and token maximum once per body update, not once per cell. The full pane stays
+responsive, including accounts with a year of activity; measure the real pane's layout and
+drawing. Defer expensive display work without showing the previous account's data.
 Dense month/year grids use one native Canvas with exact-day pointer selection, arrow keys,
 and native accessibility actions for each date. Weekday labels align to a Sunday-first grid.
 Routine account or hover redraws must not reload or reassign the Dock icon.
 Automatic activity indexing runs at utility priority, leaving foreground interactions
 ahead of long transcript scans. Accessible date actions share the drawn markers' bounds.
-Sidebar hover has one bounded target and fades its highlight in and out within 120 ms,
-without animating hitbox geometry or leaving previous items persistently lit.
 Cell intensity reflects the token count within the selected range, and a selected day shows
-its date and exact token count. The Daily activity label is 20% larger than its prior 11-point
-size. Returned Lifetime, Peak day, streak, and Longest turn facts align at the right of the
+its date and exact token count. Returned Lifetime, Peak day, streak, and Longest turn facts align at the right of the
 Ordinary usage and Authentication row rather than occupying another row below the limits.
 
 Retain a compact durable daily summary separately from expiring quota snapshots. Merge
@@ -298,16 +290,13 @@ the verified appended bytes after the first complete scan; replacement, truncati
 record boundary falls back to a complete parse. Thread metadata is read and applied only when the
 database or its write-ahead files change. An unchanged hidden app performs no transcript scan.
 
-Show retained token statistics for the selected account inside the existing Daily activity
-section, not in a separate panel. The section header contains one grouped row of Today, Yesterday,
-Weekly, Monthly, and Yearly filters. One filter is active at a time. A fixed-height summary line
-shows only that period's total, with the exact token count in its tooltip and accessibility value;
-async price availability must not move surrounding content. Rolling Weekly, Monthly, and Yearly
-periods include the current UTC day and cover 7, 30, and 365 days. Do not add an account or provider
-filter because the surrounding account view owns the statistic. Do not repeat a source label such
-as Shared Codex home. Omit Daily activity until that account has retained history, then preserve
-explicit zeroes. The TUI account screen uses the same periods and account-day data and renders its
-filter as one contiguous group.
+Show retained token statistics for the selected account inside the Daily activity section, not
+a separate panel. A fixed-height summary line shows only the selected period's total, with the
+exact count in its tooltip and accessibility value; async price availability must not move
+surrounding content. Rolling Weekly, Monthly, and Yearly periods include the current UTC day and
+cover 7, 30, and 365 days. Add no account or provider filter and no source label such as Shared
+Codex home. Omit Daily activity until the account has retained history, then keep explicit
+zeroes. The TUI account screen uses the same periods and data as one contiguous filter group.
 
 The Menubar account card includes one compact token summary without adding another row to its
 geometry. Put the quota percentage on the same line as Session or Weekly. Reuse the existing detail
@@ -338,14 +327,11 @@ Menubar display off), and an outlined double tick with two complete checkmarks w
 (Using as default or Menubar display on). The icon reflects the current state, not the
 action that clicking will perform. The Menubar toggle's accessible value
 explains whether usage display is on or off. Its context menu offers Use Settings default.
-Fit the double check's visible outline, including stroke clearance, rather than its empty
-512-unit SVG canvas. At the ordinary 13-point icon size, give it a 17⅓-by-13-point area:
-visible centerlines must occupy at least 15 points in width and nine points in height, with
-round strokes about 1.2 points thick. Both checks have a complete short arm and long arm;
-this supersedes the disconnected second check in the exact Ionicons source geometry.
-Both ticks must remain distinguishable at actual size in light and dark appearances.
-Single and double ticks use the same icon area so changing the Menubar preference does
-not shift the other actions.
+Fit the double check's visible outline, not its empty 512-unit SVG canvas: at the 13-point
+icon size, a 17⅓-by-13-point area whose centerlines span at least 15 by nine points, with
+round strokes about 1.2 points thick and two complete checks (short and long arm each).
+Both ticks stay distinguishable in light and dark. Single and double ticks share one icon
+area so the Menubar preference does not shift the other actions.
 Identity's header retains Default and attention badges, without a redundant provider badge
 or menu-bar toggle. There is no separate preference row in Usage.
 This preference controls both that account's popover limits and its menu-bar entry.
@@ -401,9 +387,7 @@ The popover is 344 points wide,
 uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
 Open App button with a subtle hover tint. Its native host fits all account cards and the
 footer, growing up to 80% of the visible height of the display containing its status-item
-button. This display-specific rule supersedes the previous smallest-display cap. There is
-no additional 900-point cap, and the list scrolls only when its contents exceed that
-available height. Below that cap every account and quota row fits without a scrollbar;
+button. The list scrolls only when its contents exceed that height. Below that cap every account and quota row fits without a scrollbar;
 measure the rendered scroll viewport and document, not just the requested popup size.
 AppKit's intrinsic sizing must not collapse the scroll area or clip
 quota rows for one or two accounts. It has no automatic focus outline
@@ -419,8 +403,8 @@ with muted text no darker than `#B9BBC0`. Soft separators remain visible without
 panels into outlined cards.
 
 The owner selects the Soft rectangles layout with preview 04 Ivory for light mode and
-09 Espresso for dark mode, following the app's effective appearance. This supersedes
-the earlier fixed-palette request. Use popup/card/button radii of 9/7/3 points.
+09 Espresso for dark mode, following the app's effective appearance. Use popup/card/button
+radii of 9/7/3 points.
 The Menubar has its own palette, separate from the main window's colors:
 
 | Role | Ivory | Espresso |
@@ -441,8 +425,7 @@ Appearance changes update all virtualized panels without altering their geometry
 Preserve compact multi-account switching, visible limits, the refresh timestamp, and
 Open App. Keep the single native backdrop and reduced-transparency fallback, and open
 without presentation animation. Preview data is illustrative and does not query or
-change accounts. The review artifact is `tmp/index.html`; its radius inputs and slider
-are review controls, not new app settings.
+change accounts.
 
 Compact section headers use one 40-point alignment row. A leading title, trailing count,
 warning/copy action, error indicator, and progress indicator occupy explicit centered slots;
@@ -467,12 +450,10 @@ Primary button text and icons, including Using as default, remain fully opaque
 regardless of body translucency. The main window has three-point rounded corners
 with a transparent exterior; preserve its size, placement, controls, and native shadow.
 
-Deleting the default account automatically activates an eligible saved fallback before
-deleting its saved credential. Prefer the currently selected other account, then the previous
-selection, then the most recently used eligible account, then the first available account.
-The deletion confirmation names the replacement. A failed activation preserves the account
-being deleted. With no eligible fallback, the normal Delete account action remains disabled;
-do not replace its label with a long instruction. Conversations and settings are preserved.
+Deleting the default account first activates an eligible saved fallback: the selected other
+account, then the previous selection, then the most recently used, then the first available. The
+confirmation names the replacement, and a failed activation keeps the account. With no eligible
+fallback, Delete account stays disabled with its normal label. Conversations and settings stay.
 
 Close hover uses bright red `#FF453A` with a white glyph; Minimize hover uses bright yellow
 `#FFD43B` with a dark glyph. Both remain square, and Minimize floats out of Close without
@@ -481,13 +462,11 @@ range selectors, and list rows use a visible, interruptible 120 ms hover fade in
 Animate color or opacity only; hit areas remain fixed and decorative overlays do not intercept
 pointer input. Disabled controls do not highlight, and Reduce Motion uses immediate feedback.
 Moving between controls or returning after Command-Tab must not cycle through hover,
-disabled, and normal colors. Background account reconciliation must not disable the
-interface or publish unchanged account, history, and usage values.
-Light and dark hover feedback must remain stable with body translucency enabled.
-During a crossing, both the departed and entered controls must fade without repeated
-brightness reversals or flashes beyond their normal and hovered colors in light mode.
-Scope hover fades to the opacity of constant-color layers; do not animate the entire
-control's adaptive colors, foreground, or layout when pointer ownership changes.
+disabled, and normal colors, and background reconciliation must not disable the interface or
+publish unchanged account, history, and usage values. Hover feedback stays stable in light and
+dark with body translucency on: the departed and entered controls both fade, with no brightness
+reversals or flashes beyond their normal and hovered colors. Scope fades to the opacity of
+constant-color layers; never animate a control's adaptive colors, foreground, or layout.
 Show in Menubar uses the same normal button colors as Open Codex and Use & Open Codex;
 its tick state communicates the saved choice without a separate blue surface.
 
@@ -522,9 +501,8 @@ run without arguments. The repository root provides `make tui` as the source che
 entry point. Distribute the Apple Silicon macOS executable as the `@smdl/switch` npm
 package, so npx opens the interface and a global install exposes `switch` and
 the existing `ai-manager` alias.
-The root README has a dedicated terminal getting-started section with all three paths.
-The npm package contains the compiled executable and must not reimplement account logic
-or require a Swift build after package installation.
+The root README has a terminal getting-started section with all three paths. The npm package
+holds the compiled executable, with no reimplemented account logic and no Swift build step.
 
 The interactive terminal uses the approved **09 Amber Menu** structure: a compact
 character-cell account list grouped by provider, one inverse selected row, selected-account
@@ -539,11 +517,10 @@ when present; the interface never manufactures missing usage.
 
 On an attached terminal, navigation uses raw keyboard input: Up and Down move focus,
 Right or Enter opens the focused account, Enter runs the focused action, and Left or
-Escape returns. The interface must not display or require command-letter navigation.
-Temporarily restore normal terminal input for free-text path entry and the launched Codex
-process, and always restore it when the interface exits.
-Raw keyboard mode must preserve the terminal's existing output processing so every rendered
-line returns to column zero in Terminal, iTerm, and compatible emulators.
+Escape returns; no command-letter navigation is shown or required. Normal input returns
+for free-text path entry and the launched Codex process, and always on exit. Raw mode keeps the
+terminal's output processing so every line returns to column zero in Terminal, iTerm, and
+compatible emulators.
 
 ## 6. Verification contract
 
@@ -554,10 +531,9 @@ unprivileged read-only Linux Docker architectures. A public GitHub release may u
 signature when Developer ID signing is unavailable. Keep end-user install copy concise and
 do not add warning blocks about signing or Gatekeeper.
 Build, validate, and upload Mac archives from the maintainer's local Mac, not GitHub Actions.
-The README must identify the current Switch download accurately; older product releases
-are not Switch. Lead with provider-neutral account switching and shared behavior. Keep
-provider-specific file paths, session behavior, and capability limits in concise provider
-notes instead of presenting Codex as the product model.
+The README identifies the current Switch download accurately (older product releases are not
+Switch) and leads with provider-neutral switching; provider-specific paths, session behavior,
+and limits live in concise provider notes, not in a Codex-centered product model.
 Before installed-app GUI actions, compare the packaged and `/Applications/Switch.app`
 executable SHA-256 values, verify the embedded revision against the committed build, and
 check that the running process maps the installed binary's inode. A stale process or

@@ -136,22 +136,22 @@ enum OpenAIUsage {
             PluginFmt.row($0.key, "\(Fmt.number($0.value.input + $0.value.output)) tokens",
                           "\(Fmt.number($0.value.requests)) requests")
         }))
-        // The five newest days, newest first, each with its spend and busiest line item.
-        sections.append(UsageSection("Latest days", list.suffix(5).reversed().map { day in
-            let top = day.lines.max { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }
-            return PluginFmt.row(PluginFmt.day(Date(timeIntervalSince1970: TimeInterval(day.start))), Fmt.money(day.cost),
-                                 "\(Fmt.number(day.tally.requests)) requests · "
-                                 + "\(Fmt.number(day.tally.input + day.tally.output)) tokens"
-                                 + (top.map { " · \($0.key) \(Fmt.money($0.value))" } ?? ""))
-        }))
         var lines: [String: Double] = [:]
         for day in list { for (name, cost) in day.lines { lines[name, default: 0] += cost } }
         sections.append(UsageSection("Cost by line item", lines.sorted {
             $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key
         }.prefix(5).map { UsageRow($0.key, Fmt.money($0.value)) }))
+        func series(_ value: (Day) -> Double) -> [String: Double] {
+            Dictionary(list.map { (PluginFmt.day(Date(timeIntervalSince1970: TimeInterval($0.start))), value($0)) },
+                       uniquingKeysWith: +)
+        }
+        let charts = [UsageChart.daily(id: "daily-cost", title: "Daily cost", unit: "USD", values: series(\.cost)),
+                      UsageChart.daily(id: "daily-tokens", title: "Daily tokens", unit: "tokens",
+                                       values: series { $0.tally.input + $0.tally.output })]
+            .compactMap { $0 }.filter { $0.total > 0 }
         return ProviderUsage(cost: UsageCost(used: total, period: period), sections: sections,
                              plan: projectID.map { "Admin API: \($0)" } ?? "Admin API",
-                             organization: projectID.map { "Project: \($0)" })
+                             organization: projectID.map { "Project: \($0)" }, charts: charts)
     }
 
     /// Legacy `/v1/dashboard/billing/credit_grants` balance.

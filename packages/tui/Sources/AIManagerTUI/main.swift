@@ -1389,7 +1389,7 @@ private struct TerminalMenu {
     }
 
     private func shownShare(_ window: UsageWindow) -> Int? {
-        window.usedPercent.map { Int((showsUsed ? $0 : 100 - $0).rounded()) }
+        window.usedPercent.map { Int((showsUsed ? $0 : max(0, 100 - $0)).rounded()) }
     }
 
     /// Windows as limit lines (name, bar, percent, reset), then money and detail rows.
@@ -1420,6 +1420,7 @@ private struct TerminalMenu {
                 lines.append("\(padded(row.label, to: 16)) : \(row.value)")
             }
         }
+        for chart in value.charts { lines.append(String(LimitFormat.chartLine(chart).prefix(width))) }
         for section in value.sections {
             if let title = section.title { lines.append(muted(title)) }
             for row in section.rows {

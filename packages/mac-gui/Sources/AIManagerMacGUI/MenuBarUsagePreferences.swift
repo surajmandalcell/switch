@@ -40,9 +40,15 @@ enum UsagePercentagePreferences {
     defaults.bool(forKey: showsUsedKey)
   }
 
+  /// Used keeps overage above 100; left stops at 0. Negative input reads as 0.
   static func displayedPercentage(forUsed used: Int, showsUsed: Bool) -> Int {
-    let clamped = min(max(used, 0), 100)
-    return showsUsed ? clamped : 100 - clamped
+    let used = max(used, 0)
+    return showsUsed ? used : max(100 - used, 0)
+  }
+
+  /// Bar fill, 0...1. Bars never draw past their track even when the text shows overage.
+  static func fill(forUsed used: Int, showsUsed: Bool) -> Double {
+    min(max(Double(displayedPercentage(forUsed: used, showsUsed: showsUsed)) / 100, 0), 1)
   }
 
   static func label(forUsed used: Int, showsUsed: Bool) -> String {

@@ -40,7 +40,7 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(values["Remaining"], "0")
         XCTAssertEqual(values["Above allowance"], "200")
         XCTAssertEqual(values["Period"], "2026-06")
-        XCTAssertEqual(usage.windows[0].usedPercent, 100)
+        XCTAssertEqual(usage.windows[0].usedPercent, 120)
         XCTAssertEqual(usage.plan, "Pro")
     }
 
@@ -172,7 +172,7 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         """#))
         // Input is over its allowance; output has no number, so it has a section but no window.
         XCTAssertEqual(usage.windows.map(\.id), ["input"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 100)
+        XCTAssertEqual(usage.windows[0].usedPercent, 150)
         XCTAssertEqual(try section(usage, "Input tokens").rows.map(\.label), ["Used", "Allowance", "Remaining", "Above allowance"])
         XCTAssertEqual(try rows(usage, "Input tokens")["Above allowance"], "500,000")
         XCTAssertEqual(try rows(usage, "Output tokens")["Allowance"], "Unlimited")
@@ -515,9 +515,12 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(try rows(usage, "Last 30 days")["Cached input tokens"], "400")
         let top = try section(usage, "Top models").rows
         XCTAssertEqual(top[0].value, "1,500 tokens · 10 requests")
-        let latest = try section(usage, "Latest days").rows
-        XCTAssertEqual(latest.map(\.label), ["2026-09-21", "2026-09-20"])
-        XCTAssertEqual(latest[0].value, "$2.00 · 10 requests · 1,500 tokens · gpt $1.50")
+        XCTAssertNil(usage.sections.first { $0.title == "Latest days" })
+        let cost = try XCTUnwrap(usage.charts.first { $0.id == "daily-cost" })
+        XCTAssertEqual(cost.unit, "USD")
+        XCTAssertEqual(cost.points.map(\.label), ["Sep 20", "Sep 21"])
+        XCTAssertEqual(cost.points.map(\.value), [2, 2])
+        XCTAssertEqual(usage.charts.first { $0.id == "daily-tokens" }?.points.map(\.value), [0, 1500])
         XCTAssertEqual(try section(usage, "Cost by line item").rows.map(\.value), ["$3.50", "$0.50"])
         // A one-day history reads as today.
         let today = try OpenAIUsage.map(costs: costs, completions: completions, days: 1, now: now)
@@ -557,7 +560,15 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(values["Usage mix"], "api: 300 points · chat: 100 points")
         XCTAssertEqual(values["Recent activity"], "09-21 11:00 · GPT-5 · 100 points")
         XCTAssertEqual(values["09-18 12:00"], "Claude · 300 points")
-        XCTAssertEqual(try section(usage, "Daily points").rows.map(\.label), ["2026-09-21", "2026-09-18"])
+        XCTAssertNil(usage.sections.first { $0.title == "Daily points" })
+        // 30 zero-filled UTC days ending today; 300 points on Sep 18 and 100 today.
+        let chart = try XCTUnwrap(usage.charts.first)
+        XCTAssertEqual(chart.unit, "credits")
+        XCTAssertEqual(chart.points.count, 30)
+        XCTAssertEqual(chart.points.last?.label, "Sep 21")
+        XCTAssertEqual(chart.points.last?.value, 100)
+        XCTAssertEqual(chart.points.first { $0.label == "Sep 18" }?.value, 300)
+        XCTAssertEqual(chart.total, 400)
     }
 
     // MARK: Q
@@ -751,7 +762,11 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         """)
         let usage = try XaiConsoleUsage.map(balance: json(#"{"total":{"val":"-1000"}}"#), history: history)
         XCTAssertEqual(usage.plan, "Management API")
-        XCTAssertEqual(try section(usage, "Daily spend").rows, [UsageRow("2027-01-14", "$0.50"), UsageRow("2027-01-13", "$1.25")])
+        XCTAssertNil(usage.sections.first { $0.title == "Daily spend" })
+        let chart = try XCTUnwrap(usage.charts.first)
+        XCTAssertEqual(chart.unit, "USD")
+        XCTAssertEqual(chart.points.map(\.label), ["Jan 13", "Jan 14"])
+        XCTAssertEqual(chart.points.map(\.value), [1.25, 0.5])
         XCTAssertEqual(try rows(usage, "Billing summary")["Last 30 days (partial)"], "$1.75")
     }
 

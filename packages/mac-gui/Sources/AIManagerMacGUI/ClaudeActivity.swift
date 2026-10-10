@@ -18,6 +18,8 @@ struct ClaudeActivitySummary: Equatable, Sendable {
   /// Models with usage but no published price. Their cost is not in the totals.
   var unpricedModels: [String]
   var computedAt: Date
+  /// 30 local days, zero-filled: estimated dollars when any day is priced, else tokens.
+  var chart: UsageChart? = nil
 }
 
 enum ClaudeActivity {
@@ -57,13 +59,25 @@ enum ClaudeActivity {
           + "cache read \(Fmt.number(Double(read))), cache write \(Fmt.number(Double(write))) tokens.")
     }
     let unpriced = Set(daily.flatMap(\.unpricedModels)).sorted()
+    let priced = daily.contains { $0.costUSD != nil }
+    var byDay: [String: Double] = [:]
+    for offset in 0..<days {
+      if let day = calendar.date(byAdding: .day, value: -offset, to: now) { byDay[formatter.string(from: day)] = 0 }
+    }
+    for entry in daily where byDay[entry.date] != nil {
+      byDay[entry.date] = priced ? (entry.costUSD ?? 0) : Double(tokens(entry))
+    }
+    let chart = UsageChart.daily(
+      id: "claude-daily", title: priced ? "Daily cost (API-equivalent estimate)" : "Daily tokens",
+      unit: priced ? "USD" : "tokens", values: byDay)
     return ClaudeActivitySummary(
       rows: [
         row("Today", daily.filter { $0.date == today }),
         row("Yesterday", daily.filter { $0.date == yesterday }),
         row("Last 30 days", daily),
       ],
-      unpricedModels: unpriced, computedAt: now)
+      unpricedModels: unpriced, computedAt: now,
+      chart: chart.flatMap { $0.total > 0 ? $0 : nil })
   }
 
   /// Scans every profile's shared `projects/` logs. Heavy on the first run: call it off the main actor.

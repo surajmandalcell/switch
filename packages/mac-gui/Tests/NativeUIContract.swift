@@ -815,6 +815,51 @@ enum AIManagerNativeContract {
     expect(fills[0] == fills[1] && fills[2] != fills[1] && fills[3] != fills[1] && fills[3] == fills[4]
       && fills[2] != fills[3], "Meter colors do not map blue, yellow, and red")
 
+    // Charts: overage text stays real while bars stop at the track; the chart view summarizes and lays out.
+    expect(UsagePercentagePreferences.label(forUsed: 130, showsUsed: true) == "130% used"
+      && UsagePercentagePreferences.label(forUsed: 130, showsUsed: false) == "0% left"
+      && UsagePercentagePreferences.fill(forUsed: 130, showsUsed: true) == 1
+      && UsagePercentagePreferences.fill(forUsed: -5, showsUsed: true) == 0
+      && UsagePercentagePreferences.fill(forUsed: 25, showsUsed: false) == 0.75,
+      "Overage text is clamped or bar fill is not limited to 0...1")
+    let day = DateFormatter()
+    day.locale = Locale(identifier: "en_US_POSIX")
+    day.timeZone = TimeZone(identifier: "UTC")
+    day.dateFormat = "yyyy-MM-dd"
+    var daily: [String: Double] = [:]
+    for offset in 0..<30 {
+      daily[day.string(from: Date(timeIntervalSince1970: 1_791_633_600 - Double(offset) * 86_400))] =
+        offset == 7 ? 2.1 : offset == 0 ? 0.5 : 0.4
+    }
+    if let spend = UsageChart.daily(id: "spend", title: "Daily spend", unit: "USD", values: daily) {
+      expect(spend.points.count == 30 && spend.points.first?.label == "Sep 11" && spend.peak?.label == "Oct 3",
+        "Daily chart points are not oldest first with the peak day")
+      expect(UsageChartPresentation.summary(spend) == "30 days, total $13.80, peak $2.10 on Oct 3",
+        "Chart VoiceOver summary is wrong: \(UsageChartPresentation.summary(spend))")
+      expect(UsageChartPresentation.headline(spend, selected: nil) == "Total $13.80"
+        && UsageChartPresentation.headline(spend, selected: spend.peak) == "Oct 3 · $2.10",
+        "Chart header does not show the total or the focused day")
+      expect(UsageChartPresentation.axisLabels(spend) == ["Sep 11", "Sep 26", "Oct 10"], "Chart axis is not first, middle, last")
+      expect(UsageChartPresentation.moved(nil, by: -1, count: 30) == 29
+        && UsageChartPresentation.moved(0, by: -1, count: 30) == 0
+        && UsageChartPresentation.moved(29, by: 1, count: 30) == 29
+        && UsageChartPresentation.moved(10, by: 1, count: 30) == 11, "Chart arrow keys do not step days")
+      for dark in [false, true] {
+        let host = NSHostingView(rootView: UsageChartView(chart: spend).environment(\.aimDarkMode, dark)
+          .frame(width: 520))
+        host.frame = NSRect(x: 0, y: 0, width: 520, height: 140)
+        host.layoutSubtreeIfNeeded()
+        expect(host.fittingSize.height >= 72 && host.fittingSize.height < 140, "Chart view does not lay out about 72 points tall")
+      }
+    } else {
+      failures.append("Daily chart builder returned nothing")
+    }
+    let tokens = UsageChart(id: "t", title: "Tokens", unit: "tokens", points: [
+      UsagePoint(label: "Oct 1", value: 1_200_000), UsagePoint(label: "Oct 2", value: 300_000)])
+    expect(UsageChartPresentation.summary(tokens) == "2 days, total 1,500,000, peak 1,200,000 on Oct 1"
+      && UsageChartPresentation.headline(tokens, selected: nil) == "Total 1.5M",
+      "Token chart text is wrong: \(UsageChartPresentation.summary(tokens))")
+
     // Account detail, usage, and Add Account views lay out for a synthetic generic account.
     let model = AccountViewModel(scenario: .demo)
     guard let gemini = model.status?.accounts.first(where: { $0.identity.providerID == .geminiCLI }) else {
@@ -823,6 +868,11 @@ enum AIManagerNativeContract {
     expect(gemini.usesGenericDetail && !(model.status?.accounts.first?.usesGenericDetail ?? true),
       "Only non-Codex, non-Grok, non-Claude accounts use the generic detail")
     expect(gemini.identity.accountLabel == "ada.lovelace@example.test", "Generic account label ignores email")
+    let chartAccount = model.addDemoProviderAccount(ProviderID(rawValue: "openrouter"))
+    expect(model.providerUsage[chartAccount.id]?.usage?.charts.first?.points.count == 30,
+      "The OpenRouter demo account has no 30-day chart")
+    expect(model.addDemoProviderAccount(.claudeCode).identity.providerID == .claudeCode
+      && model.claudeActivity?.chart?.points.count == 30, "The Claude Code demo has no 30-day activity chart")
     let keyAccount = DemoData.genericAccount(ProviderID(rawValue: "openrouter"))
     expect(keyAccount.identity.accountLabel.hasPrefix("OpenRouter ···"),
       "Key-only account label does not use the provider and a key tail")
@@ -830,6 +880,8 @@ enum AIManagerNativeContract {
     let views: [AnyView] = [
       AnyView(ProviderAccountDetail(account: gemini, model: model) {}),
       AnyView(ProviderUsagePanel(account: gemini, model: model)),
+      AnyView(ProviderAccountDetail(account: chartAccount, model: model) {}),
+      AnyView(ClaudeActivityPanel(model: model)),
       AnyView(ProviderChooserPage(model: model, step: 1) {}),
       AnyView(SecretCredentialsPage(spec: ProviderCatalog.spec(ProviderID(rawValue: "zai"))!, model: model) {}),
       AnyView(FilesCredentialsPage(spec: ProviderCatalog.spec(.geminiCLI)!, model: model) {}),

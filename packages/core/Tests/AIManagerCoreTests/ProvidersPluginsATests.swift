@@ -322,7 +322,7 @@ final class ProvidersPluginsATests: XCTestCase {
            "weeklyUsagePercent":130,"weeklyResetsAt":"2026-06-15T00:00:00Z"}}}}}]
         """#))
         XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly"])
-        XCTAssertEqual(usage.windows.map(\.usedPercent), [12.5, 100])
+        XCTAssertEqual(usage.windows.map(\.usedPercent), [12.5, 130])
         XCTAssertEqual(usage.windows.map(\.windowMinutes), [300, 10_080])
         XCTAssertEqual(usage.windows[0].resetsAt, date("2026-06-13T18:00:00Z"))
         XCTAssertThrowsError(try LangdockUsage.map(try json(

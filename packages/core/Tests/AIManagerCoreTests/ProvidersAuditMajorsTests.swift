@@ -28,7 +28,7 @@ final class ProvidersAuditMajorsTests: XCTestCase {
         XCTAssertEqual(bot.windowMinutes, 10_080)
         XCTAssertEqual(bot.resetsAt, iso("2026-08-27T00:00:00Z"))
         XCTAssertEqual(CursorUsage.grokBotWindow(try json(#"{"usagePercent":0}"#))?.usedPercent, 0)
-        XCTAssertEqual(CursorUsage.grokBotWindow(try json(#"{"usagePercent":125}"#))?.usedPercent, 100)
+        XCTAssertEqual(CursorUsage.grokBotWindow(try json(#"{"usagePercent":125}"#))?.usedPercent, 125)
         for body in [#"{"usagePercent":42,"usesPooledEnterpriseAllowance":true}"#,
                      #"{"usagePercent":0,"hasNonZeroIncludedLimit":false}"#,
                      #"{"usagePercent":0,"includedLimitZero":true}"#, #"{"usagePercent":true}"#,
@@ -148,6 +148,18 @@ final class ProvidersAuditMajorsTests: XCTestCase {
         let unpriced = try XCTUnwrap(MajorsSpend.section([MajorsSpend.Entry(date: now, cost: nil, tokens: 1500)], now: now, calendar: utc))
         XCTAssertEqual(unpriced.rows[0].value, "1.5K tokens")
         XCTAssertNil(MajorsSpend.section([], now: now))
+        // 30 zero-filled days ending today: $3.00 today, $1.00 yesterday; a partial window drops the older days.
+        let chart = try XCTUnwrap(MajorsSpend.chart(entries, now: now, calendar: utc))
+        XCTAssertEqual(chart.unit, "USD")
+        XCTAssertEqual(chart.points.count, 30)
+        XCTAssertEqual(chart.points.map(\.value).suffix(2), [1, 3])
+        XCTAssertEqual(chart.total, 4)
+        XCTAssertEqual(MajorsSpend.chart(entries, now: now, completeFrom: Date(timeIntervalSince1970: 1_799_971_200), calendar: utc)?.points.count, 1)
+        // Unpriced records chart tokens.
+        let tokens = MajorsSpend.chart([MajorsSpend.Entry(date: now, cost: nil, tokens: 1500)], now: now, calendar: utc)
+        XCTAssertEqual(tokens?.unit, "tokens")
+        XCTAssertEqual(tokens?.points.last?.value, 1500)
+        XCTAssertNil(MajorsSpend.chart([], now: now, calendar: utc))
     }
 
     func testCursorSessionCookieFromToken() {
@@ -288,7 +300,13 @@ final class ProvidersAuditMajorsTests: XCTestCase {
                      #"{"params":{"update":{"sessionUpdate":"agent_message"}}}"#,
                      turn("b", model: "grok-4.5-build", input: 100, output: 20, ticks: 1_000_000_000, ageMs: 5 * 86_400_000)]
         try lines.joined(separator: "\n").write(to: session.appendingPathComponent("updates.jsonl"), atomically: true, encoding: .utf8)
-        let section = try XCTUnwrap(GrokBuildUsage.localSpend(sessions: root, now: now))
+        let report = try XCTUnwrap(GrokBuildUsage.localSpend(sessions: root, now: now))
+        let section = try XCTUnwrap(report.section)
+        let chart = try XCTUnwrap(report.chart)
+        XCTAssertEqual(chart.unit, "USD")
+        XCTAssertEqual(chart.points.count, 30)
+        XCTAssertEqual(chart.total, 0.2357158800 + 0.1, accuracy: 0.0001)
+        XCTAssertEqual(chart.points.last?.value ?? 0, 0.23571588, accuracy: 0.0001)
         XCTAssertEqual(section.rows.map(\.label).last, "Last 30 days")
         let last30 = try XCTUnwrap(section.rows.last?.value)
         // $0.2357 + $0.10 = $0.34, and 1,050,000 + 120 tokens.
@@ -363,7 +381,14 @@ final class ProvidersAuditMajorsTests: XCTestCase {
         """
         XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
         sqlite3_close(db)
-        let section = try XCTUnwrap(OpenCodeGoUsage.localSpend(directory: dir, now: now))
+        let report = try XCTUnwrap(OpenCodeGoUsage.localSpend(directory: dir, now: now))
+        let section = try XCTUnwrap(report.section)
+        // Daily spend chart: 30 zero-filled days, today $2.25 and three days ago $2.
+        let chart = try XCTUnwrap(report.chart)
+        XCTAssertEqual(chart.points.count, 30)
+        XCTAssertEqual(chart.points.last?.value ?? 0, 2.25, accuracy: 0.001)
+        XCTAssertEqual(chart.points[26].value, 2, accuracy: 0.001)
+        XCTAssertEqual(chart.total, 4.25, accuracy: 0.001)
         let today = try XCTUnwrap(section.rows.first { $0.label == "Today" })
         // m1 once (the OpenCode 2 copy is skipped), m2 and m5; the Anthropic row is not hosted.
         XCTAssertEqual(today.value, "$2.25 \u{00B7} 3.2K tokens")
@@ -448,14 +473,22 @@ final class ProvidersAuditMajorsTests: XCTestCase {
         XCTAssertEqual(rows(uncapped)["API key limit"], "No limit configured")
 
         let now = iso("2026-10-10T12:00:00Z")
-        let section = try XCTUnwrap(OpenRouterUsage.activitySection(rows: [
+        let activity = try XCTUnwrap(OpenRouterUsage.activitySection(rows: [
             try json(#"{"date":"2026-10-09","model_permaslug":"openai/gpt-5","endpoint_id":"e1","prompt_tokens":1000,"completion_tokens":500,"reasoning_tokens":100,"requests":4,"usage":1.5,"byok_usage_inference":0.5}"#),
             try json(#"{"date":"2026-10-09","model_permaslug":"openai/gpt-5","endpoint_id":"e1","prompt_tokens":1000,"completion_tokens":500,"reasoning_tokens":100,"requests":4,"usage":1.5,"byok_usage_inference":0.5}"#),
             try json(#"{"date":"2026-10-01 00:00:00","model":"anthropic/claude","prompt_tokens":2000,"completion_tokens":0,"requests":2,"usage":1}"#),
             try json(#"{"date":"2026-08-01","model":"old","prompt_tokens":99999,"completion_tokens":0,"requests":9,"usage":9}"#),
             try json(#"{"date":"2026-10-10","model":"today","prompt_tokens":99999,"completion_tokens":0,"requests":9,"usage":9}"#),
         ], now: now))
-        XCTAssertEqual(section.rows, [UsageRow("Tokens", "3.5K"), UsageRow("Requests", "6"), UsageRow("Models", "2"), UsageRow("Spend", "$3.00")])
+        XCTAssertEqual(activity.section.rows, [UsageRow("Tokens", "3.5K"), UsageRow("Requests", "6"), UsageRow("Models", "2"), UsageRow("Spend", "$3.00")])
+        // 30 completed UTC days Sep 10 to Oct 9; Oct 9 spend $2 (the duplicate row is dropped), Oct 1 spend $1.
+        let chart = try XCTUnwrap(activity.chart)
+        XCTAssertEqual(chart.points.count, 30)
+        XCTAssertEqual(chart.points.first?.label, "Sep 10")
+        XCTAssertEqual(chart.points.last?.label, "Oct 9")
+        XCTAssertEqual(chart.points.last?.value, 2)
+        XCTAssertEqual(chart.points.first { $0.label == "Oct 1" }?.value, 1)
+        XCTAssertEqual(chart.total, 3)
     }
 
     // MARK: Z.ai

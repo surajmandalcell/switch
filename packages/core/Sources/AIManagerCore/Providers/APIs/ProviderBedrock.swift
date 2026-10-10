@@ -207,12 +207,12 @@ enum BedrockUsage {
                 UsageRow("Requests", compact(activity.requests)),
             ]))
         }
-        let days = byDay.filter { $0.value > 0 }.sorted { $0.key > $1.key }.prefix(14)
-        sections.append(UsageSection("Daily cost", days.map { UsageRow($0.key, Fmt.money($0.value, currency: currency)) }))
+        let chart = daily ? UsageChart.daily(id: "daily-cost", title: "Daily cost (this month)", unit: currency, values: byDay,
+                                            fill: (utc.component(.day, from: now), now)) : nil
         return ProviderUsage(
             windows: windows,
             cost: UsageCost(used: spend, limit: limit, currency: currency, period: "Month to date", resetsAt: monthEnd),
-            sections: sections)
+            sections: sections, charts: [chart].compactMap { $0 }.filter { $0.total > 0 })
     }
 }
 

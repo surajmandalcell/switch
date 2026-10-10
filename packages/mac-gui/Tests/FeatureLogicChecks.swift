@@ -360,6 +360,12 @@ enum FeatureLogicChecks {
         try expect(summary.rows[1].tokens == 10 && summary.rows[1].costUSD == nil, "Yesterday row")
         try expect(summary.rows[2].tokens == 1_370 && summary.rows[2].costUSD == 3.5, "Last 30 days row")
         try expect(summary.unpricedModels == ["claude-x"], "Unpriced models")
+        // The 30-day chart is zero-filled, oldest first, priced days only count.
+        guard let chart = summary.chart else { throw FeatureCheckFailure(message: "Activity chart is missing") }
+        try expect(chart.unit == "USD" && chart.points.count == 30 && chart.points.last?.label == "Oct 10"
+                   && chart.points.first?.label == "Sep 11", "Activity chart days")
+        try expect(chart.points.last?.value == 1.5 && chart.points.first { $0.label == "Oct 9" }?.value == 0
+                   && chart.points.first { $0.label == "Sep 20" }?.value == 2 && chart.total == 3.5, "Activity chart values")
         try expect(ClaudeActivity.summarize([], now: noon, calendar: calendar).rows.allSatisfy {
             $0.tokens == 0 && $0.costUSD == nil }, "An empty scan invented values")
 

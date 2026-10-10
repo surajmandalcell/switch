@@ -253,10 +253,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureAccountModal() async {
         if let provider = PreviewArguments.value("select") {
-            // The demo has no Claude profile; `--select=claude-code` adds a synthetic one.
+            // A provider the demo lacks, such as `--select=claude-code` or `--select=openrouter`, gets a synthetic account.
             let account = model.status?.accounts.first(where: { $0.identity.providerID.rawValue == provider })
-                ?? (provider == ProviderID.claudeCode.rawValue ? model.addDemoProviderAccount(.claudeCode) : nil)
-            if let account { model.selectedAccountID = account.id }
+                ?? model.addDemoProviderAccount(ProviderID(rawValue: provider))
+            model.selectedAccountID = account.id
         }
         if AcceptanceConfiguration.opensImport {
             await model.beginAdvancedImport()
