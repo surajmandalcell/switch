@@ -385,7 +385,7 @@ enum ClaudeUsageProbe {
             if usage.windows.contains(where: { $0.id == "session" }) { return usage }
             first = usage
         } catch let error as ProviderError {
-            guard case .unavailable = error else { throw error }
+            guard case .unavailable = error, error != silentStart else { throw error }
         }
         do {
             return try await attempt(configDir: configDir, executable: executable, environment: environment,
@@ -395,6 +395,14 @@ enum ClaudeUsageProbe {
             throw error
         }
     }
+
+    /// Claude Code printed nothing at all. When Switch was opened from Finder or the Dock, macOS
+    /// makes Switch responsible for the files Claude Code reads, and an unanswered privacy prompt
+    /// blocks the child before it draws anything. Retrying cannot help.
+    static let silentStart = ProviderError.unavailable(
+        "Claude Code did not start inside Switch. macOS may be waiting for you to allow Switch to access "
+            + "files Claude Code reads. Answer the permission prompt, or allow Switch in System Settings › "
+            + "Privacy & Security › Files and Folders.")
 
     private static func attempt(configDir: URL, executable: URL, environment: [String: String]?,
                                 workingDirectory: URL?, timeout: TimeInterval) async throws -> ProviderUsage {
@@ -539,6 +547,7 @@ enum ClaudeUsageProbe {
             }
             try await Task.sleep(nanoseconds: 60_000_000)
         }
+        if received == 0, process.isRunning { throw silentStart }
         guard commandSent else { throw ProviderError.unavailable("Claude Code did not become ready in time.") }
         do {
             return try ClaudeUsage.parse(rendered: text, now: Date())
