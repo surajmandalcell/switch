@@ -130,7 +130,19 @@ opens Settings. Settings contains only:
    plain-language purpose and an explicit Reveal action.
 3. **Menu bar defaults** — Show account usage, initially on. Accounts without an
    explicit override follow this default. Changing it preserves explicit account choices.
-4. Demo controls only in locally launched Preview builds. Production and installed builds
+4. **Notifications** — Almost Out (under 10% left), pace alerts (Cutting It Close, Will
+   Run Out), Available again (a full window reset), and Sign in again (one alert per
+   failure episode). All are off by default; turning one on asks for permission. A state
+   seen at launch never alerts, and an alert counts only after delivery succeeds.
+5. **Provider status** (in App behavior) — Check provider status, initially on. Status
+   pages are polled at most every five minutes for providers with saved accounts; a
+   yellow or red dot beside the provider marks an incident, and failures keep the last
+   good value.
+6. **Claude terminals** — Use the selected Claude account in terminals, initially off.
+   It adds one marked line to `~/.zshrc` (backup kept) that sources Switch's `claude`
+   shell function.
+7. **Privacy** — Hide email addresses masks them everywhere as `a••••@example.com`.
+8. Demo controls only in locally launched Preview builds. Production and installed builds
    must not compile or render them.
 
 Settings never lists files as “Linked entries,” never implies that each account owns a
@@ -172,6 +184,18 @@ left border markers. Keep prompt, response, tool, and other roles distinct. Code
 wrap long lines so vertical scrolling over their text continues through the conversation.
 
 ## 3. Usage presentation
+
+Generic, Grok Build, and Claude Code accounts read usage through `readProviderUsage`. The app
+caches the last good snapshot per account on disk, shows it at launch, refreshes every
+five minutes with four checks at a time and a 60-second limit each, waits five minutes
+after a failure, and keeps the last good value with an Outdated tag. Their detail page
+shows every window as the standard meter with a reset countdown and the OpenUsage pace
+verdict (blue ahead, yellow close, red running out, with an even-pace tick), then money
+and short detail rows. Their menu cards show the first two windows, or one balance line
+when the provider returns only money. Add Account lists Codex CLI, Grok Build, and Claude
+Code first, then every other provider alphabetically, with a search field. The Claude
+account page also shows Claude Code activity for all profiles from the local transcripts,
+priced as an API-equivalent estimate.
 
 Usage refresh reads the selected saved credential in a disposable private home and never
 activates that account. The main Usage panel shows returned rate-limit windows and returned

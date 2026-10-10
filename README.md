@@ -18,10 +18,16 @@ later on Apple Silicon. Install the command-line tool for each provider you use.
 
 | Provider | Account switching | Usage limits |
 | --- | --- | --- |
-| Codex CLI | Supported | Supported |
-| [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Supported | Not exposed in Switch |
-| Claude Code | Supported, as separate profiles | Not exposed in Switch |
-| Gemini CLI, Antigravity CLI | WIP | WIP |
+| Codex CLI | Swaps `~/.codex/auth.json` | Supported |
+| [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Swaps `~/.grok/auth.json` | Supported |
+| Claude Code | Profiles that share one history | Supported |
+| Gemini CLI, Antigravity CLI, Cursor, GitHub Copilot, Kiro, Kimi Code, Kilo, Codebuff, Devin, OpenCode Go, Ollama, Vertex AI | Swaps only the tool's login | Supported |
+| About 80 API and plan providers, such as OpenRouter, z.ai, DeepSeek, MiniMax, Mistral, Groq, OpenAI, AWS Bedrock, Warp, and Factory | Switches the saved key or session | Supported |
+
+Switch includes every usage provider from [OpenUsage](https://github.com/robinebers/openusage)
+and [CodexBar](https://github.com/steipete/CodexBar) that works without reading the
+macOS Keychain or browser cookie stores. Providers that need a browser session take a
+pasted Cookie header instead.
 
 You can also [build Switch from source](docs/development.md#build-and-check).
 
@@ -54,9 +60,10 @@ The existing `ai-manager` command remains available as an alias. Run
 
 ## Start switching
 
-Choose **Add Account**, then select Codex CLI, Grok Build, or Claude Code.
+Choose **Add Account**, then search for the provider.
 
-1. Sign in through the provider's isolated temporary home.
+1. For a command-line tool, sign in through its isolated temporary home, or
+   import the login you already have. For an API provider, paste its key.
 2. Return to Switch and choose **Check Now**.
 3. Choose **Switch** in the menu bar, or **Set as Default** in the app.
 4. Choose **Open** to launch that provider with the selected account.
@@ -67,9 +74,11 @@ login while you add another account.
 ## See account status before you switch
 
 The menu bar lists every saved account and the current default for each provider.
-When a provider exposes usage data, Switch also shows its available limits and refreshes
-them at launch and every three minutes. The status item can show up to four account
-percentages, and the popover lists every account without inventing unavailable data.
+Switch also shows each account's limits, reset countdowns, and a pace color that warns
+before a window runs out. Codex refreshes every three minutes and other providers every
+five. The status item can show up to four account percentages, and the popover lists
+every account without inventing unavailable data. Optional notifications warn when a
+window is almost out, and a dot marks a provider incident.
 
 | Light | Dark |
 | :---: | :---: |
@@ -78,8 +87,9 @@ percentages, and the popover lists every account without inventing unavailable d
 ## Only the provider login changes
 
 Switch keeps each provider's settings, extensions, and work history in its shared home.
-Selecting an account changes only that provider's credential file. Each provider keeps
-its own default account, and all providers use the same switching engine.
+Selecting an account changes only that provider's credential file, JSON entry, or
+database rows. The previous login is saved first, and the replaced bytes are backed up.
+Each provider keeps its own default account.
 
 ```mermaid
 flowchart LR
@@ -99,10 +109,16 @@ Provider notes:
   credential they already loaded. Usage limits, history, activity, imports, and Cleanup
   are available.
 - **Grok Build:** Switch replaces only `~/.grok/auth.json`. The official CLI reloads that
-  file before its next API call. Account switching is available; usage data is not exposed.
+  file before its next API call.
 - **Claude Code:** Each account is a separate profile with its own
-  `CLAUDE_CONFIG_DIR`, so several can stay signed in. The default applies to
-  sessions launched through Switch; a plain `claude` command keeps its own login.
+  `CLAUDE_CONFIG_DIR`, so several can stay signed in. All profiles share the
+  conversations, settings, commands, and skills in `~/.claude`. The default applies to
+  sessions launched through Switch. Turn on **Use the selected Claude account in
+  terminals** in Settings to make a plain `claude` command follow it.
+- **Other command-line tools:** Switch swaps only the tool's login file, JSON entry, or
+  database rows. Quit an app such as Cursor before switching it.
+- **API providers:** Each account is a saved key or pasted session. Switching changes the
+  default that the menu bar shows.
 
 ## More when you need it
 
@@ -115,8 +131,8 @@ Provider notes:
 - **Clean up safely.** Preview supported conversations and caches, move them to
   recoverable trash, and restore them when needed.
 
-Codex CLI, Grok Build, and Claude Code are enabled providers. Gemini CLI and
-Antigravity CLI appear as WIP choices in the Add Account catalog.
+- **Script it.** `switch usage --json` prints every account's limits, and
+  `switch guard --provider codex --min-remaining 10` exits non-zero when a window runs low.
 
 For sample accounts without real credentials, use the
 [isolated Preview build](docs/development.md#preview-with-sample-accounts).
