@@ -87,6 +87,81 @@ enum AIManagerBrand {
     return image
   }
 
+  // MARK: Provider icons for every generic provider
+
+  /// Provider id -> `ProviderIcon-<name>.svg` when the two differ. Other ids use their own name.
+  static let providerIconAliases: [String: String] = [
+    "gemini-cli": "gemini", "antigravity-cli": "antigravity", "grok-build": "grok",
+    "claude-code": "claude", "github-copilot": "copilot",
+    "kimi-api": "kimi", "moonshot": "kimi", "qwencloud-team": "qwencloud",
+    "alibabatokenplan": "alibaba", "azureopenai": "openai",
+  ]
+  private static var providerIconCache: [String: NSImage] = [:]
+
+  static func providerIconName(for providerID: ProviderID) -> String {
+    providerIconAliases[providerID.rawValue] ?? providerID.rawValue
+  }
+
+  /// Monochrome template icon for any provider id. Existing glyphs win, then the packaged
+  /// CodexBar SVG, then a monogram. Loaded once per id; callers never touch the disk on redraw.
+  static func providerIcon(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage {
+    let key = bundle.bundleURL.path + "|" + providerID.rawValue
+    if let image = providerIconCache[key] { return image }
+    let name = providerIconName(for: providerID)
+    let image = providerGlyph(for: providerID, in: bundle)
+      ?? providerGlyph(for: ProviderID(rawValue: name), in: bundle)
+      ?? providerSVG(named: name, in: bundle)
+      ?? monogram(for: providerID)
+    providerIconCache[key] = image
+    return image
+  }
+
+  /// True when the id has real artwork, so the monogram fallback is not in use.
+  static func hasProviderArtwork(for providerID: ProviderID, in bundle: Bundle = .main) -> Bool {
+    let name = providerIconName(for: providerID)
+    return providerGlyphNames[providerID.rawValue] != nil || providerGlyphNames[name] != nil
+      || providerSVGURL(named: name, in: bundle) != nil
+  }
+
+  private static func providerSVGURL(named name: String, in bundle: Bundle) -> URL? {
+    bundle.url(
+      forResource: "ProviderIcon-\(name)", withExtension: "svg",
+      subdirectory: "Icons/ProviderIcons")
+  }
+
+  private static func providerSVG(named name: String, in bundle: Bundle) -> NSImage? {
+    guard let url = providerSVGURL(named: name, in: bundle),
+      let image = NSImage(contentsOf: url)
+    else { return nil }
+    image.isTemplate = true
+    return image
+  }
+
+  /// First letter in a small rounded square, drawn as a template at the glyph size.
+  static func monogram(for providerID: ProviderID) -> NSImage {
+    let letter = String(
+      (ProviderCatalog.spec(providerID)?.name ?? providerID.rawValue).first.map { Character($0.uppercased()) }
+        ?? "?")
+    let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+      let box = rect.insetBy(dx: 1, dy: 1)
+      let path = NSBezierPath(roundedRect: box, xRadius: 3.5, yRadius: 3.5)
+      path.lineWidth = 1.2
+      NSColor.black.setStroke()
+      path.stroke()
+      let text = NSAttributedString(
+        string: letter,
+        attributes: [
+          .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+          .foregroundColor: NSColor.black,
+        ])
+      let size = text.size()
+      text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+      return true
+    }
+    image.isTemplate = true
+    return image
+  }
+
   static func statusImage(
     groups: [[MenuBarAccountSnapshot]], showsUsed: Bool = false, in bundle: Bundle = .main
   ) -> NSImage? {
@@ -97,10 +172,7 @@ enum AIManagerBrand {
         string: account.displayedPercentage(showsUsed: showsUsed).map { "\($0)%" } ?? "–",
         attributes: [.font: font, .foregroundColor: NSColor.black])
     } }
-    let glyphs = groups.map {
-      providerGlyph(for: $0[0].providerID, in: bundle)
-        ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
-    }
+    let glyphs = groups.map { providerIcon(for: $0[0].providerID, in: bundle) }
     let widths = labels.map { group in
       16 + group.reduce(0) { $0 + ceil($1.size().width) } + CGFloat(group.count - 1) * 5
     }
@@ -108,7 +180,7 @@ enum AIManagerBrand {
     let image = NSImage(size: NSSize(width: width, height: 22), flipped: false) { _ in
       var x: CGFloat = 0
       for index in labels.indices {
-        glyphs[index]?.draw(in: NSRect(x: x, y: 5, width: 12, height: 12))
+        glyphs[index].draw(in: NSRect(x: x, y: 5, width: 12, height: 12))
         x += 16
         for label in labels[index] {
           label.draw(at: NSPoint(x: x, y: floor((22 - label.size().height) / 2)))
@@ -300,12 +372,19 @@ final class AIManagerStatusItemController: NSObject {
           UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed)
         }
       } ?? "Limit not checked"
-      return "\(account.providerID.displayName), \(account.identity), \(quota)"
+      return "\(account.providerID.guiName), \(account.identity), \(quota)"
     }.joined(separator: "\n")
     button.toolTip = description.isEmpty ? applicationName : description
     button.setAccessibilityLabel(
       description.isEmpty ? applicationName : applicationName + ", " + description)
   }
+
+  #if AI_MANAGER_PREVIEW
+  /// Opens the popover without a click, for Preview screenshots.
+  func showPopoverForPreview() {
+    if !popover.isShown { togglePopover() }
+  }
+  #endif
 
   @objc private func togglePopover() {
     if popover.isShown {

@@ -602,7 +602,7 @@ struct AIMIconButton: View {
     .accessibilityLabel(label)
   }
 }
-private struct Badge: View {
+struct Badge: View {
   let text: String, color: Color
   var ink: Color = AIMTheme.statusInk
   var body: some View {
@@ -708,8 +708,14 @@ private struct AccountsPage: View {
         }
       }.frame(width: AIMTheme.listWidth)
       if let account = model.selectedAccount {
-        AccountDetail(account: account, model: model) {
-          prepareDeletion(of: account)
+        if account.usesGenericDetail {
+          ProviderAccountDetail(account: account, model: model) {
+            prepareDeletion(of: account)
+          }
+        } else {
+          AccountDetail(account: account, model: model) {
+            prepareDeletion(of: account)
+          }
         }
       } else {
         EmptyAccountView(model: model)
@@ -735,20 +741,27 @@ private struct AccountsPage: View {
       Task { await model.switchDefault(to: account.id) }
     }
     .disabled(model.isBusy)
-    Button(
-      isDefault
-        ? AccountActionCopy.open(account.identity.providerID)
-        : AccountActionCopy.useAndOpen(account.identity.providerID)
-    ) {
-      Task { await model.openAccount(account.id) }
-    }
-    .disabled(model.isBusy)
-    Button(AccountActionCopy.check) {
-      Task { await model.checkAccount(account.id) }
-    }
-    .disabled(model.isBusy)
-    Button(account.identity.providerID == .claudeCode ? "Copy config path" : AccountActionCopy.copyAuthPath) {
-      model.copySavedAuthPath(for: account.id)
+    if account.usesGenericDetail {
+      Button("Refresh usage") {
+        Task { await model.refreshProviderUsage(accountID: account.id) }
+      }
+      .disabled(model.isBusy || model.providerUsage[account.id]?.isRefreshing == true)
+    } else {
+      Button(
+        isDefault
+          ? AccountActionCopy.open(account.identity.providerID)
+          : AccountActionCopy.useAndOpen(account.identity.providerID)
+      ) {
+        Task { await model.openAccount(account.id) }
+      }
+      .disabled(model.isBusy)
+      Button(AccountActionCopy.check) {
+        Task { await model.checkAccount(account.id) }
+      }
+      .disabled(model.isBusy)
+      Button(account.identity.providerID == .claudeCode ? "Copy config path" : AccountActionCopy.copyAuthPath) {
+        model.copySavedAuthPath(for: account.id)
+      }
     }
     Divider()
     Button("Move up") {
@@ -780,7 +793,7 @@ private struct AccountsPage: View {
     let removal = "Remove this account's saved sign-in from Switch. Conversations and settings stay."
     if model.status?.isDefault(account) == true,
        let replacement = model.deletionReplacement(for: account.id) {
-      return "\(removal) \(replacement.identity.heroName) will become the default for new \(account.identity.providerID.displayName) sessions."
+      return "\(removal) \(replacement.identity.heroName) will become the default for new \(account.identity.providerID.guiName) sessions."
     }
     return removal
   }
@@ -802,14 +815,18 @@ struct AccountListRow: View {
   private var hover: Bool { sidebarHover.target == account.id.uuidString }
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack(spacing: 5) {
-        Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium)).lineLimit(1)
-        Spacer()
-        if isDefault { AIMIcon(name: .check, size: 11) }
+    HStack(spacing: 8) {
+      ProviderGlyph(providerID: account.identity.providerID, size: 14)
+        .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.85) : AIMTheme.muted)
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 5) {
+          Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium)).lineLimit(1)
+          Spacer()
+          if isDefault { AIMIcon(name: .check, size: 11) }
+        }
+        Text(account.identity.providerID.guiName).font(AIMTheme.sans(10, weight: .medium))
+          .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
       }
-      Text(account.identity.providerID.displayName).font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
     }.padding(.horizontal, 12).padding(.vertical, 6).frame(
       maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
     ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background {
@@ -893,6 +910,8 @@ private struct AccountDetail: View {
         }
         if account.identity.providerID == .codex {
           AccountUsagePanel(account: account, model: model)
+        } else if ProviderUsagePanel.applies(to: account, in: model) {
+          ProviderUsagePanel(account: account, model: model)
         }
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
@@ -900,7 +919,7 @@ private struct AccountDetail: View {
                       value: account.credentialFile.path)
             DetailRow(label: "Source", value: account.source.path, zebra: true)
             DetailRow(
-              label: "\(account.identity.providerID.displayName) home",
+              label: "\(account.identity.providerID.guiName) home",
               value: account.identity.providerID == .claudeCode ? account.home.path
                 : account.identity.providerID == .grokBuild
                   ? model.paths.grokHome.path : model.paths.defaultHome.path)
@@ -1418,7 +1437,7 @@ private struct ActivityCell: View {
   }
 }
 
-private struct AccountMenuBarUsageButton: View {
+struct AccountMenuBarUsageButton: View {
   let accountID: UUID
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @State private var showUsageOverride: Bool?
@@ -1647,7 +1666,7 @@ private struct UsageBucket: View {
   }
 }
 
-private struct UsageUnavailableRow: View {
+struct UsageUnavailableRow: View {
   let text: String
   var body: some View {
     HStack(spacing: 8) {
@@ -1840,7 +1859,7 @@ private struct TokenStatistic: View {
   }
 }
 
-private struct UsageFact: View {
+struct UsageFact: View {
   let label: String
   let value: String
   var body: some View {
@@ -1851,7 +1870,7 @@ private struct UsageFact: View {
   }
 }
 
-private struct DetailRow: View {
+struct DetailRow: View {
   let label: String, value: String
   var zebra = false
   var body: some View {
@@ -3500,7 +3519,7 @@ private struct BackupExampleRow: View {
   }
 }
 #endif
-private struct WarningCopyButton: View {
+struct WarningCopyButton: View {
   let label: String
   var showsTitle = false
   let action: () -> Void
@@ -3565,7 +3584,7 @@ private struct WarningList: View {
   }
 }
 
-private struct Notice: View {
+struct Notice: View {
   let text: String, tone: Color
   var icon: AIMIcon.Name = .info
   var copy: (() -> Void)? = nil
@@ -3597,47 +3616,37 @@ private struct ErrorBar: View {
   }
 }
 
-private struct ProviderIcon: View {
-  let providerID: ProviderID
-
-  var body: some View {
-    Group {
-      if let image = AIManagerBrand.providerImage(for: providerID)
-        ?? AIManagerBrand.providerGlyph(for: providerID)
-      {
-        Image(nsImage: image)
-          .resizable()
-          .scaledToFit()
-          .padding(3)
-      } else {
-        AIMIcon(name: .terminal, size: 15)
-          .foregroundStyle(AIMTheme.muted)
-      }
-    }
-    .frame(width: 24, height: 24)
-    .background(Color.white)
-    .clipShape(RoundedRectangle(cornerRadius: 3))
-    .accessibilityHidden(true)
-  }
-}
-
 private struct AddAccountFlow: View {
   @ObservedObject var model: AccountViewModel
-  @State private var hoveredProviderID: ProviderID?
   @State private var grokAuthorizationCode = ""
+  /// The generic provider whose credentials page is open, before any sign-in session exists.
+  @State private var genericProviderID: ProviderID?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var step: Int {
     if model.accountLoginState == .completed { return 3 }
-    return model.accountLoginSession == nil ? 1 : 2
+    return model.accountLoginSession == nil && genericProviderID == nil ? 1 : 2
   }
 
-  private var selectedProvider: ProviderDescriptor? {
-    model.providers.first { $0.id == model.selectedProviderID }
+  private var genericSpec: ProviderSpec? {
+    model.accountLoginSession == nil ? genericProviderID.flatMap(ProviderCatalog.spec) : nil
+  }
+
+  private var stepLabels: [String] {
+    ["Provider", genericSpec?.style == .secret ? "Credentials" : "Sign in", "Done"]
   }
 
   private var selectedProviderName: String {
-    selectedProvider?.displayName ?? model.selectedProviderID.displayName
+    model.selectedProviderID.guiName
+  }
+
+  private func continueFromProvider() {
+    let id = model.selectedProviderID
+    if !ProviderChoices.builtIn.contains(id), ProviderCatalog.spec(id) != nil {
+      genericProviderID = id
+    } else {
+      Task { await model.startAccountLogin() }
+    }
   }
 
   private var selectedIsDefault: Bool {
@@ -3661,15 +3670,26 @@ private struct AddAccountFlow: View {
   var body: some View {
     VStack(spacing: 0) {
       ImportHeader(
-        title: step == 1 ? "Add Account" : (step == 2 ? "Sign In" : "Account Ready"),
+        title: step == 1 ? "Add Account"
+          : (step == 2 ? (genericSpec?.style == .secret ? "Credentials" : "Sign In") : "Account Ready"),
         closeDisabled: model.isBusy
       ) {
         model.closeAccountModal()
       }
       Group {
         switch step {
-        case 1: providerPage
-        case 2: signInPage
+        case 1:
+          ProviderChooserPage(model: model, step: step, onContinue: continueFromProvider)
+        case 2:
+          if let spec = genericSpec {
+            if spec.style == .secret {
+              SecretCredentialsPage(spec: spec, model: model) { genericProviderID = nil }
+            } else {
+              FilesCredentialsPage(spec: spec, model: model) { genericProviderID = nil }
+            }
+          } else {
+            signInPage
+          }
         default: completedPage
         }
       }
@@ -3679,6 +3699,14 @@ private struct AddAccountFlow: View {
     .foregroundStyle(AIMTheme.ink)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(AIMTheme.panel)
+    #if AI_MANAGER_PREVIEW
+    .onAppear {
+      if let id = PreviewArguments.value("add-provider") {
+        model.selectedProviderID = ProviderID(rawValue: id)
+        genericProviderID = ProviderID(rawValue: id)
+      }
+    }
+    #endif
     .overlay(alignment: .bottom) {
       if let error = model.errorMessage {
         ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
@@ -3696,87 +3724,6 @@ private struct AddAccountFlow: View {
         .padding(.bottom, 58)
       }
     }
-  }
-
-  private var providerPage: some View {
-    VStack(spacing: 0) {
-      VStack(spacing: 0) {
-        ForEach(Array(model.providers.enumerated()), id: \.element.id) { index, provider in
-          let available = provider.availability == .enabled
-          let selected = model.selectedProviderID == provider.id
-          Button {
-            model.selectedProviderID = provider.id
-          } label: {
-            HStack(spacing: 12) {
-              ProviderIcon(providerID: provider.id)
-              VStack(alignment: .leading, spacing: 3) {
-                Text(provider.displayName).font(AIMTheme.sans(12, weight: .semibold))
-                Text(
-                  available
-                    ? (provider.id == .codex
-                      ? "Account switching and usage are supported."
-                      : "Subscription account switching is supported.")
-                    : unavailableCopy(provider))
-                  .font(AIMTheme.sans(10))
-                  .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.74) : AIMTheme.muted)
-                  .lineLimit(1)
-              }
-              Spacer()
-              if available {
-                AIMIcon(name: .check, size: 14)
-                  .opacity(selected ? 1 : 0)
-              } else {
-                Badge(text: "WIP", color: AIMTheme.disabledControl, ink: AIMTheme.disabledInk)
-              }
-            }
-            .padding(.horizontal, AIMTheme.panelContentInset)
-            .frame(height: 62)
-            .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
-            .background {
-              AIMHoverBackground(base: selected ? AIMTheme.active
-                  : index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe,
-                highlight: AIMTheme.listHover, hovered: hoveredProviderID == provider.id && !selected)
-            }
-            .contentShape(Rectangle())
-          }
-          .buttonStyle(AIMPressButtonStyle())
-          .disabled(!available)
-          .opacity(available ? 1 : 0.64)
-          .simultaneousGesture(TapGesture(count: 2).onEnded {
-            guard available, !model.isBusy else { return }
-            model.selectedProviderID = provider.id
-            Task { await model.startAccountLogin() }
-          })
-          .onHover { hoveredProviderID = $0 && available ? provider.id : nil }
-          .accessibilityLabel(provider.displayName)
-          .accessibilityValue(selected ? "Selected" : "")
-          .accessibilityAddTraits(selected ? .isSelected : [])
-          .accessibilityHint(
-            available ? "Select this provider. Double-click to continue." : unavailableCopy(provider))
-        }
-      }
-      .background(AIMTheme.panel2)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-
-      Spacer(minLength: AIMTheme.modalSectionSpacing)
-
-      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
-        AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
-          Task { await model.beginAdvancedImport() }
-        }
-      } trailing: {
-        AIMButton(
-          title: "Continue", tone: .primary,
-          disabled: selectedProvider?.availability != .enabled || model.isBusy
-        ) {
-          Task { await model.startAccountLogin() }
-        }
-        .keyboardShortcut(.defaultAction)
-      }
-    }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.vertical, 16)
-    .frame(maxHeight: .infinity, alignment: .top)
   }
 
   private var signInPage: some View {
@@ -3847,7 +3794,9 @@ private struct AddAccountFlow: View {
                 }
               }
             } else {
-              Text("When the browser reports success, return to Switch and check the account.")
+              Text(ProviderChoices.builtIn.contains(model.selectedProviderID)
+                ? "When the browser reports success, return to Switch and check the account."
+                : "When the sign-in finishes in Terminal, return to Switch and check the account.")
                 .font(AIMTheme.sans(11))
                 .foregroundStyle(AIMTheme.muted)
             }
@@ -3891,7 +3840,9 @@ private struct AddAccountFlow: View {
             ? "The account is ready for new Codex sessions. Shared settings and chats stay in place."
             : model.selectedProviderID == .claudeCode
               ? "The account is ready in its own Claude Code profile. Your usual Claude session stays in place."
-              : "The account is ready in Grok Build. Its settings and sessions stay in the shared Grok home.")
+              : model.selectedProviderID == .grokBuild
+                ? "The account is ready in Grok Build. Its settings and sessions stay in the shared Grok home."
+                : "The account is saved. Its usage appears in Switch, and Set as Default makes it the one that \(selectedProviderName) uses.")
             .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
           HStack(spacing: 6) {
             AIMButton(
@@ -3901,12 +3852,14 @@ private struct AddAccountFlow: View {
             ) {
               Task { await model.switchDefault() }
             }
-            AIMButton(
-              title: AccountActionCopy.open(model.selectedProviderID),
-              icon: .play,
-              disabled: model.isBusy
-            ) {
-              Task { await model.openAccount() }
+            if ProviderChoices.builtIn.contains(model.selectedProviderID) {
+              AIMButton(
+                title: AccountActionCopy.open(model.selectedProviderID),
+                icon: .play,
+                disabled: model.isBusy
+              ) {
+                Task { await model.openAccount() }
+              }
             }
           }
         }
@@ -3914,9 +3867,9 @@ private struct AddAccountFlow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
-        if model.selectedProviderID == .codex, let accountID = model.selectedAccountID {
+        if let accountID = model.selectedAccountID {
           AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
-            Task { await model.refreshUsage(accountID: accountID) }
+            Task { await model.refreshAnyUsage(accountID: accountID) }
           }
         }
       } trailing: {
@@ -3926,10 +3879,6 @@ private struct AddAccountFlow: View {
     .padding(.horizontal, AIMTheme.modalOuterInset)
     .padding(.vertical, 16)
     .frame(maxHeight: .infinity, alignment: .top)
-  }
-
-  private func unavailableCopy(_ provider: ProviderDescriptor) -> String {
-    provider.unavailableReason ?? "Account setup is not available in this version."
   }
 }
 
@@ -4025,7 +3974,7 @@ private struct ImportHeader: View {
   }
 }
 
-private struct ImportFooter<Leading: View, Trailing: View>: View {
+struct ImportFooter<Leading: View, Trailing: View>: View {
   let step: Int
   var labels = ["Source", "Review", "Done"]
   @ViewBuilder var leading: Leading
@@ -4362,14 +4311,14 @@ private struct ImportResultPage: View {
 }
 
 extension AccountIdentity {
-  fileprivate var heroName: String { email ?? accountID ?? "Unresolved account" }
+  fileprivate var heroName: String { accountLabel }
   fileprivate var displayName: String {
     if let email, let workspaceID { return "\(email) · \(workspaceID)" }
     return email ?? accountID ?? "Unresolved account"
   }
 }
 extension VerificationState {
-  fileprivate var attentionLabel: String? {
+  var attentionLabel: String? {
     switch self {
     case .imported: "Check required"
     case .needsSignIn: "Needs sign-in"
@@ -4377,7 +4326,7 @@ extension VerificationState {
     case .unsupported: "Unsupported"
     }
   }
-  fileprivate var color: Color {
+  var color: Color {
     switch self {
     case .verifiedLocally, .verifiedWithCodex: AIMTheme.green
     case .needsSignIn: AIMTheme.amber

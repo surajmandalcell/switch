@@ -31,6 +31,20 @@ do
   test -s "$icons/$asset"
 done
 
+# CodexBar's monochrome provider icons: 96 valid SVGs, no executable or remote content, MIT notice.
+provider_icons="$icons/ProviderIcons"
+test -s "$provider_icons/LICENSE-CodexBar.txt"
+[[ "$(find "$provider_icons" -name 'ProviderIcon-*.svg' | wc -l | tr -d ' ')" == 96 ]]
+for svg in "$provider_icons"/ProviderIcon-*.svg
+do
+  xmllint --noout "$svg"
+done
+if rg -i -q '<script|onload=|href="https?://' "$provider_icons"
+then
+  printf '%s\n' 'A provider icon contains executable or remotely loaded content.' >&2
+  exit 1
+fi
+
 [[ "$(shasum -a 256 "$icons/ProviderCodex.png" | awk '{print $1}')" == \
   "6025a4347a8eaed17e31eaebf7834e33ec4af26cc7f59be586ac59ba5157fa1c" ]]
 [[ "$(shasum -a 256 "$icons/ProviderClaudeCode.svg" | awk '{print $1}')" == \

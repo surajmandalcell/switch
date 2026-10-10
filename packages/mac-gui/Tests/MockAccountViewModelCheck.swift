@@ -23,7 +23,11 @@ struct MockAccountViewModelCheck {
         precondition(model.isDemo)
         precondition(!model.isUnavailable)
         precondition(model.selectedProviderID == .codex)
-        precondition(model.status?.accounts.count == 3)
+        let genericCount = DemoData.genericAccounts.count
+        precondition(genericCount == 4)
+        precondition(model.status?.accounts.count == 3 + genericCount)
+        precondition(model.providerUsage.count == genericCount, "Generic demo accounts lack usage")
+        precondition(model.providerUsage.values.allSatisfy { $0.usage != nil })
         precondition(model.status?.pendingRecovery.count == 2)
         precondition(model.status?.linkedSettingsDivergences.count == 1)
         let nonselectedAccount = model.status!.accounts.first { $0.id != model.selectedAccountID }!
@@ -52,12 +56,19 @@ struct MockAccountViewModelCheck {
         await model.reloadAfterActivation()
         precondition(model.showImport, "Returning to the app dismissed or reloaded the account dialog")
         precondition(model.status?.accounts.count == modalAccountCount)
-        precondition(model.providers.map(\.id) == [
-            .codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI,
-        ])
-        precondition(model.providers.map(\.availability) == [
-            .enabled, .enabled, .enabled, .disabled, .disabled,
-        ])
+        precondition(Array(model.providers.map(\.id).prefix(3)) == [.codex, .grokBuild, .claudeCode])
+        precondition(model.providers.allSatisfy { $0.availability == .enabled })
+        precondition(Set(model.providers.map(\.id)).isSuperset(of: ProviderCatalog.addable.map(\.id)))
+        let choices = ProviderChoices.all(descriptors: model.providers)
+        precondition(Array(choices.map(\.id).prefix(3)) == [.codex, .grokBuild, .claudeCode])
+        let generic = Array(choices.dropFirst(3))
+        precondition(generic.count == ProviderCatalog.addable.count)
+        precondition(generic.map(\.name) == generic.map(\.name).sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }, "Generic providers are not alphabetical")
+        precondition(ProviderChoices.filter(choices, query: "open").contains { $0.id.rawValue == "openrouter" })
+        precondition(ProviderChoices.filter(choices, query: "GEMINI-cli").map(\.id) == [.geminiCLI])
+        precondition(ProviderChoices.filter(choices, query: "zzzz-no-such").isEmpty)
         await model.startAccountLogin()
         precondition(model.accountLoginSession != nil)
         precondition(model.accountLoginState == .waitingForLogin)
@@ -88,7 +99,7 @@ struct MockAccountViewModelCheck {
         precondition(model.importPlan?.conflicts.first(where: { $0.relativePath == "rules" })?.externalTargetBytes == 12_480)
         await model.commitImport()
         precondition(model.importResult?.importedChats == 248)
-        precondition(model.status?.accounts.count == 4)
+        precondition(model.status?.accounts.count == 4 + genericCount)
         let firstImportedID = model.importResult?.account.id
 
         model.resetImport()
@@ -97,7 +108,7 @@ struct MockAccountViewModelCheck {
         await model.reviewImport()
         await model.commitImport()
         precondition(model.importResult?.importedChats == 0)
-        precondition(model.status?.accounts.count == 5)
+        precondition(model.status?.accounts.count == 5 + genericCount)
         precondition(model.importResult?.account.id != firstImportedID)
         let secondImportedID = model.importResult?.account.id
 
@@ -105,7 +116,7 @@ struct MockAccountViewModelCheck {
         await model.reviewImport()
         await model.commitImport()
         precondition(model.importResult?.account.id == secondImportedID)
-        precondition(model.status?.accounts.count == 5)
+        precondition(model.status?.accounts.count == 5 + genericCount)
         await model.switchDefault()
         precondition(model.status?.defaultAccountID == model.selectedAccountID)
         let accountCountBeforeRefresh = model.status?.accounts.count
@@ -174,11 +185,50 @@ struct MockAccountViewModelCheck {
         precondition(model.selectedAccountID == demoReplacement.id)
         precondition(!model.canDeleteAccount(demoReplacement.id))
 
+        // Generic providers: add, import, sign in, dashboard, reorder across providers.
+        model.reset(to: .demo)
+        let groq = ProviderID(rawValue: "groq")
+        let beforeGeneric = model.status!.accounts.count
+        let addedGroq = await model.addProviderAccount(providerID: groq, fields: ["apiKey": "demo"])
+        precondition(addedGroq)
+        precondition(model.status!.accounts.count == beforeGeneric + 1)
+        precondition(model.selectedAccount?.identity.providerID == groq)
+        precondition(model.accountLoginState == .completed)
+        precondition(model.providerUsage[model.selectedAccountID!]?.usage != nil)
+        precondition(model.status!.defaultAccountID(for: groq) == model.selectedAccountID)
+        let liveGemini = await model.liveProviderIdentity(.geminiCLI)
+        precondition(liveGemini?.email == "ada.lovelace@example.test")
+        let importedGemini = await model.importLiveProviderAccount(providerID: .geminiCLI)
+        precondition(importedGemini)
+        precondition(model.status!.accounts.count == beforeGeneric + 1, "Importing a saved login duplicated it")
+        model.selectedProviderID = ProviderID(rawValue: "windsurf")
+        await model.startAccountLogin()
+        precondition(model.accountLoginSession?.providerID.rawValue == "windsurf")
+        await model.checkAccountLogin()
+        precondition(model.accountLoginState == .completed)
+        precondition(model.selectedAccount?.identity.providerID.rawValue == "windsurf")
+        model.openDashboard(URL(string: "https://example.test/dashboard")!)
+        precondition(model.notice?.contains("Preview") == true)
+        let before = model.status!.accounts.map(\.id)
+        let genericIDs = DemoData.genericAccounts.map(\.id)
+        await model.moveAccount(genericIDs[3], to: genericIDs[0])
+        precondition(model.status!.accounts.map(\.id) != before)
+        precondition(Set(model.status!.accounts.map(\.id)) == Set(before))
+        precondition(model.status!.accounts.firstIndex { $0.id == genericIDs[3] }!
+            < model.status!.accounts.firstIndex { $0.id == genericIDs[0] }!)
+        await model.refreshProviderUsage(accountID: genericIDs[1])
+        precondition(model.notice?.contains("No provider was contacted") == true)
+        let zai = genericIDs[3]
+        precondition(model.providerUsage[zai]?.isOutdated == true, "The outdated tag state is missing")
+        precondition(!model.canDeleteAccount(genericIDs[2]), "A provider's only default can be deleted")
+        precondition(model.providerUsage[genericIDs[2]] != nil)
+
         model.reset(to: .empty)
         precondition(model.status?.accounts.isEmpty == true)
+        precondition(model.providerUsage.isEmpty)
         precondition(model.discoveries.isEmpty)
         model.reset()
-        precondition(model.status?.accounts.count == 3)
+        precondition(model.status?.accounts.count == 3 + genericCount)
         precondition(!FileManager.default.fileExists(atPath: root.path), "Mock actions wrote to disk")
         print("MOCK_ACCOUNT_VIEW_MODEL_PASS")
     }

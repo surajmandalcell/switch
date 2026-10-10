@@ -335,9 +335,11 @@ struct AIMIcon: View {
   enum Name: CaseIterable {
     case account, settings, history, backup, cleanup, search, plus, refresh, moon, sun, close, minimize
     case chevron, check, doubleCheck, circle, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
+    case link
 
     var symbol: String {
       switch self {
+      case .link: "arrow.up.right.square"
       case .account: "person.crop.circle"
       case .settings: "gearshape"
       case .history: "bubble.left.and.bubble.right"
