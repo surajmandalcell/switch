@@ -197,6 +197,25 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             statusItemController.updateAppearance(NSAppearance(named: appearance == .dark ? .darkAqua : .aqua))
         }
         controller.present()
+        // `--scroll=0.5` scrolls the page's tallest scroll view, for screenshots of long pages.
+        if let raw = PreviewArguments.value("scroll"), let fraction = Double(raw) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(1_500))
+                var best: NSScrollView?
+                func visit(_ view: NSView) {
+                    if let scroll = view as? NSScrollView, let document = scroll.documentView,
+                       document.frame.height > scroll.contentView.bounds.height,
+                       document.frame.height > (best?.documentView?.frame.height ?? 0) { best = scroll }
+                    view.subviews.forEach(visit)
+                }
+                if let content = controller.window?.contentView { visit(content) }
+                if let scroll = best, let document = scroll.documentView {
+                    let travel = document.frame.height - scroll.contentView.bounds.height
+                    scroll.contentView.scroll(to: NSPoint(x: 0, y: travel * min(max(fraction, 0), 1)))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                }
+            }
+        }
         if CommandLine.arguments.contains("--popover") {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(900))
@@ -230,9 +249,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureAccountModal() async {
-        if let provider = PreviewArguments.value("select"),
-           let account = model.status?.accounts.first(where: { $0.identity.providerID.rawValue == provider }) {
-            model.selectedAccountID = account.id
+        if let provider = PreviewArguments.value("select") {
+            // The demo has no Claude profile; `--select=claude-code` adds a synthetic one.
+            let account = model.status?.accounts.first(where: { $0.identity.providerID.rawValue == provider })
+                ?? (provider == ProviderID.claudeCode.rawValue ? model.addDemoProviderAccount(.claudeCode) : nil)
+            if let account { model.selectedAccountID = account.id }
         }
         if AcceptanceConfiguration.opensImport {
             await model.beginAdvancedImport()
@@ -305,6 +326,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
     failures.append(contentsOf: AIManagerNativeContract.menuBarPopoverFailures())
     failures.append(contentsOf: AIManagerNativeContract.providerUIFailures())
+    failures.append(contentsOf: AIManagerNativeContract.featureUIFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
             UserDefaults.standard.string(forKey: "appearanceMode") == mode,

@@ -121,7 +121,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   ) {
     self.id = id
     self.providerID = providerID
-    self.identity = identity
+    self.identity = EmailPrivacy.display(identity)  // popover cards and the status-item tooltip
     self.detail = detail
     self.isVerified = isVerified
     self.isActive = isActive

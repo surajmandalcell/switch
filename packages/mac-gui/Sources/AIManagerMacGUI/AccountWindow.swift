@@ -638,6 +638,7 @@ private struct AccountsPage: View {
   @State private var pendingDeletion: PendingAccountDeletion?
   @State private var dropTargetID: UUID?
   @GestureState private var isDraggingAccount = false
+  @AppStorage(EmailPrivacy.key) private var hideEmails = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
@@ -651,7 +652,9 @@ private struct AccountsPage: View {
                 } label: {
                   AccountListRow(
                     account: account, selected: account.id == model.selectedAccountID,
-                    isDefault: model.status?.isDefault(account) == true, sidebarHover: sidebarHover)
+                    isDefault: model.status?.isDefault(account) == true, sidebarHover: sidebarHover,
+                    providerStatus: model.providerStatus[account.identity.providerID],
+                    hidesEmails: hideEmails)
                 }
                 .buttonStyle(AIMPressButtonStyle())
                 .contextMenu {
@@ -812,6 +815,10 @@ struct AccountListRow: View {
   static let height: CGFloat = 44
   let account: AccountRecord, selected: Bool, isDefault: Bool
   let sidebarHover: AIMSidebarHover
+  /// Open incident of the account's provider; a dot shows beside the provider name when it is minor or worse.
+  var providerStatus: ProviderStatusEntry? = nil
+  /// Only changes when "Hide email addresses" does, so the row redraws.
+  var hidesEmails = false
   private var hover: Bool { sidebarHover.target == account.id.uuidString }
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
@@ -824,8 +831,11 @@ struct AccountListRow: View {
           Spacer()
           if isDefault { AIMIcon(name: .check, size: 11) }
         }
-        Text(account.identity.providerID.guiName).font(AIMTheme.sans(10, weight: .medium))
-          .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
+        HStack(spacing: 5) {
+          Text(account.identity.providerID.guiName).font(AIMTheme.sans(10, weight: .medium))
+            .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
+          ProviderStatusDot(entry: providerStatus, size: 6)
+        }
       }
     }.padding(.horizontal, 12).padding(.vertical, 6).frame(
       maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
@@ -838,7 +848,10 @@ struct AccountListRow: View {
       .contentShape(Rectangle()).onHover { sidebarHover.update(account.id.uuidString, inside: $0) }
       .accessibilityElement(children: .combine)
       .accessibilityAddTraits(selected ? .isSelected : [])
-      .accessibilityValue(isDefault ? "Default account" : "Not the default account")
+      .accessibilityValue(
+        [isDefault ? "Default account" : "Not the default account",
+         ProviderStatusDot.text(providerStatus).map { "Provider status: \($0)" }]
+          .compactMap { $0 }.joined(separator: ". "))
   }
 }
 private struct EmptyAccountView: View {
@@ -876,6 +889,7 @@ private struct AccountDetail: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
   let delete: () -> Void
+  @AppStorage(EmailPrivacy.key) private var hideEmails = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var issues: [LinkedSettingsDivergence] {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
@@ -886,7 +900,8 @@ private struct AccountDetail: View {
         AIMPanel(title: "Identity", importance: .primary, headerAccessories: AnyView(identityStatus)) {
           VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-              Text(account.identity.heroName).font(AIMTheme.sans(20, weight: .semibold))
+              Text(EmailPrivacy.display(account.identity.heroName, hide: hideEmails))
+                .font(AIMTheme.sans(20, weight: .semibold))
                 .lineLimit(1).textSelection(.enabled)
               Group {
                 if let workspaceID = account.identity.workspaceID {
@@ -896,9 +911,17 @@ private struct AccountDetail: View {
                 }
               }
               .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
+              if let entry = model.providerStatus[account.identity.providerID],
+                 entry.incident.severity != nil {
+                HStack(spacing: 6) {
+                  ProviderStatusDot(entry: entry)
+                  Text(account.identity.providerID.guiName).font(AIMTheme.sans(11))
+                    .foregroundStyle(AIMTheme.muted)
+                }
+              }
             }
             if account.verification.state.attentionLabel != nil {
-              Text(account.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
+              Text(EmailPrivacy.display(account.verification.detail)).font(AIMTheme.sans(11)).foregroundStyle(
                 AIMTheme.muted
               ).textSelection(.enabled)
             }
@@ -912,6 +935,9 @@ private struct AccountDetail: View {
           AccountUsagePanel(account: account, model: model)
         } else if ProviderUsagePanel.applies(to: account, in: model) {
           ProviderUsagePanel(account: account, model: model)
+        }
+        if account.identity.providerID == .claudeCode {
+          ClaudeActivityPanel(model: model)
         }
         AIMPanel(title: "Account details") {
           VStack(spacing: 0) {
@@ -1891,6 +1917,7 @@ struct DetailRow: View {
 
 private struct CleanupPage: View {
   @ObservedObject var model: AccountViewModel
+  @AppStorage(EmailPrivacy.key) private var hideEmails = false
   @State private var sizes = RebuildableCacheSizes(usageBytes: 0, conversationBytes: 0)
   @State private var conversations: [CleanupConversation] = []
   @State private var samples: [CleanupUsageSample] = []
@@ -1962,7 +1989,9 @@ private struct CleanupPage: View {
               VStack(alignment: .leading, spacing: 8) {
                 ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
                   let entries = grouped[accountID] ?? []
-                  let name = model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString
+                  let name = EmailPrivacy.display(
+                    model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString,
+                    hide: hideEmails)
                   Toggle("\(name) · \(entries.count.formatted()) samples · \(sizeText(entries.reduce(0) { $0 + $1.bytes }))", isOn: Binding(
                     get: { entries.allSatisfy { selectedSamples.contains($0.id) } },
                     set: { enabled in
@@ -2030,7 +2059,9 @@ private struct CleanupPage: View {
                 DisclosureGroup("Selected cache samples") {
                   AIMVirtualList(items: review.samples, fixedRowHeight: 30) { sample in
                     AnyView(HStack {
-                      Text(model.status?.accounts.first { $0.id == sample.accountID }?.identity.email ?? sample.accountID.uuidString)
+                      Text(EmailPrivacy.display(
+                        model.status?.accounts.first { $0.id == sample.accountID }?.identity.email
+                          ?? sample.accountID.uuidString, hide: hideEmails))
                         .lineLimit(1)
                       Spacer()
                       Text(sample.fetchedAt.formatted()).foregroundStyle(AIMTheme.muted)
@@ -2388,10 +2419,38 @@ final class LaunchAtLoginSettings: ObservableObject {
   }
 }
 
-private struct SettingsPage: View {
+/// Titles and help text of the Settings rows that features add, shared with the GUI contract.
+enum SettingsCopy {
+  static let checkProviderStatus = "Check provider status"
+  static let checkProviderStatusHelp = "Show a dot beside a provider that reports an incident."
+  static let claudeShell = "Use the selected Claude account in terminals"
+  static let claudeShellHelp =
+    "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+  static let hideEmails = "Hide email addresses"
+  static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
+  static let notificationsTitle = "Notifications"
+  /// Title, help text, and the UserDefaults key of each toggle. All off by default.
+  static let notificationRows: [(title: String, help: String, key: String)] = [
+    ("Almost Out", "Alert when a usage window drops below 10% left.", QuotaNotificationSettings.almostOutKey),
+    ("Pace alerts", "Alert when usage will finish close to the limit or run out before the reset.",
+     QuotaNotificationSettings.paceKey),
+    ("Available again", "Alert when a used-up window resets and the account can be used again.",
+     QuotaNotificationSettings.availableAgainKey),
+    ("Sign in again", "Alert once when an account needs a new sign-in.", QuotaNotificationSettings.signInAgainKey),
+  ]
+}
+
+struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
   @Binding var showFocusIndicators: Bool
   @StateObject private var launchAtLogin = LaunchAtLoginSettings()
+  @StateObject private var notificationPermission = QuotaNotificationPermission()
+  @AppStorage(ProviderStatusPoller.enabledKey) private var checkProviderStatus = true
+  @AppStorage(EmailPrivacy.key) private var hideEmails = false
+  @AppStorage(QuotaNotificationSettings.almostOutKey) private var notifyAlmostOut = false
+  @AppStorage(QuotaNotificationSettings.paceKey) private var notifyPace = false
+  @AppStorage(QuotaNotificationSettings.availableAgainKey) private var notifyAvailable = false
+  @AppStorage(QuotaNotificationSettings.signInAgainKey) private var notifySignIn = false
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset.rawValue
@@ -2413,6 +2472,9 @@ private struct SettingsPage: View {
             settingRow(isOn: $showUsageAsUsed, title: "Show percentage used", zebra: true) {
               Text("Turn off to show the percentage left in every usage view.")
             }
+            settingRow(isOn: $checkProviderStatus, title: SettingsCopy.checkProviderStatus) {
+              Text(SettingsCopy.checkProviderStatusHelp)
+            }
             HStack(spacing: 16) {
               VStack(alignment: .leading, spacing: 2) {
                 Text("Body translucency").font(AIMTheme.sans(11, weight: .medium))
@@ -2425,6 +2487,45 @@ private struct SettingsPage: View {
               Text("\(Int(translucency))%")
                 .font(AIMTheme.mono(10)).frame(width: 32, alignment: .trailing)
             }.padding(.horizontal, 16).frame(minHeight: 48)
+          }
+        }
+        AIMPanel(title: SettingsCopy.notificationsTitle) {
+          VStack(spacing: 0) {
+            ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { index, row in
+              settingRow(
+                isOn: notificationBinding(row.key), title: row.title, zebra: !index.isMultiple(of: 2)
+              ) { Text(row.help) }
+            }
+            if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
+              HStack(spacing: 12) {
+                AIMIcon(name: .warning, size: 14).foregroundStyle(AIMTheme.amber)
+                Text("Notifications are turned off for Switch in System Settings.")
+                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+                Spacer(minLength: 16)
+                AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
+              }
+              .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            }
+          }
+        }
+        AIMPanel(title: "Claude Code") {
+          settingRow(
+            isOn: Binding(
+              get: { model.claudeShellIntegrationOn },
+              set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } }),
+            title: SettingsCopy.claudeShell
+          ) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(SettingsCopy.claudeShellHelp)
+              if let error = model.claudeShellIntegrationError {
+                Text(error).foregroundStyle(AIMTheme.red)
+              }
+            }
+          }
+        }
+        AIMPanel(title: "Privacy") {
+          settingRow(isOn: $hideEmails, title: SettingsCopy.hideEmails) {
+            Text(SettingsCopy.hideEmailsHelp)
           }
         }
         AIMPanel(title: "Menubar defaults") {
@@ -2513,9 +2614,32 @@ private struct SettingsPage: View {
     }
     .padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
     .onAppear { launchAtLogin.refresh() }
+    .onChange(of: checkProviderStatus) { model.providerStatusSettingChanged() }
+    .task {
+      await notificationPermission.refresh()
+      await model.loadClaudeShellIntegration()
+    }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
       launchAtLogin.refresh()
+      Task { await notificationPermission.refresh() }
     }
+  }
+
+  /// A toggle that asks macOS for notification permission the first time it turns on.
+  private func notificationBinding(_ key: String) -> Binding<Bool> {
+    let stored: Binding<Bool>
+    switch key {
+    case QuotaNotificationSettings.almostOutKey: stored = $notifyAlmostOut
+    case QuotaNotificationSettings.paceKey: stored = $notifyPace
+    case QuotaNotificationSettings.availableAgainKey: stored = $notifyAvailable
+    default: stored = $notifySignIn
+    }
+    return Binding(
+      get: { stored.wrappedValue },
+      set: { enabled in
+        stored.wrappedValue = enabled
+        if enabled { notificationPermission.requestIfNeeded() }
+      })
   }
 
   private var launchAtLoginRow: some View {
@@ -4271,7 +4395,7 @@ private struct ImportResultPage: View {
               }.frame(width: 48, height: 48)
               VStack(alignment: .leading, spacing: 3) {
                 Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
-                Text(result.verification.detail).font(AIMTheme.sans(11)).foregroundStyle(
+                Text(EmailPrivacy.display(result.verification.detail)).font(AIMTheme.sans(11)).foregroundStyle(
                   AIMTheme.muted)
               }
               Spacer()
@@ -4313,8 +4437,8 @@ private struct ImportResultPage: View {
 extension AccountIdentity {
   fileprivate var heroName: String { accountLabel }
   fileprivate var displayName: String {
-    if let email, let workspaceID { return "\(email) · \(workspaceID)" }
-    return email ?? accountID ?? "Unresolved account"
+    if let email, let workspaceID { return "\(EmailPrivacy.display(email)) · \(workspaceID)" }
+    return email.map { EmailPrivacy.display($0) } ?? accountID ?? "Unresolved account"
   }
 }
 extension VerificationState {

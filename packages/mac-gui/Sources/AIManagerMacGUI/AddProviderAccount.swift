@@ -284,7 +284,7 @@ struct FilesCredentialsPage: View {
 
   private var signedInText: String {
     guard let identity else { return loaded ? "No sign-in found" : "Looking for a sign-in…" }
-    return "Signed in as \(identity.email ?? identity.key)"
+    return "Signed in as \(EmailPrivacy.display(identity.email ?? identity.key))"
   }
 
   var body: some View {

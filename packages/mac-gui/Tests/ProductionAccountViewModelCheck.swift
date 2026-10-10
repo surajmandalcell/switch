@@ -41,6 +41,7 @@ struct ProductionAccountViewModelCheck {
             fetchedAt: nil, failedAt: refreshClock.addingTimeInterval(-299),
             onCadence: true, now: refreshClock),
             "A failed refresh ignored its five-minute cooldown")
+        try await FeatureLogicChecks.run()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appending(
             path: "iia-directeur-gui-check-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -501,6 +502,23 @@ struct ProductionAccountViewModelCheck {
         await reopened.refreshProviderUsage()
         withExtendedLifetime(observation) {}
         try expect(publications == 0, "An isolated provider refresh republished the interface")
+        await reopened.refreshProviderStatus()
+        await reopened.refreshClaudeActivity(force: true)
+        try expect(reopened.providerStatus.isEmpty && reopened.claudeActivity == nil
+                   && !reopened.isClaudeActivityLoading, "An isolated model made status or activity requests")
+
+        // Claude shell integration writes only inside the isolated home and keeps a backup.
+        let zshrc = paths.userHome.appending(path: ".zshrc")
+        try Data("export A=1\n".utf8).write(to: zshrc)
+        await reopened.setClaudeShellIntegration(true)
+        try expect(reopened.claudeShellIntegrationOn && reopened.claudeShellIntegrationError == nil
+                   && (try String(contentsOf: zshrc, encoding: .utf8)).contains("# >>> switch claude >>>")
+                   && fileManager.fileExists(atPath: zshrc.path + ".switch-backup"),
+                   "Turning Claude shell integration on failed")
+        await reopened.setClaudeShellIntegration(false)
+        try expect(!reopened.claudeShellIntegrationOn
+                   && (try String(contentsOf: zshrc, encoding: .utf8)).trimmingCharacters(in: .whitespacesAndNewlines) == "export A=1",
+                   "Turning Claude shell integration off left the rc file changed")
 
         await reopened.deleteAccount(second.id)
         try expect(reopened.errorMessage == nil, "Deleting a provider account failed: \(reopened.errorMessage ?? "")")

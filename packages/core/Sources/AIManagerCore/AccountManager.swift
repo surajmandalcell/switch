@@ -815,6 +815,20 @@ public actor AccountManager {
         providerStore.liveIdentity(providerID)
     }
 
+    /// Whether the opt-in shell function that makes a plain `claude` use the default Claude account is installed.
+    public func claudeShellIntegrationInstalled() -> Bool {
+        claudeProfiles.shellIntegrationInstalled()
+    }
+
+    /// Adds (or removes) the Claude shell integration. Install keeps a one-time `.switch-backup` of each rc file.
+    public func setClaudeShellIntegration(_ enabled: Bool) throws {
+        if enabled {
+            try claudeProfiles.installShellIntegration()
+        } else {
+            try claudeProfiles.removeShellIntegration()
+        }
+    }
+
     /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
     /// accounts only; Codex and Grok registry accounts are never rewritten from here.
     public func readProviderUsage(accountID: UUID) async throws -> ProviderUsage {
