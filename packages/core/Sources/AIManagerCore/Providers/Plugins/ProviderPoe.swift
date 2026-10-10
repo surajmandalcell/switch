@@ -91,12 +91,10 @@ enum PoeUsage {
                                 "\(compact(entry.points)) points")
                 : PluginFmt.row(PluginFmt.shortTime(entry.date), entry.model, "\(compact(entry.points)) points"))
         }
-        var sections = [UsageSection("Points", rows)]
-        // The plugin charts daily points; the newest seven days stand in for the chart.
         var byDay: [String: Double] = [:]
         for entry in entries { byDay[PluginFmt.day(entry.date), default: 0] += entry.points }
-        sections.append(UsageSection("Daily points", byDay.sorted { $0.key > $1.key }.prefix(7)
-            .map { UsageRow($0.key, "\(compact($0.value)) points") }))
-        return ProviderUsage(sections: sections, plan: "Balance: \(compact(points)) points")
+        let chart = UsageChart.daily(id: "daily-points", title: "Daily points", unit: "credits", values: byDay, fill: (30, now))
+        return ProviderUsage(sections: [UsageSection("Points", rows)], plan: "Balance: \(compact(points)) points",
+                             charts: [chart].compactMap { $0 })
     }
 }

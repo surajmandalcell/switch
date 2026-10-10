@@ -12,7 +12,8 @@ import FoundationNetworking
 public struct UsageWindow: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var title: String
-    /// Consumed share, 0...100. Nil keeps the reset visible without inventing a value.
+    /// Consumed share, 0 and up. Values above 100 keep real overage (Langdock, Notion); bar
+    /// renderers clamp their fill. Nil keeps the reset visible without inventing a value.
     public var usedPercent: Double?
     public var resetsAt: Date?
     public var windowMinutes: Int?
@@ -23,7 +24,7 @@ public struct UsageWindow: Codable, Equatable, Sendable, Identifiable {
                 windowMinutes: Int? = nil, detail: String? = nil) {
         self.id = id
         self.title = title
-        self.usedPercent = usedPercent.map { min(max($0, 0), 100) }
+        self.usedPercent = usedPercent.map { max($0, 0) }
         self.resetsAt = resetsAt
         self.windowMinutes = windowMinutes
         self.detail = detail
@@ -83,10 +84,78 @@ public struct UsageCost: Codable, Equatable, Sendable {
     }
 }
 
+/// One day (or other step) of a chart. `label` is the display text such as "Oct 3".
+public struct UsagePoint: Codable, Equatable, Sendable {
+    public var label: String
+    public var date: Date?
+    public var value: Double
+
+    public init(label: String, date: Date? = nil, value: Double) {
+        self.label = label
+        self.date = date
+        self.value = value
+    }
+}
+
+/// A daily series such as 30 days of spend. `unit` is "USD", "tokens", "requests", or "credits".
+public struct UsageChart: Codable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var unit: String
+    public var points: [UsagePoint]
+
+    public init(id: String, title: String, unit: String, points: [UsagePoint]) {
+        self.id = id
+        self.title = title
+        self.unit = unit
+        self.points = points
+    }
+
+    /// Builds a chart from a UTC "yyyy-MM-dd" day -> value map, oldest first. With `fill`, every UTC day
+    /// of the last `days` days up to `endingAt` appears, zero when missing (days outside are dropped).
+    /// Nil when no point remains.
+    public static func daily(id: String, title: String, unit: String, values: [String: Double],
+                             fill: (days: Int, endingAt: Date)? = nil) -> UsageChart? {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC") ?? .current
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = utc.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let label = DateFormatter()
+        label.locale = Locale(identifier: "en_US_POSIX")
+        label.timeZone = utc.timeZone
+        label.dateFormat = "MMM d"
+        var days = Dictionary(values.map { (String($0.key.prefix(10)), $0.value) }, uniquingKeysWith: +)
+        if let fill {
+            let end = utc.startOfDay(for: fill.endingAt)
+            let window = (0..<fill.days).compactMap { utc.date(byAdding: .day, value: -$0, to: end) }.map(formatter.string)
+            days = Dictionary(uniqueKeysWithValues: window.map { ($0, days[$0] ?? 0) })
+        }
+        let points = days.sorted { $0.key < $1.key }.compactMap { entry -> UsagePoint? in
+            guard entry.value.isFinite, let date = formatter.date(from: entry.key) else { return nil }
+            return UsagePoint(label: label.string(from: date), date: date, value: max(entry.value, 0))
+        }
+        return points.isEmpty ? nil : UsageChart(id: id, title: title, unit: unit, points: points)
+    }
+
+    public var total: Double { points.reduce(0) { $0 + $1.value } }
+    public var peak: UsagePoint? { points.max { $0.value < $1.value } }
+
+    /// Formats one value in this chart's unit.
+    public func format(_ value: Double) -> String {
+        switch unit {
+        case "tokens", "requests", "credits": Fmt.number(value, digits: 2)
+        default: Locale.commonISOCurrencyCodes.contains(unit) ? Fmt.money(value, currency: unit) : Fmt.number(value, digits: 2)
+        }
+    }
+}
+
 public struct ProviderUsage: Codable, Equatable, Sendable {
     public var windows: [UsageWindow]
     public var cost: UsageCost?
     public var sections: [UsageSection]
+    public var charts: [UsageChart]
     public var plan: String?
     public var email: String?
     public var organization: String?
@@ -94,10 +163,11 @@ public struct ProviderUsage: Codable, Equatable, Sendable {
 
     public init(windows: [UsageWindow] = [], cost: UsageCost? = nil, sections: [UsageSection] = [],
                 plan: String? = nil, email: String? = nil, organization: String? = nil,
-                fetchedAt: Date = Date()) {
+                fetchedAt: Date = Date(), charts: [UsageChart] = []) {
         self.windows = windows
         self.cost = cost
         self.sections = sections.filter { !$0.rows.isEmpty }
+        self.charts = charts.filter { !$0.points.isEmpty }
         self.plan = plan
         self.email = email
         self.organization = organization
@@ -105,7 +175,24 @@ public struct ProviderUsage: Codable, Equatable, Sendable {
     }
 
     public var isEmpty: Bool {
-        windows.isEmpty && cost == nil && sections.isEmpty && plan == nil && email == nil
+        windows.isEmpty && cost == nil && sections.isEmpty && charts.isEmpty && plan == nil && email == nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case windows, cost, sections, charts, plan, email, organization, fetchedAt
+    }
+
+    /// Old cached JSON has no `charts` key.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        windows = try values.decode([UsageWindow].self, forKey: .windows)
+        cost = try values.decodeIfPresent(UsageCost.self, forKey: .cost)
+        sections = try values.decode([UsageSection].self, forKey: .sections)
+        charts = try values.decodeIfPresent([UsageChart].self, forKey: .charts) ?? []
+        plan = try values.decodeIfPresent(String.self, forKey: .plan)
+        email = try values.decodeIfPresent(String.self, forKey: .email)
+        organization = try values.decodeIfPresent(String.self, forKey: .organization)
+        fetchedAt = try values.decode(Date.self, forKey: .fetchedAt)
     }
 
     /// Provider text with control characters replaced, so a hostile response cannot inject
@@ -126,6 +213,14 @@ public struct ProviderUsage: Codable, Equatable, Sendable {
                 row.value = row.value.printable
                 return row
             })
+        }
+        copy.charts = charts.map { chart in
+            var chart = chart
+            chart.id = chart.id.printable
+            chart.title = chart.title.printable
+            chart.unit = chart.unit.printable
+            chart.points = chart.points.map { UsagePoint(label: $0.label.printable, date: $0.date, value: $0.value) }
+            return chart
         }
         copy.cost?.currency = cost?.currency.printable ?? "USD"
         copy.cost?.period = cost?.period?.printable
@@ -559,6 +654,8 @@ public enum Fmt {
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
         formatter.locale = Locale(identifier: "en_US")
+        // Sub-cent amounts keep up to 4 decimals so "$0.0042" does not read as "$0.00".
+        if value != 0, abs(value) < 0.01 { formatter.maximumFractionDigits = 4 }
         return formatter.string(from: NSNumber(value: value)) ?? "\(currency) \(value)"
     }
 

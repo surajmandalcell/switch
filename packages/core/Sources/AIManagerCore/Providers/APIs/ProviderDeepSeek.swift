@@ -33,6 +33,7 @@ extension ProviderCatalog {
                 do {
                     let summary = try await DeepSeekUsage.fetchSummary(token: token)
                     usage.sections += DeepSeekUsage.sections(summary)
+                    usage.charts += DeepSeekUsage.charts(summary)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as ProviderError where error.needsSignIn {
@@ -105,6 +106,8 @@ enum DeepSeekUsage {
         var currency = "CNY"
         var apiKeyCount = 0
         var last30Days = true
+        /// "yyyy-MM-dd" -> tokens and cost for the charts.
+        var dayTokens: [String: Double] = [:], dayCosts: [String: Double] = [:]
     }
 
     /// 40002 and 40003 mean an expired session, at the top level or inside `data`.
@@ -204,7 +207,8 @@ enum DeepSeekUsage {
                        todayRequests: dayRequests[todayKey] ?? 0, periodRequests: dayRequests.values.reduce(0, +),
                        todayCost: dayCosts[todayKey], periodCost: dayCosts.values.reduce(0, +),
                        topModel: topModel(modelTokens), modelCosts: models.sorted,
-                       currency: block?["currency"].string?.nilIfEmpty ?? "CNY", apiKeyCount: keys.count)
+                       currency: block?["currency"].string?.nilIfEmpty ?? "CNY", apiKeyCount: keys.count,
+                       dayTokens: dayTokens.mapValues(Double.init), dayCosts: dayCosts)
     }
 
     /// Fallback `usage/amount` and `usage/cost` for the current month.
@@ -254,8 +258,12 @@ enum DeepSeekUsage {
             if let day = amountDays[date] {
                 summary.periodTokens += tokens(day, requests: false)
                 summary.periodRequests += tokens(day, requests: true)
+                summary.dayTokens[date] = Double(tokens(day, requests: false))
             }
-            if let value = costDays[date].flatMap(dayCost) { summary.periodCost = (summary.periodCost ?? 0) + value }
+            if let value = costDays[date].flatMap(dayCost) {
+                summary.periodCost = (summary.periodCost ?? 0) + value
+                summary.dayCosts[date] = value
+            }
         }
         var modelTokens: [String: Int] = [:]
         for item in bizAmount["total"].array {
@@ -310,7 +318,15 @@ enum DeepSeekUsage {
         }
     }
 
-    /// "Usage" rows and per-model "Spend" rows. The daily token and cost charts have no home in the contract.
+    /// Daily token and cost charts of the same days as the "Usage" rows.
+    static func charts(_ summary: Summary) -> [UsageChart] {
+        let title = summary.last30Days ? "Daily" : "Daily (this month)"
+        return [UsageChart.daily(id: "daily-tokens", title: "\(title) tokens", unit: "tokens", values: summary.dayTokens),
+                UsageChart.daily(id: "daily-cost", title: "\(title) spend", unit: summary.currency, values: summary.dayCosts)]
+            .compactMap { $0 }.filter { $0.total > 0 }
+    }
+
+    /// "Usage" rows and per-model "Spend" rows.
     static func sections(_ summary: Summary) -> [UsageSection] {
         let symbol = summary.currency == "CNY" ? "\u{00A5}" : "$"
         func money(_ value: Double?) -> String { value.map { "\(symbol)\(String(format: "%.4f", max(0, $0)))" } ?? "\u{2014}" }

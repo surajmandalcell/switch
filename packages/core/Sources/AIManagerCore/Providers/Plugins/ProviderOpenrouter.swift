@@ -23,8 +23,9 @@ extension ProviderCatalog {
             var usage = try OpenRouterUsage.map(credits: credits, key: key)
             // Activity needs a management key: the one pasted here, or the main key when it is one.
             let manager = credential["managementKey"] ?? (key?.at("data.is_management_key").bool == true ? credential["apiKey"] : nil)
-            if let manager, let section = await OpenRouterUsage.activity(token: manager) {
-                usage.sections.append(section)
+            if let manager, let activity = await OpenRouterUsage.activity(token: manager) {
+                usage.sections.append(activity.section)
+                usage.charts += [activity.chart].compactMap { $0 }
             }
             return usage
         })
@@ -40,7 +41,7 @@ enum OpenRouterUsage {
     }
 
     /// Account activity of the last 30 completed UTC days. Needs a management key; any failure hides the rows.
-    static func activity(token: String, now: Date = Date()) async -> UsageSection? {
+    static func activity(token: String, now: Date = Date()) async -> (section: UsageSection, chart: UsageChart?)? {
         let headers = HTTP.bearer(token)
         let latest = utcDay(now.addingTimeInterval(-86_400))
         async let history = try? HTTP.json("https://openrouter.ai/api/v1/activity", headers: headers)
@@ -49,12 +50,13 @@ enum OpenRouterUsage {
         return activitySection(rows: history["data"].array + newest["data"].array, now: now)
     }
 
-    static func activitySection(rows: [JSON], now: Date) -> UsageSection? {
+    static func activitySection(rows: [JSON], now: Date) -> (section: UsageSection, chart: UsageChart?)? {
         let latest = utcDay(now.addingTimeInterval(-86_400))
         let cutoff = utcDay(now.addingTimeInterval(-30 * 86_400))
         var seen = Set<String>()
         var tokens = 0.0, requests = 0.0, spend = 0.0
         var models = Set<String>()
+        var byDay: [String: Double] = [:]
         for row in rows {
             guard let day = row["date"].string.map({ String($0.prefix(10)) }), day <= latest, day >= cutoff else { continue }
             let model = (row["model_permaslug"].string ?? row["model"].string)?.trimmingCharacters(in: .whitespaces)
@@ -63,13 +65,18 @@ enum OpenRouterUsage {
             guard seen.insert(identity).inserted else { continue }
             tokens += max(0, row["prompt_tokens"].double ?? 0) + max(0, row["completion_tokens"].double ?? 0)
             requests += max(0, row["requests"].double ?? 0)
-            spend += max(0, row["usage"].double ?? 0) + max(0, row["byok_usage_inference"].double ?? 0)
+            let rowSpend = max(0, row["usage"].double ?? 0) + max(0, row["byok_usage_inference"].double ?? 0)
+            spend += rowSpend
+            byDay[day, default: 0] += rowSpend
             if let model, !model.isEmpty { models.insert(model) }
         }
-        return UsageSection("Activity (last 30 completed UTC days)", [
+        let section = UsageSection("Activity (last 30 completed UTC days)", [
             UsageRow("Tokens", MajorsSpend.compact(Int(min(tokens, 1e15)))), UsageRow("Requests", Fmt.number(requests)),
             UsageRow("Models", String(models.count)), UsageRow("Spend", dollars(spend)),
         ])
+        let chart = UsageChart.daily(id: "activity-spend", title: "Daily spend", unit: "USD", values: byDay,
+                                     fill: (30, now.addingTimeInterval(-86_400)))
+        return (section, chart)
     }
 
     private static func dollars(_ value: Double) -> String { Fmt.money(max(0, value)) }

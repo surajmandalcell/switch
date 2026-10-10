@@ -80,7 +80,7 @@ enum CursorUsage {
         var plan: JSON?, credits: JSON?, grokBot: JSON?
         var stripeCents = 0.0
         var requests: JSON?, summary: JSON?
-        var spend: UsageSection?
+        var spend: MajorsSpend.Report?
     }
 
     /// The primary usage call must succeed; every other call only adds rows and may fail alone.
@@ -133,7 +133,7 @@ enum CursorUsage {
 
     /// Today, Yesterday and Last 30 days from the usage events the Cursor dashboard lists, newest first.
     /// ponytail: at most 5 pages of 1000 events; a period the pages do not reach is left out, not guessed.
-    static func spendSection(cookie: [String: String], now: Date = Date()) async -> UsageSection? {
+    static func spendSection(cookie: [String: String], now: Date = Date()) async -> MajorsSpend.Report? {
         let calendar = Calendar.current
         let start = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now)) ?? now
         var all: [Event] = []
@@ -152,7 +152,7 @@ enum CursorUsage {
         }
         let complete = all.count >= total
         let oldest = all.map(\.date).min()
-        return MajorsSpend.section(
+        return MajorsSpend.report(
             all.map { MajorsSpend.Entry(date: $0.date, cost: $0.cents.map { $0 / 100 }, tokens: $0.tokens) },
             now: now, completeFrom: complete ? nil : oldest, title: "Spend (API-rate estimate)")
     }
@@ -217,7 +217,7 @@ enum CursorUsage {
     /// on-demand spend, per-pool percentages, Grok Bot and request counts, and CodexBar's team fallbacks.
     static func map(usage: JSON, plan planInfo: JSON?, credits: JSON?, membership: String?, email: String?,
                     grokBot: JSON? = nil, stripeCents: Double = 0, requests: JSON? = nil, summary: JSON? = nil,
-                    spend: UsageSection? = nil) throws -> ProviderUsage {
+                    spend: MajorsSpend.Report? = nil) throws -> ProviderUsage {
         guard usage["enabled"].bool != false, usage["planUsage"].exists else {
             // A fallback account can have no plan usage at all; the summary may still read.
             if usage["enabled"].bool != false, requests != nil || summary != nil {
@@ -272,14 +272,15 @@ enum CursorUsage {
         return ProviderUsage(
             windows: windows,
             cost: cost(used: onDemand, limit: onDemandLimit, creditCents: credit, reset: reset),
-            sections: [spend].compactMap { $0 }, plan: self.plan(name), email: email)
+            sections: [spend?.section].compactMap { $0 }, plan: self.plan(name), email: email,
+            charts: [spend?.chart].compactMap { $0 })
     }
 
     /// Enterprise and team accounts: included requests from `/api/usage` and percentages, dollars and
     /// on-demand spend from `/api/usage-summary`. Neither reply is enough alone.
     private static func fallback(usage: JSON, planInfo: JSON?, credits: JSON?, membership: String?, email: String?,
                                  grokBot: JSON?, stripeCents: Double, requests: JSON?, summary: JSON?,
-                                 spend: UsageSection?) throws -> ProviderUsage {
+                                 spend: MajorsSpend.Report?) throws -> ProviderUsage {
         let start = summary?["billingCycleStart"].date, end = summary?["billingCycleEnd"].date
         var reset = end
         var minutes = 43_200
@@ -343,7 +344,8 @@ enum CursorUsage {
             windows: windows,
             cost: cost(used: onDemand?.used ?? 0, limit: onDemand?.limit ?? 0, creditCents: creditsCents(credits, stripe: stripeCents),
                        reset: reset),
-            sections: [spend].compactMap { $0 }, plan: plan(name), email: email)
+            sections: [spend?.section].compactMap { $0 }, plan: plan(name), email: email,
+            charts: [spend?.chart].compactMap { $0 })
     }
 
     private static func cycle(start: Double?, end: Double?) -> (Date?, Int) {
@@ -417,6 +419,42 @@ enum MajorsSpend {
             return parts.isEmpty ? nil : UsageRow(label, parts.joined(separator: " \u{00B7} "))
         }
         return rows.isEmpty ? nil : UsageSection(title, rows)
+    }
+
+    /// The summary rows plus the 30-day daily chart of the same entries.
+    struct Report {
+        var section: UsageSection?
+        var chart: UsageChart?
+    }
+
+    static func report(_ entries: [Entry], now: Date, completeFrom: Date? = nil, calendar: Calendar = .current,
+                       title: String = "Spend") -> Report? {
+        let report = Report(section: section(entries, now: now, completeFrom: completeFrom, calendar: calendar, title: title),
+                            chart: chart(entries, now: now, completeFrom: completeFrom, calendar: calendar))
+        return report.section == nil && report.chart == nil ? nil : report
+    }
+
+    /// 30 calendar days ending today, zero-filled. Dollars when every record carries a price, else tokens.
+    /// Days that start before `completeFrom` are left out, as in the rows.
+    static func chart(_ entries: [Entry], now: Date, completeFrom: Date? = nil, calendar: Calendar = .current) -> UsageChart? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = calendar.startOfDay(for: now)
+        let starts = (0..<30).compactMap { calendar.date(byAdding: .day, value: -29 + $0, to: today) }
+            .filter { completeFrom == nil || $0 >= completeFrom! }
+        let first = starts.first ?? today
+        let inside = entries.filter { $0.date >= first && $0.date < (calendar.date(byAdding: .day, value: 1, to: today) ?? now) }
+        let priced = !inside.isEmpty && inside.allSatisfy { $0.cost != nil } && inside.contains { ($0.cost ?? 0) > 0 }
+        var byDay: [String: Double] = [:]
+        for entry in inside {
+            byDay[formatter.string(from: entry.date), default: 0] += priced ? (entry.cost ?? 0) : Double(entry.tokens)
+        }
+        guard byDay.values.contains(where: { $0 > 0 }) else { return nil }
+        for start in starts { byDay[formatter.string(from: start), default: 0] += 0 }
+        return UsageChart.daily(id: "spend-daily", title: priced ? "Daily spend" : "Daily tokens", unit: priced ? "USD" : "tokens",
+                                values: byDay)
     }
 
     static func compact(_ value: Int) -> String {

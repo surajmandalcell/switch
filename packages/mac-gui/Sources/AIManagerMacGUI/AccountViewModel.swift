@@ -2207,6 +2207,22 @@ enum DemoData {
         ]
     }
 
+    /// 30 synthetic days ending today with a weekday rhythm, so charts look lifelike.
+    static func demoChart(id: String, title: String, unit: String, scale: Double) -> UsageChart? {
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.timeZone = TimeZone(identifier: "UTC")
+        day.dateFormat = "yyyy-MM-dd"
+        var values: [String: Double] = [:]
+        for offset in 0..<30 {
+            let date = Date().addingTimeInterval(-Double(offset) * 86_400)
+            let wave = 0.55 + 0.45 * abs(sin(Double(offset) * 0.9))
+            let weekend = Calendar(identifier: .gregorian).isDateInWeekend(date) ? 0.3 : 1
+            values[day.string(from: date)] = (scale * wave * weekend * 100).rounded() / 100
+        }
+        return UsageChart.daily(id: id, title: title, unit: unit, values: values)
+    }
+
     /// Synthetic Claude Code activity across all profiles.
     static var claudeActivity: ClaudeActivitySummary {
         ClaudeActivitySummary(
@@ -2221,7 +2237,8 @@ enum DemoData {
                     label: "Last 30 days", tokens: 612_000_000, costUSD: 403.9,
                     detail: "Input 14,000,000, output 6,100,000, cache read 560,000,000, cache write 31,900,000 tokens."),
             ],
-            unpricedModels: ["claude-preview-synthetic"], computedAt: Date())
+            unpricedModels: ["claude-preview-synthetic"], computedAt: Date(),
+            chart: demoChart(id: "claude-daily", title: "Daily cost (API-equivalent estimate)", unit: "USD", scale: 24))
     }
 
     static func providerUsage(for providerID: ProviderID, offset: Int) -> ProviderUsage {
@@ -2236,7 +2253,8 @@ enum DemoData {
             return ProviderUsage(
                 cost: UsageCost(used: 37.6, balance: 12.4, currency: "USD", period: "This month"),
                 sections: [UsageSection("Key", [UsageRow("Label", "dev-laptop"), UsageRow("Free tier", "No")])],
-                fetchedAt: now.addingTimeInterval(-90))
+                fetchedAt: now.addingTimeInterval(-90),
+                charts: [demoChart(id: "activity-spend", title: "Daily spend", unit: "USD", scale: 2.4)].compactMap { $0 })
         case "gemini-cli":
             return ProviderUsage(
                 windows: [
@@ -2252,7 +2270,8 @@ enum DemoData {
                                  resetsIn: 9 * 86_400 + 2 * 3_600, detail: "330 / 500 requests")],
                 cost: UsageCost(used: 4.1, limit: 50, balance: 18.25, currency: "USD", period: "This cycle"),
                 sections: [UsageSection("Plan", [UsageRow("Seats", "1"), UsageRow("On-demand", "Enabled")])],
-                plan: "Pro", email: "grace.hopper@example.test", fetchedAt: now.addingTimeInterval(-240))
+                plan: "Pro", email: "grace.hopper@example.test", fetchedAt: now.addingTimeInterval(-240),
+                charts: [demoChart(id: "spend-daily", title: "Daily tokens", unit: "tokens", scale: 1_800_000)].compactMap { $0 })
         default:
             return ProviderUsage(
                 windows: [

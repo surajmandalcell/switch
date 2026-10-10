@@ -109,7 +109,8 @@ enum GrokBuildUsage {
         }
         // The CLI's session logs belong to the signed-in account, so only a live credential may read them.
         if live, let spend = localSpend(sessions: grokHome().appendingPathComponent("sessions")) {
-            usage.sections.append(spend)
+            usage.sections += [spend.section].compactMap { $0 }
+            usage.charts += [spend.chart].compactMap { $0 }
         }
         return usage
     }
@@ -222,7 +223,7 @@ enum GrokBuildUsage {
     /// the cost of each turn (`costUsdTicks`, ten billion to the dollar), so nothing is priced here.
     /// ponytail: re-reads every session log touched in the last 31 days on each refresh (files over
     /// 200 MB are skipped); add an incremental cache if a refresh gets slow.
-    static func localSpend(sessions: URL, now: Date = Date(), calendar: Calendar = .current) -> UsageSection? {
+    static func localSpend(sessions: URL, now: Date = Date(), calendar: Calendar = .current) -> MajorsSpend.Report? {
         let since = calendar.date(byAdding: .day, value: -30, to: calendar.startOfDay(for: now)) ?? now
         guard let walker = FileManager.default.enumerator(
             at: sessions, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else { return nil }
@@ -239,7 +240,7 @@ enum GrokBuildUsage {
                 entries += turnEntries(object, seen: &seen).filter { $0.date >= since }
             }
         }
-        return MajorsSpend.section(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
+        return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
     }
 
     private static func turnEntries(_ object: JSON, seen: inout Set<String>) -> [MajorsSpend.Entry] {

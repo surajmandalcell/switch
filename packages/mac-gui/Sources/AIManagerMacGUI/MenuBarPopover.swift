@@ -36,8 +36,8 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     secondaryDetail: String? = nil,
     balanceText: String? = nil
   ) {
-    self.usedPercentage = usedPercentage.map { min(max($0, 0), 100) }
-    self.secondaryUsedPercentage = secondaryUsedPercentage.map { min(max($0, 0), 100) }
+    self.usedPercentage = usedPercentage.map { max($0, 0) }
+    self.secondaryUsedPercentage = secondaryUsedPercentage.map { max($0, 0) }
     self.resetsAt = resetsAt
     self.secondaryResetsAt = secondaryResetsAt
     self.fetchedAt = fetchedAt
@@ -136,7 +136,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   }
 
   var remainingPercentage: Int? {
-    (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map { 100 - $0 }
+    (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map { max(0, 100 - $0) }
   }
 
   func displayedPercentage(showsUsed: Bool) -> Int? {
@@ -631,7 +631,7 @@ private struct MenuBarQuotaRow: View {
           Capsule().fill(palette.track)
           Capsule()
             .fill(palette.accent)
-            .frame(width: proxy.size.width * CGFloat(displayedPercentage) / 100)
+            .frame(width: proxy.size.width * CGFloat(UsagePercentagePreferences.fill(forUsed: percentage, showsUsed: showsUsed)))
         }
       }
       .frame(height: 4)

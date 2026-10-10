@@ -178,7 +178,7 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertEqual(usage.windows.map(\.id), ["rolling", "monthly"])
         XCTAssertEqual(usage.windows[0].windowMinutes, 300)
         XCTAssertEqual(usage.windows[0].resetsAt, now.addingTimeInterval(3600))
-        XCTAssertEqual(usage.windows[1].usedPercent, 100)
+        XCTAssertEqual(usage.windows[1].usedPercent, 150)
         XCTAssertEqual(usage.windows[1].resetsAt, Date(timeIntervalSince1970: 1_791_000_000))
         XCTAssertEqual(usage.plan, "Business")
         let spaces = try json("""
@@ -282,8 +282,8 @@ final class ProvidersPluginsBTests: XCTestCase {
         let usage = try PoeUsage.map(balance: json(#"{"current_point_balance":123456}"#), history: history, now: now)
         let rows = Dictionary(uniqueKeysWithValues: usage.sections[0].rows.map { ($0.label, $0.value) })
         XCTAssertEqual(rows["Current balance"], "123,456 points")
-        XCTAssertEqual(rows["Last 24 hours"], "100 points · 1 requests · $0.00")
-        XCTAssertEqual(rows["Last 30 days"], "400 points · 2 requests · $0.00")
+        XCTAssertEqual(rows["Last 24 hours"], "100 points · 1 requests · $0.003")
+        XCTAssertEqual(rows["Last 30 days"], "400 points · 2 requests · $0.003")
         XCTAssertEqual(rows["Top model"], "Claude · 300 points")
     }
 

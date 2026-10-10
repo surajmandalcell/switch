@@ -551,6 +551,8 @@ enum MiniMaxUsage {
         var todayCash: Double?, last30Cash: Double?
         var topMethods: [(name: String, tokens: Int)] = []
         var topModels: [(name: String, tokens: Int)] = []
+        /// Local-day "yyyy-MM-dd" -> tokens for each of the 30 days, zero when idle.
+        var dailyTokens: [String: Double] = [:]
     }
 
     /// Successful charge records of the last 30 local days (today and the 29 days before).
@@ -603,12 +605,19 @@ enum MiniMaxUsage {
             return Array(sorted.prefix(3))
         }
         let cash = days.values.compactMap(\.cash)
+        var daily = Dictionary(uniqueKeysWithValues: (0..<30).compactMap { calendar.date(byAdding: .day, value: -$0, to: today) }
+            .map { (key($0), 0.0) })
+        for (day, value) in days where daily[day] != nil { daily[day] = Double(value.tokens) }
         return Billing(todayTokens: days[key(now)]?.tokens ?? 0, last30Tokens: days.values.reduce(0) { $0 + $1.tokens },
                        todayCash: days[key(now)]?.cash, last30Cash: cash.isEmpty ? nil : cash.reduce(0, +),
-                       topMethods: top(methods), topModels: top(models))
+                       topMethods: top(methods), topModels: top(models), dailyTokens: daily)
     }
 
-    /// The daily token chart has no home in the contract, so only the summary rows are shown.
+    static func billingChart(_ billing: Billing) -> UsageChart? {
+        billing.last30Tokens > 0
+            ? UsageChart.daily(id: "billing-tokens", title: "Daily tokens", unit: "tokens", values: billing.dailyTokens) : nil
+    }
+
     static func billingSection(_ billing: Billing) -> UsageSection {
         func cash(_ value: Double) -> String { String(format: "%.2f", max(0, value)) }
         var rows = [UsageRow("Today tokens", Fmt.number(Double(billing.todayTokens))),
@@ -728,6 +737,7 @@ enum MiniMaxUsage {
             return mapBilling(records: records, now: now)
         }) {
             usage.sections.append(billingSection(billing))
+            usage.charts += [billingChart(billing)].compactMap { $0 }
         }
         return usage
     }

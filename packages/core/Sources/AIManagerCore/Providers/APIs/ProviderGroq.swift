@@ -124,10 +124,10 @@ enum GroqUsage {
         let modelRows = models.sorted { ($0.value.tokens, $1.key) > ($1.value.tokens, $0.key) }.prefix(20).map {
             UsageRow($0.key, "\(Fmt.number($0.value.tokens)) tokens \u{B7} \(Fmt.number($0.value.requests)) requests")
         }
-        // Newest day first.
-        let dayRows = days.sorted { $0.key > $1.key }.map {
-            UsageRow($0.key, "\(Fmt.money($0.value.cost)) \u{B7} \(Fmt.number($0.value.requests)) requests \u{B7} \(Fmt.number($0.value.tokens)) tokens")
-        }
+        let charts = [UsageChart.daily(id: "daily-cost", title: "Daily spend", unit: "USD", values: days.mapValues(\.cost), fill: (30, now)),
+                      UsageChart.daily(id: "daily-tokens", title: "Daily tokens", unit: "tokens", values: days.mapValues(\.tokens), fill: (30, now)),
+                      UsageChart.daily(id: "daily-requests", title: "Daily requests", unit: "requests", values: days.mapValues(\.requests), fill: (30, now))]
+            .compactMap { $0 }.filter { $0.total > 0 }
         return ProviderUsage(
             cost: UsageCost(used: total.cost, period: "Last 30 days"),
             sections: [
@@ -138,10 +138,10 @@ enum GroqUsage {
                 ]),
                 UsageSection("Last 30 days", month),
                 UsageSection("Models", Array(modelRows)),
-                UsageSection("Daily", dayRows),
             ],
             plan: "Console",
-            organization: organization)
+            organization: organization,
+            charts: charts)
     }
 
     // MARK: Prometheus metrics (enterprise API keys)

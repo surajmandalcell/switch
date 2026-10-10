@@ -24,7 +24,8 @@ extension ProviderCatalog {
             var usage = try OpenCodeGoUsage.map(response.json(), serverDate: OpenCodeGoUsage.httpDate(response.headers["date"]))
             // The local logs belong to the signed-in OpenCode, so only a live credential may read them.
             if credential.isLive, let spend = OpenCodeGoUsage.localSpend(directory: OpenCodeGoUsage.dataDirectory()) {
-                usage.sections.append(spend)
+                usage.sections += [spend.section].compactMap { $0 }
+                usage.charts += [spend.chart].compactMap { $0 }
             }
             return usage
         })
@@ -54,7 +55,7 @@ enum OpenCodeGoUsage {
     /// Today, Yesterday and Last 30 days from the cost OpenCode records on each hosted (Go and Zen)
     /// assistant message in `opencode*.db`. OpenCode 1 writes `message`, OpenCode 2 `session_message`
     /// and copies old rows under the same id, so ids are counted once. Read only.
-    static func localSpend(directory: URL, now: Date = Date(), calendar: Calendar = .current) -> UsageSection? {
+    static func localSpend(directory: URL, now: Date = Date(), calendar: Calendar = .current) -> MajorsSpend.Report? {
         let since = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now)) ?? now
         let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
             .filter { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }.sorted()
@@ -92,7 +93,7 @@ enum OpenCodeGoUsage {
                 }
             }
         }
-        return MajorsSpend.section(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
+        return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
     }
 
     static func httpDate(_ text: String?) -> Date? {

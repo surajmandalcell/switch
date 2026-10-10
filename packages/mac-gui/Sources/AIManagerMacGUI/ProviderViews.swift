@@ -202,6 +202,9 @@ struct ClaudeActivityPanel: View {
               + (row.costUSD.map { "\(Fmt.money($0)) \(Self.estimateLabel.lowercased())" } ?? "no price"))
             .help(row.detail)
           }
+          if let chart = summary.chart {
+            UsageChartView(chart: chart).padding(.horizontal, 16).padding(.top, 10)
+          }
           VStack(alignment: .leading, spacing: 3) {
             Text("\(Self.estimateLabel). Covers every Claude Code profile on this Mac, not only this account.")
             if !summary.unpricedModels.isEmpty {
@@ -302,6 +305,11 @@ struct ProviderUsagePanel: View {
           .background(AIMTheme.panel2)
       }
 
+      ForEach(usage.charts, id: \.id) { chart in
+        UsageChartView(chart: chart)
+          .padding(.vertical, 10).padding(.horizontal, 16)
+      }
+
       ForEach(Array(usage.sections.enumerated()), id: \.offset) { _, section in
         ProviderSectionRows(section: section)
           .padding(.vertical, 10).padding(.horizontal, 16)
@@ -309,7 +317,8 @@ struct ProviderUsagePanel: View {
 
       HiddenUsageRowsNote(accountID: account.id, rowIDs: usage.windows.map(\.id))
 
-      if usage.windows.isEmpty, usage.cost.map(ProviderCostRow.hasContent) != true, usage.sections.isEmpty {
+      if usage.windows.isEmpty, usage.cost.map(ProviderCostRow.hasContent) != true, usage.sections.isEmpty,
+         usage.charts.isEmpty {
         UsageUnavailableRow(text: "No usage values returned")
       }
     }
@@ -393,6 +402,9 @@ struct ProviderWindowMeter: View {
   private var displayed: Int? {
     used.map { UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed) }
   }
+  private var fill: Double {
+    used.map { UsagePercentagePreferences.fill(forUsed: $0, showsUsed: showsUsed) } ?? 0
+  }
 
   /// Colors follow the used share, never the Used or Left view.
   static func fill(for state: UsagePace.MeterState) -> Color {
@@ -424,7 +436,7 @@ struct ProviderWindowMeter: View {
           Rectangle().fill(AIMTheme.control).frame(height: 4)
             .clipShape(RoundedRectangle(cornerRadius: 2))
           Rectangle().fill(color)
-            .frame(width: geometry.size.width * CGFloat(displayed ?? 0) / 100, height: 4)
+            .frame(width: geometry.size.width * CGFloat(fill), height: 4)
             .clipShape(RoundedRectangle(cornerRadius: 2))
           if let tick {
             Rectangle().fill(AIMTheme.ink.opacity(0.75)).frame(width: 1.5, height: 9)

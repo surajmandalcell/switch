@@ -296,6 +296,14 @@ final class ProvidersAuditAPIsATests: XCTestCase {
         XCTAssertEqual(section.title, "Billing history")
         XCTAssertEqual(section.rows.map(\.label), ["Today tokens", "30d tokens", "Today cash", "Models", "Top model", "Top method", "30d cash"])
         XCTAssertEqual(section.rows.map(\.value), ["1,000", "6,000", "1.25", "3", "speech-2.8", "audio", "3.75"])
+        // 30 local days ending May 17, zero when idle: 3,000 on Apr 18 (input + output), 2,000 May 16, 1,000 May 17.
+        let chart = try XCTUnwrap(MiniMaxUsage.billingChart(billing))
+        XCTAssertEqual(chart.unit, "tokens")
+        XCTAssertEqual(chart.points.count, 30)
+        XCTAssertEqual(chart.points.first?.label, "Apr 18")
+        XCTAssertEqual(chart.points.first?.value, 3000)
+        XCTAssertEqual(chart.points.map(\.value).suffix(2), [2000, 1000])
+        XCTAssertEqual(chart.total, 6000)
     }
 
     // MARK: DeepSeek
@@ -357,6 +365,12 @@ final class ProvidersAuditAPIsATests: XCTestCase {
             XCTAssertEqual(sections[0].rows[2].value, "2")
             XCTAssertEqual(sections[1].rows.map(\.label), ["deepseek-chat"])
             XCTAssertEqual(sections[1].rows[0].value, "\u{00A5}0.1200")
+            let charts = DeepSeekUsage.charts(summary)
+            XCTAssertEqual(charts.map(\.id), ["daily-tokens", "daily-cost"])
+            XCTAssertEqual(charts[0].points.map(\.value), [175])
+            XCTAssertEqual(charts[0].points.map(\.label), ["May 26"])
+            XCTAssertEqual(charts[1].unit, "CNY")
+            XCTAssertEqual(charts[1].points.map(\.value), [0.12])
         }
     }
 
@@ -421,6 +435,12 @@ final class ProvidersAuditAPIsATests: XCTestCase {
         let rows = DeepSeekUsage.sections(summary)[0].rows
         XCTAssertEqual(rows[1].label, "This month")
         XCTAssertEqual(rows[0].value, "\u{00A5}4.6318 \u{00B7} 102,648,490 tokens")
+        // The month fallback charts only the days of this month: May 2 (10 tokens, no price) and May 26.
+        let charts = DeepSeekUsage.charts(summary)
+        XCTAssertEqual(charts.first { $0.id == "daily-tokens" }?.points.map(\.label), ["May 2", "May 26"])
+        XCTAssertEqual(charts.first { $0.id == "daily-tokens" }?.points.map(\.value), [10, 102_648_490])
+        XCTAssertEqual(charts.first { $0.id == "daily-cost" }?.points.map(\.label), ["May 26"])
+        XCTAssertTrue(charts[0].title.contains("this month"))
     }
 
     func testDeepSeekMissingCostShowsDash() {
@@ -1048,11 +1068,15 @@ final class ProvidersAuditAPIsCTests: XCTestCase {
         XCTAssertEqual(models.rows.map(\.label), ["mistral-large-latest", "mistral-small-latest"])
         XCTAssertEqual(models.rows[0].value, "\u{20AC}0.0246 \u{B7} 12,236 tokens")
         XCTAssertEqual(models.rows[1].value, "\u{20AC}0.0008 \u{B7} 3,102 tokens")
-        // Daily rows, newest day first.
-        let daily = try XCTUnwrap(usage.sections.first { $0.title == "Daily" })
-        XCTAssertEqual(daily.rows.map(\.label), ["2025-11-24", "2025-11-14"])
-        XCTAssertEqual(daily.rows[1].value, "\u{20AC}0.0247 \u{B7} 12,756 tokens")
-        XCTAssertEqual(daily.rows[0].value, "\u{20AC}0.0006 \u{B7} 2,582 tokens")
+        // Daily charts, oldest day first, in the billing currency.
+        XCTAssertNil(usage.sections.first { $0.title == "Daily" })
+        let spend = try XCTUnwrap(usage.charts.first { $0.id == "daily-spend" })
+        XCTAssertEqual(spend.unit, "EUR")
+        XCTAssertEqual(spend.points.map(\.label), ["Nov 14", "Nov 24"])
+        XCTAssertEqual(spend.points[0].value, 0.0247, accuracy: 0.00005)
+        XCTAssertEqual(spend.points[1].value, 0.0006, accuracy: 0.00005)
+        let tokens = try XCTUnwrap(usage.charts.first { $0.id == "daily-tokens" })
+        XCTAssertEqual(tokens.points.map(\.value), [12_756, 2_582])
     }
 
     func testMistralPricesByZoneAndTierAndLegacy() throws {
@@ -1080,7 +1104,8 @@ final class ProvidersAuditAPIsCTests: XCTestCase {
             XCTAssertEqual(usage.cost?.used ?? 0, expected, accuracy: 1e-9)
             XCTAssertEqual(usage.sections[0].rows.map(\.value).prefix(3), ["4,375,190", "458,774", "21,628,160"])
             // The daily bucket carries the same cost as the month.
-            XCTAssertEqual(usage.sections.first { $0.title == "Daily" }?.rows.count, 1)
+            XCTAssertEqual(usage.charts.first { $0.id == "daily-spend" }?.points.count, 1)
+            XCTAssertEqual(usage.charts.first { $0.id == "daily-spend" }?.total ?? 0, expected, accuracy: 1e-9)
         }
         // A legacy price row without zone or tier prices qualified usage; a mismatched zone or tier gets none.
         for (qualifier, cost) in [("", 10.0), (#","api_zone":"eu","service_tier":"standard""#, 0), (#","api_zone":"global","service_tier":"priority""#, 0)] {
@@ -1103,7 +1128,8 @@ final class ProvidersAuditAPIsCTests: XCTestCase {
         let usage = try MistralUsage.map(usage: body, credits: nil, subscriptionHTML: nil)
         // Library tokens count in the daily bucket only; an infinite price is ignored.
         XCTAssertEqual(usage.sections[0].rows.map(\.value), ["2"])
-        XCTAssertEqual(usage.sections.first { $0.title == "Daily" }?.rows.first?.value, "$7.00 \u{B7} 9 tokens")
+        XCTAssertEqual(usage.charts.first { $0.id == "daily-spend" }?.points.first?.value, 7)
+        XCTAssertEqual(usage.charts.first { $0.id == "daily-tokens" }?.points.first?.value, 9)
         XCTAssertEqual(usage.cost?.used, 7)
         let refund = try MistralUsage.map(usage: json(#"{"completion":{"models":{"m":{"input":[{"event_type":"e","billing_metric":"m","billing_group":"g","value":-5,"value_paid":-5}]}}},"prices":[{"event_type":"e","billing_metric":"m","billing_group":"g","price":"1"}]}"#), credits: nil, subscriptionHTML: nil)
         XCTAssertEqual(refund.cost?.used, 0)
@@ -1181,13 +1207,21 @@ final class ProvidersAuditAPIsCTests: XCTestCase {
         XCTAssertEqual(usage.cost?.used ?? 0, 0.035, accuracy: 1e-9)
         XCTAssertEqual(usage.cost?.period, "Last 30 days")
         let sections = Dictionary(uniqueKeysWithValues: usage.sections.map { ($0.title ?? "", $0.rows) })
-        XCTAssertEqual(sections["Today"]?.map(\.value), ["$0.00", "1", "15"])
+        XCTAssertEqual(sections["Today"]?.map(\.value), ["$0.005", "1", "15"])
         XCTAssertEqual(sections["Last 30 days"]?.map(\.label), ["Requests", "Tokens", "Cached input"])
         XCTAssertEqual(sections["Last 30 days"]?.map(\.value), ["6", "215", "20"])
         XCTAssertEqual(sections["Models"]?.map(\.label), ["llama-3.1-8b-instant", "openai/gpt-oss-120b"])
         XCTAssertEqual(sections["Models"]?.map(\.value), ["155 tokens \u{B7} 4 requests", "60 tokens \u{B7} 2 requests"])
-        XCTAssertEqual(sections["Daily"]?.map(\.label), ["2026-07-14", "2026-07-13"])
-        XCTAssertEqual(sections["Daily"]?.map(\.value), ["$0.00 \u{B7} 1 requests \u{B7} 15 tokens", "$0.03 \u{B7} 5 requests \u{B7} 200 tokens"])
+        XCTAssertNil(sections["Daily"])
+        // 30 zero-filled UTC days ending 2026-07-14: Jul 13 holds $0.03, 5 requests, 200 tokens; Jul 14 the rest.
+        let cost = try XCTUnwrap(usage.charts.first { $0.id == "daily-cost" })
+        XCTAssertEqual(cost.unit, "USD")
+        XCTAssertEqual(cost.points.count, 30)
+        XCTAssertEqual(cost.points.map(\.label).suffix(2), ["Jul 13", "Jul 14"])
+        XCTAssertEqual(cost.points.map(\.value).suffix(2), [0.03, 0.005])
+        XCTAssertEqual(cost.points.first?.value, 0)
+        XCTAssertEqual(usage.charts.first { $0.id == "daily-requests" }?.points.map(\.value).suffix(2), [5, 1])
+        XCTAssertEqual(usage.charts.first { $0.id == "daily-tokens" }?.points.map(\.value).suffix(2), [200, 15])
     }
 
     func testGroqConsoleOmitsCachedRowWhenNoneAndSessionClaims() throws {
@@ -1265,7 +1299,7 @@ final class ProvidersAuditAPIsDTests: XCTestCase {
           {"Keys":["Amazon Bedrock"],"Metrics":{"UnblendedCost":{"Amount":"0","Unit":"USD"}}}]}]}
         """)
         let activity = BedrockActivity(inputTokens: 1_500_000, outputTokens: 500_000, requests: 42)
-        let result = try BedrockUsage.map([page], budget: 200, now: Date(timeIntervalSince1970: 1_775_000_000),
+        let result = try BedrockUsage.map([page], budget: 200, now: Date(timeIntervalSince1970: 1_775_345_600),
                                           activity: activity, daily: true)
         XCTAssertEqual(result.cost?.used, 14.5)
         XCTAssertEqual(result.cost?.limit, 200)
@@ -1274,12 +1308,15 @@ final class ProvidersAuditAPIsDTests: XCTestCase {
         XCTAssertNotNil(result.windows.first?.resetsAt)
         let claude = try XCTUnwrap(result.sections.first { $0.title == "Claude activity (14d)" })
         XCTAssertEqual(claude.rows.map(\.value), ["2.0M", "1.5M", "500.0K", "42"])
-        let daily = try XCTUnwrap(result.sections.first { $0.title == "Daily cost" })
-        XCTAssertEqual(daily.rows.map(\.label), ["2026-04-02", "2026-04-01"])
-        XCTAssertEqual(daily.rows.map(\.value), ["$4.50", "$10.00"])
-        // The monthly shape keeps no per-day list and no activity without CloudWatch.
+        XCTAssertNil(result.sections.first { $0.title == "Daily cost" })
+        // Month to date (Apr 1 to Apr 4), zero-filled.
+        let daily = try XCTUnwrap(result.charts.first)
+        XCTAssertEqual(daily.unit, "USD")
+        XCTAssertEqual(daily.points.map(\.label), ["Apr 1", "Apr 2", "Apr 3", "Apr 4"])
+        XCTAssertEqual(daily.points.map(\.value), [10, 4.5, 0, 0])
+        // The monthly shape keeps no per-day chart and no activity without CloudWatch.
         let monthly = try BedrockUsage.map([page], budget: nil)
-        XCTAssertNil(monthly.sections.first { $0.title == "Daily cost" })
+        XCTAssertTrue(monthly.charts.isEmpty)
         XCTAssertNil(monthly.sections.first { $0.title == "Claude activity (14d)" })
         XCTAssertNil(monthly.windows.first)
     }

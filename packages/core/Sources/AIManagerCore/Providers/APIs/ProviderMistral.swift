@@ -127,8 +127,10 @@ enum MistralUsage {
         func sum(_ models: [String: Tally]) -> Tally {
             models.values.reduce(Tally()) { Tally(cost: $0.cost + $1.cost, tokens: $0.tokens + $1.tokens) }
         }
-        // Newest day first, so the first row is the latest day.
-        let dayRows = days.sorted { $0.key > $1.key }.map { UsageRow($0.key, describe(sum($0.value))) }
+        let spendChart = UsageChart.daily(id: "daily-spend", title: "Daily spend (this month)", unit: currency,
+                                          values: days.mapValues { sum($0).cost })
+        let tokenChart = UsageChart.daily(id: "daily-tokens", title: "Daily tokens (this month)", unit: "tokens",
+                                          values: days.mapValues { sum($0).tokens })
         var perModel = [String: Tally]()
         for models in days.values {
             for (name, tally) in models {
@@ -142,8 +144,8 @@ enum MistralUsage {
             windows: windows,
             // A negative total is a refund adjustment; show zero spend.
             cost: UsageCost(used: max(spend, 0), balance: balance, currency: currency, period: "Month to date"),
-            sections: [UsageSection("This month", rows), UsageSection("Models", Array(modelRows)),
-                       UsageSection("Daily", dayRows)])
+            sections: [UsageSection("This month", rows), UsageSection("Models", Array(modelRows))],
+            charts: [spendChart, tokenChart].compactMap { $0 }.filter { $0.total > 0 })
     }
 
     private static func key(_ item: JSON) -> String {

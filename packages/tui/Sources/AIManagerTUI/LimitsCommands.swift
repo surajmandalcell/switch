@@ -17,6 +17,22 @@ enum LimitFormat {
         window.usedPercent.map { max(0, 100 - $0) }
     }
 
+    /// One line of ▁▂▃▄▅▆▇█ for a chart; a flat or empty series draws the lowest bar.
+    static func sparkline(_ chart: UsageChart) -> String {
+        let bars = Array("\u{2581}\u{2582}\u{2583}\u{2584}\u{2585}\u{2586}\u{2587}\u{2588}")
+        let peak = chart.points.map(\.value).max() ?? 0
+        return String(chart.points.map { point in
+            peak > 0 ? bars[min(7, max(0, Int((point.value / peak * 7).rounded())))] : bars[0]
+        })
+    }
+
+    /// "Daily spend  ▁▃▅█  total $12.40  peak $2.10 Oct 3".
+    static func chartLine(_ chart: UsageChart) -> String {
+        var text = "\(chart.title)  \(sparkline(chart))  total \(chart.format(chart.total))"
+        if let peak = chart.peak, peak.value > 0 { text += "  peak \(chart.format(peak.value)) \(peak.label)" }
+        return text
+    }
+
     static func resetLabel(until reset: Date, now: Date = Date()) -> String {
         let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
         if minutes == 0 { return reset > now ? "in <1m" : "now" }
@@ -70,6 +86,8 @@ private struct LimitsDocument: Encodable {
         let resetsAt: Date?
     }
 
+    struct Point: Encodable { let label: String; let date: Date?; let value: Double }
+    struct Chart: Encodable { let id: String; let title: String; let unit: String; let points: [Point] }
     struct Row: Encodable { let label: String; let value: String }
     struct Section: Encodable { let title: String?; let rows: [Row] }
 
@@ -84,9 +102,10 @@ private struct LimitsDocument: Encodable {
         let windows: [Window]
         let cost: Cost?
         let sections: [Section]
+        let charts: [Chart]
 
         enum CodingKeys: String, CodingKey {
-            case id, provider, providerName, email, plan, fetchedAt, windows, cost, sections
+            case id, provider, providerName, email, plan, fetchedAt, windows, cost, sections, charts
             case isDefault = "default"
         }
 
@@ -109,6 +128,10 @@ private struct LimitsDocument: Encodable {
             }
             sections = usage.sections.map { section in
                 Section(title: section.title, rows: section.rows.map { Row(label: $0.label, value: $0.value) })
+            }
+            charts = usage.charts.map { chart in
+                Chart(id: chart.id, title: chart.title, unit: chart.unit,
+                      points: chart.points.map { Point(label: $0.label, date: $0.date, value: $0.value) })
             }
         }
     }
@@ -223,6 +246,7 @@ enum LimitsCommands {
                 lines.append("  \(row.label.padding(toLength: 8, withPad: " ", startingAt: 0))\(row.value)")
             }
         }
+        for chart in usage.charts { lines.append("  " + LimitFormat.chartLine(chart)) }
         for section in usage.sections {
             if let title = section.title { lines.append("  \(title)") }
             for row in section.rows { lines.append("    \(row.label): \(row.value)") }
