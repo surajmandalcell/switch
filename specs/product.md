@@ -48,9 +48,8 @@ without overwriting before a link replaces it. The default is written to
 `~/.switch/claude/active`. An opt-in shell integration (Settings) makes a plain `claude`
 command use it; without it, a plain `claude` keeps its own login. Claude usage reads a
 file-based access token read-only when one exists, otherwise the CLI's `/usage` panel, at
-most every ten minutes per profile. Switch never spends a Claude refresh token. The probe
-strips parent-session variables. macOS makes Switch responsible for files the CLI reads, so
-a pending privacy prompt blocks it; Switch then shows an Allow hint and does not cache it.
+most every ten minutes per profile. Switch never spends a Claude refresh token. A pending
+macOS privacy prompt for Switch blocks the CLI; Switch then shows an uncached Allow hint.
 
 ## 1a. Generic providers
 
