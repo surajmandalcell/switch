@@ -475,7 +475,9 @@ enum LimitsCommands {
                 windowMinutes: window.windowDurationMinutes.map(Int.init))
         }
         guard !windows.isEmpty else { return nil }
-        return ProviderUsage(windows: windows, plan: snapshot.account?.plan,
+        return ProviderUsage(windows: windows + snapshot.extraWindows,
+                             sections: [UsageSection(nil, snapshot.factRows)],
+                             plan: CodexPlanNames.display(snapshot.account?.plan),
                              email: snapshot.account?.email ?? account.identity.email,
                              fetchedAt: snapshot.fetchedAt).sanitized()
     }

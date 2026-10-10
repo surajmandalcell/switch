@@ -321,8 +321,16 @@ enum AIManagerNativeContract {
       "Explicit false credits are hidden")
     expect(
       UsagePresentation.credits(CodexCreditsSnapshot(
-        hasCredits: true, unlimited: nil, balance: "62367.4009760000")) == "62,367.4",
-      "Fixed-point credit balances are not formatted")
+        hasCredits: true, unlimited: nil, balance: "796.4009760000")) == "$31.84 · 796 credits",
+      "Fixed-point credit balances are not shown as dollars and credits")
+    let resetCredits = CodexResetCredits(
+      count: 2, expiries: [Date(timeIntervalSince1970: 1_800_086_400), Date(timeIntervalSince1970: 1_800_000_000)])
+    let resetFact = UsagePresentation.resetCreditsFact(resetCredits)
+    expect(
+      resetFact?.label == "Reset credits" && resetFact?.value.hasPrefix("2 · next expires ") == true
+        && resetFact?.help?.hasPrefix("Expires: ") == true,
+      "Reset credits omit the count, soonest expiry, or tooltip list")
+    expect(UsagePresentation.resetCreditsFact(nil) == nil, "Missing reset credits are visible")
     expect(UsagePresentation.spendControl(nil) == nil, "Missing spend control is visible")
     expect(UsagePresentation.spendControl(false) == "Not reached", "Explicit false spend control is hidden")
     let missingAccountFields = CodexAccountUsageSnapshot(
@@ -463,8 +471,18 @@ enum AIManagerNativeContract {
       id: nil, name: nil, plan: nil, model: nil,
       primary: .init(usedPercent: 1, windowDurationMinutes: 10_080, resetsAt: nil),
       secondary: nil, credits: nil, spendControlReached: nil), fetchedAt: activityEnd)
-    expect(weeklyPrimary?.usedPercentage == nil && weeklyPrimary?.secondaryUsedPercentage == 1,
-      "A weekly-only primary response is incorrectly labelled as five-hour usage")
+    expect(
+      weeklyPrimary?.usedPercentage == 1 && weeklyPrimary?.secondaryUsedPercentage == nil
+        && weeklyPrimary?.primaryLabel == "Weekly",
+      "A weekly-only response does not take the primary slot as Weekly")
+    let weeklySecondary = MenuBarUsageSnapshot(bucket: .init(
+      id: nil, name: nil, plan: nil, model: nil, primary: nil,
+      secondary: .init(usedPercent: 3, windowDurationMinutes: 10_080, resetsAt: nil),
+      credits: nil, spendControlReached: nil), fetchedAt: activityEnd)
+    expect(
+      weeklySecondary?.usedPercentage == 3 && weeklySecondary?.secondaryUsedPercentage == nil
+        && weeklySecondary?.primaryLabel == "Weekly",
+      "A lone weekly secondary window does not move to the primary slot")
     let resetNow = Date(timeIntervalSince1970: 0)
     expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(2 * 86_400 - 60), now: resetNow)
       == "Resets in 1 day 23h 59m", "Reset countdown rounds almost two days up")
