@@ -8,8 +8,9 @@ final class ProvidersPluginsBTests: XCTestCase {
 
     func testCatalogRegistersEveryPluginsBProvider() {
         let ids = ProviderCatalog.pluginsB.map(\.id.rawValue)
-        XCTAssertEqual(ids.count, 20)
-        XCTAssertEqual(Set(ids).count, 20)
+        XCTAssertEqual(ids.count, 19)
+        XCTAssertEqual(Set(ids).count, 19)
+        XCTAssertFalse(ids.contains("qwencloud-team"), "the qwencloud spec covers team plans")
         XCTAssertFalse(ids.contains("museai"))
     }
 
@@ -299,23 +300,6 @@ final class ProvidersPluginsBTests: XCTestCase {
          "shared_quota":{"quota_summary":{"used_value":100,"limit_value":800}}}
         """))
         XCTAssertEqual(shared.windows.first?.usedPercent, 20)
-    }
-
-    func testQwenCloudTeamCredits() throws {
-        let start = (now.timeIntervalSince1970 - 86400) * 1000
-        let end = (now.timeIntervalSince1970 + 86400) * 1000
-        let summary = try json("""
-        {"Data":{"ProductCode":"sfm_tokenplanteams_dp_intl","StartTime":\(Int(start)),"EndTime":\(Int(end)),
-         "SubscriptionGroupList":[{"SpecType":"standard","SubscriptionAssignedNumber":3,"SubscriptionTotalNumber":5,
-          "NextCycleFlushTime":1791000000000,
-          "EquityList":[{"EquityCode":"credit_value","TotalValue":"1000","SurplusValue":"400"}]}]}}
-        """)
-        let usage = try QwenCloudTeamUsage.map(summary, now: now)
-        XCTAssertEqual(usage.windows.first?.usedPercent, 60)
-        XCTAssertEqual(usage.windows.first?.resetsAt, Date(timeIntervalSince1970: 1_791_000_000))
-        XCTAssertEqual(usage.plan, "Standard Team")
-        XCTAssertEqual(usage.sections[0].rows.last?.value, "3 / 5")
-        XCTAssertTrue(try QwenCloudTeamUsage.map(json(#"{"Data":null}"#), now: now).isEmpty)
     }
 
     func testRaycastCredits() throws {
