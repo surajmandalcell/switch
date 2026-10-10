@@ -192,13 +192,11 @@ shows every window as the standard meter with a reset countdown and the OpenUsag
 verdict (blue ahead, yellow close, red running out, with an even-pace tick), then money
 and short detail rows. Their menu cards show the first two windows, or one balance line
 when the provider returns only money. Add Account lists Codex CLI, Grok Build, and Claude
-Code first, then every other provider alphabetically, with a search field. When the page opens,
-Switch reads (off the main actor, read-only) which file-based providers already have a login on
-this Mac. Those rows show "Signed in on this Mac" and sort directly after the three built-ins.
-Right-click a usage window row for Hide this row, Show all hidden rows, and Refresh usage; hidden
-rows are stored per account, leave the detail page and menu card, and return with Show all.
-Command-R (View > Refresh Usage, and in the popover) refreshes now. Right-clicking the status
-item opens a menu with Open, Refresh Usage, Settings, and Quit. The Claude
+Code first, then every other provider alphabetically, with a search field. File-based
+providers already signed in on this Mac (read off the main actor) show "Signed in on this Mac"
+and sort after the built-ins. A usage row's context menu offers Hide, Show all, and Refresh;
+hidden rows are per account and leave the detail page and menu card. Command-R refreshes. The
+status item's context menu offers Open, Refresh Usage, Settings, and Quit. The Claude
 account page also shows Claude Code activity for all profiles from the local transcripts,
 priced as an API-equivalent estimate.
 
