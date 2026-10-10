@@ -23,6 +23,9 @@ quick account switch.
 Hooks, the plugin engine, browser cookie import, widgets, sync, and telemetry from those
 apps are left out on purpose.
 
+3.4.1 shows Codex credit balances as numbers and keeps no part of a GitHub Copilot
+token in the account index.
+
 Download the Mac ZIP, unzip it, and move `Switch.app` to Applications. Switch
 requires macOS 14 or later on Apple Silicon.
 
