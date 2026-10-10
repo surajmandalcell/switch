@@ -430,7 +430,8 @@ final class ProviderAccountStoreTests: XCTestCase {
         let missing = filesSpec(id: "test-missing", login: ["definitely-missing-cli", "login"])
         let store = try makeStore([missing])
         XCTAssertThrowsError(try store.startLogin(ProviderID(rawValue: "test-missing"))) {
-            XCTAssertEqual($0 as? AIManagerError, .cliNotFound)
+            XCTAssertEqual($0 as? AIManagerError,
+                           .operationFailed("Test Files sign-in needs `definitely-missing-cli`. Install it, then try again."))
         }
         let nested = ProviderSpec(
             id: "test-nested", name: "Nested", style: .files,
