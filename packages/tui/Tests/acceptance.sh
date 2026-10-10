@@ -32,13 +32,11 @@ skip_if_native_writer_unknown() {
 
 "$binary" providers --json \
   | jq -e '
-      map(.id) == ["codex", "grok-build", "claude-code", "gemini-cli", "antigravity-cli"]
+      map(.id)[0:3] == ["codex", "grok-build", "claude-code"]
       and .[0].displayName == "Codex CLI"
-      and .[0].availability == "enabled"
       and .[1].displayName == "Grok Build"
-      and .[1].availability == "enabled"
-      and .[2].availability == "enabled"
-      and (.[3:] | all(.availability == "disabled"))
+      and (map(.id) | index("gemini-cli") != null and index("antigravity-cli") != null and index("litellm") != null)
+      and all(.availability == "enabled")
     ' >/dev/null
 if "$binary" add claude-code --yes --json >"$test_root/disabled-provider.json" 2>"$test_root/disabled-provider.log"; then
   printf '%s\n' 'Expected the isolated fixture to have no Claude Code CLI.' >&2
@@ -84,13 +82,16 @@ fi
 
 printf '\r\033[B\033[A\033\033' | AI_MANAGER_TUI_KEYS=always \
   AI_MANAGER_TUI_STYLE=always "$binary" interactive >"$test_root/tui-choice.log"
-rg -F 'Provider: ←' "$test_root/tui-choice.log" >/dev/null
-rg -F '2/5' "$test_root/tui-choice.log" >/dev/null
+rg -F 'Provider: (type to filter)' "$test_root/tui-choice.log" >/dev/null
+rg -e '2/[0-9]+' "$test_root/tui-choice.log" >/dev/null
+rg -F '> Codex CLI' "$test_root/tui-choice.log" >/dev/null
 rg -F 'Account login cancelled.' "$test_root/tui-choice.log" >/dev/null
 if rg -F 'Provider number:' "$test_root/tui-choice.log" >/dev/null; then
   printf '%s\n' 'Attached terminal prompt fell back to number entry.' >&2
   exit 1
 fi
+
+bash "$(dirname "$0")/generic-providers.sh" "$binary"
 
 if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
   printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2

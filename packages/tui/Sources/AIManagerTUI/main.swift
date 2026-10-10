@@ -43,6 +43,25 @@ private enum TerminalAccountAction: CaseIterable, Equatable {
     case back
 }
 
+extension ProviderID {
+    /// Providers that use the generic store and `ProviderSpec` usage, not the Codex, Grok, or Claude paths.
+    var isGenericProvider: Bool { ![ProviderID.codex, .grokBuild, .claudeCode].contains(self) }
+}
+
+extension TerminalAccountAction {
+    /// Codex, Grok, and Claude Code keep every action; generic accounts get switch, usage, and delete.
+    fileprivate static func available(for account: AccountRecord?) -> [TerminalAccountAction] {
+        guard let account, account.identity.providerID.isGenericProvider else { return allCases }
+        return [.setDefault, .refreshLimits, .deleteAccount, .back]
+    }
+}
+
+/// Usage of a generic account read in this session. Nothing is shown before the first check.
+private enum GenericUsage {
+    case loaded(ProviderUsage)
+    case failed(String)
+}
+
 private struct TerminalMainActionResult {
     let pendingSessions: [AccountLoginSession]
     let message: String?
@@ -62,6 +81,7 @@ struct AIManagerCLI {
             try await run(command, manager: manager)
         } catch {
             FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
+            if case CLIError.exit(let code, _)? = error as? CLIError { exit(code) }
             exit(1)
         }
     }
@@ -70,6 +90,12 @@ struct AIManagerCLI {
         switch input.command {
         case "providers": await output(AccountManager.providerCatalog, json: input.json)
         case "refresh", "adopt": try await refreshAccounts(input, manager: manager)
+        case "usage":
+            let code = try await LimitsCommands.usage(input, manager: manager)
+            if code != 0 { exit(code) }
+        case "guard":
+            let code = try await LimitsCommands.guardLimit(input, manager: manager)
+            if code != 0 { exit(code) }
         case "add", "start-login": try await startLogin(input, manager: manager)
         case "check-login": try await checkLogin(input, manager: manager)
         case "cancel-login":
@@ -86,7 +112,12 @@ struct AIManagerCLI {
             var plan = try await manager.planImport(source: path, mode: input.mode)
             plan = try await reviewExternalSettings(plan, decisions: input.decisions, approvedPaths: input.externalReviews, manager: manager, report: false)
             await output(plan, json: input.json)
-        case "import", "advanced-import": try await importAccount(input, manager: manager)
+        case "import", "advanced-import":
+            if input.command == "import", let spec = LimitsCommands.genericSpec(input.positional.first) {
+                try await LimitsCommands.importLive(spec, input: input, manager: manager)
+            } else {
+                try await importAccount(input, manager: manager)
+            }
         case "use":
             let id = try input.requiredAccountID()
             let status = try await manager.status()
@@ -194,6 +225,10 @@ struct AIManagerCLI {
     }
 
     static func startLogin(_ input: CommandLineInput, manager: AccountManager) async throws {
+        if let spec = LimitsCommands.genericSpec(input.positional.first) {
+            try await LimitsCommands.add(spec, input: input, manager: manager)
+            return
+        }
         let provider = try input.providerID()
         guard AccountManager.providerCatalog.first(where: { $0.id == provider })?.availability == .enabled else {
             let reason = AccountManager.providerCatalog.first(where: { $0.id == provider })?.unavailableReason
@@ -248,6 +283,7 @@ struct AIManagerCLI {
         var tokenPeriod = CodexTokenPeriod.today
         var initializedFocus = false
         var message: String?
+        var genericUsage: [UUID: GenericUsage] = [:]
         while true {
             let status = try await manager.status()
             let accounts = TerminalMenu.orderedAccounts(status.accounts)
@@ -261,10 +297,14 @@ struct AIManagerCLI {
                 initializedFocus = true
             }
             mainFocus = min(max(0, mainFocus), max(0, mainItemCount - 1))
-            accountActionFocus = min(accountActionFocus, TerminalAccountAction.allCases.count - 1)
             if screen == .accounts, accounts.indices.contains(mainFocus) {
                 selectedAccountID = accounts[mainFocus].id
             }
+            let selectedAccount = selectedAccountID.flatMap { id in
+                status.accounts.first { $0.id == id }
+            }
+            let accountActions = TerminalAccountAction.available(for: selectedAccount)
+            accountActionFocus = min(accountActionFocus, accountActions.count - 1)
             let usage = await cachedUsage(usageCache, accountIDs: status.accounts.map(\.id))
             let dailyUsage = await cachedDailyUsage(
                 usageCache, accountIDs: status.accounts.map(\.id))
@@ -279,14 +319,12 @@ struct AIManagerCLI {
                 mainActions: mainActions,
                 mainFocus: mainFocus,
                 accountActionFocus: accountActionFocus,
+                accountActions: accountActions,
+                genericUsage: genericUsage,
                 message: message)
             message = nil
             guard var key = terminal.readKey() else { return }
             do {
-                let selectedAccount = selectedAccountID.flatMap { id in
-                    status.accounts.first { $0.id == id }
-                }
-
                 if terminal.acceptsLegacyCommands, case let .character(character) = key {
                     let value = String(character).lowercased()
                     if let number = Int(value), accounts.indices.contains(number - 1) {
@@ -318,7 +356,7 @@ struct AIManagerCLI {
                         default: nil
                         }
                         if let accountAction,
-                           let index = TerminalAccountAction.allCases.firstIndex(of: accountAction) {
+                           let index = accountActions.firstIndex(of: accountAction) {
                             screen = .accountActions
                             accountActionFocus = index
                             key = .enter
@@ -342,6 +380,11 @@ struct AIManagerCLI {
                             selectedAccountID = accounts[mainFocus].id
                             accountActionFocus = 0
                             screen = .accountActions
+                            if accounts[mainFocus].identity.providerID.isGenericProvider,
+                               genericUsage[accounts[mainFocus].id] == nil {
+                                genericUsage[accounts[mainFocus].id] = try await loadGenericUsage(
+                                    accounts[mainFocus], manager: manager, menu: menu)
+                            }
                         } else if case .enter = key {
                             let action = mainActions[mainFocus - accounts.count]
                             let result = try await performMainAction(
@@ -361,20 +404,29 @@ struct AIManagerCLI {
                 case .accountActions:
                     switch key {
                     case .up:
-                        accountActionFocus = (accountActionFocus + TerminalAccountAction.allCases.count - 1)
-                            % TerminalAccountAction.allCases.count
+                        accountActionFocus = (accountActionFocus + accountActions.count - 1)
+                            % accountActions.count
                     case .down:
-                        accountActionFocus = (accountActionFocus + 1) % TerminalAccountAction.allCases.count
+                        accountActionFocus = (accountActionFocus + 1) % accountActions.count
                     case .home:
                         accountActionFocus = 0
                     case .end:
-                        accountActionFocus = TerminalAccountAction.allCases.count - 1
+                        accountActionFocus = accountActions.count - 1
                     case .left, .escape:
                         screen = .accounts
                     case .enter, .right:
-                        let action = TerminalAccountAction.allCases[accountActionFocus]
+                        let action = accountActions[accountActionFocus]
                         if action == .back {
                             screen = .accounts
+                        } else if let selectedAccount, selectedAccount.identity.providerID.isGenericProvider,
+                                  action == .refreshLimits {
+                            genericUsage[selectedAccount.id] = try await loadGenericUsage(
+                                selectedAccount, manager: manager, menu: menu)
+                            if case .failed(let text)? = genericUsage[selectedAccount.id] {
+                                message = text
+                            } else {
+                                message = "Usage refreshed."
+                            }
                         } else if let selectedAccount {
                             message = try await performAccountAction(
                                 action,
@@ -408,11 +460,11 @@ struct AIManagerCLI {
         var message: String?
         switch action {
         case .addAccount:
-            if let session = try await terminal.withCookedInput({
+            let added = try await terminal.withCookedInput {
                 try await interactiveAddAccount(manager, terminal: terminal)
-            }) {
-                sessions.append(session)
             }
+            if let session = added.session { sessions.append(session) }
+            message = added.message
         case .importAccount:
             try await terminal.withCookedInput {
                 try await interactiveImport(manager, terminal: terminal)
@@ -499,6 +551,17 @@ struct AIManagerCLI {
             return result.verification.detail
         case .verifyFiles:
             return await manager.verifyLocal(accountID: account.id).detail
+        case .deleteAccount where account.identity.providerID.isGenericProvider:
+            let live = ProviderCatalog.spec(account.identity.providerID)?.style == .files
+                ? " The provider's own files stay in place." : ""
+            guard askYes(
+                "Remove \(displayName(account.identity)) from Switch and delete its saved credentials?\(live)",
+                terminal: terminal) else {
+                return "Account deletion cancelled."
+            }
+            let removed = try await manager.deleteAccount(accountID: account.id)
+            return "Removed \(displayName(account.identity)) from Switch."
+                + (removed.replacementDefaultAccountID != nil ? " Another saved account is now the default." : "")
         case .deleteAccount:
             let status = try await manager.status()
             let isDefault = status.defaultAccountID(for: account.identity.providerID) == account.id
@@ -528,6 +591,21 @@ struct AIManagerCLI {
         }
     }
 
+    /// Reads a generic account's usage with the loader. A failure becomes a message, never made-up values.
+    private static func loadGenericUsage(
+        _ account: AccountRecord, manager: AccountManager, menu: TerminalMenu
+    ) async throws -> GenericUsage {
+        try await menu.loading("Checking usage") {
+            do {
+                return .loaded(try await LimitsCommands.withTimeout(60) {
+                    try await manager.readProviderUsage(accountID: account.id)
+                })
+            } catch {
+                return .failed(LimitFormat.message(error))
+            }
+        }
+    }
+
     static func cachedUsage(
         _ cache: CodexUsageStatisticsCache?, accountIDs: [UUID]
     ) async -> [UUID: CodexAccountUsageSnapshot] {
@@ -554,43 +632,125 @@ struct AIManagerCLI {
     private static func interactiveAddAccount(
         _ manager: AccountManager,
         terminal: TerminalInput
-    ) async throws -> AccountLoginSession? {
+    ) async throws -> (session: AccountLoginSession?, message: String?) {
         print("Add Account")
-        let providers = AccountManager.providerCatalog
-        if !terminal.usesArrowNavigation {
-            for (index, provider) in providers.enumerated() {
-                let availability = provider.availability == .enabled ? "Available" : "Unavailable"
-                print("  \(index + 1). \(providerName(provider.id)) [\(availability)]")
-            }
+        // Built-in providers first, then every generic provider by name.
+        let builtIn = AccountManager.providerCatalog.filter {
+            !$0.id.isGenericProvider || $0.availability == .disabled
         }
-        let selectedProvider = terminal.choose(
-            "Provider",
-            options: providers.map { provider in
-                let suffix = provider.availability == .enabled ? "" : " (unavailable)"
-                return providerName(provider.id) + suffix
-            }
-        ) {
-            print("Provider number:", terminator: " ")
-            guard let value = readLine(), let number = Int(value) else { return nil }
-            return number - 1
+        let generic = ProviderCatalog.addable.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        let providers = builtIn.map { ($0.id, providerName($0.id), $0.availability == .enabled, $0.unavailableReason) }
+            + generic.map { ($0.id, $0.name, true, nil as String?) }
+        let names = providers.map { $0.2 ? $0.1 : $0.1 + " (unavailable)" }
+        if !terminal.usesArrowNavigation {
+            for (index, name) in names.enumerated() { print("  \(index + 1). \(name)") }
+        }
+        let selectedProvider = terminal.chooseFiltered("Provider", options: names) {
+            print("Provider number or name:", terminator: " ")
+            guard let value = readLine() else { return nil }
+            if let number = Int(value) { return number - 1 }
+            let matches = names.indices.filter { names[$0].localizedCaseInsensitiveContains(value) }
+            return matches.count == 1 ? matches[0] : nil
         }
         guard let index = selectedProvider, providers.indices.contains(index) else {
             print("Account login cancelled.")
-            return nil
+            return (nil, nil)
         }
-        let provider = providers[index]
-        guard provider.availability == .enabled else {
-            print("Unavailable. \(provider.unavailableReason ?? "This provider cannot be added yet.")")
-            return nil
+        let (providerID, name, enabled, reason) = providers[index]
+        guard enabled else {
+            print("Unavailable. \(reason ?? "This provider cannot be added yet.")")
+            return (nil, nil)
         }
-        guard askYes("Start an isolated \(providerName(provider.id)) login?", terminal: terminal) else {
+        guard providerID.isGenericProvider, let spec = ProviderCatalog.spec(providerID) else {
+            guard askYes("Start an isolated \(name) login?", terminal: terminal) else {
+                print("Account login cancelled.")
+                return (nil, nil)
+            }
+            let started = try await manager.startAccountLogin(providerID: providerID)
+            await output(SafeLoginStart(started), json: false)
+            print("Finish sign-in, then choose Check Login.")
+            return (started.session, nil)
+        }
+        return spec.style == .secret
+            ? (nil, try await addSecretAccount(spec, manager: manager))
+            : try await addFileAccount(spec, manager: manager, terminal: terminal)
+    }
+
+    /// Prompts for each credential field; secure fields do not echo.
+    private static func addSecretAccount(_ spec: ProviderSpec, manager: AccountManager) async throws -> String {
+        print("\(spec.name) takes typed credentials. Press Return on an optional field to skip it.")
+        var values: [String: String] = [:]
+        for field in spec.fields {
+            let label = field.title + (field.optional ? " (optional)" : "")
+                + (field.placeholder.map { ", for example \($0)" } ?? "") + ":"
+            guard let value = field.secure ? readSecret(label) : readField(label) else {
+                return "Account setup cancelled."
+            }
+            if value.isEmpty && !field.optional { return "\(field.title) is required. Account setup cancelled." }
+            values[field.key] = value
+        }
+        let account = try await manager.addProviderAccount(providerID: spec.id, fields: values)
+        return "Saved \(spec.name) account \(displayName(account.identity))."
+    }
+
+    /// Shows the live sign-in first, then offers import and, when the provider has one, a new sign-in.
+    private static func addFileAccount(
+        _ spec: ProviderSpec, manager: AccountManager, terminal: TerminalInput
+    ) async throws -> (session: AccountLoginSession?, message: String?) {
+        let live = await manager.liveProviderIdentity(providerID: spec.id)
+        print(live.map { "Current \(spec.name) sign-in: \(LimitsCommands.describe($0))" }
+            ?? "No current \(spec.name) sign-in was found on this Mac.")
+        var options = ["Import current sign-in"]
+        if spec.login != nil { options.append("Sign in another account") }
+        let choice = terminal.choose("Action", options: options) {
+            print("Action: [1] Import current sign-in" + (spec.login != nil ? "  [2] Sign in another account" : "") + ":",
+                  terminator: " ")
+            return readLine().flatMap { Int($0) }.map { $0 - 1 }
+        }
+        switch choice {
+        case 0:
+            guard live != nil else { return (nil, "\(spec.name) is not signed in on this Mac.") }
+            let account = try await manager.importLiveProviderAccount(providerID: spec.id)
+            return (nil, "Saved \(spec.name) account \(displayName(account.identity)).")
+        case 1:
+            guard askYes("Run the \(spec.name) sign-in in this terminal?", terminal: terminal) else {
+                return (nil, "Account login cancelled.")
+            }
+            let result = try await LimitsCommands.signIn(spec, manager: manager)
+            if result.check.state == .completed { return (nil, result.check.message) }
+            return (result.session, result.check.message + " Choose Check pending login when sign-in finishes.")
+        default:
             print("Account login cancelled.")
-            return nil
+            return (nil, nil)
         }
-        let started = try await manager.startAccountLogin(providerID: provider.id)
-        await output(SafeLoginStart(started), json: false)
-        print("Finish sign-in, then choose Check Login.")
-        return started.session
+    }
+
+    private static func readField(_ prompt: String) -> String? {
+        print(prompt, terminator: " ")
+        return readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Reads one line with terminal echo off.
+    private static func readSecret(_ prompt: String) -> String? {
+        print(prompt, terminator: " ")
+        fflush(stdout)
+        var original = termios()
+        let attached = isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &original) == 0
+        if attached {
+            var quiet = original
+            quiet.c_lflag &= ~tcflag_t(ECHO)
+            tcsetattr(STDIN_FILENO, TCSANOW, &quiet)
+        }
+        defer {
+            if attached {
+                var restored = original
+                tcsetattr(STDIN_FILENO, TCSANOW, &restored)
+                print("")
+            }
+        }
+        return readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func chooseLoginSession(
@@ -893,7 +1053,9 @@ struct AIManagerCLI {
     static func displayName(_ identity: AccountIdentity?) -> String {
         guard let identity else { return "Unresolved account" }
         if let email = identity.email, let workspace = identity.workspaceID { return "\(email) · \(workspace)" }
-        return identity.email ?? identity.accountID ?? "Unresolved account"
+        return identity.email ?? identity.accountID
+            ?? (identity.providerID.isGenericProvider ? identity.userID.map { "account \($0.prefix(8))" } : nil)
+            ?? "Unresolved account"
     }
 
     static func providerName(_ id: ProviderID) -> String {
@@ -910,7 +1072,15 @@ struct AIManagerCLI {
       ai-manager refresh [--yes] [--json]
       ai-manager adopt [--yes] [--json]                     Alias for refresh
       ai-manager add [codex|grok-build|claude-code] [--yes] [--json]    Start isolated browser sign-in
+      ai-manager add <provider> --field key=value [--field ...] [--stdin] [--json]
+                                                            Save an API key, token, or cookie (secret providers)
+      ai-manager add <provider> [--yes]                     Sign in another account in this terminal (file providers)
+      ai-manager import <provider> [--yes] [--json]         Save the current sign-in of a file provider
       ai-manager start-login [provider] [--yes] [--json]    Alias for add
+      ai-manager usage [provider|account-uuid] [--json] [--force]
+                                                            Limits for saved accounts (schema switch.limits.v1)
+      ai-manager guard --provider <id> [--account <uuid>] --min-remaining <0-100> [--window <id>] [--json] [--fail-open]
+                                                            Exit 0 allow, 1 block, 64 bad arguments, 69 unknown
       ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]
       ai-manager cancel-login <session-uuid> [--yes] [--json]
       ai-manager status [--json]                            Adopt first live account; list pending logins
@@ -935,9 +1105,12 @@ struct AIManagerCLI {
     AI_MANAGER_GROK_CREDENTIAL_STORE, AI_MANAGER_GROK_EXECUTABLE,
     AI_MANAGER_CLAUDE_EXECUTABLE.
 
-    Provider IDs: codex, grok-build, claude-code, gemini-cli, antigravity-cli.
+    Provider IDs: run providers. Every provider except these three takes typed credentials (add --field)
+    or the CLI's own sign-in (import, add).
     Codex CLI, Grok Build, and Claude Code are available in this release. Login sessions survive restarts;
     use status to recover their IDs, then check-login or cancel-login.
+    The Codex check in usage reuses cached limits unless --force is given.
+    usage exits 2 for bad arguments and 4 when every fetch failed. Secrets are never printed.
     """
 }
 
@@ -1004,6 +1177,8 @@ private struct TerminalMenu {
         mainActions: [TerminalMainAction],
         mainFocus: Int,
         accountActionFocus: Int,
+        accountActions: [TerminalAccountAction],
+        genericUsage: [UUID: GenericUsage],
         message: String?
     ) {
         var lines: [String] = []
@@ -1017,7 +1192,7 @@ private struct TerminalMenu {
             lines.append("")
             var accountIndex = 0
             for (groupIndex, group) in groups.enumerated() {
-                lines.append(accent(group.providerID.displayName))
+                lines.append(accent(AIManagerCLI.providerName(group.providerID)))
                 for account in group.accounts {
                     let marker = status.isDefault(account) ? "DEFAULT" : ""
                     let snapshot = usage[account.id].map(Self.usageView)
@@ -1027,7 +1202,9 @@ private struct TerminalMenu {
                     let label = account.identity.providerID == .codex
                         ? (amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
                             ?? "usage unavailable")
-                        : "Grok subscription"
+                        : account.identity.providerID.isGenericProvider
+                            ? genericSummary(genericUsage[account.id])
+                            : "Grok subscription"
                     let row = "  \(padded(Self.accountName(account.identity), to: 32))"
                         + "\(padded(marker, to: 10))\(label)"
                     lines.append(accountIndex == mainFocus ? selectedLine(row) : fitted(row))
@@ -1039,7 +1216,8 @@ private struct TerminalMenu {
                 lines.append("")
                 lines.append(contentsOf: detailLines(
                     account: account, usage: usage[account.id],
-                    dailyUsage: dailyUsage[account.id], tokenPeriod: tokenPeriod))
+                    dailyUsage: dailyUsage[account.id], tokenPeriod: tokenPeriod,
+                    genericUsage: genericUsage[account.id]))
             }
             lines.append("")
             lines.append("Actions")
@@ -1057,10 +1235,11 @@ private struct TerminalMenu {
             lines.append("")
             lines.append(contentsOf: detailLines(
                 account: account, usage: usage[account.id],
-                dailyUsage: dailyUsage[account.id], tokenPeriod: tokenPeriod))
+                dailyUsage: dailyUsage[account.id], tokenPeriod: tokenPeriod,
+                genericUsage: genericUsage[account.id]))
             lines.append("")
             lines.append("Actions")
-            for (index, action) in TerminalAccountAction.allCases.enumerated() {
+            for (index, action) in accountActions.enumerated() {
                 let row = "  " + Self.accountActionLabel(
                     action,
                     isDefault: status.isDefault(account),
@@ -1069,7 +1248,8 @@ private struct TerminalMenu {
             }
             if let message { lines.append(""); lines.append(accent(message)) }
             lines.append("")
-            lines.append(muted("↑↓ move   Enter run   w period   ←/Esc back"))
+            lines.append(muted(account.identity.providerID.isGenericProvider
+                ? "↑↓ move   Enter run   ←/Esc back" : "↑↓ move   Enter run   w period   ←/Esc back"))
         }
 
         if clearsScreen { print("\u{1B}[2J\u{1B}[H", terminator: "") }
@@ -1104,8 +1284,12 @@ private struct TerminalMenu {
         account: AccountRecord,
         usage: CodexAccountUsageSnapshot?,
         dailyUsage: [CodexDailyUsageSnapshot]?,
-        tokenPeriod: CodexTokenPeriod
+        tokenPeriod: CodexTokenPeriod,
+        genericUsage: GenericUsage?
     ) -> [String] {
+        if account.identity.providerID.isGenericProvider {
+            return genericDetailLines(genericUsage)
+        }
         if account.identity.providerID == .grokBuild {
             return [muted("Grok Build does not expose subscription limits here.")]
         }
@@ -1150,7 +1334,14 @@ private struct TerminalMenu {
         isDefault: Bool,
         providerID: ProviderID
     ) -> String {
-        switch action {
+        if providerID.isGenericProvider {
+            switch action {
+            case .setDefault: return isDefault ? "✓✓ Using as default" : "✓  Switch to this account"
+            case .refreshLimits: return "↻  Refresh usage"
+            default: break
+            }
+        }
+        return switch action {
         case .setDefault: isDefault ? "✓✓ Using as default" : "✓  Set as default"
         case .openCodex: "▶  Open \(providerID == .codex ? "Codex" : providerID.displayName)"
         case .refreshLimits: providerID == .codex ? "↻  Refresh limits" : "↻  Check account"
@@ -1184,6 +1375,63 @@ private struct TerminalMenu {
             + "\(padded("\(amount)%", to: 5))" + accent(meter)
     }
 
+    /// Row summary for a generic account: its first window, or why there is none.
+    private func genericSummary(_ usage: GenericUsage?) -> String {
+        switch usage {
+        case nil: return "usage not checked"
+        case .failed: return "usage unavailable"
+        case .loaded(let value):
+            guard let window = value.windows.first, let percent = shownShare(window) else {
+                return "no limit windows"
+            }
+            return "\(percent)% \(window.title.prefix(14)) \(showsUsed ? "used" : "left")"
+        }
+    }
+
+    private func shownShare(_ window: UsageWindow) -> Int? {
+        window.usedPercent.map { Int((showsUsed ? $0 : 100 - $0).rounded()) }
+    }
+
+    /// Windows as limit lines (name, bar, percent, reset), then money and detail rows.
+    private func genericDetailLines(_ usage: GenericUsage?) -> [String] {
+        guard let usage else { return [muted("Usage has not been checked.")] }
+        guard case .loaded(let value) = usage else {
+            if case .failed(let text) = usage { return [muted("Usage unavailable: \(text)")] }
+            return []
+        }
+        var lines: [String] = []
+        let identity = [value.plan, value.organization].compactMap { $0 }.joined(separator: " · ")
+        if !identity.isEmpty { lines.append("plan         : \(identity)") }
+        for window in value.windows {
+            let name = padded(String(window.title.prefix(16)), to: 16)
+            guard let amount = shownShare(window) else {
+                lines.append("\(name) : unavailable")
+                continue
+            }
+            let filled = min(24, max(0, Int((Double(amount) / 100 * 24).rounded())))
+            let meter = String(repeating: "█", count: filled) + String(repeating: "░", count: 24 - filled)
+            var row = "\(name) : \(padded("\(amount)% \(showsUsed ? "used" : "left")", to: 10))" + accent(meter)
+            if let reset = window.resetsAt { row += "  " + LimitFormat.resetLabel(until: reset) }
+            lines.append(row)
+            if let detail = window.detail { lines.append(muted("  " + String(detail.prefix(width - 2)))) }
+        }
+        if let cost = value.cost {
+            for row in LimitFormat.costRows(cost) {
+                lines.append("\(padded(row.label, to: 16)) : \(row.value)")
+            }
+        }
+        for section in value.sections {
+            if let title = section.title { lines.append(muted(title)) }
+            for row in section.rows {
+                lines.append("\(padded(String(row.label.prefix(16)), to: 16)) : \(row.value)")
+            }
+        }
+        if lines.isEmpty || lines.allSatisfy({ $0.hasPrefix("plan") }) {
+            lines.append(muted("The provider returned no limits."))
+        }
+        return lines
+    }
+
     private func displayedPercentage(_ used: Int?) -> Int? {
         used.map { value in
             let clamped = min(max(value, 0), 100)
@@ -1213,7 +1461,10 @@ private struct TerminalMenu {
     }
 
     private static func accountName(_ identity: AccountIdentity) -> String {
-        identity.email ?? identity.accountID ?? "Unresolved account"
+        // Saved API keys have no email; their index key is a hash, so a short prefix tells them apart.
+        identity.email ?? identity.accountID
+            ?? (identity.providerID.isGenericProvider ? identity.userID.map { "account \($0.prefix(8))" } : nil)
+            ?? "Unresolved account"
     }
 
     private static func timestamp(now: Date = Date()) -> String {
@@ -1224,14 +1475,7 @@ private struct TerminalMenu {
     }
 
     private static func resetLabel(until reset: Date, now: Date = Date()) -> String {
-        let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
-        if minutes == 0 { return reset > now ? "in <1m" : "now" }
-        let days = minutes / 1_440
-        let hours = (minutes % 1_440) / 60
-        let remainingMinutes = minutes % 60
-        if days > 0 { return "in \(days)d \(hours)h \(remainingMinutes)m" }
-        if hours > 0 { return "in \(hours)h \(remainingMinutes)m" }
-        return "in \(remainingMinutes)m"
+        LimitFormat.resetLabel(until: reset, now: now)
     }
 
 }
@@ -1328,6 +1572,70 @@ private final class TerminalInput {
                 return nil
             case .character:
                 break
+            }
+        }
+    }
+
+    /// A scrolling list with type-to-filter. Up and Down move, Backspace edits the filter,
+    /// Enter picks, Escape cancels. Returns the index into `options`.
+    func chooseFiltered(
+        _ prompt: String,
+        options: [String],
+        fallback: () -> Int?
+    ) -> Int? {
+        guard usesArrowNavigation, !options.isEmpty else { return fallback() }
+        let visibleRows = 8
+        var filter = ""
+        var position = 0
+        var drawn = 0
+        enableRaw()
+        defer { restore() }
+        func matches() -> [Int] {
+            filter.isEmpty ? Array(options.indices)
+                : options.indices.filter { options[$0].localizedCaseInsensitiveContains(filter) }
+        }
+        func erase() {
+            if drawn > 1 { print("\u{1B}[\(drawn - 1)A", terminator: "") }
+            print("\r\u{1B}[J", terminator: "")
+        }
+        while true {
+            let found = matches()
+            position = found.isEmpty ? 0 : min(max(0, position), found.count - 1)
+            let first = min(max(0, position - visibleRows / 2), max(0, found.count - visibleRows))
+            var lines = ["\(prompt): " + (filter.isEmpty ? "(type to filter)" : filter)]
+            for (row, optionIndex) in found.enumerated() where row >= first && row < first + visibleRows {
+                lines.append(row == position
+                    ? "\u{1B}[7m> \(options[optionIndex])\u{1B}[0m" : "  \(options[optionIndex])")
+            }
+            lines.append(found.isEmpty ? "No match" : "\(position + 1)/\(found.count)")
+            erase()
+            print(lines.joined(separator: "\n"), terminator: "")
+            drawn = lines.count
+            fflush(stdout)
+            guard let key = readKey() else { return nil }
+            switch key {
+            case .up: if !found.isEmpty { position = (position + found.count - 1) % found.count }
+            case .down: if !found.isEmpty { position = (position + 1) % found.count }
+            case .home: position = 0
+            case .end: position = max(0, found.count - 1)
+            case .left, .right: break
+            case .enter:
+                guard found.indices.contains(position) else { break }
+                erase()
+                print("\(prompt): \(options[found[position]])")
+                return found[position]
+            case .escape:
+                erase()
+                print("\(prompt): Cancelled")
+                return nil
+            case .character(let character):
+                if character == "\u{7F}" || character == "\u{08}" {
+                    filter = String(filter.dropLast())
+                    position = 0
+                } else if let ascii = character.asciiValue, ascii >= 32 {
+                    filter.append(character)
+                    position = 0
+                }
             }
         }
     }
@@ -1639,7 +1947,7 @@ struct CommandLineInput {
         var result: [String] = []; var skip = false
         for value in values.prefix(while: { $0 != "--" }) {
             if skip { skip = false; continue }
-            if ["--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement"].contains(value) { skip = true; continue }
+            if ["--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement", "--field", "--provider", "--account", "--min-remaining", "--window"].contains(value) { skip = true; continue }
             if value.hasPrefix("--") { continue }
             result.append(value)
         }
@@ -1673,6 +1981,7 @@ struct CommandLineInput {
     }
 
     func option(_ name: String) -> String? { Self.option(name, in: values) }
+    func optionValues(_ name: String) -> [String] { Self.options(name, in: values) }
 
     private static func option(_ name: String, in values: [String]) -> String? {
         guard let index = values.firstIndex(of: name), values.indices.contains(index + 1) else { return nil }
@@ -1685,9 +1994,11 @@ struct CommandLineInput {
 
 enum CLIError: LocalizedError {
     case message(String), confirmationRequired, cancelled
+    /// A message with its own process exit code.
+    case exit(Int32, String)
     var errorDescription: String? {
         switch self {
-        case .message(let value): value
+        case .message(let value), .exit(_, let value): value
         case .confirmationRequired: "This command can change account data. Review it, then repeat with --yes and any required choices."
         case .cancelled: "Cancelled. No changes were made."
         }
