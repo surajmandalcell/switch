@@ -68,7 +68,7 @@ enum OneConsole {
 
     static func double(_ value: Any?) -> Double? {
         switch value {
-        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID(): number.doubleValue
+        case let number as NSNumber where !JSON.isBoolean(number): number.doubleValue
         case let text as String: Double(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ""))
         default: nil
         }

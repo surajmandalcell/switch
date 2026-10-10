@@ -114,14 +114,8 @@ enum MistralUsage {
             rows.append(UsageRow("Period", "\(start) to \(end)"))
         }
         // API prices are tiny; keep up to 4 decimals like the Mistral dashboard.
-        let money = NumberFormatter()
-        money.numberStyle = .currency
-        money.currencyCode = currency
-        money.locale = Locale(identifier: "en_US")
-        money.minimumFractionDigits = 2
-        money.maximumFractionDigits = 4
         func describe(_ tally: Tally) -> String {
-            let cost = money.string(from: NSNumber(value: tally.cost)) ?? Fmt.money(tally.cost, currency: currency)
+            let cost = Fmt.money(tally.cost, currency: currency, fractionDigits: 4)
             return tally.tokens > 0 ? "\(cost) \u{B7} \(Fmt.number(tally.tokens)) tokens" : cost
         }
         func sum(_ models: [String: Tally]) -> Tally {

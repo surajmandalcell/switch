@@ -609,16 +609,29 @@ public struct JSON: @unchecked Sendable {
     }
 
     public var exists: Bool { raw != nil }
+
+    /// True for a decoded JSON boolean. Darwin bridges NSNumber 0 and 1 to Bool, so it checks the
+    /// CoreFoundation type; Linux Foundation decodes booleans as Swift Bool values.
+    public static func isBoolean(_ value: Any?) -> Bool {
+#if canImport(Darwin)
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
+#else
+        if let number = value as? NSNumber { return String(cString: number.objCType) == "c" }
+        return value is Bool
+#endif
+    }
+
     public var string: String? {
         switch raw {
         case let value as String: value.isEmpty ? nil : value
-        case let value as NSNumber where !(raw is Bool): value.stringValue
+        case let value as NSNumber where !JSON.isBoolean(raw): value.stringValue
         default: nil
         }
     }
     public var double: Double? {
         switch raw {
-        case let value as NSNumber where CFGetTypeID(value) != CFBooleanGetTypeID(): value.doubleValue
+        case let value as NSNumber where !JSON.isBoolean(raw): value.doubleValue
         case let value as String: Double(value.trimmingCharacters(in: .whitespaces))
         default: nil
         }
@@ -649,14 +662,25 @@ public enum Fmt {
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 
-    public static func money(_ value: Double, currency: String = "USD") -> String {
+    /// Money in en_US style. Sub-cent amounts keep up to 4 decimals so "$0.0042" does not read
+    /// as "$0.00"; `fractionDigits` raises the limit for any amount.
+    public static func money(_ value: Double, currency: String = "USD", fractionDigits: Int? = nil) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
         formatter.locale = Locale(identifier: "en_US")
-        // Sub-cent amounts keep up to 4 decimals so "$0.0042" does not read as "$0.00".
-        if value != 0, abs(value) < 0.01 { formatter.maximumFractionDigits = 4 }
-        return formatter.string(from: NSNumber(value: value)) ?? "\(currency) \(value)"
+        let digits = fractionDigits ?? (value != 0 && abs(value) < 0.01 ? 4 : 2)
+        guard digits > 2 else {
+            return formatter.string(from: NSNumber(value: value)) ?? "\(currency) \(value)"
+        }
+        // Linux Foundation caps fraction digits on its number formatters, so round with printf
+        // and group only the whole part.
+        let fixed = String(format: "%.\(digits)f", abs(value))
+        let parts = fixed.split(separator: ".", maxSplits: 1)
+        let whole = Double(parts[0]).map { number($0) } ?? String(parts[0])
+        var fraction = parts.count > 1 ? String(parts[1]) : ""
+        while fraction.count > 2, fraction.hasSuffix("0") { fraction.removeLast() }
+        return (value < 0 ? "-" : "") + formatter.currencySymbol + whole + "." + fraction
     }
 
     public static func percent(_ used: Double, of limit: Double) -> Double? {
@@ -666,7 +690,7 @@ public enum Fmt {
 
     public static func date(_ raw: Any?) -> Date? {
         switch raw {
-        case let value as NSNumber where CFGetTypeID(value) != CFBooleanGetTypeID():
+        case let value as NSNumber where !JSON.isBoolean(raw):
             return epoch(value.doubleValue)
         case let value as String:
             if let number = Double(value) { return epoch(number) }

@@ -335,30 +335,38 @@ enum ClaudeUsage {
             .trimmingCharacters(in: .whitespaces)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = zone
-        // A leap year default keeps Feb 29 parseable.
-        formatter.defaultDate = calendar.date(from: DateComponents(year: 2000, month: 1, day: 1))
-        func parse(_ prefixes: [String]) -> Date? {
-            for prefix in prefixes {
-                for time in ["h:mma", "h:mm a", "ha", "h a", "HH:mm"] {
-                    formatter.dateFormat = prefix + time
-                    if let date = formatter.date(from: text) { return date }
-                }
+        // Parsed by hand: DateFormatter with a named zone traps in Linux Foundation.
+        // Accepts "5am", "5:30 pm", "17:00", "Oct 11 1:30am", and "Dec 2, 2026, 5am".
+        let pattern = #"^(?:([A-Za-z]{3})\s+(\d{1,2})(?:,?\s+(\d{4}))?,?\s+)?(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?$"#
+        guard let match = try? NSRegularExpression(pattern: pattern)
+            .firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+        func group(_ index: Int) -> String? {
+            Range(match.range(at: index), in: text).map { String(text[$0]) }
+        }
+        let months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        guard var hour = group(4).flatMap({ Int($0) }) else { return nil }
+        let minute = group(5).flatMap { Int($0) }
+        if let meridiem = group(6)?.lowercased() {
+            guard (1...12).contains(hour) else { return nil }
+            hour = hour % 12 + (meridiem == "pm" ? 12 : 0)
+        } else {
+            guard minute != nil, (0...23).contains(hour) else { return nil } // 24-hour times carry minutes
+        }
+        guard (0...59).contains(minute ?? 0) else { return nil }
+        var parts = DateComponents(hour: hour, minute: minute ?? 0)
+        if let name = group(1)?.lowercased() {
+            guard let month = months.firstIndex(of: name), let day = group(2).flatMap({ Int($0) }) else { return nil }
+            parts.month = month + 1
+            parts.day = day
+            if let year = group(3).flatMap({ Int($0) }) {
+                parts.year = year
+                return calendar.date(from: parts)
             }
-            return nil
+            // Yearless forms resolve to the next time that matches, allowing a reset that just passed.
+            return calendar.nextDate(after: now.addingTimeInterval(-12 * 3600), matching: parts,
+                                     matchingPolicy: .nextTime)
         }
-        if let date = parse(["MMM d, yyyy, ", "MMM d, yyyy ", "MMM d yyyy "]) { return date }
-        // Yearless forms resolve to the next time that matches, allowing a reset that just passed.
-        let earliest = now.addingTimeInterval(-12 * 3600)
-        if let date = parse(["MMM d, ", "MMM d "]) {
-            return calendar.nextDate(after: earliest, matching: calendar.dateComponents(
-                [.month, .day, .hour, .minute], from: date), matchingPolicy: .nextTime)
-        }
-        guard let date = parse([""]) else { return nil }
-        return calendar.nextDate(after: now, matching: calendar.dateComponents([.hour, .minute], from: date),
-                                 matchingPolicy: .nextTime)
+        return calendar.nextDate(after: now, matching: parts, matchingPolicy: .nextTime)
     }
 }
 

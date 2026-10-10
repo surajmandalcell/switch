@@ -58,9 +58,14 @@ enum WayfinderUsage {
                 let dollars = savings["priced"].bool == true ? (saved < 0.01 ? "<$0.01" : Fmt.money(saved)) : nil
                 rows.append(UsageRow("Saved (30d)", [dollars, percent].compactMap { $0 }.joined(separator: ", ")))
             }
-            let routes = savings["by_route"].object.map { ($0.key, $0.value["requests"].double ?? 0) }
-                .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }.prefix(5)
-            rows += routes.map { UsageRow($0.0, Fmt.number($0.1)) }
+            // Explicit types keep the Linux type checker within its time limit.
+            let counts: [(name: String, requests: Double)] = savings["by_route"].object.map {
+                (name: $0.key, requests: $0.value["requests"].double ?? 0)
+            }
+            let routes = counts.sorted { (a, b) -> Bool in
+                a.requests != b.requests ? a.requests > b.requests : a.name < b.name
+            }.prefix(5)
+            rows += routes.map { UsageRow($0.name, Fmt.number($0.requests)) }
             sections.append(UsageSection("Routes (30d)", rows))
         }
         return ProviderUsage(sections: sections, plan: label, organization: "\(modelCount) model\(modelCount == 1 ? "" : "s") · local gateway")

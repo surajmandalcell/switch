@@ -58,7 +58,7 @@ public struct ModelRate: Codable, Equatable, Sendable {
         guard data.count <= 32 * 1_024 * 1_024,
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
         func rate(_ entry: [String: Any], _ key: String) -> Double? {
-            guard let number = entry[key] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            guard let number = entry[key] as? NSNumber, !JSON.isBoolean(entry[key]) else { return nil }
             let value = number.doubleValue * 1_000_000
             return value.isFinite && value >= 0 ? value : nil
         }
