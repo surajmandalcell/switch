@@ -22,6 +22,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   private let minimizeWindow: () -> Void
   private let presentWindow: () -> Void
   private let canChangeAccounts: () -> Bool
+  private let refreshNow: () -> Void
 
   init(
     applicationName: String,
@@ -30,8 +31,10 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
     closeWindow: @escaping () -> Void,
     minimizeWindow: @escaping () -> Void,
     presentWindow: @escaping () -> Void,
-    canChangeAccounts: @escaping () -> Bool
+    canChangeAccounts: @escaping () -> Bool,
+    refreshNow: @escaping () -> Void = {}
   ) {
+    self.refreshNow = refreshNow
     self.applicationName = applicationName
     self.addAccount = addAccount
     self.advancedImport = advancedImport
@@ -65,6 +68,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   @objc func showCleanup(_ sender: Any?) { navigate(to: .cleanup) }
   @objc func performAddAccount(_ sender: Any?) { addAccount() }
   @objc func performAdvancedImport(_ sender: Any?) { advancedImport() }
+  @objc func performRefresh(_ sender: Any?) { refreshNow() }
   @objc func performClose(_ sender: Any?) { closeWindow() }
   @objc func performMinimize(_ sender: Any?) { minimizeWindow() }
 
@@ -130,6 +134,8 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
 
   private func viewItems() -> [NSMenuItem] {
     [
+      item("Refresh Usage", #selector(performRefresh(_:)), key: "r", target: self),
+      .separator(),
       item("Accounts", #selector(showAccounts(_:)), key: "1", target: self),
       item("Backup", #selector(showBackup(_:)), key: "2", target: self),
       item("Chat History", #selector(showChatHistory(_:)), key: "3", target: self),

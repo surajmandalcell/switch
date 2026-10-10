@@ -905,6 +905,182 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// Counts View > Refresh Usage dispatches from the acceptance menu.
+  @MainActor static var menuRefreshCalls = 0
+
+  /// Reset display, hidden usage rows, the global shortcut, signed-in detection, Command-R, the
+  /// status item menu, and Reset settings.
+  @MainActor static func appFeatureFailures() async -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    func fits(_ view: some View, width: CGFloat = 840, height: CGFloat = 1_800) -> NSHostingView<AnyView> {
+      let host = NSHostingView(rootView: AnyView(view.environment(\.aimDarkMode, false)
+        .frame(width: width, height: height)))
+      host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+      host.layoutSubtreeIfNeeded()
+      return host
+    }
+    let suite = "switch-app-features-\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suite) else { return ["Feature test store is unavailable"] }
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    // Reset display: countdown by default, exact time with a 12 or 24 hour clock.
+    expect(!ResetDisplay.isExact(defaults: defaults) && ResetDisplay.hourFormat(defaults: defaults) == .auto,
+      "Reset times are not a countdown with an automatic clock by default")
+    let utc = TimeZone(identifier: "UTC")!
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = utc
+    let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 10, hour: 15, minute: 25))!
+    let sameDay = calendar.date(from: DateComponents(year: 2026, month: 10, day: 10, hour: 17, minute: 30))!
+    let nextDay = calendar.date(from: DateComponents(year: 2026, month: 10, day: 11, hour: 9, minute: 5))!
+    let inThreeDays = calendar.date(from: DateComponents(year: 2026, month: 10, day: 13, hour: 0, minute: 0))!
+    let nextMonth = calendar.date(from: DateComponents(year: 2026, month: 10, day: 20, hour: 23, minute: 45))!
+    func exact(_ date: Date, _ format: HourFormat) -> String {
+      ResetDisplay.exactText(date, now: now, hourFormat: format, timeZone: utc)
+    }
+    expect(exact(sameDay, .twelve) == "Resets 5:30 PM", "12-hour exact reset reads \(exact(sameDay, .twelve))")
+    expect(exact(sameDay, .twentyFour) == "Resets 17:30", "24-hour exact reset reads \(exact(sameDay, .twentyFour))")
+    expect(exact(nextDay, .twelve) == "Resets tomorrow 9:05 AM", "Tomorrow reset reads \(exact(nextDay, .twelve))")
+    expect(exact(inThreeDays, .twentyFour) == "Resets Tue 00:00", "Weekday reset reads \(exact(inThreeDays, .twentyFour))")
+    expect(exact(nextMonth, .twelve) == "Resets Oct 20, 11:45 PM", "Distant reset reads \(exact(nextMonth, .twelve))")
+    expect(exact(now.addingTimeInterval(-5), .twelve) == "Resets now", "A passed reset is not Resets now")
+    expect(UsageResetLabel.text(until: sameDay, now: now, exact: false) == "Resets in 2h 5m",
+      "The countdown changed")
+    expect(UsageResetLabel.text(until: sameDay, now: now, exact: true, hourFormat: .twentyFour)
+      .hasPrefix("Resets ") && UsageResetLabel.text(until: sameDay, now: now, exact: true) != "Resets in 2h 5m",
+      "UsageResetLabel ignores the exact choice")
+    defaults.set(true, forKey: ResetDisplay.exactKey)
+    defaults.set("24h", forKey: ResetDisplay.hourFormatKey)
+    expect(ResetDisplay.isExact(defaults: defaults) && ResetDisplay.hourFormat(defaults: defaults) == .twentyFour,
+      "Reset display choices are not read back")
+    expect(HourFormat.allCases.map(\.label) == ["Auto", "12-hour", "24-hour"], "Hour format labels changed")
+    // Every reset text shares one switch.
+    let resetHost = fits(ResetTimeText(reset: sameDay, now: now), width: 300, height: 40)
+    expect(resetHost.fittingSize.width > 0, "ResetTimeText collapsed")
+    UserDefaults.standard.removeObject(forKey: ResetDisplay.exactKey)
+    let before = UsageResetLabel.text(until: sameDay, now: now)
+    UserDefaults.standard.set(true, forKey: ResetDisplay.exactKey)
+    let after = UsageResetLabel.text(until: sameDay, now: now)
+    UserDefaults.standard.removeObject(forKey: ResetDisplay.exactKey)
+    expect(before == "Resets in 2h 5m" && after != before, "The shared reset preference does not reach UsageResetLabel")
+
+    // Hidden usage rows persist per account and leave the other accounts alone.
+    let first = UUID(), second = UUID()
+    let windows = [UsageWindow(id: "a", title: "A", usedPercent: 10), UsageWindow(id: "b", title: "B", usedPercent: 20),
+                   UsageWindow(id: "c", title: "C", usedPercent: 30)]
+    defaults.set(HiddenUsageRows.encode(["b"]), forKey: HiddenUsageRows.key(for: first))
+    expect(HiddenUsageRows.hidden(for: first, defaults: defaults) == ["b"]
+      && HiddenUsageRows.hidden(for: second, defaults: defaults).isEmpty, "Hidden rows are not stored per account")
+    expect(HiddenUsageRows.visible(windows, hidden: ["b"], id: \.id).map(\.id) == ["a", "c"], "Hide keeps the row")
+    expect(HiddenUsageRows.applying(to: ProviderUsage(windows: windows), for: first, defaults: defaults)
+      .windows.map(\.id) == ["a", "c"]
+      && HiddenUsageRows.applying(to: ProviderUsage(windows: windows), for: second, defaults: defaults)
+        .windows.count == 3, "Menu usage ignores hidden rows or hides another account's rows")
+    expect(HiddenUsageRows.parse(HiddenUsageRows.encode(["x", "y"])) == ["x", "y"], "Hidden row encoding is lossy")
+    expect(HiddenUsageRowsNote.text(count: 1) == "1 hidden row" && HiddenUsageRowsNote.text(count: 2) == "2 hidden rows",
+      "Hidden rows note wording changed")
+    let demo = AccountViewModel(scenario: .demo)
+    if let gemini = demo.status?.accounts.first(where: { $0.identity.providerID == .geminiCLI }) {
+      let key = HiddenUsageRows.key(for: gemini.id)
+      let panelHeight = { (hidden: String) -> CGFloat in
+        UserDefaults.standard.set(hidden, forKey: key)
+        let host = NSHostingView(rootView: ProviderUsagePanel(account: gemini, model: demo)
+          .environment(\.aimDarkMode, false).frame(width: 840))
+        host.frame = NSRect(x: 0, y: 0, width: 840, height: 1_200)
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
+      }
+      let ids = demo.providerUsage[gemini.id]?.usage?.windows.map(\.id) ?? []
+      let full = panelHeight("")
+      let trimmed = panelHeight(HiddenUsageRows.encode(Set(ids)))
+      UserDefaults.standard.removeObject(forKey: key)
+      expect(ids.count >= 1 && trimmed != full, "Hiding every usage row does not change the Usage panel")
+    } else { failures.append("Demo lacks the Gemini CLI account for hidden rows") }
+
+    // Global shortcut: Carbon registration, validation, storage, recorder.
+    let combo = ShortcutCombo(keyCode: 1, flags: [.control, .option])
+    expect(combo.display == "⌃⌥S" && combo.isValid, "Shortcut display reads \(combo.display)")
+    expect(!ShortcutCombo(keyCode: 1, flags: [.shift]).isValid && !ShortcutCombo(keyCode: 1, flags: []).isValid,
+      "A shortcut without Command, Option, or Control is valid")
+    expect(ShortcutCombo(keyCode: 49, flags: [.command, .shift]).display == "⇧⌘Space", "Modifier order is wrong")
+    GlobalShortcutPreferences.save(combo, defaults: defaults)
+    expect(GlobalShortcutPreferences.load(defaults: defaults) == combo, "A saved shortcut is not read back")
+    GlobalShortcutPreferences.save(ShortcutCombo(keyCode: 1, flags: [.shift]), defaults: defaults)
+    expect(GlobalShortcutPreferences.load(defaults: defaults) == nil, "An invalid shortcut was stored")
+    let registrar = GlobalShortcut.shared
+    expect(registrar.registered == nil, "A shortcut is registered by default")
+    let probe = ShortcutCombo(keyCode: 0x50, flags: [.control, .option, .command])  // F19
+    expect(registrar.apply(probe) && registrar.registered == probe, "Carbon refused a free shortcut")
+    expect(registrar.apply(nil) && registrar.registered == nil, "Clearing the shortcut did not unregister it")
+    expect(fits(ShortcutRecorder(), width: 400, height: 60).fittingSize.width > 0, "Shortcut recorder collapsed")
+
+    // Add Account marks providers already signed in on this Mac and sorts them first.
+    let descriptors = demo.providers
+    let live: Set<ProviderID> = [.geminiCLI, ProviderID(rawValue: "cursor")]
+    let plain = ProviderChoices.all(descriptors: descriptors)
+    let marked = ProviderChoices.all(descriptors: descriptors, signedIn: live)
+    expect(plain.allSatisfy { !$0.signedInOnThisMac }, "Providers are marked signed in with no detection")
+    expect(Array(marked.prefix(3).map(\.id)) == [.codex, .grokBuild, .claudeCode]
+      && Set(marked.dropFirst(3).prefix(2).map(\.id)) == live
+      && marked.dropFirst(3).prefix(2).allSatisfy(\.signedInOnThisMac)
+      && marked.dropFirst(5).allSatisfy { !$0.signedInOnThisMac }
+      && marked.count == plain.count, "Signed-in providers do not sort first under the built-ins")
+    let tail = marked.dropFirst(5).map(\.name)
+    expect(tail == tail.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending },
+      "Providers that are not signed in lost their alphabetical order")
+    await demo.detectSignedInProviders()
+    expect(demo.signedInProviderIDs == live.union([ProviderID(rawValue: "kilo")]),
+      "Preview detection found \(demo.signedInProviderIDs.map(\.rawValue).sorted())")
+    expect(ProviderChoices.signedInLabel == "Signed in on this Mac", "The signed-in label changed")
+    expect(fits(ProviderChooserPage(model: demo, step: 1) {}, width: 780, height: 560).fittingSize.height > 0,
+      "Add Account provider list collapsed with signed-in marks")
+
+    // Command-R: View > Refresh Usage.
+    if let item = NSApp.mainMenu?.item(withTitle: "View")?.submenu?.item(withTitle: "Refresh Usage"),
+       let action = item.action {
+      expect(item.keyEquivalent == "r" && item.keyEquivalentModifierMask == .command, "Refresh Usage is not Command-R")
+      let calls = menuRefreshCalls
+      _ = NSApp.sendAction(action, to: item.target, from: item)
+      expect(menuRefreshCalls == calls + 1, "Command-R did not run the refresh action")
+    } else { failures.append("View > Refresh Usage is missing") }
+
+    // Status item right-click menu.
+    let statusController = AIManagerStatusItemController(
+      snapshot: MenuBarPopoverPreviewData.snapshot,
+      defaults: defaults,
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
+    let titles = statusController.makeContextMenu().items.filter { !$0.isSeparatorItem }.map(\.title)
+    expect(titles.count == 4 && titles[1] == "Refresh Usage" && titles[2] == "Settings…"
+      && titles[3].hasPrefix("Quit "), "Status item menu is \(titles)")
+    expect(statusController.usesPopover, "The status item keeps its context menu after setup")
+
+    // Refresh on open is off by default; Reset settings restores every default.
+    expect(!PopoverRefreshPreference.isEnabled(defaults: defaults), "Refresh when the menu opens is on by default")
+    let uuid = UUID()
+    defaults.set(true, forKey: ResetDisplay.exactKey)
+    defaults.set(true, forKey: PopoverRefreshPreference.key)
+    defaults.set(true, forKey: QuotaNotificationSettings.almostOutKey)
+    defaults.set(false, forKey: MenuBarUsagePreferences.overrideKey(for: uuid))
+    defaults.set("x", forKey: HiddenUsageRows.key(for: uuid))
+    defaults.set("keep", forKey: "Switch.mainWindowPlacement.v1")
+    SettingsReset.reset(defaults: defaults)
+    expect(!ResetDisplay.isExact(defaults: defaults) && !PopoverRefreshPreference.isEnabled(defaults: defaults)
+      && !defaults.bool(forKey: QuotaNotificationSettings.almostOutKey)
+      && MenuBarUsagePreferences.explicitValue(for: uuid, defaults: defaults) == nil
+      && HiddenUsageRows.hidden(for: uuid, defaults: defaults).isEmpty
+      && GlobalShortcutPreferences.load(defaults: defaults) == nil,
+      "Reset settings left a preference behind")
+    expect(defaults.string(forKey: "Switch.mainWindowPlacement.v1") == "keep", "Reset settings cleared window placement")
+    let settings = fits(SettingsPage(model: demo, showFocusIndicators: .constant(false)))
+    expect(settings.fittingSize.height > 0, "Settings collapsed with the new rows")
+    expect(SettingsCopy.resetTimes == "Reset times" && SettingsCopy.menuShortcut == "Menu shortcut"
+      && SettingsCopy.refreshOnOpen == "Refresh when the menu opens" && SettingsCopy.resetSettings == "Reset settings",
+      "A new Settings row title changed")
+    return failures
+  }
+
   static func menuBarRefreshFailures() async -> [String] {
     var calls = 0
     var wasBusy = false

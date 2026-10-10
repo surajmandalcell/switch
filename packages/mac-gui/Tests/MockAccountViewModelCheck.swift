@@ -196,6 +196,9 @@ struct MockAccountViewModelCheck {
         precondition(model.accountLoginState == .completed)
         precondition(model.providerUsage[model.selectedAccountID!]?.usage != nil)
         precondition(model.status!.defaultAccountID(for: groq) == model.selectedAccountID)
+        await model.detectSignedInProviders()
+        precondition(model.signedInProviderIDs == [.geminiCLI, ProviderID(rawValue: "cursor"), ProviderID(rawValue: "kilo")],
+            "Preview detection of signed-in providers changed")
         let liveGemini = await model.liveProviderIdentity(.geminiCLI)
         precondition(liveGemini?.email == "ada.lovelace@example.test")
         let importedGemini = await model.importLiveProviderAccount(providerID: .geminiCLI)

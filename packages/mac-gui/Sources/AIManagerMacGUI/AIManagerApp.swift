@@ -52,21 +52,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     guard let self else { throw MenuBarActionError.appUnavailable }
                     try await self.switchAccountFromMenuBar(accountID)
                 },
-                refreshUsage: { [weak self] in
-                    guard let self else { return }
-                    let accounts = self.model.status?.accounts.filter {
-                        MenuBarUsagePreferences.showsUsage(for: $0.id)
-                    } ?? []
-                    for account in accounts where account.identity.providerID == .codex {
-                        await self.model.refreshUsage(accountID: account.id)
-                    }
-                    await self.model.refreshProviderUsage(accountIDs: accounts.filter {
-                        $0.identity.providerID != .codex
-                            && ProviderCatalog.spec($0.identity.providerID) != nil
-                    }.map(\.id))
-                }
+                refreshUsage: { [weak self] in await self?.refreshEnabledUsage() },
+                openSettings: { [weak self] in self?.menuController?.showSettings(nil) }
             ))
         self.statusItemController = statusItemController
+        GlobalShortcut.shared.onTrigger = { [weak statusItemController] in
+            statusItemController?.togglePopoverFromShortcut()
+        }
+        GlobalShortcut.shared.apply(GlobalShortcutPreferences.load())
         applyAppearance()
         appearanceObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -164,7 +157,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 AIManagerWindowBehavior.minimize(self?.windowController?.window)
             },
             presentWindow: { [weak self] in self?.windowController?.present() },
-            canChangeAccounts: { [weak self] in self?.model.isBusy == false }
+            canChangeAccounts: { [weak self] in self?.model.isBusy == false },
+            refreshNow: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if !self.model.isBusy { await self.model.refresh() }
+                    await self.refreshEnabledUsage()
+                }
+            }
         )
         self.menuController = menuController
         menuController.install()
@@ -191,6 +191,20 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         if let appearanceObserver {
             NotificationCenter.default.removeObserver(appearanceObserver)
         }
+    }
+
+    /// The popover's refresh: usage for every account that shows in the menu bar.
+    private func refreshEnabledUsage() async {
+        let accounts = model.status?.accounts.filter {
+            MenuBarUsagePreferences.showsUsage(for: $0.id)
+        } ?? []
+        for account in accounts where account.identity.providerID == .codex {
+            await model.refreshUsage(accountID: account.id)
+        }
+        await model.refreshProviderUsage(accountIDs: accounts.filter {
+            $0.identity.providerID != .codex
+                && ProviderCatalog.spec($0.identity.providerID) != nil
+        }.map(\.id))
     }
 
     private func advancedImport() {
@@ -266,7 +280,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                         apiPrice: apiPrice)
                 } else if let providerUsage = state?.usage, state?.needsSignIn != true,
                           account.verification.state != .needsSignIn {
-                    usage = MenuBarUsageSnapshot(providerUsage: providerUsage)
+                    usage = MenuBarUsageSnapshot(
+                        providerUsage: HiddenUsageRows.applying(to: providerUsage, for: account.id))
                 } else {
                     usage = nil
                 }

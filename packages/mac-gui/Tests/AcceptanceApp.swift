@@ -160,7 +160,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 AIManagerWindowBehavior.minimize(self?.windowController?.window)
             },
             presentWindow: { [weak self] in self?.windowController?.present() },
-            canChangeAccounts: { [weak self] in self?.model.isBusy == false }
+            canChangeAccounts: { [weak self] in self?.model.isBusy == false },
+            refreshNow: { AIManagerNativeContract.menuRefreshCalls += 1 }
         )
         self.menuController = menuController
         menuController.install()
@@ -190,7 +191,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 switchAccount: { [weak self] accountID in
                     guard let self else { return }
                     await self.model.switchDefault(to: accountID)
-                }
+                },
+                openSettings: { [weak self] in self?.menuController?.showSettings(nil) }
             ))
         self.statusItemController = statusItemController
         if let appearance = AcceptanceConfiguration.appearance {
@@ -233,6 +235,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.hoverFeedbackFailures())
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
+            menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.appFeatureFailures())
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)

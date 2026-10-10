@@ -125,6 +125,17 @@ opens Settings. Settings contains only:
    Body translucency is adjustable from 0% to 50%, initially 25% (75% opacity),
    and applies to the entire content area and its page titlebar without fading text or
    controls. Reduce Transparency makes these surfaces opaque. The rail stays distinct.
+   **Reset times** (Countdown, the default, or Exact time) and **Time format** (Auto, 12-hour,
+   24-hour) set how every reset text reads, such as "Resets in 2h 5m" or "Resets 5:30 PM"
+   ("tomorrow", a weekday, or a date when it is not today). Clicking any reset text switches the
+   same choice everywhere; hovering shows the other format. Clicking a usage percentage such as
+   "52% left" switches Show percentage used the same way. **Menu shortcut** records a global
+   shortcut (Command, Option, or Control plus a key; Delete clears) that opens or closes the
+   menu popover from anywhere; it is off by default (Carbon hot key, no dependency).
+   **Refresh when the menu opens** is off by default.
+   **Reset settings** (own panel, behind a confirmation) returns every Settings choice, the
+   per-account Menubar and hidden-row choices, and the shortcut to their defaults; accounts,
+   saved sign-ins, window placement, and Open at Login stay.
 2. **Data locations** — Codex home and vault (`~/.codex`, `~/.switch/codex`) plus
    Grok Build home and vault (`~/.grok`, `~/.switch/grok-build`), each with a
    plain-language purpose and an explicit Reveal action.
@@ -193,7 +204,13 @@ shows every window as the standard meter with a reset countdown and the OpenUsag
 verdict (blue ahead, yellow close, red running out, with an even-pace tick), then money
 and short detail rows. Their menu cards show the first two windows, or one balance line
 when the provider returns only money. Add Account lists Codex CLI, Grok Build, and Claude
-Code first, then every other provider alphabetically, with a search field. The Claude
+Code first, then every other provider alphabetically, with a search field. When the page opens,
+Switch reads (off the main actor, read-only) which file-based providers already have a login on
+this Mac. Those rows show "Signed in on this Mac" and sort directly after the three built-ins.
+Right-click a usage window row for Hide this row, Show all hidden rows, and Refresh usage; hidden
+rows are stored per account, leave the detail page and menu card, and return with Show all.
+Command-R (View > Refresh Usage, and in the popover) refreshes now. Right-clicking the status
+item opens a menu with Open, Refresh Usage, Settings, and Quit. The Claude
 account page also shows Claude Code activity for all profiles from the local transcripts,
 priced as an API-equivalent estimate.
 

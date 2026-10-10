@@ -354,9 +354,48 @@ final class AIManagerStatusItemController: NSObject {
     button.image = AIManagerBrand.trayImage(in: bundle)
     button.imagePosition = .imageOnly
     button.target = self
-    button.action = #selector(togglePopover)
-    button.sendAction(on: [.leftMouseUp])
+    button.action = #selector(statusItemClicked)
+    button.sendAction(on: [.leftMouseUp, .rightMouseUp])
   }
+
+  /// Right-click menu of the status item: open the app, refresh, Settings, Quit.
+  func makeContextMenu() -> NSMenu {
+    let name = AIManagerBrand.bundleDisplayName(in: bundle)
+    let menu = NSMenu(title: name)
+    let items: [(String, Selector, String)] = [
+      ("Open \(name)", #selector(contextOpen), ""),
+      ("Refresh Usage", #selector(contextRefresh), ""),
+      ("Settings…", #selector(contextSettings), ","),
+    ]
+    for (title, action, key) in items {
+      let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+      item.target = self
+      menu.addItem(item)
+    }
+    menu.addItem(.separator())
+    menu.addItem(NSMenuItem(
+      title: "Quit \(name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    return menu
+  }
+
+  @objc private func contextOpen() { store.openMainWindow() }
+  @objc private func contextRefresh() { Task { await store.refreshUsage() } }
+  @objc private func contextSettings() { store.actions.openSettings() }
+
+  @objc private func statusItemClicked() {
+    guard NSApp.currentEvent?.type == .rightMouseUp else {
+      togglePopover()
+      return
+    }
+    if popover.isShown { closePopover() }
+    // A menu on the item makes the next click open it; remove it again right away.
+    statusItem.menu = makeContextMenu()
+    statusItem.button?.performClick(nil)
+    statusItem.menu = nil
+  }
+
+  /// The global shortcut opens or closes the popover like a click on the status item.
+  func togglePopoverFromShortcut() { togglePopover() }
 
   private func updateStatusLabel(_ snapshot: MenuBarSnapshot) {
     guard let button = statusItem.button else { return }
@@ -395,6 +434,7 @@ final class AIManagerStatusItemController: NSObject {
     resizePopover()
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     resizePopover()
+    if PopoverRefreshPreference.isEnabled(defaults: defaults) { Task { await store.refreshUsage() } }
   }
 
   private func closePopover() {
