@@ -50,11 +50,25 @@ enum KiloUsage {
         var total = blockList.reduce(0) { $0 + ($1["amount_mUsd"].double ?? 0) } / 1e6
         var remaining = blockList.reduce(0) { $0 + ($1["balance_mUsd"].double ?? 0) } / 1e6
         if blockList.isEmpty { (total, remaining) = (balance / 1e6, balance / 1e6) }
+        // Older replies carry plain used / total / remaining fields instead of micro-dollar blocks.
+        func plain(_ keys: [String]) -> Double? { keys.lazy.compactMap { blocks[$0].double }.first }
+        if blockList.isEmpty, blocks["totalBalance_mUsd"].double == nil {
+            let spent = plain(["used", "usedCredits", "creditsUsed", "consumed", "spent"])
+            let cap = plain(["total", "totalCredits", "creditsTotal", "limit"])
+            let left = plain(["remaining", "remainingCredits", "creditsRemaining"])
+            if let cap = cap ?? ((spent != nil && left != nil) ? spent! + left! : nil) {
+                (total, remaining) = (cap, left ?? max(0, cap - (spent ?? 0)))
+            }
+        }
         let used = max(0, total - remaining)
         windows.append(UsageWindow(id: "credits", title: "Credits", usedPercent: total > 0 ? used / total * 100 : 100,
                                    detail: "\(Fmt.number(used, digits: 2)) / \(Fmt.number(total, digits: 2)) credits"))
         var plan: String?
-        if let pass = try? data(1)["subscription"], pass.exists {
+        // The pass may sit under "subscription" or be the reply itself.
+        let passReply = try? data(1)
+        let passShape = ["currentPeriodUsageUsd", "currentPeriodBaseCreditsUsd", "currentPeriodBonusCreditsUsd", "tier"]
+            .contains { passReply?[$0].exists == true }
+        if let pass = passReply.map({ $0["subscription"].exists ? $0["subscription"] : (passShape ? $0 : JSON(nil)) }), pass.exists {
             let base = pass["currentPeriodBaseCreditsUsd"].double ?? 0
             let bonus = pass["currentPeriodBonusCreditsUsd"].double ?? 0
             let spent = pass["currentPeriodUsageUsd"].double ?? 0
@@ -66,9 +80,18 @@ enum KiloUsage {
             plan = pass["tier"].string.map { tiers[$0] ?? $0 } ?? "Kilo Pass"
         }
         var rows: [UsageRow] = []
-        if let topUp = try? data(2), let enabled = topUp["enabled"].bool {
-            rows.append(UsageRow("Auto top-up", enabled ? (topUp["amountCents"].double.map { Fmt.money($0 / 100) } ?? "On") : "Off"))
+        if let topUp = try? data(2) {
+            let status = ["status"].lazy.compactMap { topUp[$0].string?.lowercased() }.first
+            let enabled = ["enabled", "isEnabled", "active"].lazy.compactMap { topUp[$0].bool }.first
+                ?? status.flatMap { ["enabled", "active", "on"].contains($0) ? true : (["disabled", "inactive", "off", "none"].contains($0) ? false : nil) }
+                ?? blocks["autoTopUpEnabled"].bool
+            if let enabled {
+                let method = ["paymentMethod", "paymentMethodType", "method", "cardBrand"].lazy.compactMap { topUp[$0].string }.first
+                let amount = topUp["amountCents"].double.map { Fmt.money($0 / 100) }
+                rows.append(UsageRow("Auto top-up", enabled ? (method ?? amount ?? "On") : "Off"))
+            }
         }
-        return ProviderUsage(windows: windows, sections: [UsageSection(nil, rows)], plan: plan)
+        // Credits are US dollars (micro-dollar blocks), so the remaining credit is a balance.
+        return ProviderUsage(windows: windows, cost: UsageCost(balance: remaining), sections: [UsageSection(nil, rows)], plan: plan)
     }
 }

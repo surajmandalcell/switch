@@ -71,16 +71,55 @@ enum KiroUsage {
         let total = credit["currentUsageWithPrecision"].double ?? credit["currentUsage"].double ?? 0
         let overage = credit["currentOveragesWithPrecision"].double ?? credit["currentOverages"].double ?? 0
         let reset = (credit["nextDateReset"].double ?? json["nextDateReset"].double).flatMap(Fmt.epoch)
-        var windows = [UsageWindow(id: "monthly", title: "Monthly credits", usedPercent: max(0, total - overage) / limit * 100,
+        // Bonus spend is folded into currentUsage (CodexBar), so each bonus entry's own usage leaves the plan share.
+        let bonuses = credit["bonuses"].array.compactMap(bonus)
+        let bonusUsed = bonuses.reduce(0) { $0 + $1.used }
+        let bonusLimit = bonuses.reduce(0) { $0 + $1.limit }
+        let planUsed = max(0, total - overage - bonusUsed)
+        var windows = [UsageWindow(id: "monthly", title: "Monthly credits", usedPercent: planUsed / limit * 100,
                                    resetsAt: reset, windowMinutes: 43200,
-                                   detail: "\(Fmt.number(max(0, total - overage))) / \(Fmt.number(limit)) credits")]
-        let cap = credit["overageCapWithPrecision"].double ?? credit["overageCap"].double ?? 0
-        if json.at("overageConfiguration.overageStatus").string == "ENABLED", cap > 0 {
-            windows.append(UsageWindow(id: "overage", title: "Overage", usedPercent: overage / cap * 100, resetsAt: reset))
+                                   detail: "\(Fmt.number(planUsed)) / \(Fmt.number(limit)) credits")]
+        var rows = [UsageRow("Credits left", Fmt.number(max(0, limit - planUsed), digits: 2)),
+                    UsageRow("Credits used", Fmt.number(planUsed, digits: 2)),
+                    UsageRow("Credits total", Fmt.number(limit, digits: 2))]
+        // Free-trial credits are separate from the plan; Kiro shows them as bonus credits.
+        let trial = credit["freeTrialInfo"]
+        var bonusPool = bonuses.isEmpty ? nil : (used: bonusUsed, limit: bonusLimit, expires: bonuses.compactMap(\.expires).min())
+        if bonusPool == nil, trial["freeTrialStatus"].string != "EXPIRED",
+           let trialLimit = trial["usageLimitWithPrecision"].double ?? trial["usageLimit"].double, trialLimit > 0 {
+            bonusPool = (trial["currentUsageWithPrecision"].double ?? trial["currentUsage"].double ?? 0, trialLimit,
+                         trial["freeTrialExpiry"].double.flatMap(Fmt.epoch))
         }
+        if let pool = bonusPool, pool.limit > 0 {
+            windows.append(UsageWindow(id: "bonus", title: "Bonus credits", usedPercent: pool.used / pool.limit * 100,
+                                       resetsAt: pool.expires,
+                                       detail: "\(Fmt.number(pool.used)) / \(Fmt.number(pool.limit)) credits"))
+            rows.append(UsageRow("Bonus credits left", "\(Fmt.number(max(0, pool.limit - pool.used), digits: 2)) of \(Fmt.number(pool.limit, digits: 2))"
+                + (pool.expires.map { " · expires \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "")))
+        }
+        let status = json.at("overageConfiguration.overageStatus").string
+        if let status { rows.append(UsageRow("Overages", status.capitalized)) }
+        let cap = credit["overageCapWithPrecision"].double ?? credit["overageCap"].double ?? 0
         let charges = credit["overageCharges"].double
+        let currency = credit["currency"].string ?? "USD"
+        if status == "ENABLED", cap > 0 {
+            windows.append(UsageWindow(id: "overage", title: "Overage", usedPercent: overage / cap * 100, resetsAt: reset,
+                                       detail: "\(Fmt.number(overage)) / \(Fmt.number(cap)) credits"))
+            rows.append(UsageRow("Overage usage", "\(Fmt.number(overage, digits: 2)) credits of \(Fmt.number(cap, digits: 2))"))
+            rows.append(UsageRow("Overage credits left", Fmt.number(max(0, cap - overage), digits: 2)))
+            if let charges { rows.append(UsageRow("Overage cost", Fmt.money(charges, currency: currency))) }
+        }
         let cost = charges.map { UsageCost(used: $0, limit: cap > 0 ? cap * (credit["overageRate"].double ?? 0) : nil,
-                                           period: "Overage") }
-        return ProviderUsage(windows: windows, cost: cost, plan: json.at("subscriptionInfo.subscriptionTitle").string)
+                                           currency: currency, period: "Overage", resetsAt: reset) }
+        return ProviderUsage(windows: windows, cost: cost, sections: [UsageSection("Usage", rows)],
+                             plan: json.at("subscriptionInfo.subscriptionTitle").string)
+    }
+
+    /// One bonus grant with numeric limit and usage; entries without numbers are skipped, never guessed.
+    private static func bonus(_ entry: JSON) -> (used: Double, limit: Double, expires: Date?)? {
+        guard entry["status"].string != "EXPIRED",
+              let limit = entry["usageLimitWithPrecision"].double ?? entry["usageLimit"].double, limit > 0 else { return nil }
+        return (entry["currentUsageWithPrecision"].double ?? entry["currentUsage"].double ?? 0, limit,
+                entry["expiresAt"].double.flatMap(Fmt.epoch))
     }
 }
