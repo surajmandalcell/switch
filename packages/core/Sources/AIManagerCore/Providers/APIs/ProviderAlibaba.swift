@@ -15,71 +15,22 @@ extension ProviderCatalog {
         dashboard: "https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=coding-plan#/efm/coding_plan",
         statusPage: nil,
         usage: { credential in
-            let cn = credential["region"]?.lowercased() == "cn"
-            if let cookie = credential["cookie"] { return try await AlibabaUsage.fetchCookie(cookie, cn: cn) }
-            guard let key = credential["apiKey"] else {
+            let cookie = credential["cookie"]
+            guard cookie != nil || credential["apiKey"] != nil else {
                 throw ProviderError.missingCredential("Add a console Cookie header or an API key for Alibaba Coding Plan.")
             }
+            func run(_ cn: Bool) async throws -> ProviderUsage {
+                if let cookie { return try await AlibabaUsage.fetchCookie(cookie, cn: cn) }
+                return try await AlibabaUsage.fetchKey(credential["apiKey"] ?? "", cn: cn)
+            }
+            if credential["region"]?.lowercased() == "cn" { return try await run(true) }
             do {
-                return try await AlibabaUsage.fetchKey(key, cn: cn)
-            } catch let error as ProviderError where error.needsSignIn && !cn {
+                return try await run(false)
+            } catch where AlibabaUsage.retryOnChina(error) {
                 // Some accounts live on the China console.
-                if let usage = try? await AlibabaUsage.fetchKey(key, cn: true) { return usage }
-                throw error
+                return try await run(true)
             }
         })
-}
-
-private enum Console {
-    static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-
-    /// Replaces every string value that holds JSON with its parsed value.
-    static func expand(_ value: Any?) -> Any? {
-        switch value {
-        case let text as String:
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
-                  let parsed = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) else { return value }
-            return expand(parsed)
-        case let dict as [String: Any]: return dict.mapValues { expand($0) ?? $0 }
-        case let array as [Any]: return array.map { expand($0) ?? $0 }
-        default: return value
-        }
-    }
-
-    /// First dictionary, depth first, that holds any of the keys.
-    static func find(_ keys: [String], in value: Any?) -> [String: Any]? {
-        if let dict = value as? [String: Any] {
-            if dict.keys.contains(where: keys.contains) { return dict }
-            for nested in dict.values { if let found = find(keys, in: nested) { return found } }
-        } else if let array = value as? [Any] {
-            for nested in array { if let found = find(keys, in: nested) { return found } }
-        }
-        return nil
-    }
-
-    static func scrapeToken(_ html: String) -> String? {
-        let patterns = [#"SEC_TOKEN\s*:\s*"([^"]+)""#, #""secToken"\s*:\s*"([^"]+)""#, #""sec_token"\s*:\s*"([^"]+)""#,
-                        #"secToken['"]?\s*[:=]\s*['"]([^'"]+)['"]"#, #"sec_token['"]?\s*[:=]\s*['"]([^'"]+)['"]"#]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                  let range = Range(match.range(at: 1), in: html) else { continue }
-            return String(html[range])
-        }
-        return nil
-    }
-
-    /// Dashboard HTML first, then the `sec_token` cookie, then the user-info endpoint.
-    static func secToken(cookie: String, dashboard: String, gateway: String) async -> String? {
-        if let page = try? await HTTP.send(dashboard, headers: ["Accept": "text/html,application/xhtml+xml", "Cookie": cookie]),
-           page.status == 200, let token = scrapeToken(page.text) { return token }
-        if let token = Fmt.cookie("sec_token", in: cookie) { return token }
-        guard let info = try? await HTTP.send(gateway + "/tool/user/info.json", headers: ["Cookie": cookie]),
-              info.status == 200, let json = try? info.json() else { return nil }
-        let node = find(["secToken", "sec_token", "csrfToken"], in: expand(json.raw))
-        return ["secToken", "sec_token", "csrfToken"].lazy.compactMap { JSON(node)[$0].string }.first
-    }
 }
 
 enum AlibabaUsage {
@@ -103,18 +54,28 @@ enum AlibabaUsage {
 
     private static let api = "zeldaEasy.broadscope-bailian.codingPlan.queryCodingPlanInstanceInfoV2"
 
+    /// Credential, host, or empty-plan failures on the international console that the China console may still answer.
+    static func retryOnChina(_ error: Error) -> Bool {
+        switch error as? ProviderError {
+        case .unauthorized, .parse: true
+        case .http(let code, _): code == 404
+        default: false
+        }
+    }
+
     static func fetchKey(_ key: String, cn: Bool) async throws -> ProviderUsage {
         let s = site(cn: cn)
         let url = "\(s.gateway)/data/api.json?action=\(api)&product=broadscope-bailian&api=queryCodingPlanInstanceInfoV2&currentRegionId=\(s.region)"
         let headers = ["Authorization": "Bearer \(key)", "x-api-key": key, "X-DashScope-API-Key": key,
-                       "User-Agent": Console.userAgent, "Origin": s.gateway, "Referer": s.dashboard]
+                       "User-Agent": OneConsole.userAgent, "Origin": s.gateway, "Referer": s.dashboard]
         return try map(try await HTTP.json(url, headers: headers,
-                                           object: ["queryCodingPlanInstanceInfoRequest": ["commodityCode": s.commodity]]))
+                                           object: ["queryCodingPlanInstanceInfoRequest": ["commodityCode": s.commodity]]),
+                       apiKey: true)
     }
 
     static func fetchCookie(_ cookie: String, cn: Bool) async throws -> ProviderUsage {
         let s = site(cn: cn)
-        guard let token = await Console.secToken(cookie: cookie, dashboard: s.dashboard, gateway: s.gateway) else {
+        guard let token = await OneConsole.secToken(cookie: cookie, dashboard: s.dashboard, gateway: s.gateway, csrf: false) else {
             throw ProviderError.unauthorized("Alibaba sign-in expired. Paste a fresh Cookie header from the console.")
         }
         let params: [String: Any] = [
@@ -132,7 +93,7 @@ enum AlibabaUsage {
         let paramsText = String(decoding: try JSONSerialization.data(withJSONObject: params), as: UTF8.self)
         let csrf = Fmt.cookie("login_aliyunid_csrf", in: cookie) ?? Fmt.cookie("csrf", in: cookie)
         var headers = ["Content-Type": "application/x-www-form-urlencoded", "Accept": "*/*", "Cookie": cookie,
-                       "X-Requested-With": "XMLHttpRequest", "User-Agent": Console.userAgent,
+                       "X-Requested-With": "XMLHttpRequest", "User-Agent": OneConsole.userAgent,
                        "Origin": s.gateway, "Referer": s.dashboard]
         if let csrf { headers["x-xsrf-token"] = csrf; headers["x-csrf-token"] = csrf }
         let url = "\(s.rpc)/data/api.json?action=\(s.rpcAction)&product=sfm_bailian&api=\(api)&_v=undefined"
@@ -140,71 +101,109 @@ enum AlibabaUsage {
         return try map(try await HTTP.json(url, method: "POST", headers: headers, body: body))
     }
 
-    /// Maps the instance-info response; embedded JSON strings are expanded first.
-    static func map(_ json: JSON, now: Date = Date()) throws -> ProviderUsage {
-        let root = JSON(Console.expand(json.raw))
-        for key in ["statusCode", "status_code", "code"] {
-            guard let code = root[key].string, !["0", "200"].contains(code) else { continue }
-            let lower = code.lowercased() + " " + (root["message"].string ?? "").lowercased()
-            if lower.contains("login") || lower.contains("401") || lower.contains("403") || lower.contains("unauthorized")
-                || lower.contains("api key") {
-                throw ProviderError.unauthorized("Alibaba rejected this credential. Paste a fresh Cookie header or key.")
-            }
-            throw ProviderError.parse("Alibaba returned error code \(code).")
-        }
-        let instances = Console.find(["codingPlanInstanceInfos"], in: root.raw)?["codingPlanInstanceInfos"] as? [Any] ?? []
-        let active = instances.max { score($0, now) < score($1, now) }
-        let scope = active.flatMap { Console.find(["codingPlanQuotaInfo", "coding_plan_quota_info"], in: $0) }
-        let found = scope ?? Console.find(["codingPlanQuotaInfo", "coding_plan_quota_info"], in: root.raw)
-        let quota = (found?["codingPlanQuotaInfo"] ?? found?["coding_plan_quota_info"]).map { JSON($0) }
-            ?? Console.find(["per5HourUsedQuota", "perFiveHourUsedQuota", "perWeekUsedQuota", "perBillMonthUsedQuota",
-                             "perMonthUsedQuota", "per5HourTotalQuota", "perWeekTotalQuota", "perBillMonthTotalQuota"],
-                            in: root.raw).map { JSON($0) }
+    private static let instanceKeys = ["codingPlanInstanceInfos", "coding_plan_instance_infos"]
+    private static let quotaKeys = ["codingPlanQuotaInfo", "coding_plan_quota_info"]
 
-        var plan: String?
-        for item in (active.map { [$0] } ?? []) + instances {
-            plan = ["planName", "plan_name", "instanceName", "instance_name", "packageName", "package_name"]
-                .lazy.compactMap { JSON(item)[$0].string }.first
-            if plan != nil { break }
+    /// Maps the instance-info response; embedded JSON strings are expanded first. The active
+    /// instance wins, its quota is never borrowed from another one, and a plan that is provably
+    /// active but exposes no counters still shows its name.
+    static func map(_ json: JSON, now: Date = Date(), apiKey: Bool = false) throws -> ProviderUsage {
+        guard let root = OneConsole.expand(json.raw) as? [String: Any] else {
+            throw ProviderError.parse("Alibaba returned an unexpected payload.")
         }
-        plan = plan ?? root.at("data.planName").string ?? root.at("data.packageName").string ?? root["planName"].string
+        try check(root, apiKey: apiKey)
 
+        let instances = (OneConsole.first(instanceKeys, in: root) { $0 as? [Any] } ?? []).compactMap { $0 as? [String: Any] }
+        var best: [String: Any]?
+        var bestScore = Int.min
+        for item in instances where score(item, now) > bestScore {
+            best = item
+            bestScore = score(item, now)
+        }
+        let active = bestScore > 0 ? best : instances.first
+        let scoped = instances.count > 1 && (active.map { score($0, now) > 0 } ?? false)
+        let own = active.flatMap { findQuota($0) }
+        let quota = scoped ? own : (own ?? findQuota(root))
+        let plan = active.flatMap { planName(in: $0) } ?? planName(in: root)
+
+        /// Plan name alone, when the payload proves the plan is active.
+        func planOnly(_ failure: String) throws -> ProviderUsage {
+            let source = active ?? root
+            let proof = instances.isEmpty ? score(source, now) > 0 || score(root, now) > 0 : score(source, now) > 0
+            guard proof, let name = planName(in: source) ?? planName(in: root) else { throw ProviderError.parse(failure) }
+            return ProviderUsage(plan: name, fetchedAt: now)
+        }
+        guard let quota else { return try planOnly("Alibaba returned no coding plan quota.") }
+
+        let slots: [(String, String, [String], Int)] = [
+            ("session", "Session", ["per5Hour", "perFiveHour"], 300),
+            ("weekly", "Weekly", ["perWeek"], 10080),
+            ("monthly", "Monthly", ["perBillMonth", "perMonth"], 43200),
+        ]
+        func read(_ prefixes: [String], _ suffix: String) -> Any? { prefixes.lazy.compactMap { quota[$0 + suffix] }.first }
+        guard slots.contains(where: { OneConsole.int(read($0.2, "TotalQuota")) != nil }) else {
+            return try planOnly("Alibaba returned no coding plan quota windows.")
+        }
         var windows: [UsageWindow] = []
-        if let quota {
-            let slots: [(String, String, [String], Int)] = [
-                ("session", "Session", ["per5Hour", "perFiveHour"], 300),
-                ("weekly", "Weekly", ["perWeek"], 10080),
-                ("monthly", "Monthly", ["perBillMonth", "perMonth"], 43200),
-            ]
-            for (id, title, prefixes, minutes) in slots {
-                func read(_ suffix: String) -> JSON { prefixes.map { quota[$0 + suffix] }.first { $0.exists } ?? JSON(nil) }
-                guard let total = read("TotalQuota").double, total > 0 else { continue }
-                var reset = read("QuotaNextRefreshTime").date
-                if id == "session", var date = reset, date.timeIntervalSince(now) < 60 {
-                    date = date.addingTimeInterval(18000)
-                    reset = date.timeIntervalSince(now) < 60 ? now.addingTimeInterval(18000) : date
-                }
-                let used = min(read("UsedQuota").double ?? 0, total)
-                windows.append(UsageWindow(id: id, title: title, usedPercent: used / total * 100, resetsAt: reset,
-                                           windowMinutes: minutes, detail: "\(Fmt.number(used)) / \(Fmt.number(total)) requests"))
+        for (id, title, prefixes, minutes) in slots {
+            guard let total = OneConsole.int(read(prefixes, "TotalQuota")).map(Double.init), total > 0 else { continue }
+            var reset = OneConsole.date(read(prefixes, "QuotaNextRefreshTime"))
+            if id == "session", var date = reset, date.timeIntervalSince(now) < 60 {
+                date = date.addingTimeInterval(18000)
+                reset = date.timeIntervalSince(now) < 60 ? now.addingTimeInterval(18000) : date
             }
+            let used = min(max(Double(OneConsole.int(read(prefixes, "UsedQuota")) ?? 0), 0), total)
+            windows.append(UsageWindow(id: id, title: title, usedPercent: used / total * 100, resetsAt: reset,
+                                       windowMinutes: minutes, detail: "\(Fmt.number(used)) / \(Fmt.number(total)) requests"))
         }
-        guard !windows.isEmpty || plan != nil else { throw ProviderError.parse("Alibaba returned no coding plan quota.") }
         return ProviderUsage(windows: windows, plan: plan, fetchedAt: now)
     }
 
-    /// Ranks plan instances so the live one wins when several are returned.
-    private static func score(_ instance: Any, _ now: Date) -> Int {
-        let item = JSON(instance)
-        var score = 0
-        switch (item["status"].string ?? "").uppercased() {
-        case "VALID", "ACTIVE": score += 3
-        case "EXPIRED", "INVALID", "INACTIVE", "CLOSED", "RELEASED": score -= 1
-        default: break
+    /// Error shapes the console wraps in a 200 answer.
+    private static func check(_ root: [String: Any], apiKey: Bool) throws {
+        func str(_ keys: [String]) -> String? { OneConsole.first(keys, in: root, OneConsole.string) }
+        if let status = OneConsole.first(["statusCode", "status_code", "code"], in: root, OneConsole.int), status != 0, status != 200 {
+            let message = str(["statusMessage", "status_msg", "message", "msg"]) ?? "status code \(status)"
+            let lower = message.lowercased()
+            if status == 401 || status == 403 || lower.contains("api key") || lower.contains("unauthorized") {
+                throw ProviderError.unauthorized("Alibaba rejected this credential. Paste a fresh Cookie header or key.")
+            }
+            throw ProviderError.http(status, "Alibaba returned an error: \(message)")
         }
-        if item["isActive"].bool == true || item["active"].bool == true { score += 1 }
-        let end = ["endTime", "periodEndTime", "expireTime", "expirationTime"].lazy.compactMap { item[$0].date }.first
-        if let end, end > now { score += 1 }
-        return score
+        let consoleOnly: ProviderError = apiKey
+            ? .unsupported("Alibaba Coding Plan quota is not available through API keys for this account or region. Paste a console Cookie header instead.")
+            : .unauthorized("Alibaba Coding Plan console login is required. Paste a fresh Cookie header from the console.")
+        if str(["code", "status", "statusCode"])?.lowercased().contains("login") == true { throw consoleOnly }
+        if let message = str(["message", "msg", "statusMessage"])?.lowercased() {
+            if message.contains("log in") || message.contains("login") { throw consoleOnly }
+            if apiKey, message.contains("console session") || message.contains("api key mode may be unavailable") { throw consoleOnly }
+        }
+    }
+
+    /// The named quota object (dictionaries only), else the first object that holds a quota counter.
+    private static func findQuota(_ value: Any?) -> [String: Any]? {
+        OneConsole.first(quotaKeys, in: value, arrays: false, OneConsole.dict)
+            ?? OneConsole.find(["per5HourUsedQuota", "per5HourTotalQuota", "perWeekUsedQuota", "perWeekTotalQuota",
+                                "perBillMonthUsedQuota", "perBillMonthTotalQuota"], in: value)
+    }
+
+    private static func planName(in payload: Any?) -> String? {
+        if let infos = OneConsole.first(instanceKeys, in: payload, { $0 as? [Any] }) {
+            for case let info as [String: Any] in infos {
+                let keys = ["planName", "plan_name", "instanceName", "instance_name", "packageName", "package_name"]
+                if let name = keys.lazy.compactMap({ OneConsole.string(info[$0]) }).first { return name }
+            }
+        }
+        return OneConsole.first(["planName", "plan_name", "packageName", "package_name"], in: payload, OneConsole.string)
+    }
+
+    /// Ranks plan instances so the live one wins when several are returned.
+    private static func score(_ item: [String: Any], _ now: Date) -> Int {
+        let status = ["status", "instanceStatus"].lazy.compactMap { OneConsole.string(item[$0]) }.first?.uppercased() ?? ""
+        if ["VALID", "ACTIVE"].contains(status) { return 3 }
+        if ["EXPIRED", "INVALID", "INACTIVE", "DISABLED", "TERMINATED", "STOPPED"].contains(status) { return -1 }
+        if let active = ["isActive", "active"].lazy.compactMap({ OneConsole.bool(item[$0]) }).first { return active ? 3 : -1 }
+        let end = ["endTime", "periodEndTime", "expireTime", "expirationTime"].lazy.compactMap { OneConsole.date(item[$0]) }.first
+        return end.map { $0 > now ? 1 : 0 } ?? 0
     }
 }

@@ -14,6 +14,8 @@ extension ProviderCatalog {
             CredentialField("secretAccessKey", "Secret access key", env: ["AWS_SECRET_ACCESS_KEY"]),
             CredentialField("sessionToken", "Session token", optional: true, env: ["AWS_SESSION_TOKEN"]),
             CredentialField("budget", "Monthly budget (USD)", secure: false, optional: true, placeholder: "100"),
+            CredentialField("region", "Region (for Claude activity)", secure: false, optional: true,
+                            placeholder: "us-east-1", env: ["AWS_REGION", "AWS_DEFAULT_REGION"]),
         ],
         dashboard: "https://console.aws.amazon.com/bedrock",
         usage: { credential in
@@ -26,7 +28,7 @@ extension ProviderCatalog {
             var next: String?
             repeat {
                 var body: [String: Any] = [
-                    "TimePeriod": ["Start": start, "End": end], "Granularity": "MONTHLY",
+                    "TimePeriod": ["Start": start, "End": end], "Granularity": "DAILY",
                     "Metrics": ["UnblendedCost"], "GroupBy": [["Type": "DIMENSION", "Key": "SERVICE"]],
                 ]
                 if let next { body["NextPageToken"] = next }
@@ -46,11 +48,110 @@ extension ProviderCatalog {
                 pages.append(page)
                 next = page["NextPageToken"].string
             } while next != nil && pages.count < 10
-            return try BedrockUsage.map(pages, budget: credential["budget"].flatMap(Double.init), now: now)
+            // CloudWatch is optional: a missing permission or region keeps the Cost Explorer numbers.
+            var activity: BedrockActivity?
+            do {
+                activity = try await BedrockUsage.fetchActivity(
+                    keyID: keyID, secret: secret, token: token, region: credential["region"] ?? "us-east-1", now: now)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {}
+            return try BedrockUsage.map(pages, budget: credential["budget"].flatMap(Double.init), now: now,
+                                        activity: activity, daily: true)
         })
 }
 
+struct BedrockActivity: Equatable {
+    let inputTokens: Int
+    let outputTokens: Int
+    let requests: Int
+}
+
 enum BedrockUsage {
+    /// Rolling window of the CloudWatch Claude totals.
+    static let lookbackDays = 14
+
+    /// CloudWatch endpoint host for a region; nil when the region name is malformed.
+    static func monitoringHost(_ region: String) -> String? {
+        guard region.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)+-[0-9]+$"#, options: .regularExpression) != nil else { return nil }
+        let suffix = switch region {
+        case _ where region.hasPrefix("cn-"): "amazonaws.com.cn"
+        case _ where region.hasPrefix("eusc-"): "amazonaws.eu"
+        case _ where region.hasPrefix("us-iso-"): "c2s.ic.gov"
+        case _ where region.hasPrefix("us-isob-"): "sc2s.sgov.gov"
+        case _ where region.hasPrefix("eu-isoe-"): "cloud.adc-e.uk"
+        case _ where region.hasPrefix("us-isof-"): "csp.hci.ic.gov"
+        default: "amazonaws.com"
+        }
+        return "monitoring.\(region).\(suffix)"
+    }
+
+    private static let metrics = [("inputTokens", "InputTokenCount"), ("outputTokens", "OutputTokenCount"),
+                                  ("requests", "Invocations")]
+
+    /// Claude token and request totals of the last 14 days from CloudWatch `AWS/Bedrock` metrics.
+    static func fetchActivity(keyID: String, secret: String, token: String?, region: String,
+                              now: Date) async throws -> BedrockActivity {
+        guard let host = monitoringHost(region) else { throw ProviderError.parse("Invalid AWS region.") }
+        var pages: [JSON] = []
+        var next: String?
+        repeat {
+            var payload: [String: Any] = [
+                "StartTime": now.timeIntervalSince1970 - Double(lookbackDays) * 86_400,
+                "EndTime": now.timeIntervalSince1970, "ScanBy": "TimestampAscending",
+                "MetricDataQueries": metrics.map { id, name in
+                    ["Id": id, "ReturnData": true,
+                     "Expression": "SUM(SEARCH('{AWS/Bedrock,ModelId} MetricName=\"\(name)\" claude', 'Sum', 86400))"] as [String: Any]
+                },
+            ]
+            if let next { payload["NextToken"] = next }
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let headers = BedrockSigV4.sign(
+                method: "POST", host: host, path: "/", query: "",
+                headers: ["content-type": "application/x-amz-json-1.0",
+                          "x-amz-target": "GraniteServiceVersion20100801.GetMetricData"],
+                body: data, accessKeyID: keyID, secretKey: secret, sessionToken: token,
+                region: region, service: "monitoring", date: now)
+            pages.append(try await HTTP.json("https://\(host)/", method: "POST", headers: headers, body: data))
+            next = pages.last?["NextToken"].string
+        } while next != nil && pages.count < 20
+        return try activity(pages)
+    }
+
+    /// Sums `GetMetricData` replies. Incomplete or malformed results throw, so a partial total never shows.
+    static func activity(_ pages: [JSON]) throws -> BedrockActivity {
+        var totals: [String: Double] = [:]
+        for page in pages {
+            if !page["Messages"].array.isEmpty { throw ProviderError.parse("CloudWatch reported incomplete results.") }
+            for result in page["MetricDataResults"].array {
+                guard let id = result["Id"].string, metrics.contains(where: { $0.0 == id }),
+                      result["StatusCode"].string == "Complete" else {
+                    throw ProviderError.parse("CloudWatch returned an unexpected metric result.")
+                }
+                for value in result["Values"].array {
+                    guard let number = value.double, number.isFinite, number >= 0 else {
+                        throw ProviderError.parse("CloudWatch returned an invalid metric value.")
+                    }
+                    totals[id, default: 0] += number
+                }
+            }
+        }
+        func count(_ id: String) throws -> Int {
+            guard let value = Int(exactly: (totals[id] ?? 0).rounded()) else {
+                throw ProviderError.parse("CloudWatch returned an invalid metric total.")
+            }
+            return value
+        }
+        return BedrockActivity(inputTokens: try count("inputTokens"), outputTokens: try count("outputTokens"),
+                               requests: try count("requests"))
+    }
+
+    /// Compact count such as 1.5M or 2.0K.
+    static func compact(_ count: Int) -> String {
+        count >= 1_000_000 ? String(format: "%.1fM", Double(count) / 1_000_000)
+            : count >= 1000 ? String(format: "%.1fK", Double(count) / 1000) : "\(count)"
+    }
+
     /// Start (first of the UTC month) and exclusive end (tomorrow) as `yyyy-MM-dd`.
     static func monthToDate(_ now: Date) -> (String, String) {
         var utc = Calendar(identifier: .gregorian)
@@ -69,8 +170,11 @@ enum BedrockUsage {
     }
 
     /// `pages` are Cost Explorer GetCostAndUsage replies grouped by SERVICE; only Bedrock services count.
-    static func map(_ pages: [JSON], budget: Double?, now: Date = Date()) throws -> ProviderUsage {
+    /// `daily` pages (DAILY granularity) also give a per-day cost list; `activity` adds the CloudWatch Claude totals.
+    static func map(_ pages: [JSON], budget: Double?, now: Date = Date(), activity: BedrockActivity? = nil,
+                    daily: Bool = false) throws -> ProviderUsage {
         var byService: [String: Double] = [:]
+        var byDay: [String: Double] = [:]
         var currency = "USD"
         for page in pages {
             guard page["ResultsByTime"].exists else { throw ProviderError.parse("AWS returned an unexpected cost reply.") }
@@ -79,6 +183,7 @@ enum BedrockUsage {
                     guard let name = group["Keys"][0].string, name.localizedCaseInsensitiveContains("Bedrock"),
                           let amount = group.at("Metrics.UnblendedCost.Amount").double, amount.isFinite else { continue }
                     byService[name, default: 0] += amount
+                    if daily, let day = result.at("TimePeriod.Start").string { byDay[day, default: 0] += amount }
                     currency = group.at("Metrics.UnblendedCost.Unit").string ?? currency
                 }
             }
@@ -93,10 +198,21 @@ enum BedrockUsage {
                          detail: "\(Fmt.money(spend, currency: currency)) / \(Fmt.money($0, currency: currency))")]
         } ?? []
         let rows = byService.sorted { $0.value > $1.value }.prefix(5).map { UsageRow($0.key, Fmt.money($0.value, currency: currency)) }
+        var sections = [UsageSection("Bedrock services", rows)]
+        if let activity {
+            sections.append(UsageSection("Claude activity (14d)", [
+                UsageRow("Tokens", compact(activity.inputTokens + activity.outputTokens)),
+                UsageRow("Input tokens", compact(activity.inputTokens)),
+                UsageRow("Output tokens", compact(activity.outputTokens)),
+                UsageRow("Requests", compact(activity.requests)),
+            ]))
+        }
+        let days = byDay.filter { $0.value > 0 }.sorted { $0.key > $1.key }.prefix(14)
+        sections.append(UsageSection("Daily cost", days.map { UsageRow($0.key, Fmt.money($0.value, currency: currency)) }))
         return ProviderUsage(
             windows: windows,
             cost: UsageCost(used: spend, limit: limit, currency: currency, period: "Month to date", resetsAt: monthEnd),
-            sections: [UsageSection("Bedrock services", rows)])
+            sections: sections)
     }
 }
 

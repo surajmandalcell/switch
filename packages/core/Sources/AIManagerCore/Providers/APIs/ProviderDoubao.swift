@@ -9,32 +9,51 @@ extension ProviderCatalog {
     static let doubao = ProviderSpec(
         id: "doubao", name: "Doubao",
         fields: [
-            CredentialField("accessKeyId", "Access key ID",
+            CredentialField("accessKeyId", "Access key ID", optional: true,
                             env: ["VOLCENGINE_ACCESS_KEY_ID", "VOLCENGINE_ACCESS_KEY", "VOLC_ACCESSKEY", "DOUBAO_ACCESS_KEY_ID"]),
-            CredentialField("secretAccessKey", "Secret access key",
-                            env: ["VOLCENGINE_SECRET_ACCESS_KEY", "VOLCENGINE_SECRET_KEY", "VOLC_SECRETKEY", "DOUBAO_SECRET_ACCESS_KEY"]),
+            CredentialField("secretAccessKey", "Secret access key", optional: true,
+                            env: ["VOLCENGINE_SECRET_ACCESS_KEY", "VOLCENGINE_SECRET_KEY", "VOLCENGINE_ACCESS_KEY_SECRET",
+                                  "VOLC_SECRETKEY", "DOUBAO_SECRET_ACCESS_KEY"]),
             CredentialField("region", "Region", secure: false, optional: true, placeholder: "cn-beijing (default)",
-                            env: ["VOLCENGINE_REGION", "VOLC_REGION", "DOUBAO_REGION"]),
+                            env: ["VOLCENGINE_REGION", "VOLCENGINE_REGION_ID", "VOLC_REGION", "DOUBAO_REGION"]),
+            CredentialField("apiKey", "Ark API key", optional: true,
+                            placeholder: "Request limits only, when no access key pair is set",
+                            env: ["ARK_API_KEY", "VOLCENGINE_API_KEY", "DOUBAO_API_KEY"]),
         ],
         dashboard: "https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?LLM=%7B%7D&advancedActiveKey=subscribe",
         usage: { credential in
-            let id = try credential.require("accessKeyId"), secret = try credential.require("secretAccessKey")
-            let region = credential["region"] ?? "cn-beijing"
-            func call(_ action: String) async throws -> HTTPResponse {
-                let query = [("Action", action), ("Version", "2024-01-01")]
-                let headers = DoubaoUsage.sign(accessKeyID: id, secret: secret, region: region, query: query, date: Date())
-                return try await HTTP.send("https://open.volcengineapi.com/?Action=\(action)&Version=2024-01-01",
-                                           method: "POST", headers: headers)
+            let apiKey = credential["apiKey"]
+            var signedError: Error?
+            // 1) Signed plan usage with the access key pair; 2) the Ark key probe when that fails or is absent.
+            if let id = credential["accessKeyId"], let secret = credential["secretAccessKey"] {
+                let region = credential["region"] ?? "cn-beijing"
+                func call(_ action: String) async throws -> HTTPResponse {
+                    let query = [("Action", action), ("Version", "2024-01-01")]
+                    let headers = DoubaoUsage.sign(accessKeyID: id, secret: secret, region: region, query: query, date: Date())
+                    return try await HTTP.send("https://open.volcengineapi.com/?Action=\(action)&Version=2024-01-01",
+                                               method: "POST", headers: headers)
+                }
+                do {
+                    let coding = try await call("GetCodingPlanUsage")
+                    if coding.status == 403 {
+                        throw ProviderError.unauthorized("Volcengine denied access. Check the keys and the IAM permission ark:GetCodingPlanUsage.")
+                    }
+                    try HTTP.check(coding)
+                    // Agent plan is best effort: 403 or 404 means the account has none.
+                    let agent = try? await call("GetAFPUsage")
+                    return try DoubaoUsage.map(coding: try coding.json(),
+                                               agent: agent.flatMap { $0.status == 200 ? try? $0.json() : nil })
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    guard apiKey != nil else { throw error }
+                    signedError = error
+                }
             }
-            let coding = try await call("GetCodingPlanUsage")
-            if coding.status == 403 {
-                throw ProviderError.unauthorized("Volcengine denied access. Check the keys and the IAM permission ark:GetCodingPlanUsage.")
+            guard let apiKey else {
+                throw signedError ?? ProviderError.missingCredential("Add an access key pair or an Ark API key for Doubao.")
             }
-            try HTTP.check(coding)
-            // Agent plan is best effort: 403 or 404 means the account has none.
-            let agent = try? await call("GetAFPUsage")
-            return try DoubaoUsage.map(coding: try coding.json(),
-                                       agent: agent.flatMap { $0.status == 200 ? try? $0.json() : nil })
+            return try await DoubaoUsage.probe(key: apiKey)
         })
 }
 
@@ -85,16 +104,13 @@ enum DoubaoUsage {
         let result = coding["Result"]
         guard result.exists else { throw ProviderError.parse("Volcengine returned an unexpected usage shape.") }
         var windows: [UsageWindow] = []
-        for item in result["QuotaUsage"].array {
-            let level = (item["Level"].string ?? "").lowercased()
-            let slot: (String, String, Int)
-            switch level {
-            case "session", "5-hour", "five_hour", "5h": slot = ("session", "Session", 300)
-            case "weekly", "week": slot = ("weekly", "Weekly", 10080)
-            case "monthly", "month": slot = ("monthly", "Monthly", 43200)
-            default: continue
-            }
-            guard let percent = item["Percent"].double else { continue }
+        // One window per slot, session first so it drives the menu bar whatever the response order.
+        let quotas = result["QuotaUsage"].array
+        for (levels, slot) in [(["session", "5-hour", "five_hour", "5h"], ("session", "Session", 300)),
+                               (["weekly", "week"], ("weekly", "Weekly", 10080)),
+                               (["monthly", "month"], ("monthly", "Monthly", 43200))] {
+            guard let item = quotas.first(where: { levels.contains(($0["Level"].string ?? "").lowercased()) }),
+                  let percent = item["Percent"].double else { continue }
             windows.append(UsageWindow(id: slot.0, title: slot.1, usedPercent: percent,
                                        resetsAt: item["ResetTimestamp"].double.flatMap(Fmt.epoch), windowMinutes: slot.2))
         }
@@ -113,6 +129,93 @@ enum DoubaoUsage {
             }
             if plan == nil { plan = data["PlanType"].string?.capitalized }
         }
-        return ProviderUsage(windows: windows, plan: plan, fetchedAt: now)
+        return ProviderUsage(windows: windows, plan: plan, fetchedAt: result["UpdateTimestamp"].double.flatMap(Fmt.epoch) ?? now)
+    }
+
+    // MARK: Ark API key probe
+
+    /// Request-limit headers of one `chat/completions` call (200 or 429 both carry them).
+    struct Probe: Equatable {
+        var status: Int
+        var remaining: Int?
+        var limit: Int?
+        var reset: Date?
+
+        /// A 429 with a limit header proves the request bucket is empty; a 200 needs both headers.
+        var reliable: Bool { status == 429 ? limit != nil : limit != nil && remaining != nil }
+        var ambiguousZero: Bool { status == 200 && reliable && (limit ?? 0) > 0 && remaining == 0 }
+    }
+
+    static func probe(status: Int, headers: [String: String], now: Date = Date()) -> Probe {
+        Probe(status: status, remaining: headers["x-ratelimit-remaining-requests"].flatMap { Int($0) },
+              limit: headers["x-ratelimit-limit-requests"].flatMap { Int($0) },
+              reset: headers["x-ratelimit-reset-requests"].flatMap { resetDate($0, now: now) })
+    }
+
+    /// ISO 8601, a duration such as "1m30s", or plain seconds.
+    static func resetDate(_ text: String, now: Date) -> Date? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { return nil }
+        if let date = Fmt.iso(value) { return date }
+        let units: [Character: Double] = ["d": 86400, "h": 3600, "m": 60, "s": 1]
+        var seconds = 0.0
+        if let regex = try? NSRegularExpression(pattern: #"(\d+)([dhms])"#) {
+            let range = NSRange(value.startIndex..., in: value)
+            for match in regex.matches(in: value, range: range) {
+                if let n = Range(match.range(at: 1), in: value).flatMap({ Double(value[$0]) }),
+                   let u = Range(match.range(at: 2), in: value).flatMap({ value[$0].first }) {
+                    seconds += n * (units[u] ?? 0)
+                }
+            }
+        }
+        if seconds > 0 { return now.addingTimeInterval(seconds) }
+        return Double(value).map { now.addingTimeInterval($0) }
+    }
+
+    /// A trustworthy request-limit pair becomes the "Requests" window; a valid key without one shows as active.
+    static func map(probe: Probe, now: Date = Date()) -> ProviderUsage {
+        guard probe.reliable, let limit = probe.limit, limit > 0 else {
+            return ProviderUsage(sections: [UsageSection(nil, [UsageRow("API key", "Active, request limits unavailable")])],
+                                 fetchedAt: now)
+        }
+        let used = max(0, limit - (probe.remaining ?? 0))
+        let window = UsageWindow(id: "requests", title: "Requests", usedPercent: Double(used) / Double(limit) * 100,
+                                 resetsAt: probe.reset, detail: "\(used)/\(limit) requests")
+        return ProviderUsage(windows: [window], fetchedAt: now)
+    }
+
+    private static let probeModels = ["doubao-seed-2.0-code", "doubao-1.5-pro-32k", "doubao-lite-32k"]
+
+    private static func probeOnce(key: String, model: String) async throws -> Probe {
+        let body: [String: Any] = ["model": model, "max_tokens": 1, "messages": [["role": "user", "content": "hi"]]]
+        let response = try await HTTP.send("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
+                                           method: "POST", headers: HTTP.bearer(key),
+                                           body: try JSONSerialization.data(withJSONObject: body))
+        guard response.status == 200 || response.status == 429 else {
+            try HTTP.check(response)
+            throw ProviderError.http(response.status, "")
+        }
+        return probe(status: response.status, headers: response.headers)
+    }
+
+    /// Tries each model (403 or 404 means the key lacks it) and confirms a zero remaining count once.
+    static func probe(key: String) async throws -> ProviderUsage {
+        var last: Error = ProviderError.unavailable("Doubao is unavailable.")
+        for model in probeModels {
+            do {
+                let first = try await probeOnce(key: key, model: model)
+                guard first.ambiguousZero else { return map(probe: first) }
+                guard let second = try? await probeOnce(key: key, model: model) else { return map(probe: first) }
+                if second.status == 429 { return map(probe: second.reliable ? second : first) }
+                // Two 200s with zero remaining: treat the headers as unreliable.
+                return map(probe: second.ambiguousZero ? Probe(status: 200, remaining: nil, limit: nil, reset: nil) : second)
+            } catch let error as ProviderError {
+                switch error {
+                case .unauthorized, .http(404, _): last = error
+                default: throw error
+                }
+            }
+        }
+        throw last
     }
 }

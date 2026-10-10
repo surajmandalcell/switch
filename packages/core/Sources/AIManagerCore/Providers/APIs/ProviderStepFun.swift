@@ -25,7 +25,11 @@ extension ProviderCatalog {
             do {
                 return FetchResult(try await StepFunUsage.fetch(token: token!), updated: fresh ? StepFunUsage.stored(credential, token!) : nil)
             } catch let error as ProviderError where error.needsSignIn && !fresh {
-                // Expired token: sign in again when a password is saved.
+                // Expired token: refresh it first, then sign in again when a password is saved.
+                if let stale = token, let renewed = try? await StepFunUsage.refresh(token: stale),
+                   let usage = try? await StepFunUsage.fetch(token: renewed) {
+                    return FetchResult(usage, updated: StepFunUsage.stored(credential, renewed))
+                }
                 guard let user, let password else { throw error }
                 let relogin = try await StepFunUsage.login(user: user, password: password)
                 return FetchResult(try await StepFunUsage.fetch(token: relogin), updated: StepFunUsage.stored(credential, relogin))
@@ -39,8 +43,9 @@ enum StepFunUsage {
 
     /// Accepts a bare token, an `access...refresh` pair, or a Cookie header with `Oasis-Token=`.
     static func normalize(_ raw: String) -> String {
-        guard let range = raw.range(of: "Oasis-Token=") else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return raw[range.upperBound...].prefix { $0 != ";" }.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quotes = CharacterSet(charactersIn: "\"'").union(.whitespacesAndNewlines)
+        guard let range = raw.range(of: "Oasis-Token=") else { return raw.trimmingCharacters(in: quotes) }
+        return raw[range.upperBound...].prefix { $0 != ";" }.trimmingCharacters(in: quotes)
     }
 
     /// The server requires `Oasis-Webid` to equal the `device_id` claim inside the token.
@@ -68,7 +73,7 @@ enum StepFunUsage {
         let head = headers(webid: webid, cookie: "Oasis-Token=\(token); Oasis-Webid=\(webid)")
         let json = try await post("/api/step.openapi.devcenter.Dashboard/QueryStepPlanRateLimit", head)
         let plan = try? await post("/api/step.openapi.devcenter.Dashboard/GetStepPlanStatus", head)
-        return try map(json, plan: plan?.at("subscription.name").string)
+        return try map(json, plan: plan?.at("subscription.name").string?.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Anonymous device registration, then password sign-in. Returns an `access...refresh` pair.
@@ -78,18 +83,28 @@ enum StepFunUsage {
             .prefix(while: { $0 != ";" && $0 != "," }) else {
             throw ProviderError.unavailable("StepFun sign-in could not start. Try again later.")
         }
-        func pair(_ json: JSON) throws -> String {
-            guard let access = json.at("accessToken.raw").string else {
-                throw ProviderError.unauthorized("StepFun sign-in failed. Check the username and password.")
-            }
-            return json.at("refreshToken.raw").string.map { "\(access)...\($0)" } ?? access
-        }
         let path = "/passport/proto.api.passport.v1.PassportService/"
         let anon = try pair(try await post(path + "RegisterDevice", headers(webid: defaultWebID, cookie: "INGRESSCOOKIE=\(ingress)")))
         let webid = webID(anon)
         return try pair(try await post(path + "SignInByPassword",
                                        headers(webid: webid, cookie: "Oasis-Token=\(anon); Oasis-Webid=\(webid); INGRESSCOOKIE=\(ingress)"),
                                        ["username": user, "password": password]))
+    }
+
+    /// `access...refresh` pair from a passport reply (sign-in, device registration, or refresh).
+    static func pair(_ json: JSON) throws -> String {
+        guard let access = json.at("accessToken.raw").string else {
+            throw ProviderError.unauthorized("StepFun sign-in failed. Check the username and password.")
+        }
+        return json.at("refreshToken.raw").string.map { "\(access)...\($0)" } ?? access
+    }
+
+    /// Trades the saved token for a fresh access and refresh pair, with no password.
+    static func refresh(token: String) async throws -> String {
+        let webid = webID(token)
+        var head = headers(webid: webid, cookie: "Oasis-Token=\(token); Oasis-Webid=\(webid)")
+        head["Oasis-Token"] = token
+        return try pair(try await post("/passport/proto.api.passport.v1.PassportService/RefreshToken", head))
     }
 
     static func map(_ json: JSON, plan: String? = nil, now: Date = Date()) throws -> ProviderUsage {
