@@ -3,10 +3,15 @@ import Foundation
 struct ClaudeCodeAuthStatus: Sendable {
     let loggedIn: Bool
     let email: String?
+    /// `subscriptionType` ("max", "pro") and `orgName` from `claude auth status`.
+    let subscriptionType: String?
+    let organization: String?
 
-    init(loggedIn: Bool, email: String?) {
+    init(loggedIn: Bool, email: String?, subscriptionType: String? = nil, organization: String? = nil) {
         self.loggedIn = loggedIn
         self.email = email
+        self.subscriptionType = subscriptionType
+        self.organization = organization
     }
 }
 
@@ -323,7 +328,9 @@ struct ClaudeCodeProfiles {
         guard !data.isEmpty else { return .init(loggedIn: false, email: nil) }
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return .init(loggedIn: object?["loggedIn"] as? Bool == true,
-                     email: object?["email"] as? String)
+                     email: object?["email"] as? String,
+                     subscriptionType: object?["subscriptionType"] as? String,
+                     organization: object?["orgName"] as? String)
     }
 
     static func cliLogout(_ spec: LaunchSpec) async throws {
@@ -592,7 +599,26 @@ private final class ClaudeUsageCache: @unchecked Sendable {
     }
 }
 
+/// The plan and identity change rarely, so `claude auth status` runs at most once an hour per profile.
+private final class ClaudeStatusCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [UUID: (at: Date, status: ClaudeCodeAuthStatus)] = [:]
+
+    func value(_ id: UUID) -> ClaudeCodeAuthStatus? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = entries[id], Date().timeIntervalSince(entry.at) < 3600 else { return nil }
+        return entry.status
+    }
+
+    func store(_ id: UUID, _ status: ClaudeCodeAuthStatus) {
+        lock.lock(); defer { lock.unlock() }
+        entries[id] = (Date(), status)
+    }
+}
+
 extension ClaudeCodeProfiles {
+    private static let statusCache = ClaudeStatusCache()
+
     /// One check of a profile at most this often; the usage endpoint rate limits hard and the
     /// terminal probe takes seconds.
     static let usageInterval: TimeInterval = 10 * 60
@@ -624,11 +650,26 @@ extension ClaudeCodeProfiles {
                 configDir: config, executable: cli,
                 environment: launchSpec(executable: cli, home: config, arguments: []).environment)
         }
+        var status = Self.statusCache.value(id)
+        if status == nil, let cli, let fresh = try? await statusCheck(launchSpec(executable: cli, home: config, arguments: ["auth", "status"])),
+           fresh.loggedIn {
+            Self.statusCache.store(id, fresh)
+            status = fresh
+        }
+        var tier: String?
         if let data = Self.boundedRead(config.appending(path: ".claude.json")),
            let identity = try? JSON(data: data) {
             let account = identity["oauthAccount"]
             usage.email = usage.email ?? account["emailAddress"].string
             usage.organization = usage.organization ?? account["organizationName"].string
+            tier = account["userRateLimitTier"].string ?? account["organizationRateLimitTier"].string
+        }
+        usage.email = usage.email ?? status?.email
+        usage.organization = usage.organization ?? status?.organization
+        // "max" from the CLI plus the multiplier from the tier text: "Max 5x".
+        let type = status?.subscriptionType ?? usage.plan?.split(separator: " ").first.map(String.init)?.lowercased()
+        if let plan = ClaudeUsage.planName(type: type, tier: tier), usage.plan?.contains(" ") != true {
+            usage.plan = plan
         }
         return usage
     }

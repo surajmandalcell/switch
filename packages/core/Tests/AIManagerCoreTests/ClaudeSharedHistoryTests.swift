@@ -398,7 +398,8 @@ final class ClaudeSharedHistoryTests: XCTestCase {
     func testProfileUsageProbesOnceInsideTheRateLimitWindow() async throws {
         let counter = root.appending(path: "runs.txt")
         let panel = root.appending(path: "panel.txt")
-        try write("Current session\n7% used (Resets 5am (UTC))\n", to: panel)
+        try write("Current session\n7% used (Resets 5am (UTC))\nCurrent week (all models)\n20% used (Resets Dec 2 at 12am (UTC))\n",
+                  to: panel)
         paths.claudeExecutable = try fakeClaude("""
         echo run >> '\(counter.path)'
         printf '> '
