@@ -8,7 +8,7 @@ import Crypto
 extension ProviderCatalog {
     static let agentCLIs: [ProviderSpec] = [
         agentGrok, agentFactory, agentKiro, agentKimi, agentKimiAPI, agentKilo, agentAugment, agentAmp,
-        agentCodebuff, agentDevin, agentOpenCodeGo, agentPi, agentOllama,
+        agentCodebuff, agentDevin, agentOpenCodeGo, agentPi, agentOllama, claudeCode,
     ]
 }
 

@@ -829,7 +829,7 @@ public actor AccountManager {
         }
         guard let account = try loadRegistry().accounts.first(where: { $0.id == accountID }) else {
             if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
-                throw ProviderError.unsupported("Usage for Claude Code profiles is not available yet.")
+                return try await claudeProfiles.usage(accountID: accountID)
             }
             throw AIManagerError.accountNotFound
         }
