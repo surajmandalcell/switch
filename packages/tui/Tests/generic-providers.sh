@@ -179,7 +179,8 @@ rg -F 'Delete account' "$test_root/tui-account.log" >/dev/null
 if rg -F 'Open ' "$test_root/tui-account.log" >/dev/null; then fail 'A generic account offered an Open action.'; fi
 
 # Interactive add with type-to-filter, then prompts for each field.
-printf '\033[B\rlitel\rsecond-synthetic-key\n%s\n' "$base" | AI_MANAGER_TUI_KEYS=always "$binary" interactive >"$test_root/tui-add-secret.log"
+# API key, base URL, then a blank answer for the optional model-activity field.
+printf '\033[B\rlitel\rsecond-synthetic-key\n%s\n\n' "$base" | AI_MANAGER_TUI_KEYS=always "$binary" interactive >"$test_root/tui-add-secret.log"
 rg -F 'LiteLLM takes typed credentials' "$test_root/tui-add-secret.log" >/dev/null
 rg -F 'API key:' "$test_root/tui-add-secret.log" >/dev/null
 rg -F 'Saved LiteLLM account' "$test_root/tui-add-secret.log" >/dev/null
