@@ -34,6 +34,7 @@ enum FactoryUsage {
                         $0.localizedCaseInsensitiveContains("factory") ? nil : $0 }]
             .compactMap { $0 }.joined(separator: " - ")
         var windows: [UsageWindow] = []
+        var sections: [UsageSection] = []
         var cost: UsageCost?
         if let billing, billing["usesTokenRateLimitsBilling"].bool == true {
             let standard = billing.at("limits.standard")
@@ -45,9 +46,12 @@ enum FactoryUsage {
                                window("factory-core-7d", "Core weekly", core["weekly"], 10080, now),
                                window("factory-core-monthly", "Core monthly", core["monthly"], nil, now)]
                 .compactMap { $0 }
-            if coreWindows.contains(where: { ($0.usedPercent ?? 0) > 0 || $0.resetsAt != nil }) {
-                windows += coreWindows
+            // Core windows show only when the pool carries data: a percent, a window end, or a countdown.
+            let coreData = ["fiveHour", "weekly", "monthly"].contains {
+                (core[$0]["usedPercent"].double ?? 0) > 0 || core[$0]["windowEnd"].exists
+                    || core[$0]["secondsRemaining"].exists
             }
+            if coreData { windows += coreWindows }
             if let cents = billing["extraUsageBalanceCents"].double {
                 cost = UsageCost(balance: cents / 100, period: "Extra usage balance")
             }
@@ -55,15 +59,35 @@ enum FactoryUsage {
                 plan += " - Fallback: \(preference)"
             }
         } else if let usage = legacy?["usage"], usage.exists {
-            let end = usage["endDate"].date
-            windows += [("standard", "Standard"), ("premium", "Premium")].compactMap { id, title in
+            let start = usage["startDate"].date, end = usage["endDate"].date
+            let minutes = start.flatMap { s in end.map { Int($0.timeIntervalSince(s) / 60) } }.flatMap { $0 > 0 ? $0 : nil }
+            for (id, title) in [("standard", "Standard"), ("premium", "Premium")] where usage[id].exists {
                 let pool = usage[id]
-                return pool.exists ? UsageWindow(id: id, title: title, usedPercent: legacyPercent(pool), resetsAt: end) : nil
+                let tokens = pool["userTokens"].double ?? 0
+                let allowance = pool["totalAllowance"].double ?? 0
+                // An allowance above a trillion means unlimited, so only the token count is real.
+                let detail = allowance > 0 && allowance <= 1e12
+                    ? "\(Fmt.number(tokens)) / \(Fmt.number(allowance)) tokens" : "\(Fmt.number(tokens)) tokens"
+                windows.append(UsageWindow(id: id, title: title, usedPercent: legacyPercent(pool), resetsAt: end,
+                                           windowMinutes: minutes, detail: detail))
+                var rows: [UsageRow] = []
+                if let org = pool["orgTotalTokensUsed"].double { rows.append(UsageRow("Org tokens used", Fmt.number(org))) }
+                if let basic = pool["basicAllowance"].double, basic > 0, basic <= 1e12 {
+                    rows.append(UsageRow("Basic allowance", Fmt.number(basic)))
+                }
+                if let over = pool["orgOverageUsed"].double, over > 0 {
+                    let limit = pool["orgOverageLimit"].double.map { " / \(Fmt.number($0))" } ?? ""
+                    rows.append(UsageRow("Org overage", "\(Fmt.number(over))\(limit)"))
+                }
+                sections.append(UsageSection("\(title) tokens", rows))
             }
+            if let start { sections.append(UsageSection("Billing period", [
+                UsageRow("Starts", start.formatted(date: .abbreviated, time: .omitted)),
+            ] + (end.map { [UsageRow("Ends", $0.formatted(date: .abbreviated, time: .omitted))] } ?? []))) }
         }
         guard !windows.isEmpty || cost != nil else { throw ProviderError.parse("Factory returned no usage limits.") }
-        return ProviderUsage(windows: windows, cost: cost, plan: plan.isEmpty ? nil : plan,
-                             organization: me.at("organization.name").string)
+        return ProviderUsage(windows: windows, cost: cost, sections: sections, plan: plan.isEmpty ? nil : plan,
+                             email: me.at("userProfile.email").string, organization: me.at("organization.name").string)
     }
 
     private static func window(_ id: String, _ title: String, _ limit: JSON, _ minutes: Int?, _ now: Date) -> UsageWindow? {

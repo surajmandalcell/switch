@@ -59,35 +59,61 @@ enum KimiUsage {
         "LEVEL_FREE": "Adagio", "LEVEL_TRIAL": "Andante", "LEVEL_BASIC": "Moderato",
         "LEVEL_INTERMEDIATE": "Allegretto", "LEVEL_ADVANCED": "Allegro",
     ]
+    /// A calendar-month stand-in, the same sentinel CodexBar uses for the monthly pool.
+    private static let monthMinutes = 30 * 24 * 60
 
     private static func reset(_ json: JSON) -> Date? {
         ["resetTime", "resetAt", "reset_time", "reset_at"].lazy.compactMap { json[$0].date }.first
     }
 
-    private static func counts(_ id: String, _ title: String, _ json: JSON, minutes: Int?) -> UsageWindow? {
+    /// Request counts of one window. A count without a valid `used` or `remaining` reads as 0% and
+    /// carries no window length, so a broken counter cannot create pace.
+    private static func counts(_ id: String, _ title: String, _ json: JSON, minutes: Int?, rate: Bool = false) -> UsageWindow? {
         guard let limit = json["limit"].double, limit > 0 else { return nil }
-        let used = json["used"].double ?? json["remaining"].double.map { limit - $0 } ?? 0
-        return .amounts(id: id, title: title, used: used, limit: limit, resetsAt: reset(json),
-                        windowMinutes: minutes, unit: "requests")
+        var used = 0.0, reliable = false
+        if let value = json["used"].double, value >= 0 {
+            (used, reliable) = (value, true)
+        } else if let left = json["remaining"].double, (0...limit).contains(left) {
+            (used, reliable) = (limit - left, true)
+        }
+        let length = reliable ? minutes : nil
+        var window = UsageWindow(id: id, title: title, usedPercent: min(100, used / limit * 100), resetsAt: reset(json),
+                                 windowMinutes: length, detail: "\(Fmt.number(used)) / \(Fmt.number(limit)) requests")
+        if rate {
+            let per = length.map { $0 % 60 == 0 ? " per \($0 / 60) \($0 / 60 == 1 ? "hour" : "hours")" : " per \($0) minutes" } ?? ""
+            window.detail = "Rate: \(Fmt.number(used))/\(Fmt.number(limit))\(per)"
+        }
+        return window
     }
 
+    /// A ratio pool. Negative or missing ratios are not usable, so they never hide the count window.
     private static func ratio(_ id: String, _ title: String, _ json: JSON, minutes: Int?) -> UsageWindow? {
-        json["used_ratio"].double.map {
-            UsageWindow(id: id, title: title, usedPercent: $0 * 100, resetsAt: reset(json), windowMinutes: minutes)
+        guard let value = json["used_ratio"].double, value.isFinite, value >= 0 else { return nil }
+        return UsageWindow(id: id, title: title, usedPercent: min(1, value) * 100, resetsAt: reset(json), windowMinutes: minutes)
+    }
+
+    /// Prefers the ratio pool. When counts describe the same period (same length, reset within two
+    /// seconds) and show more use, the counts win, as in CodexBar.
+    private static func resolved(_ pool: UsageWindow?, counts: UsageWindow?) -> UsageWindow? {
+        guard let pool else { return counts }
+        if let counts, counts.windowMinutes != nil, counts.windowMinutes == pool.windowMinutes,
+           let countReset = counts.resetsAt, let poolReset = pool.resetsAt, abs(countReset.timeIntervalSince(poolReset)) <= 2,
+           (counts.usedPercent ?? 0) > (pool.usedPercent ?? 0) {
+            return counts
         }
+        return pool
     }
 
     static func map(_ json: JSON) throws -> ProviderUsage {
         let pools = json["usages"]
-        let weekly = ratio("weekly", "7-day usage", pools["limit_7d"], minutes: 10080)
-            ?? counts("weekly", "7-day usage", json["usage"], minutes: 10080)
-        var session = ratio("session", "5-hour usage", pools["limit_5h"], minutes: 300)
-        if session == nil, let first = json["limits"].array.first {
-            let unit = ["TIME_UNIT_MINUTE": 1, "TIME_UNIT_HOUR": 60, "TIME_UNIT_DAY": 1440][first.at("window.timeUnit").string ?? ""]
-            session = counts("session", "5-hour usage", first["detail"],
-                             minutes: first.at("window.duration").int.flatMap { d in unit.map { $0 * d } })
-        }
-        let monthly = ratio("monthly", "Monthly usage", pools["limit_month_total"], minutes: nil)
+        let weekly = resolved(ratio("weekly", "7-day usage", pools["limit_7d"], minutes: 10080),
+                              counts: counts("weekly", "7-day usage", json["usage"], minutes: 10080))
+        let first = json["limits"].array.first
+        let unit = ["TIME_UNIT_MINUTE": 1, "TIME_UNIT_HOUR": 60, "TIME_UNIT_DAY": 1440][first?.at("window.timeUnit").string ?? ""]
+        let rateMinutes = first.flatMap { $0.at("window.duration").int }.flatMap { d in unit.map { $0 * d } }
+        let rate = first.flatMap { counts("session", "5-hour usage", $0["detail"], minutes: rateMinutes ?? 300, rate: true) }
+        let session = resolved(ratio("session", "5-hour usage", pools["limit_5h"], minutes: 300), counts: rate)
+        let monthly = ratio("monthly", "Total usage", pools["limit_month_total"], minutes: monthMinutes)
         let windows = [weekly, session, monthly].compactMap { $0 }
         guard !windows.isEmpty else { throw ProviderError.parse("Kimi returned no supported usage windows.") }
         let level = json.at("user.membership.level").string

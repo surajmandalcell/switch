@@ -26,7 +26,7 @@ extension ProviderCatalog {
             // while gcloud holds the same file.
             let fresh = try await IDEAuth.googleRefresh(clientID: clientID, clientSecret: secret, refreshToken: refresh)
             let claims = fresh.idToken.flatMap(Fmt.jwtClaims)
-            guard let project = VertexAIUsage.project(adc) else {
+            guard let project = VertexAIUsage.project(adc) ?? VertexAIUsage.configProject() else {
                 return VertexAIUsage.map(usage: nil, limit: nil, project: nil, email: claims?["email"].string)
             }
             let usage = try await VertexAIUsage.series(token: fresh.accessToken, project: project, metric: "usage")
@@ -43,13 +43,16 @@ enum VertexAIUsage {
         var rows: [UsageRow] = []
         if let usage, let limit {
             let used = peaks(usage), caps = peaks(limit)
-            let percents = used.compactMap { key, value -> Double? in
+            let percents = used.compactMap { key, value -> (Key, Double)? in
                 // A usage series without a limit name pairs with the single limit of the same metric and location.
                 let cap = caps[key] ?? (key.limitName.isEmpty ? uniqueCap(caps, key) : nil)
-                return cap.flatMap { Fmt.percent(value, of: $0) }
+                return cap.flatMap { cap in Fmt.percent(value, of: cap).map { (key, $0) } }
             }
-            if let worst = percents.max() {
-                windows = [UsageWindow(id: "quota", title: "Vertex AI quota", usedPercent: worst, windowMinutes: 1440)]
+            if let worst = percents.max(by: { $0.1 < $1.1 }) {
+                windows = [UsageWindow(id: "quota", title: "Vertex AI quota", usedPercent: worst.1, windowMinutes: 1440)]
+                let name = worst.0.metric.split(separator: "/").last.map(String.init) ?? worst.0.metric
+                rows = [UsageRow("Peak quota", "\(name) (\(worst.0.location))"),
+                        UsageRow("Matched quotas", Fmt.number(Double(percents.count)))]
             } else {
                 rows = [UsageRow("Quota", "No Vertex AI quota data in the last 24 hours")]
             }
@@ -83,6 +86,27 @@ enum VertexAIUsage {
     static func project(_ adc: JSON, env: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         adc["quota_project_id"].string ?? ["GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"]
             .lazy.compactMap { env[$0] }.first { !$0.isEmpty }
+    }
+
+    /// The project from `gcloud config set project`: `[core] project` of the active configuration file.
+    static func configProject(env: [String: String] = ProcessInfo.processInfo.environment,
+                              home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
+        let root = env["CLOUDSDK_CONFIG"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? home.appending(path: ".config/gcloud")
+        let active = (try? String(contentsOf: root.appending(path: "active_config"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = env["CLOUDSDK_ACTIVE_CONFIG_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? active.flatMap { $0.isEmpty ? nil : $0 } ?? "default"
+        guard name.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
+              let text = try? String(contentsOf: root.appending(path: "configurations/config_\(name)"), encoding: .utf8) else { return nil }
+        var inCore = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") { inCore = line == "[core]"; continue }
+            guard inCore, line.hasPrefix("project"), let equals = line.firstIndex(of: "=") else { continue }
+            let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+        return nil
     }
 
     /// Stable offline identity: the account email when the file has one, else a short hash of the refresh token.

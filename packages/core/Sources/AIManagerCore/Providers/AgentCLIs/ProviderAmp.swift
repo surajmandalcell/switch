@@ -36,6 +36,7 @@ enum AmpUsage {
         let identity = captures(text, #"(?im)^\s*Signed in as\s+([^\s(]+)(?:\s+\(([^\r\n)]+)\))?\s*$"#)
         var windows: [UsageWindow] = []
         var plan: String?
+        var allowances: [UsageRow] = []
 
         let tier = captures(text, #"(?im)^\s*Amp\s+([^\r\n]+?)\s+Tier:\s*agent\s+usage\s+\$"# + amount + #"\s+of\s+\$"# + amount
             + #"\s+remaining\b([^\r\n]*?)resets\s+upon\s+renewal\s+in\s+([0-9][0-9,]*)\s+(days?|months?)\b"#)
@@ -46,10 +47,13 @@ enum AmpUsage {
             windows.append(UsageWindow(id: "agent", title: "Agent usage", usedPercent: (limit - remaining) / limit * 100,
                                        resetsAt: reset, windowMinutes: period.map { Int($0.end.timeIntervalSince($0.start) / 60) },
                                        detail: "\(Fmt.money(limit - remaining)) / \(Fmt.money(limit))"))
+            allowances.append(UsageRow("Agent", Fmt.money(remaining)))
             if let orb = captures(tier[3], #"(?i)\borb\s+usage\s+"# + amount + #"h\s+of\s+"# + amount + #"h\s+a1\.small\s+orb\s+hours\s+remaining\b"#),
                let orbRemaining = number(orb[0]), let orbLimit = number(orb[1]), orbLimit > 0 {
                 windows.append(UsageWindow(id: "orb", title: "Orb usage", usedPercent: (orbLimit - orbRemaining) / orbLimit * 100,
-                                           resetsAt: reset, detail: "\(Fmt.number(orbRemaining.rounded(.down)))h of \(Fmt.number(orbLimit))h left"))
+                                           resetsAt: reset, windowMinutes: period.map { Int($0.end.timeIntervalSince($0.start) / 60) },
+                                           detail: "\(orbRemaining > 0 && orbRemaining < 1 ? "< 1" : Fmt.number(orbRemaining.rounded(.down)))h of \(Fmt.number(orbLimit))h left"))
+                allowances.append(UsageRow("Orb", "\(orbRemaining > 0 && orbRemaining < 1 ? "< 1" : Fmt.number(orbRemaining.rounded(.down)))h a1.small-equivalent"))
             }
         } else {
             let suffix = #"\s*"# + amount + #"\s*%\s+other\s+usage\s+and\s+"# + amount
@@ -59,8 +63,12 @@ enum AmpUsage {
                let other = number(sub[1]), let orb = number(sub[2]) {
                 let reset = number(sub[3]).flatMap { renewal(Int($0), sub[4], now) }
                 plan = sub[0]
-                windows.append(UsageWindow(id: "other", title: "Other usage", usedPercent: 100 - other, resetsAt: reset))
-                windows.append(UsageWindow(id: "orb", title: "Orb usage", usedPercent: 100 - orb, resetsAt: reset))
+                // The legacy text names only the days to renewal, so the cycle is one calendar month before it.
+                let cycle = reset.flatMap { end in
+                    Calendar(identifier: .gregorian).date(byAdding: .month, value: -1, to: end).map { Int(end.timeIntervalSince($0) / 60) }
+                }
+                windows.append(UsageWindow(id: "other", title: "Other usage", usedPercent: 100 - other, resetsAt: reset, windowMinutes: cycle))
+                windows.append(UsageWindow(id: "orb", title: "Orb usage", usedPercent: 100 - orb, resetsAt: reset, windowMinutes: cycle))
             }
         }
 
@@ -97,7 +105,7 @@ enum AmpUsage {
             throw ProviderError.parse("Amp returned usage text that Switch cannot read.")
         }
         return ProviderUsage(windows: windows, cost: credits.map { UsageCost(balance: $0) },
-                             sections: [UsageSection("Workspaces", rows)],
+                             sections: [UsageSection("Workspaces", rows), UsageSection("Monthly allowances", allowances)],
                              plan: plan ?? (free != nil ? "Amp Free" : "Amp"),
                              email: identity?[0], organization: identity.flatMap { $0[1].isEmpty ? nil : $0[1] })
     }

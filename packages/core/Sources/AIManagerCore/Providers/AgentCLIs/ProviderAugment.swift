@@ -26,7 +26,15 @@ enum AugmentUsage {
         let window = UsageWindow.amounts(id: "credits", title: "Credits", used: used, limit: limit,
                                          resetsAt: subscription?["billingPeriodEnd"].date, unit: "credits")
             ?? UsageWindow(id: "credits", title: "Credits", usedPercent: 0, resetsAt: subscription?["billingPeriodEnd"].date)
-        return ProviderUsage(windows: [window], plan: subscription?["planName"].string,
+        var rows: [UsageRow] = []
+        if let left = remaining ?? (limit > 0 ? limit - used : nil) {
+            rows.append(UsageRow("Credits remaining", Fmt.number(max(0, left), digits: 2)))
+        }
+        if let status = credits["usageBalanceStatus"].string { rows.append(UsageRow("Balance status", status.capitalized)) }
+        if let end = subscription?["billingPeriodEnd"].date {
+            rows.append(UsageRow("Billing cycle ends", end.formatted(date: .abbreviated, time: .omitted)))
+        }
+        return ProviderUsage(windows: [window], sections: [UsageSection(nil, rows)], plan: subscription?["planName"].string,
                              email: subscription?["email"].string, organization: subscription?["organization"].string)
     }
 }

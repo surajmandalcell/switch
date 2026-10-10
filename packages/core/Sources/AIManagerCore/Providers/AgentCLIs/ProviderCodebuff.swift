@@ -59,10 +59,18 @@ enum CodebuffUsage {
             }
         }
         guard !windows.isEmpty else { throw ProviderError.parse("Codebuff returned no credit data.") }
-        let topUp = (usage["autoTopupEnabled"].bool ?? usage["auto_topup_enabled"].bool).map {
-            UsageRow("Auto top-up", $0 ? "On" : "Off")
+        var rows: [UsageRow] = []
+        if let topUp = usage["autoTopupEnabled"].bool ?? usage["auto_topup_enabled"].bool {
+            rows.append(UsageRow("Auto top-up", topUp ? "On" : "Off"))
         }
-        return ProviderUsage(windows: windows, sections: [UsageSection(nil, topUp.map { [$0] } ?? [])], plan: plan,
+        if let balance { rows.append(UsageRow("Credits remaining", Fmt.number(balance, digits: 1))) }
+        if let subscription, subscription["hasSubscription"].bool != false {
+            if let status = subscription.at("subscription.status").string { rows.append(UsageRow("Subscription", status.capitalized)) }
+            if let end = ["billingPeriodEnd", "currentPeriodEnd"].lazy.compactMap({ subscription.at("subscription.\($0)").date }).first {
+                rows.append(UsageRow("Billing period ends", end.formatted(date: .abbreviated, time: .omitted)))
+            }
+        }
+        return ProviderUsage(windows: windows, sections: [UsageSection(nil, rows)], plan: plan,
                              email: email ?? subscription?["email"].string ?? subscription?.at("user.email").string)
     }
 }
