@@ -23,8 +23,18 @@ quick account switch.
 Hooks, the plugin engine, browser cookie import, widgets, sync, and telemetry from those
 apps are left out on purpose.
 
-3.4.1 shows Codex credit balances as numbers and keeps no part of a GitHub Copilot
-token in the account index.
+Switch 3.5 closes the gaps a field-by-field comparison with OpenUsage and CodexBar found:
+
+- Claude Code shows the 5-hour session, weekly, and per-model weekly limits, the plan,
+  and the usage credits state. The usage panel is now read from a replayed terminal
+  screen, so no row is lost.
+- Codex shows plan names such as Pro 200, rate-limit reset credits, credits in dollars,
+  Spark and other model windows, team credit pools, and pace. An expired Codex sign-in
+  now says Sign in again.
+- Every provider shows the extra windows, money, plan, and detail rows the reference
+  apps show, and 13 providers draw 30-day charts.
+- Reset times can show a countdown or the exact time, a global shortcut opens the menu,
+  Add Account marks tools already signed in on this Mac, and usage rows can be hidden.
 
 Download the Mac ZIP, unzip it, and move `Switch.app` to Applications. Switch
 requires macOS 14 or later on Apple Silicon.
