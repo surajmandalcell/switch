@@ -32,7 +32,8 @@ enum CopilotUsage {
     static func identity(_ apps: JSON?) -> CredentialIdentity? {
         guard let entry = entry(apps) else { return nil }
         if let user = entry["user"].string { return CredentialIdentity(key: "github:\(user.lowercased())") }
-        return entry["oauth_token"].string.map { CredentialIdentity(key: "token:\($0.prefix(12))") }
+        // Never keep part of the token itself in the account index.
+        return entry["oauth_token"].string.map { CredentialIdentity(key: "token:\(AgentCLIsKit.fingerprint($0))") }
     }
 
     /// Pure mapper for `/copilot_internal/user`. Unlimited (-1) and zero-entitlement buckets are dropped.
