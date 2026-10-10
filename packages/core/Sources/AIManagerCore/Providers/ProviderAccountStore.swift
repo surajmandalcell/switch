@@ -271,7 +271,10 @@ struct ProviderAccountStore {
               let login = spec.login, let command = login.first else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) has no sign-in command.")
         }
-        guard let executable = resolveExecutable(command) else { throw AIManagerError.cliNotFound }
+        guard let executable = resolveExecutable(command) else {
+            throw AIManagerError.operationFailed(
+                "\(spec.name) sign-in needs `\(command)`. Install it, then try again.")
+        }
         try pruneStaleLogins()
         let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date())
         let home = loginHome(session.id)
