@@ -90,7 +90,7 @@ final class AccountOnboardingTests: XCTestCase {
             loginRunner: recorder.runner
         )
 
-        for providerID in [ProviderID.geminiCLI, .antigravityCLI] {
+        for providerID in [ProviderID(rawValue: "not-a-provider")] {
             await assertOnboardingThrows(try await manager.startAccountLogin(providerID: providerID))
         }
 
@@ -98,14 +98,17 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(
             atPath: paths.applicationSupport.appending(path: "account-login").path))
         XCTAssertEqual(
-            AccountManager.providerCatalog.prefix(5).map(\.id),
-            [.codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI])
+            AccountManager.providerCatalog.prefix(3).map(\.id), [.codex, .grokBuild, .claudeCode])
         XCTAssertEqual(
-            AccountManager.providerCatalog.prefix(5).map(\.displayName),
-            ["Codex CLI", "Grok Build", "Claude Code", "Gemini CLI", "Antigravity CLI"])
+            AccountManager.providerCatalog.prefix(3).map(\.displayName),
+            ["Codex CLI", "Grok Build", "Claude Code"])
         XCTAssertEqual(
-            AccountManager.providerCatalog.prefix(5).map(\.availability),
-            [.enabled, .enabled, .enabled, .disabled, .disabled])
+            AccountManager.providerCatalog.prefix(3).map(\.availability), [.enabled, .enabled, .enabled])
+        for (id, name) in [(ProviderID.geminiCLI, "Gemini CLI"), (.antigravityCLI, "Antigravity CLI")] {
+            let entries = AccountManager.providerCatalog.filter { $0.id == id }
+            XCTAssertEqual(entries.map(\.displayName), [name])
+            XCTAssertEqual(entries.map(\.availability), [.enabled])
+        }
     }
 
     func testClaudeProfilesKeepIndependentConfigAndDefault() async throws {
