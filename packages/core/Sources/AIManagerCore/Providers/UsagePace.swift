@@ -71,6 +71,7 @@ public enum UsagePace {
         guard let resetsAt = window.resetsAt, let minutes = window.windowMinutes, minutes > 0 else { return band }
         let period = TimeInterval(minutes) * 60
         // ponytail: "Not started" applies to windows up to one day; weekly 0% is ordinary, not idle.
+        // Use a provider's explicit "not started" flag instead if one starts returning it.
         if used == 0, now < resetsAt, minutes <= 24 * 60 {
             return .level(.normal, label: "Not started")
         }
