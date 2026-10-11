@@ -1142,9 +1142,11 @@ enum AIManagerNativeContract {
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
       if !condition() { failures.append(message) }
     }
-    // Cards: 10-point corners, 16-point padding, 12-point gaps.
-    expect(AIMTheme.radius == 10 && AIMTheme.panelContentInset == 16 && AIMTheme.cardSpacing == 12,
-      "Card geometry is not 10-point corners, 16-point padding, and 12-point gaps")
+    // Containers: 10-point corners, 20-point page margins, 16 points between sections, 8 in rows.
+    expect(AIMTheme.radius == 10 && AIMTheme.pageMargin == 20 && AIMTheme.sectionSpacing == 16
+      && AIMTheme.rowSpacing == 8,
+      "Container geometry is not 10-point corners, 20-point margins, 16-point sections, 8-point rows")
+    failures.append(contentsOf: typographyFailures())
     // Toolbar search: at least 300 points wide; Command-K comes from the View menu.
     expect(AIManagerToolbar.searchWidth >= 300 && AIManagerToolbar.searchPrompt == "Search accounts…",
       "The toolbar search is narrower than 300 points or has the wrong prompt")
@@ -1193,6 +1195,33 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// The five text roles: each renders exactly as its system text style, the sizes step down from
+  /// Title to Caption, Section is Body in bold, and only paths and IDs use the monospaced design.
+  static func typographyFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    func fit(_ view: some View) -> NSSize { NSHostingView(rootView: view).fittingSize }
+    let word = "Switch usage"
+    expect(AIMTextRole.allCases.count == 5, "The type ramp does not have exactly five roles")
+    let title = fit(Text(word).aimText(.title)), section = fit(Text(word).aimText(.section))
+    let body = fit(Text(word).aimText(.body)), secondary = fit(Text(word).aimText(.secondary))
+    let caption = fit(Text(word).aimText(.caption))
+    expect(title == fit(Text(word).font(.title2.weight(.semibold))), "Title is not Title 2 semibold")
+    expect(section == fit(Text(word).font(.headline)), "Section is not Headline")
+    expect(body == fit(Text(word).font(.body)), "Body is not Body")
+    expect(secondary == fit(Text(word).font(.subheadline)), "Secondary is not Subheadline")
+    expect(caption == fit(Text(word).font(.caption)), "Caption is not Caption")
+    expect(title.height > body.height && body.height > secondary.height && secondary.height > caption.height,
+      "The role sizes do not step down from Title to Caption")
+    expect(section.width > body.width, "Section is not heavier than Body")
+    expect(fit(Text("iiii").aimText(.secondary, monospaced: true)).width
+      > fit(Text("iiii").aimText(.secondary)).width,
+      "Paths and IDs do not use the monospaced design")
+    return failures
+  }
+
   /// The Overview page: its cards, the native Table's columns, and the activity data per provider.
   static func overviewFailures() -> [String] {
     var failures: [String] = []
@@ -1220,7 +1249,7 @@ enum AIManagerNativeContract {
 
     // The longest reset text is not truncated at the default window width: the reset column is
     // at least as wide as the text, and a row laid out in the card's width keeps it.
-    let longReset = Text(OverviewWindowRow.longestReset).fixedSize()
+    let longReset = Text(OverviewWindowRow.longestReset).aimText(.secondary).fixedSize()
     let longWidth = NSHostingView(rootView: longReset).fittingSize.width
     expect(OverviewWindowRow.resetWidth >= longWidth,
       "The reset column (\(OverviewWindowRow.resetWidth)) is narrower than \"\(OverviewWindowRow.longestReset)\" (\(longWidth))")
@@ -1229,7 +1258,9 @@ enum AIManagerNativeContract {
       window: UsageWindow(id: "w", title: "Weekly", usedPercent: 40,
         resetsAt: now.addingTimeInterval(6 * 86_400 + 23 * 3_600 + 59 * 60 + 30), windowMinutes: 10_080),
       showsUsed: false, now: now)
-    let rowWidth = AIManagerWindow.defaultSize.width - AIMTheme.sidebarWidth - 4 * AIMTheme.panelContentInset
+    // The default sidebar takes at most 260 points; the page and the row add their own padding.
+    let rowWidth = AIManagerWindow.defaultSize.width - 260 - 2 * AIMTheme.pageMargin
+      - 2 * AIMTheme.sectionSpacing
     // Ideal width: title + minimum bar + percent + the full reset column must fit the card.
     let idealWidth = NSHostingView(rootView: longRow).fittingSize.width
     expect(idealWidth >= 130 + 40 + 80 + OverviewWindowRow.resetWidth && idealWidth <= rowWidth,
@@ -1244,7 +1275,7 @@ enum AIManagerNativeContract {
         && OverviewFormat.rowAction(for: stale, model: model) == .signIn
         && OverviewFormat.rowAction(for: good, model: model) != .signIn,
         "The Overview table shows no Sign in action for an account that needs sign-in")
-      let signIn = NSHostingView(rootView: SignInButton(account: stale, model: model, small: true))
+      let signIn = NSHostingView(rootView: SignInButton(account: stale, model: model))
       expect(signIn.fittingSize.width > 0, "The Sign in button collapsed")
     } else { failures.append("The Overview fixture has no account that needs sign-in") }
     return failures
@@ -1341,6 +1372,22 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// The window is native: the sidebar is a source-list outline (a plain List in a
+  /// NavigationSplitView), and the Overview, Accounts, Maintenance, and Settings pages draw a
+  /// grouped Form. `pageIndex` is the index into `AIManagerPage.allCases`.
+  static func nativeStructureFailures(in root: NSView, pageIndex: Int) -> [String] {
+    var failures: [String] = []
+    let all = views(in: root)
+    if !all.contains(where: { ($0 as? NSOutlineView)?.style == .sourceList }) {
+      failures.append("The sidebar is not a native source-list List")
+    }
+    if [0, 1, 3, 4].contains(pageIndex)
+      && !all.contains(where: { NSStringFromClass(type(of: $0)).contains("PlatformGroupContainer") }) {
+      failures.append("Page \(pageIndex) is not a grouped Form")
+    }
+    return failures
+  }
+
   static func historySearchFieldsMatch(in root: NSView) -> Bool {
     let placeholders = Set(views(in: root).compactMap {
       ($0 as? NSTextField)?.placeholderString
@@ -1350,6 +1397,11 @@ enum AIManagerNativeContract {
 
   static func virtualHistoryScrollCount(in root: NSView) -> Int {
     views(in: root).filter { $0 is AIMVirtualTableView }.count
+  }
+
+  /// Native List tables: the sidebar and the Conversations thread list.
+  static func listTableCount(in root: NSView) -> Int {
+    views(in: root).filter { $0 is NSTableView && !($0 is AIMVirtualTableView) }.count
   }
 
   static func realizedVirtualRowCount(in root: NSView) -> Int {

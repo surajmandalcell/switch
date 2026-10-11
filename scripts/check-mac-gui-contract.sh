@@ -11,8 +11,35 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 app_path="$build_path/mac-gui-acceptance/Switch Mac GUI Acceptance.app"
 executable="$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
-test_root="$(mktemp -d "/private/tmp/switch-mac-gui-contract.XXXXXX")"
+mkdir -p "$build_path"
+test_root="$(mktemp -d "$build_path/switch-mac-gui-contract.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
+
+# The type ramp is five roles (AIMTextRole). No hardcoded sizes or removed font helpers.
+# A hit here fails the contract before the app is built.
+lint_pattern='AIMTheme\.(sans|mono)\b|\.system\(size:'
+if rg -n "$lint_pattern" "$repo_root/packages/mac-gui/Sources"; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL font lint: use AIMTextRole through .aimText(_:), not AIMTheme.sans, AIMTheme.mono, or .system(size:)' >&2
+  exit 1
+fi
+# Fonts come from the five roles only: a .font( call must name AIMTextRole (Design holds the roles).
+if rg -n '\.font\(' "$repo_root/packages/mac-gui/Sources" --glob '!AIManagerDesign.swift' | rg -v 'AIMTextRole'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL font lint: set fonts with .aimText(_:) or .aimFont(_:)' >&2
+  exit 1
+fi
+# Native structure: Settings is a grouped Form and the sidebar is a plain List in a NavigationSplitView.
+window_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountWindow.swift"
+settings_body="$(awk '/^struct SettingsPage: View/{f=1} f{print} /^private struct DataLocationRow/{f=0}' "$window_source")"
+if ! printf '%s\n' "$settings_body" | rg -q '^\s*Form \{' || ! printf '%s\n' "$settings_body" | rg -q '\.formStyle\(\.grouped\)'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings is not a grouped Form' >&2
+  exit 1
+fi
+sidebar_body="$(awk '/NavigationSplitView \{/{f=1} f{print} /\} detail: \{/{f=0}' "$window_source")"
+if ! printf '%s\n' "$sidebar_body" | rg -q 'List\(AIManagerPage\.allCases' \
+  || printf '%s\n' "$sidebar_body" | rg -q '\.(font|padding|background|listStyle)\('; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the sidebar is not a plain native List (only its column width may be set)' >&2
+  exit 1
+fi
 
 "$repo_root/scripts/build-mac-gui-acceptance.sh"
 

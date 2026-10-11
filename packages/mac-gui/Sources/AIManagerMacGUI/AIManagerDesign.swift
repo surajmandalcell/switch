@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-// Native design tokens. Switch follows the macOS Human Interface Guidelines: the system font at
-// standard text styles, system semantic colors, and native controls. These helpers only name the
-// few shared values (card geometry, bar colors) so every page agrees.
+// Native design tokens. Switch follows the macOS Human Interface Guidelines: the system font in
+// five text roles, system semantic colors, and native controls. These helpers only name the few
+// shared values (the roles, container geometry, bar colors) so every page agrees.
 
 private struct AIMCopyPathKey: EnvironmentKey {
   static let defaultValue: @MainActor (String) -> Bool = { _ in false }
@@ -48,83 +48,78 @@ extension EnvironmentValues {
   }
 }
 
+/// The five text roles. Every font in the app comes from one of them; there are no other sizes
+/// or weights. Title: the focused account name, at most once per page. Section: card and form
+/// section titles. Body: row labels, values, and buttons. Secondary: providers, descriptions,
+/// reset text, and meta (secondary color). Caption: badges only. Numbers keep their role and add
+/// `monospacedDigit()`; only file paths and IDs use the monospaced design, at the Secondary size.
+enum AIMTextRole: CaseIterable {
+  case title, section, body, secondary, caption
+
+  var font: Font {
+    switch self {
+    case .title: .title2.weight(.semibold)
+    case .section: .headline
+    case .body: .body
+    case .secondary: .subheadline
+    case .caption: .caption
+    }
+  }
+}
+
+private struct AIMTextModifier: ViewModifier {
+  let role: AIMTextRole
+  let monospaced: Bool
+  let tint: Color?
+
+  func body(content: Content) -> some View {
+    if role == .secondary {
+      content.font(monospaced ? role.font.monospaced() : role.font)
+        .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
+    } else {
+      content.font(role.font)
+    }
+  }
+}
+
+extension View {
+  /// Applies a text role. `monospaced` is for paths and IDs and applies to Secondary only.
+  /// `tint` replaces the secondary color of a Secondary text, for a warning or an error.
+  func aimText(_ role: AIMTextRole, monospaced: Bool = false, tint: Color? = nil) -> some View {
+    modifier(AIMTextModifier(role: role, monospaced: monospaced, tint: tint))
+  }
+
+  /// Only the font of a role, for icons and controls that set their own color.
+  func aimFont(_ role: AIMTextRole) -> some View { font(role.font) }
+}
+
 enum AIMTheme {
-  /// Card geometry: 10-point corners, 16-point padding, 12-point gaps.
+  /// Rounded container corners.
   static let radius: CGFloat = 10
-  static let controlRadius: CGFloat = 6
-  static let panelContentInset: CGFloat = 16
-  static let modalOuterInset: CGFloat = 16
-  static let modalSectionSpacing: CGFloat = 12
-  static let cardSpacing: CGFloat = 12
-  static let sidebarWidth: CGFloat = 200
+  /// Page margins, the gap between sections, and the space inside a row.
+  static let pageMargin: CGFloat = 20
+  static let sectionSpacing: CGFloat = 16
+  static let rowSpacing: CGFloat = 8
   static let accountListWidth: CGFloat = 260
   /// Width of the toolbar's "Search accounts…" field.
   static let toolbarSearchWidth: CGFloat = 300
 
   // System semantic colors; the user's accent color applies in light and dark.
-  static let canvas = Color(nsColor: .windowBackgroundColor)
-  /// Secondary system background used by cards.
+  /// The grouped container fill: the same faint system fill a grouped Form draws.
+  static let container = Color(nsColor: .quaternarySystemFill)
   static let panel = Color(nsColor: .controlBackgroundColor)
-  static let panel2 = Color.primary.opacity(0.045)
-  static let panel3 = Color.primary.opacity(0.08)
-  static let listStripe = Color.primary.opacity(0.03)
-  static let listSelection = Color.accentColor.opacity(0.18)
   static let chatUserSurface = Color.accentColor.opacity(0.14)
+  static let chatAssistantSurface = Color.primary.opacity(0.045)
   static let chatCodeSurface = Color.primary.opacity(0.06)
+  static let chatOtherSurface = Color.primary.opacity(0.08)
   static let line = Color(nsColor: .separatorColor)
-  static let lineSoft = Color(nsColor: .separatorColor).opacity(0.6)
-  static let ink = Color.primary
-  static let muted = Color.secondary
-  static let faint = Color(nsColor: .tertiaryLabelColor)
   static let blue = Color.accentColor
   static let green = Color(nsColor: .systemGreen)
   static let amber = Color(nsColor: .systemOrange)
   static let yellow = Color(nsColor: .systemYellow)
   static let red = Color(nsColor: .systemRed)
-  static let control = Color.primary.opacity(0.1)
   /// Empty track of a usage bar.
   static let track = Color(nsColor: .quaternaryLabelColor)
-
-  enum FontWeight: String {
-    case regular = "Regular"
-    case medium = "Medium"
-    case semibold = "SemiBold"
-    case bold = "Bold"
-  }
-
-  /// The standard text style closest to a point size.
-  static func textStyle(_ size: CGFloat) -> Font.TextStyle {
-    switch size {
-    case 22...: .title
-    case 17...: .title2
-    case 15...: .title3
-    case 13...: .body
-    case 12...: .callout
-    case 11...: .subheadline
-    default: .footnote
-    }
-  }
-
-  /// The system font at the standard text style for `size`.
-  static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .system(textStyle(size)).weight(weight.swiftUIWeight)
-  }
-
-  /// The system monospaced font, for paths, IDs, and numbers.
-  static func mono(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .system(textStyle(size), design: .monospaced).weight(weight.swiftUIWeight)
-  }
-}
-
-private extension AIMTheme.FontWeight {
-  var swiftUIWeight: Font.Weight {
-    switch self {
-    case .regular: .regular
-    case .medium: .medium
-    case .semibold: .semibold
-    case .bold: .bold
-    }
-  }
 }
 
 extension Color {
@@ -153,35 +148,57 @@ enum UsageBarColor {
   }
 }
 
-/// A capsule usage bar. `usedPercent` drives the color (by the share left); "Show percentage used"
-/// flips the fill to the used share. An unknown value shows an empty grey track. The fill is
-/// clamped to the track, so overage never overflows.
+/// The one usage bar: a 6-point capsule in the Overview, Accounts, the account detail, and the
+/// popover. `usedPercent` drives the color (by the share left) unless `tint` overrides it; "Show
+/// percentage used" flips the fill to the used share. An unknown value shows an empty grey track.
+/// The fill is clamped to the track, so overage never overflows. The pace tick draws over the bar
+/// and never changes the layout height.
 struct UsageBar: View {
+  static let height: CGFloat = 6
   let usedPercent: Double?
   var showsUsed = false
-  var height: CGFloat = 6
+  /// Overrides the color by percent, for example the popover's pace-aware level.
+  var tint: Color? = nil
   /// Even-pace marker as a 0...1 position.
   var tick: Double? = nil
 
   var body: some View {
     let used = usedPercent.map { min(max($0, 0), 100) }
-    let color = UsageBarColor.color(leftPercent: used.map { 100 - $0 })
+    let color = tint ?? UsageBarColor.color(leftPercent: used.map { 100 - $0 })
     let fill = used.map { (showsUsed ? $0 : 100 - $0) / 100 } ?? 0
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
         Capsule().fill(AIMTheme.track)
         if let color, fill > 0 {
-          Capsule().fill(color).frame(width: max(height, geometry.size.width * fill))
+          Capsule().fill(color).frame(width: max(Self.height, geometry.size.width * fill))
         }
         if let tick {
-          Rectangle().fill(Color.primary.opacity(0.7)).frame(width: 1.5, height: height + 4)
+          Rectangle().fill(Color.primary.opacity(0.7)).frame(width: 1.5, height: Self.height + 4)
             .offset(x: min(max(geometry.size.width * tick - 0.75, 0), geometry.size.width - 1.5))
         }
       }
       .frame(height: geometry.size.height, alignment: .leading)
     }
-    .frame(height: height + (tick == nil ? 0 : 4))
+    .frame(height: Self.height)
     .accessibilityHidden(true)
+  }
+}
+
+// MARK: - Badge
+
+/// The one badge: Caption text on a capsule with a tinted fill. Used for Default, Signed in on
+/// this Mac, and every attention state.
+struct Badge: View {
+  let text: String
+  var tint: Color = AIMTheme.green
+
+  var body: some View {
+    Text(text)
+      .aimText(.caption)
+      .foregroundStyle(tint)
+      .lineLimit(1)
+      .padding(.horizontal, 8).padding(.vertical, 2)
+      .background(tint.opacity(0.16), in: Capsule())
   }
 }
 
@@ -197,7 +214,7 @@ struct AIMCopyablePath: View {
 
   var body: some View {
     Text(path)
-      .font(AIMTheme.mono(11))
+      .aimText(.secondary, monospaced: true)
       .lineLimit(1).truncationMode(.middle)
       .contentShape(Rectangle())
       .highPriorityGesture(TapGesture().onEnded { copy() })
@@ -210,11 +227,9 @@ struct AIMCopyablePath: View {
       .accessibilityAction { copy() }
       .background { AIMCopyCursor(enabled: isEnabled).allowsHitTesting(false) }
       .overlay(alignment: .topTrailing) {
-        Text("Copied").font(AIMTheme.sans(10, weight: .medium))
-          .foregroundStyle(AIMTheme.green)
-          .padding(.horizontal, 4).padding(.vertical, 2)
-          .background(AIMTheme.panel)
-          .offset(y: -14)
+        Badge(text: "Copied")
+          .background(AIMTheme.panel, in: Capsule())
+          .offset(y: -18)
           .opacity(copied ? 1 : 0)
           .allowsHitTesting(false).accessibilityHidden(true)
       }
@@ -302,68 +317,50 @@ struct AIMIcon: View {
   }
 
   let name: Name
-  var size: CGFloat = 17
 
+  /// A template symbol that scales with the surrounding text role.
   var body: some View {
     Image(systemName: name.symbol)
-      .font(.system(size: size, weight: .regular))
       .symbolRenderingMode(.monochrome)
-      .frame(width: size, height: size)
       .accessibilityHidden(true)
   }
 }
 
-// MARK: - Cards
+// MARK: - Containers
 
-enum AIMPanelImportance {
-  case primary, secondary
+extension View {
+  /// The shared container surface: the system grouped fill with rounded corners.
+  func aimContainer() -> some View {
+    background(AIMTheme.container, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+
+  /// A row inside a container: 8 points of vertical space.
+  func aimRow() -> some View {
+    padding(.horizontal, AIMTheme.sectionSpacing).padding(.vertical, AIMTheme.rowSpacing)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
 }
 
-/// A grouped card: secondary system background, 10-point corners, a hairline border.
+/// The one container of the Overview: the Section title above, then rows on the system secondary
+/// background. Callers put a `Divider()` (a hairline) between rows.
 struct AIMPanel<Content: View>: View {
-  let title: String
-  var importance: AIMPanelImportance = .secondary
-  var headerAccessories: AnyView? = nil
+  var title: String? = nil
+  var accessory: AnyView? = nil
   @ViewBuilder var content: Content
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 8) {
-        Text(title)
-          .font(.headline)
-          .foregroundStyle(importance == .primary ? AIMTheme.ink : AIMTheme.muted)
-        Spacer(minLength: 0)
-        if let headerAccessories { headerAccessories }
+    VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+      if title != nil || accessory != nil {
+        HStack(spacing: AIMTheme.rowSpacing) {
+          if let title { Text(title).aimText(.section) }
+          Spacer(minLength: 0)
+          if let accessory { accessory }
+        }
       }
-      .padding(.horizontal, AIMTheme.panelContentInset)
-      .frame(height: 40)
-      Divider()
-      content
+      VStack(spacing: 0) { content }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .aimContainer()
     }
-    .aimCard()
-  }
-}
-
-extension View {
-  /// The card surface: secondary system background, 10-point corners, hairline border.
-  func aimCard() -> some View {
-    background(AIMTheme.panel)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      .overlay {
-        RoundedRectangle(cornerRadius: AIMTheme.radius)
-          .strokeBorder(AIMTheme.line, lineWidth: 0.5)
-      }
-  }
-}
-
-/// A native scroll view; kept as one name so pages share it.
-struct AIMScrollView<Content: View>: View {
-  @ViewBuilder let content: Content
-
-  init(@ViewBuilder content: () -> Content) { self.content = content() }
-
-  var body: some View {
-    ScrollView { content }
   }
 }
 
@@ -499,7 +496,7 @@ where Item.ID: Hashable {
       cell.host.rootView = AnyView(
         rowContent(items[row])
           .environment(\.aimCopyPath, copyPath)
-          .foregroundStyle(AIMTheme.ink))
+          .foregroundStyle(.primary))
       return cell
     }
   }

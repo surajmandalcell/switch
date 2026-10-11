@@ -194,27 +194,6 @@ enum MenuBarPresentation {
   }
 }
 
-/// A native-looking capsule bar. Empty grey track when the value is unknown.
-struct MenuBarCapsuleBar: View {
-  let fill: Double?
-  let tint: Color
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  var body: some View {
-    GeometryReader { proxy in
-      ZStack(alignment: .leading) {
-        Capsule().fill(Color.primary.opacity(0.12))
-        if let fill, fill > 0 {
-          Capsule().fill(tint).frame(width: max(proxy.size.height, proxy.size.width * fill))
-        }
-      }
-    }
-    .frame(height: 6)
-    .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: fill)
-    .accessibilityHidden(true)
-  }
-}
-
 struct MenuBarRow: View {
   let account: MenuBarAccountSnapshot
   let now: Date
@@ -237,7 +216,7 @@ struct MenuBarRow: View {
         content
         if P.hasTokenCaption(account), let text = account.usage.flatMap(P.tokenCaption) {
           Text(text)
-            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            .aimText(.secondary).monospacedDigit().lineLimit(1)
             .frame(height: P.captionHeight)
             .padding(.leading, P.tileSize + P.tileSpacing)
         }
@@ -269,18 +248,18 @@ struct MenuBarRow: View {
       VStack(alignment: .leading, spacing: 1) {
         HStack(spacing: 4) {
           Text(account.identity)
-            .font(.headline)
+            .aimText(.section)
             .lineLimit(1).truncationMode(.middle)
             .help(account.identity)
           if account.isActive {
             Image(systemName: "checkmark")
-              .font(.caption.weight(.bold))
+              .aimFont(.secondary)
               .foregroundStyle(Color.accentColor)
               .help("Default for \(P.providerLabel(account))")
           }
         }
         Text(P.providerLabel(account))
-          .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+          .aimText(.secondary).lineLimit(1)
       }
       Spacer(minLength: 4)
       trailing
@@ -304,7 +283,7 @@ struct MenuBarRow: View {
         if let reset = P.headerReset(for: account) {
           Text(P.resetText(reset, now: now, exact: exact,
             hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: P.headerUsed(for: account)))
-            .font(.callout.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+            .aimText(.secondary).monospacedDigit().lineLimit(1)
         }
       }
     }
@@ -331,7 +310,7 @@ struct MenuBarRow: View {
     switch P.content(for: account) {
     case .signIn:
       Button("Sign in") { store.openMainWindow() }
-        .controlSize(.small)
+        .buttonStyle(.bordered)
         .frame(height: P.lineHeight)
         .padding(.leading, P.tileSize + P.tileSpacing)
         .help("Open Switch to sign in")
@@ -346,22 +325,22 @@ struct MenuBarRow: View {
   private func lineView(_ line: P.Line) -> some View {
     HStack(spacing: 8) {
       if let label = line.label {
-        Text(label).font(.callout).lineLimit(1).frame(width: P.labelWidth, alignment: .leading)
+        Text(label).aimText(.secondary).lineLimit(1).frame(width: P.labelWidth, alignment: .leading)
       }
       if let balance = line.balance {
-        Text("Balance").font(.callout)
+        Text("Balance").aimText(.secondary)
         Spacer(minLength: 0)
-        Text(balance).font(.callout.monospacedDigit())
+        Text(balance).aimText(.secondary).monospacedDigit()
       } else {
-        MenuBarCapsuleBar(
-          fill: line.used.map { UsagePercentagePreferences.fill(forUsed: $0, showsUsed: showsUsed) },
+        UsageBar(
+          usedPercent: line.used.map(Double.init), showsUsed: showsUsed,
           tint: line.used.map {
             P.color(P.level(used: $0, resetsAt: line.resetsAt, minutes: line.minutes, now: now))
-          } ?? .clear)
+          })
         Text(line.used.map {
           "\(UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed))%"
         } ?? "—")
-          .font(.callout.monospacedDigit())
+          .aimText(.secondary).monospacedDigit()
           .frame(width: P.percentWidth, alignment: .trailing)
       }
     }
@@ -380,34 +359,14 @@ struct MenuBarRow: View {
   }
 }
 
-/// Rounded footer buttons that follow the system control and accent colors.
-struct MenuBarFooterButtonStyle: ButtonStyle {
-  var prominent = false
-  @Environment(\.isEnabled) private var isEnabled
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .foregroundStyle(prominent ? Color.white : Color.primary)
-      .background {
-        RoundedRectangle(cornerRadius: 9)
-          .fill(prominent ? Color.accentColor : Color(nsColor: .controlColor))
-          .overlay {
-            if !prominent {
-              RoundedRectangle(cornerRadius: 9).strokeBorder(Color(nsColor: .separatorColor))
-            }
-          }
-      }
-      .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
-      .contentShape(RoundedRectangle(cornerRadius: 9))
-  }
-}
-
 struct MenuBarFooter: View {
   @ObservedObject var store: MenuBarPopoverStore
   private typealias P = MenuBarPresentation
+  /// The icon box of the square footer buttons; the large control height gives the rest.
+  private static let iconSide: CGFloat = 18
 
   var body: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: AIMTheme.rowSpacing) {
       Button {
         Task { await store.refreshUsage() }
       } label: {
@@ -415,12 +374,14 @@ struct MenuBarFooter: View {
           if store.isRefreshingUsage {
             ProgressView().controlSize(.small)
           } else {
-            Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .regular))
+            Image(systemName: "arrow.clockwise")
           }
         }
-        .frame(width: 40, height: 36)
+        .frame(width: Self.iconSide, height: Self.iconSide)
       }
-      .buttonStyle(MenuBarFooterButtonStyle())
+      .buttonStyle(.bordered)
+      .buttonBorderShape(.circle)
+      .controlSize(.large)
       .keyboardShortcut("r", modifiers: .command)
       .disabled(!store.canRefreshUsage)
       .help(refreshHelp)
@@ -429,10 +390,12 @@ struct MenuBarFooter: View {
       Button {
         store.openSettings()
       } label: {
-        Image(systemName: "gearshape").font(.system(size: 14, weight: .regular))
-          .frame(width: 40, height: 36)
+        Image(systemName: "gearshape")
+          .frame(width: Self.iconSide, height: Self.iconSide)
       }
-      .buttonStyle(MenuBarFooterButtonStyle())
+      .buttonStyle(.bordered)
+      .buttonBorderShape(.circle)
+      .controlSize(.large)
       .help("Settings")
       .accessibilityLabel("Settings")
 
@@ -440,18 +403,13 @@ struct MenuBarFooter: View {
         store.openMainWindow()
       } label: {
         Text("Open Switch")
-          .font(.body.weight(.medium))
           .frame(maxWidth: .infinity)
           .overlay(alignment: .trailing) {
-            Text("⌘O")
-              .font(.callout)
-              .padding(.horizontal, 6).padding(.vertical, 2)
-              .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.22)))
-              .padding(.trailing, 8)
+            Text("⌘O").aimFont(.secondary).opacity(0.8)
           }
-          .frame(height: 36)
       }
-      .buttonStyle(MenuBarFooterButtonStyle(prominent: true))
+      .buttonStyle(.borderedProminent)
+      .controlSize(.large)
       .keyboardShortcut("o", modifiers: .command)
       .help("Open Switch (⌘O)")
     }

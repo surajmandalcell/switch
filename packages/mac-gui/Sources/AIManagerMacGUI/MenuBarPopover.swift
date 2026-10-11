@@ -366,8 +366,8 @@ struct MenuBarPopover: View {
     let rows = store.rows
     if rows.isEmpty {
       VStack(spacing: 4) {
-        Text("No accounts yet").font(.headline)
-        Text("Open Switch to add an account.").font(.callout).foregroundStyle(.secondary)
+        Text("No accounts yet").aimText(.section)
+        Text("Open Switch to add an account.").aimText(.secondary)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .accessibilityElement(children: .combine)

@@ -54,12 +54,12 @@ enum OverviewFormat {
 struct SignInButton: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
-  var small = false
+  /// False in a list row, where the view's one prominent action sits elsewhere.
+  var prominent = true
 
   var body: some View {
     Button("Sign in") { Task { await model.beginSignIn(for: account.identity.providerID) } }
-      .buttonStyle(.borderedProminent)
-      .controlSize(small ? .small : .regular)
+      .modifier(AIMButtonStyle(prominent: prominent))
       .disabled(model.isBusy)
       .accessibilityHint("Signs in to \(account.identity.providerID.guiName) again")
   }
@@ -259,8 +259,9 @@ struct OverviewPage: View {
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 60)) { context in
-      AIMScrollView {
-        VStack(spacing: AIMTheme.cardSpacing) {
+      // Two containers at the full content width: 20-point margins, 16 points between them.
+      ScrollView {
+        VStack(spacing: AIMTheme.sectionSpacing) {
           if let account = focused {
             OverviewHeader(
               account: account, accounts: accounts, model: model, now: context.date,
@@ -276,9 +277,11 @@ struct OverviewPage: View {
           } else {
             OverviewEmptyCard(model: model)
           }
-          if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
+          if let notice = model.notice {
+            AIMPanel { Notice(text: notice, tone: AIMTheme.blue).aimRow() }
+          }
         }
-        .padding(AIMTheme.modalOuterInset)
+        .padding(AIMTheme.pageMargin)
       }
     }
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
@@ -298,19 +301,19 @@ struct OverviewWindowRow: View {
   /// The longest countdown the card shows.
   static let longestReset = "Resets in 6 days 23h 59m"
   static let resetWidth: CGFloat = {
-    let font = NSFont.preferredFont(forTextStyle: .body)
+    let font = NSFont.preferredFont(forTextStyle: .subheadline)
     return ceil((longestReset as NSString).size(withAttributes: [.font: font]).width) + 4
   }()
 
   var body: some View {
-    HStack(spacing: 12) {
-      Text(window.title).lineLimit(1).frame(width: 130, alignment: .leading)
-      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, height: 8)
+    HStack(spacing: AIMTheme.sectionSpacing) {
+      Text(window.title).aimText(.body).lineLimit(1).frame(width: 130, alignment: .leading)
+      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed)
         .frame(minWidth: 40)
       Text(window.usedPercent.map {
         UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
       } ?? "–")
-        .monospacedDigit().frame(width: 80, alignment: .trailing)
+        .aimText(.body).monospacedDigit().frame(width: 80, alignment: .trailing)
         .flipsUsedAndLeft(showsUsed)
       Group {
         if let reset = window.resetsAt {
@@ -319,7 +322,7 @@ struct OverviewWindowRow: View {
           Text("")
         }
       }
-      .foregroundStyle(AIMTheme.muted).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+      .aimText(.secondary).lineLimit(1).fixedSize(horizontal: true, vertical: false)
       .frame(width: Self.resetWidth, alignment: .trailing)
       .layoutPriority(1)
     }
@@ -343,18 +346,18 @@ private struct OverviewHeader: View {
 
   var body: some View {
     let windows = AccountUsageSummary.windows(for: account, model: model)
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .center, spacing: 14) {
-        ProviderMark(providerID: providerID, size: 48)
-        VStack(alignment: .leading, spacing: 4) {
+    AIMPanel {
+      HStack(alignment: .center, spacing: AIMTheme.sectionSpacing) {
+        ProviderMark(providerID: providerID, size: 32)
+        VStack(alignment: .leading, spacing: 2) {
           accountMenu
-          HStack(spacing: 8) {
-            Text(providerID.guiName).foregroundStyle(AIMTheme.muted)
+          HStack(spacing: AIMTheme.rowSpacing) {
+            Text(providerID.guiName).aimText(.secondary)
             ProviderStatusDot(entry: model.providerStatus[providerID])
             statusBadge
           }
         }
-        Spacer(minLength: 16)
+        Spacer(minLength: AIMTheme.sectionSpacing)
         if model.needsSignIn(account) {
           SignInButton(account: account, model: model)
         } else {
@@ -374,23 +377,22 @@ private struct OverviewHeader: View {
         }
         AccountMoreMenu(account: account, model: model, delete: delete)
       }
+      .aimRow()
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Focused account")
+      Divider()
       if windows.isEmpty {
         Text(UsagePresentation.emptyUsageTitle(
           failure: model.usageError(for: account.id) ?? model.providerUsage[account.id]?.error,
           needsSignIn: account.verification.state == .needsSignIn))
-          .foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary).aimRow()
       } else {
-        VStack(spacing: 10) {
-          ForEach(windows) { window in
-            OverviewWindowRow(window: window, showsUsed: showsUsed, now: now)
-          }
+        ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
+          if index > 0 { Divider() }
+          OverviewWindowRow(window: window, showsUsed: showsUsed, now: now).aimRow()
         }
       }
     }
-    .padding(AIMTheme.panelContentInset)
-    .aimCard()
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Focused account")
   }
 
   private var accountMenu: some View {
@@ -408,11 +410,18 @@ private struct OverviewHeader: View {
         }
       }
     } label: {
-      Text(name).font(.title2.weight(.semibold)).lineLimit(1)
+      // A button-style menu draws its label as ordinary text, so the Title role applies.
+      HStack(spacing: 4) {
+        Text(name).aimText(.title).lineLimit(1)
+        Image(systemName: "chevron.down").aimFont(.secondary).foregroundStyle(.secondary)
+      }
     }
-    .menuStyle(.borderlessButton)
-    .menuIndicator(.visible)
+    .menuStyle(.button)
+    .buttonStyle(.plain)
+    .menuIndicator(.hidden)
     .fixedSize()
+    // No ring at rest; the menu stays focusable and opens with Space or Return.
+    .focusEffectDisabled()
     .accessibilityLabel("Focused account: \(name)")
     .accessibilityHint("Choose another account")
   }
@@ -420,13 +429,13 @@ private struct OverviewHeader: View {
   /// A green "Active" dot for a healthy default account, else the attention state.
   @ViewBuilder private var statusBadge: some View {
     if let attention = account.verification.state.attentionLabel {
-      Badge(text: attention, color: account.verification.state.color)
+      Badge(text: attention, tint: account.verification.state.color)
     } else if model.providerUsage[account.id]?.needsSignIn == true {
-      Badge(text: "Needs sign-in", color: VerificationState.needsSignIn.color)
+      Badge(text: "Needs sign-in", tint: VerificationState.needsSignIn.color)
     } else if isDefault {
       HStack(spacing: 5) {
         Circle().fill(AIMTheme.green).frame(width: 8, height: 8)
-        Text("Active").foregroundStyle(AIMTheme.muted)
+        Text("Active").aimText(.secondary)
       }
       .accessibilityElement(children: .combine)
     }
@@ -447,51 +456,37 @@ private struct OverviewAccountsCard: View {
   let focus: (UUID) -> Void
   let delete: (AccountRecord) -> Void
 
-  /// Row height of the native table; the card sizes the table to its rows.
-  static let rowHeight: CGFloat = 39
-  static let headerHeight: CGFloat = 34
+  /// Row and header height of the native table at its default size; the container sizes the table
+  /// to its rows.
+  static let rowHeight: CGFloat = 38
+  static let headerHeight: CGFloat = 30
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack {
-        Text("Accounts").font(.headline)
-        Spacer()
-        Text("\(total) \(total == 1 ? "account" : "accounts")").foregroundStyle(AIMTheme.muted)
-      }
-      .padding(.horizontal, AIMTheme.panelContentInset)
-      .frame(height: 40)
-      Divider()
+    AIMPanel(
+      title: "Accounts",
+      accessory: AnyView(
+        Text("\(total) \(total == 1 ? "account" : "accounts")").aimText(.secondary))
+    ) {
       if accounts.isEmpty {
         Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
-          .foregroundStyle(AIMTheme.muted)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(AIMTheme.panelContentInset)
+          .aimText(.secondary).aimRow()
       } else {
         Table(accounts, selection: Binding(
           get: { focusedID }, set: { if let id = $0 { focus(id) } })
         ) {
           TableColumn("Account") { account in
-            HStack(spacing: 10) {
-              ProviderMark(providerID: account.identity.providerID, size: 28)
-              VStack(alignment: .leading, spacing: 1) {
-                Text(EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails))
-                  .lineLimit(1).truncationMode(.middle)
-                HStack(spacing: 5) {
-                  Text(account.identity.providerID.guiName).font(.subheadline)
-                    .foregroundStyle(AIMTheme.muted).lineLimit(1)
-                  ProviderStatusDot(entry: model.providerStatus[account.identity.providerID], size: 6)
-                }
-              }
-            }
+            AccountCell(
+              account: account, hideEmails: hideEmails,
+              providerStatus: model.providerStatus[account.identity.providerID])
           }
           .width(min: 180, ideal: 260)
           TableColumn("Usage") { account in
             let window = AccountUsageSummary.windows(for: account, model: model).first
-            HStack(spacing: 8) {
-              UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed, height: 6)
+            HStack(spacing: AIMTheme.rowSpacing) {
+              UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed)
                 .frame(width: 90)
               Text(OverviewFormat.percent(window, showsUsed: showsUsed))
-                .monospacedDigit().frame(width: 42, alignment: .trailing)
+                .aimText(.body).monospacedDigit().frame(width: 42, alignment: .trailing)
             }
             .accessibilityElement(children: .combine)
           }
@@ -499,26 +494,25 @@ private struct OverviewAccountsCard: View {
           TableColumn("Resets") { account in
             let window = AccountUsageSummary.windows(for: account, model: model).first
             Text(window?.resetsAt.map { OverviewFormat.compactReset($0, now: now, usedPercent: window?.usedPercent) } ?? "–")
-              .foregroundStyle(AIMTheme.muted).lineLimit(1)
+              .aimText(.secondary).lineLimit(1)
           }
           .width(min: 70, ideal: 90)
           TableColumn("") { account in
             switch OverviewFormat.rowAction(for: account, model: model) {
             case .isDefault:
-              Text("Default").font(.caption.weight(.medium)).foregroundStyle(AIMTheme.green)
-                .padding(.horizontal, 10).padding(.vertical, 3)
-                .background(AIMTheme.green.opacity(0.14), in: Capsule())
+              Badge(text: "Default")
             case .signIn:
-              SignInButton(account: account, model: model, small: true)
+              SignInButton(account: account, model: model, prominent: false)
             case .switchTo:
               Button("Switch") { Task { await model.switchDefault(to: account.id) } }
-                .buttonStyle(.bordered).controlSize(.small)
+                .buttonStyle(.bordered)
                 .disabled(model.isBusy || !account.canSwitchDefault)
             }
           }
           .width(min: 70, ideal: 80)
         }
         .tableStyle(.inset)
+        .scrollContentBackground(.hidden)
         .scrollDisabled(true)
         .contextMenu(forSelectionType: UUID.self) { ids in
           if let id = ids.first, let account = accounts.first(where: { $0.id == id }) {
@@ -529,7 +523,28 @@ private struct OverviewAccountsCard: View {
         .accessibilityLabel("Accounts")
       }
     }
-    .aimCard()
+  }
+}
+
+/// The account cell of every account list: a 20-point icon tile, the name in Body, and the
+/// provider (with its status dot) in Secondary.
+struct AccountCell: View {
+  let account: AccountRecord
+  var hideEmails = false
+  var providerStatus: ProviderStatusEntry? = nil
+
+  var body: some View {
+    HStack(spacing: AIMTheme.rowSpacing) {
+      ProviderMark(providerID: account.identity.providerID, size: 20)
+      VStack(alignment: .leading, spacing: 0) {
+        Text(EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails))
+          .aimText(.body).lineLimit(1).truncationMode(.middle)
+        HStack(spacing: 5) {
+          Text(account.identity.providerID.guiName).aimText(.secondary).lineLimit(1)
+          ProviderStatusDot(entry: providerStatus, size: 6)
+        }
+      }
+    }
   }
 }
 
@@ -539,28 +554,28 @@ private struct OverviewEmptyCard: View {
   @ObservedObject var model: AccountViewModel
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      if !model.hasLoaded {
-        HStack(spacing: 10) {
-          ProgressView().controlSize(.small)
-          Text("Loading accounts…")
-        }
-      } else {
-        Text("Add your first account").font(.title2.weight(.semibold))
-        Text("Switch found no saved account. Sign in to Codex or Grok Build, or use Advanced Import for an existing Codex folder.")
-          .foregroundStyle(AIMTheme.muted)
-        HStack(spacing: 8) {
-          AIMButton(title: "Add Account", icon: .plus, tone: .primary, disabled: model.isBusy) {
-            Task { await model.beginAddAccount() }
+    AIMPanel {
+      VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+        if !model.hasLoaded {
+          HStack(spacing: AIMTheme.rowSpacing) {
+            ProgressView().controlSize(.small)
+            Text("Loading accounts…").aimText(.body)
           }
-          AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
-            Task { await model.beginAdvancedImport() }
+        } else {
+          Text("Add your first account").aimText(.section)
+          Text("Switch found no saved account. Sign in to Codex or Grok Build, or use Advanced Import for an existing Codex folder.")
+            .aimText(.secondary)
+          HStack(spacing: AIMTheme.rowSpacing) {
+            AIMButton(title: "Add Account", icon: .plus, tone: .primary, disabled: model.isBusy) {
+              Task { await model.beginAddAccount() }
+            }
+            AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
+              Task { await model.beginAdvancedImport() }
+            }
           }
         }
       }
+      .aimRow()
     }
-    .padding(AIMTheme.panelContentInset)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .aimCard()
   }
 }

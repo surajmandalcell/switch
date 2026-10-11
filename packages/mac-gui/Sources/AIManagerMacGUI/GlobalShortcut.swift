@@ -136,13 +136,13 @@ struct ShortcutRecorder: View {
   static let placeholder = "Click to record"
 
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: AIMTheme.rowSpacing) {
       if let hint {
-        Text(hint).font(.caption).foregroundStyle(AIMTheme.amber)
+        Text(hint).aimText(.secondary, tint: AIMTheme.amber)
       }
       Button(action: toggleRecording) {
         Text(recording ? "Press a shortcut…" : combo?.display ?? Self.placeholder)
-          .foregroundStyle(combo == nil && !recording ? AIMTheme.muted : AIMTheme.ink)
+          .foregroundStyle(combo == nil && !recording ? Color.secondary : Color.primary)
           .frame(minWidth: 112)
       }
       .buttonStyle(.bordered)

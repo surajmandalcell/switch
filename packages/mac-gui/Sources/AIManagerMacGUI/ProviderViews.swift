@@ -27,8 +27,8 @@ struct ProviderMark: View {
         Image(nsImage: AIManagerBrand.providerIcon(for: providerID))
           .resizable().scaledToFit().padding(size * 0.22)
           .frame(width: size, height: size)
-          .foregroundStyle(AIMTheme.ink)
-          .background(AIMTheme.panel3)
+          .foregroundStyle(.primary)
+          .background(AIMTheme.chatOtherSurface)
       }
     }
     .frame(width: size, height: size)
@@ -100,6 +100,7 @@ struct ResetTimeText: View {
 
   var body: some View {
     Text(text(exact: exact))
+      .aimText(.secondary)
       .contentShape(Rectangle())
       .onTapGesture { exact.toggle() }
       .help(text(exact: !exact))
@@ -167,12 +168,11 @@ struct HiddenUsageRowsNote: View {
   var body: some View {
     let count = HiddenUsageRows.parse(hiddenRaw).intersection(rowIDs).count
     if count > 0 {
-      HStack(spacing: 10) {
-        Text(Self.text(count: count)).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-        Spacer(minLength: 8)
+      HStack(spacing: AIMTheme.rowSpacing) {
+        Text(Self.text(count: count)).aimText(.secondary)
+        Spacer(minLength: AIMTheme.rowSpacing)
         AIMButton(title: "Show all") { hiddenRaw = "" }
       }
-      .padding(.horizontal, 16).padding(.top, 8)
     }
   }
 }
@@ -187,43 +187,35 @@ struct ClaudeActivityPanel: View {
   @ObservedObject var model: AccountViewModel
 
   var body: some View {
-    AIMPanel(title: Self.title) {
-      VStack(spacing: 0) {
-        if let summary = model.claudeActivity {
-          ForEach(Array(summary.rows.enumerated()), id: \.offset) { index, row in
-            HStack(alignment: .firstTextBaseline, spacing: 16) {
-              Text(row.label).font(AIMTheme.sans(11, weight: .medium)).frame(width: 118, alignment: .leading)
-              Text("\(UsagePresentation.formatTokens(Int64(row.tokens))) tokens")
-                .font(AIMTheme.mono(11)).monospacedDigit()
-              Spacer(minLength: 8)
-              Text(row.costUSD.map { "≈ \(Fmt.money($0))" } ?? "No price")
-                .font(AIMTheme.mono(11, weight: .semibold)).monospacedDigit()
-            }
-            .padding(.horizontal, 16).frame(minHeight: 40)
-            .background(index.isMultiple(of: 2) ? Color.clear : AIMTheme.panel2.opacity(0.55))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(row.label)
-            .accessibilityValue("\(UsagePresentation.exactTokens(Int64(row.tokens))) tokens, "
-              + (row.costUSD.map { "\(Fmt.money($0)) \(Self.estimateLabel.lowercased())" } ?? "no price"))
-            .help(row.detail)
-          }
-          if let chart = summary.chart {
-            UsageChartView(chart: chart).padding(.horizontal, 16).padding(.top, 10)
-          }
-          VStack(alignment: .leading, spacing: 3) {
-            Text("\(Self.estimateLabel). Covers every Claude Code profile on this Mac, not only this account.")
-            if !summary.unpricedModels.isEmpty {
-              Text("No price for \(summary.unpricedModels.joined(separator: ", ")). Their cost is not included.")
+    Section(Self.title) {
+      if let summary = model.claudeActivity {
+        ForEach(Array(summary.rows.enumerated()), id: \.offset) { _, row in
+          LabeledContent(row.label) {
+            HStack(spacing: AIMTheme.sectionSpacing) {
+              Text("\(UsagePresentation.formatTokens(Int64(row.tokens))) tokens").monospacedDigit()
+              Text(row.costUSD.map { "≈ \(Fmt.money($0))" } ?? "No price").monospacedDigit()
             }
           }
-          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 16).padding(.vertical, 10)
-        } else {
-          UsageUnavailableRow(
-            text: model.isClaudeActivityLoading
-              ? "Scanning local Claude Code logs…" : "Claude Code activity is not available yet.")
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(row.label)
+          .accessibilityValue("\(UsagePresentation.exactTokens(Int64(row.tokens))) tokens, "
+            + (row.costUSD.map { "\(Fmt.money($0)) \(Self.estimateLabel.lowercased())" } ?? "no price"))
+          .help(row.detail)
         }
+        if let chart = summary.chart {
+          UsageChartView(chart: chart)
+        }
+        VStack(alignment: .leading, spacing: 3) {
+          Text("\(Self.estimateLabel). Covers every Claude Code profile on this Mac, not only this account.")
+          if !summary.unpricedModels.isEmpty {
+            Text("No price for \(summary.unpricedModels.joined(separator: ", ")). Their cost is not included.")
+          }
+        }
+        .aimText(.secondary)
+      } else {
+        UsageUnavailableRow(
+          text: model.isClaudeActivityLoading
+            ? "Scanning local Claude Code logs…" : "Claude Code activity is not available yet.")
       }
     }
   }
@@ -262,13 +254,11 @@ struct ProviderUsagePanel: View {
   private var isRefreshing: Bool { state?.isRefreshing == true }
 
   var body: some View {
-    AIMPanel(title: "Usage", importance: .primary) {
-      VStack(spacing: 0) {
-        if let usage {
-          populated(usage)
-        } else {
-          emptyState
-        }
+    Section("Usage") {
+      if let usage {
+        populated(usage)
+      } else {
+        emptyState
       }
     }
   }
@@ -276,73 +266,53 @@ struct ProviderUsagePanel: View {
   // MARK: Populated
 
   @ViewBuilder private func populated(_ usage: ProviderUsage) -> some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(usage.plan.map { $0.capitalized } ?? "\(account.identity.providerID.guiName) usage")
-          .font(AIMTheme.sans(13, weight: .semibold))
-        Spacer()
-        status(usage)
-      }
-      .padding(.horizontal, 16).padding(.bottom, 14)
+    LabeledContent(usage.plan.map { $0.capitalized } ?? "\(account.identity.providerID.guiName) usage") {
+      status(usage)
+    }
 
-      let windows = HiddenUsageRows.visible(
-        usage.windows, hidden: HiddenUsageRows.parse(hiddenRaw), id: \.id)
-      ForEach(Array(stride(from: 0, to: windows.count, by: 2)), id: \.self) { start in
-        let pair = Array(windows[start..<min(start + 2, windows.count)])
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-          HStack(alignment: .top, spacing: 20) {
-            ForEach(pair) { window in
-              ProviderWindowMeter(window: window, now: context.date)
-                .usageRowMenu(accountID: account.id, rowID: window.id) {
-                  Task { await model.refreshProviderUsage(accountID: account.id) }
-                }
-            }
-            if pair.count == 1 { Color.clear.frame(maxWidth: .infinity).frame(height: 0) }
+    let windows = HiddenUsageRows.visible(
+      usage.windows, hidden: HiddenUsageRows.parse(hiddenRaw), id: \.id)
+    ForEach(windows) { window in
+      TimelineView(.periodic(from: .now, by: 60)) { context in
+        ProviderWindowMeter(window: window, now: context.date)
+          .usageRowMenu(accountID: account.id, rowID: window.id) {
+            Task { await model.refreshProviderUsage(accountID: account.id) }
           }
-        }
-        .padding(.vertical, 12).padding(.horizontal, 16)
-        .background((start / 2).isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
-      }
-
-      if let cost = usage.cost, ProviderCostRow.hasContent(cost) {
-        ProviderCostRow(cost: cost)
-          .padding(.vertical, 12).padding(.horizontal, 16)
-          .background(AIMTheme.panel2)
-      }
-
-      ForEach(usage.charts, id: \.id) { chart in
-        UsageChartView(chart: chart)
-          .padding(.vertical, 10).padding(.horizontal, 16)
-      }
-
-      ForEach(Array(usage.sections.enumerated()), id: \.offset) { _, section in
-        ProviderSectionRows(section: section)
-          .padding(.vertical, 10).padding(.horizontal, 16)
-      }
-
-      HiddenUsageRowsNote(accountID: account.id, rowIDs: usage.windows.map(\.id))
-
-      if usage.windows.isEmpty, usage.cost.map(ProviderCostRow.hasContent) != true, usage.sections.isEmpty,
-         usage.charts.isEmpty {
-        UsageUnavailableRow(text: "No usage values returned")
       }
     }
-    .padding(.vertical, 16)
+
+    if let cost = usage.cost, ProviderCostRow.hasContent(cost) {
+      ProviderCostRow(cost: cost)
+    }
+
+    ForEach(usage.charts, id: \.id) { chart in
+      UsageChartView(chart: chart)
+    }
+
+    ForEach(Array(usage.sections.enumerated()), id: \.offset) { _, section in
+      ProviderSectionRows(section: section)
+    }
+
+    HiddenUsageRowsNote(accountID: account.id, rowIDs: usage.windows.map(\.id))
+
+    if usage.windows.isEmpty, usage.cost.map(ProviderCostRow.hasContent) != true, usage.sections.isEmpty,
+       usage.charts.isEmpty {
+      UsageUnavailableRow(text: "No usage values returned")
+    }
   }
 
   @ViewBuilder private func status(_ usage: ProviderUsage) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: AIMTheme.rowSpacing) {
       if let failure = state?.error {
-        Text("Outdated")
-          .font(AIMTheme.sans(10, weight: .semibold)).foregroundStyle(AIMTheme.amber)
+        Text("Outdated").aimText(.secondary, tint: AIMTheme.amber)
           .help(failure)
         Text(usage.fetchedAt.formatted(date: .omitted, time: .shortened))
-          .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary).monospacedDigit()
         WarningCopyButton(label: "Copy usage error") { model.copyWarnings([failure]) }
       } else {
-        Text("Updated").font(AIMTheme.sans(10, weight: .medium)).foregroundStyle(AIMTheme.muted)
+        Text("Updated").aimText(.secondary)
         Text(usage.fetchedAt.formatted(date: .omitted, time: .shortened))
-          .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary).monospacedDigit()
       }
       refreshButton
     }
@@ -351,18 +321,18 @@ struct ProviderUsagePanel: View {
   // MARK: Empty, error, and sign-in states
 
   private var emptyState: some View {
-    HStack(spacing: 12) {
-      AIMIcon(name: .info, size: 15).foregroundStyle(AIMTheme.muted)
-      VStack(alignment: .leading, spacing: 3) {
-        Text(title).font(AIMTheme.sans(12, weight: .semibold))
+    HStack(spacing: AIMTheme.sectionSpacing) {
+      AIMIcon(name: .info).aimText(.body).foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).aimText(.body)
         if let failure = state?.error, !needsSignIn {
-          Text(failure).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
+          Text(failure).aimText(.secondary, tint: AIMTheme.amber)
         } else if needsSignIn {
           Text(state?.error ?? "Sign in again to check this account.")
-            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
+            .aimText(.secondary, tint: AIMTheme.amber)
         } else {
           Text("Refresh this saved account without changing the default account.")
-            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            .aimText(.secondary)
         }
       }
       Spacer()
@@ -371,7 +341,6 @@ struct ProviderUsagePanel: View {
       }
       refreshButton
     }
-    .padding(16)
   }
 
   private var title: String {
@@ -422,27 +391,26 @@ struct ProviderWindowMeter: View {
     let state = meter
     let color = Self.fill(for: state)
     let tick = UsagePace.paceTick(window, now: now, showingLeft: !showsUsed)
-    VStack(alignment: .leading, spacing: 7) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(window.title).font(.body.weight(.medium)).lineLimit(1)
+    VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+      HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
+        Text(window.title).aimText(.body).lineLimit(1)
         if let label = UsagePace.label(state) {
-          Text(label).font(.caption.weight(.bold)).foregroundStyle(color).lineLimit(1)
+          Badge(text: label, tint: color)
         }
         Spacer(minLength: 4)
         Text(used.map { UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed) } ?? "–")
-          .font(AIMTheme.mono(12, weight: .semibold))
+          .aimText(.body).monospacedDigit()
           .flipsUsedAndLeft(showsUsed)
       }
       UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, tick: tick)
         .help(UsagePace.tooltip(state) ?? "")
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
         if let reset = window.resetsAt {
           ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent)
-            .font(.subheadline).foregroundStyle(AIMTheme.muted)
         }
         Spacer(minLength: 4)
         if let detail = window.detail {
-          Text(detail).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+          Text(detail).aimText(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.tail)
         }
       }
@@ -485,7 +453,7 @@ struct ProviderCostRow: View {
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 60)) { context in
-      HStack(alignment: .top, spacing: 24) {
+      VStack(spacing: AIMTheme.rowSpacing) {
         if let used = cost.used {
           UsageFact(label: cost.period.map { "Spent · \($0)" } ?? "Spent", value: spent(used))
         } else if let limit = cost.limit {
@@ -504,7 +472,6 @@ struct ProviderCostRow: View {
             .help("Click to switch between countdown and exact time")
             .accessibilityAddTraits(.isButton)
         }
-        Spacer(minLength: 0)
       }
     }
   }
@@ -522,37 +489,22 @@ struct ProviderSectionRows: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       if let title = section.title {
-        Text(title).font(AIMTheme.sans(10, weight: .medium)).foregroundStyle(AIMTheme.muted)
+        Text(title).aimText(.secondary)
           .padding(.bottom, 4)
       }
       ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-          Text(row.label).font(AIMTheme.sans(11)).lineLimit(1)
-          Spacer(minLength: 8)
+        HStack(alignment: .firstTextBaseline, spacing: AIMTheme.sectionSpacing) {
+          Text(row.label).aimText(.body).lineLimit(1)
+          Spacer(minLength: AIMTheme.rowSpacing)
           if let progress = row.progress {
-            ProgressRail(fraction: progress).frame(width: 56)
+            UsageBar(usedPercent: (1 - progress) * 100, tint: AIMTheme.blue)
+              .frame(width: 56)
           }
-          Text(EmailPrivacy.display(row.value)).font(.subheadline).monospacedDigit().foregroundStyle(AIMTheme.muted)
+          Text(EmailPrivacy.display(row.value)).aimText(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
         }
-        .frame(minHeight: 24)
       }
     }
-  }
-}
-
-private struct ProgressRail: View {
-  let fraction: Double
-  var body: some View {
-    GeometryReader { geometry in
-      ZStack(alignment: .leading) {
-        Rectangle().fill(AIMTheme.control)
-        Rectangle().fill(AIMTheme.blue).frame(width: geometry.size.width * CGFloat(fraction))
-      }
-      .clipShape(RoundedRectangle(cornerRadius: 1.5))
-    }
-    .frame(height: 3)
-    .accessibilityHidden(true)
   }
 }
 
@@ -578,61 +530,56 @@ struct ProviderAccountDetail: View {
   }
 
   var body: some View {
-    AIMScrollView {
-      VStack(spacing: AIMTheme.cardSpacing) {
-        AIMPanel(title: "Identity", importance: .primary, headerAccessories: AnyView(badges)) {
-          VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-              Text(name).font(AIMTheme.sans(20, weight: .semibold)).lineLimit(1).textSelection(.enabled)
-              HStack(spacing: 6) {
-                ProviderStatusDot(entry: model.providerStatus[account.identity.providerID])
-                Text(subtitle).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-                  .textSelection(.enabled)
-              }
-            }
-            if account.verification.state.attentionLabel != nil {
-              Text(EmailPrivacy.display(account.verification.detail)).font(AIMTheme.sans(11))
-                .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
-            }
-            ViewThatFits(in: .horizontal) {
-              HStack(spacing: 4) { actions }
-              VStack(alignment: .leading, spacing: 4) { actions }
-            }
-          }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-        }
-        ProviderUsagePanel(account: account, model: model)
-        AIMPanel(title: "Account details") {
-          VStack(spacing: 0) {
-            DetailRow(label: "Saved sign-in", value: account.credentialFile.path)
-            DetailRow(
-              label: "Imported",
-              value: account.importedAt.formatted(date: .abbreviated, time: .shortened), zebra: true)
-            DetailRow(
-              label: "Last switched",
-              value: account.lastUsedAt?.formatted(date: .abbreviated, time: .shortened)
-                ?? "Not switched yet")
+    Form {
+      Section("Identity") {
+        VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+          HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
+            Text(name).aimText(.title).lineLimit(1).textSelection(.enabled)
+            badges
+          }
+          HStack(spacing: 6) {
+            ProviderStatusDot(entry: model.providerStatus[account.identity.providerID])
+            Text(subtitle).aimText(.secondary).textSelection(.enabled)
+          }
+          if account.verification.state.attentionLabel != nil {
+            Text(EmailPrivacy.display(account.verification.detail)).aimText(.secondary)
+              .textSelection(.enabled)
+          }
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: AIMTheme.rowSpacing) { actions }
+            VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) { actions }
           }
         }
-        Group {
-          if let notice = model.notice {
-            Notice(text: notice, tone: AIMTheme.blue)
-              .transition(reduceMotion ? .identity : .opacity)
-          }
-        }
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
-      }.frame(maxWidth: .infinity)
-    }.frame(maxWidth: .infinity)
+      }
+      ProviderUsagePanel(account: account, model: model)
+      Section("Account details") {
+        DetailRow(label: "Saved sign-in", value: account.credentialFile.path)
+        DetailRow(
+          label: "Imported",
+          value: account.importedAt.formatted(date: .abbreviated, time: .shortened))
+        DetailRow(
+          label: "Last switched",
+          value: account.lastUsedAt?.formatted(date: .abbreviated, time: .shortened)
+            ?? "Not switched yet")
+      }
+      if let notice = model.notice {
+        Section { Notice(text: notice, tone: AIMTheme.blue) }
+          .transition(reduceMotion ? .identity : .opacity)
+      }
+    }
+    .formStyle(.grouped)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
 
   private var badges: some View {
     HStack(spacing: 6) {
       if isDefault {
-        Badge(text: "Default", color: AIMTheme.green.opacity(0.14), ink: AIMTheme.ink)
+        Badge(text: "Default")
       }
       if let attention = account.verification.state.attentionLabel {
-        Badge(text: attention, color: account.verification.state.color)
+        Badge(text: attention, tint: account.verification.state.color)
       } else if state?.needsSignIn == true {
-        Badge(text: "Needs sign-in", color: VerificationState.needsSignIn.color)
+        Badge(text: "Needs sign-in", tint: VerificationState.needsSignIn.color)
       }
     }
   }
@@ -640,8 +587,8 @@ struct ProviderAccountDetail: View {
   @ViewBuilder private var actions: some View {
     if model.needsSignIn(account) {
       SignInButton(account: account, model: model)
-    } else {
-      DefaultAccountButton(isDefault: isDefault, disabled: model.isBusy) {
+    } else if !isDefault {
+      DefaultAccountButton(isDefault: false, disabled: model.isBusy) {
         Task { await model.switchDefault(to: account.id) }
       }
     }
