@@ -18,6 +18,9 @@ struct AIManagerStoredWindowPlacement: Codable, Equatable {
   let displayFrameHeight: Double
   let leftOffset: Double
   let topOffset: Double
+  /// The window size, kept so a resizable window reopens at the size the user left it.
+  var width: Double? = nil
+  var height: Double? = nil
 
   var displayFrame: NSRect {
     NSRect(
@@ -54,7 +57,8 @@ enum AIManagerWindowPlacement {
     guard let savedPlacement else { return .savedDisplayUnavailable }
     guard let display = matchingDisplay(for: savedPlacement, in: displays),
       let frame = restoredFrame(
-        for: savedPlacement, windowSize: window.frame.size, displays: displays)
+        for: savedPlacement, windowSize: restoredSize(savedPlacement, for: window, on: display),
+        displays: displays)
     else { return .savedDisplayUnavailable }
 
     window.setFrame(frame, display: false)
@@ -71,6 +75,18 @@ enum AIManagerWindowPlacement {
     store(placement(for: window.frame, on: display), defaults: defaults)
   }
 
+  /// The saved size, kept between the window's minimum size and its display's visible frame.
+  @MainActor
+  private static func restoredSize(
+    _ placement: AIManagerStoredWindowPlacement, for window: NSWindow,
+    on display: AIManagerDisplayDescriptor
+  ) -> NSSize {
+    guard let width = placement.width, let height = placement.height else { return window.frame.size }
+    return NSSize(
+      width: max(window.minSize.width, min(width, display.visibleFrame.width)),
+      height: max(window.minSize.height, min(height, display.visibleFrame.height)))
+  }
+
   static func placement(
     for windowFrame: NSRect,
     on display: AIManagerDisplayDescriptor
@@ -84,7 +100,9 @@ enum AIManagerWindowPlacement {
       displayFrameWidth: display.frame.width,
       displayFrameHeight: display.frame.height,
       leftOffset: windowFrame.minX - display.visibleFrame.minX,
-      topOffset: display.visibleFrame.maxY - windowFrame.maxY)
+      topOffset: display.visibleFrame.maxY - windowFrame.maxY,
+      width: windowFrame.width,
+      height: windowFrame.height)
   }
 
   static func restoredFrame(

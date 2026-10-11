@@ -13,12 +13,23 @@ enum AIManagerLaunchContext {
   }
 }
 
+/// The main window: a standard titled window with traffic lights and a unified toolbar.
 @MainActor final class AIManagerWindow: NSWindow {
-  static let fixedSize = NSSize(width: 1120, height: 740)
+  static let defaultSize = NSSize(width: 1080, height: 760)
+  static let minimumSize = NSSize(width: 860, height: 560)
   static let frameAutosaveName = "AIManagerMainWindow"
-  static let cornerRadius: CGFloat = 3
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
+
+  /// SwiftUI resets the content minimum while it lays out; the window never reports less.
+  override var contentMinSize: NSSize {
+    get {
+      let size = super.contentMinSize
+      return NSSize(
+        width: max(size.width, Self.minimumSize.width), height: max(size.height, Self.minimumSize.height))
+    }
+    set { super.contentMinSize = newValue }
+  }
 }
 
 enum AIManagerWindowBehavior {
@@ -46,29 +57,19 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
 
   init(title: String, rootView: Content, placementDefaults: UserDefaults = .standard) {
     self.placementDefaults = placementDefaults
-    let fixedSize = AIManagerWindow.fixedSize
+    let defaultSize = AIManagerWindow.defaultSize
     let window = AIManagerWindow(
-      contentRect: NSRect(origin: .zero, size: fixedSize),
-      styleMask: [.closable, .miniaturizable], backing: .buffered, defer: false)
+      contentRect: NSRect(origin: .zero, size: defaultSize),
+      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+      backing: .buffered, defer: false)
     window.title = title
-    window.isOpaque = false
-    window.backgroundColor = .clear
-    window.hasShadow = true
-    window.collectionBehavior = [.fullScreenNone]
-    let host = NSHostingView(
-      rootView: rootView.frame(width: fixedSize.width, height: fixedSize.height))
-    host.frame = NSRect(origin: .zero, size: fixedSize)
-    host.focusRingType = .none
-    host.wantsLayer = true
-    host.layer?.cornerRadius = AIManagerWindow.cornerRadius
-    host.layer?.masksToBounds = true
-    window.contentView = host
-    window.contentMinSize = fixedSize
-    window.contentMaxSize = fixedSize
-    window.minSize = fixedSize
-    window.maxSize = fixedSize
+    window.toolbarStyle = .unified
+    let host = NSHostingController(rootView: rootView)
+    host.sizingOptions = []
+    window.contentViewController = host
+    window.contentMinSize = AIManagerWindow.minimumSize
     window.isReleasedWhenClosed = false
-    window.setContentSize(fixedSize)
+    window.setContentSize(defaultSize)
     let restoreOutcome = AIManagerWindowPlacement.restore(
       window, autosaveName: AIManagerWindow.frameAutosaveName, defaults: placementDefaults)
     if restoreOutcome != .restored { window.center() }
@@ -76,10 +77,32 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
     preserveUnavailableDisplayPlacement = restoreOutcome == .savedDisplayUnavailable
     unavailableDisplayFallbackFrame = preserveUnavailableDisplayPlacement ? window.frame : nil
     window.delegate = self
+    // The yellow button follows the "Minimize to Menubar" setting like Window > Minimize.
+    let minimizeButton = window.standardWindowButton(.miniaturizeButton)
+    minimizeButton?.target = self
+    minimizeButton?.action = #selector(minimizeFromButton(_:))
   }
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
-  func windowDidMove(_ notification: Notification) {
+  @objc private func minimizeFromButton(_ sender: Any?) {
+    AIManagerWindowBehavior.minimize(window)
+  }
+
+  func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+    let minimum = sender.frameRect(forContentRect: NSRect(origin: .zero, size: AIManagerWindow.minimumSize)).size
+    return NSSize(width: max(frameSize.width, minimum.width), height: max(frameSize.height, minimum.height))
+  }
+
+  func windowDidMove(_ notification: Notification) { windowFrameDidChange() }
+
+  func windowDidEndLiveResize(_ notification: Notification) { windowFrameDidChange() }
+
+  /// Zoom resizes without a live drag.
+  func windowDidResize(_ notification: Notification) {
+    if window?.inLiveResize != true { windowFrameDidChange() }
+  }
+
+  private func windowFrameDidChange() {
     if preserveUnavailableDisplayPlacement,
       let fallback = unavailableDisplayFallbackFrame,
       framesMatch(window?.frame, fallback)
@@ -133,183 +156,202 @@ private struct WindowReader: NSViewRepresentable {
     if let window = view.window { resolve(window) }
   }
 }
-final class AIMTitleDragView: NSView {
-  override var mouseDownCanMoveWindow: Bool { true }
-  override func mouseDown(with event: NSEvent) {
-    if event.clickCount == 1 { window?.performDrag(with: event) }
-  }
-}
-private struct WindowDragRegion: NSViewRepresentable {
-  func makeNSView(context: Context) -> NSView { AIMTitleDragView() }
-  func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private extension AIManagerPage {
+extension AIManagerPage {
+  /// SF Symbol shown in the sidebar.
   var icon: AIMIcon.Name {
     switch self {
+    case .overview: .overview
     case .accounts: .account
-    case .backup: .backup
-    case .history: .history
-    case .cleanup: .cleanup
+    case .conversations: .history
+    case .maintenance: .maintenance
     case .settings: .settings
     }
   }
-  var railIconSize: CGFloat {
-    self == .history ? AIMTheme.historyRailIconSize : AIMTheme.railIconSize
+}
+
+/// Toolbar geometry and the account search the toolbar drives.
+enum AIManagerToolbar {
+  static let searchWidth = AIMTheme.toolbarSearchWidth
+  static let searchPrompt = "Search accounts…"
+}
+
+/// Filters every account list (Overview table and Accounts list) by name, email, provider, and workspace.
+enum AccountSearch {
+  static func matches(_ account: AccountRecord, query: String, hideEmails: Bool = false) -> Bool {
+    let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace })
+    guard !terms.isEmpty else { return true }
+    let haystack = [
+      EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails),
+      account.identity.providerID.guiName, account.identity.workspaceID ?? "",
+    ].joined(separator: " ").lowercased()
+    return terms.allSatisfy { haystack.contains($0) }
   }
-  var subtitle: String {
-    switch self {
-    case .accounts: "Import, verify, and switch accounts"
-    case .backup: "Snapshots and interrupted operations"
-    case .history: "The merged resume library"
-    case .cleanup: "Clean up conversations and cached data"
-    case .settings: "App behavior and data locations"
-    }
+
+  static func filter(_ accounts: [AccountRecord], query: String, hideEmails: Bool = false) -> [AccountRecord] {
+    accounts.filter { matches($0, query: query, hideEmails: hideEmails) }
   }
 }
 
+/// The main window: a native sidebar (Overview, Accounts, Conversations, Maintenance, Settings), a
+/// unified toolbar with account search, Add, and More, and the selected page.
 struct AccountWindow: View {
   @ObservedObject var model: AccountViewModel
   @StateObject private var target = WindowTarget()
-  @State private var page: AIManagerPage = .accounts
+  @State private var page: AIManagerPage = .overview
+  @State private var searchQuery = ""
+  @State private var maintenanceSection: MaintenanceSection = .backup
+  @State private var columnVisibility = NavigationSplitViewVisibility.all
+  @FocusState private var searchFocused: Bool
   @AppStorage("appearanceMode") private var appearanceMode = "system"
-  @AppStorage("keyboardFocusIndicators") private var showFocusIndicators = false
-  @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
-  @State private var refreshHovered = false
-  @State private var sidebarHover = AIMSidebarHover()
   @Environment(\.colorScheme) private var systemScheme
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   private var themeOverride: ColorScheme? {
     appearanceMode == "dark" ? .dark : (appearanceMode == "light" ? .light : nil)
   }
   private var dark: Bool { (themeOverride ?? systemScheme) == .dark }
 
-  init(model: AccountViewModel, initialPageIndex: Int = 0) {
+  init(
+    model: AccountViewModel, initialPageIndex: Int = 0, initialMaintenance: MaintenanceSection = .backup
+  ) {
     self.model = model
     let pages = AIManagerPage.allCases
-    _page = State(initialValue: pages.indices.contains(initialPageIndex) ? pages[initialPageIndex] : .accounts)
+    _page = State(initialValue: pages.indices.contains(initialPageIndex) ? pages[initialPageIndex] : .overview)
+    _maintenanceSection = State(initialValue: initialMaintenance)
   }
 
   var body: some View {
-    GeometryReader { geometry in
-      ZStack {
-        HStack(spacing: 0) {
-          rail.zIndex(10)
-          VStack(spacing: 0) {
-            topbar
-            Group {
-              if let error = model.errorMessage, !model.showImport {
-                ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-                  model.errorMessage = nil
-                }
-                  .padding(.horizontal, 12).padding(.top, 12)
-                  .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
-              }
-            }
-            .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.errorMessage)
-            Group {
-              switch page {
-              case .accounts: AccountsPage(model: model, sidebarHover: sidebarHover)
-              case .backup: BackupPage(model: model)
-              case .history: HistoryPage(model: model)
-              case .cleanup: CleanupPage(model: model)
-              case .settings:
-                SettingsPage(model: model, showFocusIndicators: $showFocusIndicators)
-              }
-            }
-            .id(page)
-            .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 3)))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    NavigationSplitView(columnVisibility: $columnVisibility) {
+      List(AIManagerPage.allCases, id: \.self, selection: pageSelection) { item in
+        Label(item.rawValue, systemImage: item.icon.symbol)
+          .accessibilityIdentifier("sidebar-\(item.rawValue)")
+      }
+      .listStyle(.sidebar)
+      .navigationSplitViewColumnWidth(min: 170, ideal: AIMTheme.sidebarWidth, max: 260)
+    } detail: {
+      VStack(spacing: 0) {
+        if let error = model.errorMessage, !model.showImport {
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
           }
-          .environment(\.aimSurfaceOpacity,
-            AIMTranslucency.opacity(translucency, reduceTransparency: reduceTransparency))
+          .padding([.horizontal, .top], AIMTheme.modalOuterInset)
         }
-        .disabled(model.showImport)
-        .accessibilityHidden(model.showImport)
-
-        RailTop(
-          close: { target.window?.close() },
-          minimize: { AIManagerWindowBehavior.minimize(target.window) }
-        )
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-          .allowsHitTesting(!model.showImport)
-          .accessibilityHidden(model.showImport)
-          .zIndex(20)
-
-        if model.showImport {
-          Group {
-            if reduceTransparency {
-              AIMTheme.canvas.opacity(0.94)
-            } else {
-              AIMVisualEffect(material: .hudWindow, blendingMode: .withinWindow, darkMode: dark)
-                .overlay(AIMTheme.canvas.opacity(0.62))
-            }
-          }
-          .ignoresSafeArea()
-          Group {
-            switch model.accountModalMode {
-            case .add:
-              AddAccountFlow(model: model)
-            case .advancedImport:
-              ImportFlow(model: model)
-            }
-          }
-            .frame(
-              width: min(780, geometry.size.width - 48),
-              height: min(
-                model.accountModalMode == .add
-                  ? AIMTheme.addAccountModalHeight : AIMTheme.modalHeight,
-                geometry.size.height - 48
-              )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .shadow(color: .black.opacity(dark ? 0.22 : 0.1), radius: 34, y: 14)
-            .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 4)))
-            .accessibilityElement(children: .contain)
+        pageView
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+      .navigationTitle(page.rawValue)
+      .toolbar { toolbarContent }
+    }
+    .sheet(isPresented: Binding(
+      get: { model.showImport },
+      set: { if !$0 { model.closeAccountModal() } })
+    ) {
+      Group {
+        switch model.accountModalMode {
+        case .add: AddAccountFlow(model: model)
+        case .advancedImport: ImportFlow(model: model)
         }
       }
+      .frame(width: 680, height: 600)
+      .interactiveDismissDisabled(model.isBusy)
+      .environment(\.aimCopyPath, model.copyPath)
     }
-    .font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink)
-    .background {
-      if reduceTransparency {
-        AIMTheme.canvas
-      } else {
-        AIMVisualEffect(material: .underWindowBackground, blendingMode: .behindWindow, darkMode: dark)
-        AIMTheme.canvas.opacity(AIMTranslucency.opacity(
-          translucency, reduceTransparency: reduceTransparency))
-      }
-    }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.navigation), value: page)
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.modal), value: model.showImport)
-    .environment(\.aimDarkMode, dark)
-    .environment(\.aimFocusIndicatorsEnabled, showFocusIndicators)
     .environment(\.aimCopyPath, model.copyPath)
-    .focusEffectDisabled(!showFocusIndicators)
     .preferredColorScheme(themeOverride)
     .background(
       WindowReader { window in
         target.window = window
         applyAppearance(to: window)
-        applyFocusPolicy(to: window)
       }
-    ).ignoresSafeArea(.container, edges: .top)
+    )
     .onAppear { AIManagerBrand.installApplicationIcon(dark: dark) }
     .onChange(of: dark) { _, _ in
       if let window = target.window { applyAppearance(to: window) }
       AIManagerBrand.installApplicationIcon(dark: dark)
     }
-    .onChange(of: showFocusIndicators) { _, _ in
-      if let window = target.window { applyFocusPolicy(to: window) }
-    }
     .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.request)) { notification in
       guard let requestedPage = notification.object as? AIManagerPage else { return }
-      page = requestedPage
-      NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: requestedPage)
+      show(requestedPage)
+    }
+    .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.focusSearch)) { _ in
+      searchFocused = true
     }
     .task(id: model.hasLoaded, priority: .utility) {
       if model.hasLoaded { await model.watchActivity() }
     }
+  }
+
+  private var pageSelection: Binding<AIManagerPage?> {
+    Binding(get: { page }, set: { if let next = $0 { show(next) } })
+  }
+
+  private func show(_ next: AIManagerPage) {
+    page = next
+    NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: next)
+  }
+
+  @ViewBuilder private var pageView: some View {
+    switch page {
+    case .overview:
+      OverviewPage(model: model, query: searchQuery)
+    case .accounts: AccountsPage(model: model, query: searchQuery)
+    case .conversations: HistoryPage(model: model)
+    case .maintenance: MaintenancePage(model: model, section: $maintenanceSection)
+    case .settings: SettingsPage(model: model)
+    }
+  }
+
+  @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
+    ToolbarItem(placement: .primaryAction) { searchField }
+    ToolbarItem(placement: .primaryAction) {
+      Button { Task { await model.beginAddAccount() } } label: {
+        Label("Add Account", systemImage: AIMIcon.Name.plus.symbol)
+      }
+      .help("Add Account")
+      .disabled(model.isBusy || !model.hasLoaded)
+    }
+    ToolbarItem(placement: .primaryAction) {
+      Menu {
+        Button("Refresh All Usage") { Task { await model.refreshAllUsage() } }
+          .disabled(model.isBusy)
+        Button("Add Account") { Task { await model.beginAddAccount() } }
+          .disabled(model.isBusy || !model.hasLoaded)
+        Button("Import…") { Task { await model.beginAdvancedImport() } }
+          .disabled(model.isBusy || !model.hasLoaded)
+        Divider()
+        Button("Settings") { show(.settings) }
+      } label: {
+        Label("More", systemImage: AIMIcon.Name.more.symbol)
+      }
+      .menuIndicator(.hidden)
+      .help("More")
+    }
+  }
+
+  /// "Search accounts…", at least 300 points wide. Command-K focuses it.
+  private var searchField: some View {
+    HStack(spacing: 6) {
+      Image(systemName: AIMIcon.Name.search.symbol).foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      TextField(AIManagerToolbar.searchPrompt, text: $searchQuery)
+        .textFieldStyle(.plain)
+        .focused($searchFocused)
+        .accessibilityLabel("Search accounts")
+        .accessibilityIdentifier("toolbar-search")
+        .onExitCommand { searchQuery = ""; searchFocused = false }
+      if searchQuery.isEmpty {
+        Text("⌘K").font(.caption).foregroundStyle(.tertiary)
+          .accessibilityHidden(true)
+      } else {
+        Button { searchQuery = "" } label: {
+          Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Clear search")
+        .accessibilityLabel("Clear search")
+      }
+    }
+    .padding(.horizontal, 8)
+    .frame(width: AIManagerToolbar.searchWidth, height: 24)
+    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: AIMTheme.controlRadius))
   }
 
   private func applyAppearance(to window: NSWindow) {
@@ -320,189 +362,9 @@ struct AccountWindow: View {
     let name: NSAppearance.Name = dark ? .darkAqua : .aqua
     if window.appearance?.name != name { window.appearance = NSAppearance(named: name) }
   }
-
-  private func applyFocusPolicy(to window: NSWindow) {
-    window.contentView?.focusRingType = showFocusIndicators ? .default : .none
-  }
-
-  private var rail: some View {
-    VStack(spacing: 0) {
-      Color.clear.frame(width: AIMTheme.railWidth, height: AIMTheme.railWidth)
-        .accessibilityHidden(true)
-      ForEach(AIManagerPage.allCases, id: \.self) { item in
-        RailButton(
-          icon: item.icon, label: item.rawValue, active: page == item,
-          sidebarHover: sidebarHover, hoverID: item.rawValue,
-          iconSize: item.railIconSize
-        ) { page = item }
-      }
-      Spacer()
-      RailButton(icon: dark ? .sun : .moon, label: dark ? "Light mode" : "Dark mode", active: false,
-        sidebarHover: sidebarHover, hoverID: "appearance")
-      {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: AIMMotion.theme)) {
-          appearanceMode = dark ? "light" : "dark"
-        }
-      }
-      RailButton(icon: .plus, label: "Add account", active: false, disabled: model.isBusy,
-        sidebarHover: sidebarHover, hoverID: "addAccount") {
-        Task { await model.beginAddAccount() }
-      }
-    }.frame(width: AIMTheme.railWidth).background(AIMTheme.rail.opacity(reduceTransparency ? 1 : 0.96))
-      .overlay(alignment: .trailing) {
-      Rectangle().fill(AIMTheme.railLine).frame(width: 1)
-    }
-  }
-  private var topbar: some View {
-    ZStack {
-      WindowDragRegion()
-      HStack(alignment: .lastTextBaseline, spacing: 14) {
-        Text(page.rawValue).font(AIMTheme.sans(22, weight: .semibold)).tracking(-0.35).lineLimit(1)
-        Text(page.subtitle).font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.muted).lineLimit(1)
-        Spacer(minLength: 12)
-      }
-      .allowsHitTesting(false)
-      Button {
-        Task { await model.refresh() }
-      } label: {
-        AIMIcon(name: .refresh, size: 15)
-          .foregroundStyle(refreshHovered && !model.isBusy ? AIMTheme.ink : AIMTheme.muted)
-          .frame(width: 32, height: 32).contentShape(Rectangle())
-      }
-      .buttonStyle(AIMPressButtonStyle())
-      .disabled(model.isBusy)
-      .opacity(model.isBusy ? 0.42 : 1)
-      .onHover { refreshHovered = $0 && !model.isBusy }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
-      .help(refreshHelp)
-      .accessibilityLabel(refreshAccessibilityLabel)
-      .accessibilityHint(refreshHelp)
-      .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-      .padding(.horizontal, AIMTheme.modalOuterInset)
-      .frame(height: AIMTheme.topbarHeight)
-      .background(AIMTheme.canvas)
-      .overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.railLine).frame(height: 1) }
-  }
-
-  private var refreshHelp: String {
-    guard let refreshedAt = model.refreshedAt else {
-      return refreshAccessibilityLabel
-    }
-    return "Last refreshed \(refreshedAt.formatted(date: .omitted, time: .shortened))"
-  }
-
-  private var refreshAccessibilityLabel: String {
-    #if AI_MANAGER_PREVIEW
-    return model.isDemo ? "Refresh preview data" : "Refresh accounts"
-    #else
-    return "Refresh accounts"
-    #endif
-  }
 }
 
-private struct RailTop: View {
-  let close: () -> Void, minimize: () -> Void
-  @State private var hover = false
-  @State private var closeHover = false
-  @State private var minimizeHover = false
-  @State private var pendingHide: Task<Void, Never>?
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private var showMinimize: Bool { hover }
-  var body: some View {
-    ZStack(alignment: .topLeading) {
-      Button(action: minimize) {
-        AIMIcon(name: .minimize, size: 15).foregroundStyle(
-          minimizeHover ? AIMTheme.windowControlInk : AIMTheme.muted
-        )
-        .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-        .background {
-          AIMHoverBackground(base: AIMTheme.minimizeControl,
-            highlight: AIMTheme.minimizeHover, hovered: minimizeHover)
-        }
-        .contentShape(Rectangle())
-      }.buttonStyle(AIMPressButtonStyle()).focusable()
-        .accessibilityLabel("Minimize window")
-        .accessibilityHidden(!showMinimize)
-        .offset(x: showMinimize ? AIMTheme.windowControlSize : 0)
-        .opacity(showMinimize ? 1 : 0)
-        .allowsHitTesting(showMinimize)
-        .onHover { value in
-          minimizeHover = value
-          updateHover(value)
-        }
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.minimize), value: showMinimize)
-      Button(action: close) {
-        AIMIcon(name: .close, size: 15).foregroundStyle(closeHover ? Color.white : AIMTheme.closeHover)
-          .frame(width: AIMTheme.windowControlSize, height: AIMTheme.windowControlSize)
-          .background(alignment: .leading) {
-            ZStack {
-              AIMTheme.rail
-              AIMTheme.closeHover.opacity(closeHover ? 1 : 0)
-                .animation(
-                  reduceMotion ? nil : .easeOut(duration: AIMMotion.hover), value: closeHover)
-            }.frame(
-              width: AIMTheme.windowControlSize - 1,
-              height: AIMTheme.windowControlSize)
-          }
-          .contentShape(Rectangle())
-      }.buttonStyle(AIMPressButtonStyle()).focusable()
-        .accessibilityLabel("Close window")
-        .onHover { value in
-          closeHover = value
-          updateHover(value)
-        }
-        .zIndex(1)
-    }
-    .frame(
-      width: AIMTheme.windowControlSize * 2,
-      height: AIMTheme.windowControlSize,
-      alignment: .topLeading
-    )
-  }
-
-  private func updateHover(_ value: Bool) {
-    pendingHide?.cancel()
-    if value {
-      hover = true
-    } else {
-      pendingHide = Task {
-        try? await Task.sleep(for: .milliseconds(70))
-        guard !Task.isCancelled else { return }
-        hover = false
-      }
-    }
-  }
-}
-
-struct RailButton: View {
-  let icon: AIMIcon.Name, label: String, active: Bool
-  var disabled = false
-  let sidebarHover: AIMSidebarHover
-  let hoverID: String
-  var iconSize = AIMTheme.railIconSize
-  let action: () -> Void
-  private var hover: Bool { sidebarHover.target == hoverID }
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.isEnabled) private var isEnabled
-  private var unavailable: Bool { disabled || !isEnabled }
-  var body: some View {
-    Button(action: action) {
-      AIMIcon(name: icon, size: iconSize).frame(width: 48, height: 48).foregroundStyle(
-        active ? AIMTheme.activeInk : (hover && !unavailable ? AIMTheme.ink : AIMTheme.railIdle)
-      ).background {
-        AIMHoverBackground(base: active ? AIMTheme.active : .clear,
-          highlight: AIMTheme.panel2, hovered: hover && !active && !unavailable)
-          .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: active)
-          .allowsHitTesting(false)
-      }
-        .contentShape(Rectangle())
-    }.buttonStyle(AIMPressButtonStyle()).disabled(disabled).help(label).accessibilityLabel(label).accessibilityAddTraits(
-      active ? .isSelected : []
-    ).onHover { sidebarHover.update(hoverID, inside: $0 && !unavailable) }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
-  }
-}
+/// A standard button. `primary` is the prominent (accent) style and `danger` a destructive one.
 enum ButtonTone { case normal, primary, danger }
 struct AIMButton: View {
   let title: String
@@ -511,47 +373,30 @@ struct AIMButton: View {
   var disabled = false
   var active = false
   let action: () -> Void
-  @State private var hover = false
-  @FocusState private var focused: Bool
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.isEnabled) private var isEnabled
-  private var unavailable: Bool { disabled || !isEnabled }
+
   var body: some View {
-    Button(action: action) {
-      HStack(spacing: 6) {
-        if let icon { AIMIcon(name: icon, size: 13) }
-        Text(title).lineLimit(1)
-      }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 13).frame(height: 30)
-        .foregroundStyle(
-          unavailable
-            ? AIMTheme.disabledInk
-            : (tone == .primary
-              ? AIMTheme.primaryInk : (tone == .danger ? AIMTheme.statusInk : (active ? AIMTheme.blue : AIMTheme.ink)))
-        ).background {
-          AIMHoverBackground(
-            base: unavailable ? AIMTheme.disabledControl
-              : tone == .primary ? AIMTheme.ink
-              : tone == .danger ? AIMTheme.red
-              : active ? AIMTheme.blue.opacity(0.10) : AIMTheme.control,
-            highlight: tone == .primary ? AIMTheme.primaryHover
-              : tone == .danger ? AIMTheme.statusInk.opacity(0.08) : AIMTheme.controlHover,
-            hovered: hover && !unavailable)
-        }.overlay {
-          if tone == .normal {
-            RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.line, lineWidth: 1)
-          }
-          if focused, focusIndicatorsEnabled {
-            RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
-          }
-        }.clipShape(RoundedRectangle(cornerRadius: 3))
+    Button(role: tone == .danger ? .destructive : nil, action: action) {
+      if let icon {
+        Label(title, systemImage: icon.symbol)
+      } else {
+        Text(title)
+      }
     }
-    .buttonStyle(AIMPressButtonStyle()).focused($focused).disabled(disabled).onHover {
-      hover = $0 && !unavailable
-    }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
+    .modifier(AIMButtonStyle(prominent: tone == .primary))
+    .disabled(disabled)
+    .accessibilityAddTraits(active ? .isSelected : [])
   }
 }
+
+/// The accent-filled prominent style for a primary action, else the bordered style.
+private struct AIMButtonStyle: ViewModifier {
+  let prominent: Bool
+  func body(content: Content) -> some View {
+    if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+  }
+}
+
+/// An icon-only borderless button with an accessible name and a tooltip.
 struct AIMIconButton: View {
   let icon: AIMIcon.Name
   let label: String
@@ -559,61 +404,57 @@ struct AIMIconButton: View {
   var disabled = false
   var active = false
   let action: () -> Void
-  @State private var hover = false
-  @FocusState private var focused: Bool
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.isEnabled) private var isEnabled
-  private var unavailable: Bool { disabled || !isEnabled }
 
   var body: some View {
-    Button(action: action) {
-      AIMIcon(name: icon, size: 13)
-        .frame(width: 30, height: 30)
-        .foregroundStyle(
-          unavailable
-            ? AIMTheme.disabledInk
-            : (tone == .danger
-              ? (hover ? AIMTheme.statusInk : AIMTheme.red)
-              : (active ? AIMTheme.blue : (hover ? AIMTheme.ink : AIMTheme.muted)))
-        )
-        .background {
-          AIMHoverBackground(base: active && !unavailable ? AIMTheme.blue.opacity(0.10) : .clear,
-            highlight: tone == .danger ? AIMTheme.red : AIMTheme.controlHover,
-            hovered: hover && !unavailable)
-        }
-        .overlay {
-          if focused, focusIndicatorsEnabled {
-            RoundedRectangle(cornerRadius: 3).stroke(AIMTheme.blue, lineWidth: 2)
-          }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-        .contentShape(Rectangle())
+    Button(role: tone == .danger ? .destructive : nil, action: action) {
+      AIMIcon(name: icon, size: 13).frame(width: 22, height: 22)
     }
-    .buttonStyle(AIMPressButtonStyle())
+    .buttonStyle(.borderless)
+    .foregroundStyle(tone == .danger ? AIMTheme.red : (active ? AIMTheme.blue : AIMTheme.muted))
     .background {
-      if icon == .copy { AIMCopyCursor(enabled: !unavailable).allowsHitTesting(false) }
+      if icon == .copy { AIMCopyCursor(enabled: isEnabled && !disabled).allowsHitTesting(false) }
     }
-    .focused($focused)
     .disabled(disabled)
-    .onHover { hover = $0 && !unavailable }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: unavailable)
     .help(label)
     .accessibilityLabel(label)
   }
 }
+
+/// A small status capsule. `ink` is the text color.
 struct Badge: View {
   let text: String, color: Color
-  var ink: Color = AIMTheme.statusInk
+  var ink: Color = .white
   var body: some View {
-    Text(text).font(AIMTheme.sans(10, weight: .medium)).padding(.horizontal, 6)
-      .frame(height: 18).foregroundStyle(ink).background(color).clipShape(
-        RoundedRectangle(cornerRadius: 3))
+    Text(text).font(AIMTheme.sans(10, weight: .medium)).padding(.horizontal, 7)
+      .frame(height: 18).foregroundStyle(ink).background(color).clipShape(Capsule())
+  }
+}
+
+/// "Using as default" (checkmark, prominent, not actionable) or "Make Default" (prominent).
+struct DefaultAccountButton: View {
+  let isDefault: Bool
+  var disabled = false
+  let action: () -> Void
+
+  var body: some View {
+    if isDefault {
+      Button(action: {}) {
+        Label(AccountActionCopy.usingDefault, systemImage: AIMIcon.Name.check.symbol)
+      }
+      .buttonStyle(.borderedProminent)
+      .allowsHitTesting(false)
+      .accessibilityHint("This account is already the default.")
+    } else {
+      Button(action: action) { Text(AccountActionCopy.use) }
+        .buttonStyle(.borderedProminent)
+        .disabled(disabled)
+    }
   }
 }
 
 enum AccountActionCopy {
-  static let use = "Set as Default"
+  static let use = "Make Default"
   static let usingDefault = "Using as default"
   static func open(_ providerID: ProviderID) -> String {
     "Open \(providerID == .codex ? "Codex" : providerID.displayName)"
@@ -626,90 +467,52 @@ enum AccountActionCopy {
   static let delete = "Delete account"
 }
 
-private struct PendingAccountDeletion: Identifiable {
-  let account: AccountRecord
-  var id: UUID { account.id }
-}
-
+/// The account list (drag to reorder) beside the selected account's detail.
 private struct AccountsPage: View {
   @ObservedObject var model: AccountViewModel
-  let sidebarHover: AIMSidebarHover
-  @State private var importHovered = false
-  @State private var pendingDeletion: PendingAccountDeletion?
-  @State private var dropTargetID: UUID?
-  @GestureState private var isDraggingAccount = false
+  let query: String
+  @State private var pendingDeletion: AccountRecord?
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var accounts: [AccountRecord] {
+    AccountSearch.filter(model.status?.accounts ?? [], query: query, hideEmails: hideEmails)
+  }
+
   var body: some View {
-    HStack(spacing: 8) {
-      AIMPanel(title: "Accounts") {
-        VStack(spacing: 0) {
-          AIMScrollView {
-            LazyVStack(spacing: 0) {
-              ForEach(model.status?.accounts ?? []) { account in
-                Button {
-                  model.selectedAccountID = account.id
-                } label: {
-                  AccountListRow(
-                    account: account, selected: account.id == model.selectedAccountID,
-                    isDefault: model.status?.isDefault(account) == true, sidebarHover: sidebarHover,
-                    providerStatus: model.providerStatus[account.identity.providerID],
-                    hidesEmails: hideEmails)
-                }
-                .buttonStyle(AIMPressButtonStyle())
-                .contextMenu {
-                  accountContextMenu(for: account)
-                }
-                .highPriorityGesture(
-                  DragGesture(minimumDistance: 6)
-                    .updating($isDraggingAccount) { _, dragging, _ in dragging = true }
-                    .onChanged { value in
-                      dropTargetID = accountDropTarget(for: account.id, at: value.location, model: model)
-                    }
-                    .onEnded { value in
-                      defer { dropTargetID = nil }
-                      guard let target = accountDropTarget(for: account.id, at: value.location, model: model) else { return }
-                      Task { await model.moveAccount(account.id, to: target) }
-                    }
-                )
-                .overlay {
-                  if isDraggingAccount && dropTargetID == account.id {
-                    Rectangle().stroke(AIMTheme.blue.opacity(0.7), lineWidth: 1)
-                      .allowsHitTesting(false)
-                  }
-                }
-              }
-              if !model.hasLoaded {
-                HStack(spacing: 8) {
-                  ProgressView().controlSize(.small)
-                  Text("Loading accounts…")
-                }.font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-                  .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-              } else if model.status?.accounts.isEmpty != false {
-                Text("No accounts yet.").font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-                  .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-              }
-            }
+    HStack(spacing: AIMTheme.cardSpacing) {
+      VStack(spacing: 0) {
+        List(selection: Binding(
+          get: { model.selectedAccountID }, set: { model.selectedAccountID = $0 })
+        ) {
+          ForEach(accounts) { account in
+            AccountListRow(
+              account: account, selected: account.id == model.selectedAccountID,
+              isDefault: model.status?.isDefault(account) == true,
+              providerStatus: model.providerStatus[account.identity.providerID],
+              hidesEmails: hideEmails)
+              .tag(account.id)
+              .contextMenu { accountContextMenu(for: account) }
           }
-          Button {
-            Task { await model.beginAddAccount() }
-          } label: {
-            HStack {
-              AIMIcon(name: .plus, size: 13)
-              Text("Add account")
-              Spacer()
-            }.font(AIMTheme.sans(12, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
-              .foregroundStyle(model.isBusy || !model.hasLoaded ? AIMTheme.disabledInk : AIMTheme.ink)
-              .background {
-                AIMHoverBackground(base: AIMTheme.panel2, highlight: AIMTheme.controlHover,
-                  hovered: importHovered && !model.isBusy && model.hasLoaded)
-              }
-          }.buttonStyle(AIMPressButtonStyle()).keyboardShortcut("i", modifiers: [.command])
-            .disabled(model.isBusy || !model.hasLoaded)
-            .onHover { importHovered = $0 && !model.isBusy && model.hasLoaded }
-            .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.isBusy)
+          .onMove { source, destination in
+            guard query.isEmpty, let move = AccountReorder.move(
+              accountIDs: accounts.map(\.id), from: source, to: destination) else { return }
+            Task { await model.moveAccount(move.accountID, to: move.targetID) }
+          }
+          if !model.hasLoaded {
+            HStack(spacing: 8) {
+              ProgressView().controlSize(.small)
+              Text("Loading accounts…")
+            }.foregroundStyle(AIMTheme.muted)
+          } else if accounts.isEmpty {
+            Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
+              .foregroundStyle(AIMTheme.muted)
+          }
         }
-      }.frame(width: AIMTheme.listWidth)
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+      }
+      .aimCard()
+      .frame(width: AIMTheme.accountListWidth)
       if let account = model.selectedAccount {
         if account.usesGenericDetail {
           ProviderAccountDetail(account: account, model: model) {
@@ -724,17 +527,8 @@ private struct AccountsPage: View {
         EmptyAccountView(model: model)
       }
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
-    .alert(item: $pendingDeletion) { deletion in
-      let accountName = deletion.account.identity.heroName
-      return Alert(
-        title: Text("Delete \(accountName)?"),
-        message: Text(deletionMessage(for: deletion.account)),
-        primaryButton: .destructive(Text("Delete account")) {
-          Task { await model.deleteAccount(deletion.account.id) }
-        },
-        secondaryButton: .cancel())
-    }
+    .padding(AIMTheme.modalOuterInset)
+    .accountDeletionAlert(model: model, pending: $pendingDeletion)
   }
 
   @ViewBuilder
@@ -785,73 +579,55 @@ private struct AccountsPage: View {
   }
 
   private func prepareDeletion(of account: AccountRecord) {
-    guard model.canDeleteAccount(account.id) else {
-      model.errorMessage = "No saved account is available as a replacement."
-      return
-    }
-    pendingDeletion = PendingAccountDeletion(account: account)
-  }
-
-  private func deletionMessage(for account: AccountRecord) -> String {
-    let removal = "Remove this account's saved sign-in from Switch. Conversations and settings stay."
-    if model.status?.isDefault(account) == true,
-       let replacement = model.deletionReplacement(for: account.id) {
-      return "\(removal) \(replacement.identity.heroName) will become the default for new \(account.identity.providerID.guiName) sessions."
-    }
-    return removal
+    model.requestDeletion(of: account, into: $pendingDeletion)
   }
 }
-@MainActor
-func accountDropTarget(for accountID: UUID, at point: CGPoint, model: AccountViewModel) -> UUID? {
-  guard !model.isBusy, point.x.isFinite, point.y.isFinite,
-    point.x >= 0, point.x <= AIMTheme.listWidth,
-    abs(point.y) < CGFloat(model.status?.accounts.count ?? 0) * AccountListRow.height
-  else { return nil }
-  return model.adjacentAccountID(
-    to: accountID, offset: Int(floor(point.y / AccountListRow.height)))
+/// Drag-to-reorder math for the Accounts list.
+enum AccountReorder {
+  /// The account to move and the account whose position it takes, or nil when nothing changes.
+  /// `destination` is SwiftUI's insertion offset in the list before the move.
+  static func move(
+    accountIDs: [UUID], from source: IndexSet, to destination: Int
+  ) -> (accountID: UUID, targetID: UUID)? {
+    guard source.count == 1, let from = source.first, accountIDs.indices.contains(from),
+          (0...accountIDs.count).contains(destination) else { return nil }
+    let to = destination > from ? destination - 1 : destination
+    guard to != from, accountIDs.indices.contains(to) else { return nil }
+    return (accountIDs[from], accountIDs[to])
+  }
 }
 
 struct AccountListRow: View {
-  static let height: CGFloat = 44
   let account: AccountRecord, selected: Bool, isDefault: Bool
-  let sidebarHover: AIMSidebarHover
   /// Open incident of the account's provider; a dot shows beside the provider name when it is minor or worse.
   var providerStatus: ProviderStatusEntry? = nil
   /// Only changes when "Hide email addresses" does, so the row redraws.
   var hidesEmails = false
-  private var hover: Bool { sidebarHover.target == account.id.uuidString }
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    HStack(spacing: 8) {
-      ProviderGlyph(providerID: account.identity.providerID, size: 14)
-        .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.85) : AIMTheme.muted)
-      VStack(alignment: .leading, spacing: 3) {
+    HStack(spacing: 10) {
+      ProviderMark(providerID: account.identity.providerID, size: 28)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(account.identity.heroName).font(.body.weight(.medium)).lineLimit(1)
         HStack(spacing: 5) {
-          Text(account.identity.heroName).font(AIMTheme.sans(12, weight: .medium)).lineLimit(1)
-          Spacer()
-          if isDefault { AIMIcon(name: .check, size: 11) }
-        }
-        HStack(spacing: 5) {
-          Text(account.identity.providerID.guiName).font(AIMTheme.sans(10, weight: .medium))
-            .foregroundStyle(selected ? AIMTheme.activeInk.opacity(0.75) : AIMTheme.muted).lineLimit(1)
+          Text(account.identity.providerID.guiName).font(.subheadline)
+            .foregroundStyle(AIMTheme.muted).lineLimit(1)
           ProviderStatusDot(entry: providerStatus, size: 6)
         }
       }
-    }.padding(.horizontal, 12).padding(.vertical, 6).frame(
-      maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading
-    ).foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink).background {
-      AIMHoverBackground(base: selected ? AIMTheme.active : .clear,
-        highlight: AIMTheme.panel2, hovered: hover && !selected)
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
-        .allowsHitTesting(false)
-    }.overlay(alignment: .bottom) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
-      .contentShape(Rectangle()).onHover { sidebarHover.update(account.id.uuidString, inside: $0) }
-      .accessibilityElement(children: .combine)
-      .accessibilityAddTraits(selected ? .isSelected : [])
-      .accessibilityValue(
-        [isDefault ? "Default account" : "Not the default account",
-         ProviderStatusDot.text(providerStatus).map { "Provider status: \($0)" }]
-          .compactMap { $0 }.joined(separator: ". "))
+      Spacer(minLength: 4)
+      if isDefault {
+        Image(systemName: AIMIcon.Name.check.symbol).font(.caption.weight(.semibold))
+          .foregroundStyle(AIMTheme.green)
+      }
+    }
+    .padding(.vertical, 2)
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(selected ? .isSelected : [])
+    .accessibilityValue(
+      [isDefault ? "Default account" : "Not the default account",
+       ProviderStatusDot.text(providerStatus).map { "Provider status: \($0)" }]
+        .compactMap { $0 }.joined(separator: ". "))
   }
 }
 private struct EmptyAccountView: View {
@@ -896,7 +672,7 @@ private struct AccountDetail: View {
   }
   var body: some View {
     AIMScrollView {
-      VStack(spacing: 8) {
+      VStack(spacing: AIMTheme.cardSpacing) {
         AIMPanel(title: "Identity", importance: .primary, headerAccessories: AnyView(identityStatus)) {
           VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -1008,39 +784,18 @@ private struct AccountDetail: View {
     }
   }
   @ViewBuilder private var actions: some View {
-    AIMButton(
-      title: model.status?.isDefault(account) == true
-        ? AccountActionCopy.usingDefault : AccountActionCopy.use,
-      icon: model.status?.isDefault(account) == true ? .doubleCheck : .check,
-      tone: .primary,
-      disabled: model.isBusy
-    ) { Task { await model.switchDefault() } }
-    if account.identity.providerID == .codex {
-      AccountMenuBarUsageButton(accountID: account.id)
-        .id(account.id).disabled(model.isBusy)
-    }
+    DefaultAccountButton(
+      isDefault: model.status?.isDefault(account) == true, disabled: model.isBusy
+    ) { Task { await model.switchDefault(to: account.id) } }
     AIMButton(
       title: model.status?.isDefault(account) == true
         ? AccountActionCopy.open(account.identity.providerID)
         : AccountActionCopy.useAndOpen(account.identity.providerID),
-      icon: .play,
       disabled: model.isBusy
     ) {
       Task { await model.openAccount(account.id) }
     }
-    AIMIconButton(icon: .search, label: AccountActionCopy.check, disabled: model.isBusy) {
-      Task { await model.checkAccount(account.id) }
-    }
-    AIMIconButton(icon: .copy,
-                  label: account.identity.providerID == .claudeCode ? "Copy config path" : AccountActionCopy.copyAuthPath) {
-      model.copySavedAuthPath(for: account.id)
-    }
-    AIMIconButton(
-      icon: .trash,
-      label: AccountActionCopy.delete,
-      tone: .danger,
-      disabled: model.isBusy || !model.canDeleteAccount(account.id),
-      action: delete)
+    AccountMoreMenu(account: account, model: model, delete: delete)
   }
 }
 
@@ -1259,7 +1014,7 @@ struct UsageActivityCalendar: View {
     let weeks = UsagePresentation.activityWeeks(for: days)
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 10) {
-        Text("Daily activity").font(AIMTheme.sans(13.2, weight: .semibold))
+        Text("Daily activity").font(.headline).lineLimit(1).fixedSize()
         if let selectedDay {
           Text(selectedDay.date.formatted(date: .abbreviated, time: .omitted))
             .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
@@ -1288,10 +1043,15 @@ struct UsageActivityCalendar: View {
           Spacer()
         }
       } else {
-        HStack(alignment: .top, spacing: 0) {
-          ActivityHeatmap(weeks: weeks, maximumTokens: maximumTokens,
-            selectedDate: selectedDate, size: cellSize) { selectedDate = $0 }
-          Spacer(minLength: 0)
+        // The calendar shrinks its cells to fit narrow windows.
+        ViewThatFits(in: .horizontal) {
+          ForEach([cellSize, 8, 7, 6, 5], id: \.self) { size in
+            HStack(alignment: .top, spacing: 0) {
+              ActivityHeatmap(weeks: weeks, maximumTokens: maximumTokens,
+                selectedDate: selectedDate, size: size) { selectedDate = $0 }
+              Spacer(minLength: 0)
+            }
+          }
         }
       }
       if !projects.isEmpty {
@@ -1403,7 +1163,6 @@ struct ActivityHeatmap: View {
       RoundedRectangle(cornerRadius: max(1, size * 0.18))
         .fill(AIMTheme.ink).frame(width: size, height: size)
         .opacity(hoverDay == nil ? 0 : 0.07)
-        .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hoverDay != nil)
         .offset(x: 15 + floor(max(0, hovered.x - 15) / pitch) * pitch,
                 y: floor(max(0, hovered.y) / pitch) * pitch)
         .allowsHitTesting(false)
@@ -1476,48 +1235,10 @@ private struct ActivityCell: View {
         .frame(width: size, height: size)
         .contentShape(Rectangle())
     }
-    .buttonStyle(AIMPressButtonStyle())
+    .buttonStyle(.plain)
     .help("\(day.date.formatted(date: .complete, time: .omitted)): \(UsagePresentation.exactTokens(day.tokens)) tokens")
     .accessibilityLabel(day.date.formatted(date: .complete, time: .omitted))
     .accessibilityValue("\(UsagePresentation.exactTokens(day.tokens)) tokens")
-  }
-}
-
-struct AccountMenuBarUsageButton: View {
-  let accountID: UUID
-  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
-  @State private var showUsageOverride: Bool?
-
-  init(accountID: UUID) {
-    self.accountID = accountID
-    _showUsageOverride = State(
-      initialValue: MenuBarUsagePreferences.explicitValue(for: accountID))
-  }
-
-  private var showsUsage: Bool { showUsageOverride ?? defaultShowUsage }
-
-  var body: some View {
-    AIMButton(
-      title: "Show in Menubar",
-      icon: showsUsage ? .doubleCheck : .check
-    ) {
-      let value = !showsUsage
-      MenuBarUsagePreferences.setOverride(value, for: accountID)
-      showUsageOverride = value
-    }
-    .accessibilityLabel("Show in Menubar")
-    .help(showsUsage ? "Hide this account's usage in Menubar" : "Show this account's usage in Menubar")
-    .accessibilityValue(showsUsage ? "On" : "Off")
-    .accessibilityAddTraits(showsUsage ? .isSelected : [])
-    .contextMenu {
-      Button("Use Settings default") {
-        MenuBarUsagePreferences.useDefault(for: accountID)
-        showUsageOverride = nil
-      }.disabled(showUsageOverride == nil)
-    }
-    .onAppear {
-      showUsageOverride = MenuBarUsagePreferences.explicitValue(for: accountID)
-    }
   }
 }
 
@@ -1581,13 +1302,28 @@ private struct AccountUsagePanel: View {
             let accountFacts = UsagePresentation.accountFacts(snapshot)
             let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
             if !accountFacts.isEmpty || !summaryFacts.isEmpty {
-              HStack(alignment: .top, spacing: 12) {
-                ForEach(accountFacts) { fact in
-                  UsageFact(label: fact.label, value: fact.value, help: fact.help)
+              // One row when it fits; the facts wrap into a grid in a narrow window.
+              ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                  ForEach(accountFacts) { fact in
+                    UsageFact(label: fact.label, value: fact.value, help: fact.help)
+                  }
+                  Spacer(minLength: 12)
+                  ForEach(summaryFacts) { fact in
+                    UsageFact(label: fact.label, value: fact.value)
+                  }
                 }
-                Spacer(minLength: 12)
-                ForEach(summaryFacts) { fact in
-                  UsageFact(label: fact.label, value: fact.value)
+                .fixedSize(horizontal: true, vertical: false)
+                LazyVGrid(
+                  columns: [GridItem(.adaptive(minimum: 110), alignment: .topLeading)],
+                  alignment: .leading, spacing: 10
+                ) {
+                  ForEach(accountFacts) { fact in
+                    UsageFact(label: fact.label, value: fact.value, help: fact.help)
+                  }
+                  ForEach(summaryFacts) { fact in
+                    UsageFact(label: fact.label, value: fact.value)
+                  }
                 }
               }
               .padding(.horizontal, 16).padding(.bottom, 14)
@@ -1802,81 +1538,18 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
   @Binding var selection: Option
   let accessibilityLabel: String
   let label: (Option) -> String
-  @State private var hovered: Option?
-  @FocusState private var focused: Option?
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.isEnabled) private var isEnabled
 
+  /// The native segmented control, for compact mutually exclusive choices.
   var body: some View {
-    HStack(spacing: 0) {
-      ForEach(Array(options.enumerated()), id: \.element) { index, option in
-        Button {
-          selection = option
-        } label: {
-          Text(label(option))
-            .font(AIMTheme.sans(10, weight: .medium))
-            .foregroundStyle(
-              !isEnabled ? AIMTheme.disabledInk : selection == option ? AIMTheme.activeInk : AIMTheme.ink)
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background {
-              Rectangle().fill(
-                !isEnabled ? AIMTheme.disabledControl
-                  : selection == option ? AIMTheme.active
-                  : hovered == option ? AIMTheme.controlHover : AIMTheme.control)
-            }
-            .overlay {
-              if focused == option, focusIndicatorsEnabled {
-                Rectangle().stroke(AIMTheme.blue, lineWidth: 2)
-              }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(AIMSegmentButtonStyle(reduceMotion: reduceMotion))
-        .focused($focused, equals: option)
-        .onHover { inside in
-          if inside { hovered = option }
-          else if hovered == option { hovered = nil }
-        }
-        .onMoveCommand { direction in move(from: option, direction: direction) }
-        .accessibilityAddTraits(selection == option ? .isSelected : [])
-
-        if index < options.count - 1 {
-          Rectangle().fill(AIMTheme.line).frame(width: 1, height: 16)
-            .accessibilityHidden(true)
-        }
+    Picker(accessibilityLabel, selection: $selection) {
+      ForEach(options, id: \.self) { option in
+        Text(label(option)).tag(option)
       }
     }
-    .background(isEnabled ? AIMTheme.control : AIMTheme.disabledControl)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-    .overlay { RoundedRectangle(cornerRadius: AIMTheme.radius).stroke(AIMTheme.line, lineWidth: 1) }
+    .pickerStyle(.segmented)
+    .labelsHidden()
     .fixedSize()
-    .accessibilityElement(children: .contain)
     .accessibilityLabel(accessibilityLabel)
-  }
-
-  private func move(from option: Option, direction: MoveCommandDirection) {
-    guard let index = options.firstIndex(of: option) else { return }
-    let next: Int
-    switch direction {
-    case .left: next = max(0, index - 1)
-    case .right: next = min(options.count - 1, index + 1)
-    default: return
-    }
-    selection = options[next]
-    focused = options[next]
-  }
-}
-
-private struct AIMSegmentButtonStyle: ButtonStyle {
-  let reduceMotion: Bool
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .brightness(configuration.isPressed ? -0.035 : 0)
-      .opacity(configuration.isPressed ? 0.92 : 1)
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.press), value: configuration.isPressed)
   }
 }
 
@@ -1889,6 +1562,7 @@ private struct TokenPeriodPicker: View {
       selection: $selection,
       accessibilityLabel: "Token period",
       label: \.label)
+      .controlSize(.small)
   }
 }
 
@@ -1955,12 +1629,14 @@ struct DetailRow: View {
     HStack(alignment: .firstTextBaseline, spacing: 16) {
       Text(label).font(AIMTheme.sans(11, weight: .medium)).frame(width: 118, alignment: .leading)
       Group {
+        // Paths use the system monospaced font; other values read in the system font.
         if value.hasPrefix("/") || value.hasPrefix("~/") {
           AIMCopyablePath(path: value)
         } else {
-          Text(value).lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(value)
+          Text(value).font(.subheadline).lineLimit(1).truncationMode(.middle)
+            .textSelection(.enabled).help(value)
         }
-      }.font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+      }.foregroundStyle(AIMTheme.muted)
       Spacer()
     }.padding(.horizontal, 16).frame(minHeight: 40).background(
       zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
@@ -1978,7 +1654,6 @@ private struct CleanupPage: View {
   @State private var selectedSamples: Set<Int64> = []
   @State private var clearIndex = false
   @State private var range: CleanupDateRange = .olderMonth
-  @State private var choosingRange = false
   @State private var from = Date().addingTimeInterval(-30 * 86_400)
   @State private var through = Date()
   @State private var anchor = Date()
@@ -1997,9 +1672,9 @@ private struct CleanupPage: View {
 
   var body: some View {
     AIMScrollView {
-      VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: AIMTheme.cardSpacing) {
         HStack(spacing: 12) {
-          CleanupRangeSelect(selection: $range, expanded: $choosingRange).disabled(unavailable)
+          CleanupRangeSelect(selection: $range).disabled(unavailable)
           if range == .custom {
             DatePicker("From", selection: $from, displayedComponents: .date)
             DatePicker("Through", selection: $through, in: from..., displayedComponents: .date)
@@ -2152,29 +1827,14 @@ private struct CleanupPage: View {
         if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
       .font(AIMTheme.sans(11))
-      .frame(maxWidth: .infinity, minHeight: 620, alignment: .topLeading)
-      .overlayPreferenceValue(CleanupRangeAnchor.self) { anchor in
-        if choosingRange, let anchor {
-          GeometryReader { geometry in
-            let bounds = geometry[anchor]
-            ZStack(alignment: .topLeading) {
-              Color.clear.contentShape(Rectangle()).onTapGesture { choosingRange = false }
-              CleanupRangeOptions(selection: $range, expanded: $choosingRange)
-                .frame(width: bounds.width).offset(x: bounds.minX, y: bounds.maxY + 3)
-            }
-          }
-        }
-      }
+      .frame(maxWidth: .infinity, alignment: .topLeading)
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.top, 12)
-    .padding(.bottom, 12)
+    .padding(AIMTheme.modalOuterInset)
     .task { await reload() }
     .onChange(of: range) { _, _ in resetSelection() }
     .onChange(of: from) { _, _ in resetSelection() }
     .onChange(of: through) { _, _ in resetSelection() }
     .onChange(of: clearIndex) { _, _ in review = nil }
-    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in choosingRange = false }
     .alert("Apply reviewed cleanup?", isPresented: $confirming) {
       Button("Cancel", role: .cancel) {}
       Button("Apply cleanup") { Task { await apply() } }
@@ -2290,85 +1950,20 @@ private struct CleanupReview {
   let clearIndex: Bool
 }
 
+/// The Cleanup time range: a native pop-up button.
 struct CleanupRangeSelect: View {
   @Binding var selection: CleanupDateRange
-  @Binding var expanded: Bool
-  @FocusState private var triggerFocused: Bool
 
   var body: some View {
-    HStack(spacing: 8) {
-      Text("Time range").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-      Button { expanded.toggle() } label: {
-        HStack(spacing: 12) {
-          Text(selection.rawValue).lineLimit(1)
-          Spacer(minLength: 0)
-          AIMIcon(name: .chevron, size: 10).rotationEffect(.degrees(expanded ? -90 : 90))
-            .foregroundStyle(AIMTheme.muted)
-        }
-        .font(AIMTheme.sans(11, weight: .medium)).foregroundStyle(AIMTheme.ink)
-        .padding(.horizontal, 10).frame(width: 184, height: 28)
-        .background(AIMTheme.control).clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-        .overlay(RoundedRectangle(cornerRadius: AIMTheme.radius)
-          .stroke(expanded || triggerFocused ? AIMTheme.blue : AIMTheme.line, lineWidth: 1))
-      }
-      .buttonStyle(AIMPressButtonStyle()).focused($triggerFocused)
-      .accessibilityLabel("Time range").accessibilityValue(selection.rawValue)
-      .accessibilityHint(expanded ? "Close time ranges" : "Choose a time range")
-      .accessibilityIdentifier("cleanup-time-range")
-      .anchorPreference(key: CleanupRangeAnchor.self, value: .bounds) { $0 }
-      .onChange(of: expanded) { _, open in if !open { triggerFocused = true } }
-    }
-  }
-}
-
-private struct CleanupRangeAnchor: PreferenceKey {
-  static var defaultValue: Anchor<CGRect>? { nil }
-  static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-    value = nextValue() ?? value
-  }
-}
-
-private struct CleanupRangeOptions: View {
-  @Binding var selection: CleanupDateRange
-  @Binding var expanded: Bool
-  @FocusState private var focusedOption: CleanupDateRange?
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
+    Picker("Time range", selection: $selection) {
       ForEach(CleanupDateRange.allCases) { option in
-        Button { choose(option) } label: {
-          HStack(spacing: 7) {
-            AIMIcon(name: .check, size: 10).opacity(option == selection ? 1 : 0)
-            Text(option.rawValue)
-            Spacer(minLength: 0)
-          }
-          .font(AIMTheme.sans(11, weight: option == selection ? .medium : .regular))
-          .foregroundStyle(AIMTheme.ink).padding(.horizontal, 8).frame(height: 24)
-          .background(option == focusedOption ? AIMTheme.listSelection : .clear)
-          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-        }
-        .buttonStyle(AIMPressButtonStyle()).focused($focusedOption, equals: option)
-        .accessibilityAddTraits(option == selection ? .isSelected : [])
-        if option == .month || option == .olderYear {
-          Rectangle().fill(AIMTheme.lineSoft).frame(height: 1).padding(.vertical, 3)
-        }
+        Text(option.rawValue).tag(option)
+        if option == .month || option == .olderYear { Divider() }
       }
     }
-    .padding(4).background(AIMTheme.rail)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-    .overlay(RoundedRectangle(cornerRadius: AIMTheme.radius).stroke(AIMTheme.line, lineWidth: 1))
-    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-    .onAppear { focusedOption = selection }
-    .onKeyPress(.upArrow) { focusedOption = (focusedOption ?? selection).moved(.up); return .handled }
-    .onKeyPress(.downArrow) { focusedOption = (focusedOption ?? selection).moved(.down); return .handled }
-    .onKeyPress(.return) { choose(focusedOption ?? selection); return .handled }
-    .onExitCommand { expanded = false }
-    .accessibilityElement(children: .contain)
-  }
-
-  private func choose(_ option: CleanupDateRange) {
-    selection = option
-    expanded = false
+    .pickerStyle(.menu)
+    .fixedSize()
+    .accessibilityIdentifier("cleanup-time-range")
   }
 }
 
@@ -2377,10 +1972,6 @@ enum CleanupDateRange: String, CaseIterable, Identifiable {
   case olderWeek = "Older than 7 days", olderMonth = "Older than 30 days", olderYear = "Older than 1 year"
   case all = "All time", custom = "Custom dates"
   var id: String { rawValue }
-  func moved(_ direction: MoveCommandDirection) -> Self? {
-    guard direction == .up || direction == .down, let index = Self.allCases.firstIndex(of: self) else { return nil }
-    return Self.allCases[min(max(index + (direction == .up ? -1 : 1), 0), Self.allCases.count - 1)]
-  }
   func contains(_ date: Date, now: Date, from: Date, through: Date) -> Bool {
     if self == .all { return true }
     if self == .custom {
@@ -2505,7 +2096,6 @@ enum SettingsCopy {
 
 struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
-  @Binding var showFocusIndicators: Bool
   @StateObject private var launchAtLogin = LaunchAtLoginSettings()
   @StateObject private var notificationPermission = QuotaNotificationPermission()
   @AppStorage(ProviderStatusPoller.enabledKey) private var checkProviderStatus = true
@@ -2518,7 +2108,6 @@ struct SettingsPage: View {
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset.rawValue
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
-  @AppStorage(AIMTranslucency.preferenceKey) private var translucency = AIMTranslucency.initialValue
   @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
   @AppStorage(PopoverRefreshPreference.key) private var refreshOnOpen = false
@@ -2527,30 +2116,27 @@ struct SettingsPage: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     AIMScrollView {
-      VStack(spacing: 8) {
+      VStack(spacing: AIMTheme.cardSpacing) {
         AIMPanel(title: "App behavior") {
           VStack(spacing: 0) {
             launchAtLoginRow
             settingRow(isOn: $minimizeToTray, title: "Minimize to Menubar", zebra: true) {
               Text("Hide the window and keep Switch available from its menu-bar icon.")
             }
-            settingRow(isOn: $showFocusIndicators, title: "Keyboard focus indicators") {
-              Text("Show outlines only while keyboard controls have focus.")
-            }
-            settingRow(isOn: $showUsageAsUsed, title: "Show percentage used", zebra: true) {
+            settingRow(isOn: $showUsageAsUsed, title: "Show percentage used") {
               Text("Turn off to show the percentage left in every usage view.")
             }
-            settingRow(isOn: $checkProviderStatus, title: SettingsCopy.checkProviderStatus) {
+            settingRow(isOn: $checkProviderStatus, title: SettingsCopy.checkProviderStatus, zebra: true) {
               Text(SettingsCopy.checkProviderStatusHelp)
             }
             choiceRow(
               SettingsCopy.resetTimes, SettingsCopy.resetTimesHelp, options: [false, true],
-              selection: $resetIsExact, accessibilityLabel: "Reset time format", zebra: true
+              selection: $resetIsExact, accessibilityLabel: "Reset time format"
             ) { $0 ? "Exact time" : "Countdown" }
             choiceRow(
               SettingsCopy.timeFormat, SettingsCopy.timeFormatHelp,
               options: HourFormat.allCases.map(\.rawValue), selection: $hourFormat,
-              accessibilityLabel: "Hour format"
+              accessibilityLabel: "Hour format", zebra: true
             ) { HourFormat(rawValue: $0)?.label ?? $0 }
             HStack(spacing: 16) {
               VStack(alignment: .leading, spacing: 2) {
@@ -2562,22 +2148,9 @@ struct SettingsPage: View {
               ShortcutRecorder().id(resetCount)
             }
             .padding(.horizontal, 16).frame(minHeight: 48)
-            .background(AIMTheme.panel2.opacity(0.55))
-            settingRow(isOn: $refreshOnOpen, title: SettingsCopy.refreshOnOpen) {
+            settingRow(isOn: $refreshOnOpen, title: SettingsCopy.refreshOnOpen, zebra: true) {
               Text(SettingsCopy.refreshOnOpenHelp)
             }
-            HStack(spacing: 16) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text("Body translucency").font(AIMTheme.sans(11, weight: .medium))
-                Text("Keep content readable while revealing a little of the desktop.")
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              }
-              Spacer(minLength: 24)
-              Slider(value: $translucency, in: 0...50, step: 1)
-                .frame(width: 160).accessibilityLabel("Body translucency")
-              Text("\(Int(translucency))%")
-                .font(AIMTheme.mono(10)).frame(width: 32, alignment: .trailing)
-            }.padding(.horizontal, 16).frame(minHeight: 48).background(AIMTheme.panel2.opacity(0.55))
           }
         }
         AIMPanel(title: SettingsCopy.notificationsTitle) {
@@ -2715,7 +2288,7 @@ struct SettingsPage: View {
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
       }
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    .padding(AIMTheme.modalOuterInset)
     .onAppear { launchAtLogin.refresh() }
     .confirmationDialog(
       "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
@@ -2852,10 +2425,10 @@ private struct HistoryPage: View {
   @State private var threadQuery = ""
 
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: AIMTheme.cardSpacing) {
       VStack(spacing: 0) {
         HStack(spacing: 0) {
-          Text("Conversations").font(AIMTheme.sans(12, weight: .semibold))
+          Text("Conversations").font(.headline)
           Spacer(minLength: 8)
           if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
             WarningCopyButton(label: "Copy history warning") {
@@ -2920,16 +2493,13 @@ private struct HistoryPage: View {
         }
       }
       .frame(width: 300)
-      .background(AIMTheme.panel)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      .aimCard()
 
       ChatDetailPane(model: model)
         .id(model.selectedChatID)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.top, 12)
-    .padding(.bottom, 24)
+    .padding(AIMTheme.modalOuterInset)
     .task { await model.refreshChatHistory(query: threadQuery) }
     .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
   }
@@ -2974,29 +2544,24 @@ private struct ChatThreadListItem: Identifiable, Equatable {
 private struct HistorySearchField: View {
   @Binding var text: String
   let placeholder: String
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
 
   var body: some View {
-    HStack(spacing: 8) {
-      AIMIcon(name: .search, size: 11).foregroundStyle(AIMTheme.muted)
+    HStack(spacing: 6) {
+      AIMIcon(name: .search, size: 12).foregroundStyle(AIMTheme.muted)
       TextField(placeholder, text: $text)
         .textFieldStyle(.plain)
-        .font(AIMTheme.sans(10.5))
-        .focusEffectDisabled(!focusIndicatorsEnabled)
       if !text.isEmpty {
         Button { text = "" } label: {
-          AIMIcon(name: .close, size: 8).foregroundStyle(AIMTheme.muted)
-            .frame(width: 20, height: 20).contentShape(Rectangle())
+          Image(systemName: "xmark.circle.fill").foregroundStyle(AIMTheme.muted)
         }
-        .buttonStyle(AIMPressButtonStyle())
+        .buttonStyle(.plain)
         .help("Clear search")
         .accessibilityLabel("Clear search")
       }
     }
-    .padding(.horizontal, 9)
-    .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
-    .background(AIMTheme.control)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .padding(.horizontal, 8)
+    .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
+    .background(AIMTheme.control, in: RoundedRectangle(cornerRadius: AIMTheme.controlRadius))
   }
 }
 
@@ -3005,36 +2570,27 @@ private struct ChatThreadRow: View {
   let selected: Bool
   let striped: Bool
   let action: () -> Void
-  @State private var hovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: 3) {
         Text(thread.title)
-          .font(AIMTheme.sans(11.5, weight: .semibold))
+          .font(.body.weight(.medium))
           .lineLimit(1)
         Text(projectLabel)
-          .font(AIMTheme.sans(9.5, weight: .medium))
-          .foregroundStyle(AIMTheme.muted)
+          .font(.subheadline)
+          .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
           .lineLimit(1)
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 7)
       .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
       .contentShape(Rectangle())
-      .background {
-        AIMHoverBackground(base: selected ? AIMTheme.listSelection : striped ? AIMTheme.listStripe : .clear,
-          highlight: AIMTheme.listHover, hovered: hovered && !selected)
-      }
-      .overlay(alignment: .leading) {
-        if selected { Rectangle().fill(AIMTheme.active).frame(width: 3) }
-      }
+      .background(selected ? AIMTheme.listSelection : (striped ? AIMTheme.listStripe : .clear))
       .foregroundStyle(AIMTheme.ink)
     }
-    .buttonStyle(AIMPressButtonStyle())
-    .onHover { hovered = $0 }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
+    .buttonStyle(.plain)
+    .accessibilityAddTraits(selected ? .isSelected : [])
     .accessibilityLabel("\(thread.title), \(projectLabel)")
   }
 
@@ -3166,8 +2722,7 @@ private struct ChatDetailPane: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(AIMTheme.panel)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .aimCard()
     .task(id: searchKey) { await updateMessageSearch() }
     .task(id: presentationKey) { await updatePresentations() }
     .onChange(of: messageFilter.rawValue) { _, _ in
@@ -3374,22 +2929,10 @@ private struct ChatFilterButton: View {
   let action: () -> Void
 
   var body: some View {
-    Button(action: action) {
-      HStack(spacing: 5) {
-        Image(systemName: selected ? "checkmark" : "circle")
-          .font(.system(size: 8.5, weight: .semibold))
-        Text(choice.rawValue).font(AIMTheme.sans(9.5, weight: .medium))
-      }
-      .foregroundStyle(selected ? AIMTheme.activeInk : AIMTheme.ink)
-      .padding(.horizontal, 8)
-      .frame(height: 24)
-      .background(selected ? AIMTheme.active : AIMTheme.control)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(AIMPressButtonStyle())
-    .accessibilityLabel("Show \(choice.rawValue.lowercased())")
-    .accessibilityAddTraits(selected ? .isSelected : [])
+    Toggle(choice.rawValue, isOn: Binding(get: { selected }, set: { _ in action() }))
+      .toggleStyle(.button)
+      .controlSize(.small)
+      .accessibilityLabel("Show \(choice.rawValue.lowercased())")
   }
 }
 
@@ -3410,21 +2953,12 @@ private struct ChatFilteredCopyButton: View {
         copied = false
       }
     } label: {
-      HStack(spacing: 6) {
-        AIMIcon(name: copied ? .check : .copy, size: 10)
-        Text(copied ? "Copied" : "Copy shown")
-          .font(AIMTheme.sans(9.5, weight: .medium))
-      }
-      .foregroundStyle(copied ? AIMTheme.green : AIMTheme.ink)
-      .padding(.horizontal, 9)
-      .frame(height: 28)
-      .background(AIMTheme.control)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-      .contentShape(Rectangle())
+      Label(copied ? "Copied" : "Copy shown",
+        systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
     }
-    .buttonStyle(AIMPressButtonStyle())
+    .buttonStyle(.bordered)
+    .controlSize(.small)
     .disabled(messages.isEmpty)
-    .opacity(messages.isEmpty ? 0.45 : 1)
     .help("Copy the messages currently shown")
     .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
   }
@@ -3627,7 +3161,7 @@ private struct ChatCopyButton: View {
         .frame(width: 24, height: 24)
         .contentShape(Rectangle())
     }
-    .buttonStyle(AIMPressButtonStyle())
+    .buttonStyle(.borderless)
     .foregroundStyle(copied ? AIMTheme.green : AIMTheme.muted)
     .opacity(emphasized || copied ? 1 : 0.48)
     .help(copied ? "Copied" : label)
@@ -3644,7 +3178,7 @@ private struct BackupPage: View {
   }
   var body: some View {
     AIMScrollView {
-      VStack(spacing: 8) {
+      VStack(spacing: AIMTheme.cardSpacing) {
         AIMPanel(title: "Pending operations") {
           VStack(spacing: 0) {
             if let operations = model.status?.pendingRecovery, !operations.isEmpty {
@@ -3706,8 +3240,7 @@ private struct BackupPage: View {
             title: "Finish pending work", icon: .backup, tone: .primary,
             disabled: !hasAutomaticRecovery || model.isBusy
           ) { Task { await model.recover() } }
-        }.padding(12).background(AIMTheme.panel)
-          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        }.padding(12).aimCard()
         #if AI_MANAGER_PREVIEW
         if model.isDemo { BackupExamples(model: model) }
         #endif
@@ -3719,7 +3252,32 @@ private struct BackupPage: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.top, 12).padding(.bottom, 24)
+    }.padding(AIMTheme.modalOuterInset)
+  }
+}
+
+/// Maintenance: backup and recovery, and Cleanup.
+enum MaintenanceSection: String, CaseIterable {
+  case backup = "Backup"
+  case cleanup = "Cleanup"
+}
+
+private struct MaintenancePage: View {
+  @ObservedObject var model: AccountViewModel
+  @Binding var section: MaintenanceSection
+
+  var body: some View {
+    VStack(spacing: 0) {
+      AIMSegmentedPicker(
+        options: MaintenanceSection.allCases, selection: $section,
+        accessibilityLabel: "Maintenance section", label: \.rawValue)
+        .padding([.horizontal, .top], AIMTheme.modalOuterInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      switch section {
+      case .backup: BackupPage(model: model)
+      case .cleanup: CleanupPage(model: model)
+      }
+    }
   }
 }
 
@@ -3806,10 +3364,9 @@ struct WarningCopyButton: View {
       .padding(.horizontal, showsTitle ? 9 : 0)
       .frame(minWidth: showsTitle ? 92 : 28, minHeight: 28)
       .foregroundStyle(copied ? AIMTheme.green : AIMTheme.amber)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
       .contentShape(Rectangle())
     }
-    .buttonStyle(AIMPressButtonStyle())
+    .buttonStyle(.borderless)
     .help(label)
     .accessibilityLabel(label)
   }
@@ -3856,8 +3413,7 @@ struct Notice: View {
       if let copy {
         WarningCopyButton(label: "Copy warning", action: copy)
       }
-    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AIMTheme.panel)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).aimCard()
   }
 }
 private struct ErrorBar: View {
@@ -3871,8 +3427,7 @@ private struct ErrorBar: View {
       Spacer()
       WarningCopyButton(label: "Copy error", action: copy)
       AIMButton(title: "Dismiss", action: dismiss)
-    }.padding(12).background(AIMTheme.panel)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    }.padding(12).aimCard()
   }
 }
 
@@ -3931,11 +3486,7 @@ private struct AddAccountFlow: View {
     VStack(spacing: 0) {
       ImportHeader(
         title: step == 1 ? "Add Account"
-          : (step == 2 ? (genericSpec?.style == .secret ? "Credentials" : "Sign In") : "Account Ready"),
-        closeDisabled: model.isBusy
-      ) {
-        model.closeAccountModal()
-      }
+          : (step == 2 ? (genericSpec?.style == .secret ? "Credentials" : "Sign In") : "Account Ready"))
       Group {
         switch step {
         case 1:
@@ -3955,10 +3506,8 @@ private struct AddAccountFlow: View {
       }
       .disabled(model.isBusy)
     }
-    .font(AIMTheme.sans(13))
-    .foregroundStyle(AIMTheme.ink)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(AIMTheme.panel)
+    .environment(\.aimCancelSheet, { model.closeAccountModal() })
     #if AI_MANAGER_PREVIEW
     .onAppear {
       if let id = PreviewArguments.value("add-provider") {
@@ -4068,20 +3617,21 @@ private struct AddAccountFlow: View {
 
       Spacer(minLength: AIMTheme.modalSectionSpacing)
 
-      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
-        AIMButton(title: "Cancel sign-in") {
-          Task { await model.cancelAccountLogin() }
-        }
+      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"], showsCancel: false) {
+        EmptyView()
       } trailing: {
+        // Cancel ends the sign-in session, not only the sheet.
+        Button("Cancel") { Task { await model.cancelAccountLogin() } }
+          .keyboardShortcut(.cancelAction)
         if model.accountLoginState != .credentialChoiceRequired {
           AIMButton(title: "Check Now", icon: .refresh, tone: .primary) {
             Task { await model.checkAccountLogin() }
           }
+          .keyboardShortcut(.defaultAction)
         }
       }
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.vertical, 16)
+    .padding(AIMTheme.modalOuterInset)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
@@ -4105,11 +3655,7 @@ private struct AddAccountFlow: View {
                 : "The account is saved. Its usage appears in Switch, and Set as Default makes it the one that \(selectedProviderName) uses.")
             .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
           HStack(spacing: 6) {
-            AIMButton(
-              title: selectedIsDefault ? AccountActionCopy.usingDefault : AccountActionCopy.use,
-              icon: selectedIsDefault ? .doubleCheck : .check,
-              tone: .primary, disabled: model.isBusy
-            ) {
+            DefaultAccountButton(isDefault: selectedIsDefault, disabled: model.isBusy) {
               Task { await model.switchDefault() }
             }
             if ProviderChoices.builtIn.contains(model.selectedProviderID) {
@@ -4126,18 +3672,18 @@ private struct AddAccountFlow: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
-      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
+      ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"], showsCancel: false) {
         if let accountID = model.selectedAccountID {
           AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
             Task { await model.refreshAnyUsage(accountID: accountID) }
           }
         }
       } trailing: {
-        AIMButton(title: "Done") { model.closeAccountModal() }
+        AIMButton(title: "Done", tone: .primary) { model.closeAccountModal() }
+          .keyboardShortcut(.defaultAction)
       }
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.vertical, 16)
+    .padding(AIMTheme.modalOuterInset)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 }
@@ -4146,12 +3692,7 @@ private struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
     VStack(spacing: 0) {
-      ImportHeader(
-        title: title,
-        closeDisabled: model.isBusy
-      ) {
-        model.closeAccountModal()
-      }
+      ImportHeader(title: title)
       Group {
         if let result = model.importResult {
           ImportResultPage(result: result, model: model)
@@ -4162,10 +3703,9 @@ private struct ImportFlow: View {
         }
       }
       .disabled(model.isBusy)
-    }.font(AIMTheme.sans(13)).foregroundStyle(AIMTheme.ink).frame(
-      maxWidth: .infinity, maxHeight: .infinity
-    )
-    .background(AIMTheme.panel)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .environment(\.aimCancelSheet, { model.closeAccountModal() })
     .overlay(alignment: .bottom) {
       if let error = model.errorMessage {
         ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
@@ -4188,70 +3728,44 @@ private struct ImportFlow: View {
   }
 }
 
+/// The sheet title. Sheets have no close button: every step has its own Cancel.
 private struct ImportHeader: View {
   let title: String
-  let closeDisabled: Bool
-  let close: () -> Void
-  @State private var closeHovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    HStack(spacing: 0) {
-      Text(title)
-        .font(AIMTheme.sans(22, weight: .semibold))
-        .tracking(-0.35)
-        .lineLimit(1)
-        .padding(.leading, AIMTheme.modalOuterInset)
-      Spacer(minLength: AIMTheme.modalOuterInset)
-      Button(action: close) {
-        AIMIcon(name: .close, size: 15)
-          .foregroundStyle(closeHovered && !closeDisabled ? Color.white : AIMTheme.ink)
-          .frame(
-            width: AIMTheme.windowControlSize,
-            height: AIMTheme.modalTitlebarHeight
-          )
-          .background {
-            AIMHoverBackground(base: AIMTheme.modalCloseSurface, highlight: AIMTheme.closeHover,
-              hovered: closeHovered && !closeDisabled)
-          }
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(AIMPressButtonStyle())
-      .keyboardShortcut(.cancelAction)
-      .accessibilityLabel("Close import")
-      .accessibilityIdentifier("import-modal-close")
-      .disabled(closeDisabled)
-      .opacity(closeDisabled ? 0.45 : 1)
-      .onHover { closeHovered = $0 && !closeDisabled }
-      .animation(
-        reduceMotion ? nil : .easeOut(duration: AIMMotion.state),
-        value: closeDisabled
-      )
-    }
-    .frame(height: AIMTheme.modalTitlebarHeight)
-    .background(AIMTheme.panel2)
-    .accessibilityIdentifier("import-modal-titlebar")
+    Text(title)
+      .font(.title2.weight(.semibold))
+      .lineLimit(1)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding([.horizontal, .top], AIMTheme.modalOuterInset)
+      .padding(.bottom, 4)
+      .accessibilityAddTraits(.isHeader)
+      .accessibilityIdentifier("import-modal-titlebar")
   }
 }
 
+/// The sheet's buttons and a small step indicator. The standard Cancel (Escape) closes the sheet.
 struct ImportFooter<Leading: View, Trailing: View>: View {
   let step: Int
   var labels = ["Source", "Review", "Done"]
+  var showsCancel = true
   @ViewBuilder var leading: Leading
   @ViewBuilder var trailing: Trailing
+  @Environment(\.aimCancelSheet) private var cancel
 
   var body: some View {
     ZStack {
-      HStack(spacing: 6) {
+      HStack(spacing: 8) {
         leading
         Spacer(minLength: 16)
+        if showsCancel {
+          Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+        }
         trailing
       }
       ImportSteps(step: step, labels: labels)
-        .fixedSize(horizontal: true, vertical: true)
         .allowsHitTesting(false)
     }
-    .frame(height: 30)
     .accessibilityIdentifier("import-modal-footer")
   }
 }
@@ -4260,27 +3774,17 @@ private struct ImportSteps: View {
   let step: Int
   let labels: [String]
   var body: some View {
-    HStack(spacing: 1) {
-      ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-        HStack(spacing: 5) {
-          Text("\(index + 1)").font(AIMTheme.mono(9, weight: .semibold))
-          Text(label).font(AIMTheme.sans(10, weight: .medium))
-        }
-        .foregroundStyle(index < step ? AIMTheme.activeInk : AIMTheme.muted)
-        .padding(.horizontal, 10)
-        .frame(height: AIMTheme.modalStepHeight)
-        .background(index < step ? AIMTheme.active : AIMTheme.control)
-      }
-    }.accessibilityElement(children: .ignore)
-      .accessibilityLabel("Step \(step) of 3")
+    let index = min(max(step, 1), labels.count) - 1
+    Text("Step \(index + 1) of \(labels.count) · \(labels[index])")
+      .font(.caption).foregroundStyle(AIMTheme.muted)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Step \(step) of \(labels.count)")
       .accessibilityIdentifier("import-modal-steps")
   }
 }
 
 private struct SourcePage: View {
   @ObservedObject var model: AccountViewModel
-  @State private var hoveredSourceID: String?
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.isEnabled) private var isEnabled
   var body: some View {
     VStack(spacing: AIMTheme.modalSectionSpacing) {
@@ -4319,12 +3823,10 @@ private struct SourcePage: View {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(source.identity?.displayName ?? source.support.label).font(
                       AIMTheme.sans(12, weight: .medium))
-                    AIMCopyablePath(path: source.path.path).font(AIMTheme.mono(11)).foregroundStyle(
-                      selected ? AIMTheme.activeInk : AIMTheme.muted)
+                    AIMCopyablePath(path: source.path.path).foregroundStyle(AIMTheme.muted)
                     Text(
                       "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
-                    ).font(AIMTheme.mono(10)).foregroundStyle(
-                      selected ? AIMTheme.activeInk : AIMTheme.muted)
+                    ).font(.subheadline).monospacedDigit().foregroundStyle(AIMTheme.muted)
                     if let reason = source.inspectionError, !supported {
                       Text(reason).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
                         .lineLimit(2)
@@ -4337,21 +3839,16 @@ private struct SourcePage: View {
                   )
                   .padding(.top, 1)
                 }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 10)
-                  .frame(minHeight: 64).background {
-                    AIMHoverBackground(base: selected ? AIMTheme.active.opacity(0.70)
-                        : index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55),
-                      highlight: AIMTheme.panel2, hovered: hoveredSourceID == source.id && !selected)
-                  }.contentShape(Rectangle())
-                  .foregroundStyle(
-                    selected ? AIMTheme.activeInk : AIMTheme.ink)
+                  .frame(minHeight: 64)
+                  .background(selected ? AIMTheme.listSelection
+                    : (index.isMultiple(of: 2) ? Color.clear : AIMTheme.listStripe))
+                  .contentShape(Rectangle())
+                  .foregroundStyle(AIMTheme.ink)
                   .opacity(isEnabled && supported ? 1 : 0.58)
-              }.buttonStyle(AIMPressButtonStyle())
+              }.buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
                 .disabled(!supported)
                 .help(source.inspectionError ?? source.path.path)
-                .onHover { hoveredSourceID = $0 && isEnabled && supported ? source.id : nil }
-                .animation(
-                  reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.selectedSourceID)
-                .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: isEnabled)
             }
           }
         }
@@ -4392,30 +3889,13 @@ private struct SourcePage: View {
       maxHeight: .infinity, alignment: .top)
   }
 }
+/// One choice of a single-choice group: a native toggle button that shows its selected state.
 private struct Choice: View {
   let title: String, selected: Bool, action: () -> Void
-  @State private var hover = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.isEnabled) private var isEnabled
   var body: some View {
-    Button(action: action) {
-      HStack(spacing: 7) {
-        AIMIcon(name: .check, size: 14)
-          .opacity(selected ? 1 : 0)
-        Text(title)
-      }.font(AIMTheme.sans(11, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
-        .foregroundStyle(
-          !isEnabled ? AIMTheme.disabledInk : (selected ? AIMTheme.activeInk : AIMTheme.ink)
-        ).background {
-          AIMHoverBackground(base: !isEnabled ? AIMTheme.disabledControl
-              : selected ? AIMTheme.active : AIMTheme.control,
-            highlight: AIMTheme.controlHover, hovered: hover && !selected && isEnabled)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-    }.buttonStyle(AIMPressButtonStyle()).accessibilityAddTraits(selected ? .isSelected : [])
-      .onHover { hover = $0 && isEnabled }
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: selected)
-      .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: isEnabled)
+    Toggle(title, isOn: Binding(get: { selected }, set: { _ in action() }))
+      .toggleStyle(.button)
+      .accessibilityAddTraits(selected ? .isSelected : [])
   }
 }
 
@@ -4527,7 +4007,7 @@ private struct ImportResultPage: View {
               ZStack {
                 result.unresolved.isEmpty ? AIMTheme.green : AIMTheme.amber
                 AIMIcon(name: result.unresolved.isEmpty ? .check : .warning, size: 24)
-                  .foregroundStyle(AIMTheme.statusInk)
+                  .foregroundStyle(Color.white)
               }.frame(width: 48, height: 48)
               VStack(alignment: .leading, spacing: 3) {
                 Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))

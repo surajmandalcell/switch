@@ -1,16 +1,19 @@
 import AppKit
 
+/// The sidebar and View menu order.
 enum AIManagerPage: String, CaseIterable {
+  case overview = "Overview"
   case accounts = "Accounts"
-  case backup = "Backup"
-  case history = "Chat History"
-  case cleanup = "Cleanup"
+  case conversations = "Conversations"
+  case maintenance = "Maintenance"
   case settings = "Settings"
 }
 
 enum AIManagerNavigation {
   static let request = Notification.Name("AIManagerNavigationRequest")
   static let didShowPage = Notification.Name("AIManagerNavigationDidShowPage")
+  /// Command-K: focus the toolbar's account search field.
+  static let focusSearch = Notification.Name("AIManagerNavigationFocusSearch")
 }
 
 @MainActor
@@ -62,10 +65,15 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   }
 
   @objc func showSettings(_ sender: Any?) { navigate(to: .settings) }
+  @objc func showOverview(_ sender: Any?) { navigate(to: .overview) }
   @objc func showAccounts(_ sender: Any?) { navigate(to: .accounts) }
-  @objc func showBackup(_ sender: Any?) { navigate(to: .backup) }
-  @objc func showChatHistory(_ sender: Any?) { navigate(to: .history) }
-  @objc func showCleanup(_ sender: Any?) { navigate(to: .cleanup) }
+  @objc func showConversations(_ sender: Any?) { navigate(to: .conversations) }
+  @objc func showMaintenance(_ sender: Any?) { navigate(to: .maintenance) }
+  @objc func focusSearch(_ sender: Any?) {
+    presentWindow()
+    NSApp.activate(ignoringOtherApps: true)
+    NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)
+  }
   @objc func performAddAccount(_ sender: Any?) { addAccount() }
   @objc func performAdvancedImport(_ sender: Any?) { advancedImport() }
   @objc func performRefresh(_ sender: Any?) { refreshNow() }
@@ -136,10 +144,12 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
     [
       item("Refresh Usage", #selector(performRefresh(_:)), key: "r", target: self),
       .separator(),
-      item("Accounts", #selector(showAccounts(_:)), key: "1", target: self),
-      item("Backup", #selector(showBackup(_:)), key: "2", target: self),
-      item("Chat History", #selector(showChatHistory(_:)), key: "3", target: self),
-      item("Cleanup", #selector(showCleanup(_:)), key: "4", target: self),
+      item("Search Accounts", #selector(focusSearch(_:)), key: "k", target: self),
+      .separator(),
+      item("Overview", #selector(showOverview(_:)), key: "1", target: self),
+      item("Accounts", #selector(showAccounts(_:)), key: "2", target: self),
+      item("Conversations", #selector(showConversations(_:)), key: "3", target: self),
+      item("Maintenance", #selector(showMaintenance(_:)), key: "4", target: self),
       item("Settings", #selector(showSettings(_:)), key: "5", target: self),
     ]
   }
@@ -147,6 +157,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   private func windowItems() -> [NSMenuItem] {
     [
       item("Minimize", #selector(performMinimize(_:)), key: "m", target: self),
+      item("Zoom", #selector(NSWindow.performZoom(_:))),
       .separator(),
       item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:)), target: NSApp),
     ]

@@ -15,9 +15,7 @@ struct ProviderChooserPage: View {
   #else
   @State private var query = ""
   #endif
-  @State private var hoveredID: ProviderID?
   @FocusState private var searchFocused: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var choices: [ProviderChoice] {
     ProviderChoices.all(descriptors: model.providers, signedIn: model.signedInProviderIDs)
@@ -71,11 +69,10 @@ struct ProviderChooserPage: View {
   }
 
   private var searchField: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 6) {
       AIMIcon(name: .search, size: 13).foregroundStyle(AIMTheme.muted)
       TextField("Search providers", text: $query)
         .textFieldStyle(.plain)
-        .font(AIMTheme.sans(12))
         .focused($searchFocused)
         .onSubmit(onContinueIfPossible)
         .onKeyPress(.downArrow) { move(1); return .handled }
@@ -83,17 +80,15 @@ struct ProviderChooserPage: View {
         .accessibilityLabel("Search providers")
       if !query.isEmpty {
         Button { query = ""; searchFocused = true } label: {
-          AIMIcon(name: .close, size: 11).foregroundStyle(AIMTheme.muted)
-            .frame(width: 20, height: 20).contentShape(Rectangle())
+          Image(systemName: "xmark.circle.fill").foregroundStyle(AIMTheme.muted)
         }
-        .buttonStyle(AIMPressButtonStyle())
+        .buttonStyle(.plain)
         .accessibilityLabel("Clear search")
       }
     }
-    .padding(.horizontal, 10)
-    .frame(minWidth: 300, maxWidth: .infinity, minHeight: 30, maxHeight: 30)
-    .background(AIMTheme.control)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .padding(.horizontal, 8)
+    .frame(minWidth: 300, maxWidth: .infinity, minHeight: 28, maxHeight: 28)
+    .background(AIMTheme.control, in: RoundedRectangle(cornerRadius: AIMTheme.controlRadius))
   }
 
   private func row(_ choice: ProviderChoice, index: Int) -> some View {
@@ -105,37 +100,34 @@ struct ProviderChooserPage: View {
       HStack(spacing: 12) {
         ProviderMark(providerID: choice.id)
         VStack(alignment: .leading, spacing: 3) {
-          Text(choice.name).font(AIMTheme.sans(12, weight: .semibold)).lineLimit(1)
+          Text(choice.name).font(.body.weight(.medium)).lineLimit(1)
           Text(choice.subtitle)
-            .font(AIMTheme.sans(10))
-            .foregroundStyle(isSelected ? AIMTheme.activeInk.opacity(0.74) : AIMTheme.muted)
+            .font(.subheadline)
+            .foregroundStyle(AIMTheme.muted)
             .lineLimit(1)
         }
         Spacer()
         if choice.signedInOnThisMac {
           Badge(
             text: ProviderChoices.signedInLabel, color: AIMTheme.green.opacity(0.14),
-            ink: isSelected ? AIMTheme.activeInk : AIMTheme.ink)
+            ink: AIMTheme.ink)
         }
         if choice.available {
           AIMIcon(name: .check, size: 14).opacity(isSelected ? 1 : 0)
+            .foregroundStyle(AIMTheme.blue)
         } else {
-          Badge(text: "WIP", color: AIMTheme.disabledControl, ink: AIMTheme.disabledInk)
+          Badge(text: "WIP", color: AIMTheme.control, ink: AIMTheme.muted)
         }
       }
       .padding(.horizontal, AIMTheme.panelContentInset)
       .frame(height: 54)
-      .foregroundStyle(isSelected ? AIMTheme.activeInk : AIMTheme.ink)
-      .background {
-        AIMHoverBackground(
-          base: isSelected ? AIMTheme.active
-            : index.isMultiple(of: 2) ? AIMTheme.panel : AIMTheme.listStripe,
-          highlight: AIMTheme.listHover, hovered: hoveredID == choice.id && !isSelected)
-      }
+      .foregroundStyle(AIMTheme.ink)
+      .background(isSelected ? AIMTheme.listSelection
+        : (index.isMultiple(of: 2) ? Color.clear : AIMTheme.listStripe))
       .background(ScrollWhenSelected(selected: isSelected))
       .contentShape(Rectangle())
     }
-    .buttonStyle(AIMPressButtonStyle())
+    .buttonStyle(.plain)
     .disabled(!choice.available)
     .opacity(choice.available ? 1 : 0.64)
     .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -143,7 +135,6 @@ struct ProviderChooserPage: View {
       model.selectedProviderID = choice.id
       onContinue()
     })
-    .onHover { hoveredID = $0 && choice.available ? choice.id : nil }
     .accessibilityLabel(choice.name)
     .accessibilityValue(
       [isSelected ? "Selected" : nil, choice.signedInOnThisMac ? ProviderChoices.signedInLabel : nil]

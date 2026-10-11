@@ -53,14 +53,20 @@ enum AIManagerBrand {
       fileExtension: "png"),
   ]
 
+  private static var providerImageCache: [String: NSImage] = [:]
+
+  /// The official color mark, read from disk once; lists redraw it on every selection.
   static func providerImage(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage? {
     guard let artwork = providerArtwork.first(where: { $0.providerID == providerID }) else {
       return nil
     }
-    return image(
+    if let cached = providerImageCache[artwork.resourceName] { return cached }
+    guard let image = image(
       named: artwork.resourceName,
       extension: artwork.fileExtension,
-      bundle: bundle)
+      bundle: bundle) else { return nil }
+    providerImageCache[artwork.resourceName] = image
+    return image
   }
 
   static let providerGlyphNames: [String: String] = [

@@ -23,5 +23,4 @@ bash "$repo_root/scripts/check-mac-gui-demo.sh"
 bash "$repo_root/scripts/check-mac-gui-production.sh"
 bash "$repo_root/scripts/check-mac-gui-contract.sh"
 bash "$repo_root/scripts/check-mac-gui-single-instance.sh"
-bash "$repo_root/scripts/check-mac-gui-scroll.sh"
 git -C "$repo_root" diff --check

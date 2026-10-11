@@ -13,19 +13,19 @@ private struct WindowContractReceipt: Codable {
     let failures: [String]
     let window: WindowContractObservation?
     var hierarchy: [AIManagerNativeViewSnapshot] = []
-    var titleHitPath: [String] = []
 }
 
 private struct WindowContractObservation: Codable {
     let stage: String
     let windowClass: String
     let windowNumber: Int
+    /// The Add Account or Advanced Import sheet, when one is open, for sheet screenshots.
+    let sheetWindowNumber: Int?
     let frameX: Double
     let frameY: Double
     let frameWidth: Double
     let frameHeight: Double
     let appearance: String?
-    let configuredScrollViews: Int
     let minWidth: Double
     let minHeight: Double
     let maxWidth: Double
@@ -39,12 +39,12 @@ private struct WindowContractObservation: Codable {
         self.stage = stage
         windowClass = NSStringFromClass(type(of: window))
         windowNumber = window.windowNumber
+        sheetWindowNumber = window.attachedSheet?.windowNumber
         frameX = window.frame.origin.x
         frameY = window.frame.origin.y
         frameWidth = window.frame.size.width
         frameHeight = window.frame.size.height
         appearance = window.appearance?.name.rawValue
-        configuredScrollViews = window.contentView.map { AIManagerNativeContract.configuredScrollViewCount(in: $0) } ?? 0
         minWidth = window.minSize.width
         minHeight = window.minSize.height
         maxWidth = window.maxSize.width
@@ -71,7 +71,6 @@ private enum AcceptanceConfiguration {
         }
     }
 
-    static let initialSize = NSSize(width: 1120, height: 740)
     static var contractOnly: Bool { CommandLine.arguments.contains("--contract-only") }
     static var snapshotOnly: Bool { CommandLine.arguments.contains("--snapshot-only") }
     static var persistedAppearanceMode: String? {
@@ -87,13 +86,19 @@ private enum AcceptanceConfiguration {
     static var opensAddSignIn: Bool { CommandLine.arguments.contains("--add-signin") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var stressesHistory: Bool { CommandLine.arguments.contains("--history-stress") }
+    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Conversations,
+    /// Maintenance, Settings.
     static var initialPageIndex: Int {
-        if CommandLine.arguments.contains("--backup")
-            || CommandLine.arguments.contains("--recovery") { return 1 }
+        if CommandLine.arguments.contains("--accounts") { return 1 }
         if CommandLine.arguments.contains("--history") { return 2 }
-        if CommandLine.arguments.contains("--cleanup") { return 3 }
+        if CommandLine.arguments.contains("--backup")
+            || CommandLine.arguments.contains("--recovery")
+            || CommandLine.arguments.contains("--cleanup") { return 3 }
         if CommandLine.arguments.contains("--settings") { return 4 }
         return 0
+    }
+    static var initialMaintenance: MaintenanceSection {
+        CommandLine.arguments.contains("--cleanup") ? .cleanup : .backup
     }
 }
 
@@ -114,7 +119,6 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        AppFonts.register()
         AIManagerBrand.installApplicationIcon()
         if let mode = AcceptanceConfiguration.persistedAppearanceMode {
             priorAppearanceMode = UserDefaults.standard.object(forKey: "appearanceMode")
@@ -133,7 +137,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             .sink { [receipts] _ in checkWindowContract(receipts: receipts, stage: "after-import-state-change") }
             .store(in: &modelObservers)
         let content = AnyView(
-            AccountWindow(model: model, initialPageIndex: AcceptanceConfiguration.initialPageIndex)
+            AccountWindow(
+                model: model, initialPageIndex: AcceptanceConfiguration.initialPageIndex,
+                initialMaintenance: AcceptanceConfiguration.initialMaintenance)
                 .preferredColorScheme(AcceptanceConfiguration.appearance)
                 .task { [receipts, model] in
                     guard !AcceptanceConfiguration.contractOnly else { return }
@@ -233,8 +239,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         window?.contentView?.layoutSubtreeIfNeeded()
         if !AcceptanceConfiguration.snapshotOnly {
             menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
-            menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.hoverFeedbackFailures())
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
+            menuNavigationFailures.append(contentsOf: await AIManagerMenuBarContract.failures())
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.appFeatureFailures())
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
@@ -313,21 +319,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { failures.append(message) }
     }
-    expect(AIMTheme.windowControlSize == 48, "Custom controls are not 48 points square")
-    expect(
-        AIManagerNativeContract.windowControlGeometryMatches(),
-        "Window controls, titlebar, or page insets do not match the chrome contract"
-    )
-    expect(AIMTheme.modalOuterInset == 24, "Modal outer content edge is not 24 points")
-    expect(AIMTheme.modalTitlebarHeight == 48, "Modal titlebar is not 48 points high")
-    expect(AIMTheme.modalHeight == 648, "Modal height does not preserve the source-row rhythm")
-    expect(AIMTheme.addAccountModalHeight == 560, "Add Account modal clips its title or footer")
-    expect(AIMTheme.modalSectionSpacing == 16, "Modal sections do not use the 16-point rhythm")
-    expect(AIMTheme.panelContentInset == 16, "Panel content edge is not 16 points")
     failures.append(contentsOf: AIManagerNativeContract.presentationContractFailures())
     failures.append(contentsOf: AIManagerNativeContract.accountActionFailures())
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
-    failures.append(contentsOf: AIManagerNativeContract.menuBarPopoverFailures())
     failures.append(contentsOf: AIManagerNativeContract.providerUIFailures())
     failures.append(contentsOf: AIManagerNativeContract.featureUIFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
@@ -350,38 +344,11 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         receipts.report(failures: receipt.failures)
         return
     }
-    expect(window.canBecomeKey, "Acceptance window cannot become key")
-    expect(window.canBecomeMain, "Acceptance window cannot become main")
-    expect(!window.styleMask.contains(.titled), "Acceptance window is still titled")
-    expect(!window.styleMask.contains(.resizable), "Acceptance window is resizable")
-    expect(window.styleMask.contains(.closable), "Acceptance window is not closable")
-    expect(window.styleMask.contains(.miniaturizable), "Acceptance window is not miniaturizable")
-    if AcceptanceConfiguration.persistedAppearanceMode == "system" {
-        expect(window.appearance == nil, "System appearance is pinned to a fixed Aqua appearance")
-    }
-    expect(window.collectionBehavior.contains(.fullScreenNone), "Acceptance window allows fullscreen")
-    expect(!window.isOpaque, "Acceptance window is opaque")
-    expect(window.backgroundColor.alphaComponent == 0, "Acceptance window background is not clear")
+    failures.append(contentsOf: AIManagerNativeContract.windowChromeFailures(window))
     expect(
-        window.frame.size == AcceptanceConfiguration.initialSize,
-        "Acceptance window frame changed to \(NSStringFromSize(window.frame.size))"
+        window.contentRect(forFrameRect: window.frame).size.width >= AIManagerWindow.minimumSize.width,
+        "Acceptance window is smaller than its minimum size"
     )
-    expect(
-        window.minSize == AcceptanceConfiguration.initialSize,
-        "Acceptance window minimum changed to \(NSStringFromSize(window.minSize))"
-    )
-    expect(
-        window.maxSize == AcceptanceConfiguration.initialSize,
-        "Acceptance window maximum changed to \(NSStringFromSize(window.maxSize))"
-    )
-    expect(
-        window.contentMinSize == AcceptanceConfiguration.initialSize
-            && window.contentMaxSize == AcceptanceConfiguration.initialSize,
-        "Acceptance content size bounds are not fixed"
-    )
-    expect(window.standardWindowButton(.closeButton) == nil, "Native close button exists")
-    expect(window.standardWindowButton(.miniaturizeButton) == nil, "Native minimize button exists")
-    expect(window.standardWindowButton(.zoomButton) == nil, "Native zoom button exists")
     failures.append(contentsOf: AIManagerNativeContract.windowPlacementFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         if mode == "system" {
@@ -391,8 +358,6 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             expect(window.appearance?.name == expected, "Persisted appearance was not applied to the window")
         }
     }
-    expect(NSFont(name: "Inter-Regular", size: 13) != nil, "Inter font is unavailable")
-    expect(NSFont(name: "PTMono-Regular", size: 13) != nil, "PT Mono font is unavailable")
     failures.append(contentsOf: AIManagerBrand.acceptanceFailures())
     failures.append(contentsOf: AIManagerNativeContract.menuFailures(
         in: NSApp.mainMenu,
@@ -426,25 +391,10 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         )
     }
     if let contentView = window.contentView {
-        expect(contentView.layer?.cornerRadius == 3 && contentView.layer?.masksToBounds == true,
-            "Main window does not clip all native surfaces to three-point corners")
-        expect(contentView.bounds.size == AcceptanceConfiguration.initialSize, "Acceptance content size changed")
-        expect(
-            AIManagerNativeContract.defaultFocusIndicatorsAreHidden(in: window),
-            "A default focus ring is visible"
-        )
         if stage == "after-load" || stage == "contract-only" {
             receipts.writeSnapshot(of: contentView)
             receipts.writeMenuBarSnapshot(appearance: window.effectiveAppearance)
-            expect(
-                AIManagerNativeContract.focusPolicyMatches(in: contentView, indicatorsEnabled: false),
-                "Acceptance host focus policy is not disabled at startup"
-            )
         }
-        expect(
-            AIManagerNativeContract.scrollBehaviorIsInstalled(in: contentView),
-            "Acceptance scroll behavior is not installed after layout"
-        )
         expect(
             AIManagerNativeContract.scrollAppearancesMatch(in: contentView, appearance: window.effectiveAppearance),
             "Acceptance scroll content appearance differs from the window"
@@ -476,20 +426,6 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
                 "Acceptance window has no visual-effect backdrop"
             )
         }
-        // The shared helper converts top-origin coordinates to AppKit hit-test coordinates.
-        let titlePoint = NSPoint(x: 400, y: 28)
-        if receipts.model?.showImport != true {
-            expect(
-                AIManagerNativeContract.titleDragTarget(in: window, at: titlePoint),
-                "Title drag hit-test did not resolve AIMTitleDragView at (400, top 28)"
-            )
-        }
-        let themeY = contentView.isFlipped ? contentView.bounds.maxY - 72 : 72
-        let themePoint = NSPoint(x: 24, y: themeY)
-        expect(
-            !windowHelperResolves(at: themePoint, in: contentView),
-            "Theme control hit-test resolves a window drag helper"
-        )
     } else {
         failures.append("Acceptance window content view did not resolve")
     }
@@ -500,25 +436,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     )
     if (["after-load", "contract-only"].contains(stage) || !failures.isEmpty), let root = window.contentView {
         receipt.hierarchy = AIManagerNativeContract.hierarchySnapshot(in: root)
-        receipt.titleHitPath = AIManagerNativeContract.hitTestPath(in: window, atTopOriginPoint: NSPoint(x: 400, y: 28))
     }
     receipts.writeWindowContract(receipt)
     receipts.report(failures: failures)
-}
-
-private func windowHelperResolves(at point: NSPoint, in contentView: NSView) -> Bool {
-    var view = contentView.hitTest(contentView.convert(point, to: contentView.superview))
-    while let current = view {
-        if current is AIMTitleDragView {
-            return true
-        }
-        let className = NSStringFromClass(type(of: current))
-        if className.contains("WindowResolver") || className.contains("DragView") {
-            return true
-        }
-        view = current.superview
-    }
-    return false
 }
 
 @MainActor
@@ -595,11 +515,8 @@ private final class AcceptanceReceipts {
     }
 
     private func recordWindowContract(for window: NSWindow, stage: String) {
-        guard let contentView = window.contentView else { return }
         let signature = WindowContractObservation.signature(for: window)
-            + "|\(AIManagerNativeContract.scrollIdentity(in: contentView))"
-            + "|\(AIManagerNativeContract.configuredScrollViewCount(in: contentView))"
-            + "|\(model?.showImport ?? false)|\(window.contentView?.focusRingType.rawValue ?? 0)"
+            + "|\(model?.showImport ?? false)"
         guard lastEventSignatures[stage] != signature else { return }
         lastEventSignatures[stage] = signature
         checkWindowContract(receipts: self, stage: stage)
