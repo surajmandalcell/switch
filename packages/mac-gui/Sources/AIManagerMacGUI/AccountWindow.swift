@@ -784,9 +784,13 @@ private struct AccountDetail: View {
     }
   }
   @ViewBuilder private var actions: some View {
-    DefaultAccountButton(
-      isDefault: model.status?.isDefault(account) == true, disabled: model.isBusy
-    ) { Task { await model.switchDefault(to: account.id) } }
+    if model.needsSignIn(account) {
+      SignInButton(account: account, model: model)
+    } else {
+      DefaultAccountButton(
+        isDefault: model.status?.isDefault(account) == true, disabled: model.isBusy
+      ) { Task { await model.switchDefault(to: account.id) } }
+    }
     AIMButton(
       title: model.status?.isDefault(account) == true
         ? AccountActionCopy.open(account.identity.providerID)

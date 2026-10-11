@@ -12,13 +12,15 @@ private struct AIMCopyPathKey: EnvironmentKey {
 enum UsageResetLabel {
   /// `exact` and `hourFormat` default to the Settings choices; pass them to pin a format.
   static func text(
-    until reset: Date, now: Date = Date(), exact: Bool? = nil, hourFormat: HourFormat? = nil
+    until reset: Date, now: Date = Date(), exact: Bool? = nil, hourFormat: HourFormat? = nil,
+    usedPercent: Double? = nil
   ) -> String {
+    if reset <= now { return ResetDisplay.pastText(usedPercent: usedPercent) }
     if exact ?? ResetDisplay.isExact() {
       return ResetDisplay.exactText(reset, now: now, hourFormat: hourFormat ?? ResetDisplay.hourFormat())
     }
     let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
-    if minutes == 0 { return reset > now ? "Resets in <1m" : "Resets now" }
+    if minutes == 0 { return "Resets in <1m" }
     let days = minutes / 1_440
     let hours = (minutes % 1_440) / 60
     let remainingMinutes = minutes % 60

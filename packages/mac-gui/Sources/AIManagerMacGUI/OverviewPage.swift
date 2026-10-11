@@ -20,22 +20,48 @@ enum OverviewFocus {
 
 enum OverviewFormat {
   /// "in 6d 8h", "in 1h 45m", or the exact time without its "Resets" prefix.
-  static func compactReset(_ reset: Date, now: Date = Date(), exact: Bool? = nil) -> String {
+  static func compactReset(
+    _ reset: Date, now: Date = Date(), exact: Bool? = nil, usedPercent: Double? = nil
+  ) -> String {
+    if reset <= now { return ResetDisplay.pastText(usedPercent: usedPercent) }
     if exact ?? ResetDisplay.isExact() {
       return UsageResetLabel.text(until: reset, now: now, exact: true)
         .replacingOccurrences(of: "Resets ", with: "")
     }
     let minutes = Int(max(0, reset.timeIntervalSince(now)) / 60)
-    if minutes == 0 { return reset > now ? "in <1m" : "now" }
+    if minutes == 0 { return "in <1m" }
     let days = minutes / 1_440, hours = (minutes % 1_440) / 60, rest = minutes % 60
     if days > 0 { return "in \(days)d \(hours)h" }
     if hours > 0 { return "in \(hours)h \(rest)m" }
     return "in \(rest)m"
   }
 
+  enum RowAction { case isDefault, signIn, switchTo }
+
+  /// The last table column: the default marker, "Sign in" for a dead login, else "Switch".
+  @MainActor static func rowAction(for account: AccountRecord, model: AccountViewModel) -> RowAction {
+    if model.status?.isDefault(account) == true { return .isDefault }
+    return model.needsSignIn(account) ? .signIn : .switchTo
+  }
+
   static func percent(_ window: UsageWindow?, showsUsed: Bool) -> String {
     guard let used = window?.usedPercent else { return "–" }
     return "\(UsagePercentagePreferences.displayedPercentage(forUsed: Int(used.rounded()), showsUsed: showsUsed))%"
+  }
+}
+
+/// "Sign in" for an account whose saved login stopped working: the Add Account flow for its provider.
+struct SignInButton: View {
+  let account: AccountRecord
+  @ObservedObject var model: AccountViewModel
+  var small = false
+
+  var body: some View {
+    Button("Sign in") { Task { await model.beginSignIn(for: account.identity.providerID) } }
+      .buttonStyle(.borderedProminent)
+      .controlSize(small ? .small : .regular)
+      .disabled(model.isBusy)
+      .accessibilityHint("Signs in to \(account.identity.providerID.guiName) again")
   }
 }
 
@@ -262,6 +288,45 @@ struct OverviewPage: View {
 
 // MARK: - Focused account card
 
+/// One limit row of the focused card. The reset column takes the width of the longest reset text
+/// and never shrinks; the bar gives way first.
+struct OverviewWindowRow: View {
+  let window: UsageWindow
+  let showsUsed: Bool
+  let now: Date
+
+  /// The longest countdown the card shows.
+  static let longestReset = "Resets in 6 days 23h 59m"
+  static let resetWidth: CGFloat = {
+    let font = NSFont.preferredFont(forTextStyle: .body)
+    return ceil((longestReset as NSString).size(withAttributes: [.font: font]).width) + 4
+  }()
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Text(window.title).lineLimit(1).frame(width: 130, alignment: .leading)
+      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, height: 8)
+        .frame(minWidth: 40)
+      Text(window.usedPercent.map {
+        UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
+      } ?? "–")
+        .monospacedDigit().frame(width: 80, alignment: .trailing)
+        .flipsUsedAndLeft(showsUsed)
+      Group {
+        if let reset = window.resetsAt {
+          ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent)
+        } else {
+          Text("")
+        }
+      }
+      .foregroundStyle(AIMTheme.muted).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+      .frame(width: Self.resetWidth, alignment: .trailing)
+      .layoutPriority(1)
+    }
+    .accessibilityElement(children: .combine)
+  }
+}
+
 private struct OverviewHeader: View {
   let account: AccountRecord
   let accounts: [AccountRecord]
@@ -290,8 +355,12 @@ private struct OverviewHeader: View {
           }
         }
         Spacer(minLength: 16)
-        DefaultAccountButton(isDefault: isDefault, disabled: model.isBusy || !account.canSwitchDefault) {
-          Task { await model.switchDefault(to: account.id) }
+        if model.needsSignIn(account) {
+          SignInButton(account: account, model: model)
+        } else {
+          DefaultAccountButton(isDefault: isDefault, disabled: model.isBusy || !account.canSwitchDefault) {
+            Task { await model.switchDefault(to: account.id) }
+          }
         }
         if !account.usesGenericDetail {
           Button {
@@ -313,24 +382,7 @@ private struct OverviewHeader: View {
       } else {
         VStack(spacing: 10) {
           ForEach(windows) { window in
-            HStack(spacing: 12) {
-              Text(window.title).lineLimit(1).frame(width: 130, alignment: .leading)
-              UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, height: 8)
-              Text(window.usedPercent.map {
-                UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
-              } ?? "–")
-                .monospacedDigit().frame(width: 80, alignment: .trailing)
-                .flipsUsedAndLeft(showsUsed)
-              Group {
-                if let reset = window.resetsAt {
-                  ResetTimeText(reset: reset, now: now)
-                } else {
-                  Text("")
-                }
-              }
-              .foregroundStyle(AIMTheme.muted).lineLimit(1).frame(width: 150, alignment: .trailing)
-            }
-            .accessibilityElement(children: .combine)
+            OverviewWindowRow(window: window, showsUsed: showsUsed, now: now)
           }
         }
       }
@@ -446,16 +498,19 @@ private struct OverviewAccountsCard: View {
           .width(min: 140, ideal: 150)
           TableColumn("Resets") { account in
             let window = AccountUsageSummary.windows(for: account, model: model).first
-            Text(window?.resetsAt.map { OverviewFormat.compactReset($0, now: now) } ?? "–")
+            Text(window?.resetsAt.map { OverviewFormat.compactReset($0, now: now, usedPercent: window?.usedPercent) } ?? "–")
               .foregroundStyle(AIMTheme.muted).lineLimit(1)
           }
           .width(min: 70, ideal: 90)
           TableColumn("") { account in
-            if model.status?.isDefault(account) == true {
+            switch OverviewFormat.rowAction(for: account, model: model) {
+            case .isDefault:
               Text("Default").font(.caption.weight(.medium)).foregroundStyle(AIMTheme.green)
                 .padding(.horizontal, 10).padding(.vertical, 3)
                 .background(AIMTheme.green.opacity(0.14), in: Capsule())
-            } else {
+            case .signIn:
+              SignInButton(account: account, model: model, small: true)
+            case .switchTo:
               Button("Switch") { Task { await model.switchDefault(to: account.id) } }
                 .buttonStyle(.bordered).controlSize(.small)
                 .disabled(model.isBusy || !account.canSwitchDefault)

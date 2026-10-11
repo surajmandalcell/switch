@@ -100,7 +100,9 @@ enum AIManagerMenuBarContract {
       P.resetText(now.addingTimeInterval(interval), now: now, exact: false)
     }
     expect(countdown(6 * 86_400 + 8 * 3_600 + 30) == "6d 8h" && countdown(3_600 + 45 * 60 + 30) == "1h 45m"
-      && countdown(12 * 60 + 30) == "12m" && countdown(20) == "<1m" && countdown(-5) == "Now",
+      && countdown(12 * 60 + 30) == "12m" && countdown(20) == "<1m" && countdown(-5) == "Not started"
+      && P.resetText(now.addingTimeInterval(-5), now: now, exact: false, used: 40) == "Resetting…"
+      && P.resetText(now.addingTimeInterval(-5), now: now, exact: true, used: 0) == "Not started",
       "Reset countdown text is wrong")
     let exactText = P.resetText(now.addingTimeInterval(2 * 3_600), now: now, exact: true, hourFormat: .twentyFour)
     expect(!exactText.isEmpty && !exactText.contains("Resets") && exactText.contains(":"),

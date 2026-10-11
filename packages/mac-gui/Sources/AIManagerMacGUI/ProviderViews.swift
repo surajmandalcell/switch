@@ -88,12 +88,14 @@ struct ProviderStatusDot: View {
 struct ResetTimeText: View {
   let reset: Date
   let now: Date
+  let usedPercent: Double?
   @AppStorage(ResetDisplay.exactKey) private var exact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
 
   private func text(exact: Bool) -> String {
     UsageResetLabel.text(
-      until: reset, now: now, exact: exact, hourFormat: HourFormat(rawValue: hourFormat) ?? .auto)
+      until: reset, now: now, exact: exact, hourFormat: HourFormat(rawValue: hourFormat) ?? .auto,
+      usedPercent: usedPercent)
   }
 
   var body: some View {
@@ -435,7 +437,7 @@ struct ProviderWindowMeter: View {
         .help(UsagePace.tooltip(state) ?? "")
       HStack(alignment: .firstTextBaseline, spacing: 8) {
         if let reset = window.resetsAt {
-          ResetTimeText(reset: reset, now: now)
+          ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent)
             .font(.subheadline).foregroundStyle(AIMTheme.muted)
         }
         Spacer(minLength: 4)
@@ -462,7 +464,8 @@ struct ProviderWindowMeter: View {
     var parts: [String] = []
     if let used { parts.append(UsagePercentagePreferences.label(forUsed: used, showsUsed: showsUsed)) }
     if let reset = window.resetsAt {
-      parts.append(UsageResetLabel.text(until: reset, now: now, exact: resetIsExact))
+      parts.append(UsageResetLabel.text(
+        until: reset, now: now, exact: resetIsExact, usedPercent: window.usedPercent))
     }
     if let detail = window.detail { parts.append(detail) }
     if let tip = UsagePace.tooltip(state) { parts.append(tip) }
@@ -494,7 +497,7 @@ struct ProviderCostRow: View {
         }
         if let reset = cost.resetsAt {
           UsageFact(label: "Resets", value: UsageResetLabel.text(
-            until: reset, now: context.date, exact: resetIsExact)
+            until: reset, now: context.date, exact: resetIsExact, usedPercent: cost.used)
             .replacingOccurrences(of: "Resets ", with: ""))
             .contentShape(Rectangle())
             .onTapGesture { resetIsExact.toggle() }
@@ -635,8 +638,12 @@ struct ProviderAccountDetail: View {
   }
 
   @ViewBuilder private var actions: some View {
-    DefaultAccountButton(isDefault: isDefault, disabled: model.isBusy) {
-      Task { await model.switchDefault(to: account.id) }
+    if model.needsSignIn(account) {
+      SignInButton(account: account, model: model)
+    } else {
+      DefaultAccountButton(isDefault: isDefault, disabled: model.isBusy) {
+        Task { await model.switchDefault(to: account.id) }
+      }
     }
     if let dashboard = spec?.dashboard {
       AIMButton(title: "Open dashboard", disabled: model.isBusy) {

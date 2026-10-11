@@ -71,6 +71,12 @@ enum MenuBarPresentation {
     return lines.first?.resetsAt
   }
 
+  /// Used percent of the header window, for the past-reset wording.
+  static func headerUsed(for account: MenuBarAccountSnapshot) -> Int? {
+    guard case .lines(let lines) = content(for: account) else { return nil }
+    return lines.first?.used
+  }
+
   static func hasTokenCaption(_ account: MenuBarAccountSnapshot) -> Bool {
     guard account.isVerified, let usage = account.usage else { return false }
     return usage.tokens != nil && usage.tokenPeriodLabel != nil
@@ -123,9 +129,10 @@ enum MenuBarPresentation {
   /// "6d 8h", "1h 45m", "12m" as a countdown, or the exact clock time such as "5:30 PM" and
   /// "Thu 5:30 PM", following the Countdown or Exact-time setting.
   static func resetText(
-    _ reset: Date, now: Date, exact: Bool, hourFormat: HourFormat = ResetDisplay.hourFormat()
+    _ reset: Date, now: Date, exact: Bool, hourFormat: HourFormat = ResetDisplay.hourFormat(),
+    used: Int? = nil
   ) -> String {
-    guard reset > now else { return "Now" }
+    guard reset > now else { return ResetDisplay.pastText(usedPercent: used.map(Double.init)) }
     if exact {
       let text = ResetDisplay.exactText(reset, now: now, hourFormat: hourFormat)
       return text.hasPrefix("Resets ") ? String(text.dropFirst(7)) : text
@@ -179,7 +186,8 @@ enum MenuBarPresentation {
         parts.append([line.label, value].compactMap { $0 }.joined(separator: " "))
       }
       if let reset = lines.first?.resetsAt {
-        parts.append("Resets " + resetText(reset, now: now, exact: exact))
+        let text = resetText(reset, now: now, exact: exact, used: lines.first?.used)
+        parts.append(reset > now ? "Resets " + text : text)
       }
     }
     return parts.joined(separator: ", ")
@@ -295,7 +303,7 @@ struct MenuBarRow: View {
         }
         if let reset = P.headerReset(for: account) {
           Text(P.resetText(reset, now: now, exact: exact,
-            hourFormat: HourFormat(rawValue: hourFormat) ?? .auto))
+            hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: P.headerUsed(for: account)))
             .font(.callout.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
         }
       }
