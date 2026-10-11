@@ -362,8 +362,8 @@ custom hover fades, and the body translucency setting.
 - **Window:** a standard titled window with traffic lights, a unified toolbar, and a translucent
   sidebar with SF Symbols. The toolbar holds a "Search accounts…" field at least 300 pt wide
   (Command-K focuses it; it filters every account list), an Add button, and a More menu.
-  Content is grouped cards: secondary system background, 10-point corners, a hairline border,
-  16-point padding, 12-point gaps.
+  Content uses native grouped forms (System Settings style) and native tables; Overview and
+  the account detail fill the content width, Settings stays a centered grouped form.
 - **Overview (simplified on owner request):** two cards only. (1) The focused account: provider
   icon tile, name with a chevron menu that picks another account, provider and a green Active
   dot or an attention badge, then one simple row per window (label, bar, "N% left", reset), and
