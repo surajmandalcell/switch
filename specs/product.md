@@ -357,14 +357,13 @@ custom hover fades, and the body translucency setting.
   (Command-K focuses it; it filters every account list), an Add button, and a More menu.
   Content is grouped cards: secondary system background, 10-point corners, a hairline border,
   16-point padding, 12-point gaps.
-- **Overview:** a header card for the focused account (provider icon tile, name with a chevron
-  menu that picks another account, provider and a green Active dot or an attention badge, the
-  primary window's bar with "N% left" and its reset on the right, then Using as default or Make
-  Default, Open <tool>, Copy, and More); an Accounts card with a native table (Account, Provider,
-  Usage, Resets, and a Default badge or Switch button plus More) and the account count; Current
-  limits as one small card per window with "View all limits"; Recent activity for the focused
-  provider (Today, Yesterday, Last 30 days tokens and API-equivalent cost when known) with "View
-  full history"; and Maintenance with the backup and recovery state and Open Backup.
+- **Overview (simplified on owner request):** two cards only. (1) The focused account: provider
+  icon tile, name with a chevron menu that picks another account, provider and a green Active
+  dot or an attention badge, then one simple row per window (label, bar, "N% left", reset), and
+  actions: a Default badge or Make Default (prominent), Open <tool>, and a More menu (Copy,
+  Show in Menubar, Refresh, Check, Delete). (2) Accounts: a native table with Account (icon,
+  name, provider as a second line), Usage (primary window bar and percent), Resets, and a
+  Default badge or Switch button. Activity and maintenance live on their own pages.
 - **Accounts, Conversations, Maintenance, Settings:** the existing pages restyled with the same
   native cards, lists, and controls.
 - **Menu bar popover:** native popover material, about 360 pt wide. Each row with Show in
