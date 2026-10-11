@@ -1500,6 +1500,16 @@ final class AccountViewModel: ObservableObject {
         await refreshProviderUsage(accountIDs: [accountID])
     }
 
+    /// The toolbar's Refresh All Usage: every saved account, each with its provider's pipeline.
+    func refreshAllUsage() async {
+        let accounts = status?.accounts ?? []
+        for account in accounts where account.identity.providerID == .codex {
+            await refreshUsage(accountID: account.id)
+        }
+        await refreshProviderUsage(accountIDs: accounts
+            .filter { $0.identity.providerID != .codex }.map(\.id))
+    }
+
     /// Refreshes one saved account with the pipeline of its provider.
     func refreshAnyUsage(accountID: UUID) async {
         if status?.accounts.first(where: { $0.id == accountID })?.identity.providerID == .codex {
@@ -2365,6 +2375,13 @@ enum DemoData {
         account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "joestar89@gmail.com", workspace: "research-team", state: .imported, detail: "Imported locally. The account check has not run."),
     ]
 
+    private static func utcDay(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
     static func usage(account: AccountRecord, offset: Int) -> CodexAccountUsageSnapshot {
         let used = [42, 68, 17][offset % 3]
         let resetNow = Date()
@@ -2424,11 +2441,12 @@ enum DemoData {
                 longestStreakDays: 12,
                 longestRunningTurnSeconds: 214
             ),
-            dailyUsage: [
-                CodexDailyUsageSnapshot(startDate: "2026-09-14", tokens: Int64(42_000 + offset * 5_000)),
-                CodexDailyUsageSnapshot(startDate: "2026-09-13", tokens: Int64(31_000 + offset * 4_000)),
-                CodexDailyUsageSnapshot(startDate: "2026-09-12", tokens: Int64(18_000 + offset * 3_000)),
-            ],
+            // Synthetic days counted back from today, so Today and Yesterday are never empty.
+            dailyUsage: (0..<21).map { day in
+                CodexDailyUsageSnapshot(
+                    startDate: utcDay(resetNow.addingTimeInterval(-Double(day) * 86_400)),
+                    tokens: Int64(max(4_000, 5_200_000 - day * 230_000 + offset * 500_000)))
+            },
             fetchedAt: resetNow.addingTimeInterval(Double(-offset * 480))
         )
     }

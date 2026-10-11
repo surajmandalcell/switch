@@ -1,36 +1,12 @@
 import AppKit
-import Observation
 import SwiftUI
 
-@MainActor @Observable
-final class AIMSidebarHover {
-  private(set) var target: String?
+// Native design tokens. Switch follows the macOS Human Interface Guidelines: the system font at
+// standard text styles, system semantic colors, and native controls. These helpers only name the
+// few shared values (card geometry, bar colors) so every page agrees.
 
-  func update(_ id: String, inside: Bool) {
-    if inside { target = id }
-    else if target == id { target = nil }
-  }
-}
-
-private struct AIMFocusIndicatorsKey: EnvironmentKey {
-  static let defaultValue = false
-}
-
-private struct AIMDarkModeKey: EnvironmentKey {
-  static let defaultValue = false
-}
-
-private struct AIMSurfaceOpacityKey: EnvironmentKey { static let defaultValue = 1.0 }
 private struct AIMCopyPathKey: EnvironmentKey {
   static let defaultValue: @MainActor (String) -> Bool = { _ in false }
-}
-
-enum AIMTranslucency {
-  static let preferenceKey = "bodyTranslucency"
-  static let initialValue = 25.0
-  static func opacity(_ value: Double, reduceTransparency: Bool) -> Double {
-    reduceTransparency ? 1 : 1 - min(max(value.isFinite ? value : initialValue, 0), 50) / 100
-  }
 }
 
 enum UsageResetLabel {
@@ -54,118 +30,58 @@ enum UsageResetLabel {
   }
 }
 
-private struct AIMAdaptiveColor: ShapeStyle, Hashable {
-  let light: UInt32
-  let dark: UInt32
-  var lightHighContrast: UInt32?
-  var darkHighContrast: UInt32?
-  var translucentSurface = false
-
-  func resolve(in environment: EnvironmentValues) -> Color.Resolved {
-    let highContrast = environment.colorSchemeContrast == .increased
-    let hex = environment.colorScheme == .dark
-      ? (highContrast ? darkHighContrast ?? dark : dark)
-      : (highContrast ? lightHighContrast ?? light : light)
-    return Color(hex: hex).opacity(translucentSurface ? environment.aimSurfaceOpacity : 1)
-      .resolve(in: environment)
-  }
+private struct AIMCancelSheetKey: EnvironmentKey {
+  static let defaultValue: () -> Void = {}
 }
 
 extension EnvironmentValues {
-  var aimSurfaceOpacity: Double {
-    get { self[AIMSurfaceOpacityKey.self] }
-    set { self[AIMSurfaceOpacityKey.self] = newValue }
-  }
   var aimCopyPath: @MainActor (String) -> Bool {
     get { self[AIMCopyPathKey.self] }
     set { self[AIMCopyPathKey.self] = newValue }
   }
-  var aimFocusIndicatorsEnabled: Bool {
-    get { self[AIMFocusIndicatorsKey.self] }
-    set { self[AIMFocusIndicatorsKey.self] = newValue }
-  }
-
-  var aimDarkMode: Bool {
-    get { self[AIMDarkModeKey.self] }
-    set { self[AIMDarkModeKey.self] = newValue }
+  /// Closes the Add Account or Advanced Import sheet; the standard Cancel button calls it.
+  var aimCancelSheet: () -> Void {
+    get { self[AIMCancelSheetKey.self] }
+    set { self[AIMCancelSheetKey.self] = newValue }
   }
 }
 
 enum AIMTheme {
-  enum Dark {
-    static let rail: UInt32 = 0x141517
-    static let canvas: UInt32 = 0x18191B
-    static let panel: UInt32 = 0x202124
-    static let raised: UInt32 = 0x27282B
-    static let raisedSecondary: UInt32 = 0x2F3034
-    static let hover: UInt32 = 0x303238
-    static let selection: UInt32 = 0x393C43
-    static let menuChrome: UInt32 = 0x18191B
-  }
-
-  static let radius: CGFloat = 3
-  static let railWidth: CGFloat = 48
-  static let railIconSize: CGFloat = 17
-  static let historyRailIconSize: CGFloat = railIconSize * 0.75
-  static let topbarHeight: CGFloat = 48
-  static let listWidth: CGFloat = 200
-  static let windowControlSize: CGFloat = 48
-  static let modalTitlebarHeight: CGFloat = 48
-  static let modalStepHeight: CGFloat = 28
-  static let modalHeight: CGFloat = 648
-  static let addAccountModalHeight: CGFloat = 560
-  static let modalOuterInset: CGFloat = 24
-  static let modalSectionSpacing: CGFloat = 16
+  /// Card geometry: 10-point corners, 16-point padding, 12-point gaps.
+  static let radius: CGFloat = 10
+  static let controlRadius: CGFloat = 6
   static let panelContentInset: CGFloat = 16
+  static let modalOuterInset: CGFloat = 16
+  static let modalSectionSpacing: CGFloat = 12
+  static let cardSpacing: CGFloat = 12
+  static let sidebarWidth: CGFloat = 200
+  static let accountListWidth: CGFloat = 260
+  /// Width of the toolbar's "Search accounts…" field.
+  static let toolbarSearchWidth: CGFloat = 300
 
-  static let canvas = dynamic(light: 0xECEBE7, dark: Dark.canvas, translucentSurface: true)
-  static let rail = dynamic(light: 0xF4F3EF, dark: Dark.rail)
-  static let panel = dynamic(light: 0xFAF9F6, dark: Dark.panel, translucentSurface: true)
-  static let panel2 = dynamic(light: 0xF0EFEB, dark: Dark.raised, translucentSurface: true)
-  static let panel3 = dynamic(light: 0xE5E4DF, dark: Dark.raisedSecondary, translucentSurface: true)
-  static let menuChrome = dynamic(light: 0xF0EFEB, dark: Dark.menuChrome)
-  static let listStripe = dynamic(
-    light: 0xF0EFEB, dark: Dark.raised, lightHighContrast: 0xE4E3DD,
-    darkHighContrast: 0x34363B)
-  static let listHover = dynamic(light: 0xE5E4DF, dark: Dark.hover)
-  static let listSelection = dynamic(
-    light: 0xE1E2E0, dark: Dark.selection, lightHighContrast: 0xD4D7DC,
-    darkHighContrast: 0x464A52)
-  static let chatUserSurface = dynamic(light: 0xE7E9ED, dark: 0x2B2F36)
-  static let chatCodeSurface = dynamic(light: 0xF0EFEB, dark: Dark.canvas)
-  static let line = dynamic(
-    light: 0xD4D3CE, dark: 0x4A4D54, lightHighContrast: 0xA7A69F,
-    darkHighContrast: 0x777A82)
-  static let lineSoft = dynamic(
-    light: 0xE2E1DC, dark: 0x35373C, lightHighContrast: 0xB9B8B2,
-    darkHighContrast: 0x5E6168)
-  static let railLine = dynamic(light: 0xDAD9D5, dark: 0x292B2F)
-  static let ink = dynamic(
-    light: 0x1A1B1D, dark: 0xF2F2F3, lightHighContrast: 0x000000,
-    darkHighContrast: 0xFFFFFF)
-  static let primaryInk = dynamic(light: 0xFFFFFF, dark: Dark.canvas)
-  static let muted = dynamic(light: 0x666970, dark: 0xB9BBC0)
-  static let faint = dynamic(light: 0x75787F, dark: 0xA7A9AF)
-  static let blue = dynamic(light: 0x566D95, dark: 0x9AADD0)
-  static let green = dynamic(light: 0x557D68, dark: 0x8EB9A2)
-  static let amber = dynamic(light: 0x856F43, dark: 0xD0B47A)
-  static let red = dynamic(light: 0x8D5A60, dark: 0xD9959C)
-  static let titleArt = dynamic(light: 0x657B98, dark: 0x7F95B5)
-  static let active = dynamic(light: 0x3C4A61, dark: 0x445878)
-  static let activeInk = dynamic(light: 0xF2F1ED, dark: 0xF2F1ED)
-  static let historySelection = listSelection
-  static let railIdle = dynamic(light: 0x5D6670, dark: 0xB0B7C2)
-  static let statusInk = dynamic(light: 0xFFFFFF, dark: 0x0B0C0F)
-  static let control = dynamic(light: 0xD1CEC4, dark: 0x3B3E44)
-  static let controlHover = dynamic(light: 0xC1BEB3, dark: 0x494D55)
-  static let primaryHover = dynamic(light: 0x3A393B, dark: 0xCCCBC8)
-  static let minimizeControl = dynamic(light: 0xD9D3C6, dark: 0x3A3732)
-  static let minimizeHover = Color(hex: 0xFFD43B)
-  static let closeHover = Color(hex: 0xFF453A)
-  static let modalCloseSurface = dynamic(light: 0xD3D1CA, dark: 0x3D4046)
-  static let windowControlInk = Color(hex: 0x1A1B1D)
-  static let disabledControl = dynamic(light: 0xE5E4DF, dark: 0x2C2E32)
-  static let disabledInk = dynamic(light: 0x62656B, dark: 0xA6A8AD)
+  // System semantic colors; the user's accent color applies in light and dark.
+  static let canvas = Color(nsColor: .windowBackgroundColor)
+  /// Secondary system background used by cards.
+  static let panel = Color(nsColor: .controlBackgroundColor)
+  static let panel2 = Color.primary.opacity(0.045)
+  static let panel3 = Color.primary.opacity(0.08)
+  static let listStripe = Color.primary.opacity(0.03)
+  static let listSelection = Color.accentColor.opacity(0.18)
+  static let chatUserSurface = Color.accentColor.opacity(0.14)
+  static let chatCodeSurface = Color.primary.opacity(0.06)
+  static let line = Color(nsColor: .separatorColor)
+  static let lineSoft = Color(nsColor: .separatorColor).opacity(0.6)
+  static let ink = Color.primary
+  static let muted = Color.secondary
+  static let faint = Color(nsColor: .tertiaryLabelColor)
+  static let blue = Color.accentColor
+  static let green = Color(nsColor: .systemGreen)
+  static let amber = Color(nsColor: .systemOrange)
+  static let yellow = Color(nsColor: .systemYellow)
+  static let red = Color(nsColor: .systemRed)
+  static let control = Color.primary.opacity(0.1)
+  /// Empty track of a usage bar.
+  static let track = Color(nsColor: .quaternaryLabelColor)
 
   enum FontWeight: String {
     case regular = "Regular"
@@ -174,24 +90,100 @@ enum AIMTheme {
     case bold = "Bold"
   }
 
+  /// The standard text style closest to a point size.
+  static func textStyle(_ size: CGFloat) -> Font.TextStyle {
+    switch size {
+    case 22...: .title
+    case 17...: .title2
+    case 15...: .title3
+    case 13...: .body
+    case 12...: .callout
+    case 11...: .subheadline
+    default: .footnote
+    }
+  }
+
+  /// The system font at the standard text style for `size`.
   static func sans(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("Inter-\(weight.rawValue)", size: size, relativeTo: .body)
+    .system(textStyle(size)).weight(weight.swiftUIWeight)
   }
 
+  /// The system monospaced font, for paths, IDs, and numbers.
   static func mono(_ size: CGFloat, weight: FontWeight = .regular) -> Font {
-    .custom("PTMono-Regular", size: size, relativeTo: .body)
-      .weight(weight.swiftUIWeight)
-  }
-
-  private static func dynamic(
-    light: UInt32, dark: UInt32, lightHighContrast: UInt32? = nil,
-    darkHighContrast: UInt32? = nil, translucentSurface: Bool = false
-  ) -> Color {
-    Color(AIMAdaptiveColor(
-      light: light, dark: dark, lightHighContrast: lightHighContrast,
-      darkHighContrast: darkHighContrast, translucentSurface: translucentSurface))
+    .system(textStyle(size), design: .monospaced).weight(weight.swiftUIWeight)
   }
 }
+
+private extension AIMTheme.FontWeight {
+  var swiftUIWeight: Font.Weight {
+    switch self {
+    case .regular: .regular
+    case .medium: .medium
+    case .semibold: .semibold
+    case .bold: .bold
+    }
+  }
+}
+
+extension Color {
+  init(hex: UInt32) {
+    self.init(
+      .sRGB,
+      red: Double((hex >> 16) & 0xff) / 255,
+      green: Double((hex >> 8) & 0xff) / 255,
+      blue: Double(hex & 0xff) / 255,
+      opacity: 1
+    )
+  }
+}
+
+enum AIMMotion {
+  static let state = 0.10
+}
+
+// MARK: - Usage bars
+
+enum UsageBarColor {
+  /// Green above 50% left, yellow from 20% to 50%, red below 20%. Nil is an unknown value.
+  static func color(leftPercent: Double?) -> Color? {
+    guard let left = leftPercent else { return nil }
+    return left > 50 ? AIMTheme.green : (left >= 20 ? AIMTheme.yellow : AIMTheme.red)
+  }
+}
+
+/// A capsule usage bar. `usedPercent` drives the color (by the share left); "Show percentage used"
+/// flips the fill to the used share. An unknown value shows an empty grey track. The fill is
+/// clamped to the track, so overage never overflows.
+struct UsageBar: View {
+  let usedPercent: Double?
+  var showsUsed = false
+  var height: CGFloat = 6
+  /// Even-pace marker as a 0...1 position.
+  var tick: Double? = nil
+
+  var body: some View {
+    let used = usedPercent.map { min(max($0, 0), 100) }
+    let color = UsageBarColor.color(leftPercent: used.map { 100 - $0 })
+    let fill = used.map { (showsUsed ? $0 : 100 - $0) / 100 } ?? 0
+    GeometryReader { geometry in
+      ZStack(alignment: .leading) {
+        Capsule().fill(AIMTheme.track)
+        if let color, fill > 0 {
+          Capsule().fill(color).frame(width: max(height, geometry.size.width * fill))
+        }
+        if let tick {
+          Rectangle().fill(Color.primary.opacity(0.7)).frame(width: 1.5, height: height + 4)
+            .offset(x: min(max(geometry.size.width * tick - 0.75, 0), geometry.size.width - 1.5))
+        }
+      }
+      .frame(height: geometry.size.height, alignment: .leading)
+    }
+    .frame(height: height + (tick == nil ? 0 : 4))
+    .accessibilityHidden(true)
+  }
+}
+
+// MARK: - Paths
 
 struct AIMCopyablePath: View {
   let path: String
@@ -203,6 +195,7 @@ struct AIMCopyablePath: View {
 
   var body: some View {
     Text(path)
+      .font(AIMTheme.mono(11))
       .lineLimit(1).truncationMode(.middle)
       .contentShape(Rectangle())
       .highPriorityGesture(TapGesture().onEnded { copy() })
@@ -215,7 +208,7 @@ struct AIMCopyablePath: View {
       .accessibilityAction { copy() }
       .background { AIMCopyCursor(enabled: isEnabled).allowsHitTesting(false) }
       .overlay(alignment: .topTrailing) {
-        Text("Copied").font(AIMTheme.sans(9, weight: .medium))
+        Text("Copied").font(AIMTheme.sans(10, weight: .medium))
           .foregroundStyle(AIMTheme.green)
           .padding(.horizontal, 4).padding(.vertical, 2)
           .background(AIMTheme.panel)
@@ -263,106 +256,35 @@ struct AIMCopyCursor: NSViewRepresentable {
   }
 }
 
-private extension AIMTheme.FontWeight {
-  var swiftUIWeight: Font.Weight {
-    switch self {
-    case .regular: .regular
-    case .medium: .medium
-    case .semibold: .semibold
-    case .bold: .bold
-    }
-  }
-}
-
-enum AIMMotion {
-  static let press = 0.055
-  static let hover = 0.12
-  static func hoverAnimation(reduceMotion: Bool) -> Animation? {
-    reduceMotion ? nil : .easeOut(duration: hover)
-  }
-  static let state = 0.10
-  static let navigation = 0.14
-  static let modal = 0.14
-  static let theme = 0.16
-  static let minimize = 0.08
-  static let scrollbarIn = 0.10
-  static let scrollbarOut = 0.16
-}
-
-struct AIMHoverBackground: View {
-  var base: Color = .clear
-  let highlight: Color
-  let hovered: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  var body: some View {
-    Rectangle().fill(base)
-      .overlay {
-        Rectangle().fill(highlight)
-          .opacity(hovered ? 1 : 0)
-          .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
-      }
-      .allowsHitTesting(false)
-      .accessibilityHidden(true)
-  }
-}
-
-extension Color {
-  init(hex: UInt32) {
-    self.init(
-      .sRGB,
-      red: Double((hex >> 16) & 0xff) / 255,
-      green: Double((hex >> 8) & 0xff) / 255,
-      blue: Double(hex & 0xff) / 255,
-      opacity: 1
-    )
-  }
-}
-
-struct AIMVisualEffect: NSViewRepresentable {
-  let material: NSVisualEffectView.Material
-  let blendingMode: NSVisualEffectView.BlendingMode
-  let darkMode: Bool
-
-  func makeNSView(context: Context) -> NSVisualEffectView {
-    let view = NSVisualEffectView()
-    view.state = .active
-    return view
-  }
-
-  func updateNSView(_ view: NSVisualEffectView, context: Context) {
-    view.material = material
-    view.blendingMode = blendingMode
-    view.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
-  }
-}
+// MARK: - Icons
 
 struct AIMIcon: View {
   enum Name: CaseIterable {
-    case account, settings, history, backup, cleanup, search, plus, refresh, moon, sun, close, minimize
-    case chevron, check, doubleCheck, circle, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
+    case overview, account, settings, history, maintenance, backup, cleanup, search, plus, more, refresh, close, minimize
+    case chevron, check, circle, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
     case link
 
     var symbol: String {
       switch self {
+      case .overview: "house"
       case .link: "arrow.up.right.square"
       case .account: "person.crop.circle"
       case .settings: "gearshape"
       case .history: "bubble.left.and.bubble.right"
+      case .maintenance: "externaldrive"
       case .backup: "archivebox"
       case .cleanup: "eraser"
       case .search: "magnifyingglass"
       case .plus: "plus"
+      case .more: "ellipsis.circle"
       case .refresh: "arrow.clockwise"
-      case .moon: "moon"
-      case .sun: "sun.max"
       case .close: "xmark"
       case .minimize: "minus"
       case .chevron: "chevron.right"
       case .terminal: "terminal"
       case .openApp: "macwindow"
       case .menuBar: "menubar.rectangle"
-      case .check, .doubleCheck: "checkmark"
+      case .check: "checkmark"
       case .circle: "circle"
       case .square: "square"
       case .checkSquare: "checkmark.square.fill"
@@ -379,91 +301,23 @@ struct AIMIcon: View {
 
   let name: Name
   var size: CGFloat = 17
-  var width: CGFloat { name == .check || name == .doubleCheck ? size * 4 / 3 : size }
 
   var body: some View {
-    Group {
-      if name == .doubleCheck {
-        AIMDoubleCheckShape()
-          .stroke(style: StrokeStyle(lineWidth: size * 2 / 21, lineCap: .round, lineJoin: .round))
-      } else {
-        Image(systemName: name.symbol)
-      }
-    }
+    Image(systemName: name.symbol)
       .font(.system(size: size, weight: .regular))
       .symbolRenderingMode(.monochrome)
-      .frame(width: width, height: size)
+      .frame(width: size, height: size)
       .accessibilityHidden(true)
   }
 }
 
-// Adapted from Ionicons (MIT): complete both checks instead of omitting the overlap.
-struct AIMDoubleCheckShape: Shape {
-  func path(in rect: CGRect) -> Path {
-    var path = Path()
-    path.move(to: CGPoint(x: 48, y: 288))
-    path.addLine(to: CGPoint(x: 144, y: 384))
-    path.addLine(to: CGPoint(x: 368, y: 128))
-    path.move(to: CGPoint(x: 144, y: 288))
-    path.addLine(to: CGPoint(x: 240, y: 384))
-    path.addLine(to: CGPoint(x: 464, y: 128))
-    // Fit the ink bounds, including the original 32-unit round stroke.
-    let scale = min(rect.width / 448, rect.height / 288)
-    let x = rect.minX + (rect.width - 448 * scale) / 2 - 32 * scale
-    let y = rect.minY + (rect.height - 288 * scale) / 2 - 112 * scale
-    return path.applying(CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: x, ty: y))
-  }
-}
-
-struct AIMPressButtonStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> Body {
-    Body(configuration: configuration)
-  }
-
-  struct Body: View {
-    let configuration: Configuration
-    @State private var hovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-      configuration.label
-        .overlay {
-          RoundedRectangle(cornerRadius: AIMTheme.radius)
-            .fill(AIMTheme.ink)
-            .opacity(hovered && isEnabled ? 0.07 : 0)
-            .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered && isEnabled)
-            .allowsHitTesting(false)
-        }
-        .contentShape(Rectangle())
-        .onContinuousHover { phase in
-          let inside: Bool
-          switch phase {
-          case .active: inside = isEnabled
-          case .ended: inside = false
-          }
-          if hovered != inside { hovered = inside }
-        }
-        .onChange(of: isEnabled) { _, enabled in
-          if !enabled { hovered = false }
-        }
-        .brightness(configuration.isPressed && isEnabled ? -0.035 : 0)
-        .opacity(configuration.isPressed && isEnabled ? 0.92 : 1)
-        .animation(
-          reduceMotion ? nil : .easeOut(duration: AIMMotion.press),
-          value: configuration.isPressed)
-        .focusEffectDisabled(!focusIndicatorsEnabled)
-    }
-  }
-}
+// MARK: - Cards
 
 enum AIMPanelImportance {
   case primary, secondary
-
-  var tintOpacity: Double { self == .primary ? 0.70 : 0.28 }
 }
 
+/// A grouped card: secondary system background, 10-point corners, a hairline border.
 struct AIMPanel<Content: View>: View {
   let title: String
   var importance: AIMPanelImportance = .secondary
@@ -474,88 +328,46 @@ struct AIMPanel<Content: View>: View {
     VStack(spacing: 0) {
       HStack(spacing: 8) {
         Text(title)
-          .font(AIMTheme.sans(12, weight: .medium))
+          .font(.headline)
           .foregroundStyle(importance == .primary ? AIMTheme.ink : AIMTheme.muted)
-          .padding(.horizontal, AIMTheme.panelContentInset)
-          .frame(height: 40)
         Spacer(minLength: 0)
-        if let headerAccessories {
-          headerAccessories.padding(.trailing, 10)
-        }
+        if let headerAccessories { headerAccessories }
       }
+      .padding(.horizontal, AIMTheme.panelContentInset)
       .frame(height: 40)
-      .background {
-        ZStack(alignment: .trailing) {
-          LinearGradient(
-            colors: [AIMTheme.green.opacity(0.16), .clear, AIMTheme.titleArt.opacity(0.24)],
-            startPoint: .leading,
-            endPoint: .trailing
-          ).opacity(importance.tintOpacity)
-          AIMTitleArt()
-        }.allowsHitTesting(false)
-      }
-      .background(AIMTheme.panel2.opacity(importance.tintOpacity))
+      Divider()
       content
     }
-    .background(AIMTheme.panel)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .aimCard()
   }
 }
 
-private struct AIMTitleArt: View {
-  var body: some View {
-    Canvas { context, size in
-      let trailingAnchor = size.width - 13
-      for radius in stride(from: CGFloat(24), through: 60, by: 9) {
-        context.stroke(
-          Path(ellipseIn: CGRect(
-            x: trailingAnchor - radius, y: 47 - radius,
-            width: radius * 2, height: radius * 2)),
-          with: .color(AIMTheme.titleArt.opacity(0.24)), lineWidth: 0.65)
-        context.stroke(
-          Path(ellipseIn: CGRect(
-            x: trailingAnchor - 59 - radius, y: -23 - radius,
-            width: radius * 2, height: radius * 2)),
-          with: .color(AIMTheme.titleArt.opacity(0.145)), lineWidth: 0.65)
+extension View {
+  /// The card surface: secondary system background, 10-point corners, hairline border.
+  func aimCard() -> some View {
+    background(AIMTheme.panel)
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      .overlay {
+        RoundedRectangle(cornerRadius: AIMTheme.radius)
+          .strokeBorder(AIMTheme.line, lineWidth: 0.5)
       }
-    }
-    .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
-    .mask {
-      LinearGradient(
-        stops: [
-          .init(color: .black.opacity(0.22), location: 0),
-          .init(color: .black.opacity(0.60), location: 0.55),
-          .init(color: .black, location: 1),
-        ],
-        startPoint: .leading,
-        endPoint: .trailing)
-    }
-    .accessibilityHidden(true)
   }
 }
 
+/// A native scroll view; kept as one name so pages share it.
 struct AIMScrollView<Content: View>: View {
   @ViewBuilder let content: Content
-  @Environment(\.aimDarkMode) private var darkMode
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  @Environment(\.aimSurfaceOpacity) private var surfaceOpacity
-  @Environment(\.aimCopyPath) private var copyPath
 
   init(@ViewBuilder content: () -> Content) { self.content = content() }
 
   var body: some View {
-    AIMNativeScrollView(
-      content: AnyView(
-        content.environment(\.colorScheme, darkMode ? .dark : .light)
-          .environment(\.aimDarkMode, darkMode)
-          .environment(\.aimFocusIndicatorsEnabled, focusIndicatorsEnabled)
-          .environment(\.aimSurfaceOpacity, surfaceOpacity)
-          .environment(\.aimCopyPath, copyPath)
-          .foregroundStyle(AIMTheme.ink)
-          .focusEffectDisabled(!focusIndicatorsEnabled)))
+    ScrollView { content }
   }
 }
 
+// MARK: - Virtual list
+
+/// A virtualized list of hosted rows. Native scrollers; `onReachEnd` pages long lists.
 struct AIMVirtualList<Item: Identifiable & Equatable>: NSViewRepresentable
 where Item.ID: Hashable {
   let items: [Item]
@@ -564,9 +376,6 @@ where Item.ID: Hashable {
   let contentRevision: Int
   let onReachEnd: (() -> Void)?
   let rowContent: (Item) -> AnyView
-  @Environment(\.aimDarkMode) private var darkMode
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  @Environment(\.aimSurfaceOpacity) private var surfaceOpacity
   @Environment(\.aimCopyPath) private var copyPath
 
   init(
@@ -623,9 +432,7 @@ where Item.ID: Hashable {
       fixedRowHeight: fixedRowHeight,
       contentRevision: contentRevision,
       rowContent: rowContent,
-      darkMode: darkMode,
-      focusIndicatorsEnabled: focusIndicatorsEnabled,
-      surfaceOpacity: surfaceOpacity, copyPath: copyPath)
+      copyPath: copyPath)
   }
 
   @MainActor
@@ -635,37 +442,27 @@ where Item.ID: Hashable {
     private var fixedRowHeight: CGFloat?
     private var contentRevision = 0
     private var rowContent: ((Item) -> AnyView)?
-    private var darkMode = false
-    private var focusIndicatorsEnabled = false
-    private var surfaceOpacity = 1.0
     private var copyPath: @MainActor (String) -> Bool = { _ in false }
 
     func update(
       items nextItems: [Item], rowSpacing: CGFloat, fixedRowHeight: CGFloat?,
       contentRevision nextContentRevision: Int,
       rowContent: @escaping (Item) -> AnyView,
-      darkMode: Bool, focusIndicatorsEnabled: Bool,
-      surfaceOpacity: Double, copyPath: @escaping @MainActor (String) -> Bool
+      copyPath: @escaping @MainActor (String) -> Bool
     ) {
-      let appearanceChanged = self.darkMode != darkMode
-        || self.focusIndicatorsEnabled != focusIndicatorsEnabled
-        || self.surfaceOpacity != surfaceOpacity
       let oldItems = items
       items = nextItems
       self.fixedRowHeight = fixedRowHeight
       self.rowContent = rowContent
       let contentChanged = contentRevision != nextContentRevision
       contentRevision = nextContentRevision
-      self.darkMode = darkMode
-      self.focusIndicatorsEnabled = focusIndicatorsEnabled
-      self.surfaceOpacity = surfaceOpacity
       self.copyPath = copyPath
       guard let tableView else { return }
       tableView.intercellSpacing = NSSize(width: 0, height: rowSpacing)
       tableView.usesAutomaticRowHeights = fixedRowHeight == nil
       if let fixedRowHeight { tableView.rowHeight = fixedRowHeight }
       let sameIDs = oldItems.map(\.id) == nextItems.map(\.id)
-      if sameIDs, !appearanceChanged {
+      if sameIDs {
         var changed = IndexSet(nextItems.indices.filter { oldItems[$0] != nextItems[$0] })
         if contentChanged {
           let visible = tableView.rows(in: tableView.visibleRect)
@@ -699,13 +496,8 @@ where Item.ID: Hashable {
         ?? AIMVirtualCell(identifier: identifier)
       cell.host.rootView = AnyView(
         rowContent(items[row])
-          .environment(\.colorScheme, darkMode ? .dark : .light)
-          .environment(\.aimDarkMode, darkMode)
-          .environment(\.aimFocusIndicatorsEnabled, focusIndicatorsEnabled)
-          .environment(\.aimSurfaceOpacity, surfaceOpacity)
           .environment(\.aimCopyPath, copyPath)
-          .foregroundStyle(AIMTheme.ink)
-          .focusEffectDisabled(!focusIndicatorsEnabled))
+          .foregroundStyle(AIMTheme.ink))
       return cell
     }
   }
@@ -734,44 +526,9 @@ private final class AIMVirtualCell: NSTableCellView {
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }
 
-final class AIMThinScroller: NSScroller {
-  override class var isCompatibleWithOverlayScrollers: Bool { true }
-  override var scrollerStyle: NSScroller.Style {
-    get { super.scrollerStyle }
-    set { super.scrollerStyle = .overlay }
-  }
-
-  override class func scrollerWidth(
-    for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style
-  ) -> CGFloat { 3 }
-
-  override func drawKnob() {
-    let knob = rect(for: .knob)
-    guard !knob.isEmpty else { return }
-    NSColor.secondaryLabelColor.withAlphaComponent(0.52).setFill()
-    NSBezierPath(
-      roundedRect: NSRect(x: bounds.midX - 1.5, y: knob.minY, width: 3, height: knob.height),
-      xRadius: 1.5,
-      yRadius: 1.5
-    ).fill()
-  }
-
-  override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
-}
-
+/// The system scroll view. `onReachEnd` fires near the bottom so long conversations page in.
 final class AIMOwnedScrollView: NSScrollView {
   var onReachEnd: (() -> Void)?
-  private var hideTask: Task<Void, Never>?
-  private var observers: [NSObjectProtocol] = []
-  private var hoverTrackingArea: NSTrackingArea?
-  private var isHovered = false
-  private var isScrolling = false
-  private var isScrollerVisible = false
-
-  override var scrollerStyle: NSScroller.Style {
-    get { super.scrollerStyle }
-    set { super.scrollerStyle = .overlay }
-  }
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -780,56 +537,9 @@ final class AIMOwnedScrollView: NSScrollView {
     hasHorizontalScroller = false
     hasVerticalScroller = true
     autohidesScrollers = true
-    verticalScroller = AIMThinScroller(frame: NSRect(x: 0, y: 0, width: 3, height: 100))
-    super.scrollerStyle = .overlay
-    verticalScroller?.scrollerStyle = .overlay
-    verticalScroller?.controlSize = .mini
-    verticalScroller?.wantsLayer = true
-    verticalScroller?.alphaValue = 0
-    observers = [
-      NotificationCenter.default.addObserver(
-        forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: .main
-      ) { [weak self] _ in
-        self?.isScrolling = true
-        self?.showScroller()
-      },
-      NotificationCenter.default.addObserver(
-        forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: .main
-      ) { [weak self] _ in
-        self?.isScrolling = false
-        self?.scheduleHide()
-      },
-    ]
   }
 
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
-
-  override func updateTrackingAreas() {
-    super.updateTrackingAreas()
-    if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-    let trackingArea = NSTrackingArea(
-      rect: .zero,
-      options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self,
-      userInfo: nil)
-    addTrackingArea(trackingArea)
-    hoverTrackingArea = trackingArea
-  }
-
-  override func mouseEntered(with event: NSEvent) {
-    isHovered = true
-    showScroller()
-  }
-
-  override func mouseExited(with event: NSEvent) {
-    isHovered = false
-    scheduleHide()
-  }
-
-  override func scrollWheel(with event: NSEvent) {
-    showScroller()
-    super.scrollWheel(with: event)
-    if event.phase == .ended || event.phase == [] { scheduleHide() }
-  }
 
   override func reflectScrolledClipView(_ clipView: NSClipView) {
     super.reflectScrolledClipView(clipView)
@@ -837,65 +547,5 @@ final class AIMOwnedScrollView: NSScrollView {
           documentView.frame.height > 0, clipView.bounds.height > 0,
           documentView.frame.height - clipView.bounds.maxY < 180 else { return }
     onReachEnd?()
-  }
-
-  private func showScroller() {
-    hideTask?.cancel()
-    setScrollerVisible(true)
-  }
-
-  private func scheduleHide() {
-    guard !isHovered, !isScrolling else { return }
-    hideTask?.cancel()
-    hideTask = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .milliseconds(700))
-      guard !Task.isCancelled else { return }
-      self?.setScrollerVisible(false)
-    }
-  }
-
-  private func setScrollerVisible(_ visible: Bool) {
-    guard visible != isScrollerVisible, let scroller = verticalScroller else { return }
-    isScrollerVisible = visible
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        ? 0 : (visible ? AIMMotion.scrollbarIn : AIMMotion.scrollbarOut)
-      scroller.animator().alphaValue = visible ? 1 : 0
-    }
-  }
-
-  deinit {
-    observers.forEach(NotificationCenter.default.removeObserver)
-    hideTask?.cancel()
-  }
-}
-
-private struct AIMNativeScrollView: NSViewRepresentable {
-  let content: AnyView
-
-  final class Coordinator {
-    let host = NSHostingView(rootView: AnyView(EmptyView()))
-  }
-
-  func makeCoordinator() -> Coordinator { Coordinator() }
-
-  func makeNSView(context: Context) -> AIMOwnedScrollView {
-    let scrollView = AIMOwnedScrollView(frame: .zero)
-    let host = context.coordinator.host
-    host.translatesAutoresizingMaskIntoConstraints = false
-    host.focusRingType = .none
-    host.rootView = content
-    scrollView.documentView = host
-    NSLayoutConstraint.activate([
-      host.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-      host.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-      host.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-      host.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-    ])
-    return scrollView
-  }
-
-  func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
-    context.coordinator.host.rootView = content
   }
 }

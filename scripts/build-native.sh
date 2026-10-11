@@ -76,7 +76,6 @@ install -m 0755 "$bin_path/AIManager" "$app_path/Contents/MacOS/AIManager"
 install -m 0644 \
   "$repo_root/packaging/macos/Info.plist" \
   "$app_path/Contents/Info.plist"
-ditto "$repo_root/packages/mac-gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
 ditto "$repo_root/packages/mac-gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
 install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.icns" \
   "$app_path/Contents/Resources/AppIcon.icns"

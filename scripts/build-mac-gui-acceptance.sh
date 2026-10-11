@@ -65,6 +65,7 @@ swiftc \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "${mac_gui_sources[@]}" \
   "$repo_root/packages/mac-gui/Tests/NativeUIContract.swift" \
+  "$repo_root/packages/mac-gui/Tests/MenuBarContract.swift" \
   "$repo_root/packages/mac-gui/Tests/AcceptanceApp.swift" \
   -o "$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 
@@ -75,7 +76,6 @@ if ! LC_ALL=C rg -q '/Demo/Sources/' \
 fi
 
 install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app_path/Contents/Info.plist"
-ditto "$repo_root/packages/mac-gui/Resources/Fonts" "$app_path/Contents/Resources/Fonts"
 ditto "$repo_root/packages/mac-gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
 install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.icns" \
   "$app_path/Contents/Resources/AppIcon.icns"

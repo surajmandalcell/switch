@@ -15,7 +15,6 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.disableRelaunchOnLogin()
-        AppFonts.register()
         AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
             title: AIManagerBrand.bundleDisplayName(),
@@ -53,7 +52,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     try await self.switchAccountFromMenuBar(accountID)
                 },
                 refreshUsage: { [weak self] in await self?.refreshEnabledUsage() },
-                openSettings: { [weak self] in self?.menuController?.showSettings(nil) }
+                openSettings: { [weak self] in self?.menuController?.showSettings(nil) },
+                openTool: { [weak self] accountID in await self?.model.openAccount(accountID) },
+                refreshAccount: { [weak self] accountID in await self?.refreshUsage(of: accountID) }
             ))
         self.statusItemController = statusItemController
         GlobalShortcut.shared.onTrigger = { [weak statusItemController] in
@@ -205,6 +206,16 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             $0.identity.providerID != .codex
                 && ProviderCatalog.spec($0.identity.providerID) != nil
         }.map(\.id))
+    }
+
+    /// The popover row menu's refresh: one account.
+    private func refreshUsage(of accountID: UUID) async {
+        guard let account = model.status?.accounts.first(where: { $0.id == accountID }) else { return }
+        if account.identity.providerID == .codex {
+            await model.refreshUsage(accountID: accountID)
+        } else if ProviderCatalog.spec(account.identity.providerID) != nil {
+            await model.refreshProviderUsage(accountIDs: [accountID])
+        }
     }
 
     private func advancedImport() {

@@ -132,29 +132,21 @@ struct ShortcutRecorder: View {
   @State private var recording = false
   @State private var monitor: Any?
   @State private var hint: String?
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
 
   static let placeholder = "Click to record"
 
   var body: some View {
     HStack(spacing: 8) {
       if let hint {
-        Text(hint).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
+        Text(hint).font(.caption).foregroundStyle(AIMTheme.amber)
       }
       Button(action: toggleRecording) {
         Text(recording ? "Press a shortcut…" : combo?.display ?? Self.placeholder)
-          .font(AIMTheme.sans(11, weight: .medium))
           .foregroundStyle(combo == nil && !recording ? AIMTheme.muted : AIMTheme.ink)
-          .frame(minWidth: 128, minHeight: 26)
-          .padding(.horizontal, 10)
-          .background(recording ? AIMTheme.controlHover : AIMTheme.control)
-          .overlay {
-            RoundedRectangle(cornerRadius: 3)
-              .stroke(recording && focusIndicatorsEnabled ? AIMTheme.blue : AIMTheme.line, lineWidth: 1)
-          }
-          .clipShape(RoundedRectangle(cornerRadius: 3))
+          .frame(minWidth: 112)
       }
-      .buttonStyle(AIMPressButtonStyle())
+      .buttonStyle(.bordered)
+      .tint(recording ? AIMTheme.blue : nil)
       .accessibilityLabel("Global shortcut")
       .accessibilityValue(combo?.display ?? "Not set")
       .accessibilityHint("Records a shortcut that opens the menu popover from anywhere")

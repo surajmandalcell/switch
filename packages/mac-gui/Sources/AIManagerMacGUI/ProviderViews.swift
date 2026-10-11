@@ -13,7 +13,7 @@ extension AccountRecord {
 }
 
 /// Provider icon tile used in lists: the official color mark on white, or the template glyph on a
-/// neutral tile that follows the appearance.
+/// neutral tile that follows the appearance. Corners scale with the tile.
 struct ProviderMark: View {
   let providerID: ProviderID
   var size: CGFloat = 24
@@ -32,7 +32,10 @@ struct ProviderMark: View {
       }
     }
     .frame(width: size, height: size)
-    .clipShape(RoundedRectangle(cornerRadius: 3))
+    .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
+    .overlay {
+      RoundedRectangle(cornerRadius: size * 0.22).strokeBorder(AIMTheme.line, lineWidth: 0.5)
+    }
     .accessibilityHidden(true)
   }
 }
@@ -402,16 +405,13 @@ struct ProviderWindowMeter: View {
   private var displayed: Int? {
     used.map { UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed) }
   }
-  private var fill: Double {
-    used.map { UsagePercentagePreferences.fill(forUsed: $0, showsUsed: showsUsed) } ?? 0
-  }
 
-  /// Colors follow the used share, never the Used or Left view.
+  /// The pace verdict colors: green ahead of the limit, yellow close, red running out.
   static func fill(for state: UsagePace.MeterState) -> Color {
     switch state {
-    case .noData: AIMTheme.control
-    case .level(.normal, _), .healthy: AIMTheme.blue
-    case .level(.warning, _), .closeToLimit: AIMTheme.amber
+    case .noData: AIMTheme.track
+    case .level(.normal, _), .healthy: AIMTheme.green
+    case .level(.warning, _), .closeToLimit: AIMTheme.yellow
     case .level(.critical, _), .runningOut, .spent: AIMTheme.red
     }
   }
@@ -422,39 +422,25 @@ struct ProviderWindowMeter: View {
     let tick = UsagePace.paceTick(window, now: now, showingLeft: !showsUsed)
     VStack(alignment: .leading, spacing: 7) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(window.title).font(AIMTheme.sans(11, weight: .medium)).lineLimit(1)
+        Text(window.title).font(.body.weight(.medium)).lineLimit(1)
         if let label = UsagePace.label(state) {
-          Text(label).font(AIMTheme.sans(9, weight: .bold)).foregroundStyle(color).lineLimit(1)
+          Text(label).font(.caption.weight(.bold)).foregroundStyle(color).lineLimit(1)
         }
         Spacer(minLength: 4)
         Text(used.map { UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed) } ?? "–")
-          .font(AIMTheme.mono(10, weight: .semibold))
+          .font(AIMTheme.mono(12, weight: .semibold))
           .flipsUsedAndLeft(showsUsed)
       }
-      GeometryReader { geometry in
-        ZStack(alignment: .leading) {
-          Rectangle().fill(AIMTheme.control).frame(height: 4)
-            .clipShape(RoundedRectangle(cornerRadius: 2))
-          Rectangle().fill(color)
-            .frame(width: geometry.size.width * CGFloat(fill), height: 4)
-            .clipShape(RoundedRectangle(cornerRadius: 2))
-          if let tick {
-            Rectangle().fill(AIMTheme.ink.opacity(0.75)).frame(width: 1.5, height: 9)
-              .offset(x: min(max(geometry.size.width * CGFloat(tick) - 0.75, 0), geometry.size.width - 1.5))
-          }
-        }
-        .frame(height: geometry.size.height, alignment: .leading)
-      }
-      .frame(height: 9)
-      .help(UsagePace.tooltip(state) ?? "")
+      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, tick: tick)
+        .help(UsagePace.tooltip(state) ?? "")
       HStack(alignment: .firstTextBaseline, spacing: 8) {
         if let reset = window.resetsAt {
           ResetTimeText(reset: reset, now: now)
-            .font(AIMTheme.sans(9, weight: .bold)).foregroundStyle(AIMTheme.muted)
+            .font(.subheadline).foregroundStyle(AIMTheme.muted)
         }
         Spacer(minLength: 4)
         if let detail = window.detail {
-          Text(detail).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+          Text(detail).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
             .lineLimit(1).truncationMode(.tail)
         }
       }
@@ -543,7 +529,7 @@ struct ProviderSectionRows: View {
           if let progress = row.progress {
             ProgressRail(fraction: progress).frame(width: 56)
           }
-          Text(EmailPrivacy.display(row.value)).font(AIMTheme.mono(10)).foregroundStyle(AIMTheme.muted)
+          Text(EmailPrivacy.display(row.value)).font(.subheadline).monospacedDigit().foregroundStyle(AIMTheme.muted)
             .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
         }
         .frame(minHeight: 24)
@@ -590,7 +576,7 @@ struct ProviderAccountDetail: View {
 
   var body: some View {
     AIMScrollView {
-      VStack(spacing: 8) {
+      VStack(spacing: AIMTheme.cardSpacing) {
         AIMPanel(title: "Identity", importance: .primary, headerAccessories: AnyView(badges)) {
           VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -649,30 +635,15 @@ struct ProviderAccountDetail: View {
   }
 
   @ViewBuilder private var actions: some View {
-    AIMButton(
-      title: isDefault ? AccountActionCopy.usingDefault : AccountActionCopy.use,
-      icon: isDefault ? .doubleCheck : .check,
-      tone: .primary,
-      disabled: model.isBusy
-    ) { Task { await model.switchDefault(to: account.id) } }
-    AccountMenuBarUsageButton(accountID: account.id)
-      .id(account.id).disabled(model.isBusy)
-    AIMIconButton(
-      icon: .refresh,
-      label: state?.isRefreshing == true ? "Refreshing usage" : "Refresh usage",
-      disabled: model.isBusy || state?.isRefreshing == true
-    ) { Task { await model.refreshProviderUsage(accountID: account.id) } }
+    DefaultAccountButton(isDefault: isDefault, disabled: model.isBusy) {
+      Task { await model.switchDefault(to: account.id) }
+    }
     if let dashboard = spec?.dashboard {
-      AIMButton(title: "Open dashboard", icon: .link, disabled: model.isBusy) {
+      AIMButton(title: "Open dashboard", disabled: model.isBusy) {
         model.openDashboard(dashboard)
       }
     }
-    AIMIconButton(
-      icon: .trash,
-      label: AccountActionCopy.delete,
-      tone: .danger,
-      disabled: model.isBusy || !model.canDeleteAccount(account.id),
-      action: delete)
+    AccountMoreMenu(account: account, model: model, delete: delete)
   }
 }
 

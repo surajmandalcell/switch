@@ -17,268 +17,19 @@ struct AIManagerNativeViewSnapshot: Codable {
   let verticalScrollerClass: String?
 }
 
-private final class HoverTestEvent: NSEvent {
-  let area: NSTrackingArea
-  let eventType: NSEvent.EventType
-  let location: NSPoint
-  init(area: NSTrackingArea, type: NSEvent.EventType, location: NSPoint? = nil) {
-    self.area = area
-    self.eventType = type
-    let view = area.owner as? NSView
-    let bounds = view?.bounds ?? .zero
-    let rect = area.rect.isEmpty ? bounds : area.rect.intersection(bounds)
-    self.location = location ?? view?.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil) ?? .zero
-    super.init()
-  }
-  @available(*, unavailable) required init?(coder: NSCoder) { nil }
-  override var trackingArea: NSTrackingArea? { area }
-  override var type: NSEvent.EventType { eventType }
-  override var locationInWindow: NSPoint { location }
-}
-
 private final class PaginationTestDocument: NSView {
   override var isFlipped: Bool { true }
 }
 
 @MainActor
 enum AIManagerNativeContract {
-  static func hoverFeedbackFailures() async -> [String] {
-    var failures: [String] = []
-    let shared = AnyView(Button {} label: {
-        Text("Range").frame(width: 140, height: 30).background(AIMTheme.control)
-      }.buttonStyle(AIMPressButtonStyle()))
-    var controls: [(String, AnyView, Bool)] = [
-      ("Shared button", shared, true),
-      ("Disabled shared button", AnyView(shared.disabled(true)), false),
-      ("Action button", AnyView(AIMButton(title: "Hover test", action: {})), true),
-      ("Cleanup time range", AnyView(CleanupRangeSelect(selection: .constant(.all), expanded: .constant(false))), true),
-      ("Icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", action: {})), true),
-      ("Disabled icon button", AnyView(AIMIconButton(icon: .refresh, label: "Hover test", disabled: true, action: {})), false),
-    ]
-    let hover = AIMSidebarHover()
-    controls.append(("Rail button", AnyView(RailButton(icon: .settings, label: "Settings", active: false,
-      sidebarHover: hover, hoverID: "Settings", action: {})), true))
-    let model = AccountViewModel(scenario: .demo)
-    if let account = model.status?.accounts.first {
-      controls.append(("Account row", AnyView(Button {} label: {
-        AccountListRow(account: account, selected: false, isDefault: false, sidebarHover: hover)
-      }.buttonStyle(AIMPressButtonStyle())), true))
-    } else { failures.append("Account hover fixture has no account") }
-    for (name, control, enabled) in controls {
-      failures.append(contentsOf: await hoverFeedbackFailures(name: name, control: control, enabled: enabled))
-    }
-    for opacity in [1.0, 0.65] {
-      failures.append(contentsOf: await hoverTransitionFailures(surfaceOpacity: opacity))
-    }
-    return failures
-  }
-
-  private static func hoverTransitionFailures(surfaceOpacity: Double) async -> [String] {
-    let hover = AIMSidebarHover()
-    let dark = NSApp.windows.first?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    let root = VStack(spacing: 0) {
-      RailButton(icon: .account, label: "Accounts", active: false,
-        sidebarHover: hover, hoverID: "Accounts", action: {})
-      RailButton(icon: .settings, label: "Settings", active: false,
-        sidebarHover: hover, hoverID: "Settings", action: {})
-    }.background(AIMTheme.canvas)
-      .background {
-        AIMVisualEffect(material: .underWindowBackground, blendingMode: .behindWindow, darkMode: dark)
-      }
-      .environment(\.aimSurfaceOpacity, surfaceOpacity)
-      .environment(\.colorScheme, dark ? .dark : .light).environment(\.aimDarkMode, dark)
-    let host = NSHostingView(rootView: root)
-    host.frame = NSRect(x: 0, y: 0, width: 48, height: 96)
-    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
-    window.contentView = host
-    try? await Task.sleep(for: .milliseconds(100))
-    func areas(at point: NSPoint) -> [NSTrackingArea] {
-      host.layoutSubtreeIfNeeded()
-      return views(in: host).flatMap { view -> [NSTrackingArea] in
-        view.updateTrackingAreas()
-        return view.trackingAreas.filter { area in
-          let rect = area.rect.isEmpty ? view.bounds : area.rect.intersection(view.bounds)
-          return view.convert(rect, to: nil).contains(point)
-        }
-      }
-    }
-    let first = host.convert(NSPoint(x: 24, y: host.isFlipped ? 24 : 72), to: nil)
-    let second = host.convert(NSPoint(x: 24, y: host.isFlipped ? 72 : 24), to: nil)
-    // The physical replay also crossed within a point of the shared row edge.
-    let firstEdge = host.convert(NSPoint(x: 24, y: host.isFlipped ? 47.35 : 48.65), to: nil)
-    let secondEdge = host.convert(NSPoint(x: 24, y: host.isFlipped ? 48.65 : 47.35), to: nil)
-    func pixel(at point: NSPoint) -> Double {
-      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
-      host.cacheDisplay(in: host.bounds, to: bitmap)
-      let local = host.convert(point, from: nil)
-      let x = Int(4 * CGFloat(bitmap.pixelsWide) / host.bounds.width)
-      let y = Int((host.isFlipped ? local.y : host.bounds.height - local.y) * CGFloat(bitmap.pixelsHigh) / host.bounds.height)
-      guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return -1 }
-      return color.redComponent + color.greenComponent + color.blueComponent
-    }
-    var failures: [String] = []
-    var previousAreas: [NSTrackingArea] = []
-    let normalPixels = [pixel(at: first), pixel(at: second)]
-    for (index, point) in [first, second, first, second, firstEdge, secondEdge].enumerated() {
-      let current = areas(at: point)
-      for area in previousAreas where !current.contains(where: { $0 === area }) {
-        (area.owner as? NSResponder)?.mouseExited(with:
-          HoverTestEvent(area: area, type: .mouseExited, location: point))
-      }
-      for area in current {
-        if !previousAreas.contains(where: { $0 === area }) {
-          (area.owner as? NSResponder)?.mouseEntered(with: HoverTestEvent(area: area, type: .mouseEntered, location: point))
-        } else {
-          (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved, location: point))
-        }
-      }
-      previousAreas = current
-      let expected = index.isMultiple(of: 2) ? "Accounts" : "Settings"
-      var frames: [Double] = []
-      var crossingFrames: [[Double]] = []
-      let frameCount = index < 4 ? 2 : 64
-      for frame in 0..<frameCount {
-        try? await Task.sleep(for: .milliseconds(16))
-        // Relayout and refresh areas as AppKit does while the highlight is changing.
-        let refreshed = areas(at: point)
-        for area in refreshed {
-          (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved, location: point))
-        }
-        if hover.target != expected { failures.append("Moving between controls loses the \(expected) hover target") }
-        frames.append(pixel(at: point))
-        crossingFrames.append([pixel(at: first), pixel(at: second)])
-        if frame == 4 {
-          // Same view, as during an observed model refresh while the pointer stays inside.
-          host.rootView = root
-        }
-      }
-      if index >= 4 {
-        for slot in 0..<2 {
-          let samples = crossingFrames.map { $0[slot] }
-          let settled = samples.last!
-          let minimum = min(normalPixels[slot], settled, crossingFrames[0][slot])
-          let maximum = max(normalPixels[slot], settled, crossingFrames[0][slot])
-          if samples.contains(where: { $0 < minimum - 0.01 || $0 > maximum + 0.01 }) {
-            failures.append("Crossing controls flashes \(slot == 0 ? "Accounts" : "Settings") beyond its fade endpoints")
-          }
-        }
-        FileHandle.standardError.write(Data("HOVER_CROSS \(expected) opacity=\(surfaceOpacity) first=\(crossingFrames.prefix(12))\n".utf8))
-      }
-      if frames.contains(where: { $0 < 0 }) { failures.append("\(expected) hover pixels could not be captured") }
-      if frameCount > 8, let settled = frames.last, frames.suffix(48).contains(where: { abs($0 - settled) > 0.01 }) {
-        failures.append("\(expected) highlight flashes after a same-view refresh")
-      }
-      FileHandle.standardError.write(Data("HOVER_TRANSITION \(expected) opacity=\(surfaceOpacity) frames=\(frames.count) settled=\(frames.last ?? -1)\n".utf8))
-    }
-    return failures
-  }
-
-  private static func hoverFeedbackFailures(name: String, control: AnyView, enabled: Bool) async -> [String] {
-    let dark = NSApp.windows.first?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    let host = NSHostingView(rootView: control.frame(width: 140, height: 48)
-      .background(AIMTheme.canvas).environment(\.colorScheme, dark ? .dark : .light)
-      .environment(\.aimDarkMode, dark))
-    host.frame = NSRect(x: 0, y: 0, width: 140, height: 48)
-    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
-    window.contentView = host
-    host.layoutSubtreeIfNeeded()
-    try? await Task.sleep(for: .milliseconds(100))
-    let areas = views(in: host).flatMap { view in
-      view.updateTrackingAreas()
-      return view.trackingAreas
-    }
-    let initialBounds = host.bounds
-    func color() -> Double {
-      host.layoutSubtreeIfNeeded()
-      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
-      host.cacheDisplay(in: host.bounds, to: bitmap)
-      var total = 0.0
-      var count = 0
-      for y in stride(from: 0, to: bitmap.pixelsHigh, by: 5) {
-        for x in stride(from: 0, to: bitmap.pixelsWide, by: 5) {
-          if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) {
-            total += color.redComponent + color.greenComponent + color.blueComponent
-            count += 1
-          }
-        }
-      }
-      return total / Double(max(count, 1))
-    }
-    var samples = [color()]
-    var movementFlashes = false
-    for type in [NSEvent.EventType.mouseEntered, .mouseExited] {
-      for area in areas {
-        guard let owner = area.owner as? NSResponder else { continue }
-        let event = HoverTestEvent(area: area, type: type)
-        if type == .mouseEntered { owner.mouseEntered(with: event) }
-        else { owner.mouseExited(with: event) }
-      }
-      for delay in [16, 24, 120] {
-        try? await Task.sleep(for: .milliseconds(delay))
-        samples.append(color())
-      }
-      if type == .mouseEntered {
-        let settled = samples.last!
-        // Exercise the actual tracking host without moving the user's pointer.
-        for _ in 0..<3 {
-          for area in areas {
-            (area.owner as? NSResponder)?.mouseMoved(with: HoverTestEvent(area: area, type: .mouseMoved))
-          }
-          try? await Task.sleep(for: .milliseconds(16))
-          if abs(color() - settled) > 0.003 { movementFlashes = true }
-        }
-      }
-    }
-    FileHandle.standardError.write(Data("HOVER_FADE \(name) samples=\(samples)\n".utf8))
-    if host.bounds != initialBounds { return ["\(name) hover changes its hitbox geometry"] }
-    if movementFlashes { return ["\(name) pointer movement flashes its settled highlight"] }
-    if !enabled {
-      return samples.allSatisfy { abs($0 - samples[0]) < 0.003 }
-        ? [] : ["\(name) highlights while disabled"]
-    }
-    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let minimum = min(samples[0], samples[3], samples[6])
-    let maximum = max(samples[0], samples[3], samples[6])
-    if samples.contains(where: { $0 < minimum - 0.01 || $0 > maximum + 0.01 }) {
-      return ["\(name) flashes past its normal and hovered colors during the fade"]
-    }
-    return abs(samples[0] - samples[3]) > 0.02
-      && abs(samples[0] - samples[6]) < 0.003
-      && (reduceMotion || (
-        (samples[1] != samples[3] || samples[2] != samples[3])
-          && (samples[4] != samples[6] || samples[5] != samples[6])))
-      ? [] : ["\(name) hover does not visibly fade in and out"]
-  }
-
   static func presentationContractFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
       if !condition() { failures.append(message) }
     }
 
-    expect(AIMTheme.Dark.rail == 0x141517, "Dark rail color changed")
-    expect(AIMMotion.hoverAnimation(reduceMotion: true) == nil
-      && AIMMotion.hoverAnimation(reduceMotion: false) != nil,
-      "Shared hover animation ignores Reduce Motion")
-    expect(AIMTranslucency.opacity(25, reduceTransparency: false) == 0.75,
-      "Initial content opacity is not 75 percent")
-    expect(AIMTranslucency.opacity(100, reduceTransparency: false) == 0.5
-      && AIMTranslucency.opacity(-1, reduceTransparency: false) == 1
-      && AIMTranslucency.opacity(25, reduceTransparency: true) == 1,
-      "Translucency ignores its bounds or Reduce Transparency")
-    expect(AIMTheme.Dark.canvas == 0x18191B, "Dark canvas color changed")
-    var lightEnvironment = EnvironmentValues()
-    lightEnvironment.colorScheme = .light
-    lightEnvironment.aimSurfaceOpacity = 0.5
-    let primaryInk = AIMTheme.primaryInk.resolve(in: lightEnvironment)
-    expect(primaryInk.opacity == 1 && primaryInk.red == 1 && primaryInk.green == 1
-      && primaryInk.blue == 1, "Light primary button text inherits body translucency")
-    expect(AIMTheme.Dark.panel == 0x202124, "Dark panel color changed")
-    expect(AIMTheme.Dark.raised == 0x27282B, "Dark raised color changed")
-    expect(AIMTheme.Dark.raisedSecondary == 0x2F3034, "Dark secondary raised color changed")
-    expect(AIMTheme.Dark.hover == 0x303238, "Dark hover color changed")
-    expect(AIMTheme.Dark.selection == 0x393C43, "Dark selection color changed")
-    expect(AIMTheme.Dark.menuChrome == 0x18191B, "Dark menu chrome color changed")
+    failures.append(contentsOf: nativeDesignFailures())
 
     let loginEvent = NSAppleEventDescriptor(
       eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
@@ -298,17 +49,6 @@ enum AIManagerNativeContract {
     expect(LaunchAtLoginSettings.detail(for: .enabled).contains("menu bar")
       && LaunchAtLoginSettings.detail(for: .requiresApproval).contains("System Settings"),
       "Open-at-login status copy does not explain the current system state")
-
-    let hover = AIMSidebarHover()
-    hover.update("first-account", inside: true)
-    hover.update("second-account", inside: true)
-    hover.update("first-account", inside: false)
-    expect(hover.target == "second-account", "A late hover exit clears the current account highlight")
-    hover.update("Accounts", inside: true)
-    hover.update("second-account", inside: false)
-    expect(hover.target == "Accounts", "Crossing sidebar columns leaves a stale hover target")
-    hover.update("Accounts", inside: false)
-    expect(hover.target == nil, "Leaving the sidebar retains its hover highlight")
 
     expect(UsagePresentation.credits(nil) == nil, "Missing credits are visible")
     expect(
@@ -448,10 +188,6 @@ enum AIManagerNativeContract {
     pagingScroll.reflectScrolledClipView(pagingScroll.contentView)
     expect(endCalls > 0, "Native scrolling does not request the next message page")
     let cleanupNow = Date(timeIntervalSince1970: 1_800_000_000)
-    expect(CleanupDateRange.hour.moved(.up) == .hour && CleanupDateRange.all.moved(.down) == .custom
-      && CleanupDateRange.custom.moved(.down) == .custom && CleanupDateRange.custom.moved(.up) == .all
-      && CleanupDateRange.all.moved(.left) == nil,
-      "Cleanup range keyboard navigation escapes its options or handles unrelated arrows")
     let cutoff = cleanupNow.addingTimeInterval(-7 * 86_400)
     expect(CleanupDateRange.week.contains(cutoff, now: cleanupNow, from: cutoff, through: cleanupNow)
       && !CleanupDateRange.olderWeek.contains(cutoff, now: cleanupNow, from: cutoff, through: cleanupNow)
@@ -523,7 +259,8 @@ enum AIManagerNativeContract {
     let warm = elapsed[1]
     FileHandle.standardError.write(Data("ACTIVITY_RENDER_MS \(Int(warm * 1000))\n".utf8))
     var failures = warm < 0.2 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
-    let pane = NSHostingView(rootView: AccountWindow(model: model))
+    // The Accounts page (index 1) is where an account selection redraws the account detail.
+    let pane = NSHostingView(rootView: AccountWindow(model: model, initialPageIndex: 1))
     pane.frame = NSRect(x: 0, y: 0, width: 1120, height: 740)
     let window = NSWindow(contentRect: pane.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = pane
@@ -647,49 +384,19 @@ enum AIManagerNativeContract {
 
   static func accountActionFailures() -> [String] {
     var failures: [String] = []
-    let dragModel = AccountViewModel(scenario: .allStates)
-    // The fixture is the three Codex accounts; generic accounts follow them in the real list.
-    dragModel.status?.accounts = dragModel.status?.accounts.filter { $0.identity.providerID == .codex } ?? []
-    if let accounts = dragModel.status?.accounts, accounts.count == 3 {
-      let cases: [(CGFloat, UUID?)] = [
-        (-45, nil), (-44, accounts[0].id), (-1, accounts[0].id),
-        (0, accounts[1].id), (43.999, accounts[1].id),
-        (44, accounts[2].id), (87.999, accounts[2].id), (88, nil),
-      ]
-      for (y, expected) in cases {
-        if accountDropTarget(for: accounts[1].id, at: CGPoint(x: 100, y: y), model: dragModel) != expected {
-          failures.append("Sidebar drag targets the wrong account at vertical boundary \(y)")
-        }
-      }
-      for point in [CGPoint(x: -1, y: 0), CGPoint(x: 201, y: 0),
-        CGPoint(x: 0, y: CGFloat.infinity), CGPoint(x: CGFloat.nan, y: 0)] {
-        if accountDropTarget(for: accounts[1].id, at: point, model: dragModel) != nil {
-          failures.append("Sidebar drag accepts an outside or invalid pointer position")
-        }
-      }
-    } else { failures.append("Sidebar drag fixture lacks three ordered accounts") }
-    let doubleTick = AIMIcon(name: .doubleCheck, size: 13)
-    let tickBounds = AIMDoubleCheckShape().path(
-      in: CGRect(x: 0, y: 0, width: doubleTick.width, height: doubleTick.size)).boundingRect
-    var checks: [[CGPoint]] = []
-    AIMDoubleCheckShape().path(in: CGRect(x: 0, y: 0, width: doubleTick.width, height: doubleTick.size))
-      .forEach { element in
-        switch element {
-        case .move(to: let point): checks.append([point])
-        case .line(to: let point): checks[checks.count - 1].append(point)
-        default: break
-        }
-      }
-    if checks.count != 2 || checks.contains(where: { $0.count != 3 }) {
-      failures.append("The double tick has an incomplete short or long arm")
+    // Drag-to-reorder: SwiftUI's insertion offset maps to the account that takes the moved row's slot.
+    let ids = (0..<4).map { _ in UUID() }
+    func target(_ from: Int, _ destination: Int) -> UUID? {
+      AccountReorder.move(accountIDs: ids, from: IndexSet(integer: from), to: destination)?.targetID
     }
-    if tickBounds.width < 15 || tickBounds.height < 9 {
-      failures.append("Double-check ink is too small to distinguish both ticks at button size")
+    if target(0, 3) != ids[2] || target(2, 0) != ids[0] || target(1, 1) != nil || target(1, 2) != nil
+      || target(3, 4) != nil || target(0, 5) != nil
+      || AccountReorder.move(accountIDs: ids, from: IndexSet([0, 1]), to: 3) != nil
+      || AccountReorder.move(accountIDs: ids, from: IndexSet(integer: 0), to: 4)?.targetID != ids[3]
+    {
+      failures.append("Dragging an account in the Accounts list targets the wrong position")
     }
-    if doubleTick.width != AIMIcon(name: .check, size: 13).width {
-      failures.append("Changing single/double tick shifts the account action row")
-    }
-    if AccountActionCopy.use != "Set as Default"
+    if AccountActionCopy.use != "Make Default"
       || AccountActionCopy.usingDefault != "Using as default"
     { failures.append("Default account action uses stale labels") }
     if AccountActionCopy.copyAuthPath != "Copy auth path" {
@@ -795,15 +502,14 @@ enum AIManagerNativeContract {
     let balanceAccount = MenuBarAccountSnapshot(
       id: UUID(), identity: "OpenRouter", detail: "", isVerified: true, isActive: true,
       usage: balanceOnly, providerID: ProviderID(rawValue: "openrouter"))
-    expect(MenuBarPopover.accountRowHeight(balanceAccount) == 67, "Balance card has the wrong height")
+    expect(balanceAccount.usage?.balanceText == "$12.40", "Balance card lost its balance")
     let threeWindows = MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
       UsageWindow(id: "a", title: "A", usedPercent: 10), UsageWindow(id: "b", title: "B", usedPercent: 20),
       UsageWindow(id: "c", title: "C", usedPercent: 30)]))
     expect(threeWindows?.secondaryLabel == "B" && threeWindows?.secondaryUsedPercentage == 20,
       "Generic menu cards show more than their first two windows")
     let full = MenuBarPopoverPreviewData.fullSnapshot
-    expect(full.accounts.count == 7 && full.accounts.suffix(4).allSatisfy { $0.usage != nil },
-      "Preview menu does not show the four generic cards")
+    expect(full.accounts.count == 4, "Preview menu does not show its four sample rows")
     expect(full.statusAccounts.count == 4, "Status item shows more or fewer than four accounts")
     expect(AIManagerBrand.statusImage(groups: full.statusAccountGroups) != nil, "Status image failed")
 
@@ -845,7 +551,8 @@ enum AIManagerNativeContract {
         && UsageChartPresentation.moved(29, by: 1, count: 30) == 29
         && UsageChartPresentation.moved(10, by: 1, count: 30) == 11, "Chart arrow keys do not step days")
       for dark in [false, true] {
-        let host = NSHostingView(rootView: UsageChartView(chart: spend).environment(\.aimDarkMode, dark)
+        let host = NSHostingView(rootView: UsageChartView(chart: spend)
+          .preferredColorScheme(dark ? .dark : .light)
           .frame(width: 520))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 140)
         host.layoutSubtreeIfNeeded()
@@ -888,7 +595,7 @@ enum AIManagerNativeContract {
     ]
     for view in views {
       for size in sizes {
-        let host = NSHostingView(rootView: view.environment(\.aimDarkMode, false)
+        let host = NSHostingView(rootView: view
           .frame(width: size.width, height: size.height))
         host.frame = NSRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
@@ -906,7 +613,7 @@ enum AIManagerNativeContract {
       if !condition() { failures.append(message) }
     }
     func fits(_ view: some View, width: CGFloat = 840, height: CGFloat = 1_800) -> NSHostingView<AnyView> {
-      let host = NSHostingView(rootView: AnyView(view.environment(\.aimDarkMode, false)
+      let host = NSHostingView(rootView: AnyView(view
         .frame(width: width, height: height)))
       host.frame = NSRect(x: 0, y: 0, width: width, height: height)
       host.layoutSubtreeIfNeeded()
@@ -932,7 +639,7 @@ enum AIManagerNativeContract {
       defaults.removePersistentDomain(forName: suite)
     }
     let demo = AccountViewModel(scenario: .demo)
-    let settings = fits(SettingsPage(model: demo, showFocusIndicators: .constant(false)))
+    let settings = fits(SettingsPage(model: demo))
     expect(settings.fittingSize.width > 0 && settings.fittingSize.height > 0, "Settings collapsed")
 
     // Status dot: yellow for minor and maintenance, red for major and critical, nothing otherwise.
@@ -954,10 +661,9 @@ enum AIManagerNativeContract {
         "\(indicator) draws a dot")
     }
     expect(ProviderStatusDot.text(nil) == nil, "A provider with no status has a tooltip")
-    let hover = AIMSidebarHover()
     if let account = demo.status?.accounts.first {
       func row(_ status: ProviderStatusEntry?) -> NSSize {
-        fits(AccountListRow(account: account, selected: false, isDefault: false, sidebarHover: hover,
+        fits(AccountListRow(account: account, selected: false, isDefault: false,
                             providerStatus: status), width: 240, height: 80).fittingSize
       }
       expect(row(entry(.major)).height == row(nil).height, "A status dot changed the sidebar row height")
@@ -986,7 +692,7 @@ enum AIManagerNativeContract {
       if !condition() { failures.append(message) }
     }
     func fits(_ view: some View, width: CGFloat = 840, height: CGFloat = 1_800) -> NSHostingView<AnyView> {
-      let host = NSHostingView(rootView: AnyView(view.environment(\.aimDarkMode, false)
+      let host = NSHostingView(rootView: AnyView(view
         .frame(width: width, height: height)))
       host.frame = NSRect(x: 0, y: 0, width: width, height: height)
       host.layoutSubtreeIfNeeded()
@@ -1057,7 +763,7 @@ enum AIManagerNativeContract {
       let panelHeight = { (hidden: String) -> CGFloat in
         UserDefaults.standard.set(hidden, forKey: key)
         let host = NSHostingView(rootView: ProviderUsagePanel(account: gemini, model: demo)
-          .environment(\.aimDarkMode, false).frame(width: 840))
+          .frame(width: 840))
         host.frame = NSRect(x: 0, y: 0, width: 840, height: 1_200)
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
@@ -1143,7 +849,7 @@ enum AIManagerNativeContract {
       && GlobalShortcutPreferences.load(defaults: defaults) == nil,
       "Reset settings left a preference behind")
     expect(defaults.string(forKey: "Switch.mainWindowPlacement.v1") == "keep", "Reset settings cleared window placement")
-    let settings = fits(SettingsPage(model: demo, showFocusIndicators: .constant(false)))
+    let settings = fits(SettingsPage(model: demo))
     expect(settings.fittingSize.height > 0, "Settings collapsed with the new rows")
     expect(SettingsCopy.resetTimes == "Reset times" && SettingsCopy.menuShortcut == "Menu shortcut"
       && SettingsCopy.refreshOnOpen == "Refresh when the menu opens" && SettingsCopy.resetSettings == "Reset settings",
@@ -1188,275 +894,6 @@ enum AIManagerNativeContract {
     if calls != 1 || store.canRefreshUsage {
       failures.append("Menubar refresh runs for hidden or unsupported accounts")
     }
-    return failures
-  }
-
-  @MainActor static func menuBarPopoverFailures() -> [String] {
-    var failures: [String] = []
-    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
-      if !condition() { failures.append(message) }
-    }
-
-    let defaultsDomain = "Switch.MenuBarPercentage.\(UUID().uuidString)"
-    guard let controllerDefaults = UserDefaults(suiteName: defaultsDomain) else {
-      return ["Menu-bar percentage test store is unavailable"]
-    }
-    defer { controllerDefaults.removePersistentDomain(forName: defaultsDomain) }
-    controllerDefaults.removePersistentDomain(forName: defaultsDomain)
-
-    expect(MenuBarPopover.width == 344, "Menu-bar popover is not 344 points wide")
-    expect(MenuBarPopover.minimumHeight == 104, "Menu-bar popover retains removed chrome space")
-    expect(MenuBarPopover.accountHeaderHeight == 35, "Menu-bar account header does not match Soft rectangles")
-    expect(MenuBarPopover.quotaRowHeight == 40, "Menu-bar quota rows do not match the approved design")
-    expect(MenuBarPopover.footerHeight == 29, "Menu-bar footer does not match the approved design")
-    expect(MenuBarPopover.popupRadius == 9 && MenuBarPopover.cardRadius == 7
-      && MenuBarPopover.buttonRadius == 3, "Menu-bar corner radii are not 9/7/3")
-    expect(MenuBarPopover.accountActionWidth == 56, "Menu-bar account actions have different widths")
-    expect(MenuBarPopover.accountActionHeight == 22, "Menu-bar account actions are not compact")
-
-    let snapshot = MenuBarPopoverPreviewData.snapshot
-    let hiddenAccount = MenuBarAccountSnapshot(
-      id: UUID(uuidString: "FEAA8B82-542D-4B4C-9079-1A6DA349CCAA")!,
-      identity: "hidden@example.test", detail: "Codex CLI · Personal",
-      isVerified: true, isActive: false,
-      usage: MenuBarUsageSnapshot(usedPercentage: 42), showsUsage: false)
-    let empty = AIManagerStatusItemController.contentSize(accounts: [], visibleScreenHeight: 900)
-    let hidden = AIManagerStatusItemController.contentSize(
-      accounts: [hiddenAccount], visibleScreenHeight: 900)
-    let one = AIManagerStatusItemController.contentSize(
-      accounts: Array(snapshot.accounts.prefix(1)), visibleScreenHeight: 900)
-    let two = AIManagerStatusItemController.contentSize(
-      accounts: Array(snapshot.accounts.prefix(2)), visibleScreenHeight: 900)
-    let many = AIManagerStatusItemController.contentSize(
-      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 900)
-    let shortScreen = AIManagerStatusItemController.contentSize(
-      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 480)
-    let tallScreen = AIManagerStatusItemController.contentSize(
-      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 2_000)
-    let fractionalScreen = AIManagerStatusItemController.contentSize(
-      accounts: Array(repeating: snapshot.accounts[0], count: 20), visibleScreenHeight: 601)
-    for size in [empty, hidden, one, two, many, shortScreen, tallScreen, fractionalScreen] {
-      expect(size.width == 344, "Menu-bar popover width changes with its contents")
-      expect(size.height >= 104, "Menu-bar popover is shorter than its empty state")
-    }
-    expect(empty.height == 104, "Empty menu-bar popover does not use its compact minimum height")
-    expect(hidden.height == 104, "Hidden usage leaves blank quota space")
-    expect(one.height == 201, "One usage card has the wrong geometry")
-    expect(two.height == 353, "Two usage cards have the wrong geometry")
-    expect(many.height == 720, "Menu-bar cards do not scroll at 80% of the screen height")
-    expect(shortScreen.height == 384, "Menu-bar popover does not honor the visible-screen inset")
-    expect(tallScreen.height == 1600, "Menu-bar retains a fixed cap below 80% of a tall screen")
-    expect(fractionalScreen.height == 480, "Menu-bar screen cap rounds beyond 80%")
-
-    expect(snapshot.accounts.first?.remainingPercentage == 58, "Preview menu snapshot lacks cached remaining quota")
-    expect(snapshot.accounts.count == 3, "Preview menu snapshot does not exercise account states")
-    expect(snapshot.accounts.first?.isActive == true, "Preview menu snapshot lacks an active account")
-    expect(snapshot.accounts.contains(where: { !$0.isVerified }), "Preview menu snapshot lacks an unavailable row")
-    expect(snapshot.accounts.compactMap(\.usage).contains(where: {
-      $0.resetsAt != nil && $0.fetchedAt != nil
-    }), "Preview menu snapshot lacks cached reset details")
-
-    let controller = AIManagerStatusItemController(
-      snapshot: snapshot,
-      defaults: controllerDefaults,
-      actions: MenuBarPopoverActions(
-        openMainWindow: {}, switchAccount: { _ in }))
-    expect(controller.isPresent, "Menu-bar template mark is unavailable")
-    expect(controller.usesPopover, "Status item still uses a static menu")
-    expect(controller.popoverContentSize.width == 344, "Hosted popover changed its fixed width")
-    // Exercise the controller's intrinsic sizing rather than a manually framed snapshot.
-    let sizingStore = MenuBarPopoverStore(snapshot: snapshot,
-      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
-    let sizingHost = NSHostingController(rootView: MenuBarPopover(store: sizingStore))
-    sizingHost.view.frame = NSRect(origin: .zero, size: controller.popoverContentSize)
-    sizingHost.view.layoutSubtreeIfNeeded()
-    expect(sizingHost.view.fittingSize.height >= controller.popoverContentSize.height,
-      "Intrinsic menu host collapses below its account cards")
-    let firstAccount = Array(snapshot.accounts.prefix(1))
-    for (accounts, screenHeight) in [
-      (firstAccount, CGFloat(900)), (Array(snapshot.accounts.prefix(2)), CGFloat(900)),
-      (Array(repeating: snapshot.accounts[0], count: 20), CGFloat(900)),
-      ([hiddenAccount], CGFloat(900)), (firstAccount, CGFloat(251.25)),
-      (firstAccount, CGFloat(250)),
-      (Array(repeating: snapshot.accounts[0], count: 20), CGFloat(1200))
-    ] {
-      sizingStore.update(visibleScreenHeight: screenHeight)
-      sizingStore.update(snapshot: MenuBarSnapshot(accounts: accounts))
-      sizingHost.view.layoutSubtreeIfNeeded()
-      let expectedSize = AIManagerStatusItemController.contentSize(
-        accounts: accounts, visibleScreenHeight: sizingStore.visibleScreenHeight)
-      expect(abs(sizingHost.view.fittingSize.height - expectedSize.height) < 1,
-        "Native menu host does not fit its updated account count and screen cap")
-      let window = NSWindow(contentRect: NSRect(origin: .zero, size: expectedSize),
-        styleMask: .borderless, backing: .buffered, defer: false)
-      window.contentView = sizingHost.view
-      sizingHost.view.frame = NSRect(origin: .zero, size: expectedSize)
-      window.contentView?.layoutSubtreeIfNeeded()
-      window.displayIfNeeded()
-      let scrolls = views(in: sizingHost.view).compactMap { $0 as? NSScrollView }
-      expect(!scrolls.isEmpty, "Popup viewport regression did not find its native scroll view")
-      for scroll in scrolls {
-        let documentHeight = scroll.documentView?.frame.height ?? 0
-        let viewportHeight = scroll.contentView.bounds.height
-        let neededHeight = documentHeight + 20 + 29
-        let cap = floor(screenHeight * 0.8)
-        print("POPOVER_VIEWPORT accounts=\(accounts.count) document=\(documentHeight) viewport=\(viewportHeight) popup=\(expectedSize.height) cap=\(cap)")
-        if neededHeight <= cap {
-          expect(viewportHeight > 0 && documentHeight <= viewportHeight + 0.5,
-            "Popup scrolls before its content reaches the display cap: \(documentHeight) > \(viewportHeight)")
-          expect(scroll.verticalScroller?.isHidden != false,
-            "Popup scrollbar is visible even though its cards fit")
-        } else {
-          expect(expectedSize.height == cap && documentHeight > viewportHeight,
-            "Popup does not scroll at the opening display's 80% cap")
-        }
-      }
-    }
-    expect(controller.statusTitle == "58% 82% –", "Status item does not show enabled remaining quotas")
-    let disabledSnapshot = MenuBarSnapshot(accounts: [hiddenAccount])
-    controller.update(snapshot: disabledSnapshot)
-    expect(controller.statusTitle.isEmpty, "Disabled usage still appears beside a provider glyph")
-
-    let enabled = (0..<6).map { index in
-      MenuBarAccountSnapshot(
-        id: UUID(), identity: "account-\(index)@example.test", detail: "",
-        isVerified: true, isActive: index == 5,
-        usage: MenuBarUsageSnapshot(usedPercentage: index * 10),
-        showsUsage: index != 1, providerID: index == 2 || index == 5 ? .claudeCode : .codex)
-    }
-    let capped = MenuBarSnapshot(accounts: enabled)
-    expect(capped.statusAccounts.map(\.id) == [enabled[0].id, enabled[3].id, enabled[4].id, enabled[2].id],
-      "Tray quotas do not group the first four enabled accounts in saved order")
-    expect(capped.statusAccountGroups.map { $0.map(\.id) }
-      == [[enabled[0].id, enabled[3].id, enabled[4].id], [enabled[2].id]],
-      "Tray repeats a service group or changes its account order")
-    controller.update(snapshot: capped)
-    expect(controller.statusTitle == "100% 70% 60% 80%", "Tray quota order or meaning changed")
-    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-2@example.test, 80% left")
-      && !controller.statusAccessibilityLabel.contains("account-1@example.test")
-      && !controller.statusAccessibilityLabel.contains("account-5@example.test"),
-      "Actual status button does not describe only the displayed provider/left pairs")
-    controllerDefaults.set(true, forKey: UsagePercentagePreferences.showsUsedKey)
-    controller.update(snapshot: capped)
-    expect(controller.statusTitle == "0% 30% 40% 20%",
-      "Tray percentages do not switch from left to used")
-    expect(controller.statusAccessibilityLabel.contains("Claude Code, account-2@example.test, 20% used"),
-      "Tray accessibility does not follow the used-percentage setting")
-    controllerDefaults.set(false, forKey: UsagePercentagePreferences.showsUsedKey)
-    controller.update(snapshot: capped)
-    expect(controller.isPresent, "Multi-provider tray image is not a native template")
-    let sameService = AIManagerBrand.statusImage(groups: [[enabled[0], enabled[3]]])
-    let differentServices = AIManagerBrand.statusImage(groups: [[enabled[0]], [enabled[3]]])
-    expect(sameService != nil && differentServices != nil
-      && differentServices!.size.width - sameService!.size.width == 21,
-      "Grouped native tray still reserves a repeated service glyph")
-    for used in -1...101 {
-      let account = MenuBarAccountSnapshot(
-        id: UUID(), identity: "boundary@example.test", detail: "", isVerified: true,
-        isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: used))
-      expect(account.remainingPercentage == 100 - min(max(used, 0), 100),
-        "Remaining quota fails at \(used) percent used")
-    }
-    let weekly = MenuBarAccountSnapshot(
-      id: UUID(), identity: "weekly@example.test", detail: "", isVerified: true,
-      isActive: true, usage: MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 96))
-    expect(weekly.remainingPercentage == 4, "Weekly-only quota does not show four percent remaining")
-    let unknown = MenuBarAccountSnapshot(
-      id: UUID(), identity: "unknown@example.test", detail: "", isVerified: true, isActive: true)
-    expect(unknown.remainingPercentage == nil, "Missing quota invents a remaining percentage")
-    expect(AIManagerBrand.providerGlyphNames.count == 21, "Offline brand catalog lost glyphs")
-    expect(AIManagerBrand.providerGlyph(for: .codex)?.isTemplate == true
-      && AIManagerBrand.providerGlyph(for: .claudeCode)?.isTemplate == true,
-      "Codex or Claude Code menu glyph is unavailable")
-    controller.update(snapshot: snapshot)
-    let originalSize = controller.popoverContentSize
-    controller.updateAppearance(NSAppearance(named: .darkAqua))
-    expect(
-      controller.popoverContentSize == originalSize,
-      "Dark appearance changed the menu-bar popover geometry")
-    controller.updateAppearance(NSAppearance(named: .aqua))
-    expect(
-      controller.popoverContentSize == originalSize,
-      "Light appearance changed the menu-bar popover geometry")
-
-    var copiedError: String?
-    let copyStore = MenuBarPopoverStore(
-      snapshot: snapshot,
-      actions: MenuBarPopoverActions(
-        openMainWindow: {}, switchAccount: { _ in },
-        copyText: { copiedError = $0 }))
-    copyStore.copyError("Synthetic menu error")
-    expect(copiedError == "Synthetic menu error", "Menu-bar errors do not expose a copy action")
-
-    // Sample actual hosted panels against the owner-selected HTML palette, including
-    // appearance changes in the same virtual list. A known matte bounds backdrop variance
-    // without changing the owner's Reduce Transparency preference.
-    let paletteView = NSHostingView(rootView: AnyView(
-      MenuBarPopover(store: copyStore)
-        .environment(\.colorScheme, .light)
-        .background(Color(hex: 0xF0ECE2))))
-    paletteView.frame = NSRect(origin: .zero, size: originalSize)
-    let paletteWindow = NSWindow(
-      contentRect: paletteView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-    paletteWindow.appearance = NSAppearance(named: .aqua)
-    paletteWindow.contentView = paletteView
-    func expectPixel(_ point: NSPoint, hex: UInt32, label: String) {
-      paletteView.layoutSubtreeIfNeeded()
-      guard let bitmap = paletteView.bitmapImageRepForCachingDisplay(in: paletteView.bounds) else {
-        failures.append("\(label) could not be captured")
-        return
-      }
-      paletteView.cacheDisplay(in: paletteView.bounds, to: bitmap)
-      let x = Int(point.x * CGFloat(bitmap.pixelsWide) / paletteView.bounds.width)
-      let y = Int(point.y * CGFloat(bitmap.pixelsHigh) / paletteView.bounds.height)
-      // cacheDisplay labels its rendered RGB channels as calibrated RGB; converting
-      // that offscreen bitmap to sRGB introduces a gamma shift absent from the PNG.
-      guard let color = bitmap.colorAt(x: x, y: y) else {
-        failures.append("\(label) pixel is unavailable")
-        return
-      }
-      let expected = [Double((hex >> 16) & 255), Double((hex >> 8) & 255), Double(hex & 255)]
-      let actual = [color.redComponent, color.greenComponent, color.blueComponent]
-      expect(zip(actual, expected).allSatisfy { abs($0 - $1 / 255) < 0.035 },
-        "\(label) does not match its approved palette: \(actual)")
-    }
-    let accountSampleY: CGFloat = 26
-    expectPixel(NSPoint(x: 2, y: 26), hex: 0xF0ECE2, label: "Ivory shell")
-    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6, label: "Ivory account panel")
-    paletteWindow.appearance = NSAppearance(named: .darkAqua)
-    paletteView.rootView = AnyView(
-      MenuBarPopover(store: copyStore)
-        .environment(\.colorScheme, .dark)
-        .background(Color(hex: 0x292722)))
-    expectPixel(NSPoint(x: 2, y: 26), hex: 0x292722, label: "Espresso shell")
-    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0x3B372F, label: "Espresso account panel")
-    paletteWindow.appearance = NSAppearance(named: .aqua)
-    paletteView.rootView = AnyView(
-      MenuBarPopover(store: copyStore)
-        .environment(\.colorScheme, .light)
-        .background(Color(hex: 0xF0ECE2)))
-    expectPixel(NSPoint(x: 16, y: accountSampleY), hex: 0xFFFDF6,
-      label: "Restored Ivory account panel")
-
-    let glassView = NSHostingView(rootView: MenuBarPopover(store: copyStore))
-    glassView.frame = NSRect(origin: .zero, size: originalSize)
-    glassView.layoutSubtreeIfNeeded()
-    let effects = views(in: glassView).compactMap { $0 as? NSVisualEffectView }
-    let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-    expect(effects.count == (reduceTransparency ? 0 : 1),
-      "Menu-bar backdrop is missing, repeated per account, or ignores Reduce Transparency")
-    if !reduceTransparency {
-      expect(effects.first?.material == .popover && effects.first?.blendingMode == .behindWindow,
-        "Menu-bar backdrop does not use native behind-window popover blur")
-      expect(effects.first?.frame.size == originalSize, "Menu-bar blur does not cover the whole panel")
-    }
-    copyStore.update(snapshot: disabledSnapshot)
-    glassView.layoutSubtreeIfNeeded()
-    expect(views(in: glassView).compactMap { $0 as? NSVisualEffectView }.first === effects.first,
-      "Menu-bar snapshot updates recreate the backdrop")
-
-    controller.update(snapshot: .empty)
-    expect(controller.statusTitle.isEmpty, "Status item is not icon-only when usage is unavailable")
     return failures
   }
 
@@ -1556,17 +993,15 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Accounts", "Backup", "Chat History", "Cleanup", "Settings"]
+    let expectedPages = ["Overview", "Accounts", "Conversations", "Maintenance", "Settings"]
     if AIManagerPage.allCases.map(\.rawValue) != expectedPages {
-      failures.append("The rail and View menu page order is incorrect")
+      failures.append("The sidebar and View menu page order is incorrect")
     }
-    if AIMIcon.Name.history.symbol != "bubble.left.and.bubble.right"
-      || NSImage(systemSymbolName: AIMIcon.Name.history.symbol, accessibilityDescription: nil) == nil
+    let expectedSymbols = ["house", "person.crop.circle", "bubble.left.and.bubble.right", "externaldrive", "gearshape"]
+    if AIManagerPage.allCases.map(\.icon.symbol) != expectedSymbols
+      || expectedSymbols.contains(where: { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil })
     {
-      failures.append("Chat History does not use the required system chat symbol")
-    }
-    if abs(AIMTheme.historyRailIconSize - (AIMTheme.railIconSize * 0.75)) > 0.001 {
-      failures.append("The Chat History rail symbol is not 25 percent smaller")
+      failures.append("The sidebar does not use the required SF Symbols")
     }
     let expectedMenus = [applicationName, "File", "Edit", "View", "Window", "Help"]
     if mainMenu.items.map(\.title) != expectedMenus {
@@ -1594,6 +1029,7 @@ enum AIManagerNativeContract {
     command("File", "Advanced Import…", key: "i", modifiers: [.command, .shift])
     command("File", "Close Window", key: "w")
     command("Window", "Minimize", key: "m")
+    command("View", "Search Accounts", key: "k")
     for (index, page) in AIManagerPage.allCases.enumerated() {
       command("View", page.rawValue, key: String(index + 1))
     }
@@ -1622,8 +1058,8 @@ enum AIManagerNativeContract {
       failures.append("The Help menu is not registered with AppKit")
     }
     let windowItems = mainMenu.item(withTitle: "Window")?.submenu?.items ?? []
-    if windowItems.contains(where: { $0.action == #selector(NSWindow.performZoom(_:)) || $0.title.contains("Zoom") }) {
-      failures.append("The fixed window exposes a maximize command")
+    if !windowItems.contains(where: { $0.action == #selector(NSWindow.performZoom(_:)) }) {
+      failures.append("The resizable window has no Zoom command")
     }
     return failures
   }
@@ -1663,27 +1099,115 @@ enum AIManagerNativeContract {
     return failures
   }
 
-  // Acceptance points use the screenshot's top-left origin; AppKit content views usually do not.
-  static func titleDragTarget(in window: NSWindow, at point: NSPoint) -> Bool {
-    guard let contentView = window.contentView else { return false }
-    return hitTest(in: contentView, atTopOriginPoint: point) is AIMTitleDragView
+  /// The main window is a standard titled window: traffic lights, a unified toolbar, resizable,
+  /// opaque, with no bundled fonts and no custom corner mask.
+  static func windowChromeFailures(_ window: NSWindow) -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    expect(window is AIManagerWindow && window.canBecomeKey && window.canBecomeMain,
+      "The main window cannot become key and main")
+    expect(window.styleMask.isSuperset(of: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]),
+      "The main window is not a standard titled, resizable window")
+    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+      expect(window.standardWindowButton(button).map { !$0.isHidden } == true,
+        "The traffic light \(button.rawValue) is missing")
+    }
+    expect(window.toolbarStyle == .unified, "The window toolbar is not the unified style")
+    expect(window.isOpaque && window.backgroundColor.alphaComponent == 1,
+      "The window has a transparent exterior")
+    expect(window.contentMinSize.width >= AIManagerWindow.minimumSize.width
+      && window.contentMaxSize.width > AIManagerWindow.defaultSize.width,
+      "The window is not resizable above its minimum size \(window.contentMinSize) \(window.contentMaxSize)")
+    expect(window.contentView?.layer?.cornerRadius ?? 0 == 0, "The window content has a custom corner mask")
+    expect(Bundle.main.url(forResource: "Fonts", withExtension: nil) == nil,
+      "Bundled Inter or PT Mono fonts are still present")
+    return failures
   }
 
-  static func focusPolicyMatches(in root: NSView, indicatorsEnabled: Bool) -> Bool {
-    root.focusRingType == (indicatorsEnabled ? .default : .none)
+  /// Native design tokens, the toolbar search, the Overview page, and the removed settings.
+  static func nativeDesignFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    // Cards: 10-point corners, 16-point padding, 12-point gaps.
+    expect(AIMTheme.radius == 10 && AIMTheme.panelContentInset == 16 && AIMTheme.cardSpacing == 12,
+      "Card geometry is not 10-point corners, 16-point padding, and 12-point gaps")
+    // Toolbar search: at least 300 points wide; Command-K comes from the View menu.
+    expect(AIManagerToolbar.searchWidth >= 300 && AIManagerToolbar.searchPrompt == "Search accounts…",
+      "The toolbar search is narrower than 300 points or has the wrong prompt")
+    // Bars: green above 50% left, yellow 20-50%, red below 20%, grey when unknown.
+    expect(UsageBarColor.color(leftPercent: 51) == AIMTheme.green
+      && UsageBarColor.color(leftPercent: 50) == AIMTheme.yellow
+      && UsageBarColor.color(leftPercent: 20) == AIMTheme.yellow
+      && UsageBarColor.color(leftPercent: 19) == AIMTheme.red
+      && UsageBarColor.color(leftPercent: nil) == nil,
+      "Usage bar colors do not follow the 50 and 20 percent thresholds")
+    // Removed settings leave no stored preference behind.
+    expect(!SettingsReset.keys.contains("keyboardFocusIndicators")
+      && !SettingsReset.keys.contains("bodyTranslucency"),
+      "A removed setting is still a stored preference")
+    // The account search filters by name, provider, and workspace.
+    let model = AccountViewModel(scenario: .demo)
+    let accounts = model.status?.accounts ?? []
+    expect(AccountSearch.filter(accounts, query: "").count == accounts.count
+      && AccountSearch.filter(accounts, query: "zzzz-no-match").isEmpty
+      && AccountSearch.filter(accounts, query: "gemini").allSatisfy { $0.identity.providerID == .geminiCLI }
+      && !AccountSearch.filter(accounts, query: "gemini").isEmpty,
+      "Account search does not filter by provider")
+    // The Overview focuses the most recently switched default account.
+    if var status = model.status, let secondIndex = status.accounts.firstIndex(where: {
+      $0.identity.providerID != status.accounts[0].identity.providerID
+    }) {
+      let first = status.accounts[0], second = status.accounts[secondIndex]
+      status.accounts[0].lastUsedAt = Date(timeIntervalSince1970: 100)
+      status.accounts[secondIndex].lastUsedAt = Date(timeIntervalSince1970: 200)
+      status.defaultAccountIDs = [
+        first.identity.providerID.rawValue: first.id, second.identity.providerID.rawValue: second.id,
+      ]
+      expect(OverviewFocus.defaultAccountID(in: status) == second.id,
+        "The Overview does not focus the most recently switched default account")
+      status.defaultAccountIDs = [:]
+      expect(OverviewFocus.defaultAccountID(in: status) == first.id,
+        "The Overview does not fall back to the first account")
+    } else { failures.append("The Overview fixture lacks two accounts") }
+    let reset = Date(timeIntervalSince1970: 0)
+    expect(OverviewFormat.compactReset(reset.addingTimeInterval(6 * 86_400 + 8 * 3_600 + 56 * 60),
+      now: reset, exact: false) == "in 6d 8h"
+      && OverviewFormat.compactReset(reset.addingTimeInterval(6_300), now: reset, exact: false) == "in 1h 45m"
+      && OverviewFormat.compactReset(reset.addingTimeInterval(20 * 60), now: reset, exact: false) == "in 20m",
+      "Overview reset times do not read in 6d 8h, 1h 45m, or 20m form")
+    failures.append(contentsOf: overviewFailures())
+    return failures
   }
 
-  static func defaultFocusIndicatorsAreHidden(in window: NSWindow) -> Bool {
-    window.contentView?.focusRingType == NSFocusRingType.none
-  }
-
-  static func windowControlGeometryMatches() -> Bool {
-    let size = AIMTheme.windowControlSize
-    return size == 48 && AIMTheme.railWidth == size
-      && AIMTheme.topbarHeight == size && AIMTheme.modalTitlebarHeight == size
-      && AIMTheme.modalHeight == 648 && AIMTheme.addAccountModalHeight == 560
-      && AIMTheme.modalOuterInset == 24
-      && AIMTheme.modalSectionSpacing == 16
+  /// The Overview page: its cards, the native Table's columns, and the activity data per provider.
+  static func overviewFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    let model = AccountViewModel(scenario: .demo)
+    guard let codex = model.status?.accounts.first(where: { $0.identity.providerID == .codex }) else {
+      return ["The Overview fixture has no Codex account"]
+    }
+    // The focused card lists one row per window; the demo Codex account has Session and Weekly.
+    expect(AccountUsageSummary.windows(for: codex, model: model).count >= 2,
+      "The focused account card has no window rows")
+    let host = NSHostingView(rootView: OverviewPage(model: model, query: "")
+      .frame(width: 900, height: 900))
+    host.frame = NSRect(x: 0, y: 0, width: 900, height: 900)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    let tables = views(in: host).compactMap { $0 as? NSTableView }
+    expect(tables.contains { Array($0.tableColumns.map(\.title).prefix(3)) == ["Account", "Usage", "Resets"]
+      && $0.tableColumns.count == 4 },
+      "The Overview accounts card is not a native table of Account, Usage, Resets, and Default or Switch")
+    expect(host.fittingSize.height > 0, "The Overview collapsed")
+    return failures
   }
 
   static func windowPlacementFailures() -> [String] {
@@ -1703,6 +1227,19 @@ enum AIManagerNativeContract {
       for: placement, windowSize: size, displays: [primary, external]) != original
     {
       failures.append("Window placement does not restore a negative-coordinate display")
+    }
+    // The resizable window keeps its size; a record saved before resizing still decodes.
+    if placement.width != size.width || placement.height != size.height {
+      failures.append("Window placement does not keep the window size")
+    }
+    let oldRecord = Data("""
+      {"version":1,"displayIdentifier":"a","displayName":"A","displayFrameX":0,"displayFrameY":0,\
+      "displayFrameWidth":100,"displayFrameHeight":100,"leftOffset":1,"topOffset":2}
+      """.utf8)
+    if let decoded = try? JSONDecoder().decode(AIManagerStoredWindowPlacement.self, from: oldRecord),
+      decoded.width == nil, decoded.leftOffset == 1
+    {} else {
+      failures.append("A window placement saved before resizing no longer decodes")
     }
 
     let rearrangedExternal = AIManagerDisplayDescriptor(
@@ -1764,25 +1301,6 @@ enum AIManagerNativeContract {
     return failures
   }
 
-  static func scrollBehaviorIsInstalled(in root: NSView) -> Bool {
-    let scrollViews = views(in: root).compactMap { $0 as? NSScrollView }
-    return !scrollViews.isEmpty && configuredScrollViewCount(in: root) == scrollViews.count
-      && scrollViews.allSatisfy { scroll in
-        guard let document = scroll.documentView else { return false }
-        return document.frame.height > 0 && scroll.contentView.bounds.height > 0
-          && abs(document.frame.width - scroll.contentView.bounds.width) < 1
-          && abs(scroll.contentView.frame.width - scroll.bounds.width) < 1
-      }
-  }
-
-  static func configuredScrollViewCount(in root: NSView) -> Int {
-    views(in: root).compactMap { $0 as? NSScrollView }.filter {
-      $0.autohidesScrollers && $0.verticalScroller is AIMThinScroller
-        && ($0.scrollerStyle == .overlay
-          || abs($0.contentView.frame.width - $0.bounds.width) < 1)
-    }.count
-  }
-
   static func historySearchFieldsMatch(in root: NSView) -> Bool {
     let placeholders = Set(views(in: root).compactMap {
       ($0 as? NSTextField)?.placeholderString
@@ -1805,30 +1323,12 @@ enum AIManagerNativeContract {
     }
   }
 
-  static func scrollIdentity(in root: NSView) -> String {
-    views(in: root).compactMap { $0 as? NSScrollView }
-      .map { String(describing: ObjectIdentifier($0)) }.joined(separator: ",")
-  }
-
   static func hasVisualEffect(in root: NSView) -> Bool {
     views(in: root).contains { $0 is NSVisualEffectView }
   }
 
   static func hierarchySnapshot(in root: NSView) -> [AIManagerNativeViewSnapshot] {
     snapshot(view: root, path: "0")
-  }
-
-  static func hitTestPath(in window: NSWindow, atTopOriginPoint point: NSPoint) -> [String] {
-    guard let contentView = window.contentView else { return [] }
-    var current = hitTest(in: contentView, atTopOriginPoint: point)
-    var path: [String] = []
-    while let view = current {
-      path.append(
-        "\(NSStringFromClass(type(of: view))) frame=\(NSStringFromRect(view.frame)) flipped=\(view.isFlipped)"
-      )
-      current = view.superview
-    }
-    return path
   }
 
   private static func views(in root: NSView) -> [NSView] {
@@ -1854,15 +1354,5 @@ enum AIManagerNativeContract {
       + view.subviews.enumerated().flatMap { index, child in
         snapshot(view: child, path: "\(path).\(index)")
       }
-  }
-
-  private static func appKitPoint(fromTopOrigin point: NSPoint, in view: NSView) -> NSPoint {
-    view.isFlipped ? point : NSPoint(x: point.x, y: view.bounds.height - point.y)
-  }
-
-  private static func hitTest(in view: NSView, atTopOriginPoint point: NSPoint) -> NSView? {
-    let localPoint = appKitPoint(fromTopOrigin: point, in: view)
-    let pointForHitTest = view.superview.map { view.convert(localPoint, to: $0) } ?? localPoint
-    return view.hitTest(pointForHitTest)
   }
 }

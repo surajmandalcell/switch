@@ -49,8 +49,8 @@ enum PopoverRefreshPreference {
 /// system-owned login item are not preferences and stay.
 enum SettingsReset {
   static let keys = [
-    "appearanceMode", "keyboardFocusIndicators", "usageTokenPeriod", ChatFilterPersistence.defaultsKey,
-    AIMTranslucency.preferenceKey, AIManagerWindowBehavior.minimizeToTrayKey,
+    "appearanceMode", "usageTokenPeriod", ChatFilterPersistence.defaultsKey,
+    AIManagerWindowBehavior.minimizeToTrayKey,
     MenuBarUsagePreferences.defaultKey, MenuBarTokenPeriod.preferenceKey,
     UsagePercentagePreferences.showsUsedKey, ProviderStatusPoller.enabledKey, EmailPrivacy.key,
     QuotaNotificationSettings.almostOutKey, QuotaNotificationSettings.paceKey,

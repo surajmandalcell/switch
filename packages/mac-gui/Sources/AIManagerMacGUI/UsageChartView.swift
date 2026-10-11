@@ -45,8 +45,6 @@ struct UsageChartView: View {
   @State private var hoveredLabel: String?
   @State private var keyIndex: Int?
   @FocusState private var focused: Bool
-  @Environment(\.aimFocusIndicatorsEnabled) private var focusIndicatorsEnabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var selected: UsagePoint? {
     if let hoveredLabel, let point = chart.points.first(where: { $0.label == hoveredLabel }) { return point }
@@ -79,13 +77,11 @@ struct UsageChartView: View {
           }
         }
       }
-      .animation(AIMMotion.hoverAnimation(reduceMotion: reduceMotion), value: chosen?.label)
       .frame(height: height)
     }
     .frame(maxWidth: .infinity)
     .focusable()
     .focused($focused)
-    .focusEffectDisabled(!focusIndicatorsEnabled)
     .onKeyPress(.leftArrow) { keyIndex = UsageChartPresentation.moved(keyIndex, by: -1, count: chart.points.count); return .handled }
     .onKeyPress(.rightArrow) { keyIndex = UsageChartPresentation.moved(keyIndex, by: 1, count: chart.points.count); return .handled }
     .accessibilityElement(children: .ignore)
