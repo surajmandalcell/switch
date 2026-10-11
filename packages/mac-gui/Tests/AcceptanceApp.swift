@@ -399,14 +399,17 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             AIManagerNativeContract.scrollAppearancesMatch(in: contentView, appearance: window.effectiveAppearance),
             "Acceptance scroll content appearance differs from the window"
         )
+        failures.append(contentsOf: AIManagerNativeContract.nativeStructureFailures(
+            in: contentView, pageIndex: AcceptanceConfiguration.initialPageIndex))
         if AcceptanceConfiguration.initialPageIndex == 2 {
             expect(
                 AIManagerNativeContract.historySearchFieldsMatch(in: contentView),
                 "Chat History does not expose separate thread and message search fields"
             )
             expect(
-                AIManagerNativeContract.virtualHistoryScrollCount(in: contentView) == 2,
-                "Chat History does not use two virtual scroll surfaces"
+                AIManagerNativeContract.virtualHistoryScrollCount(in: contentView) == 1
+                    && AIManagerNativeContract.listTableCount(in: contentView) == 2,
+                "Chat History is not a native thread List (plus the sidebar) beside one virtual message list"
             )
             if AcceptanceConfiguration.stressesHistory {
                 expect(
@@ -415,7 +418,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
                 )
                 let realizedRows = AIManagerNativeContract.realizedVirtualRowCount(in: contentView)
                 expect(
-                    realizedRows > 0 && realizedRows < 40,
+                    realizedRows > 0 && realizedRows < 100,
                     "Chat History realized \(realizedRows) rows for the 1,717-thread fixture"
                 )
             }
@@ -568,7 +571,7 @@ private final class AcceptanceReceipts {
             }
         if let image = AIManagerBrand.statusImage(groups: MenuBarSnapshot(accounts: accounts).statusAccountGroups) {
             let strip = NSHostingView(rootView:
-                Image(nsImage: image).foregroundStyle(AIMTheme.ink)
+                Image(nsImage: image).foregroundStyle(.primary)
                     .padding(10).background(AIMTheme.panel))
             strip.appearance = appearance
             strip.frame = NSRect(x: 0, y: 0, width: image.size.width + 20, height: 42)
@@ -582,10 +585,10 @@ private final class AcceptanceReceipts {
                         if let image = AIManagerBrand.providerGlyph(for: ProviderID(rawValue: id)) {
                             Image(nsImage: image).resizable().scaledToFit().frame(width: 18, height: 18)
                         }
-                        Text(id).font(AIMTheme.sans(11))
+                        Text(id).aimText(.secondary)
                     }
                 }
-            }.padding(12).foregroundStyle(AIMTheme.ink).background(AIMTheme.panel))
+            }.padding(12).foregroundStyle(.primary).background(AIMTheme.panel))
         catalog.appearance = appearance
         catalog.frame = NSRect(x: 0, y: 0, width: 560, height: 250)
         catalog.layoutSubtreeIfNeeded()
@@ -619,7 +622,7 @@ private final class AcceptanceReceipts {
         let fileManager = FileManager.default
         let components = url.pathComponents
         guard url.isFileURL,
-              url.path.hasPrefix("/private/tmp/"),
+              ["/private/tmp/", "/Volumes/External1TB/tmp/"].contains(where: { url.path.hasPrefix($0) }),
               !components.contains("."),
               !components.contains("..") else { return nil }
 

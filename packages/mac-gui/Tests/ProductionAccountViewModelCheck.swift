@@ -103,7 +103,7 @@ struct ProductionAccountViewModelCheck {
             chatHistoryProvider: countingHistory,
             chatHistoryMonitor: SilentChatHistoryMonitor())
         let historyWatch = Task { await stableHistoryModel.watchActivity() }
-        for _ in 0..<100 where await countingHistory.refreshCount() == 0 {
+        for _ in 0..<1_000 where await countingHistory.refreshCount() == 0 {
             try await Task.sleep(for: .milliseconds(10))
         }
         let initialRefreshCount = await countingHistory.refreshCount()
@@ -128,7 +128,7 @@ struct ProductionAccountViewModelCheck {
         let eventHistoryModel = AccountViewModel(
             paths: paths, manager: manager, chatHistoryProvider: eventHistory)
         let eventWatch = Task { await eventHistoryModel.watchActivity() }
-        for _ in 0..<100 where await eventHistory.refreshCount() == 0 {
+        for _ in 0..<1_000 where await eventHistory.refreshCount() == 0 {
             try await Task.sleep(for: .milliseconds(10))
         }
         let initialEventRefreshCount = await eventHistory.refreshCount()
@@ -144,21 +144,32 @@ struct ProductionAccountViewModelCheck {
         let eventFile = eventDirectory.appending(path: "history-event.jsonl")
         try Data().write(to: eventFile)
         let eventHandle = try FileHandle(forWritingTo: eventFile)
+        // Eight writes in quick succession. The gaps are short blocking sleeps, not task sleeps,
+        // so a busy machine cannot stretch the burst past the monitor's 500 ms quiet window and
+        // split it into two real bursts.
         for index in 0..<8 {
             try eventHandle.seekToEnd()
             try eventHandle.write(contentsOf: Data("{\"event\":\(index)}\n".utf8))
-            try await Task.sleep(for: .milliseconds(40))
+            usleep(5_000)
         }
         try eventHandle.close()
-        for _ in 0..<200 where await eventHistory.refreshCount() < initialEventRefreshCount + 1 {
+        // Wait for the first refresh, then for a quiet period longer than the monitor's debounce
+        // and the event latency. Both waits end at a bounded deadline (10 s), not at a fixed sleep.
+        for _ in 0..<1_000 where await eventHistory.refreshCount() < initialEventRefreshCount + 1 {
             try await Task.sleep(for: .milliseconds(10))
         }
-        try await Task.sleep(for: .milliseconds(750))
-        let eventRefreshCount = await eventHistory.refreshCount() - initialEventRefreshCount
+        var lastRefreshCount = await eventHistory.refreshCount()
+        var quietTicks = 0
+        for _ in 0..<1_000 where quietTicks < 150 {
+            try await Task.sleep(for: .milliseconds(10))
+            let count = await eventHistory.refreshCount()
+            if count == lastRefreshCount { quietTicks += 1 } else { lastRefreshCount = count; quietTicks = 0 }
+        }
+        let eventRefreshCount = lastRefreshCount - initialEventRefreshCount
         eventWatch.cancel()
         await eventWatch.value
         try expect(eventRefreshCount == 1,
-                   "A burst of conversation writes did not produce one history refresh")
+                   "A burst of conversation writes did not produce one history refresh (\(eventRefreshCount))")
         try fileManager.removeItem(at: eventFile)
 
         let model = AccountViewModel(paths: paths, manager: manager)

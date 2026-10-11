@@ -25,23 +25,32 @@ struct ProviderChooserPage: View {
 
   var body: some View {
     let rows = visible
-    VStack(spacing: 12) {
+    VStack(spacing: AIMTheme.sectionSpacing) {
       searchField
-      AIMScrollView {
-        VStack(spacing: 0) {
+      ScrollViewReader { proxy in
+        List(selection: Binding(
+          get: { model.selectedProviderID },
+          set: { if let id = $0 { model.selectedProviderID = id; searchFocused = true } })
+        ) {
           if rows.isEmpty {
-            Text("No provider matches “\(query)”.")
-              .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-              .padding(AIMTheme.panelContentInset)
-              .frame(maxWidth: .infinity, alignment: .leading)
+            Text("No provider matches “\(query)”.").aimText(.secondary)
           }
-          ForEach(Array(rows.enumerated()), id: \.element.id) { index, choice in
-            row(choice, index: index)
+          ForEach(rows) { choice in
+            row(choice).id(choice.id)
           }
         }
+        .listStyle(.inset)
+        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .contextMenu(forSelectionType: ProviderID.self) { _ in
+        } primaryAction: { ids in
+          // Double-click continues with the clicked provider.
+          guard let id = ids.first, !model.isBusy,
+                rows.first(where: { $0.id == id })?.available == true else { return }
+          model.selectedProviderID = id
+          onContinue()
+        }
+        .onChange(of: model.selectedProviderID) { _, id in proxy.scrollTo(id) }
       }
-      .background(AIMTheme.panel2)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
       .frame(maxHeight: .infinity)
 
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"]) {
@@ -57,8 +66,7 @@ struct ProviderChooserPage: View {
         .keyboardShortcut(.defaultAction)
       }
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.vertical, 16)
+    .padding(AIMTheme.pageMargin)
     .frame(maxHeight: .infinity, alignment: .top)
     .onAppear {
       searchFocused = true
@@ -69,72 +77,44 @@ struct ProviderChooserPage: View {
   }
 
   private var searchField: some View {
-    HStack(spacing: 6) {
-      AIMIcon(name: .search, size: 13).foregroundStyle(AIMTheme.muted)
-      TextField("Search providers", text: $query)
-        .textFieldStyle(.plain)
-        .focused($searchFocused)
-        .onSubmit(onContinueIfPossible)
-        .onKeyPress(.downArrow) { move(1); return .handled }
-        .onKeyPress(.upArrow) { move(-1); return .handled }
-        .accessibilityLabel("Search providers")
-      if !query.isEmpty {
-        Button { query = ""; searchFocused = true } label: {
-          Image(systemName: "xmark.circle.fill").foregroundStyle(AIMTheme.muted)
+    TextField("Search providers", text: $query)
+      .textFieldStyle(.roundedBorder)
+      .focused($searchFocused)
+      .onSubmit(onContinueIfPossible)
+      .onKeyPress(.downArrow) { move(1); return .handled }
+      .onKeyPress(.upArrow) { move(-1); return .handled }
+      .accessibilityLabel("Search providers")
+      .overlay(alignment: .trailing) {
+        if !query.isEmpty {
+          Button { query = ""; searchFocused = true } label: {
+            Image(systemName: "xmark.circle.fill")
+          }
+          .buttonStyle(.borderless)
+          .padding(.trailing, AIMTheme.rowSpacing)
+          .accessibilityLabel("Clear search")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Clear search")
       }
-    }
-    .padding(.horizontal, 8)
-    .frame(minWidth: 300, maxWidth: .infinity, minHeight: 28, maxHeight: 28)
-    .background(AIMTheme.control, in: RoundedRectangle(cornerRadius: AIMTheme.controlRadius))
   }
 
-  private func row(_ choice: ProviderChoice, index: Int) -> some View {
+  private func row(_ choice: ProviderChoice) -> some View {
     let isSelected = model.selectedProviderID == choice.id
-    return Button {
-      model.selectedProviderID = choice.id
-      searchFocused = true
-    } label: {
-      HStack(spacing: 12) {
-        ProviderMark(providerID: choice.id)
-        VStack(alignment: .leading, spacing: 3) {
-          Text(choice.name).font(.body.weight(.medium)).lineLimit(1)
-          Text(choice.subtitle)
-            .font(.subheadline)
-            .foregroundStyle(AIMTheme.muted)
-            .lineLimit(1)
-        }
-        Spacer()
-        if choice.signedInOnThisMac {
-          Badge(
-            text: ProviderChoices.signedInLabel, color: AIMTheme.green.opacity(0.14),
-            ink: AIMTheme.ink)
-        }
-        if choice.available {
-          AIMIcon(name: .check, size: 14).opacity(isSelected ? 1 : 0)
-            .foregroundStyle(AIMTheme.blue)
-        } else {
-          Badge(text: "WIP", color: AIMTheme.control, ink: AIMTheme.muted)
-        }
+    return HStack(spacing: AIMTheme.rowSpacing) {
+      ProviderMark(providerID: choice.id, size: 20)
+      VStack(alignment: .leading, spacing: 0) {
+        Text(choice.name).aimText(.body).lineLimit(1)
+        Text(choice.subtitle).aimText(.secondary).lineLimit(1)
       }
-      .padding(.horizontal, AIMTheme.panelContentInset)
-      .frame(height: 54)
-      .foregroundStyle(AIMTheme.ink)
-      .background(isSelected ? AIMTheme.listSelection
-        : (index.isMultiple(of: 2) ? Color.clear : AIMTheme.listStripe))
-      .background(ScrollWhenSelected(selected: isSelected))
-      .contentShape(Rectangle())
+      Spacer()
+      if choice.signedInOnThisMac {
+        Badge(text: ProviderChoices.signedInLabel)
+      }
+      if !choice.available {
+        Badge(text: "WIP", tint: .secondary)
+      }
     }
-    .buttonStyle(.plain)
-    .disabled(!choice.available)
     .opacity(choice.available ? 1 : 0.64)
-    .simultaneousGesture(TapGesture(count: 2).onEnded {
-      guard choice.available, !model.isBusy else { return }
-      model.selectedProviderID = choice.id
-      onContinue()
-    })
+    .tag(choice.id)
+    .selectionDisabled(!choice.available)
     .accessibilityLabel(choice.name)
     .accessibilityValue(
       [isSelected ? "Selected" : nil, choice.signedInOnThisMac ? ProviderChoices.signedInLabel : nil]
@@ -168,18 +148,6 @@ struct ProviderChooserPage: View {
   }
 }
 
-/// Scrolls the enclosing native scroll view to keep the selected row on screen.
-private struct ScrollWhenSelected: NSViewRepresentable {
-  let selected: Bool
-
-  func makeNSView(context: Context) -> NSView { NSView() }
-
-  func updateNSView(_ view: NSView, context: Context) {
-    guard selected else { return }
-    DispatchQueue.main.async { view.scrollToVisible(view.bounds) }
-  }
-}
-
 // MARK: - Typed credentials (.secret)
 
 struct SecretCredentialsPage: View {
@@ -197,27 +165,24 @@ struct SecretCredentialsPage: View {
   }
 
   var body: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMPanel(title: "\(spec.name) credentials") {
-        AIMScrollView {
-          VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-              ProviderMark(providerID: spec.id, size: 32)
-              VStack(alignment: .leading, spacing: 5) {
-                Text("Add a \(spec.name) account").font(AIMTheme.sans(18, weight: .semibold))
-                Text("Switch keeps these values in a private file on this Mac and uses them only to read usage.")
-                  .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
-                  .fixedSize(horizontal: false, vertical: true)
-              }
-            }
-            ForEach(spec.fields, id: \.key) { field in
-              fieldRow(field)
+    VStack(spacing: 0) {
+      Form {
+        Section("\(spec.name) credentials") {
+          HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
+            ProviderMark(providerID: spec.id, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Add a \(spec.name) account").aimText(.section)
+              Text("Switch keeps these values in a private file on this Mac and uses them only to read usage.")
+                .aimText(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
           }
-          .padding(20)
+          ForEach(spec.fields, id: \.key) { field in
+            fieldRow(field)
+          }
         }
       }
-      .frame(maxHeight: .infinity)
+      .formStyle(.grouped)
 
       ImportFooter(step: 2, labels: ["Provider", "Credentials", "Done"]) {
         AIMButton(title: "Back", disabled: model.isBusy, action: back)
@@ -225,9 +190,8 @@ struct SecretCredentialsPage: View {
         AIMButton(title: "Save", tone: .primary, disabled: !isComplete || model.isBusy, action: save)
           .keyboardShortcut(.defaultAction)
       }
+      .padding(AIMTheme.pageMargin)
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.vertical, 16)
     .frame(maxHeight: .infinity, alignment: .top)
     .task {
       for field in spec.fields where values[field.key] == nil {
@@ -242,28 +206,25 @@ struct SecretCredentialsPage: View {
 
   @ViewBuilder private func fieldRow(_ field: CredentialField) -> some View {
     let binding = Binding(get: { values[field.key] ?? "" }, set: { values[field.key] = $0 })
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 6) {
-        Text(field.title).font(AIMTheme.sans(12, weight: .semibold))
-        if field.optional {
-          Text("Optional").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-        }
-      }
+    VStack(alignment: .leading, spacing: 2) {
       Group {
         if field.secure {
-          SecureField(field.placeholder ?? "Paste the \(field.title.lowercased())", text: binding)
+          SecureField(
+            field.title, text: binding,
+            prompt: Text(field.placeholder ?? "Paste the \(field.title.lowercased())"))
         } else {
-          TextField(field.placeholder ?? "", text: binding)
+          TextField(field.title, text: binding, prompt: Text(field.placeholder ?? ""))
         }
       }
-      .textFieldStyle(.roundedBorder)
       .privacySensitive(field.secure)
       .focused($focusedKey, equals: field.key)
       .onSubmit { if isComplete { save() } }
       .accessibilityLabel(field.optional ? "\(field.title), optional" : field.title)
+      if field.optional {
+        Text("Optional").aimText(.secondary)
+      }
       if let name = prefilled[field.key] {
-        Text("Filled from \(name) in this app's environment.")
-          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        Text("Filled from \(name) in this app's environment.").aimText(.secondary)
       }
     }
   }
@@ -289,32 +250,29 @@ struct FilesCredentialsPage: View {
   }
 
   var body: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMPanel(title: "\(spec.name) sign-in") {
-        VStack(alignment: .leading, spacing: 16) {
-          HStack(alignment: .top, spacing: 12) {
+    VStack(spacing: 0) {
+      Form {
+        Section("\(spec.name) sign-in") {
+          HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
             ProviderMark(providerID: spec.id, size: 32)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 2) {
               Text(signedInText)
-                .font(AIMTheme.sans(18, weight: .semibold))
+                .aimText(.section)
                 .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
               Text(identity?.plan.map { "Plan: \($0.capitalized)" } ?? detailText)
-                .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
+                .aimText(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
           }
           Notice(text: noticeText, tone: identity == nil && loaded ? AIMTheme.amber : AIMTheme.blue)
           if let file = spec.files.first {
-            HStack(spacing: 8) {
-              Text("Read from").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              AIMCopyablePath(path: "~/" + file.path).font(AIMTheme.mono(10))
-                .foregroundStyle(AIMTheme.muted)
+            LabeledContent("Read from") {
+              AIMCopyablePath(path: "~/" + file.path)
             }
           }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
+      .formStyle(.grouped)
 
       ImportFooter(step: 2, labels: ["Provider", "Sign in", "Done"]) {
         AIMButton(title: "Back", disabled: model.isBusy, action: back)
@@ -333,9 +291,8 @@ struct FilesCredentialsPage: View {
         }
         .keyboardShortcut(.defaultAction)
       }
+      .padding(AIMTheme.pageMargin)
     }
-    .padding(.horizontal, AIMTheme.modalOuterInset)
-    .padding(.vertical, 16)
     .frame(maxHeight: .infinity, alignment: .top)
     .task(id: spec.id) {
       identity = await model.liveProviderIdentity(spec.id)

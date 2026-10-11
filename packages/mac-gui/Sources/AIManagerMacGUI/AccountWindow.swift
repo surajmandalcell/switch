@@ -200,7 +200,6 @@ struct AccountWindow: View {
   @State private var page: AIManagerPage = .overview
   @State private var searchQuery = ""
   @State private var maintenanceSection: MaintenanceSection = .backup
-  @State private var columnVisibility = NavigationSplitViewVisibility.all
   @FocusState private var searchFocused: Bool
   @AppStorage("appearanceMode") private var appearanceMode = "system"
   @Environment(\.colorScheme) private var systemScheme
@@ -219,20 +218,22 @@ struct AccountWindow: View {
   }
 
   var body: some View {
-    NavigationSplitView(columnVisibility: $columnVisibility) {
+    NavigationSplitView {
       List(AIManagerPage.allCases, id: \.self, selection: pageSelection) { item in
         Label(item.rawValue, systemImage: item.icon.symbol)
           .accessibilityIdentifier("sidebar-\(item.rawValue)")
       }
-      .listStyle(.sidebar)
-      .navigationSplitViewColumnWidth(min: 170, ideal: AIMTheme.sidebarWidth, max: 260)
+      // Wide enough for "Conversations" beside its icon.
+      .navigationSplitViewColumnWidth(min: 190, ideal: 210)
     } detail: {
       VStack(spacing: 0) {
         if let error = model.errorMessage, !model.showImport {
-          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-            model.errorMessage = nil
+          AIMPanel {
+            ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+              model.errorMessage = nil
+            }
           }
-          .padding([.horizontal, .top], AIMTheme.modalOuterInset)
+          .padding([.horizontal, .top], AIMTheme.pageMargin)
         }
         pageView
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -328,30 +329,27 @@ struct AccountWindow: View {
 
   /// "Search accounts…", at least 300 points wide. Command-K focuses it.
   private var searchField: some View {
-    HStack(spacing: 6) {
-      Image(systemName: AIMIcon.Name.search.symbol).foregroundStyle(.secondary)
-        .accessibilityHidden(true)
-      TextField(AIManagerToolbar.searchPrompt, text: $searchQuery)
-        .textFieldStyle(.plain)
-        .focused($searchFocused)
-        .accessibilityLabel("Search accounts")
-        .accessibilityIdentifier("toolbar-search")
-        .onExitCommand { searchQuery = ""; searchFocused = false }
-      if searchQuery.isEmpty {
-        Text("⌘K").font(.caption).foregroundStyle(.tertiary)
-          .accessibilityHidden(true)
-      } else {
-        Button { searchQuery = "" } label: {
-          Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+    TextField(AIManagerToolbar.searchPrompt, text: $searchQuery)
+      .textFieldStyle(.roundedBorder)
+      .focused($searchFocused)
+      .accessibilityLabel("Search accounts")
+      .accessibilityIdentifier("toolbar-search")
+      .onExitCommand { searchQuery = ""; searchFocused = false }
+      .frame(width: AIManagerToolbar.searchWidth)
+      .overlay(alignment: .trailing) {
+        if searchQuery.isEmpty {
+          Text("⌘K").aimText(.secondary).padding(.trailing, AIMTheme.rowSpacing)
+            .accessibilityHidden(true).allowsHitTesting(false)
+        } else {
+          Button { searchQuery = "" } label: {
+            Image(systemName: "xmark.circle.fill")
+          }
+          .buttonStyle(.borderless)
+          .padding(.trailing, AIMTheme.rowSpacing)
+          .help("Clear search")
+          .accessibilityLabel("Clear search")
         }
-        .buttonStyle(.plain)
-        .help("Clear search")
-        .accessibilityLabel("Clear search")
       }
-    }
-    .padding(.horizontal, 8)
-    .frame(width: AIManagerToolbar.searchWidth, height: 24)
-    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: AIMTheme.controlRadius))
   }
 
   private func applyAppearance(to window: NSWindow) {
@@ -389,7 +387,7 @@ struct AIMButton: View {
 }
 
 /// The accent-filled prominent style for a primary action, else the bordered style.
-private struct AIMButtonStyle: ViewModifier {
+struct AIMButtonStyle: ViewModifier {
   let prominent: Bool
   func body(content: Content) -> some View {
     if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
@@ -408,10 +406,10 @@ struct AIMIconButton: View {
 
   var body: some View {
     Button(role: tone == .danger ? .destructive : nil, action: action) {
-      AIMIcon(name: icon, size: 13).frame(width: 22, height: 22)
+      AIMIcon(name: icon).aimText(.body)
     }
     .buttonStyle(.borderless)
-    .foregroundStyle(tone == .danger ? AIMTheme.red : (active ? AIMTheme.blue : AIMTheme.muted))
+    .foregroundStyle(tone == .danger ? AIMTheme.red : (active ? AIMTheme.blue : Color.secondary))
     .background {
       if icon == .copy { AIMCopyCursor(enabled: isEnabled && !disabled).allowsHitTesting(false) }
     }
@@ -421,33 +419,22 @@ struct AIMIconButton: View {
   }
 }
 
-/// A small status capsule. `ink` is the text color.
-struct Badge: View {
-  let text: String, color: Color
-  var ink: Color = .white
-  var body: some View {
-    Text(text).font(AIMTheme.sans(10, weight: .medium)).padding(.horizontal, 7)
-      .frame(height: 18).foregroundStyle(ink).background(color).clipShape(Capsule())
-  }
-}
-
-/// "Using as default" (checkmark, prominent, not actionable) or "Make Default" (prominent).
+/// The Default badge for the default account, else "Make Default" (the prominent button).
 struct DefaultAccountButton: View {
   let isDefault: Bool
   var disabled = false
+  /// False where another button on the screen is the primary action.
+  var prominent = true
   let action: () -> Void
 
   var body: some View {
     if isDefault {
-      Button(action: {}) {
-        Label(AccountActionCopy.usingDefault, systemImage: AIMIcon.Name.check.symbol)
-      }
-      .buttonStyle(.borderedProminent)
-      .allowsHitTesting(false)
-      .accessibilityHint("This account is already the default.")
+      Badge(text: "Default")
+        .accessibilityLabel(AccountActionCopy.usingDefault)
+        .accessibilityHint("This account is already the default.")
     } else {
       Button(action: action) { Text(AccountActionCopy.use) }
-        .buttonStyle(.borderedProminent)
+        .modifier(AIMButtonStyle(prominent: prominent))
         .disabled(disabled)
     }
   }
@@ -479,40 +466,37 @@ private struct AccountsPage: View {
   }
 
   var body: some View {
-    HStack(spacing: AIMTheme.cardSpacing) {
-      VStack(spacing: 0) {
-        List(selection: Binding(
-          get: { model.selectedAccountID }, set: { model.selectedAccountID = $0 })
-        ) {
-          ForEach(accounts) { account in
-            AccountListRow(
-              account: account, selected: account.id == model.selectedAccountID,
-              isDefault: model.status?.isDefault(account) == true,
-              providerStatus: model.providerStatus[account.identity.providerID],
-              hidesEmails: hideEmails)
-              .tag(account.id)
-              .contextMenu { accountContextMenu(for: account) }
-          }
-          .onMove { source, destination in
-            guard query.isEmpty, let move = AccountReorder.move(
-              accountIDs: accounts.map(\.id), from: source, to: destination) else { return }
-            Task { await model.moveAccount(move.accountID, to: move.targetID) }
-          }
-          if !model.hasLoaded {
-            HStack(spacing: 8) {
-              ProgressView().controlSize(.small)
-              Text("Loading accounts…")
-            }.foregroundStyle(AIMTheme.muted)
-          } else if accounts.isEmpty {
-            Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
-              .foregroundStyle(AIMTheme.muted)
-          }
+    HStack(spacing: 0) {
+      List(selection: Binding(
+        get: { model.selectedAccountID }, set: { model.selectedAccountID = $0 })
+      ) {
+        ForEach(accounts) { account in
+          AccountListRow(
+            account: account, selected: account.id == model.selectedAccountID,
+            isDefault: model.status?.isDefault(account) == true,
+            providerStatus: model.providerStatus[account.identity.providerID],
+            hidesEmails: hideEmails)
+            .tag(account.id)
+            .contextMenu { accountContextMenu(for: account) }
         }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
+        .onMove { source, destination in
+          guard query.isEmpty, let move = AccountReorder.move(
+            accountIDs: accounts.map(\.id), from: source, to: destination) else { return }
+          Task { await model.moveAccount(move.accountID, to: move.targetID) }
+        }
+        if !model.hasLoaded {
+          HStack(spacing: AIMTheme.rowSpacing) {
+            ProgressView().controlSize(.small)
+            Text("Loading accounts…").aimText(.secondary)
+          }
+        } else if accounts.isEmpty {
+          Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
+            .aimText(.secondary)
+        }
       }
-      .aimCard()
+      .listStyle(.inset)
       .frame(width: AIMTheme.accountListWidth)
+      Divider()
       if let account = model.selectedAccount {
         if account.usesGenericDetail {
           ProviderAccountDetail(account: account, model: model) {
@@ -527,7 +511,6 @@ private struct AccountsPage: View {
         EmptyAccountView(model: model)
       }
     }
-    .padding(AIMTheme.modalOuterInset)
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
   }
 
@@ -604,23 +587,14 @@ struct AccountListRow: View {
   /// Only changes when "Hide email addresses" does, so the row redraws.
   var hidesEmails = false
   var body: some View {
-    HStack(spacing: 10) {
-      ProviderMark(providerID: account.identity.providerID, size: 28)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(account.identity.heroName).font(.body.weight(.medium)).lineLimit(1)
-        HStack(spacing: 5) {
-          Text(account.identity.providerID.guiName).font(.subheadline)
-            .foregroundStyle(AIMTheme.muted).lineLimit(1)
-          ProviderStatusDot(entry: providerStatus, size: 6)
-        }
-      }
+    HStack(spacing: AIMTheme.rowSpacing) {
+      AccountCell(account: account, hideEmails: hidesEmails, providerStatus: providerStatus)
       Spacer(minLength: 4)
       if isDefault {
-        Image(systemName: AIMIcon.Name.check.symbol).font(.caption.weight(.semibold))
-          .foregroundStyle(AIMTheme.green)
+        AIMIcon(name: .check).aimText(.body).foregroundStyle(AIMTheme.green)
+          .help("Default account")
       }
     }
-    .padding(.vertical, 2)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(selected ? .isSelected : [])
@@ -633,20 +607,20 @@ struct AccountListRow: View {
 private struct EmptyAccountView: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    AIMPanel(title: "Account") {
-      Group {
+    Form {
+      Section("Account") {
         if !model.hasLoaded {
-          HStack(spacing: 10) {
+          HStack(spacing: AIMTheme.rowSpacing) {
             ProgressView().controlSize(.small)
-            Text("Loading accounts…").font(AIMTheme.sans(13, weight: .medium))
+            Text("Loading accounts…").aimText(.body)
           }
         } else {
-          VStack(alignment: .leading, spacing: 10) {
-            Text("Add your first account").font(AIMTheme.sans(18, weight: .semibold))
+          VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+            Text("Add your first account").aimText(.section)
             Text(
               "Switch found no saved account. Sign in to Codex or Grok Build, or use Advanced Import for an existing Codex folder."
-            ).foregroundStyle(AIMTheme.muted).frame(maxWidth: 520, alignment: .leading)
-            HStack(spacing: 6) {
+            ).aimText(.secondary)
+            HStack(spacing: AIMTheme.rowSpacing) {
               AIMButton(title: "Add account", icon: .plus, tone: .primary, disabled: model.isBusy) {
                 Task { await model.beginAddAccount() }
               }
@@ -656,8 +630,9 @@ private struct EmptyAccountView: View {
             }
           }
         }
-      }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }.frame(maxWidth: .infinity)
+      }
+    }
+    .formStyle(.grouped)
   }
 }
 
@@ -671,125 +646,109 @@ private struct AccountDetail: View {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
   }
   var body: some View {
-    AIMScrollView {
-      VStack(spacing: AIMTheme.cardSpacing) {
-        AIMPanel(title: "Identity", importance: .primary, headerAccessories: AnyView(identityStatus)) {
-          VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-              Text(EmailPrivacy.display(account.identity.heroName, hide: hideEmails))
-                .font(AIMTheme.sans(20, weight: .semibold))
-                .lineLimit(1).textSelection(.enabled)
-              Group {
-                if let workspaceID = account.identity.workspaceID {
-                  Text(workspaceID).font(AIMTheme.mono(10))
-                } else {
-                  Text("Personal workspace").font(AIMTheme.sans(11))
-                }
-              }
-              .foregroundStyle(AIMTheme.muted).textSelection(.enabled)
-              if let entry = model.providerStatus[account.identity.providerID],
-                 entry.incident.severity != nil {
-                HStack(spacing: 6) {
-                  ProviderStatusDot(entry: entry)
-                  Text(account.identity.providerID.guiName).font(AIMTheme.sans(11))
-                    .foregroundStyle(AIMTheme.muted)
-                }
-              }
+    Form {
+      Section("Identity") {
+        VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+          HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
+            Text(EmailPrivacy.display(account.identity.heroName, hide: hideEmails))
+              .aimText(.title)
+              .lineLimit(1).textSelection(.enabled)
+            identityStatus
+          }
+          if let workspaceID = account.identity.workspaceID {
+            Text(workspaceID).aimText(.secondary, monospaced: true).textSelection(.enabled)
+          } else {
+            Text("Personal workspace").aimText(.secondary).textSelection(.enabled)
+          }
+          if let entry = model.providerStatus[account.identity.providerID],
+             entry.incident.severity != nil {
+            HStack(spacing: 6) {
+              ProviderStatusDot(entry: entry)
+              Text(account.identity.providerID.guiName).aimText(.secondary)
             }
-            if account.verification.state.attentionLabel != nil {
-              Text(EmailPrivacy.display(account.verification.detail)).font(AIMTheme.sans(11)).foregroundStyle(
-                AIMTheme.muted
-              ).textSelection(.enabled)
-            }
-            ViewThatFits(in: .horizontal) {
-              HStack(spacing: 4) { actions }
-              VStack(alignment: .leading, spacing: 4) { actions }
-            }
-          }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-        }
-        if account.identity.providerID == .codex {
-          AccountUsagePanel(account: account, model: model)
-        } else if ProviderUsagePanel.applies(to: account, in: model) {
-          ProviderUsagePanel(account: account, model: model)
-        }
-        if account.identity.providerID == .claudeCode {
-          ClaudeActivityPanel(model: model)
-        }
-        AIMPanel(title: "Account details") {
-          VStack(spacing: 0) {
-            DetailRow(label: account.identity.providerID == .claudeCode ? "Profile config" : "Saved auth",
-                      value: account.credentialFile.path)
-            DetailRow(label: "Source", value: account.source.path, zebra: true)
-            DetailRow(
-              label: "\(account.identity.providerID.guiName) home",
-              value: account.identity.providerID == .claudeCode ? account.home.path
-                : account.identity.providerID == .grokBuild
-                  ? model.paths.grokHome.path : model.paths.defaultHome.path)
-            DetailRow(
-              label: "Imported",
-              value: account.importedAt.formatted(date: .abbreviated, time: .shortened), zebra: true
-            )
-            DetailRow(
-              label: "Last used",
-              value: account.lastUsedAt?.formatted(date: .abbreviated, time: .shortened)
-                ?? "Not launched yet")
+          }
+          if account.verification.state.attentionLabel != nil {
+            Text(EmailPrivacy.display(account.verification.detail)).aimText(.secondary)
+              .textSelection(.enabled)
+          }
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: AIMTheme.rowSpacing) { actions }
+            VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) { actions }
           }
         }
-        if !issues.isEmpty {
-          AIMPanel(title: "Account data needs repair") {
-            VStack(spacing: 0) {
-              ForEach(issues) { issue in
-                HStack(spacing: 12) {
-                  AIMIcon(name: .warning, size: 15).foregroundStyle(AIMTheme.amber)
-                  VStack(alignment: .leading, spacing: 2) {
-                    AIMCopyablePath(path: issue.relativePath).font(AIMTheme.mono(11, weight: .semibold))
-                    AIMCopyablePath(path: issue.localPath.path).font(AIMTheme.mono(9)).foregroundStyle(
-                      AIMTheme.muted
-                    )
-                  }
-                  Spacer()
-                  WarningCopyButton(label: "Copy repair warning") {
-                    model.copyWarnings([
-                      "Account data needs repair: \(issue.relativePath)\nLocation: \(issue.localPath.path)"
-                    ])
-                  }
-                  AIMButton(title: "Back up and repair", tone: .danger, disabled: model.isBusy) {
-                    Task { await model.repairLinkedSetting(issue) }
-                  }
-                }.padding(12).overlay(alignment: .bottom) {
-                  Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
-                }
+      }
+      if account.identity.providerID == .codex {
+        AccountUsagePanel(account: account, model: model)
+      } else if ProviderUsagePanel.applies(to: account, in: model) {
+        ProviderUsagePanel(account: account, model: model)
+      }
+      if account.identity.providerID == .claudeCode {
+        ClaudeActivityPanel(model: model)
+      }
+      Section("Account details") {
+        DetailRow(label: account.identity.providerID == .claudeCode ? "Profile config" : "Saved auth",
+                  value: account.credentialFile.path)
+        DetailRow(label: "Source", value: account.source.path)
+        DetailRow(
+          label: "\(account.identity.providerID.guiName) home",
+          value: account.identity.providerID == .claudeCode ? account.home.path
+            : account.identity.providerID == .grokBuild
+              ? model.paths.grokHome.path : model.paths.defaultHome.path)
+        DetailRow(
+          label: "Imported",
+          value: account.importedAt.formatted(date: .abbreviated, time: .shortened))
+        DetailRow(
+          label: "Last used",
+          value: account.lastUsedAt?.formatted(date: .abbreviated, time: .shortened)
+            ?? "Not launched yet")
+      }
+      if !issues.isEmpty {
+        Section("Account data needs repair") {
+          ForEach(issues) { issue in
+            HStack(spacing: AIMTheme.sectionSpacing) {
+              AIMIcon(name: .warning).aimText(.body).foregroundStyle(AIMTheme.amber)
+              VStack(alignment: .leading, spacing: 2) {
+                AIMCopyablePath(path: issue.relativePath)
+                AIMCopyablePath(path: issue.localPath.path)
+              }
+              Spacer()
+              WarningCopyButton(label: "Copy repair warning") {
+                model.copyWarnings([
+                  "Account data needs repair: \(issue.relativePath)\nLocation: \(issue.localPath.path)"
+                ])
+              }
+              AIMButton(title: "Back up and repair", tone: .danger, disabled: model.isBusy) {
+                Task { await model.repairLinkedSetting(issue) }
               }
             }
           }
         }
-        Group {
-          if let notice = model.notice {
-            Notice(text: notice, tone: AIMTheme.blue)
-              .transition(reduceMotion ? .identity : .opacity)
-          }
-        }
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
-      }.frame(maxWidth: .infinity)
-    }.frame(maxWidth: .infinity)
+      }
+      if let notice = model.notice {
+        Section { Notice(text: notice, tone: AIMTheme.blue) }
+          .transition(reduceMotion ? .identity : .opacity)
+      }
+    }
+    .formStyle(.grouped)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
   private var identityStatus: some View {
     HStack(spacing: 6) {
       if model.status?.isDefault(account) == true {
-        Badge(text: "Default", color: AIMTheme.green.opacity(0.14), ink: AIMTheme.ink)
+        Badge(text: "Default")
       }
       if let attention = account.verification.state.attentionLabel {
-        Badge(text: attention, color: account.verification.state.color)
+        Badge(text: attention, tint: account.verification.state.color)
       }
     }
   }
   @ViewBuilder private var actions: some View {
     if model.needsSignIn(account) {
       SignInButton(account: account, model: model)
-    } else {
-      DefaultAccountButton(
-        isDefault: model.status?.isDefault(account) == true, disabled: model.isBusy
-      ) { Task { await model.switchDefault(to: account.id) } }
+    } else if model.status?.isDefault(account) != true {
+      DefaultAccountButton(isDefault: false, disabled: model.isBusy) {
+        Task { await model.switchDefault(to: account.id) }
+      }
     }
     AIMButton(
       title: model.status?.isDefault(account) == true
@@ -1016,14 +975,13 @@ struct UsageActivityCalendar: View {
     let maximumTokens = days.lazy.map(\.tokens).max() ?? 0
     let selectedDay = days.first { $0.date == selectedDate }
     let weeks = UsagePresentation.activityWeeks(for: days)
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 10) {
-        Text("Daily activity").font(.headline).lineLimit(1).fixedSize()
+    VStack(alignment: .leading, spacing: AIMTheme.sectionSpacing) {
+      HStack(spacing: AIMTheme.rowSpacing) {
         if let selectedDay {
           Text(selectedDay.date.formatted(date: .abbreviated, time: .omitted))
-            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            .aimText(.secondary)
           Text("\(UsagePresentation.exactTokens(selectedDay.tokens)) tokens")
-            .font(AIMTheme.mono(10, weight: .semibold))
+            .aimText(.body).monospacedDigit()
         }
         Spacer()
         TokenPeriodPicker(selection: periodSelection)
@@ -1037,7 +995,7 @@ struct UsageActivityCalendar: View {
           ForEach(days) { day in
             VStack(spacing: 5) {
               Text(day.date.formatted(.dateTime.weekday(.narrow)))
-                .font(AIMTheme.sans(8, weight: .medium)).foregroundStyle(AIMTheme.faint)
+                .aimText(.secondary)
               ActivityCell(
                 day: day, maximumTokens: maximumTokens,
                 selected: selectedDate == day.date, size: 18
@@ -1059,28 +1017,27 @@ struct UsageActivityCalendar: View {
         }
       }
       if !projects.isEmpty {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
           Text("Projects in this Codex home")
-            .font(AIMTheme.sans(10, weight: .medium)).foregroundStyle(AIMTheme.muted)
+            .aimText(.body)
             .help("Recorded from local conversation token events. These shared-home totals are separate from account usage.")
           ForEach(projects, id: \.project) { project in
-            HStack(spacing: 12) {
+            HStack(spacing: AIMTheme.sectionSpacing) {
               if project.project.hasPrefix("/") {
-                AIMCopyablePath(path: project.project).font(AIMTheme.mono(9))
-              } else { Text(project.project).font(AIMTheme.sans(10)) }
+                AIMCopyablePath(path: project.project)
+              } else { Text(project.project).aimText(.body) }
               Spacer()
               Text("\(UsagePresentation.exactTokens(project.tokens)) tokens")
-                .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+                .aimText(.secondary).monospacedDigit()
               if !project.isComplete {
-                AIMIcon(name: .info, size: 10).foregroundStyle(AIMTheme.amber)
+                AIMIcon(name: .info).aimFont(.secondary).foregroundStyle(AIMTheme.amber)
                   .help("Some source records are incomplete. Previously recorded totals were retained.")
               }
             }
           }
-        }.padding(.top, 4)
+        }
       }
     }
-    .padding(.top, 14)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: period)
     .onChange(of: storedPeriod) { _, _ in
       if let selectedDate, !days.contains(where: { $0.date == selectedDate }) {
@@ -1144,7 +1101,7 @@ struct ActivityHeatmap: View {
     Canvas { context, _ in
       for row in [1, 3, 5] {
         context.draw(Text(row == 1 ? "M" : row == 3 ? "W" : "F")
-          .font(AIMTheme.sans(7, weight: .medium)).foregroundStyle(AIMTheme.faint),
+          .font(AIMTextRole.secondary.font).foregroundStyle(.secondary),
           at: CGPoint(x: 5, y: CGFloat(row) * pitch + size / 2))
       }
       for (column, week) in weeks.enumerated() {
@@ -1156,16 +1113,17 @@ struct ActivityHeatmap: View {
           let intensity = maximumTokens > 0
             ? 0.24 + 0.70 * sqrt(Double(day.tokens) / Double(maximumTokens)) : 0
           context.fill(path, with: .color(day.tokens > 0
-            ? AIMTheme.green.opacity(intensity) : AIMTheme.control.opacity(0.58)))
-          context.stroke(path, with: .color(selectedDate == day.date
-            ? AIMTheme.ink : AIMTheme.lineSoft.opacity(0.55)), lineWidth: 1)
+            ? AIMTheme.green.opacity(intensity) : AIMTheme.track))
+          if selectedDate == day.date {
+            context.stroke(path, with: .color(.primary), lineWidth: 1)
+          }
         }
       }
     }
     .frame(width: 15 + CGFloat(weeks.count) * pitch - 3, height: 7 * pitch - 3)
     .overlay(alignment: .topLeading) {
       RoundedRectangle(cornerRadius: max(1, size * 0.18))
-        .fill(AIMTheme.ink).frame(width: size, height: size)
+        .fill(Color.primary).frame(width: size, height: size)
         .opacity(hoverDay == nil ? 0 : 0.07)
         .offset(x: 15 + floor(max(0, hovered.x - 15) / pitch) * pitch,
                 y: floor(max(0, hovered.y) / pitch) * pitch)
@@ -1222,7 +1180,7 @@ private struct ActivityCell: View {
   let select: () -> Void
   private var fill: Color {
     guard day.tokens > 0, maximumTokens > 0 else {
-      return AIMTheme.control.opacity(0.58)
+      return AIMTheme.track
     }
     let intensity = 0.24 + 0.70 * sqrt(Double(day.tokens) / Double(maximumTokens))
     return AIMTheme.green.opacity(intensity)
@@ -1233,8 +1191,9 @@ private struct ActivityCell: View {
       RoundedRectangle(cornerRadius: max(1, size * 0.18))
         .fill(fill)
         .overlay {
-          RoundedRectangle(cornerRadius: max(1, size * 0.18))
-            .stroke(selected ? AIMTheme.ink : AIMTheme.lineSoft.opacity(0.55), lineWidth: 1)
+          if selected {
+            RoundedRectangle(cornerRadius: max(1, size * 0.18)).stroke(Color.primary, lineWidth: 1)
+          }
         }
         .frame(width: size, height: size)
         .contentShape(Rectangle())
@@ -1291,128 +1250,92 @@ private struct AccountUsagePanel: View {
   private var monthlyCredits: CodexMonthlyCredits? { snapshot?.extras?.monthlyCredits }
 
   var body: some View {
-    AIMPanel(title: "Usage", importance: .primary) {
-      VStack(spacing: 0) {
-        if let snapshot {
-          VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-              Text(CodexPlanNames.display(snapshot.account?.plan) ?? "Codex usage")
-                .font(AIMTheme.sans(13, weight: .semibold))
-              Spacer()
-              usageStatus
-            }
-            .padding(.horizontal, 16).padding(.bottom, 14)
+    Section("Usage") {
+      if let snapshot {
+        LabeledContent(CodexPlanNames.display(snapshot.account?.plan) ?? "Codex usage") {
+          usageStatus
+        }
 
-            let accountFacts = UsagePresentation.accountFacts(snapshot)
-            let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
-            if !accountFacts.isEmpty || !summaryFacts.isEmpty {
-              // One row when it fits; the facts wrap into a grid in a narrow window.
-              ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                  ForEach(accountFacts) { fact in
-                    UsageFact(label: fact.label, value: fact.value, help: fact.help)
-                  }
-                  Spacer(minLength: 12)
-                  ForEach(summaryFacts) { fact in
-                    UsageFact(label: fact.label, value: fact.value)
-                  }
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                LazyVGrid(
-                  columns: [GridItem(.adaptive(minimum: 110), alignment: .topLeading)],
-                  alignment: .leading, spacing: 10
-                ) {
-                  ForEach(accountFacts) { fact in
-                    UsageFact(label: fact.label, value: fact.value, help: fact.help)
-                  }
-                  ForEach(summaryFacts) { fact in
-                    UsageFact(label: fact.label, value: fact.value)
-                  }
-                }
-              }
-              .padding(.horizontal, 16).padding(.bottom, 14)
-            }
+        ForEach(limitBuckets, id: \.key) { item in
+          UsageBucket(
+            bucket: item.value,
+            fallbackName: item.key,
+            accountID: account.id,
+            refresh: { Task { await model.refreshUsage(accountID: account.id) } }
+          )
+        }
 
-            ForEach(Array(limitBuckets.enumerated()), id: \.element.key) { index, item in
-              UsageBucket(
-                bucket: item.value,
-                fallbackName: item.key,
-                accountID: account.id,
-                refresh: { Task { await model.refreshUsage(accountID: account.id) } }
-              )
-              .padding(.vertical, 12)
-              .padding(.horizontal, 16)
-              .background(index.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe)
-            }
-
-            if let monthlyCredits {
-              MonthlyCreditsRow(
-                accountID: account.id, credits: monthlyCredits,
-                background: limitBuckets.count.isMultiple(of: 2) ? AIMTheme.panel2 : AIMTheme.listStripe
-              ) {
-                Task { await model.refreshUsage(accountID: account.id) }
-              }
-            }
-
-            HiddenUsageRowsNote(
-              accountID: account.id,
-              rowIDs: limitBuckets.flatMap { item in
-                ["primary", "secondary"].map { "\(item.key)/\($0)" }
-              } + (monthlyCredits == nil ? [] : [MonthlyCreditsRow.rowID]))
-
-            if monthlyCredits == nil, !limitBuckets.contains(where: { UsagePresentation.hasRateLimits($0.value) }) {
-              UsageUnavailableRow(text: "Rate limits unavailable")
-            }
-
-            if !model.dailyUsage(for: account.id).isEmpty {
-              UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
-                .padding(.horizontal, 16)
-            }
-          }
-          .padding(.vertical, 16)
-        } else {
-          HStack(spacing: 12) {
-            AIMIcon(name: .info, size: 15).foregroundStyle(AIMTheme.muted)
-            VStack(alignment: .leading, spacing: 3) {
-              Text(UsagePresentation.emptyUsageTitle(
-                failure: usageFailure, needsSignIn: account.verification.state == .needsSignIn))
-                .font(AIMTheme.sans(12, weight: .semibold))
-              if let failure = usageFailure {
-                Text(failure).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
-              } else {
-                Text("Refresh this saved account without changing the default account.")
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              }
-            }
-            Spacer()
-            if let failure = usageFailure {
-              WarningCopyButton(label: "Copy usage error") { model.copyWarnings([failure]) }
-            }
-            refreshButton
-          }
-          .padding(16)
-          if !model.dailyUsage(for: account.id).isEmpty {
-            UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
-              .padding(.horizontal, 16).padding(.bottom, 16)
+        if let monthlyCredits {
+          MonthlyCreditsRow(accountID: account.id, credits: monthlyCredits) {
+            Task { await model.refreshUsage(accountID: account.id) }
           }
         }
+
+        HiddenUsageRowsNote(
+          accountID: account.id,
+          rowIDs: limitBuckets.flatMap { item in
+            ["primary", "secondary"].map { "\(item.key)/\($0)" }
+          } + (monthlyCredits == nil ? [] : [MonthlyCreditsRow.rowID]))
+
+        if monthlyCredits == nil, !limitBuckets.contains(where: { UsagePresentation.hasRateLimits($0.value) }) {
+          UsageUnavailableRow(text: "Rate limits unavailable")
+        }
+      } else {
+        HStack(spacing: AIMTheme.sectionSpacing) {
+          AIMIcon(name: .info).aimText(.body).foregroundStyle(.secondary)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(UsagePresentation.emptyUsageTitle(
+              failure: usageFailure, needsSignIn: account.verification.state == .needsSignIn))
+              .aimText(.body)
+            if let failure = usageFailure {
+              Text(failure).aimText(.secondary, tint: AIMTheme.amber)
+            } else {
+              Text("Refresh this saved account without changing the default account.")
+                .aimText(.secondary)
+            }
+          }
+          Spacer()
+          if let failure = usageFailure {
+            WarningCopyButton(label: "Copy usage error") { model.copyWarnings([failure]) }
+          }
+          refreshButton
+        }
+      }
+    }
+    if let snapshot {
+      let accountFacts = UsagePresentation.accountFacts(snapshot)
+      let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
+      if !accountFacts.isEmpty || !summaryFacts.isEmpty {
+        Section("Usage facts") {
+          ForEach(accountFacts) { fact in
+            UsageFact(label: fact.label, value: fact.value, help: fact.help)
+          }
+          ForEach(summaryFacts) { fact in
+            UsageFact(label: fact.label, value: fact.value)
+          }
+        }
+      }
+    }
+    if !model.dailyUsage(for: account.id).isEmpty {
+      Section("Daily activity") {
+        UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
       }
     }
   }
 
   @ViewBuilder private var usageStatus: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: AIMTheme.rowSpacing) {
       if let failure = usageFailure {
-        Text(failure).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber).lineLimit(1)
+        Text(failure).aimText(.secondary, tint: AIMTheme.amber).lineLimit(1)
           .help(failure)
         WarningCopyButton(label: "Copy usage error") {
           model.copyWarnings([failure])
         }
       } else if let fetchedAt = snapshot?.fetchedAt {
         Text(cached?.isStale == true ? "Cached" : "Updated")
-          .font(AIMTheme.sans(10, weight: .medium)).foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary)
         Text(fetchedAt.formatted(date: .omitted, time: .shortened))
-          .font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary).monospacedDigit()
       }
       refreshButton
     }
@@ -1449,36 +1372,32 @@ private struct UsageBucket: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .firstTextBaseline, spacing: 12) {
+    VStack(alignment: .leading, spacing: AIMTheme.sectionSpacing) {
+      HStack(alignment: .firstTextBaseline, spacing: AIMTheme.sectionSpacing) {
         Text(AccountUsagePanel.title(of: bucket, key: fallbackName))
-          .font(AIMTheme.sans(11, weight: .semibold)).lineLimit(1)
+          .aimText(.section).lineLimit(1)
         if let model = bucket.model, !model.isEmpty {
-          Text(model).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+          Text(model).aimText(.secondary, monospaced: true).lineLimit(1)
         }
         Spacer()
         if let plan = CodexPlanNames.display(UsagePresentation.nonempty(bucket.plan)) {
-          Text(plan)
-            .font(AIMTheme.sans(9, weight: .medium)).foregroundStyle(AIMTheme.muted)
+          Text(plan).aimText(.secondary)
         }
       }
       let rows = bucket.windowRows(idPrefix: "\(fallbackName)/")
       if !rows.isEmpty {
         let hidden = HiddenUsageRows.parse(hiddenRaw)
-        HStack(spacing: 20) {
-          ForEach(rows.filter { !hidden.contains($0.id) }) { row in
-            UsageMeter(window: row.usage)
-              .usageRowMenu(accountID: accountID, rowID: row.id, refresh: refresh)
-          }
+        ForEach(rows.filter { !hidden.contains($0.id) }) { row in
+          UsageMeter(window: row.usage)
+            .usageRowMenu(accountID: accountID, rowID: row.id, refresh: refresh)
         }
       }
       let credits = UsagePresentation.credits(bucket.credits)
       let spendControl = UsagePresentation.spendControl(bucket.spendControlReached)
       if credits != nil || spendControl != nil {
-        HStack(spacing: 20) {
+        VStack(spacing: AIMTheme.rowSpacing) {
           if let credits { UsageFact(label: "Credits", value: credits) }
           if let spendControl { UsageFact(label: "Spend control", value: spendControl) }
-          Spacer()
         }
       }
     }
@@ -1488,12 +1407,11 @@ private struct UsageBucket: View {
 struct UsageUnavailableRow: View {
   let text: String
   var body: some View {
-    HStack(spacing: 8) {
-      AIMIcon(name: .info, size: 12).foregroundStyle(AIMTheme.muted)
-      Text(text).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+    HStack(spacing: AIMTheme.rowSpacing) {
+      AIMIcon(name: .info).aimText(.secondary)
+      Text(text).aimText(.secondary)
       Spacer()
     }
-    .padding(.horizontal, 12).frame(height: 34).background(AIMTheme.panel2)
   }
 }
 
@@ -1513,16 +1431,12 @@ private struct MonthlyCreditsRow: View {
   static let rowID = "monthly-credits"
   let accountID: UUID
   let credits: CodexMonthlyCredits
-  let background: Color
   let refresh: () -> Void
   @AppStorage private var hiddenRaw: String
 
-  init(
-    accountID: UUID, credits: CodexMonthlyCredits, background: Color, refresh: @escaping () -> Void
-  ) {
+  init(accountID: UUID, credits: CodexMonthlyCredits, refresh: @escaping () -> Void) {
     self.accountID = accountID
     self.credits = credits
-    self.background = background
     self.refresh = refresh
     _hiddenRaw = AppStorage(wrappedValue: "", HiddenUsageRows.key(for: accountID))
   }
@@ -1531,8 +1445,6 @@ private struct MonthlyCreditsRow: View {
     if !HiddenUsageRows.parse(hiddenRaw).contains(Self.rowID) {
       UsageMeter(window: credits.window)
         .usageRowMenu(accountID: accountID, rowID: Self.rowID, refresh: refresh)
-        .padding(.vertical, 12).padding(.horizontal, 16)
-        .background(background)
     }
   }
 }
@@ -1561,12 +1473,16 @@ private struct TokenPeriodPicker: View {
   @Binding var selection: CodexTokenPeriod
 
   var body: some View {
-    AIMSegmentedPicker(
-      options: CodexTokenPeriod.allCases,
-      selection: $selection,
-      accessibilityLabel: "Token period",
-      label: \.label)
-      .controlSize(.small)
+    // Five periods are too many for a segmented control, so they sit in a pop-up menu.
+    Picker("Token period", selection: $selection) {
+      ForEach(CodexTokenPeriod.allCases, id: \.self) { period in
+        Text(period.label).tag(period)
+      }
+    }
+    .pickerStyle(.menu)
+    .labelsHidden()
+    .fixedSize()
+    .accessibilityLabel("Token period")
   }
 }
 
@@ -1576,25 +1492,20 @@ private struct TokenStatistic: View {
   let price: CodexAPIPrice?
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 7) {
+    HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
       Text(UsagePresentation.formatTokens(tokens))
-        .font(AIMTheme.mono(18, weight: .semibold))
+        .aimText(.body)
         .monospacedDigit()
-      Text("tokens")
-        .font(AIMTheme.sans(10, weight: .medium))
-        .foregroundStyle(AIMTheme.muted)
+      Text("tokens").aimText(.secondary)
       if let price {
-        Text("·")
-          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.faint)
+        Text("·").aimText(.secondary)
         Text("≈\(UsagePresentation.formatCurrency(price.inputEquivalent(for: tokens))) API input rate")
-          .font(AIMTheme.sans(10, weight: .medium))
-          .foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary)
           .lineLimit(1)
       }
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .frame(height: 36)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(period.label)
     .accessibilityValue(detail)
@@ -1618,32 +1529,27 @@ struct UsageFact: View {
   let value: String
   var help: String? = nil
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(label).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
-      Text(value).font(AIMTheme.sans(11, weight: .medium)).monospacedDigit()
+    LabeledContent(label) {
+      Text(value).monospacedDigit()
     }
     .help(help ?? "")
   }
 }
 
+/// One fact of a grouped form: the label in Body and the value on the trailing side. Paths use
+/// the monospaced Secondary style and copy on click.
 struct DetailRow: View {
   let label: String, value: String
-  var zebra = false
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 16) {
-      Text(label).font(AIMTheme.sans(11, weight: .medium)).frame(width: 118, alignment: .leading)
-      Group {
-        // Paths use the system monospaced font; other values read in the system font.
-        if value.hasPrefix("/") || value.hasPrefix("~/") {
-          AIMCopyablePath(path: value)
-        } else {
-          Text(value).font(.subheadline).lineLimit(1).truncationMode(.middle)
-            .textSelection(.enabled).help(value)
-        }
-      }.foregroundStyle(AIMTheme.muted)
-      Spacer()
-    }.padding(.horizontal, 16).frame(minHeight: 40).background(
-      zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
+    LabeledContent(label) {
+      // Paths use the system monospaced font; other values read in the system font.
+      if value.hasPrefix("/") || value.hasPrefix("~/") {
+        AIMCopyablePath(path: value)
+      } else {
+        Text(value).lineLimit(1).truncationMode(.middle)
+          .textSelection(.enabled).help(value)
+      }
+    }
   }
 }
 
@@ -1675,9 +1581,9 @@ private struct CleanupPage: View {
   }
 
   var body: some View {
-    AIMScrollView {
-      VStack(alignment: .leading, spacing: AIMTheme.cardSpacing) {
-        HStack(spacing: 12) {
+    Form {
+      Section {
+        HStack(spacing: AIMTheme.sectionSpacing) {
           CleanupRangeSelect(selection: $range).disabled(unavailable)
           if range == .custom {
             DatePicker("From", selection: $from, displayedComponents: .date)
@@ -1687,153 +1593,157 @@ private struct CleanupPage: View {
           if loading { ProgressView().controlSize(.small) }
           AIMButton(title: "Reload", icon: .refresh, disabled: unavailable) { Task { await reload() } }
         }
-        AIMPanel(title: "Conversations", importance: .primary, headerAccessories: AnyView(
+      }
+      Section {
+        if visibleConversations.isEmpty {
+          HStack {
+            Text("No conversations match this time range.").aimText(.secondary)
+            Spacer()
+            if range != .all {
+              AIMButton(title: "Show all") { range = .all }
+            }
+          }
+        } else {
+          Text("Choose projects or conversations. Dates use their last update.")
+            .aimText(.secondary)
+          if visibleConversations.contains(where: { !$0.archived }) {
+            conversationTree(archived: false)
+          }
+          if visibleConversations.contains(where: \.archived) {
+            conversationTree(archived: true)
+          }
+        }
+      } header: {
+        HStack {
+          Text("Conversations")
+          Spacer()
           Text("\(visibleConversations.count.formatted()) conversations · Shared · Codex CLI")
-            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted))) {
-          VStack(alignment: .leading, spacing: 12) {
-            if visibleConversations.isEmpty {
-              HStack {
-                Text("No conversations match this time range.").foregroundStyle(AIMTheme.muted)
-                Spacer()
-                if range != .all {
-                  AIMButton(title: "Show all") { range = .all }
-                }
-              }
-            } else {
-              Text("Choose projects or conversations. Dates use their last update.")
-                .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              if visibleConversations.contains(where: { !$0.archived }) {
-                conversationTree(archived: false)
-              }
-              if visibleConversations.contains(where: \.archived) {
-                conversationTree(archived: true)
-              }
-            }
-          }.padding(16).frame(maxWidth: .infinity, alignment: .leading).disabled(unavailable)
+            .aimText(.secondary)
         }
-        AIMPanel(title: "Cached data", headerAccessories: AnyView(
-          Text("\(visibleSamples.count.formatted()) samples")
-            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted))) {
-          VStack(alignment: .leading, spacing: 12) {
-            DisclosureGroup("Usage history by account") {
-              let grouped = Dictionary(grouping: visibleSamples, by: \.accountID)
-              VStack(alignment: .leading, spacing: 8) {
-                ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
-                  let entries = grouped[accountID] ?? []
-                  let name = EmailPrivacy.display(
-                    model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString,
-                    hide: hideEmails)
-                  Toggle("\(name) · \(entries.count.formatted()) samples · \(sizeText(entries.reduce(0) { $0 + $1.bytes }))", isOn: Binding(
-                    get: { entries.allSatisfy { selectedSamples.contains($0.id) } },
-                    set: { enabled in
-                      let ids = Set(entries.map(\.id))
-                      if enabled { selectedSamples.formUnion(ids) } else { selectedSamples.subtract(ids) }
-                      review = nil
-                    })).toggleStyle(.checkbox).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if visibleSamples.isEmpty { Text("No cached samples in this date range.").foregroundStyle(AIMTheme.muted) }
-              }
-              .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .disabled(unavailable)
+      Section {
+        DisclosureGroup("Usage history by account") {
+          let grouped = Dictionary(grouping: visibleSamples, by: \.accountID)
+          VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+            ForEach(grouped.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { accountID in
+              let entries = grouped[accountID] ?? []
+              let name = EmailPrivacy.display(
+                model.status?.accounts.first { $0.id == accountID }?.identity.email ?? accountID.uuidString,
+                hide: hideEmails)
+              Toggle("\(name) · \(entries.count.formatted()) samples · \(sizeText(entries.reduce(0) { $0 + $1.bytes }))", isOn: Binding(
+                get: { entries.allSatisfy { selectedSamples.contains($0.id) } },
+                set: { enabled in
+                  let ids = Set(entries.map(\.id))
+                  if enabled { selectedSamples.formUnion(ids) } else { selectedSamples.subtract(ids) }
+                  review = nil
+                })).toggleStyle(.checkbox).frame(maxWidth: .infinity, alignment: .leading)
             }
-            Toggle("Shared conversation index · \(sizeText(sizes.conversationBytes))", isOn: $clearIndex)
-              .toggleStyle(.checkbox).disabled(range != .all || sizes.conversationBytes == 0)
-              .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
-            Text("Caches rebuild when needed. Daily activity stays saved.")
-              .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-          }.padding(16).disabled(unavailable)
+            if visibleSamples.isEmpty { Text("No cached samples in this date range.").aimText(.secondary) }
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
+        Toggle("Shared conversation index · \(sizeText(sizes.conversationBytes))", isOn: $clearIndex)
+          .toggleStyle(.checkbox).disabled(range != .all || sizes.conversationBytes == 0)
+          .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
+        Text("Caches rebuild when needed. Daily activity stays saved.")
+          .aimText(.secondary)
+      } header: {
+        HStack {
+          Text("Cached data")
+          Spacer()
+          Text("\(visibleSamples.count.formatted()) samples").aimText(.secondary)
+        }
+      }
+      .disabled(unavailable)
+      Section {
         let protectedCount = conversations.filter { $0.exclusionReason != nil }.count
         if protectedCount > 0 {
           HStack(spacing: 6) {
-            AIMIcon(name: .info, size: 12)
+            AIMIcon(name: .info)
             Text("\(protectedCount.formatted()) \(protectedCount == 1 ? "file is" : "files are") protected.")
-          }.font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          }.aimText(.secondary)
             .help("Linked or foreign-owned files cannot be removed. Other conversations remain selectable.")
         }
         HStack {
-          Text("Selected").font(AIMTheme.sans(11, weight: .medium))
+          Text("Selected").aimText(.body)
           Text(selectedConversations.isEmpty && selectedSamples.isEmpty && !clearIndex
             ? "Choose items to review."
             : "\(selectedConversations.count.formatted()) conversations · \(selectedSamples.count.formatted()) samples\(clearIndex ? " · index" : "")")
-            .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+            .aimText(.secondary).monospacedDigit()
           Spacer()
           AIMButton(title: "Review selection", tone: .primary,
             disabled: unavailable || (selectedConversations.isEmpty && selectedSamples.isEmpty && !clearIndex)) {
               Task { await makeReview() }
             }
-        }.padding(12).background(AIMTheme.panel2)
-          .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-        if let review {
-          AIMPanel(title: "Review before cleanup", importance: .primary) {
-            VStack(alignment: .leading, spacing: 10) {
-              if let plan = review.plan {
-                Text("\(plan.conversations.count) conversations · \(sizeText(plan.bytes)) to recoverable trash")
-              }
-              if !review.samples.isEmpty {
-                Text("\(review.samples.count) cache samples · \(sizeText(review.samples.reduce(0) { $0 + $1.bytes })) of cached payloads")
-              }
-              if review.clearIndex { Text("Clear the shared conversation index (\(sizeText(sizes.conversationBytes)))") }
-              Text("\(range.rawValue). Moving conversations does not free disk space. Cached payload bytes exclude database overhead.")
-                .foregroundStyle(AIMTheme.muted)
-              if let plan = review.plan {
-                DisclosureGroup("Selected conversations") {
-                  AIMVirtualList(items: plan.conversations, fixedRowHeight: 32) { item in
-                    AnyView(HStack {
-                      AIMCopyablePath(path: item.relativePath).help(item.title)
-                      Spacer()
-                      Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted)
-                    }.font(AIMTheme.sans(10)).padding(.horizontal, 4))
-                  }.frame(height: min(CGFloat(plan.conversations.count) * 32, 192))
-                }
-              }
-              if !review.samples.isEmpty {
-                DisclosureGroup("Selected cache samples") {
-                  AIMVirtualList(items: review.samples, fixedRowHeight: 30) { sample in
-                    AnyView(HStack {
-                      Text(EmailPrivacy.display(
-                        model.status?.accounts.first { $0.id == sample.accountID }?.identity.email
-                          ?? sample.accountID.uuidString, hide: hideEmails))
-                        .lineLimit(1)
-                      Spacer()
-                      Text(sample.fetchedAt.formatted()).foregroundStyle(AIMTheme.muted)
-                    }.font(AIMTheme.sans(10)).padding(.horizontal, 4))
-                  }.frame(height: min(CGFloat(review.samples.count) * 30, 180))
-                }
-              }
-              HStack {
-                AIMButton(title: "Cancel") { self.review = nil }
-                Spacer()
-                AIMButton(title: "Confirm cleanup", tone: .primary, disabled: unavailable) { confirming = true }
-              }
-            }.padding(16)
+        }
+      }
+      if let review {
+        Section("Review before cleanup") {
+          if let plan = review.plan {
+            Text("\(plan.conversations.count) conversations · \(sizeText(plan.bytes)) to recoverable trash")
+          }
+          if !review.samples.isEmpty {
+            Text("\(review.samples.count) cache samples · \(sizeText(review.samples.reduce(0) { $0 + $1.bytes })) of cached payloads")
+          }
+          if review.clearIndex { Text("Clear the shared conversation index (\(sizeText(sizes.conversationBytes)))") }
+          Text("\(range.rawValue). Moving conversations does not free disk space. Cached payload bytes exclude database overhead.")
+            .aimText(.secondary)
+          if let plan = review.plan {
+            DisclosureGroup("Selected conversations") {
+              AIMVirtualList(items: plan.conversations, fixedRowHeight: 32) { item in
+                AnyView(HStack {
+                  AIMCopyablePath(path: item.relativePath).help(item.title)
+                  Spacer()
+                  Text(sizeText(item.bytes)).aimText(.secondary).monospacedDigit()
+                }.padding(.horizontal, 4))
+              }.frame(height: min(CGFloat(plan.conversations.count) * 32, 192))
+            }
+          }
+          if !review.samples.isEmpty {
+            DisclosureGroup("Selected cache samples") {
+              AIMVirtualList(items: review.samples, fixedRowHeight: 30) { sample in
+                AnyView(HStack {
+                  Text(EmailPrivacy.display(
+                    model.status?.accounts.first { $0.id == sample.accountID }?.identity.email
+                      ?? sample.accountID.uuidString, hide: hideEmails))
+                    .aimText(.body).lineLimit(1)
+                  Spacer()
+                  Text(sample.fetchedAt.formatted()).aimText(.secondary).monospacedDigit()
+                }.padding(.horizontal, 4))
+              }.frame(height: min(CGFloat(review.samples.count) * 30, 180))
+            }
+          }
+          HStack {
+            AIMButton(title: "Cancel") { self.review = nil }
+            Spacer()
+            AIMButton(title: "Confirm cleanup", tone: .primary, disabled: unavailable) { confirming = true }
           }
         }
-        if !trash.isEmpty {
-          AIMPanel(title: "Recoverable conversation trash") {
-            VStack(spacing: 0) {
-              ForEach(trash) { batch in
-                HStack(spacing: 10) {
-                  VStack(alignment: .leading, spacing: 3) {
-                    Text("\(batch.conversations.count.formatted()) conversations · \(sizeText(batch.bytes))")
-                    Text(batch.createdAt.formatted()).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-                  }
-                  Spacer()
-                  AIMButton(title: "Restore", disabled: unavailable) { Task { await restore(batch) } }
-                  AIMButton(title: "Remove permanently", disabled: unavailable) { removingBatch = batch }
-                }.padding(12)
+      }
+      if !trash.isEmpty {
+        Section("Recoverable conversation trash") {
+          ForEach(trash) { batch in
+            HStack(spacing: AIMTheme.sectionSpacing) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text("\(batch.conversations.count.formatted()) conversations · \(sizeText(batch.bytes))")
+                Text(batch.createdAt.formatted()).aimText(.secondary).monospacedDigit()
               }
+              Spacer()
+              AIMButton(title: "Restore", disabled: unavailable) { Task { await restore(batch) } }
+              AIMButton(title: "Remove permanently", disabled: unavailable) { removingBatch = batch }
             }
           }
         }
+      }
+      Section {
         Text("Account access, settings, backups, and saved activity stay unchanged.")
-          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary)
         if let error { Notice(text: error, tone: AIMTheme.amber) }
         if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
-      .font(AIMTheme.sans(11))
-      .frame(maxWidth: .infinity, alignment: .topLeading)
     }
-    .padding(AIMTheme.modalOuterInset)
+    .formStyle(.grouped)
     .task { await reload() }
     .onChange(of: range) { _, _ in resetSelection() }
     .onChange(of: from) { _, _ in resetSelection() }
@@ -1856,13 +1766,13 @@ private struct CleanupPage: View {
     let entries = visibleConversations.filter { $0.archived == archived }
     let grouped = Dictionary(grouping: entries, by: \.project)
     return DisclosureGroup(archived ? "Archived conversations (\(entries.count.formatted()))" : "Active conversations (\(entries.count.formatted()))") {
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
         ForEach(grouped.keys.sorted(), id: \.self) { project in
           let projectEntries = grouped[project] ?? []
           let selectable = projectEntries.filter { $0.exclusionReason == nil }
           DisclosureGroup {
             AIMVirtualList(items: projectEntries, fixedRowHeight: 34) { item in
-              AnyView(HStack(spacing: 8) {
+              AnyView(HStack(spacing: AIMTheme.rowSpacing) {
                 Toggle(item.title, isOn: Binding(
                   get: { selectedConversations.contains(item.id) },
                   set: { enabled in
@@ -1871,9 +1781,11 @@ private struct CleanupPage: View {
                   })).toggleStyle(.checkbox).lineLimit(1)
                   .disabled(item.exclusionReason != nil).help(item.exclusionReason ?? item.relativePath)
                 Spacer(minLength: 4)
-                Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(AIMTheme.muted)
-                Text(sizeText(item.bytes)).foregroundStyle(AIMTheme.muted).frame(width: 65, alignment: .trailing)
-              }.padding(.horizontal, 4).font(AIMTheme.sans(10)))
+                Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted))
+                  .aimText(.secondary).monospacedDigit()
+                Text(sizeText(item.bytes)).aimText(.secondary).monospacedDigit()
+                  .frame(width: 80, alignment: .trailing)
+              }.padding(.horizontal, 4))
             }.frame(height: min(CGFloat(projectEntries.count) * 34, 204))
           } label: {
             Toggle("\(URL(fileURLWithPath: project).lastPathComponent) (\(projectEntries.count.formatted()))", isOn: Binding(
@@ -1886,7 +1798,7 @@ private struct CleanupPage: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
-        if entries.isEmpty { Text("No conversations in this date range.").foregroundStyle(AIMTheme.muted) }
+        if entries.isEmpty { Text("No conversations in this date range.").aimText(.secondary) }
       }.frame(maxWidth: .infinity, alignment: .leading)
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -2119,180 +2031,168 @@ struct SettingsPage: View {
   @State private var resetCount = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    AIMScrollView {
-      VStack(spacing: AIMTheme.cardSpacing) {
-        AIMPanel(title: "App behavior") {
-          VStack(spacing: 0) {
-            launchAtLoginRow
-            settingRow(isOn: $minimizeToTray, title: "Minimize to Menubar", zebra: true) {
-              Text("Hide the window and keep Switch available from its menu-bar icon.")
-            }
-            settingRow(isOn: $showUsageAsUsed, title: "Show percentage used") {
-              Text("Turn off to show the percentage left in every usage view.")
-            }
-            settingRow(isOn: $checkProviderStatus, title: SettingsCopy.checkProviderStatus, zebra: true) {
-              Text(SettingsCopy.checkProviderStatusHelp)
-            }
-            choiceRow(
-              SettingsCopy.resetTimes, SettingsCopy.resetTimesHelp, options: [false, true],
-              selection: $resetIsExact, accessibilityLabel: "Reset time format"
-            ) { $0 ? "Exact time" : "Countdown" }
-            choiceRow(
-              SettingsCopy.timeFormat, SettingsCopy.timeFormatHelp,
-              options: HourFormat.allCases.map(\.rawValue), selection: $hourFormat,
-              accessibilityLabel: "Hour format", zebra: true
-            ) { HourFormat(rawValue: $0)?.label ?? $0 }
-            HStack(spacing: 16) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(SettingsCopy.menuShortcut).font(AIMTheme.sans(11, weight: .medium))
-                Text(SettingsCopy.menuShortcutHelp)
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              }
-              Spacer(minLength: 24)
-              ShortcutRecorder().id(resetCount)
-            }
-            .padding(.horizontal, 16).frame(minHeight: 48)
-            settingRow(isOn: $refreshOnOpen, title: SettingsCopy.refreshOnOpen, zebra: true) {
-              Text(SettingsCopy.refreshOnOpenHelp)
-            }
+    Form {
+      Section("App behavior") {
+        launchAtLoginRow
+        Toggle(isOn: $minimizeToTray) {
+          Text("Minimize to Menubar")
+          Text("Hide the window and keep Switch available from its menu-bar icon.")
+            .aimText(.secondary)
+        }
+        Toggle(isOn: $showUsageAsUsed) {
+          Text("Show percentage used")
+          Text("Turn off to show the percentage left in every usage view.").aimText(.secondary)
+        }
+        Toggle(isOn: $checkProviderStatus) {
+          Text(SettingsCopy.checkProviderStatus)
+          Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary)
+        }
+        Picker(selection: $resetIsExact) {
+          Text("Countdown").tag(false)
+          Text("Exact time").tag(true)
+        } label: {
+          Text(SettingsCopy.resetTimes)
+          Text(SettingsCopy.resetTimesHelp).aimText(.secondary)
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Reset time format")
+        Picker(selection: $hourFormat) {
+          ForEach(HourFormat.allCases, id: \.rawValue) { format in
+            Text(format.label).tag(format.rawValue)
+          }
+        } label: {
+          Text(SettingsCopy.timeFormat)
+          Text(SettingsCopy.timeFormatHelp).aimText(.secondary)
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Hour format")
+        LabeledContent {
+          ShortcutRecorder().id(resetCount)
+        } label: {
+          Text(SettingsCopy.menuShortcut)
+          Text(SettingsCopy.menuShortcutHelp).aimText(.secondary)
+        }
+        Toggle(isOn: $refreshOnOpen) {
+          Text(SettingsCopy.refreshOnOpen)
+          Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary)
+        }
+      }
+      Section(SettingsCopy.notificationsTitle) {
+        ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { _, row in
+          Toggle(isOn: notificationBinding(row.key)) {
+            Text(row.title)
+            Text(row.help).aimText(.secondary)
           }
         }
-        AIMPanel(title: SettingsCopy.notificationsTitle) {
-          VStack(spacing: 0) {
-            ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { index, row in
-              settingRow(
-                isOn: notificationBinding(row.key), title: row.title, zebra: !index.isMultiple(of: 2)
-              ) { Text(row.help) }
-            }
-            if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
-              HStack(spacing: 12) {
-                AIMIcon(name: .warning, size: 14).foregroundStyle(AIMTheme.amber)
-                Text("Notifications are turned off for Switch in System Settings.")
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-                Spacer(minLength: 16)
-                AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
-              }
-              .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-            }
+        if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
+          LabeledContent {
+            AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
+          } label: {
+            Label("Notifications are turned off for Switch in System Settings.",
+                  systemImage: AIMIcon.Name.warning.symbol)
+              .foregroundStyle(AIMTheme.amber)
           }
         }
-        AIMPanel(title: "Claude Code") {
-          settingRow(
-            isOn: Binding(
-              get: { model.claudeShellIntegrationOn },
-              set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } }),
-            title: SettingsCopy.claudeShell
-          ) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(SettingsCopy.claudeShellHelp)
-              if let error = model.claudeShellIntegrationError {
-                Text(error).foregroundStyle(AIMTheme.red)
-              }
-            }
+      }
+      Section("Claude Code") {
+        Toggle(isOn: Binding(
+          get: { model.claudeShellIntegrationOn },
+          set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
+        ) {
+          Text(SettingsCopy.claudeShell)
+          Text(SettingsCopy.claudeShellHelp).aimText(.secondary)
+          if let error = model.claudeShellIntegrationError {
+            Text(error).aimText(.secondary, tint: AIMTheme.red)
           }
         }
-        AIMPanel(title: "Privacy") {
-          settingRow(isOn: $hideEmails, title: SettingsCopy.hideEmails) {
-            Text(SettingsCopy.hideEmailsHelp)
+      }
+      Section("Privacy") {
+        Toggle(isOn: $hideEmails) {
+          Text(SettingsCopy.hideEmails)
+          Text(SettingsCopy.hideEmailsHelp).aimText(.secondary)
+        }
+      }
+      Section("Reset") {
+        LabeledContent {
+          AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
+        } label: {
+          Text(SettingsCopy.resetSettings)
+          Text(SettingsCopy.resetSettingsHelp).aimText(.secondary)
+        }
+      }
+      Section("Menubar defaults") {
+        Toggle(isOn: $defaultShowUsage) {
+          Text("Show account usage")
+          Text("Accounts without their own choice show cached usage in Menubar.")
+            .aimText(.secondary)
+        }
+        Picker(selection: $menuTokenPeriod) {
+          ForEach(MenuBarTokenPeriod.allCases) { period in
+            Text(period.label).tag(period.rawValue)
+          }
+        } label: {
+          Text("Token summary")
+          Text("Choose the period shown beside each account’s usage.").aimText(.secondary)
+        }
+        .pickerStyle(.menu)
+        .accessibilityLabel("Menubar token period")
+      }
+      #if AI_MANAGER_PREVIEW
+      if model.isDemo {
+        Section("Demo states") {
+          HStack(spacing: AIMTheme.rowSpacing) {
+            AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
+            AIMButton(title: "Empty state") { model.reset(to: .empty) }
+            AIMButton(title: "Issues and backups") { model.reset(to: .allStates) }
+            Spacer()
+          }
+          HStack(spacing: AIMTheme.rowSpacing) {
+            AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
+              Task { await model.refresh() }
+            }
+            Spacer()
+            AIMButton(title: "Show demo error", tone: .danger) { model.showDemoError() }
           }
         }
-        AIMPanel(title: "Reset") {
-          HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(SettingsCopy.resetSettings).font(AIMTheme.sans(11, weight: .medium))
-              Text(SettingsCopy.resetSettingsHelp)
-                .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-            }
-            Spacer(minLength: 24)
-            AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
-          }
-          .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+      }
+      #endif
+      Section("Data locations") {
+        DataLocationRow(
+          title: "Codex home",
+          detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
+          path: model.paths.defaultHome.path
+        ) {
+          model.showDataLocation(model.paths.defaultHome, name: "Codex home")
         }
-        AIMPanel(title: "Menubar defaults") {
-          VStack(spacing: 0) {
-            settingRow(isOn: $defaultShowUsage, title: "Show account usage") {
-              Text("Accounts without their own choice show cached usage in Menubar.")
-            }
-            HStack(spacing: 16) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text("Token summary").font(AIMTheme.sans(11, weight: .medium))
-                Text("Choose the period shown beside each account’s usage.")
-                  .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-              }
-              Spacer(minLength: 20)
-              AIMSegmentedPicker(
-                options: MenuBarTokenPeriod.allCases.map(\.rawValue),
-                selection: $menuTokenPeriod,
-                accessibilityLabel: "Menubar token period"
-              ) { value in
-                MenuBarTokenPeriod(rawValue: value)?.label ?? value
-              }
-            }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 48)
-            .background(AIMTheme.listStripe)
-          }
+        DataLocationRow(
+          title: "Codex account vault",
+          detail: "Private Codex auth.json snapshots.",
+          path: model.paths.credentialStore.path
+        ) {
+          model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
         }
-        #if AI_MANAGER_PREVIEW
-        if model.isDemo {
-          AIMPanel(title: "Demo states") {
-            HStack(spacing: 4) {
-              AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
-              AIMButton(title: "Empty state") { model.reset(to: .empty) }
-              AIMButton(title: "Issues and backups") { model.reset(to: .allStates) }
-              AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
-                Task { await model.refresh() }
-              }
-              Spacer()
-              AIMButton(title: "Show demo error", tone: .danger) { model.showDemoError() }
-            }.padding(12)
-          }
+        DataLocationRow(
+          title: "Grok Build home",
+          detail: "Grok configuration, rules, plugins, sessions, and the active login.",
+          path: model.paths.grokHome.path
+        ) {
+          model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
         }
-        #endif
-        AIMPanel(title: "Data locations") {
-          VStack(spacing: 0) {
-            DataLocationRow(
-              title: "Codex home",
-              detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
-              path: model.paths.defaultHome.path
-            ) {
-              model.showDataLocation(model.paths.defaultHome, name: "Codex home")
-            }
-            DataLocationRow(
-              title: "Codex account vault",
-              detail: "Private Codex auth.json snapshots.",
-              path: model.paths.credentialStore.path,
-              zebra: true
-            ) {
-              model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
-            }
-            DataLocationRow(
-              title: "Grok Build home",
-              detail: "Grok configuration, rules, plugins, sessions, and the active login.",
-              path: model.paths.grokHome.path
-            ) {
-              model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
-            }
-            DataLocationRow(
-              title: "Grok Build account vault",
-              detail: "Private Grok subscription OAuth snapshots.",
-              path: model.paths.grokCredentialStore.path,
-              zebra: true
-            ) {
-              model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
-            }
-          }
+        DataLocationRow(
+          title: "Grok Build account vault",
+          detail: "Private Grok subscription OAuth snapshots.",
+          path: model.paths.grokCredentialStore.path
+        ) {
+          model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
         }
-        Group {
-          if let notice = model.notice {
-            Notice(text: notice, tone: AIMTheme.blue)
-              .transition(reduceMotion ? .identity : .opacity)
-          }
-        }
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
+      }
+      if let notice = model.notice {
+        Section { Notice(text: notice, tone: AIMTheme.blue) }
+          .transition(reduceMotion ? .identity : .opacity)
       }
     }
-    .padding(AIMTheme.modalOuterInset)
+    .formStyle(.grouped)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
     .onAppear { launchAtLogin.refresh() }
     .confirmationDialog(
       "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
@@ -2319,25 +2219,6 @@ struct SettingsPage: View {
     model.providerStatusSettingChanged()
   }
 
-  /// A row with a label, help text, and a grouped choice on the right.
-  private func choiceRow<Option: Hashable>(
-    _ title: String, _ help: String, options: [Option], selection: Binding<Option>,
-    accessibilityLabel: String, zebra: Bool = false, label: @escaping (Option) -> String
-  ) -> some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(AIMTheme.sans(11, weight: .medium))
-        Text(help).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-      }
-      Spacer(minLength: 20)
-      AIMSegmentedPicker(
-        options: options, selection: selection, accessibilityLabel: accessibilityLabel, label: label)
-    }
-    .padding(.horizontal, 16)
-    .frame(minHeight: 48)
-    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
-  }
-
   /// A toggle that asks macOS for notification permission the first time it turns on.
   private func notificationBinding(_ key: String) -> Binding<Bool> {
     let stored: Binding<Bool>
@@ -2355,43 +2236,20 @@ struct SettingsPage: View {
       })
   }
 
-  private var launchAtLoginRow: some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text("Open at Login").font(AIMTheme.sans(11, weight: .medium))
-        Text(launchAtLogin.detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-      }
-      Spacer(minLength: 24)
-      if launchAtLogin.requiresApproval {
+  @ViewBuilder private var launchAtLoginRow: some View {
+    Toggle(isOn: Binding(
+      get: { launchAtLogin.isOn },
+      set: launchAtLogin.setEnabled)
+    ) {
+      Text("Open at Login")
+      Text(launchAtLogin.detail).aimText(.secondary)
+    }
+    .disabled(!launchAtLogin.canChange)
+    if launchAtLogin.requiresApproval {
+      LabeledContent("Approval needed") {
         AIMButton(title: "Open Login Items", action: launchAtLogin.openLoginItems)
       }
-      Toggle("", isOn: Binding(
-        get: { launchAtLogin.isOn },
-        set: launchAtLogin.setEnabled))
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-        .disabled(!launchAtLogin.canChange)
-        .accessibilityLabel("Open at Login")
     }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-  }
-
-  private func settingRow<Description: View>(
-    isOn: Binding<Bool>, title: String, zebra: Bool = false,
-    @ViewBuilder description: () -> Description
-  ) -> some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(AIMTheme.sans(11, weight: .medium))
-        description().font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-      }
-      Spacer(minLength: 24)
-      Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
-        .accessibilityLabel(title)
-    }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
 
@@ -2399,22 +2257,16 @@ private struct DataLocationRow: View {
   let title: String
   let detail: String
   let path: String
-  var zebra = false
   let reveal: () -> Void
 
   var body: some View {
-    HStack(alignment: .center, spacing: 16) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(title).font(AIMTheme.sans(11, weight: .semibold))
-        Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-        AIMCopyablePath(path: path).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.faint)
-      }
-      Spacer(minLength: 20)
+    LabeledContent {
       AIMButton(title: "Reveal", icon: .folder, action: reveal)
+    } label: {
+      Text(title)
+      Text(detail).aimText(.secondary)
+      AIMCopyablePath(path: path)
     }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
-    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
 
@@ -2429,11 +2281,11 @@ private struct HistoryPage: View {
   @State private var threadQuery = ""
 
   var body: some View {
-    HStack(spacing: AIMTheme.cardSpacing) {
+    HStack(spacing: 0) {
       VStack(spacing: 0) {
         HStack(spacing: 0) {
-          Text("Conversations").font(.headline)
-          Spacer(minLength: 8)
+          Text("Conversations").aimText(.section)
+          Spacer(minLength: AIMTheme.rowSpacing)
           if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
             WarningCopyButton(label: "Copy history warning") {
               model.copyWarnings([historyIssueText])
@@ -2443,7 +2295,7 @@ private struct HistoryPage: View {
           }
           Group {
             if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
-              ProgressView().controlSize(.mini).scaleEffect(0.75)
+              ProgressView().controlSize(.small)
             } else {
               HStack(spacing: 6) {
                 if let error = model.chatHistoryError {
@@ -2452,8 +2304,7 @@ private struct HistoryPage: View {
                     .accessibilityLabel(error)
                 }
                 Text(historyCountText)
-                  .font(AIMTheme.sans(9))
-                  .foregroundStyle(AIMTheme.muted)
+                  .aimText(.secondary)
                   .monospacedDigit()
                   .contentTransition(.numericText())
               }
@@ -2462,48 +2313,45 @@ private struct HistoryPage: View {
           .frame(width: HistoryHeaderLayout.countWidth,
             height: HistoryHeaderLayout.height, alignment: .trailing)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 8)
+        .padding(.leading, AIMTheme.sectionSpacing)
+        .padding(.trailing, AIMTheme.rowSpacing)
         .frame(height: HistoryHeaderLayout.height)
-        .background(AIMTheme.panel2)
 
         HistorySearchField(text: $threadQuery, placeholder: "Search conversations")
-          .padding(.horizontal, 10)
-          .frame(height: 48)
+          .padding(.horizontal, AIMTheme.sectionSpacing)
+          .padding(.bottom, AIMTheme.rowSpacing)
 
         if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
-          VStack(spacing: 10) {
+          VStack(spacing: AIMTheme.rowSpacing) {
             ProgressView().controlSize(.small)
-            Text("Reading chat library").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            Text("Reading chat library").aimText(.secondary)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.chatHistory.threads.isEmpty {
-          VStack(spacing: 7) {
-            AIMIcon(name: .history, size: 18).foregroundStyle(AIMTheme.muted)
+          VStack(spacing: 4) {
+            AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
             Text(threadQuery.isEmpty ? "No conversations yet" : "No matching conversations")
-              .font(AIMTheme.sans(11, weight: .medium))
+              .aimText(.body)
             Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
-              .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+              .aimText(.secondary)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-          AIMVirtualList(items: threadItems, rowSpacing: 0, fixedRowHeight: 50) { item in
-            AnyView(ChatThreadRow(
-              thread: item.thread,
-              selected: item.selected,
-              striped: item.striped
-            ) { Task { await model.selectChat(item.id) } })
+          List(model.chatHistory.threads, selection: Binding(
+            get: { model.selectedChatID },
+            set: { if let id = $0 { Task { await model.selectChat(id) } } })
+          ) { thread in
+            ChatThreadRow(thread: thread)
           }
+          .listStyle(.inset)
         }
       }
       .frame(width: 300)
-      .aimCard()
-
+      Divider()
       ChatDetailPane(model: model)
         .id(model.selectedChatID)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .padding(AIMTheme.modalOuterInset)
     .task { await model.refreshChatHistory(query: threadQuery) }
     .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
   }
@@ -2527,22 +2375,6 @@ private struct HistoryPage: View {
     }
     return parts.joined(separator: "; ") + "."
   }
-
-  private var threadItems: [ChatThreadListItem] {
-    model.chatHistory.threads.enumerated().map { index, thread in
-      ChatThreadListItem(
-        thread: thread,
-        selected: model.selectedChatID == thread.id,
-        striped: !index.isMultiple(of: 2))
-    }
-  }
-}
-
-private struct ChatThreadListItem: Identifiable, Equatable {
-  let thread: ChatThreadSummary
-  let selected: Bool
-  let striped: Bool
-  var id: String { thread.id }
 }
 
 private struct HistorySearchField: View {
@@ -2550,51 +2382,34 @@ private struct HistorySearchField: View {
   let placeholder: String
 
   var body: some View {
-    HStack(spacing: 6) {
-      AIMIcon(name: .search, size: 12).foregroundStyle(AIMTheme.muted)
-      TextField(placeholder, text: $text)
-        .textFieldStyle(.plain)
-      if !text.isEmpty {
-        Button { text = "" } label: {
-          Image(systemName: "xmark.circle.fill").foregroundStyle(AIMTheme.muted)
+    TextField(placeholder, text: $text)
+      .textFieldStyle(.roundedBorder)
+      .overlay(alignment: .trailing) {
+        if !text.isEmpty {
+          Button { text = "" } label: {
+            Image(systemName: "xmark.circle.fill")
+          }
+          .buttonStyle(.borderless)
+          .padding(.trailing, AIMTheme.rowSpacing)
+          .help("Clear search")
+          .accessibilityLabel("Clear search")
         }
-        .buttonStyle(.plain)
-        .help("Clear search")
-        .accessibilityLabel("Clear search")
       }
-    }
-    .padding(.horizontal, 8)
-    .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
-    .background(AIMTheme.control, in: RoundedRectangle(cornerRadius: AIMTheme.controlRadius))
   }
 }
 
 private struct ChatThreadRow: View {
   let thread: ChatThreadSummary
-  let selected: Bool
-  let striped: Bool
-  let action: () -> Void
 
   var body: some View {
-    Button(action: action) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(thread.title)
-          .font(.body.weight(.medium))
-          .lineLimit(1)
-        Text(projectLabel)
-          .font(.subheadline)
-          .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-          .lineLimit(1)
-      }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 7)
-      .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-      .contentShape(Rectangle())
-      .background(selected ? AIMTheme.listSelection : (striped ? AIMTheme.listStripe : .clear))
-      .foregroundStyle(AIMTheme.ink)
+    VStack(alignment: .leading, spacing: 0) {
+      Text(thread.title)
+        .aimText(.body)
+        .lineLimit(1)
+      Text(projectLabel)
+        .aimText(.secondary)
+        .lineLimit(1)
     }
-    .buttonStyle(.plain)
-    .accessibilityAddTraits(selected ? .isSelected : [])
     .accessibilityLabel("\(thread.title), \(projectLabel)")
   }
 
@@ -2638,13 +2453,12 @@ private struct ChatDetailPane: View {
   var body: some View {
     VStack(spacing: 0) {
       if let thread = selectedSummary {
-        HStack(alignment: .bottom, spacing: 12) {
-          VStack(alignment: .leading, spacing: 3) {
-            Text(thread.title).font(AIMTheme.sans(14, weight: .semibold)).lineLimit(1)
-            Text(threadContext(thread))
-              .font(AIMTheme.sans(9.5)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+        HStack(alignment: .bottom, spacing: AIMTheme.sectionSpacing) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(thread.title).aimText(.section).lineLimit(1)
+            Text(threadContext(thread)).aimText(.secondary).lineLimit(1)
           }
-          Spacer(minLength: 8)
+          Spacer(minLength: AIMTheme.rowSpacing)
           HStack(spacing: 6) {
             Text("\(thread.messageCount.formatted()) messages")
             if let tokens = thread.totalTokens {
@@ -2653,39 +2467,36 @@ private struct ChatDetailPane: View {
                 .help("\(tokens.formatted()) recorded tokens")
             }
           }
-          .font(AIMTheme.sans(9.5))
-          .foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary)
+          .monospacedDigit()
           .lineLimit(1)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, AIMTheme.sectionSpacing)
+        .padding(.vertical, AIMTheme.rowSpacing)
         .frame(height: 58)
-        .background(AIMTheme.panel2)
       } else {
-        Color.clear.frame(height: 58).background(AIMTheme.panel2)
+        Color.clear.frame(height: 58)
       }
+      Divider()
 
-      VStack(spacing: 0) {
-        HStack(spacing: 10) {
+      VStack(spacing: AIMTheme.rowSpacing) {
+        HStack(spacing: AIMTheme.rowSpacing) {
           HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
           if isSearching {
-            ProgressView().controlSize(.small).frame(width: 24, height: 24)
+            ProgressView().controlSize(.small)
           } else if let detail = model.selectedChat, messageFilter != .all || !messageQuery.isEmpty {
             Text(messageCountText(detail))
-              .font(AIMTheme.sans(9.5))
-              .foregroundStyle(AIMTheme.muted)
+              .aimText(.secondary)
+              .monospacedDigit()
               .contentTransition(.numericText())
           }
           if let detail = model.selectedChat {
             ChatFilteredCopyButton(messages: displayedMessages(detail))
           }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 44)
 
         HStack(spacing: 6) {
-          Text("Show")
-            .font(AIMTheme.sans(9.5, weight: .medium))
-            .foregroundStyle(AIMTheme.muted)
+          Text("Show").aimText(.secondary)
           ForEach(ChatFilterChoice.allCases) { choice in
             ChatFilterButton(
               choice: choice,
@@ -2695,16 +2506,15 @@ private struct ChatDetailPane: View {
           }
           Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 34)
-        .overlay(alignment: .top) { Rectangle().fill(AIMTheme.lineSoft).frame(height: 1) }
       }
-      .background(AIMTheme.panel)
+      .padding(.horizontal, AIMTheme.sectionSpacing)
+      .padding(.vertical, AIMTheme.rowSpacing)
+      Divider()
 
       if model.isChatLoading {
-        VStack(spacing: 10) {
+        VStack(spacing: AIMTheme.rowSpacing) {
           ProgressView().controlSize(.small)
-          Text("Opening chat").font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          Text("Opening chat").aimText(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let detail = model.selectedChat {
@@ -2716,17 +2526,16 @@ private struct ChatDetailPane: View {
           AnyView(detailRow(item))
         }
       } else {
-        VStack(spacing: 7) {
-          AIMIcon(name: .history, size: 20).foregroundStyle(AIMTheme.muted)
-          Text("Select a chat").font(AIMTheme.sans(11, weight: .medium))
+        VStack(spacing: 4) {
+          AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
+          Text("Select a chat").aimText(.body)
           Text("Messages open here without changing the transcript.")
-            .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+            .aimText(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .aimCard()
     .task(id: searchKey) { await updateMessageSearch() }
     .task(id: presentationKey) { await updatePresentations() }
     .onChange(of: messageFilter.rawValue) { _, _ in
@@ -2799,8 +2608,8 @@ private struct ChatDetailPane: View {
         separated: separated)
     case let .empty(text):
       VStack(spacing: 6) {
-        AIMIcon(name: .search, size: 16).foregroundStyle(AIMTheme.muted)
-        Text(text).font(AIMTheme.sans(10, weight: .medium))
+        AIMIcon(name: .search).aimText(.section).foregroundStyle(.secondary)
+        Text(text).aimText(.body)
       }
       .frame(maxWidth: .infinity, minHeight: 120)
       .padding(.horizontal, 12)
@@ -2935,7 +2744,6 @@ private struct ChatFilterButton: View {
   var body: some View {
     Toggle(choice.rawValue, isOn: Binding(get: { selected }, set: { _ in action() }))
       .toggleStyle(.button)
-      .controlSize(.small)
       .accessibilityLabel("Show \(choice.rawValue.lowercased())")
   }
 }
@@ -2961,7 +2769,6 @@ private struct ChatFilteredCopyButton: View {
         systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
     }
     .buttonStyle(.bordered)
-    .controlSize(.small)
     .disabled(messages.isEmpty)
     .help("Copy the messages currently shown")
     .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
@@ -2979,25 +2786,23 @@ private struct ChatMessageRow: View {
     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
       HStack(spacing: 5) {
         Text(message.role.displayName)
-          .font(AIMTheme.sans(9.5, weight: .semibold))
         if let timestamp = message.timestamp {
           Text("·")
-          Text(timestamp, style: .time)
+          Text(timestamp, style: .time).monospacedDigit()
         }
         ChatCopyButton(text: message.text, label: "Copy message", emphasized: hovered)
       }
-      .font(AIMTheme.sans(9.5))
-      .foregroundStyle(AIMTheme.muted)
+      .aimText(.secondary)
 
       ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, AIMTheme.sectionSpacing)
+        .padding(.vertical, AIMTheme.rowSpacing + 2)
         .frame(maxWidth: message.role == .user ? 460 : 620, alignment: .leading)
         .background(messageSurface)
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     }
     .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
-    .padding(.horizontal, 12)
+    .padding(.horizontal, AIMTheme.sectionSpacing)
     .padding(.top, separated ? 10 : 4)
     .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     .onHover { hovered = $0 }
@@ -3006,9 +2811,9 @@ private struct ChatMessageRow: View {
   private var messageSurface: Color {
     switch message.role {
     case .user: AIMTheme.chatUserSurface
-    case .assistant: AIMTheme.panel2
+    case .assistant: AIMTheme.chatAssistantSurface
     case .tool: AIMTheme.chatCodeSurface
-    case .other: AIMTheme.panel3
+    case .other: AIMTheme.chatOtherSurface
     }
   }
 }
@@ -3025,12 +2830,11 @@ private struct ChatMessageBlocks: View {
         }
         if presentation.sourceWasTruncated {
           Text("This long message is shortened in the reader.")
-            .font(AIMTheme.sans(10, weight: .medium))
-            .foregroundStyle(AIMTheme.amber)
+            .aimText(.secondary, tint: AIMTheme.amber)
         }
       } else {
         Text(fallbackText)
-          .font(AIMTheme.sans(13))
+          .aimText(.body)
           .lineSpacing(4)
           .textSelection(.enabled)
       }
@@ -3047,20 +2851,21 @@ private struct ChatPresentationBlockView: View {
     case let .paragraph(_, text):
       readable(text)
     case let .heading(_, level, text):
+      // Markdown heading levels all read in the Section role.
       Text(text)
-        .font(AIMTheme.sans(level == 1 ? 17 : (level == 2 ? 15 : 13), weight: .semibold))
+        .aimText(.section)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     case let .quote(_, text):
       HStack(alignment: .top, spacing: 9) {
         Rectangle().fill(AIMTheme.line).frame(width: 2)
-        readable(text).foregroundStyle(AIMTheme.muted)
+        readable(text).foregroundStyle(.secondary)
       }
     case let .unorderedList(_, items):
       VStack(alignment: .leading, spacing: 5) {
         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-          HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("•").font(AIMTheme.sans(12, weight: .semibold))
+          HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
+            Text("•").aimText(.body)
             readable(item)
           }
         }
@@ -3068,10 +2873,10 @@ private struct ChatPresentationBlockView: View {
     case let .orderedList(_, items):
       VStack(alignment: .leading, spacing: 5) {
         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-          HStack(alignment: .firstTextBaseline, spacing: 8) {
+          HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
             Text("\(index + 1).")
-              .font(AIMTheme.mono(10, weight: .medium))
-              .frame(width: 20, alignment: .trailing)
+              .aimText(.body).monospacedDigit()
+              .frame(width: 24, alignment: .trailing)
             readable(item)
           }
         }
@@ -3081,13 +2886,13 @@ private struct ChatPresentationBlockView: View {
         language: language, preview: preview, expandedText: expanded,
         sourceWasTruncated: sourceWasTruncated)
     case .divider:
-      Rectangle().fill(AIMTheme.lineSoft).frame(height: 1).padding(.vertical, 2)
+      Divider().padding(.vertical, 2)
     }
   }
 
   private func readable(_ text: AttributedString) -> some View {
     Text(text)
-      .font(AIMTheme.sans(13))
+      .aimText(.body)
       .lineSpacing(4)
       .textSelection(.enabled)
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -3105,19 +2910,18 @@ struct ChatCodeBlock: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 8) {
+      HStack(spacing: AIMTheme.rowSpacing) {
         Text(language?.uppercased() ?? "CODE")
-          .font(AIMTheme.mono(9, weight: .semibold))
-          .foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary, monospaced: true)
         Spacer()
         ChatCopyButton(text: expandedText ?? preview, label: "Copy code", emphasized: true)
       }
       .padding(.horizontal, 10)
       .frame(height: 30)
-      .background(AIMTheme.panel3)
+      .background(AIMTheme.chatOtherSurface)
 
       Text(visibleText)
-        .font(AIMTheme.mono(11))
+        .aimText(.secondary, monospaced: true, tint: .primary)
         .lineSpacing(3)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
@@ -3125,15 +2929,12 @@ struct ChatCodeBlock: View {
 
       if expandedText != nil {
         Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
-          .buttonStyle(.plain)
-          .font(AIMTheme.sans(10, weight: .medium))
-          .foregroundStyle(AIMTheme.blue)
+          .buttonStyle(.borderless)
           .padding(.horizontal, 10)
           .padding(.bottom, 9)
       } else if sourceWasTruncated {
         Text("Code shortened")
-          .font(AIMTheme.sans(9, weight: .medium))
-          .foregroundStyle(AIMTheme.amber)
+          .aimText(.secondary, tint: AIMTheme.amber)
           .padding(.horizontal, 10)
           .padding(.bottom, 9)
       }
@@ -3161,12 +2962,12 @@ private struct ChatCopyButton: View {
         copied = false
       }
     } label: {
-      AIMIcon(name: copied ? .check : .copy, size: 10)
-        .frame(width: 24, height: 24)
+      AIMIcon(name: copied ? .check : .copy)
+        .aimFont(.secondary)
         .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
-    .foregroundStyle(copied ? AIMTheme.green : AIMTheme.muted)
+    .foregroundStyle(copied ? AIMTheme.green : Color.secondary)
     .opacity(emphasized || copied ? 1 : 0.48)
     .help(copied ? "Copied" : label)
     .accessibilityLabel(copied ? "Copied" : label)
@@ -3181,82 +2982,72 @@ private struct BackupPage: View {
     model.status?.pendingRecovery.contains { $0.phase != .conflicted } == true
   }
   var body: some View {
-    AIMScrollView {
-      VStack(spacing: AIMTheme.cardSpacing) {
-        AIMPanel(title: "Pending operations") {
-          VStack(spacing: 0) {
-            if let operations = model.status?.pendingRecovery, !operations.isEmpty {
-              ForEach(Array(operations.enumerated()), id: \.element.id) { index, item in
-                VStack(spacing: 0) {
-                  HStack(spacing: 12) {
-                    AIMIcon(name: .warning, size: 15).foregroundStyle(AIMTheme.amber)
-                    VStack(alignment: .leading, spacing: 3) {
-                      Text(item.kind.capitalized).font(AIMTheme.sans(12, weight: .semibold))
-                      AIMCopyablePath(path: item.destination.path).font(AIMTheme.mono(9)).foregroundStyle(
-                        AIMTheme.muted
-                      )
-                    }
-                    Spacer()
-                    WarningCopyButton(label: "Copy backup warning") {
-                      model.copyWarnings([
-                        "Pending \(item.kind) operation (\(item.phase.rawValue))\nDestination: \(item.destination.path)"
-                      ])
-                    }
-                    Badge(text: item.phase.rawValue, color: AIMTheme.amber)
-                  }.padding(.horizontal, 16).frame(minHeight: 44)
-                  if item.phase == .conflicted {
-                    HStack(spacing: 6) {
-                      Text("Both versions are protected. Choose which version to keep.")
-                        .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-                      Spacer()
-                      AIMButton(title: "Keep current", disabled: model.isBusy) {
-                        Task { await model.resolveRecoveryConflict(item, choice: .preserveCurrent) }
-                      }
-                      AIMButton(title: "Restore backup", tone: .danger, disabled: model.isBusy) {
-                        Task { await model.resolveRecoveryConflict(item, choice: .restoreBackup) }
-                      }
-                    }.padding(.horizontal, 16).padding(.bottom, 6)
-                  }
-                }.background(index.isMultiple(of: 2) ? .clear : AIMTheme.panel2.opacity(0.55))
+    Form {
+      Section("Pending operations") {
+        if let operations = model.status?.pendingRecovery, !operations.isEmpty {
+          ForEach(operations, id: \.id) { item in
+            VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+              HStack(spacing: AIMTheme.sectionSpacing) {
+                AIMIcon(name: .warning).aimText(.body).foregroundStyle(AIMTheme.amber)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(item.kind.capitalized).aimText(.body)
+                  AIMCopyablePath(path: item.destination.path)
+                }
+                Spacer()
+                WarningCopyButton(label: "Copy backup warning") {
+                  model.copyWarnings([
+                    "Pending \(item.kind) operation (\(item.phase.rawValue))\nDestination: \(item.destination.path)"
+                  ])
+                }
+                Badge(text: item.phase.rawValue, tint: AIMTheme.amber)
               }
-            } else {
-              Text("No interrupted backup work needs attention.").font(AIMTheme.sans(12))
-                .foregroundStyle(AIMTheme.muted).padding(16).frame(
-                  maxWidth: .infinity, alignment: .leading)
+              if item.phase == .conflicted {
+                HStack(spacing: 6) {
+                  Text("Both versions are protected. Choose which version to keep.")
+                    .aimText(.secondary)
+                  Spacer()
+                  AIMButton(title: "Keep current", disabled: model.isBusy) {
+                    Task { await model.resolveRecoveryConflict(item, choice: .preserveCurrent) }
+                  }
+                  AIMButton(title: "Restore backup", tone: .danger, disabled: model.isBusy) {
+                    Task { await model.resolveRecoveryConflict(item, choice: .restoreBackup) }
+                  }
+                }
+              }
             }
           }
+        } else {
+          Text("No interrupted backup work needs attention.").aimText(.secondary)
         }
-        AIMPanel(title: "Backup policy") {
-          VStack(spacing: 0) {
-            DetailRow(
-              label: "Before import", value: "Review destination, conflicts, and required space")
-            DetailRow(
-              label: "During import", value: "Back up, stage, verify, then publish", zebra: true)
-            DetailRow(
-              label: "On failure", value: "Keep prior credentials and preserve a backup journal")
-          }
-        }
-        HStack {
-          Text("Backups never delete source data.").font(AIMTheme.sans(11)).foregroundStyle(
-            AIMTheme.muted)
-          Spacer()
+      }
+      Section("Backup policy") {
+        DetailRow(
+          label: "Before import", value: "Review destination, conflicts, and required space")
+        DetailRow(
+          label: "During import", value: "Back up, stage, verify, then publish")
+        DetailRow(
+          label: "On failure", value: "Keep prior credentials and preserve a backup journal")
+      }
+      Section {
+        LabeledContent {
           AIMButton(
             title: "Finish pending work", icon: .backup, tone: .primary,
             disabled: !hasAutomaticRecovery || model.isBusy
           ) { Task { await model.recover() } }
-        }.padding(12).aimCard()
-        #if AI_MANAGER_PREVIEW
-        if model.isDemo { BackupExamples(model: model) }
-        #endif
-        Group {
-          if let notice = model.notice {
-            Notice(text: notice, tone: AIMTheme.blue)
-              .transition(reduceMotion ? .identity : .opacity)
-          }
+        } label: {
+          Text("Backups never delete source data.").aimText(.secondary)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
       }
-    }.padding(AIMTheme.modalOuterInset)
+      #if AI_MANAGER_PREVIEW
+      if model.isDemo { BackupExamples(model: model) }
+      #endif
+      if let notice = model.notice {
+        Section { Notice(text: notice, tone: AIMTheme.blue) }
+          .transition(reduceMotion ? .identity : .opacity)
+      }
+    }
+    .formStyle(.grouped)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
 }
 
@@ -3271,15 +3062,17 @@ private struct MaintenancePage: View {
   @Binding var section: MaintenanceSection
 
   var body: some View {
-    VStack(spacing: 0) {
-      AIMSegmentedPicker(
-        options: MaintenanceSection.allCases, selection: $section,
-        accessibilityLabel: "Maintenance section", label: \.rawValue)
-        .padding([.horizontal, .top], AIMTheme.modalOuterInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    Group {
       switch section {
       case .backup: BackupPage(model: model)
       case .cleanup: CleanupPage(model: model)
+      }
+    }
+    .toolbar {
+      ToolbarItem(placement: .principal) {
+        AIMSegmentedPicker(
+          options: MaintenanceSection.allCases, selection: $section,
+          accessibilityLabel: "Maintenance section", label: \.rawValue)
       }
     }
   }
@@ -3289,31 +3082,26 @@ private struct MaintenancePage: View {
 private struct BackupExamples: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    AIMPanel(title: "Backup examples") {
-      VStack(spacing: 0) {
-        BackupExampleRow(
-          title: "Regular conversation", detail: "Complete snapshot before replacement",
-          location: "~/Documents/Switch Backups", state: "Ready", color: AIMTheme.green)
-        BackupExampleRow(
-          title: "Incremental", detail: "Only changes since the last snapshot",
-          location: "Local backup set · 18 MB", state: "Current", color: AIMTheme.blue, zebra: true)
-        BackupExampleRow(
-          title: "Custom location", detail: "A selected folder outside the default backup location",
-          location: "/Volumes/Studio Archive/Codex", state: "Available", color: AIMTheme.green)
-        VStack(spacing: 0) {
-          BackupExampleRow(
-            title: "External drive", detail: "The selected backup volume is disconnected",
-            location: "/Volumes/Field SSD/Codex", state: "Offline", color: AIMTheme.amber,
-            zebra: true)
-          HStack(spacing: 4) {
-            Spacer()
-            AIMButton(title: "Wait for drive") {
-              model.notice = "Demo backup paused until Field SSD reconnects."
-            }
-            AIMButton(title: "Back up elsewhere", icon: .folder) {
-              model.notice = "Demo destination changed. No folder picker was opened."
-            }
-          }.padding(.horizontal, 16).padding(.bottom, 6).background(AIMTheme.panel2.opacity(0.55))
+    Section("Backup examples") {
+      BackupExampleRow(
+        title: "Regular conversation", detail: "Complete snapshot before replacement",
+        location: "~/Documents/Switch Backups", state: "Ready", color: AIMTheme.green)
+      BackupExampleRow(
+        title: "Incremental", detail: "Only changes since the last snapshot",
+        location: "Local backup set · 18 MB", state: "Current", color: AIMTheme.blue)
+      BackupExampleRow(
+        title: "Custom location", detail: "A selected folder outside the default backup location",
+        location: "/Volumes/Studio Archive/Codex", state: "Available", color: AIMTheme.green)
+      BackupExampleRow(
+        title: "External drive", detail: "The selected backup volume is disconnected",
+        location: "/Volumes/Field SSD/Codex", state: "Offline", color: AIMTheme.amber)
+      HStack(spacing: AIMTheme.rowSpacing) {
+        Spacer()
+        AIMButton(title: "Wait for drive") {
+          model.notice = "Demo backup paused until Field SSD reconnects."
+        }
+        AIMButton(title: "Back up elsewhere", icon: .folder) {
+          model.notice = "Demo destination changed. No folder picker was opened."
         }
       }
     }
@@ -3322,22 +3110,18 @@ private struct BackupExamples: View {
 
 private struct BackupExampleRow: View {
   let title: String, detail: String, location: String, state: String, color: Color
-  var zebra = false
   var body: some View {
-    HStack(spacing: 12) {
-      AIMIcon(name: .backup, size: 14).foregroundStyle(color)
+    HStack(spacing: AIMTheme.sectionSpacing) {
+      AIMIcon(name: .backup).aimText(.body).foregroundStyle(color)
       VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(AIMTheme.sans(11, weight: .semibold))
-        Text(detail).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+        Text(title).aimText(.body)
+        Text(detail).aimText(.secondary)
       }
-      Spacer(minLength: 16)
-      Text(location).font(AIMTheme.mono(9)).foregroundStyle(AIMTheme.muted).lineLimit(1)
+      Spacer(minLength: AIMTheme.sectionSpacing)
+      Text(location).aimText(.secondary, monospaced: true).lineLimit(1)
         .truncationMode(.middle).textSelection(.enabled).help(location)
-      Badge(text: state, color: color)
+      Badge(text: state, tint: color)
     }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-    .background(zebra ? AIMTheme.panel2.opacity(0.55) : .clear)
   }
 }
 #endif
@@ -3359,14 +3143,12 @@ struct WarningCopyButton: View {
       }
     } label: {
       HStack(spacing: 5) {
-        AIMIcon(name: copied ? .check : .copy, size: 12)
+        AIMIcon(name: copied ? .check : .copy)
         if showsTitle {
           Text(copied ? "Copied" : "Copy warnings")
-            .font(AIMTheme.sans(10, weight: .medium))
         }
       }
-      .padding(.horizontal, showsTitle ? 9 : 0)
-      .frame(minWidth: showsTitle ? 92 : 28, minHeight: 28)
+      .aimFont(.body)
       .foregroundStyle(copied ? AIMTheme.green : AIMTheme.amber)
       .contentShape(Rectangle())
     }
@@ -3381,43 +3163,38 @@ private struct WarningList: View {
   let copy: ([String]) -> Void
 
   var body: some View {
-    VStack(spacing: 0) {
+    Group {
       HStack {
         Text("\(warnings.count) item\(warnings.count == 1 ? "" : "s") need attention")
-          .font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
+          .aimText(.secondary)
         Spacer()
         WarningCopyButton(label: "Copy all warnings", showsTitle: true) { copy(warnings) }
       }
-      .padding(.horizontal, 12)
-      .frame(minHeight: 38)
-      .background(AIMTheme.panel2.opacity(0.55))
-      ForEach(Array(warnings.enumerated()), id: \.offset) { index, warning in
-        HStack(alignment: .top, spacing: 10) {
-          AIMIcon(name: .warning, size: 13).foregroundStyle(AIMTheme.amber)
-          Text(warning).font(AIMTheme.sans(11)).textSelection(.enabled)
+      ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
+        HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
+          AIMIcon(name: .warning).aimFont(.body).foregroundStyle(AIMTheme.amber)
+          Text(warning).aimText(.body).textSelection(.enabled)
           Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(index.isMultiple(of: 2) ? Color.clear : AIMTheme.panel2.opacity(0.55))
       }
     }
   }
 }
 
+/// A notice row: an icon and a message in Body. Put it in a form Section or an `AIMPanel`.
 struct Notice: View {
   let text: String, tone: Color
   var icon: AIMIcon.Name = .info
   var copy: (() -> Void)? = nil
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      AIMIcon(name: icon, size: 14).foregroundStyle(tone)
-      Text(text).font(AIMTheme.sans(11)).textSelection(.enabled)
+    HStack(alignment: .top, spacing: AIMTheme.rowSpacing) {
+      AIMIcon(name: icon).aimFont(.body).foregroundStyle(tone)
+      Text(text).aimText(.body).textSelection(.enabled)
       Spacer()
       if let copy {
         WarningCopyButton(label: "Copy warning", action: copy)
       }
-    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).aimCard()
+    }.frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 private struct ErrorBar: View {
@@ -3425,13 +3202,13 @@ private struct ErrorBar: View {
   let copy: () -> Void
   let dismiss: () -> Void
   var body: some View {
-    HStack(spacing: 10) {
-      AIMIcon(name: .warning, size: 14).foregroundStyle(AIMTheme.red)
-      Text(message).font(AIMTheme.sans(11)).lineLimit(2).textSelection(.enabled)
+    HStack(spacing: AIMTheme.rowSpacing) {
+      AIMIcon(name: .warning).aimFont(.body).foregroundStyle(AIMTheme.red)
+      Text(message).aimText(.body).lineLimit(2).textSelection(.enabled)
       Spacer()
       WarningCopyButton(label: "Copy error", action: copy)
       AIMButton(title: "Dismiss", action: dismiss)
-    }.padding(12).aimCard()
+    }.aimRow()
   }
 }
 
@@ -3522,17 +3299,17 @@ private struct AddAccountFlow: View {
     #endif
     .overlay(alignment: .bottom) {
       if let error = model.errorMessage {
-        ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-          model.errorMessage = nil
+        AIMPanel {
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
+          }
         }
-        .padding(.horizontal, AIMTheme.modalOuterInset)
+        .padding(.horizontal, AIMTheme.pageMargin)
         .padding(.bottom, 52)
       } else if model.isBusy {
-        HStack(spacing: 8) {
+        HStack(spacing: AIMTheme.rowSpacing) {
           ProgressView().controlSize(.small)
-          Text("Checking account…")
-            .font(AIMTheme.sans(11))
-            .foregroundStyle(AIMTheme.muted)
+          Text("Checking account…").aimText(.secondary)
         }
         .padding(.bottom, 58)
       }
@@ -3540,86 +3317,69 @@ private struct AddAccountFlow: View {
   }
 
   private var signInPage: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMPanel(title: "\(selectedProviderName) sign-in") {
-        VStack(alignment: .leading, spacing: 16) {
-          HStack(alignment: .top, spacing: 12) {
-            AIMIcon(
-              name: model.accountLoginState == .needsAttention ? .warning : .account,
-              size: 19
-            )
-            .foregroundStyle(
-              model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue)
-            VStack(alignment: .leading, spacing: 5) {
-              Text("Finish signing in to \(selectedProviderName)")
-                .font(AIMTheme.sans(18, weight: .semibold))
+    VStack(spacing: 0) {
+      Form {
+        Section("\(selectedProviderName) sign-in") {
+          HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
+            AIMIcon(name: model.accountLoginState == .needsAttention ? .warning : .account)
+              .aimFont(.section)
+              .foregroundStyle(
+                model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Finish signing in to \(selectedProviderName)").aimText(.section)
               Text(
                 "Sign in through a private temporary home. The saved account becomes available to \(selectedProviderName) after you finish."
               )
-              .font(AIMTheme.sans(12))
-              .foregroundStyle(AIMTheme.muted)
+              .aimText(.secondary)
               .fixedSize(horizontal: false, vertical: true)
             }
           }
           if model.selectedProviderID == .grokBuild {
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Authorization code or callback URL")
-                .font(AIMTheme.sans(12, weight: .semibold))
-              HStack(spacing: 8) {
-                SecureField("Paste from the Grok browser page", text: $grokAuthorizationCode)
-                  .textFieldStyle(.roundedBorder)
-                  .privacySensitive()
-                  .onSubmit(submitGrokAuthorizationCode)
-                  .accessibilityHint(
-                    "Use this when the browser displays a code instead of returning to Switch.")
-                AIMButton(
-                  title: "Submit Code",
-                  tone: .primary,
-                  disabled: model.isBusy || !hasGrokAuthorizationCode,
-                  action: submitGrokAuthorizationCode
-                )
-              }
+            SecureField(
+              "Authorization code or callback URL", text: $grokAuthorizationCode,
+              prompt: Text("Paste from the Grok browser page")
+            )
+            .privacySensitive()
+            .onSubmit(submitGrokAuthorizationCode)
+            .accessibilityHint(
+              "Use this when the browser displays a code instead of returning to Switch.")
+            LabeledContent {
+              AIMButton(
+                title: "Submit Code",
+                disabled: model.isBusy || !hasGrokAuthorizationCode,
+                action: submitGrokAuthorizationCode
+              )
+            } label: {
               Text("Switch sends this once to the waiting Grok CLI and does not save it.")
-                .font(AIMTheme.sans(11))
-                .foregroundStyle(AIMTheme.muted)
+                .aimText(.secondary)
             }
-            .padding(12)
-            .background(AIMTheme.panel2.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
           }
           Notice(
             text: model.accountLoginMessage
               ?? "Finish signing in to \(selectedProviderName), then return here and choose Check Now.",
             tone: model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue
           )
-          Group {
-            if model.accountLoginState == .credentialChoiceRequired {
-              VStack(alignment: .leading, spacing: 8) {
-                Text("This account is already saved with different access.")
-                  .font(AIMTheme.sans(12, weight: .semibold))
-                HStack(spacing: 6) {
-                  AIMButton(title: "Use new sign-in", tone: .primary) {
-                    Task { await model.checkAccountLogin(credentialChoice: .useImported) }
-                  }
-                  AIMButton(title: "Keep saved access") {
-                    Task { await model.checkAccountLogin(credentialChoice: .keepShared) }
-                  }
+          if model.accountLoginState == .credentialChoiceRequired {
+            VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+              Text("This account is already saved with different access.").aimText(.body)
+              HStack(spacing: AIMTheme.rowSpacing) {
+                AIMButton(title: "Use new sign-in", tone: .primary) {
+                  Task { await model.checkAccountLogin(credentialChoice: .useImported) }
+                }
+                AIMButton(title: "Keep saved access") {
+                  Task { await model.checkAccountLogin(credentialChoice: .keepShared) }
                 }
               }
-            } else {
-              Text(ProviderChoices.builtIn.contains(model.selectedProviderID)
-                ? "When the browser reports success, return to Switch and check the account."
-                : "When the sign-in finishes in Terminal, return to Switch and check the account.")
-                .font(AIMTheme.sans(11))
-                .foregroundStyle(AIMTheme.muted)
             }
+          } else {
+            Text(ProviderChoices.builtIn.contains(model.selectedProviderID)
+              ? "When the browser reports success, return to Switch and check the account."
+              : "When the sign-in finishes in Terminal, return to Switch and check the account.")
+              .aimText(.secondary)
           }
-          .frame(minHeight: 52, alignment: .topLeading)
         }
-        .padding(20)
       }
-
-      Spacer(minLength: AIMTheme.modalSectionSpacing)
+      .formStyle(.grouped)
 
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"], showsCancel: false) {
         EmptyView()
@@ -3634,22 +3394,22 @@ private struct AddAccountFlow: View {
           .keyboardShortcut(.defaultAction)
         }
       }
+      .padding(AIMTheme.pageMargin)
     }
-    .padding(AIMTheme.modalOuterInset)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 
   private var completedPage: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMPanel(title: "Ready") {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack(spacing: 10) {
-            AIMIcon(name: .success, size: 22).foregroundStyle(AIMTheme.green)
+    VStack(spacing: 0) {
+      Form {
+        Section("Ready") {
+          HStack(spacing: AIMTheme.rowSpacing) {
+            AIMIcon(name: .success).aimFont(.section).foregroundStyle(AIMTheme.green)
             Text(model.selectedAccount?.identity.heroName ?? "\(selectedProviderName) account")
-              .font(AIMTheme.sans(19, weight: .semibold))
+              .aimText(.section)
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
-            .font(AIMTheme.sans(12)).foregroundStyle(AIMTheme.muted)
+            .aimText(.secondary)
           Text(model.selectedProviderID == .codex
             ? "The account is ready for new Codex sessions. Shared settings and chats stay in place."
             : model.selectedProviderID == .claudeCode
@@ -3657,9 +3417,9 @@ private struct AddAccountFlow: View {
               : model.selectedProviderID == .grokBuild
                 ? "The account is ready in Grok Build. Its settings and sessions stay in the shared Grok home."
                 : "The account is saved. Its usage appears in Switch, and Set as Default makes it the one that \(selectedProviderName) uses.")
-            .font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
-          HStack(spacing: 6) {
-            DefaultAccountButton(isDefault: selectedIsDefault, disabled: model.isBusy) {
+            .aimText(.secondary)
+          HStack(spacing: AIMTheme.rowSpacing) {
+            DefaultAccountButton(isDefault: selectedIsDefault, disabled: model.isBusy, prominent: false) {
               Task { await model.switchDefault() }
             }
             if ProviderChoices.builtIn.contains(model.selectedProviderID) {
@@ -3673,9 +3433,8 @@ private struct AddAccountFlow: View {
             }
           }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
+      .formStyle(.grouped)
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"], showsCancel: false) {
         if let accountID = model.selectedAccountID {
           AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
@@ -3686,8 +3445,8 @@ private struct AddAccountFlow: View {
         AIMButton(title: "Done", tone: .primary) { model.closeAccountModal() }
           .keyboardShortcut(.defaultAction)
       }
+      .padding(AIMTheme.pageMargin)
     }
-    .padding(AIMTheme.modalOuterInset)
     .frame(maxHeight: .infinity, alignment: .top)
   }
 }
@@ -3712,15 +3471,17 @@ private struct ImportFlow: View {
     .environment(\.aimCancelSheet, { model.closeAccountModal() })
     .overlay(alignment: .bottom) {
       if let error = model.errorMessage {
-        ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-          model.errorMessage = nil
+        AIMPanel {
+          ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+            model.errorMessage = nil
+          }
         }
-        .padding(.horizontal, AIMTheme.modalOuterInset)
+        .padding(.horizontal, AIMTheme.pageMargin)
         .padding(.bottom, 52)
       } else if model.isBusy {
-        HStack(spacing: 8) {
+        HStack(spacing: AIMTheme.rowSpacing) {
           ProgressView().controlSize(.small)
-          Text("Working…").font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted)
+          Text("Working…").aimText(.secondary)
         }
         .padding(.bottom, 58)
       }
@@ -3738,10 +3499,10 @@ private struct ImportHeader: View {
 
   var body: some View {
     Text(title)
-      .font(.title2.weight(.semibold))
+      .aimText(.title)
       .lineLimit(1)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding([.horizontal, .top], AIMTheme.modalOuterInset)
+      .padding([.horizontal, .top], AIMTheme.pageMargin)
       .padding(.bottom, 4)
       .accessibilityAddTraits(.isHeader)
       .accessibilityIdentifier("import-modal-titlebar")
@@ -3780,7 +3541,7 @@ private struct ImportSteps: View {
   var body: some View {
     let index = min(max(step, 1), labels.count) - 1
     Text("Step \(index + 1) of \(labels.count) · \(labels[index])")
-      .font(.caption).foregroundStyle(AIMTheme.muted)
+      .aimText(.secondary)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Step \(step) of \(labels.count)")
       .accessibilityIdentifier("import-modal-steps")
@@ -3791,91 +3552,72 @@ private struct SourcePage: View {
   @ObservedObject var model: AccountViewModel
   @Environment(\.isEnabled) private var isEnabled
   var body: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      Text("Choose a provider and one of its data folders.")
-        .font(AIMTheme.sans(12))
-        .foregroundStyle(AIMTheme.muted)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      AIMPanel(title: "Provider") {
-        HStack(spacing: 4) {
-          Choice(title: "Codex", selected: model.selectedProviderID == .codex) {
-            model.selectedProviderID = .codex
+    VStack(spacing: 0) {
+      Form {
+        Section {
+          Text("Choose a provider and one of its data folders.").aimText(.secondary)
+          Picker("Provider", selection: $model.selectedProviderID) {
+            Text("Codex").tag(ProviderID.codex)
           }
-          Spacer()
-        }.padding(.horizontal, 6).padding(.vertical, 8)
-      }
-      AIMPanel(title: "Source") {
-        AIMScrollView {
-          LazyVStack(spacing: 0) {
-            if model.discoveries.isEmpty {
-              Text("No Codex accounts found. Refresh or choose another folder.")
-                .font(AIMTheme.sans(11))
-                .foregroundStyle(AIMTheme.muted)
-                .padding(AIMTheme.panelContentInset)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            ForEach(Array(model.discoveries.enumerated()), id: \.element.id) { index, source in
-              let supported = source.support == .supportedChatGPT
-              let selected = source.id == model.selectedSourceID
-              Button {
-                model.selectedSourceID = source.id
-              } label: {
-                HStack(alignment: .top, spacing: 12) {
-                  AIMIcon(name: .check, size: 14)
-                    .opacity(selected ? 1 : 0)
-                  .padding(.top, 2)
-                  VStack(alignment: .leading, spacing: 3) {
-                    Text(source.identity?.displayName ?? source.support.label).font(
-                      AIMTheme.sans(12, weight: .medium))
-                    AIMCopyablePath(path: source.path.path).foregroundStyle(AIMTheme.muted)
-                    Text(
-                      "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
-                    ).font(.subheadline).monospacedDigit().foregroundStyle(AIMTheme.muted)
-                    if let reason = source.inspectionError, !supported {
-                      Text(reason).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.amber)
-                        .lineLimit(2)
-                    }
+          .pickerStyle(.menu)
+        }
+        Section("Source") {
+          if model.discoveries.isEmpty {
+            Text("No Codex accounts found. Refresh or choose another folder.")
+              .aimText(.secondary)
+          }
+          ForEach(model.discoveries, id: \.id) { source in
+            let supported = source.support == .supportedChatGPT
+            let selected = source.id == model.selectedSourceID
+            Button {
+              model.selectedSourceID = source.id
+            } label: {
+              HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
+                AIMIcon(name: .check).aimFont(.body)
+                  .foregroundStyle(AIMTheme.blue)
+                  .opacity(selected ? 1 : 0)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(source.identity?.displayName ?? source.support.label).aimText(.body)
+                  AIMCopyablePath(path: source.path.path)
+                  Text(
+                    "\(source.settings.count) settings · \(source.history.activeTranscripts) active · \(source.history.archivedTranscripts) archived"
+                  ).aimText(.secondary).monospacedDigit()
+                  if let reason = source.inspectionError, !supported {
+                    Text(reason).aimText(.secondary, tint: AIMTheme.amber)
+                      .lineLimit(2)
                   }
-                  Spacer()
-                  Badge(
-                    text: source.support.label,
-                    color: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber
-                  )
-                  .padding(.top, 1)
-                }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 10)
-                  .frame(minHeight: 64)
-                  .background(selected ? AIMTheme.listSelection
-                    : (index.isMultiple(of: 2) ? Color.clear : AIMTheme.listStripe))
-                  .contentShape(Rectangle())
-                  .foregroundStyle(AIMTheme.ink)
-                  .opacity(isEnabled && supported ? 1 : 0.58)
-              }.buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .disabled(!supported)
-                .help(source.inspectionError ?? source.path.path)
+                }
+                Spacer()
+                Badge(
+                  text: source.support.label,
+                  tint: source.support == .supportedChatGPT ? AIMTheme.green : AIMTheme.amber
+                )
+              }
+              .contentShape(Rectangle())
+              .opacity(isEnabled && supported ? 1 : 0.58)
             }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .disabled(!supported)
+            .help(source.inspectionError ?? source.path.path)
           }
         }
-      }.frame(maxHeight: .infinity)
-      AIMPanel(title: "Import scope") {
-        HStack(spacing: 4) {
-          Choice(title: "Account access only", selected: model.importMode == .authOnly) {
-            model.importMode = .authOnly
+        Section("Import scope") {
+          Picker("Import scope", selection: $model.importMode) {
+            Text("Account access only").tag(ImportMode.authOnly)
+            Text("Account access, settings, and chats").tag(ImportMode.full)
           }
-          Choice(title: "Account access, settings, and chats", selected: model.importMode == .full) {
-            model.importMode = .full
-          }
-          Spacer()
-        }.padding(.horizontal, 6).padding(.vertical, 8)
+          .pickerStyle(.menu)
+          Text(
+            model.importMode == .authOnly
+              ? "Saves account access. Settings and chats stay in the current Codex home. The source stays unchanged."
+              : "Reviews Codex-home conflicts and adds source chats to the merged library. Everything affected is backed up first."
+          ).aimText(.secondary)
+        }
       }
-      Text(
-        model.importMode == .authOnly
-          ? "Saves account access. Settings and chats stay in the current Codex home. The source stays unchanged."
-          : "Reviews Codex-home conflicts and adds source chats to the merged library. Everything affected is backed up first."
-      ).font(AIMTheme.sans(11)).foregroundStyle(AIMTheme.muted).frame(
-        maxWidth: .infinity, alignment: .leading)
+      .formStyle(.grouped)
       ImportFooter(step: 1) {
-        HStack(spacing: 4) {
+        HStack(spacing: AIMTheme.rowSpacing) {
           AIMButton(title: "Choose Codex folder…", icon: .folder) {
             Task { await model.chooseSource() }
           }
@@ -3889,17 +3631,9 @@ private struct SourcePage: View {
               != .supportedChatGPT
         ) { Task { await model.reviewImport() } }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.vertical, 16).frame(
-      maxHeight: .infinity, alignment: .top)
-  }
-}
-/// One choice of a single-choice group: a native toggle button that shows its selected state.
-private struct Choice: View {
-  let title: String, selected: Bool, action: () -> Void
-  var body: some View {
-    Toggle(title, isOn: Binding(get: { selected }, set: { _ in action() }))
-      .toggleStyle(.button)
-      .accessibilityAddTraits(selected ? .isSelected : [])
+      .padding(AIMTheme.pageMargin)
+    }
+    .frame(maxHeight: .infinity, alignment: .top)
   }
 }
 
@@ -3914,81 +3648,74 @@ private struct ImportReviewPage: View {
     }
   }
   var body: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMScrollView {
-        VStack(spacing: AIMTheme.modalSectionSpacing) {
-          AIMPanel(title: "Plan") {
-            VStack(spacing: 0) {
-              DetailRow(label: "Account", value: plan.identity.displayName)
-              DetailRow(label: "Saved auth", value: plan.credentialDestination.path, zebra: true)
-              if plan.mode == .full {
-                DetailRow(label: "Shared Codex home", value: plan.sharedDestination.path)
-                DetailRow(label: "Imported account data", value: plan.destination.path, zebra: true)
-              }
-              DetailRow(label: "Backup", value: plan.backup.path)
-              DetailRow(
-                label: "Space needed",
-                value: ByteCountFormatter.string(
-                  fromByteCount: plan.requiredBytes, countStyle: .file), zebra: true)
-            }
+    VStack(spacing: 0) {
+      Form {
+        Section("Plan") {
+          DetailRow(label: "Account", value: plan.identity.displayName)
+          DetailRow(label: "Saved auth", value: plan.credentialDestination.path)
+          if plan.mode == .full {
+            DetailRow(label: "Shared Codex home", value: plan.sharedDestination.path)
+            DetailRow(label: "Imported account data", value: plan.destination.path)
           }
-          if !plan.warnings.isEmpty {
-            AIMPanel(title: "Warnings") {
-              WarningList(warnings: plan.warnings) { model.copyWarnings($0) }
-            }
+          DetailRow(label: "Backup", value: plan.backup.path)
+          DetailRow(
+            label: "Space needed",
+            value: ByteCountFormatter.string(
+              fromByteCount: plan.requiredBytes, countStyle: .file))
+        }
+        if !plan.warnings.isEmpty {
+          Section("Warnings") {
+            WarningList(warnings: plan.warnings) { model.copyWarnings($0) }
           }
-          if !plan.conflicts.isEmpty {
-            AIMPanel(title: "Conflicts") {
-              VStack(spacing: 0) {
-                ForEach(plan.conflicts) { conflict in
-                  VStack(alignment: .leading, spacing: 8) {
-                    AIMCopyablePath(path: conflict.relativePath).font(AIMTheme.mono(11, weight: .semibold))
-                    Text(
-                      conflict.affectsAllAccounts
-                        ? "This settings choice affects every account opened from this Mac."
-                        : "The saved credential differs from this source."
-                    ).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-                    HStack(spacing: 4) {
-                      Choice(
-                        title: conflict.affectsAllAccounts ? "Keep shared" : "Keep saved",
-                        selected: model.conflictChoices[conflict.relativePath] == .keepShared
-                      ) { model.conflictChoices[conflict.relativePath] = .keepShared }
-                      Choice(
-                        title: "Use imported",
-                        selected: model.conflictChoices[conflict.relativePath] == .useImported
-                      ) { model.conflictChoices[conflict.relativePath] = .useImported }
-                      if conflict.externalTarget != nil
-                        && model.conflictChoices[conflict.relativePath] == .useImported
-                        && conflict.externalTargetBytes == nil
-                      {
-                        AIMButton(title: "Review linked data", disabled: model.isBusy) {
-                          Task { await model.reviewExternalSetting(conflict.relativePath) }
-                        }
-                      }
+        }
+        if !plan.conflicts.isEmpty {
+          Section("Conflicts") {
+            ForEach(plan.conflicts) { conflict in
+              VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+                AIMCopyablePath(path: conflict.relativePath)
+                Text(
+                  conflict.affectsAllAccounts
+                    ? "This settings choice affects every account opened from this Mac."
+                    : "The saved credential differs from this source."
+                ).aimText(.secondary)
+                HStack(spacing: AIMTheme.rowSpacing) {
+                  Picker("Choice", selection: Binding(
+                    get: { model.conflictChoices[conflict.relativePath] },
+                    set: { model.conflictChoices[conflict.relativePath] = $0 })
+                  ) {
+                    Text(conflict.affectsAllAccounts ? "Keep shared" : "Keep saved")
+                      .tag(Optional(ConflictChoice.keepShared))
+                    Text("Use imported").tag(Optional(ConflictChoice.useImported))
+                  }
+                  .pickerStyle(.segmented)
+                  .labelsHidden()
+                  .fixedSize()
+                  if conflict.externalTarget != nil
+                    && model.conflictChoices[conflict.relativePath] == .useImported
+                    && conflict.externalTargetBytes == nil
+                  {
+                    AIMButton(title: "Review linked data", disabled: model.isBusy) {
+                      Task { await model.reviewExternalSetting(conflict.relativePath) }
                     }
-                  }.padding(.horizontal, AIMTheme.panelContentInset).padding(.vertical, 12)
-                    .overlay(alignment: .bottom) {
-                    Rectangle().fill(AIMTheme.lineSoft).frame(height: 1)
                   }
                 }
               }
             }
           }
-          AIMPanel(title: "Manifest · \(plan.manifest.filter(\.selected).count) selected") {
-            VStack(spacing: 0) {
-              ForEach(plan.manifest) { entry in
-                HStack {
-                  AIMIcon(name: entry.selected ? .check : .minimize, size: 12).foregroundStyle(
-                    entry.selected ? AIMTheme.green : AIMTheme.faint)
-                  AIMCopyablePath(path: entry.relativePath).font(AIMTheme.mono(10))
-                  Spacer()
-                  Text(entry.disposition).font(AIMTheme.sans(10)).foregroundStyle(AIMTheme.muted)
-                }.padding(.horizontal, 16).frame(height: 36)
-              }
+        }
+        Section("Manifest · \(plan.manifest.filter(\.selected).count) selected") {
+          ForEach(plan.manifest) { entry in
+            HStack(spacing: AIMTheme.rowSpacing) {
+              AIMIcon(name: entry.selected ? .check : .minimize).aimFont(.body)
+                .foregroundStyle(entry.selected ? AIMTheme.green : Color.secondary)
+              AIMCopyablePath(path: entry.relativePath)
+              Spacer()
+              Text(entry.disposition).aimText(.secondary)
             }
           }
         }
       }
+      .formStyle(.grouped)
       ImportFooter(step: 2) {
         AIMButton(title: "Back") { model.resetImport() }
       } trailing: {
@@ -3996,51 +3723,47 @@ private struct ImportReviewPage: View {
           Task { await model.commitImport() }
         }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.vertical, 16)
+      .padding(AIMTheme.pageMargin)
+    }
   }
 }
 private struct ImportResultPage: View {
   let result: ImportResult
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    VStack(spacing: AIMTheme.modalSectionSpacing) {
-      AIMScrollView {
-        VStack(spacing: AIMTheme.modalSectionSpacing) {
-          AIMPanel(title: result.unresolved.isEmpty ? "Import complete" : "Review required") {
-            HStack(spacing: 14) {
-              ZStack {
-                result.unresolved.isEmpty ? AIMTheme.green : AIMTheme.amber
-                AIMIcon(name: result.unresolved.isEmpty ? .check : .warning, size: 24)
-                  .foregroundStyle(Color.white)
-              }.frame(width: 48, height: 48)
-              VStack(alignment: .leading, spacing: 3) {
-                Text(result.account.identity.heroName).font(AIMTheme.sans(18, weight: .semibold))
-                Text(EmailPrivacy.display(result.verification.detail)).font(AIMTheme.sans(11)).foregroundStyle(
-                  AIMTheme.muted)
-              }
-              Spacer()
-            }.padding(16)
-          }
-          AIMPanel(title: "Result") {
-            VStack(spacing: 0) {
-              DetailRow(label: "Saved auth", value: result.account.credentialFile.path)
-              DetailRow(label: "Backup", value: result.backup.path, zebra: true)
-              DetailRow(
-                label: "Imported",
-                value: "\(result.importedFiles) files and \(result.importedChats) chats")
+    VStack(spacing: 0) {
+      Form {
+        Section(result.unresolved.isEmpty ? "Import complete" : "Review required") {
+          HStack(spacing: AIMTheme.sectionSpacing) {
+            AIMIcon(name: result.unresolved.isEmpty ? .check : .warning).aimFont(.section)
+              .foregroundStyle(result.unresolved.isEmpty ? AIMTheme.green : AIMTheme.amber)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(result.account.identity.heroName).aimText(.section)
+              Text(EmailPrivacy.display(result.verification.detail)).aimText(.secondary)
             }
+            Spacer()
           }
-          if !result.unresolved.isEmpty {
-            AIMPanel(title: "Unresolved items") {
-              WarningList(warnings: result.unresolved) { model.copyWarnings($0) }
-            }
+        }
+        Section("Result") {
+          DetailRow(label: "Saved auth", value: result.account.credentialFile.path)
+          DetailRow(label: "Backup", value: result.backup.path)
+          DetailRow(
+            label: "Imported",
+            value: "\(result.importedFiles) files and \(result.importedChats) chats")
+        }
+        if !result.unresolved.isEmpty {
+          Section("Unresolved items") {
+            WarningList(warnings: result.unresolved) { model.copyWarnings($0) }
           }
+        }
+        Section {
           Notice(
             text:
               "The imported account is ready. Choose Use for new Codex sessions when you want to switch.",
             tone: AIMTheme.blue, icon: .success)
         }
       }
+      .formStyle(.grouped)
       ImportFooter(step: 3) {
         AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
           Task { await model.refreshUsage(accountID: result.account.id) }
@@ -4050,7 +3773,8 @@ private struct ImportResultPage: View {
           model.closeAccountModal()
         }
       }
-    }.padding(.horizontal, AIMTheme.modalOuterInset).padding(.vertical, 16)
+      .padding(AIMTheme.pageMargin)
+    }
   }
 }
 

@@ -54,13 +54,13 @@ struct UsageChartView: View {
 
   var body: some View {
     let chosen = selected
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(chart.title).font(AIMTheme.sans(11, weight: .medium)).lineLimit(1)
-        Spacer(minLength: 8)
+    VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+      HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
+        Text(chart.title).aimText(.body).lineLimit(1)
+        Spacer(minLength: AIMTheme.rowSpacing)
         Text(UsageChartPresentation.headline(chart, selected: chosen))
-          .font(AIMTheme.mono(10, weight: .semibold)).monospacedDigit()
-          .foregroundStyle(chosen == nil ? AIMTheme.muted : AIMTheme.ink).lineLimit(1)
+          .aimText(.secondary, tint: chosen == nil ? nil : .primary).monospacedDigit()
+          .lineLimit(1)
       }
       Chart(chart.points, id: \.label) { point in
         BarMark(x: .value("Day", point.label), y: .value(chart.unit, point.value))
@@ -73,7 +73,7 @@ struct UsageChartView: View {
       .chartXAxis {
         AxisMarks { value in
           if let label = value.as(String.self), UsageChartPresentation.axisLabels(chart).contains(label) {
-            AxisValueLabel(anchor: .top).font(AIMTheme.sans(9)).foregroundStyle(AIMTheme.muted)
+            AxisValueLabel(anchor: .top).font(AIMTextRole.secondary.font).foregroundStyle(Color.secondary)
           }
         }
       }
