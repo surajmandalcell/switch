@@ -347,9 +347,16 @@ the menu bar popover and an Overview window. Native components and system stylin
 earlier Soft rectangles design, its custom palettes, Inter and PT Mono, custom window chrome,
 custom hover fades, and the body translucency setting.
 
-- **Type and color:** the system font at standard text styles, monospaced digits for numbers,
-  the system monospaced font for paths and IDs, system semantic colors, and the user's accent
-  color in light and dark. Remaining-quota bars are green above 50% left, yellow from 20% to
+- **Type and color:** exactly five text roles, all macOS text styles, used the same way on
+  every screen and in the popover: Title (Title 2 semibold, 17 pt, at most once per page, for
+  the focused account name), Section (Headline, 13 pt bold, card and form section titles),
+  Body (13 pt regular, every row label, value, and button), Secondary (Subheadline, 11 pt, in
+  the secondary color, for providers, descriptions, and reset text), and Caption (10 pt, badges
+  only). Numbers keep their role and add monospaced digits; only paths and IDs use the
+  monospaced font. No other sizes or weights. Settings and detail facts use native grouped
+  forms; lists use native List, Table, and sidebar styles at their default row heights. Content
+  uses 20 pt margins, 16 pt between sections, and 8 pt inside rows. System semantic colors and
+  the user's accent color in light and dark. Remaining-quota bars are green above 50% left, yellow from 20% to
   50%, and red below 20%; the pace verdict uses the same colors; an unknown value shows an empty
   grey track. Show percentage used flips text and fill to the used share.
 - **Window:** a standard titled window with traffic lights, a unified toolbar, and a translucent
