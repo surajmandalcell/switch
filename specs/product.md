@@ -107,16 +107,14 @@ remains unknown and blocks destructive changes; unlocked stale runtime files are
 
 ## 2. Navigation and Settings
 
-The rail and View menu use this order: Accounts, Backup, Chat History, Settings. Command+,
-opens Settings. Settings contains only:
+The sidebar and View menu use this order: Overview, Accounts, Conversations (chat history),
+Maintenance (backup, cleanup, recovery), Settings. Command+, opens Settings. Settings contains
+only:
 
-1. **App behavior** — Open at Login, Minimize to menu bar, and the optional
-   keyboard-focus indicator. Open at Login is off by default and uses the macOS login-item
-   service as its source of truth; a login launch starts quietly in the menu bar, an ordinary
-   launch opens the window, and if macOS requires approval, Settings explains it and links to
-   Login Items. Body translucency is adjustable from 0% to 50%, initially 25%, across the
-   content area and page titlebar without fading text or controls; Reduce Transparency makes
-   these surfaces opaque. The rail stays distinct.
+1. **App behavior** — Open at Login and Minimize to menu bar. Open at Login is off by default
+   and uses the macOS login-item service as its source of truth; a login launch starts quietly
+   in the menu bar, an ordinary launch opens the window, and if macOS requires approval,
+   Settings explains it and links to Login Items.
    **Reset times** (Countdown, the default, or Exact time) and **Time format** (Auto, 12-hour,
    24-hour) set how every reset text reads, such as "Resets in 2h 5m" or "Resets 5:30 PM"
    ("tomorrow", a weekday, or a date when it is not today). Clicking any reset text switches the
@@ -163,12 +161,9 @@ before removing a source; reject changed/unsafe files and active or unknown writ
 settings, account registry/defaults, backups, Codex databases, and the activity ledger protected.
 Show linked or foreign-owned conversation files as protected entries; they never block selection
 of safe files and cannot enter a removal review.
-The time-range select is a custom themed trigger and option list (keyboard navigation, selected
-state, Escape and outside-click dismissal), attached to the trigger with a three-point gap,
-matching width, three-point corners, and no native popover chrome. Expanded rows align to the
-leading edge at their nesting level. Cleanup groups use clear headings, aligned counts and brief
-descriptions; keep selection totals and Review together. Secondary gray buttons use stronger
-neutral fills and borders in both appearances, with the established hover behavior.
+The time range is a native pop-up button. Expanded rows align to the leading edge at their
+nesting level. Cleanup groups use clear headings, aligned counts and brief descriptions; keep
+selection totals and Review together.
 
 Chat History loads messages in chronological pages as the reader scrolls, with no permanent
 older-message cutoff. Filters and search cover the complete conversation, keep their persisted
@@ -248,13 +243,10 @@ every quota percentage shows the amount left; when on, every quota percentage sh
 amount used. The selected meaning applies to main-window meters, Menubar cards, status-item
 percentages, tooltips, and accessibility labels, and survives app restarts.
 
-Daily activity uses a GitHub-style calendar instead of a date table. Its header uses one themed
-grouped control whose items touch: only the outside ends are rounded and faint dividers separate
-the interior items. Today, Yesterday, Weekly, Monthly, and Yearly drive both the visible token total
-and the activity range, initially Yearly. Use the same custom grouped treatment for compact,
-mutually exclusive period filters elsewhere, including project colors and hover, focus, selected,
-pressed, and disabled states; do not render a row of native controls or detached pills. The selected
-range persists across app restarts.
+Daily activity uses a GitHub-style calendar instead of a date table. Its header uses a native
+segmented control: Today, Yesterday, Weekly, Monthly, and Yearly drive both the visible token
+total and the activity range, initially Yearly. Other compact, mutually exclusive period
+filters use segmented controls too. The selected range persists across app restarts.
 Selecting an account only changes the displayed account; it must not activate credentials
 or wait on file reads, queries, or repeated calendar aggregation. Build each calendar's
 days, weeks, and token maximum once per body update, not once per cell. The full pane stays
@@ -297,11 +289,9 @@ cover 7, 30, and 365 days. Add no account or provider filter and no source label
 Codex home. Omit Daily activity until the account has retained history, then keep explicit
 zeroes. The TUI account screen uses the same periods and data as one contiguous filter group.
 
-The Menubar account card includes one compact token summary without adding another row to its
-geometry. Put the quota percentage on the same line as Session or Weekly. Reuse the existing detail
-line for the configured token period at the left and reset countdown at the right. Settings owns a
-themed grouped choice for Since reset, Today, Yesterday, Weekly, Monthly, or Yearly; Since reset
-is the default. Since-reset totals use the weekly window start when the service returns a duration
+The Codex account's popover row may add one compact token summary line for the configured
+token period. Settings owns a segmented choice for Since reset, Today, Yesterday, Weekly,
+Monthly, or Yearly; Since reset is the default. Since-reset totals use the weekly window start when the service returns a duration
 and reset time, and otherwise fall back to Weekly without inventing precision.
 
 Show an API-equivalent comparison beside the selected token total when the shared Codex config has
@@ -320,20 +310,9 @@ App actions. It has no separate token-statistics band, brand/count/refresh heade
 session explanation, Add Account action, or Quit action. Account creation belongs in the main
 window.
 
-Each Codex account exposes a labeled **Show in Menubar** toggle immediately before Open Codex
-in its action row. Both stateful actions use a single tick when false (Set as Default or
-Menubar display off), and an outlined double tick with two complete checkmarks when true
-(Using as default or Menubar display on). The icon reflects the current state, not the
-action that clicking will perform. The Menubar toggle's accessible value
-explains whether usage display is on or off. Its context menu offers Use Settings default.
-Fit the double check's visible outline, not its empty 512-unit SVG canvas: at the 13-point
-icon size, a 17⅓-by-13-point area whose centerlines span at least 15 by nine points, with
-round strokes about 1.2 points thick and two complete checks (short and long arm each).
-Both ticks stay distinguishable in light and dark. Single and double ticks share one icon
-area so the Menubar preference does not shift the other actions.
-Identity's header retains Default and attention badges, without a redundant provider badge
-or menu-bar toggle. There is no separate preference row in Usage.
-This preference controls both that account's popover limits and its menu-bar entry.
+Every account has a **Show in Menubar** checkmark item in its More menu (header and table
+row), with Use Settings default; it controls both that account's popover row and its
+menu-bar entry.
 With any account enabled, replace Switch's tray mark with **remaining** quota percentages
 for the first four enabled accounts in the saved sidebar order. Show one 12-point monochrome
 glyph per service, followed by all that service's selected percentages. Order services by
@@ -355,143 +334,64 @@ the clamped used percentage from 100. The popover continues to show used percent
 Package a sourced monochrome glyph catalog for current and future providers locally;
 having artwork does not enable an unsupported provider or add any network work on menu open.
 
-Each account is a distinct compact card. Its single 35-point identity row shows a truncated
-account name with a full-name tooltip, a cached provider glyph instead of a status dot,
-active or attention state, and a dedicated Switch
-button when eligible. Provider and workspace remain in the accessible description. Active,
-Switch, and Sign in controls share one compact 56-by-22-point size and three-point corners.
-Switch uses an outline in the progress bar's accent color; Active is a disabled gray button rather
-than a colored badge. When menu
-usage is enabled and cached, the card expands to show Session followed by Weekly limits.
-Each 40-point quota row places its name above a full-width four-point progress bar,
-then its used percentage on the left and reset description on the right. Use 13-point
-spacing between limits, four-point top and ten-point bottom usage insets. Account names
-and quota labels are 11 points, used percentages ten, and bold reset descriptions nine.
-Show reset time as a live countdown in days, hours, and minutes, such as
-"Resets in 1 day 23h 59m", in both the Menubar and main account view.
-The whole popover, including cards and footer, is translucent over
-one native macOS backdrop blur. Card tints stay translucent; text and icons remain opaque.
-Use the existing native visual-effect wrapper and cached provider glyphs, without per-card
-blur, software image filters, polling, or icon downloads on open. Reduce Transparency
-uses an opaque fallback. The Soft rectangles account panels use a uniform solid tint
-and seven-point corners, without a header divider, outline, or active-state gradient.
-A hidden or missing limit
-takes no space and is never fabricated. The footer shows the newest cache refresh time on the
-left even when usage display is disabled, and Open App on the right. A small refresh icon
-immediately precedes the timestamp. It checks enabled supported accounts in saved sidebar order
-using the existing saved-auth background checks, without activating an account or closing the
-popover. Disable repeat refreshes while running and disable refresh when no supported account
-has usage display enabled. Keep the icon's space fixed while showing progress.
-The popover is 344 points wide,
-uses a compact 29-point footer with ten-point horizontal insets and a text-only ghost
-Open App button with a subtle hover tint. Its native host fits all account cards and the
-footer, growing up to 80% of the visible height of the display containing its status-item
-button. The list scrolls only when its contents exceed that height. Below that cap every account and quota row fits without a scrollbar;
-measure the rendered scroll viewport and document, not just the requested popup size.
-AppKit's intrinsic sizing must not collapse the scroll area or clip
-quota rows for one or two accounts. It has no automatic focus outline
-unless the keyboard-focus indicator setting is enabled.
+The popover's layout is in section 4. A hidden or missing limit takes no space and is never
+fabricated. Refresh checks enabled accounts in saved order without activating an account or
+closing the popover; it is disabled while running and keeps its space while showing progress.
+The popover fits every row up to 80% of the visible height of its screen, then scrolls; one or
+two accounts never collapse or clip.
 
 ## 4. Visual system
 
-Light mode retains the existing warm macOS surfaces. Dark mode uses neutral, darker
-surfaces: rail `#141517`, canvas `#18191B`, panel `#202124`, stripe and raised surface
-`#27282B`, secondary raised surface `#2F3034`, hover `#303238`, and selection `#393C43`.
-Text remains `#F2F2F3`
-with muted text no darker than `#B9BBC0`. Soft separators remain visible without turning
-panels into outlined cards.
+Switch follows the macOS Human Interface Guidelines and the owner's 2026-10-11 mockups of
+the menu bar popover and an Overview window. Native components and system styling replace the
+earlier Soft rectangles design, its custom palettes, Inter and PT Mono, custom window chrome,
+custom hover fades, and the body translucency setting.
 
-The owner selects the Soft rectangles layout with preview 04 Ivory for light mode and
-09 Espresso for dark mode, following the app's effective appearance. Use popup/card/button
-radii of 9/7/3 points.
-The Menubar has its own palette, separate from the main window's colors:
-
-| Role | Ivory | Espresso |
-|---|---|---|
-| Shell | `#F0ECE2` | `#292722` |
-| Account panel | `#FFFDF6` | `#3B372F` |
-| Text | `#323229` | `#F1E8D5` |
-| Secondary text | `#6B665A` | `#C8BCA6` |
-| Limit track | `#E0DED4` | `#625B4B` |
-| Limit fill | `#4B706E` | `#B4C8DD` |
-| Switch text and outline | `#4B706E` | `#B4C8DD` |
-| Disabled Active control | `#E9E7DF` | `#504A3E` |
-| Footer separator | `#DCD8CC` | `#534A3B` |
-
-Use a 92% shell tint over the single native backdrop and 94% panel tints, with opaque
-text/icons and fully opaque fallback surfaces when Reduce Transparency is enabled.
-Appearance changes update all virtualized panels without altering their geometry.
-Preserve compact multi-account switching, visible limits, the refresh timestamp, and
-Open App. Keep the single native backdrop and reduced-transparency fallback, and open
-without presentation animation. Preview data is illustrative and does not query or
-change accounts.
-
-Compact section headers use one 40-point alignment row. A leading title, trailing count,
-warning/copy action, error indicator, and progress indicator occupy explicit centered slots;
-content changes must not move them vertically or horizontally.
-In Chat History's Conversations header, warning and loading/error slots precede the
-right-aligned conversation count. Use a mini spinner and reserve no status space after the count.
-
-Identity and Usage are the primary account sections. Their header tint is restrained;
-secondary and settings headers use a lighter tint. Decorative header strokes use half the
-previous opacity. Default and attention badges sit at the right of Identity's
-header. Set as Default and Open remain labeled primary actions; Check, Copy, and Refresh use quiet
-tooltip icon buttons. Healthy verification detail is not repeated under the identity.
-Check account files uses a magnifying-glass icon. Set as Default uses a single tick;
-the default account shows a double tick and Using as default. That action remains enabled
-when idle to reapply the saved credential. Displayed filesystem paths copy their exact text
-on click and show a brief local Copied confirmation without shifting layout. Copyable text
-uses a pointing-hand cursor, middle truncation, and a full-path tooltip; accessible
-names identify the copy action, and Preview must not mutate the real clipboard.
-Body prose uses Inter rather than monospace. Disabled actions stay legible and every icon
-action retains an accessible name, focus behavior, and its existing safety guards.
-Primary button text and icons, including Using as default, remain fully opaque
-regardless of body translucency. The main window has three-point rounded corners
-with a transparent exterior; preserve its size, placement, controls, and native shadow.
+- **Type and color:** the system font at standard text styles, monospaced digits for numbers,
+  the system monospaced font for paths and IDs, system semantic colors, and the user's accent
+  color in light and dark. Remaining-quota bars are green above 50% left, yellow from 20% to
+  50%, and red below 20%; the pace verdict uses the same colors; an unknown value shows an empty
+  grey track. Show percentage used flips text and fill to the used share.
+- **Window:** a standard titled window with traffic lights, a unified toolbar, and a translucent
+  sidebar with SF Symbols. The toolbar holds a "Search accounts…" field at least 300 pt wide
+  (Command-K focuses it; it filters every account list), an Add button, and a More menu.
+  Content is grouped cards: secondary system background, 10-point corners, a hairline border,
+  16-point padding, 12-point gaps.
+- **Overview:** a header card for the focused account (provider icon tile, name with a chevron
+  menu that picks another account, provider and a green Active dot or an attention badge, the
+  primary window's bar with "N% left" and its reset on the right, then Using as default or Make
+  Default, Open <tool>, Copy, and More); an Accounts card with a native table (Account, Provider,
+  Usage, Resets, and a Default badge or Switch button plus More) and the account count; Current
+  limits as one small card per window with "View all limits"; Recent activity for the focused
+  provider (Today, Yesterday, Last 30 days tokens and API-equivalent cost when known) with "View
+  full history"; and Maintenance with the backup and recovery state and Open Backup.
+- **Accounts, Conversations, Maintenance, Settings:** the existing pages restyled with the same
+  native cards, lists, and controls.
+- **Menu bar popover:** native popover material, about 360 pt wide. Each row with Show in
+  Menubar on has a 40-point rounded provider icon tile, the account name (headline) over the
+  provider (secondary), the primary reset countdown at the top right, then one line per window
+  (Weekly, 5h, or the window's title; no label when there is one window) with a capsule bar and
+  the remaining percent. A checkmark marks each provider's default. Clicking a row or pressing
+  Return switches to it; its context menu offers Switch, Open <tool>, Refresh, and Copy name.
+  Hairlines separate rows. The footer has Refresh and Settings icon buttons and a prominent
+  "Open Switch" button showing Command-O.
+- **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
+  never touches the real clipboard); every icon action has an accessible name and keyboard
+  focus; Reduce Motion and Reduce Transparency follow the system; Preview data is synthetic.
 
 Deleting the default account first activates an eligible saved fallback: the selected other
 account, then the previous selection, then the most recently used, then the first available. The
 confirmation names the replacement, and a failed activation keeps the account. With no eligible
 fallback, Delete account stays disabled with its normal label. Conversations and settings stay.
 
-Close hover uses bright red `#FF453A` with a white glyph; Minimize hover uses bright yellow
-`#FFD43B` with a dark glyph. Both remain square, and Minimize floats out of Close without
-entering the title layout. Keep one continuous rail divider. Enabled buttons, icon actions,
-range selectors, and list rows use a visible, interruptible 120 ms hover fade in both directions.
-Animate color or opacity only; hit areas remain fixed and decorative overlays do not intercept
-pointer input. Disabled controls do not highlight, and Reduce Motion uses immediate feedback.
-Moving between controls or returning after Command-Tab must not cycle through hover,
-disabled, and normal colors, and background reconciliation must not disable the interface or
-publish unchanged account, history, and usage values. Hover feedback stays stable in light and
-dark with body translucency on: the departed and entered controls both fade, with no brightness
-reversals or flashes beyond their normal and hovered colors. Scope fades to the opacity of
-constant-color layers; never animate a control's adaptive colors, foreground, or layout.
-Show in Menubar uses the same normal button colors as Open Codex and Use & Open Codex;
-its tick state communicates the saved choice without a separate blue surface.
+Background reconciliation never disables the interface or republishes unchanged account,
+history, and usage values. Secondary text identifies the provider (such as Codex CLI); only
+states that need action add a badge. The Dock and Spotlight icon and the monochrome menu-bar
+template are unchanged.
 
-Inter is the interface, reading, and display face. PT Mono is reserved for paths,
-measurements, IDs, and other technical data. Both font families are bundled with their OFL
-licenses and must load in production and Preview builds.
-
-Dock and Spotlight use the approved pixel trace as a dark glyph on a light neutral tile,
-with the existing generous padding, optical placement, shallow surface shade, and slight
-top sheen. Both app appearance variants retain this light-tile treatment. Menu-bar artwork
-remains the native monochrome template.
-
-Account-list secondary text and menu cards identify the provider, such as Codex CLI, rather
-than repeating verification language. Healthy identity badges use the provider name; only
-states that need action add a separate state badge. The Add Account and Advanced Import
-titlebars use one 48-point row for the title and edge-to-edge Close button. Close has a
-distinct opaque neutral surface, contrasting glyph, and bright red hover. Add Account
-provider rows are single-choice buttons, not checkboxes. Clicking selects a provider,
-double-clicking an enabled provider selects it and continues, and the separate Continue
-action preserves the keyboard and assistive-technology path. Every Add Account step keeps
-its titlebar and footer fully visible inside the modal.
-Step tabs are 28 points high and centered horizontally in the bottom action row,
-alongside Continue, Check Now, or the current page's navigation actions. Keep their
-center fixed independently of unequal left and right buttons. Modal
-content and actions use matching 16-point top and bottom spacing, and checkboxes align to the
-same 16-point panel content edge as their headings and rows.
+Add Account and Advanced Import are native sheets: a provider search and single-choice list
+(double-click continues), then the provider's form or sign-in page, with standard Cancel and
+Continue buttons and a small step indicator; every step keeps its buttons visible.
 
 ## 5. Terminal distribution
 
