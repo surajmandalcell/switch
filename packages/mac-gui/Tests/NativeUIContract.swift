@@ -230,8 +230,16 @@ enum AIManagerNativeContract {
       == "Resets in 1h 0m", "Reset countdown has the wrong hour boundary")
     expect(UsageResetLabel.text(until: resetNow.addingTimeInterval(59), now: resetNow)
       == "Resets in <1m", "Reset countdown says zero minutes before reset")
-    expect(UsageResetLabel.text(until: resetNow, now: resetNow) == "Resets now",
-      "Reset countdown keeps counting after reset")
+    // A passed reset never reads "now": unused windows are "Not started", others "Resetting…".
+    for exact in [false, true] {
+      expect(UsageResetLabel.text(until: resetNow, now: resetNow, exact: exact, usedPercent: 0) == "Not started"
+        && UsageResetLabel.text(until: resetNow.addingTimeInterval(-90), now: resetNow, exact: exact) == "Not started"
+        && UsageResetLabel.text(until: resetNow, now: resetNow, exact: exact, usedPercent: 37) == "Resetting…",
+        "A passed reset does not read Not started or Resetting… (exact \(exact))")
+      expect(OverviewFormat.compactReset(resetNow, now: resetNow, exact: exact, usedPercent: 0) == "Not started"
+        && OverviewFormat.compactReset(resetNow, now: resetNow, exact: exact, usedPercent: 12) == "Resetting…",
+        "The Overview table reads \"now\" for a passed reset (exact \(exact))")
+    }
     failures.append(contentsOf: activityCalendarRenderFailures())
     failures.append(contentsOf: menuBarUsagePreferenceFailures())
     return failures
@@ -721,7 +729,9 @@ enum AIManagerNativeContract {
     expect(exact(nextDay, .twelve) == "Resets tomorrow 9:05 AM", "Tomorrow reset reads \(exact(nextDay, .twelve))")
     expect(exact(inThreeDays, .twentyFour) == "Resets Tue 00:00", "Weekday reset reads \(exact(inThreeDays, .twentyFour))")
     expect(exact(nextMonth, .twelve) == "Resets Oct 20, 11:45 PM", "Distant reset reads \(exact(nextMonth, .twelve))")
-    expect(exact(now.addingTimeInterval(-5), .twelve) == "Resets now", "A passed reset is not Resets now")
+    expect(exact(now.addingTimeInterval(-5), .twelve) == "Not started"
+      && ResetDisplay.exactText(now.addingTimeInterval(-5), now: now, usedPercent: 40) == "Resetting…",
+      "A passed exact reset reads \(exact(now.addingTimeInterval(-5), .twelve))")
     expect(UsageResetLabel.text(until: sameDay, now: now, exact: false) == "Resets in 2h 5m",
       "The countdown changed")
     expect(UsageResetLabel.text(until: sameDay, now: now, exact: true, hourFormat: .twentyFour)
@@ -733,7 +743,7 @@ enum AIManagerNativeContract {
       "Reset display choices are not read back")
     expect(HourFormat.allCases.map(\.label) == ["Auto", "12-hour", "24-hour"], "Hour format labels changed")
     // Every reset text shares one switch.
-    let resetHost = fits(ResetTimeText(reset: sameDay, now: now), width: 300, height: 40)
+    let resetHost = fits(ResetTimeText(reset: sameDay, now: now, usedPercent: 10), width: 300, height: 40)
     expect(resetHost.fittingSize.width > 0, "ResetTimeText collapsed")
     UserDefaults.standard.removeObject(forKey: ResetDisplay.exactKey)
     let before = UsageResetLabel.text(until: sameDay, now: now)
@@ -1207,6 +1217,36 @@ enum AIManagerNativeContract {
       && $0.tableColumns.count == 4 },
       "The Overview accounts card is not a native table of Account, Usage, Resets, and Default or Switch")
     expect(host.fittingSize.height > 0, "The Overview collapsed")
+
+    // The longest reset text is not truncated at the default window width: the reset column is
+    // at least as wide as the text, and a row laid out in the card's width keeps it.
+    let longReset = Text(OverviewWindowRow.longestReset).fixedSize()
+    let longWidth = NSHostingView(rootView: longReset).fittingSize.width
+    expect(OverviewWindowRow.resetWidth >= longWidth,
+      "The reset column (\(OverviewWindowRow.resetWidth)) is narrower than \"\(OverviewWindowRow.longestReset)\" (\(longWidth))")
+    let now = Date()
+    let longRow = OverviewWindowRow(
+      window: UsageWindow(id: "w", title: "Weekly", usedPercent: 40,
+        resetsAt: now.addingTimeInterval(6 * 86_400 + 23 * 3_600 + 59 * 60 + 30), windowMinutes: 10_080),
+      showsUsed: false, now: now)
+    let rowWidth = AIManagerWindow.defaultSize.width - AIMTheme.sidebarWidth - 4 * AIMTheme.panelContentInset
+    // Ideal width: title + minimum bar + percent + the full reset column must fit the card.
+    let idealWidth = NSHostingView(rootView: longRow).fittingSize.width
+    expect(idealWidth >= 130 + 40 + 80 + OverviewWindowRow.resetWidth && idealWidth <= rowWidth,
+      "A focused-card window row does not keep the full reset text at the default width (\(idealWidth) of \(rowWidth))")
+
+    // An account that needs sign-in gets a Sign in button instead of a disabled Switch.
+    if let stale = model.status?.accounts.first(where: { $0.verification.state == .needsSignIn }),
+      let good = model.status?.accounts.first(where: { $0.verification.state != .needsSignIn }) {
+      expect(model.needsSignIn(stale) && !model.needsSignIn(good),
+        "needsSignIn is wrong for the demo accounts")
+      expect(model.status?.isDefault(stale) != true
+        && OverviewFormat.rowAction(for: stale, model: model) == .signIn
+        && OverviewFormat.rowAction(for: good, model: model) != .signIn,
+        "The Overview table shows no Sign in action for an account that needs sign-in")
+      let signIn = NSHostingView(rootView: SignInButton(account: stale, model: model, small: true))
+      expect(signIn.fittingSize.width > 0, "The Sign in button collapsed")
+    } else { failures.append("The Overview fixture has no account that needs sign-in") }
     return failures
   }
 

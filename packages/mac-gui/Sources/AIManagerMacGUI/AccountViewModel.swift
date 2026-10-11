@@ -394,6 +394,20 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    /// An account whose saved sign-in no longer works: verification says so, or its usage request did.
+    func needsSignIn(_ account: AccountRecord) -> Bool {
+        account.verification.state == .needsSignIn || providerUsage[account.id]?.needsSignIn == true
+    }
+
+    /// Re-adds the provider through the Add Account flow. Built-in providers start their sign-in
+    /// at once; others open with the provider already chosen.
+    func beginSignIn(for providerID: ProviderID) async {
+        await beginAddAccount()
+        guard showImport, accountLoginSession == nil else { return }
+        selectedProviderID = providerID
+        if ProviderChoices.builtIn.contains(providerID) { await startAccountLogin() }
+    }
+
     func beginAdvancedImport() async {
         guard !isUnavailable else { reportUnavailable(); return }
         guard !isBusy else { return }

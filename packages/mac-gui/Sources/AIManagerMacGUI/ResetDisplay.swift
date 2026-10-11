@@ -27,13 +27,19 @@ enum ResetDisplay {
     defaults.string(forKey: hourFormatKey).flatMap(HourFormat.init(rawValue:)) ?? .auto
   }
 
+  /// A reset time that has passed. "Not started" while the window is unused, else "Resetting…".
+  /// Never "now": the service has not reported the new window yet.
+  static func pastText(usedPercent: Double?) -> String {
+    (usedPercent ?? 0).rounded() <= 0 ? "Not started" : "Resetting…"
+  }
+
   /// "Resets 5:30 PM" today, "Resets tomorrow 5:30 PM", "Resets Thu 5:30 PM" inside a week,
-  /// otherwise "Resets Oct 14, 5:30 PM". "Resets now" once the time has passed.
+  /// otherwise "Resets Oct 14, 5:30 PM". `pastText` once the time has passed.
   static func exactText(
     _ reset: Date, now: Date = Date(), hourFormat: HourFormat = .auto,
-    timeZone: TimeZone = .current
+    timeZone: TimeZone = .current, usedPercent: Double? = nil
   ) -> String {
-    guard reset > now else { return "Resets now" }
+    guard reset > now else { return pastText(usedPercent: usedPercent) }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = timeZone
     let posix = Locale(identifier: "en_US_POSIX")
