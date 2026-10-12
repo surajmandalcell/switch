@@ -101,16 +101,19 @@ struct AIMCard<Accessory: View, Content: View>: View {
     self.content = content()
   }
 
+  /// Names this card's lint groups, so the title row and the body edges are compared per card.
+  @State private var cardID = UUID().uuidString.prefix(8).lowercased()
+
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: AIMTheme.radius, style: .continuous)
     let inset = well ? AIMTheme.tileInset : 0
     VStack(alignment: .leading, spacing: 0) {
       if let title {
         HStack(spacing: AIMTheme.rowSpacing) {
-          Text(title).aimText(.section)
+          Text(title).aimText(.section).uiLint(.align("\(cardID)-start", .start))
           if let note { Text(note).aimText(.secondary) }
           Spacer(minLength: AIMTheme.rowSpacing)
-          accessory
+          accessory.uiLint(.align("\(cardID)-end", .end))
         }
         .padding(.horizontal, AIMTheme.cardInset - inset)
         .frame(height: AIMTheme.titleRowHeight)
@@ -119,6 +122,7 @@ struct AIMCard<Accessory: View, Content: View>: View {
       }
       content
     }
+    .environment(\.aimCardID, cardID)
     .modifier(WellBody(well: well))
     // 1 pt of bottom padding keeps a 22 pt control in a 36 pt last row 8 pt from the edge.
     .padding(.bottom, well ? 0 : 1)
@@ -149,12 +153,13 @@ private struct WellBody: ViewModifier {
 
 private struct CardEdgeTags: ViewModifier {
   let edges: AIMCardEdges
+  @Environment(\.aimCardGroup) private var group
 
   @ViewBuilder func body(content: Content) -> some View {
     switch edges {
-    case .both: content.uiLint(.align("cards-start", .start)).uiLint(.align("cards-end", .end))
-    case .start: content.uiLint(.align("cards-start", .start))
-    case .end: content.uiLint(.align("cards-end", .end))
+    case .both: content.uiLint(.align("\(group)-start", .start)).uiLint(.align("\(group)-end", .end))
+    case .start: content.uiLint(.align("\(group)-start", .start))
+    case .end: content.uiLint(.align("\(group)-end", .end))
     }
   }
 }
@@ -233,6 +238,8 @@ private struct AIMRowsRoot: _VariadicView_UnaryViewRoot {
       ForEach(Array(children.enumerated()), id: \.offset) { index, child in
         if index > 0 { AIMRowSeparator() }
         child
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .aimBodyEdges()
           .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, AIMTheme.rowSpacing)
           .frame(maxWidth: .infinity, minHeight: AIMTheme.rowHeight, alignment: .leading)
       }
@@ -277,8 +284,36 @@ extension AIMSection where Accessory == EmptyView {
 }
 
 private struct AIMPageHeaderKey: EnvironmentKey { static let defaultValue = AnyView(EmptyView()) }
+private struct AIMCardGroupKey: EnvironmentKey { static let defaultValue = "cards" }
+private struct AIMCardIDKey: EnvironmentKey { static let defaultValue = "" }
+
+extension View {
+  /// Marks the card body content whose leading and trailing edges must line up with the card's
+  /// title row (16 inset). Put it on the 16-inset content of a titled card; the lint compares them.
+  func aimBodyEdges() -> some View { modifier(AIMBodyEdges()) }
+}
+
+private struct AIMBodyEdges: ViewModifier {
+  @Environment(\.aimCardID) private var id
+
+  func body(content: Content) -> some View {
+    content.uiLint(.align("\(id)-start", .start)).uiLint(.align("\(id)-end", .end))
+  }
+}
 
 extension EnvironmentValues {
+  var aimCardID: String {
+    get { self[AIMCardIDKey.self] }
+    set { self[AIMCardIDKey.self] = newValue }
+  }
+
+  /// The lint alignment group of a card's edges: "cards" for full-width pages (shared with the
+  /// search field), "column" for the centered Settings column.
+  var aimCardGroup: String {
+    get { self[AIMCardGroupKey.self] }
+    set { self[AIMCardGroupKey.self] = newValue }
+  }
+
   /// The window's top row (Add, More, search) and error bar. A page draws it inside its own
   /// content, so it always has the cards' width, with legacy or overlay scroll bars.
   var aimPageHeader: AnyView {
@@ -299,14 +334,20 @@ struct AIMScrollPage<Content: View>: View {
     ScrollView {
       LazyVStack(spacing: AIMTheme.cardGap, pinnedViews: [.sectionHeaders]) {
         Section {
-          content
+          if let maxWidth {
+            // The header stays full width; only the cards form the centered column.
+            VStack(spacing: AIMTheme.cardGap) { content }
+              .frame(maxWidth: maxWidth)
+              .frame(maxWidth: .infinity)
+              .environment(\.aimCardGroup, "column")
+          } else {
+            content
+          }
         } header: {
           header.frame(maxWidth: .infinity).background(AIMTheme.page)
         }
       }
-      .frame(maxWidth: maxWidth)
       .padding([.horizontal, .bottom], AIMTheme.pageMargin)
-      .frame(maxWidth: .infinity)
     }
   }
 }
@@ -319,7 +360,7 @@ struct AIMFixedPage<Content: View>: View {
   var body: some View {
     VStack(spacing: 0) {
       header
-      content
+      content.padding(.top, AIMTheme.cardGap)
     }
     .padding([.horizontal, .bottom], AIMTheme.pageMargin)
   }

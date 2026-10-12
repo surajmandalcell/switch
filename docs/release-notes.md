@@ -23,10 +23,10 @@ quick account switch.
 Hooks, the plugin engine, browser cookie import, widgets, sync, and telemetry from those
 apps are left out on purpose.
 
-Switch 3.6 has a new native look: a standard window with a sidebar (Overview, Accounts,
-Conversations, Maintenance, Settings), a toolbar search on Command-K, an Overview with the
-focused account's limits and an accounts table, and a simpler menu bar popover where clicking
-an account switches to it.
+Switch 3.7 redraws the window in a macOS Sequoia style. The Overview shows the focused
+account, an accounts table, current limits, recent activity with an estimated cost, and
+backup status. Every page uses the same aligned cards and tables. The search field is in
+the top bar on Command-K, and clicking an account in the menu bar popover switches to it.
 
 Switch 3.5 closes the gaps a field-by-field comparison with OpenUsage and CodexBar found:
 
