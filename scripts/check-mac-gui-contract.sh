@@ -27,17 +27,17 @@ if rg -n '\.font\(' "$repo_root/packages/mac-gui/Sources" --glob '!AIManagerDesi
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL font lint: set fonts with .aimText(_:) or .aimFont(_:)' >&2
   exit 1
 fi
-# Native structure: Settings is a grouped Form and the sidebar is a plain List in a NavigationSplitView.
+# Native structure: Settings is a centered column of shared cards and the sidebar is the window's own AIMSidebar.
 window_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountWindow.swift"
 settings_body="$(awk '/^struct SettingsPage: View/{f=1} f{print} /^private struct DataLocationRow/{f=0}' "$window_source")"
-if ! printf '%s\n' "$settings_body" | rg -q '^\s*Form \{' || ! printf '%s\n' "$settings_body" | rg -q '\.formStyle\(\.grouped\)'; then
-  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings is not a grouped Form' >&2
+if ! printf '%s\n' "$settings_body" | rg -q 'AIMScrollPage\(maxWidth: 720\)' || printf '%s\n' "$settings_body" | rg -q '^\s*Form \{'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings is not a centered column of AIMSection cards' >&2
   exit 1
 fi
-sidebar_body="$(awk '/NavigationSplitView \{/{f=1} f{print} /\} detail: \{/{f=0}' "$window_source")"
-if ! printf '%s\n' "$sidebar_body" | rg -q 'List\(AIManagerPage\.allCases' \
-  || printf '%s\n' "$sidebar_body" | rg -q '\.(font|padding|background|listStyle)\('; then
-  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the sidebar is not a plain native List (only its column width may be set)' >&2
+parts_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerParts.swift"
+if ! rg -q 'AIMSidebar\(' "$window_source" || ! rg -q 'NSVisualEffectView' "$parts_source" \
+  || rg -q '\.toolbar \{|NavigationSplitView' "$window_source"; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the window must draw its own sidebar (AIMSidebar over a visual-effect material) with no toolbar bar' >&2
   exit 1
 fi
 

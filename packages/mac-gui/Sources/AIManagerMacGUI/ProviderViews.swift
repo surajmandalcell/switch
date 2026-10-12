@@ -187,7 +187,7 @@ struct ClaudeActivityPanel: View {
   @ObservedObject var model: AccountViewModel
 
   var body: some View {
-    Section(Self.title) {
+    AIMSection(Self.title) {
       if let summary = model.claudeActivity {
         ForEach(Array(summary.rows.enumerated()), id: \.offset) { _, row in
           LabeledContent(row.label) {
@@ -254,7 +254,7 @@ struct ProviderUsagePanel: View {
   private var isRefreshing: Bool { state?.isRefreshing == true }
 
   var body: some View {
-    Section("Usage") {
+    AIMSection("Usage") {
       if let usage {
         populated(usage)
       } else {
@@ -530,8 +530,8 @@ struct ProviderAccountDetail: View {
   }
 
   var body: some View {
-    Form {
-      Section("Identity") {
+    AIMDetailPage {
+      AIMSection("Identity") {
         VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
           HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
             Text(name).aimText(.title).lineLimit(1).textSelection(.enabled)
@@ -552,7 +552,7 @@ struct ProviderAccountDetail: View {
         }
       }
       ProviderUsagePanel(account: account, model: model)
-      Section("Account details") {
+      AIMSection("Account details") {
         DetailRow(label: "Saved sign-in", value: account.credentialFile.path)
         DetailRow(
           label: "Imported",
@@ -563,11 +563,10 @@ struct ProviderAccountDetail: View {
             ?? "Not switched yet")
       }
       if let notice = model.notice {
-        Section { Notice(text: notice, tone: AIMTheme.blue) }
+        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
           .transition(reduceMotion ? .identity : .opacity)
       }
     }
-    .formStyle(.grouped)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
 

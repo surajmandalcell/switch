@@ -13,10 +13,11 @@ enum AIManagerLaunchContext {
   }
 }
 
-/// The main window: a standard titled window with traffic lights and a unified toolbar.
+/// The main window: a standard titled window with traffic lights over a full-size content view. It
+/// has no toolbar bar; the content draws its own top row.
 @MainActor final class AIManagerWindow: NSWindow {
   static let defaultSize = NSSize(width: 1080, height: 760)
-  static let minimumSize = NSSize(width: 860, height: 560)
+  static let minimumSize = NSSize(width: 980, height: 620)
   static let frameAutosaveName = "AIManagerMainWindow"
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
@@ -63,7 +64,9 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered, defer: false)
     window.title = title
-    window.toolbarStyle = .unified
+    window.titlebarAppearsTransparent = true
+    window.titleVisibility = .hidden
+    window.titlebarSeparatorStyle = .none
     let host = NSHostingController(rootView: rootView)
     host.sizingOptions = []
     window.contentViewController = host
@@ -218,29 +221,17 @@ struct AccountWindow: View {
   }
 
   var body: some View {
-    NavigationSplitView {
-      List(AIManagerPage.allCases, id: \.self, selection: pageSelection) { item in
-        Label(item.rawValue, systemImage: item.icon.symbol)
-          .accessibilityIdentifier("sidebar-\(item.rawValue)")
-      }
-      // Wide enough for "Conversations" beside its icon.
-      .navigationSplitViewColumnWidth(min: 190, ideal: 210)
-    } detail: {
-      VStack(spacing: 0) {
-        if let error = model.errorMessage, !model.showImport {
-          AIMPanel {
-            ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
-              model.errorMessage = nil
-            }
-          }
-          .padding([.horizontal, .top], AIMTheme.pageMargin)
-        }
-        pageView
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-      .navigationTitle(page.rawValue)
-      .toolbar { toolbarContent }
+    HStack(spacing: 0) {
+      AIMSidebar(selection: page, select: show)
+      // Each page draws the top row inside its own content, so the row and the cards share one
+      // width whatever the scroll bar style is.
+      pageView
+        .environment(\.aimPageHeader, pageHeader)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AIMTheme.page)
     }
+    // The content runs under the transparent title bar; the sidebar and top row clear the lights.
+    .ignoresSafeArea()
     .sheet(isPresented: Binding(
       get: { model.showImport },
       set: { if !$0 { model.closeAccountModal() } })
@@ -280,10 +271,6 @@ struct AccountWindow: View {
     }
   }
 
-  private var pageSelection: Binding<AIManagerPage?> {
-    Binding(get: { page }, set: { if let next = $0 { show(next) } })
-  }
-
   private func show(_ next: AIManagerPage) {
     page = next
     NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: next)
@@ -292,7 +279,10 @@ struct AccountWindow: View {
   @ViewBuilder private var pageView: some View {
     switch page {
     case .overview:
-      OverviewPage(model: model, query: searchQuery)
+      OverviewPage(model: model, query: searchQuery) { target in
+        if target == .maintenance { maintenanceSection = .backup }
+        show(target)
+      }
     case .accounts: AccountsPage(model: model, query: searchQuery)
     case .conversations: HistoryPage(model: model)
     case .maintenance: MaintenancePage(model: model, section: $maintenanceSection)
@@ -300,56 +290,45 @@ struct AccountWindow: View {
     }
   }
 
-  @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-    ToolbarItem(placement: .primaryAction) { searchField }
-    ToolbarItem(placement: .primaryAction) {
-      Button { Task { await model.beginAddAccount() } } label: {
-        Label("Add Account", systemImage: AIMIcon.Name.plus.symbol)
-      }
-      .help("Add Account")
-      .disabled(model.isBusy || !model.hasLoaded)
-    }
-    ToolbarItem(placement: .primaryAction) {
-      Menu {
-        Button("Refresh All Usage") { Task { await model.refreshAllUsage() } }
-          .disabled(model.isBusy)
-        Button("Add Account") { Task { await model.beginAddAccount() } }
-          .disabled(model.isBusy || !model.hasLoaded)
-        Button("Import…") { Task { await model.beginAdvancedImport() } }
-          .disabled(model.isBusy || !model.hasLoaded)
-        Divider()
-        Button("Settings") { show(.settings) }
-      } label: {
-        Label("More", systemImage: AIMIcon.Name.more.symbol)
-      }
-      .menuIndicator(.hidden)
-      .help("More")
-    }
+  /// The content's top row, lightest to heaviest from left to right: Add, More, then the 300 pt
+  /// account search at the right edge. Command-K focuses the search.
+  private var pageHeader: AnyView {
+    AnyView(
+      VStack(spacing: 0) {
+        topBar
+        if let error = model.errorMessage, !model.showImport {
+          AIMPanel {
+            ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
+              model.errorMessage = nil
+            }
+          }
+          .padding(.bottom, AIMTheme.cardGap)
+        }
+      })
   }
 
-  /// "Search accounts…", at least 300 points wide. Command-K focuses it.
-  private var searchField: some View {
-    TextField(AIManagerToolbar.searchPrompt, text: $searchQuery)
-      .textFieldStyle(.roundedBorder)
-      .focused($searchFocused)
-      .accessibilityLabel("Search accounts")
-      .accessibilityIdentifier("toolbar-search")
-      .onExitCommand { searchQuery = ""; searchFocused = false }
-      .frame(width: AIManagerToolbar.searchWidth)
-      .overlay(alignment: .trailing) {
-        if searchQuery.isEmpty {
-          Text("⌘K").aimText(.secondary).padding(.trailing, AIMTheme.rowSpacing)
-            .accessibilityHidden(true).allowsHitTesting(false)
-        } else {
-          Button { searchQuery = "" } label: {
-            Image(systemName: "xmark.circle.fill")
-          }
-          .buttonStyle(.borderless)
-          .padding(.trailing, AIMTheme.rowSpacing)
-          .help("Clear search")
-          .accessibilityLabel("Clear search")
+  private var topBar: some View {
+    HStack(spacing: AIMTheme.rowSpacing) {
+      Spacer(minLength: 0)
+      HStack(spacing: AIMTheme.rowSpacing) {
+        AIMSquareButton(
+          icon: .plus, label: "Add Account", disabled: model.isBusy || !model.hasLoaded
+        ) { Task { await model.beginAddAccount() } }
+        AIMIconMenu(icon: .ellipsis, label: "More") {
+          Button("Refresh All Usage") { Task { await model.refreshAllUsage() } }
+            .disabled(model.isBusy)
+          Button("Add Account") { Task { await model.beginAddAccount() } }
+            .disabled(model.isBusy || !model.hasLoaded)
+          Button("Import…") { Task { await model.beginAdvancedImport() } }
+            .disabled(model.isBusy || !model.hasLoaded)
+          Divider()
+          Button("Settings") { show(.settings) }
         }
       }
+      .uiLint(.actions)
+      AIMSearchField(text: $searchQuery, focus: $searchFocused, prompt: AIManagerToolbar.searchPrompt)
+    }
+    .frame(height: AIMTheme.topBarHeight)
   }
 
   private func applyAppearance(to window: NSWindow) {
@@ -390,7 +369,7 @@ struct AIMButton: View {
 struct AIMButtonStyle: ViewModifier {
   let prominent: Bool
   func body(content: Content) -> some View {
-    if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+    content.buttonStyle(AIMPushButtonStyle(prominent: prominent))
   }
 }
 
@@ -429,7 +408,7 @@ struct DefaultAccountButton: View {
 
   var body: some View {
     if isDefault {
-      Badge(text: "Default")
+      AIMStateChip(text: "Default")
         .accessibilityLabel(AccountActionCopy.usingDefault)
         .accessibilityHint("This account is already the default.")
     } else {
@@ -460,43 +439,27 @@ private struct AccountsPage: View {
   let query: String
   @State private var pendingDeletion: AccountRecord?
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
+  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
 
   private var accounts: [AccountRecord] {
     AccountSearch.filter(model.status?.accounts ?? [], query: query, hideEmails: hideEmails)
   }
 
   var body: some View {
-    HStack(spacing: 0) {
-      List(selection: Binding(
-        get: { model.selectedAccountID }, set: { model.selectedAccountID = $0 })
-      ) {
-        ForEach(accounts) { account in
-          AccountListRow(
-            account: account, selected: account.id == model.selectedAccountID,
-            isDefault: model.status?.isDefault(account) == true,
-            providerStatus: model.providerStatus[account.identity.providerID],
-            hidesEmails: hideEmails)
-            .tag(account.id)
-            .contextMenu { accountContextMenu(for: account) }
-        }
-        .onMove { source, destination in
-          guard query.isEmpty, let move = AccountReorder.move(
-            accountIDs: accounts.map(\.id), from: source, to: destination) else { return }
-          Task { await model.moveAccount(move.accountID, to: move.targetID) }
-        }
-        if !model.hasLoaded {
-          HStack(spacing: AIMTheme.rowSpacing) {
-            ProgressView().controlSize(.small)
-            Text("Loading accounts…").aimText(.secondary)
-          }
-        } else if accounts.isEmpty {
-          Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
-            .aimText(.secondary)
-        }
+    // Only the page scrolls: the table shows every row.
+    AIMScrollPage {
+      TimelineView(.periodic(from: .now, by: 60)) { context in
+        AccountsTableCard(
+          accounts: accounts, total: model.status?.accounts.count ?? 0, query: query, model: model,
+          focusedID: model.selectedAccountID, now: context.date, hideEmails: hideEmails,
+          showsUsed: showsUsed,
+          focus: { model.selectedAccountID = $0 },
+          delete: { prepareDeletion(of: $0) },
+          loading: !model.hasLoaded,
+          onMove: query.isEmpty
+            ? { id, target in Task { await model.moveAccount(id, to: target) } } : nil,
+          contextMenu: { AnyView(accountContextMenu(for: $0)) })
       }
-      .listStyle(.inset)
-      .frame(width: AIMTheme.accountListWidth)
-      Divider()
       if let account = model.selectedAccount {
         if account.usesGenericDetail {
           ProviderAccountDetail(account: account, model: model) {
@@ -607,8 +570,8 @@ struct AccountListRow: View {
 private struct EmptyAccountView: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    Form {
-      Section("Account") {
+    AIMDetailPage {
+      AIMSection("Account") {
         if !model.hasLoaded {
           HStack(spacing: AIMTheme.rowSpacing) {
             ProgressView().controlSize(.small)
@@ -632,7 +595,6 @@ private struct EmptyAccountView: View {
         }
       }
     }
-    .formStyle(.grouped)
   }
 }
 
@@ -646,8 +608,8 @@ private struct AccountDetail: View {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
   }
   var body: some View {
-    Form {
-      Section("Identity") {
+    AIMDetailPage {
+      AIMSection("Identity") {
         VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
           HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
             Text(EmailPrivacy.display(account.identity.heroName, hide: hideEmails))
@@ -685,7 +647,7 @@ private struct AccountDetail: View {
       if account.identity.providerID == .claudeCode {
         ClaudeActivityPanel(model: model)
       }
-      Section("Account details") {
+      AIMSection("Account details") {
         DetailRow(label: account.identity.providerID == .claudeCode ? "Profile config" : "Saved auth",
                   value: account.credentialFile.path)
         DetailRow(label: "Source", value: account.source.path)
@@ -703,7 +665,7 @@ private struct AccountDetail: View {
             ?? "Not launched yet")
       }
       if !issues.isEmpty {
-        Section("Account data needs repair") {
+        AIMSection("Account data needs repair") {
           ForEach(issues) { issue in
             HStack(spacing: AIMTheme.sectionSpacing) {
               AIMIcon(name: .warning).aimText(.body).foregroundStyle(AIMTheme.amber)
@@ -725,11 +687,10 @@ private struct AccountDetail: View {
         }
       }
       if let notice = model.notice {
-        Section { Notice(text: notice, tone: AIMTheme.blue) }
+        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
           .transition(reduceMotion ? .identity : .opacity)
       }
     }
-    .formStyle(.grouped)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
   private var identityStatus: some View {
@@ -1250,7 +1211,7 @@ private struct AccountUsagePanel: View {
   private var monthlyCredits: CodexMonthlyCredits? { snapshot?.extras?.monthlyCredits }
 
   var body: some View {
-    Section("Usage") {
+    AIMSection("Usage") {
       if let snapshot {
         LabeledContent(CodexPlanNames.display(snapshot.account?.plan) ?? "Codex usage") {
           usageStatus
@@ -1306,7 +1267,7 @@ private struct AccountUsagePanel: View {
       let accountFacts = UsagePresentation.accountFacts(snapshot)
       let summaryFacts = UsagePresentation.summaryFacts(snapshot.usage)
       if !accountFacts.isEmpty || !summaryFacts.isEmpty {
-        Section("Usage facts") {
+        AIMSection("Usage facts") {
           ForEach(accountFacts) { fact in
             UsageFact(label: fact.label, value: fact.value, help: fact.help)
           }
@@ -1317,7 +1278,7 @@ private struct AccountUsagePanel: View {
       }
     }
     if !model.dailyUsage(for: account.id).isEmpty {
-      Section("Daily activity") {
+      AIMSection("Daily activity") {
         UsageActivityCalendar(rows: model.dailyUsage(for: account.id), model: model)
       }
     }
@@ -1530,7 +1491,7 @@ struct UsageFact: View {
   var help: String? = nil
   var body: some View {
     LabeledContent(label) {
-      Text(value).monospacedDigit()
+      Text(value).monospacedDigit().foregroundStyle(.secondary)
     }
     .help(help ?? "")
   }
@@ -1546,7 +1507,7 @@ struct DetailRow: View {
       if value.hasPrefix("/") || value.hasPrefix("~/") {
         AIMCopyablePath(path: value)
       } else {
-        Text(value).lineLimit(1).truncationMode(.middle)
+        Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
           .textSelection(.enabled).help(value)
       }
     }
@@ -1581,8 +1542,8 @@ private struct CleanupPage: View {
   }
 
   var body: some View {
-    Form {
-      Section {
+    VStack(spacing: AIMTheme.cardGap) {
+      AIMSection {
         HStack(spacing: AIMTheme.sectionSpacing) {
           CleanupRangeSelect(selection: $range).disabled(unavailable)
           if range == .custom {
@@ -1594,7 +1555,10 @@ private struct CleanupPage: View {
           AIMButton(title: "Reload", icon: .refresh, disabled: unavailable) { Task { await reload() } }
         }
       }
-      Section {
+      AIMSection("Conversations", accessory: {
+        Text("\(visibleConversations.count.formatted()) conversations · Shared · Codex CLI")
+          .aimText(.secondary)
+      }) {
         if visibleConversations.isEmpty {
           HStack {
             Text("No conversations match this time range.").aimText(.secondary)
@@ -1613,16 +1577,11 @@ private struct CleanupPage: View {
             conversationTree(archived: true)
           }
         }
-      } header: {
-        HStack {
-          Text("Conversations")
-          Spacer()
-          Text("\(visibleConversations.count.formatted()) conversations · Shared · Codex CLI")
-            .aimText(.secondary)
-        }
       }
       .disabled(unavailable)
-      Section {
+      AIMSection("Cached data", accessory: {
+        Text("\(visibleSamples.count.formatted()) samples").aimText(.secondary)
+      }) {
         DisclosureGroup("Usage history by account") {
           let grouped = Dictionary(grouping: visibleSamples, by: \.accountID)
           VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
@@ -1648,15 +1607,9 @@ private struct CleanupPage: View {
           .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
         Text("Caches rebuild when needed. Daily activity stays saved.")
           .aimText(.secondary)
-      } header: {
-        HStack {
-          Text("Cached data")
-          Spacer()
-          Text("\(visibleSamples.count.formatted()) samples").aimText(.secondary)
-        }
       }
       .disabled(unavailable)
-      Section {
+      AIMSection {
         let protectedCount = conversations.filter { $0.exclusionReason != nil }.count
         if protectedCount > 0 {
           HStack(spacing: 6) {
@@ -1679,7 +1632,7 @@ private struct CleanupPage: View {
         }
       }
       if let review {
-        Section("Review before cleanup") {
+        AIMSection("Review before cleanup") {
           if let plan = review.plan {
             Text("\(plan.conversations.count) conversations · \(sizeText(plan.bytes)) to recoverable trash")
           }
@@ -1722,7 +1675,7 @@ private struct CleanupPage: View {
         }
       }
       if !trash.isEmpty {
-        Section("Recoverable conversation trash") {
+        AIMSection("Recoverable conversation trash") {
           ForEach(trash) { batch in
             HStack(spacing: AIMTheme.sectionSpacing) {
               VStack(alignment: .leading, spacing: 2) {
@@ -1736,14 +1689,13 @@ private struct CleanupPage: View {
           }
         }
       }
-      Section {
+      AIMSection {
         Text("Account access, settings, backups, and saved activity stay unchanged.")
           .aimText(.secondary)
         if let error { Notice(text: error, tone: AIMTheme.amber) }
         if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
       }
     }
-    .formStyle(.grouped)
     .task { await reload() }
     .onChange(of: range) { _, _ in resetSelection() }
     .onChange(of: from) { _, _ in resetSelection() }
@@ -2031,8 +1983,9 @@ struct SettingsPage: View {
   @State private var resetCount = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    Form {
-      Section("App behavior") {
+    // A centered column of cards: every card shares the column's left and right edges.
+    AIMScrollPage(maxWidth: 720) {
+      AIMSection("App behavior") {
         launchAtLoginRow
         Toggle(isOn: $minimizeToTray) {
           Text("Minimize to Menubar")
@@ -2047,25 +2000,29 @@ struct SettingsPage: View {
           Text(SettingsCopy.checkProviderStatus)
           Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary)
         }
-        Picker(selection: $resetIsExact) {
-          Text("Countdown").tag(false)
-          Text("Exact time").tag(true)
+        LabeledContent {
+          Picker("Reset time format", selection: $resetIsExact) {
+            Text("Countdown").tag(false)
+            Text("Exact time").tag(true)
+          }
+          .pickerStyle(.segmented).labelsHidden().fixedSize()
+          .accessibilityLabel("Reset time format")
         } label: {
           Text(SettingsCopy.resetTimes)
           Text(SettingsCopy.resetTimesHelp).aimText(.secondary)
         }
-        .pickerStyle(.segmented)
-        .accessibilityLabel("Reset time format")
-        Picker(selection: $hourFormat) {
-          ForEach(HourFormat.allCases, id: \.rawValue) { format in
-            Text(format.label).tag(format.rawValue)
+        LabeledContent {
+          Picker("Hour format", selection: $hourFormat) {
+            ForEach(HourFormat.allCases, id: \.rawValue) { format in
+              Text(format.label).tag(format.rawValue)
+            }
           }
+          .pickerStyle(.segmented).labelsHidden().fixedSize()
+          .accessibilityLabel("Hour format")
         } label: {
           Text(SettingsCopy.timeFormat)
           Text(SettingsCopy.timeFormatHelp).aimText(.secondary)
         }
-        .pickerStyle(.segmented)
-        .accessibilityLabel("Hour format")
         LabeledContent {
           ShortcutRecorder().id(resetCount)
         } label: {
@@ -2077,7 +2034,7 @@ struct SettingsPage: View {
           Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary)
         }
       }
-      Section(SettingsCopy.notificationsTitle) {
+      AIMSection(SettingsCopy.notificationsTitle) {
         ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { _, row in
           Toggle(isOn: notificationBinding(row.key)) {
             Text(row.title)
@@ -2094,7 +2051,7 @@ struct SettingsPage: View {
           }
         }
       }
-      Section("Claude Code") {
+      AIMSection("Claude Code") {
         Toggle(isOn: Binding(
           get: { model.claudeShellIntegrationOn },
           set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
@@ -2106,13 +2063,13 @@ struct SettingsPage: View {
           }
         }
       }
-      Section("Privacy") {
+      AIMSection("Privacy") {
         Toggle(isOn: $hideEmails) {
           Text(SettingsCopy.hideEmails)
           Text(SettingsCopy.hideEmailsHelp).aimText(.secondary)
         }
       }
-      Section("Reset") {
+      AIMSection("Reset") {
         LabeledContent {
           AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
         } label: {
@@ -2120,26 +2077,28 @@ struct SettingsPage: View {
           Text(SettingsCopy.resetSettingsHelp).aimText(.secondary)
         }
       }
-      Section("Menubar defaults") {
+      AIMSection("Menubar defaults") {
         Toggle(isOn: $defaultShowUsage) {
           Text("Show account usage")
           Text("Accounts without their own choice show cached usage in Menubar.")
             .aimText(.secondary)
         }
-        Picker(selection: $menuTokenPeriod) {
-          ForEach(MenuBarTokenPeriod.allCases) { period in
-            Text(period.label).tag(period.rawValue)
+        LabeledContent {
+          Picker("Menubar token period", selection: $menuTokenPeriod) {
+            ForEach(MenuBarTokenPeriod.allCases) { period in
+              Text(period.label).tag(period.rawValue)
+            }
           }
+          .pickerStyle(.menu).labelsHidden().fixedSize()
+          .accessibilityLabel("Menubar token period")
         } label: {
           Text("Token summary")
           Text("Choose the period shown beside each account’s usage.").aimText(.secondary)
         }
-        .pickerStyle(.menu)
-        .accessibilityLabel("Menubar token period")
       }
       #if AI_MANAGER_PREVIEW
       if model.isDemo {
-        Section("Demo states") {
+        AIMSection("Demo states") {
           HStack(spacing: AIMTheme.rowSpacing) {
             AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
             AIMButton(title: "Empty state") { model.reset(to: .empty) }
@@ -2156,7 +2115,7 @@ struct SettingsPage: View {
         }
       }
       #endif
-      Section("Data locations") {
+      AIMSection("Data locations") {
         DataLocationRow(
           title: "Codex home",
           detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
@@ -2187,11 +2146,10 @@ struct SettingsPage: View {
         }
       }
       if let notice = model.notice {
-        Section { Notice(text: notice, tone: AIMTheme.blue) }
+        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
           .transition(reduceMotion ? .identity : .opacity)
       }
     }
-    .formStyle(.grouped)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
     .onAppear { launchAtLogin.refresh() }
     .confirmationDialog(
@@ -2281,7 +2239,24 @@ private struct HistoryPage: View {
   @State private var threadQuery = ""
 
   var body: some View {
-    HStack(spacing: 0) {
+    // Two cards: the thread list and the selected conversation.
+    AIMFixedPage {
+      HStack(spacing: AIMTheme.cardGap) {
+        AIMCard(edges: .start) { threadList.frame(maxHeight: .infinity) }
+          .frame(width: 300)
+        AIMCard(edges: .end) {
+          ChatDetailPane(model: model)
+            .id(model.selectedChatID)
+            .frame(maxHeight: .infinity)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .task { await model.refreshChatHistory(query: threadQuery) }
+    .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
+  }
+
+  private var threadList: some View {
       VStack(spacing: 0) {
         HStack(spacing: 0) {
           Text("Conversations").aimText(.section)
@@ -2344,16 +2319,9 @@ private struct HistoryPage: View {
             ChatThreadRow(thread: thread)
           }
           .listStyle(.inset)
+          .scrollContentBackground(.hidden)
         }
       }
-      .frame(width: 300)
-      Divider()
-      ChatDetailPane(model: model)
-        .id(model.selectedChatID)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .task { await model.refreshChatHistory(query: threadQuery) }
-    .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
   }
 
   private var historyCountText: String {
@@ -2982,8 +2950,8 @@ private struct BackupPage: View {
     model.status?.pendingRecovery.contains { $0.phase != .conflicted } == true
   }
   var body: some View {
-    Form {
-      Section("Pending operations") {
+    VStack(spacing: AIMTheme.cardGap) {
+      AIMSection("Pending operations") {
         if let operations = model.status?.pendingRecovery, !operations.isEmpty {
           ForEach(operations, id: \.id) { item in
             VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
@@ -3020,7 +2988,7 @@ private struct BackupPage: View {
           Text("No interrupted backup work needs attention.").aimText(.secondary)
         }
       }
-      Section("Backup policy") {
+      AIMSection("Backup policy") {
         DetailRow(
           label: "Before import", value: "Review destination, conflicts, and required space")
         DetailRow(
@@ -3028,7 +2996,7 @@ private struct BackupPage: View {
         DetailRow(
           label: "On failure", value: "Keep prior credentials and preserve a backup journal")
       }
-      Section {
+      AIMSection {
         LabeledContent {
           AIMButton(
             title: "Finish pending work", icon: .backup, tone: .primary,
@@ -3042,11 +3010,10 @@ private struct BackupPage: View {
       if model.isDemo { BackupExamples(model: model) }
       #endif
       if let notice = model.notice {
-        Section { Notice(text: notice, tone: AIMTheme.blue) }
+        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
           .transition(reduceMotion ? .identity : .opacity)
       }
     }
-    .formStyle(.grouped)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
 }
@@ -3062,17 +3029,17 @@ private struct MaintenancePage: View {
   @Binding var section: MaintenanceSection
 
   var body: some View {
-    Group {
-      switch section {
-      case .backup: BackupPage(model: model)
-      case .cleanup: CleanupPage(model: model)
-      }
-    }
-    .toolbar {
-      ToolbarItem(placement: .principal) {
+    // One scrolling page at full content width: the picker sits on the card edge, then the cards.
+    AIMScrollPage {
+      HStack {
         AIMSegmentedPicker(
           options: MaintenanceSection.allCases, selection: $section,
           accessibilityLabel: "Maintenance section", label: \.rawValue)
+        Spacer(minLength: 0)
+      }
+      switch section {
+      case .backup: BackupPage(model: model)
+      case .cleanup: CleanupPage(model: model)
       }
     }
   }
@@ -3082,7 +3049,7 @@ private struct MaintenancePage: View {
 private struct BackupExamples: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
-    Section("Backup examples") {
+    AIMSection("Backup examples") {
       BackupExampleRow(
         title: "Regular conversation", detail: "Complete snapshot before replacement",
         location: "~/Documents/Switch Backups", state: "Ready", color: AIMTheme.green)

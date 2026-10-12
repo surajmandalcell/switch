@@ -85,12 +85,16 @@ private struct AIMTextModifier: ViewModifier {
 extension View {
   /// Applies a text role. `monospaced` is for paths and IDs and applies to Secondary only.
   /// `tint` replaces the secondary color of a Secondary text, for a warning or an error.
-  func aimText(_ role: AIMTextRole, monospaced: Bool = false, tint: Color? = nil) -> some View {
+  func aimText(_ role: AIMTextRole, monospaced: Bool = false, tint: Color? = nil,
+               file: StaticString = #fileID, line: UInt = #line) -> some View {
     modifier(AIMTextModifier(role: role, monospaced: monospaced, tint: tint))
+      .uiLintText(role, monospaced: monospaced, tint: tint, file: file, line: line)
   }
 
   /// Only the font of a role, for icons and controls that set their own color.
-  func aimFont(_ role: AIMTextRole) -> some View { font(role.font) }
+  func aimFont(_ role: AIMTextRole, file: StaticString = #fileID, line: UInt = #line) -> some View {
+    font(role.font).uiLintText(role, file: file, line: line)
+  }
 }
 
 enum AIMTheme {
@@ -195,7 +199,7 @@ struct Badge: View {
   var body: some View {
     Text(text)
       .aimText(.caption)
-      .foregroundStyle(tint)
+      .foregroundStyle(AIMTheme.legible(tint))
       .lineLimit(1)
       .padding(.horizontal, 8).padding(.vertical, 2)
       .background(tint.opacity(0.16), in: Capsule())
@@ -280,9 +284,16 @@ struct AIMIcon: View {
     case overview, account, settings, history, maintenance, backup, cleanup, search, plus, more, refresh, close, minimize
     case chevron, check, circle, square, checkSquare, folder, play, copy, trash, warning, info, success, terminal, openApp, menuBar
     case link
+    case ellipsis, chart, clock, calendar, database, arrowRight
 
     var symbol: String {
       switch self {
+      case .ellipsis: "ellipsis"
+      case .chart: "chart.bar"
+      case .clock: "clock"
+      case .calendar: "calendar"
+      case .database: "cylinder.split.1x2"
+      case .arrowRight: "arrow.right"
       case .overview: "house"
       case .link: "arrow.up.right.square"
       case .account: "person.crop.circle"
@@ -349,17 +360,8 @@ struct AIMPanel<Content: View>: View {
   @ViewBuilder var content: Content
 
   var body: some View {
-    VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
-      if title != nil || accessory != nil {
-        HStack(spacing: AIMTheme.rowSpacing) {
-          if let title { Text(title).aimText(.section) }
-          Spacer(minLength: 0)
-          if let accessory { accessory }
-        }
-      }
+    AIMCard(title: title, accessory: { accessory ?? AnyView(EmptyView()) }) {
       VStack(spacing: 0) { content }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .aimContainer()
     }
   }
 }
