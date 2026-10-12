@@ -391,7 +391,7 @@ struct FocusedAccountCard: View {
             }
           }
           .frame(maxWidth: .infinity, alignment: .leading)
-          Rectangle().fill(AIMTheme.hairline).frame(width: 1, height: 44).accessibilityHidden(true)
+          AIMHairline(vertical: true).frame(height: 44)
           primaryWindow(windows.first)
             .frame(minWidth: 240, maxWidth: 420)
         }

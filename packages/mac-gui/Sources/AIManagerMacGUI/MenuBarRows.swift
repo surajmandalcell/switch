@@ -400,7 +400,7 @@ struct MenuBarFooter: View {
     .padding(.horizontal, 12)
     .frame(height: MenuBarPopover.footerHeight)
     .overlay(alignment: .top) {
-      if store.rows.isEmpty { Divider() }
+      if store.rows.isEmpty { AIMHairline() }
     }
   }
 

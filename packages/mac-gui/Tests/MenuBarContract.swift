@@ -154,18 +154,14 @@ enum AIManagerMenuBarContract {
           let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts,
             visibleScreenHeight: 2_000, expandedID: store.expandedAccountID)
           let host = NSHostingView(rootView: MenuBarPopover(store: store)
-            .background(Color(nsColor: .windowBackgroundColor)))
+            .background(Color(nsColor: .windowBackgroundColor)).renderScaled())
           let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
             styleMask: .borderless, backing: .buffered, defer: false)
           window.appearance = NSAppearance(named: appearance)
           window.contentView = host
           host.frame = NSRect(origin: .zero, size: size)
           host.layoutSubtreeIfNeeded()
-          guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            return ["Popover snapshot bitmap is unavailable"]
-          }
-          host.cacheDisplay(in: host.bounds, to: bitmap)
-          guard let png = bitmap.representation(using: .png, properties: [:]) else {
+          guard let png = RenderScale.png(of: host) else {
             return ["Popover snapshot PNG is unavailable"]
           }
           let filename = "popover-\(label).png"

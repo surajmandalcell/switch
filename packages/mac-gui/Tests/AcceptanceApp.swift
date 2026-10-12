@@ -60,6 +60,36 @@ private struct WindowContractObservation: Codable {
     }
 }
 
+/// `AI_MANAGER_RENDER_SCALE=1|2` renders every snapshot at that pixel density and tells SwiftUI the
+/// same `displayScale`, so a 1x display and a 2x display can both be checked on one Mac.
+enum RenderScale {
+    static var value: CGFloat? {
+        ProcessInfo.processInfo.environment["AI_MANAGER_RENDER_SCALE"].flatMap(Double.init).map { CGFloat($0) }
+    }
+
+    @MainActor static func png(of view: NSView) -> Data? {
+        let bitmap: NSBitmapImageRep?
+        if let scale = value {
+            bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width * scale),
+                pixelsHigh: Int(view.bounds.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+            bitmap?.size = view.bounds.size
+        } else {
+            bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        }
+        guard let bitmap else { return nil }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}
+
+extension View {
+    @ViewBuilder func renderScaled() -> some View {
+        if let scale = RenderScale.value { environment(\.displayScale, scale) } else { self }
+    }
+}
+
 private enum AcceptanceConfiguration {
     static var appearance: ColorScheme? {
         if CommandLine.arguments.contains("--dark") { return .dark }
@@ -153,6 +183,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 model: model, initialPageIndex: AcceptanceConfiguration.initialPageIndex,
                 initialMaintenance: AcceptanceConfiguration.initialMaintenance)
                 .preferredColorScheme(AcceptanceConfiguration.appearance)
+                .renderScaled()
                 .task { [receipts, model] in
                     guard !AcceptanceConfiguration.contractOnly else { return }
                     receipts.observeWindowEvents()
@@ -700,7 +731,7 @@ private final class AcceptanceReceipts {
             snapshot: snapshot,
             actions: MenuBarPopoverActions(
                 openMainWindow: {}, switchAccount: { _ in }))
-        let view = NSHostingView(rootView: MenuBarPopover(store: store))
+        let view = NSHostingView(rootView: MenuBarPopover(store: store).renderScaled())
         view.appearance = appearance
         view.frame = NSRect(
             origin: .zero,
@@ -764,10 +795,7 @@ private final class AcceptanceReceipts {
     }
 
     private func writeSnapshot(of view: NSView, filename: String) {
-        guard let directory,
-              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
+        guard let directory, let data = RenderScale.png(of: view) else { return }
         try? data.write(to: directory.appending(path: filename), options: .atomic)
     }
 
