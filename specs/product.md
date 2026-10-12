@@ -151,8 +151,9 @@ Settings, Maintenance (cleanup, backup, recovery), Conversations (chat history).
 Settings. Each page remembers its tab, selection, and scroll position. "When Switch opens" (Last
 place, the default, or Overview) picks the page shown at launch. Settings groups, in order:
 General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut), Appearance
-(System, Light, or Dark; Show percentage used; Reset times; Time format), Accounts (Show email
-domains, off by default, so "ada@gmail.com" reads "ada"; Hide email addresses; Check provider
+(System, Light, or Dark; Show percentage used; Reset times; Time format), Accounts (Show full
+email addresses, off by default, so "ada@gmail.com" reads "ada@gmail" with the top-level domain
+dropped, and "ada@mail.example.co.uk" reads "ada@mail.example"; Hide email addresses; Check provider
 status; the Claude terminal setting), Menu bar, Notifications, Data locations, and Reset. The
 items are:
 
@@ -415,8 +416,9 @@ and dark before a UI change ships.
   right) is 44 tall. Every card spans the full content width, and its title, column headers,
   rows, and separators share the same 16 inset, so no header is wider than its body. Rows are
   36 tall with hairline separators. Push buttons are 28 tall in cards and 22 tall in table rows;
-  icon buttons are square. A tile inside a card sits 6 in with a 4 radius, so corners stay
-  concentric, and its text lines up with the card's 16 inset.
+  icon buttons are square. Tiles inside a card (for example Current limits) follow the card's
+  16 inset: the first tile starts at 16, the last ends 16 from the right edge, tiles sit 12
+  apart with a 6 radius, and the card keeps 16 below the tiles.
 - **Window:** a translucent 220 pt sidebar under a 52 pt unified title bar (an empty system
   toolbar, so macOS places the traffic lights). The traffic lights sit at the system inset, not
   in the corner, and share one vertical center with the "Switch" name and the content's top
@@ -448,11 +450,15 @@ and dark before a UI change ships.
   Maintenance shows Cleanup first, then Backup, in a 28 pt segmented control with 120 pt
   segments, left-aligned to the cards; segment icons use the label color, never the accent.
 - **Stability and focus:** nothing shifts when content loads, rows are hovered or selected, or
-  pages change. Scroll views hide the system indicators and draw a thin, always-visible scroll
-  bar in a fixed gutter whose track matches the page, with no border. Clicks and selections
-  never draw focus rings or outlines, including the sidebar and lists; keyboard focus is a
-  subtle tint even with keyboard navigation (Full Keyboard Access) on. System focus rings show
-  only with Increase Contrast on. Dark Mode controls are flat fills
+  pages change. Every scroll view (pages, sheets and dialogs such as Add Account, popovers,
+  pickers, and text views) hides the system indicators and draws a thin, always-present scroll
+  bar in a fixed gutter whose track matches the surface, with no border. At rest the knob is
+  faint (about 15% label contrast) and it brightens a little on hover or drag. Clicks and
+  selections never draw focus rings or outlines, including the sidebar and lists; keyboard
+  focus is a subtle tint even with keyboard navigation (Full Keyboard Access) on. In Dark Mode,
+  selection, focus, and focused fields use a neutral lighter gray, never a blue tint. System
+  focus rings show only with Increase Contrast on. Provider tiles use each brand's own full
+  icon, including its original background color, never a generic dark tile. Dark Mode controls are flat fills
   with no light rim. Every container has equal top and bottom inner padding; hover and
   selection highlights have even insets.
 - **Menu bar popover:** native popover material, about 360 pt wide, compact, with no app name
