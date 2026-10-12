@@ -91,6 +91,13 @@ The TUI account list groups saved accounts by provider, preserves order within e
 and shows the default state inside each group. Deleting a provider default may select a
 replacement only from that same provider.
 
+Existing-account "Sign in" binds the isolated login session to that account ID. Completion
+must match the provider's saved identity before changing any account or credential. A mismatch
+discards the isolated home and reports the signed-in and required identities. A match atomically
+refreshes only that managed credential. Only an active default refreshes its live auth through
+the existing switch path, with the same identity. Account-scoped sign-in never signals running
+CLI processes. "Add account" keeps provider-scoped sign-in.
+
 After a restart, checking a completed sign-in reads the private staged credential and uses
 the same identity, digest, and transaction checks as an auth-only import. An unrelated
 running Codex process must not block that check. If Switch no longer owns the sign-in
@@ -107,9 +114,15 @@ remains unknown and blocks destructive changes; unlocked stale runtime files are
 
 ## 2. Navigation and Settings
 
-The sidebar and View menu use this order: Overview, Accounts, Conversations (chat history),
-Maintenance (backup, cleanup, recovery), Settings. Command+, opens Settings. Settings contains
-only:
+The sidebar and View menu list pages from the shortest name to the longest: Overview, Accounts,
+Settings, Maintenance (cleanup, backup, recovery), Conversations (chat history). Command+, opens
+Settings. Each page remembers its tab, selection, and scroll position. "When Switch opens" (Last
+place, the default, or Overview) picks the page shown at launch. Settings groups, in order:
+General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut), Appearance
+(System, Light, or Dark; Show percentage used; Reset times; Time format), Accounts (Show email
+domains, off by default, so "ada@gmail.com" reads "ada"; Hide email addresses; Check provider
+status; the Claude terminal setting), Menu bar, Notifications, Data locations, and Reset. The
+items are:
 
 1. **App behavior** — Open at Login and Minimize to menu bar. Open at Login is off by default
    and uses the macOS login-item service as its source of truth; a login launch starts quietly
@@ -372,18 +385,23 @@ and dark before a UI change ships.
   36 tall with hairline separators. Push buttons are 28 tall in cards and 22 tall in table rows;
   icon buttons are square. A tile inside a card sits 6 in with a 4 radius, so corners stay
   concentric, and its text lines up with the card's 16 inset.
-- **Window:** traffic lights over a translucent 220 pt sidebar headed "Switch", with SF Symbol
-  rows Overview, Accounts, Conversations, Maintenance, Settings. No toolbar bar: the content's
-  top row holds, from the right edge in, a "Search accounts…" field 300 pt wide with a ⌘K hint
+- **Window:** a translucent 220 pt sidebar under a 52 pt unified title bar (an empty system
+  toolbar, so macOS places the traffic lights). The traffic lights sit at the system inset, not
+  in the corner, and share one vertical center with the "Switch" name and the content's top
+  row. Sidebar rows use filled SF Symbols in the order of section 2: Overview `house.fill`,
+  Accounts `person.2.fill`, Settings `gearshape.fill`, Maintenance
+  `wrench.and.screwdriver.fill`, Conversations `ellipsis.message.fill`. The content's top row
+  holds, from the right edge in, a "Search accounts…" field 300 pt wide with a ⌘K hint
   (Command-K focuses it; it filters every account list), then a More menu and an Add button to
-  its left, so the bar reads lightest to heaviest. Settings stays a centered grouped form.
+  its left, so the bar reads lightest to heaviest. Settings uses the full content width, so its
+  cards end at the top bar's edge like every page.
 - **Overview:** five cards, as in the concept. (1) Focused account: a 44 pt provider icon tile,
   the name (Title) with a chevron menu that picks another account, the provider (Secondary) with
   a green Active dot or an attention badge; a hairline divider, then the primary window (label,
   "N% left", bar, reset text). An action row: "Using as default" with a checkmark (prominent,
   inert) or Make Default (prominent), Open <tool>; on the right Copy, then a More menu (Show in
   Menubar, Refresh, Check, Delete), which comes last in cards and table rows. (2) Accounts: title with the count, then a table with
-  columns Account (20 pt icon and name), Provider, Usage (bar and percent), Resets, and Actions
+  columns Account (20 pt icon and name), Usage (bar and percent), Resets, and Actions
   (a green Default chip or a Switch button, plus a More menu); clicking a row focuses it.
   (3) Current limits of the focused account: up to three window tiles (label, "N% left", bar,
   reset) and "View all limits →". (4) Recent activity for the focused account's tool from local
@@ -392,15 +410,26 @@ and dark before a UI change ships.
   green check and "All systems operational" or a yellow warning naming pending backup work,
   plus Open Backup.
 - **Accounts, Conversations, Maintenance, Settings:** the same cards, tables, rows, and buttons
-  as the Overview.
-- **Menu bar popover:** native popover material, about 360 pt wide. Each row with Show in
-  Menubar on has a 40-point rounded provider icon tile, the account name (headline) over the
-  provider (secondary), the primary reset countdown at the top right, then one line per window
-  (Weekly, 5h, or the window's title; no label when there is one window) with a capsule bar and
-  the remaining percent. A checkmark marks each provider's default. Clicking a row or pressing
-  Return switches to it; its context menu offers Switch, Open <tool>, Refresh, and Copy name.
-  Hairlines separate rows. The footer has Refresh and Settings icon buttons and a prominent
-  "Open Switch" button showing Command-O.
+  as the Overview. Account tables have no Provider column. Provider groups are light: a 24 pt
+  label row (12 pt provider icon, "Codex CLI · 2" in Secondary) above each group and one
+  hairline between groups at the 16 inset; account rows then drop their own provider icon.
+  Maintenance shows Cleanup first, then Backup, in a 28 pt segmented control with 120 pt
+  segments, left-aligned to the cards; segment icons use the label color, never the accent.
+- **Stability and focus:** nothing shifts when content loads, rows are hovered or selected, or
+  pages change. Scroll views hide the system indicators and draw a thin, always-visible scroll
+  bar in a fixed gutter whose track matches the page, with no border. Clicks and selections
+  never draw focus rings or outlines; keyboard focus is a subtle tint, and system focus rings
+  show only with Full Keyboard Access or Increase Contrast on. Dark Mode controls are flat fills
+  with no light rim. Every container has equal top and bottom inner padding; hover and
+  selection highlights have even insets.
+- **Menu bar popover:** native popover material, about 360 pt wide, compact, with no app name
+  header. Accounts with Show in Menubar on are grouped by provider under a small group header
+  (provider icon and name; the exact header variant is still open), and the group's accounts
+  sit compactly under it, names truncated to one line.
+  A checkmark marks each provider's default. Clicking an account expands its details (every
+  window with bar, percent, and reset, plus Switch and Open <tool>); its context menu offers
+  Switch, Open <tool>, Refresh, and Copy name. Hover highlights have even insets. A compact
+  footer holds Refresh and Settings icon buttons and an "Open Switch" button showing Command-O.
 - **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
   never touches the real clipboard); every icon action has an accessible name and keyboard
   focus; Reduce Motion and Reduce Transparency follow the system; Preview data is synthetic.
