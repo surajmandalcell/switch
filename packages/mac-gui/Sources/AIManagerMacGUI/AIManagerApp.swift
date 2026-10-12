@@ -229,7 +229,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyAppearance() {
-        let mode = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
+        let mode = AppearanceOverride.mode
         let appearance: NSAppearance?
         let usesDarkIcon: Bool?
         switch mode {

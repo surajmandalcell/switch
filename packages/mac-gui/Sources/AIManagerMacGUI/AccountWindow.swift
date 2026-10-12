@@ -204,7 +204,7 @@ struct AccountWindow: View {
   @State private var searchQuery = ""
   @State private var maintenanceSection: MaintenanceSection = .backup
   @FocusState private var searchFocused: Bool
-  @AppStorage("appearanceMode") private var appearanceMode = "system"
+  private var appearanceMode: String { AppearanceOverride.mode }
   @Environment(\.colorScheme) private var systemScheme
   private var themeOverride: ColorScheme? {
     appearanceMode == "dark" ? .dark : (appearanceMode == "light" ? .light : nil)

@@ -44,6 +44,19 @@ enum PopoverRefreshPreference {
   static func isEnabled(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: key) }
 }
 
+/// The window and the menu-bar popover follow the system appearance. Settings has no appearance
+/// control, so a stored `appearanceMode` is ignored; only Preview builds honor it, for the
+/// `--persisted-light` and `--persisted-dark` acceptance renders.
+enum AppearanceOverride {
+  static var mode: String {
+    #if AI_MANAGER_PREVIEW
+    UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
+    #else
+    "system"
+    #endif
+  }
+}
+
 /// Reset settings: every preference key Switch's Settings page owns, so "Reset settings" can
 /// return them to their defaults. Window placement, account order, saved credentials, and the
 /// system-owned login item are not preferences and stay.

@@ -349,6 +349,19 @@ struct AIMScrollPage<Content: View>: View {
       }
       .padding([.horizontal, .bottom], AIMTheme.pageMargin)
     }
+    .modifier(PlainTopEdge())
+  }
+}
+
+/// The pinned header already paints the page color under the transparent title bar, so macOS 26's
+/// automatic scroll edge effect (a tinted blur at the top) must not draw over it.
+private struct PlainTopEdge: ViewModifier {
+  @ViewBuilder func body(content: Content) -> some View {
+    if #available(macOS 26.0, *) {
+      content.scrollEdgeEffectHidden(true, for: .top)
+    } else {
+      content
+    }
   }
 }
 
