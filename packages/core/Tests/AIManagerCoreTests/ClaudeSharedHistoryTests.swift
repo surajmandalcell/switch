@@ -49,6 +49,38 @@ final class ClaudeSharedHistoryTests: XCTestCase {
 
     // MARK: Shared history
 
+    func testAccountScopedClaudeLoginRefreshesOnlyTargetAndRejectsMismatch() async throws {
+        let profiles = try makeProfiles()
+        let first = try profiles.startLogin()
+        let firstResult = try await profiles.checkLogin(first.session.id)
+        let account = try XCTUnwrap(firstResult.account)
+        let credential = config(account.id).appending(path: ".credentials.json")
+        try write("synthetic-old", to: credential)
+        try write("saved-settings", to: config(account.id).appending(path: ".claude.json"))
+        let refresh = try profiles.startLogin(accountID: account.id)
+        try write("synthetic-fresh", to: config(refresh.session.id).appending(path: ".credentials.json"))
+        let result = try await profiles.checkLogin(refresh.session.id)
+        XCTAssertEqual(result.account?.id, account.id)
+        XCTAssertEqual(try text(credential), "synthetic-fresh")
+        XCTAssertEqual(try text(config(account.id).appending(path: ".claude.json")), "saved-settings")
+        XCTAssertEqual(try profiles.accounts().count, 1)
+
+        let mismatchProfiles = try makeProfiles(status: { _ in .init(loggedIn: true, email: "other@example.test") })
+        let mismatch = try mismatchProfiles.startLogin(accountID: account.id)
+        try write("synthetic-wrong", to: config(mismatch.session.id).appending(path: ".credentials.json"))
+        do {
+            _ = try await mismatchProfiles.checkLogin(mismatch.session.id)
+            XCTFail("A different Claude identity must be rejected")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                           "Signed in as other@example.test. Sign in as a@example.test to refresh this account.")
+        }
+        XCTAssertEqual(try text(credential), "synthetic-fresh")
+        XCTAssertEqual(try profiles.accounts().count, 1)
+        XCTAssertTrue(try profiles.pending().isEmpty)
+        XCTAssertFalse(fileManager.fileExists(atPath: config(mismatch.session.id).path))
+    }
+
     func testNewProfileLinksSharedItemsAndSeedsConfigWithoutAccount() throws {
         try write(#"{"mcpServers":{"x":{}},"theme":"dark","hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"me@example.test"}}"#,
                   to: userHome.appending(path: ".claude.json"))

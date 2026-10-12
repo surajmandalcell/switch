@@ -41,11 +41,19 @@ public struct AccountLoginSession: Codable, Sendable, Identifiable {
     public var id: UUID
     public var providerID: ProviderID
     public var createdAt: Date
+    public var accountID: UUID?
 
-    public init(id: UUID, providerID: ProviderID, createdAt: Date) {
+    public init(id: UUID, providerID: ProviderID, createdAt: Date, accountID: UUID? = nil) {
         self.id = id
         self.providerID = providerID
         self.createdAt = createdAt
+        self.accountID = accountID
+    }
+}
+
+extension AccountIdentity {
+    func signInMismatch(_ other: String) -> AIManagerError {
+        .signInIdentityMismatch(signedIn: other, target: email ?? accountID ?? userID ?? "the saved account")
     }
 }
 

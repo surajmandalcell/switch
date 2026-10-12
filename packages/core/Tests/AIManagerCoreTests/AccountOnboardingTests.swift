@@ -388,6 +388,168 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertEqual(status.defaultAccountID, account.id)
     }
 
+    func testAccountScopedLoginRefreshesNonDefaultWithoutChangingLiveAuth() async throws {
+        try await checkScopedLoginRefresh(defaultAccount: false)
+    }
+
+    func testAccountScopedLoginRefreshesDefaultWithSameIdentity() async throws {
+        try await checkScopedLoginRefresh(defaultAccount: true)
+    }
+
+    private func checkScopedLoginRefresh(defaultAccount: Bool) async throws {
+        let live = try writeAuth(home: paths.defaultHome, account: "live", workspace: "personal")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, loginRunner: recorder.runner)
+        let adopted = try await manager.refreshAccounts(includeDiscoveries: false)
+        let active = try XCTUnwrap(adopted.status.accounts.first)
+        let target: AccountRecord
+        if defaultAccount {
+            target = active
+        } else {
+            let source = root.appending(path: "second")
+            _ = try writeAuth(home: source, account: "second", workspace: "personal")
+            let plan = try await manager.planImport(source: source, mode: .authOnly)
+            target = try await manager.importAccount(plan: plan).account
+        }
+        let managedHome = try Data(contentsOf: target.home.appending(path: "auth.json"))
+        let start = try await manager.startAccountLogin(accountID: target.id)
+        XCTAssertEqual(start.session.accountID, target.id)
+        let home = URL(fileURLWithPath: try XCTUnwrap(start.launchSpec.environment["CODEX_HOME"]))
+        let fresh = try writeAuth(home: home, account: defaultAccount ? "live" : "second",
+                                  workspace: "personal", marker: "fresh")
+        let restarted = try AccountManager(paths: paths, writerCheck: { _ in .active }, loginRunner: recorder.runner)
+        let result = try await restarted.checkAccountLogin(id: start.session.id, credentialChoice: .keepShared)
+        XCTAssertEqual(result.state, .completed)
+        XCTAssertEqual(result.account?.id, target.id)
+        XCTAssertEqual(try Data(contentsOf: target.credentialFile), fresh)
+        XCTAssertEqual(try Data(contentsOf: target.home.appending(path: "auth.json")), managedHome)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), defaultAccount ? fresh : live)
+        let status = try await restarted.status()
+        XCTAssertEqual(status.defaultAccountID, active.id)
+        XCTAssertEqual(status.accounts.count, defaultAccount ? 1 : 2)
+        XCTAssertEqual(recorder.cancelCount, 0)
+        XCTAssertFalse(fileManager.fileExists(atPath: home.deletingLastPathComponent().path))
+    }
+
+    func testAccountScopedLoginMismatchChangesNothingAndDiscardsHome() async throws {
+        let live = try writeAuth(home: paths.defaultHome, account: "target", workspace: "personal")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, loginRunner: recorder.runner)
+        let adopted = try await manager.refreshAccounts(includeDiscoveries: false)
+        let target = try XCTUnwrap(adopted.status.accounts.first)
+        let otherHome = root.appending(path: "other")
+        _ = try writeAuth(home: otherHome, account: "other", workspace: "personal")
+        let plan = try await manager.planImport(source: otherHome, mode: .authOnly)
+        let other = try await manager.importAccount(plan: plan).account
+        let registryURL = paths.applicationSupport.appending(path: "accounts.json")
+        let registry = try Data(contentsOf: registryURL)
+        let otherCredential = try Data(contentsOf: other.credentialFile)
+        let start = try await manager.startAccountLogin(accountID: target.id)
+        let home = URL(fileURLWithPath: try XCTUnwrap(start.launchSpec.environment["CODEX_HOME"]))
+        _ = try writeAuth(home: home, account: "other", workspace: "personal", marker: "new-other")
+        do {
+            _ = try await manager.checkAccountLogin(id: start.session.id, credentialChoice: .useImported)
+            XCTFail("A different identity must be rejected")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                           "Signed in as other@example.test. Sign in as target@example.test to refresh this account.")
+        }
+        XCTAssertEqual(try Data(contentsOf: registryURL), registry)
+        XCTAssertEqual(try Data(contentsOf: target.credentialFile), live)
+        XCTAssertEqual(try Data(contentsOf: other.credentialFile), otherCredential)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), live)
+        XCTAssertFalse(fileManager.fileExists(atPath: home.deletingLastPathComponent().path))
+        XCTAssertEqual(recorder.cancelCount, 0)
+    }
+
+    func testAccountScopedGrokLoginRefreshesOnlyTargetAndRejectsMismatch() async throws {
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .active }, loginRunner: recorder.runner)
+        let first = try await manager.startAccountLogin(providerID: .grokBuild)
+        _ = try writeGrokAuth(home: URL(fileURLWithPath: try XCTUnwrap(first.launchSpec.environment["GROK_HOME"])), user: "active")
+        let firstResult = try await manager.checkAccountLogin(id: first.session.id)
+        let active = try XCTUnwrap(firstResult.account)
+        let secondStart = try await manager.startAccountLogin(providerID: .grokBuild)
+        _ = try writeGrokAuth(home: URL(fileURLWithPath: try XCTUnwrap(secondStart.launchSpec.environment["GROK_HOME"])), user: "second")
+        let secondResult = try await manager.checkAccountLogin(id: secondStart.session.id)
+        let second = try XCTUnwrap(secondResult.account)
+        let original = try Data(contentsOf: paths.grokHome.appending(path: "auth.json"))
+        let cancelCount = recorder.cancelCount
+        for target in [second, active] {
+            let start = try await manager.startAccountLogin(accountID: target.id)
+            let home = URL(fileURLWithPath: try XCTUnwrap(start.launchSpec.environment["GROK_HOME"]))
+            let old = try writeGrokAuth(home: home, user: target.id == active.id ? "active" : "second")
+            let fresh = Data(String(decoding: old, as: UTF8.self).replacingOccurrences(of: "synthetic-refresh-", with: "fresh-refresh-").utf8)
+            try fresh.write(to: home.appending(path: "auth.json"), options: .atomic)
+            let result = try await manager.checkAccountLogin(id: start.session.id)
+            XCTAssertEqual(result.account?.id, target.id)
+            XCTAssertEqual(try Data(contentsOf: target.credentialFile), fresh)
+            XCTAssertEqual(try Data(contentsOf: paths.grokHome.appending(path: "auth.json")), target.id == active.id ? fresh : original)
+        }
+        let registryURL = paths.applicationSupport.appending(path: "accounts.json")
+        let registry = try Data(contentsOf: registryURL)
+        let saved = try Data(contentsOf: second.credentialFile)
+        let live = try Data(contentsOf: paths.grokHome.appending(path: "auth.json"))
+        let mismatch = try await manager.startAccountLogin(accountID: second.id)
+        let home = URL(fileURLWithPath: try XCTUnwrap(mismatch.launchSpec.environment["GROK_HOME"]))
+        _ = try writeGrokAuth(home: home, user: "active")
+        do {
+            _ = try await manager.checkAccountLogin(id: mismatch.session.id)
+            XCTFail("A different Grok identity must be rejected")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                           "Signed in as active@example.test. Sign in as second@example.test to refresh this account.")
+        }
+        XCTAssertEqual(try Data(contentsOf: registryURL), registry)
+        XCTAssertEqual(try Data(contentsOf: second.credentialFile), saved)
+        XCTAssertEqual(try Data(contentsOf: paths.grokHome.appending(path: "auth.json")), live)
+        XCTAssertEqual(recorder.cancelCount, cancelCount)
+        XCTAssertFalse(fileManager.fileExists(atPath: home.deletingLastPathComponent().path))
+    }
+
+    func testAccountScopedLoginRecoversInterruptedCredentialPublication() async throws {
+        let old = try writeAuth(home: paths.defaultHome, account: "target", workspace: "personal")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, loginRunner: LoginRunnerRecorder().runner)
+        let adopted = try await manager.refreshAccounts(includeDiscoveries: false)
+        let target = try XCTUnwrap(adopted.status.accounts.first)
+        let start = try await manager.startAccountLogin(accountID: target.id)
+        let home = URL(fileURLWithPath: try XCTUnwrap(start.launchSpec.environment["CODEX_HOME"]))
+        _ = try writeAuth(home: home, account: "target", workspace: "personal", marker: "fresh")
+        let crashing = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, faultInjector: { point in
+            if point == .afterCredentialPublication { throw LoginRunnerFailure.failed }
+        })
+        await assertOnboardingThrows(try await crashing.checkAccountLogin(id: start.session.id))
+        let recovered = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let recovery = try await recovered.recover()
+        XCTAssertEqual(recovery.first?.outcome, .rolledBack)
+        XCTAssertEqual(try Data(contentsOf: target.credentialFile), old)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), old)
+        let result = try await recovered.checkAccountLogin(id: start.session.id)
+        XCTAssertEqual(result.account?.id, target.id)
+    }
+
+    func testAccountScopedLoginCannotReplaceAnotherLiveIdentity() async throws {
+        let old = try writeAuth(home: paths.defaultHome, account: "target", workspace: "personal")
+        let recorder = LoginRunnerRecorder()
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, loginRunner: recorder.runner)
+        let adopted = try await manager.refreshAccounts(includeDiscoveries: false)
+        let target = try XCTUnwrap(adopted.status.accounts.first)
+        let start = try await manager.startAccountLogin(accountID: target.id)
+        let home = URL(fileURLWithPath: try XCTUnwrap(start.launchSpec.environment["CODEX_HOME"]))
+        _ = try writeAuth(home: home, account: "target", workspace: "personal", marker: "fresh")
+        let other = try writeAuth(home: paths.defaultHome, account: "other", workspace: "personal")
+        let registryURL = paths.applicationSupport.appending(path: "accounts.json")
+        let registry = try Data(contentsOf: registryURL)
+        do {
+            _ = try await manager.checkAccountLogin(id: start.session.id)
+            XCTFail("A live login for another identity must be preserved")
+        } catch { XCTAssertEqual(error as? AIManagerError, .credentialConflict) }
+        XCTAssertEqual(try Data(contentsOf: registryURL), registry)
+        XCTAssertEqual(try Data(contentsOf: target.credentialFile), old)
+        XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")), other)
+        XCTAssertEqual(recorder.cancelCount, 0)
+    }
+
     func testRepeatedCurrentAccountLoginUsesFreshRecoveryLocations() async throws {
         _ = try writeAuth(home: paths.defaultHome, account: "repeat", workspace: "personal")
         let manager = try AccountManager(
