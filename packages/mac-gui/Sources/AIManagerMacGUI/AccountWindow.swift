@@ -283,6 +283,8 @@ struct AccountWindow: View {
     .onChange(of: maintenanceSection) { _, tab in
       UserDefaults.standard.set(tab.rawValue, forKey: AIMPlace.maintenanceTabKey)
     }
+    .onChange(of: maintenanceSection, initial: true) { _, tab in AIMPlace.visibleMaintenance = tab }
+    .onChange(of: page, initial: true) { _, shown in AIMPlace.visiblePage = shown }
     .task(id: model.hasLoaded, priority: .utility) {
       if model.hasLoaded { await model.watchActivity() }
     }

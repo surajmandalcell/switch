@@ -97,6 +97,17 @@ private enum AcceptanceConfiguration {
         if CommandLine.arguments.contains("--history") { return 4 }
         return 0
     }
+    /// The page the run asked for and the page the window shows now; empty when they match.
+    @MainActor static func pageMismatch() -> String? {
+        let wanted = AIManagerPage.allCases[initialPageIndex]
+        if AIMPlace.visiblePage != wanted {
+            return "The window shows \(AIMPlace.visiblePage?.rawValue ?? "no page"), not the requested \(wanted.rawValue)"
+        }
+        if wanted == .maintenance, AIMPlace.visibleMaintenance != initialMaintenance {
+            return "The window shows the \(AIMPlace.visibleMaintenance?.rawValue ?? "no") tab, not the requested \(initialMaintenance.rawValue)"
+        }
+        return nil
+    }
     static var conversationsIndex: Int { AIManagerPage.allCases.firstIndex(of: .conversations) ?? 4 }
     static var initialMaintenance: MaintenanceSection {
         CommandLine.arguments.contains("--cleanup") ? .cleanup : .backup
@@ -257,6 +268,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             let page = CommandLine.arguments.contains("--cleanup")
                 ? "cleanup" : AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex].rawValue.lowercased()
             let appearance = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
+            if let mismatch = AcceptanceConfiguration.pageMismatch() {
+                FileHandle.standardError.write(Data("UI_LINT_WRONG_PAGE: \(mismatch)\n".utf8))
+                exit(2)
+            }
             do {
                 guard let path = ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"] else {
                     throw CocoaError(.fileNoSuchFile)
@@ -276,9 +291,79 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
             menuNavigationFailures.append(contentsOf: await AIManagerMenuBarContract.failures())
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.appFeatureFailures())
+            // The menu check ends on the last page; show the requested one again before the snapshot.
+            NotificationCenter.default.post(
+                name: AIManagerNavigation.request, object: AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex])
+            try? await Task.sleep(for: .milliseconds(220))
+            window?.contentView?.layoutSubtreeIfNeeded()
+            if let view = window?.contentView {
+                menuNavigationFailures.append(contentsOf: await scrollEdgeFailures(in: view))
+            }
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
+    }
+
+    /// After a page round trip, every card and the top bar end at W-20 and no scroll view reserves a
+    /// strip for a system scroller: in the hierarchy and in the rendered window. Run with
+    /// `--scrollers=always` (legacy scrollers) and `--scrollers=overlay`.
+    private func scrollEdgeFailures(in view: NSView) async -> [String] {
+        var failures: [String] = []
+        if let want = PreviewArguments.value("scrollers"),
+           NSScroller.preferredScrollerStyle != (want == "always" ? .legacy : .overlay) {
+            failures.append("The run did not get the requested \(want) scroller style")
+        }
+        for page in [AIManagerPage.settings, AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex]] {
+            NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+            try? await Task.sleep(for: .milliseconds(300))
+            view.layoutSubtreeIfNeeded()
+            var found: [NSScrollView] = []
+            func visit(_ node: NSView) {
+                if let scroll = node as? NSScrollView { found.append(scroll) }
+                node.subviews.forEach(visit)
+            }
+            visit(view)
+            for scroll in found where String(describing: type(of: scroll)).contains("HostingScrollView") {
+                if abs(scroll.contentView.frame.width - scroll.frame.width) > 0.5 {
+                    failures.append("\(page.rawValue): a scroll view reserves \(Int(scroll.frame.width - scroll.contentView.frame.width)) pt for a system scroller")
+                }
+            }
+            for scroll in found where String(describing: type(of: scroll)).contains("HostingScrollView") {
+                if let document = scroll.documentView, abs(document.frame.width - scroll.contentView.frame.width) > 0.5 {
+                    failures.append("\(page.rawValue): the page content is \(document.frame.width) pt wide in a \(scroll.contentView.frame.width) pt clip")
+                }
+            }
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width
+            let width = view.bounds.width
+            func rightEdge(row: CGFloat) -> CGFloat? {
+                func color(_ x: CGFloat) -> NSColor? {
+                    bitmap.colorAt(x: Int(x * scale), y: Int(row * scale))?.usingColorSpace(.sRGB)
+                }
+                // The page color left of the cards; the right gutter holds our thin bar.
+                guard let background = color(AIMTheme.sidebarWidth + 8) else { return nil }
+                var x = width - 18
+                while x > AIMTheme.sidebarWidth + 20 {
+                    if let c = color(x), abs(c.redComponent - background.redComponent) > 0.015
+                        || abs(c.greenComponent - background.greenComponent) > 0.015
+                        || abs(c.blueComponent - background.blueComponent) > 0.015 { return x + 1 / scale }
+                    x -= 1 / scale
+                }
+                return nil
+            }
+            let wanted = width - AIMTheme.pageMargin
+            for (name, row) in [("top bar", CGFloat(26)), ("first card", CGFloat(100))] {
+                if let edge = rightEdge(row: row) {
+                    if abs(edge - wanted) > 1.5 {
+                        failures.append("\(page.rawValue): the \(name) ends at \(edge) pt, not \(wanted) pt")
+                    }
+                } else {
+                    failures.append("\(page.rawValue): the \(name) right edge was not found")
+                }
+            }
+        }
+        return failures
     }
 
     private func importAccount() {
@@ -338,6 +423,19 @@ enum AIManagerMacGUIAcceptanceApp {
             FileHandle.standardError.write(Data("UI lint requires --contract-only; refusing to show a window.\n".utf8))
             exit(3)
         }
+        if AcceptanceConfiguration.contractOnly, ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"] == nil {
+            FileHandle.standardError.write(Data("A contract run needs CFFIXED_USER_HOME on a temporary home; refusing to use real defaults.\n".utf8))
+            exit(3)
+        }
+        if AcceptanceConfiguration.contractOnly, let domain = Bundle.main.bundleIdentifier {
+            // A contract run starts from empty defaults, so no remembered page or setting carries over.
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+            // `--scrollers=always` (legacy scrollers, as with a mouse) or `--scrollers=overlay`
+            // sets the system scroll bar choice for this run, before AppKit reads it.
+            if let style = PreviewArguments.value("scrollers") {
+                UserDefaults.standard.set(style == "always" ? "Always" : "WhenScrolling", forKey: "AppleShowScrollBars")
+            }
+        }
         let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
         let instanceLock: AIManagerInstanceLock?
         if AcceptanceConfiguration.contractOnly {
@@ -364,6 +462,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { failures.append(message) }
     }
+    if let mismatch = AcceptanceConfiguration.pageMismatch() { failures.append(mismatch) }
     failures.append(contentsOf: AIManagerNativeContract.presentationContractFailures())
     failures.append(contentsOf: AIManagerNativeContract.accountActionFailures())
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
@@ -637,6 +736,25 @@ private final class AcceptanceReceipts {
         catalog.frame = NSRect(x: 0, y: 0, width: 560, height: 250)
         catalog.layoutSubtreeIfNeeded()
         writeSnapshot(of: catalog, filename: "provider-glyphs.png")
+
+        // Every provider tile at 24 and 44 pt beside its dense-row glyph.
+        let providerIDs = [ProviderID.codex] + ProviderCatalog.all.map(\.id)
+        let columns = 4
+        let sheet = NSHostingView(rootView:
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(250), alignment: .leading), count: columns), spacing: 10) {
+                ForEach(providerIDs, id: \.self) { id in
+                    HStack(spacing: 8) {
+                        ProviderMark(providerID: id, size: 24)
+                        ProviderMark(providerID: id, size: 44)
+                        ProviderGlyph(providerID: id, size: 16).foregroundStyle(.primary)
+                        Text(id.rawValue).aimText(.secondary).lineLimit(1)
+                    }
+                }
+            }.padding(14).background(AIMTheme.panel))
+        sheet.appearance = appearance
+        sheet.frame = NSRect(x: 0, y: 0, width: 1060, height: CGFloat((providerIDs.count + columns - 1) / columns) * 54 + 28)
+        sheet.layoutSubtreeIfNeeded()
+        writeSnapshot(of: sheet, filename: "brand-sheet.png")
     }
 
     private func writeSnapshot(of view: NSView, filename: String) {
@@ -657,7 +775,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "brand-sheet.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }

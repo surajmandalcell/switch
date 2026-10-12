@@ -493,7 +493,8 @@ extension EnvironmentValues {
     observers.forEach(NotificationCenter.default.removeObserver)
     observers = []
     scrollView = next
-    quietSystemScrollers(next)
+    next.hasVerticalScroller = false
+    next.hasHorizontalScroller = false
     let clip = next.contentView
     clip.postsBoundsChangedNotifications = true
     var watched: [NSView] = [clip]
@@ -515,19 +516,9 @@ extension EnvironmentValues {
     sync()
   }
 
-  /// With a mouse attached macOS uses legacy scrollers, which reserve a 17 pt strip beside the
-  /// content even when hidden; the page draws its own bar in its own gutter, so none is reserved.
-  /// SwiftUI sets the legacy style again when it updates, so every sync puts it back.
-  private func quietSystemScrollers(_ scrollView: NSScrollView) {
-    if scrollView.scrollerStyle != .overlay { scrollView.scrollerStyle = .overlay }
-    if scrollView.hasVerticalScroller { scrollView.hasVerticalScroller = false }
-    if scrollView.hasHorizontalScroller { scrollView.hasHorizontalScroller = false }
-  }
-
   private func sync() {
     guard let scrollView, let document = scrollView.documentView else { return }
     let clip = scrollView.contentView
-    quietSystemScrollers(scrollView)
     if let wanted = pending {
       if Date() > restoreDeadline { pending = nil }
       else if document.frame.height - clip.bounds.height >= wanted - 0.5 {
@@ -633,7 +624,8 @@ struct AIMScrollView<Content: View>: View {
     ScrollView(.vertical) {
       content.background(AIMScrollBinder(model: model, name: name))
     }
-    .scrollIndicators(.hidden)
+    // `.hidden` still reserves a 17 pt legacy scroller strip beside the page; `.never` reserves none.
+    .scrollIndicators(.never)
     .overlay(alignment: .trailing) {
       AIMScrollBar(model: model).frame(width: gutter).padding(.top, topInset)
     }

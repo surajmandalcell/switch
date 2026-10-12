@@ -413,10 +413,16 @@ enum AIManagerNativeContract {
     {
       failures.append("Account context actions use unexpected copy")
     }
-    if AIManagerBrand.providerArtwork.map(\.providerID)
-      != [.codex, .claudeCode, .geminiCLI, .antigravityCLI]
+    if !Set([ProviderID.codex, .claudeCode, .geminiCLI, .antigravityCLI])
+      .isSubset(of: Set(AIManagerBrand.providerArtwork.map(\.providerID)))
     {
-      failures.append("The Add Account catalog does not map every provider to local artwork")
+      failures.append("The Add Account catalog does not map every CLI provider to its brand mark")
+    }
+    if AIManagerBrand.providerBrand(for: .codex) != AIManagerBrand.providerBrand(for: ProviderID(rawValue: "openai"))
+      || AIManagerBrand.providerBrand(for: .claudeCode)?.tint != nil
+      || AIManagerBrand.providerBrand(for: .grokBuild)?.tint?.dark != 0xFFFFFF
+    {
+      failures.append("A brand look is wrong: Codex is the OpenAI knot, Claude keeps its color, Grok flips in Dark Mode")
     }
     if AIMIcon.Name.trash.symbol != "trash" {
       failures.append("The account delete control does not use the native trash symbol")
