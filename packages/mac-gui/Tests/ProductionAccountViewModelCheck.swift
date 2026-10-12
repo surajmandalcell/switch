@@ -698,11 +698,27 @@ struct ProductionAccountViewModelCheck {
     @MainActor
     private static func checkDroidAccounts(root: URL) async throws {
         let droidRoot = root.appending(path: "droid")
+        let fm = FileManager.default
+        try fm.createDirectory(at: droidRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let fake = droidRoot.appending(path: "fake-droid")
+        try """
+        #!/bin/sh
+        test "$1" = doctor && test "$2" = --auth && test "$3" = --json || exit 1
+        test -z "${FACTORY_API_KEY:-}" || exit 1
+        cat "$(dirname "$0")/doctor.json"
+        """.write(to: fake, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        func doctor(_ hint: String) throws {
+            let json = try JSONSerialization.data(withJSONObject: ["results": [
+                ["id": "auth.verify", "status": "pass", "detail": "authenticated as \(hint) via stored login session"]
+            ]])
+            try json.write(to: droidRoot.appending(path: "doctor.json"))
+        }
+        try doctor("s***@gmail.com")
         let paths = ManagerPaths(applicationSupport: droidRoot.appending(path: "support"),
             credentialStore: droidRoot.appending(path: "user/.switch/codex"),
             defaultHome: droidRoot.appending(path: "user/.codex"), sharedRoot: droidRoot.appending(path: "user/.codex"),
-            orcaAccountsRoot: droidRoot.appending(path: "orca"), droidExecutable: URL(fileURLWithPath: "/usr/bin/false"), isolationRoot: droidRoot)
-        let fm = FileManager.default
+            orcaAccountsRoot: droidRoot.appending(path: "orca"), droidExecutable: fake, isolationRoot: droidRoot)
         try fm.createDirectory(at: paths.droidHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let live = paths.droidHome.appending(path: "auth.v2.loginkeychain")
         try Data("synthetic-A".utf8).write(to: live)
@@ -715,6 +731,7 @@ struct ProductionAccountViewModelCheck {
         await model.importDroidAccount()
         let first = try expect(model.selectedAccount, "Droid import did not reach the GUI")
         try expect(first.identity.accountID == "Droid personal", "Droid ignored the owner's name")
+        try expect(first.identity.email == "s***@gmail.com" && first.identity.accountLabel.hasPrefix("Droid personal · "), "Droid masked identity was not stored and displayed")
         model.closeAccountModal()
         await model.beginAddAccount()
         model.selectedProviderID = .droid
@@ -726,6 +743,7 @@ struct ProductionAccountViewModelCheck {
         let auth = staged.appending(path: "auth.v2.loginkeychain")
         try Data("synthetic-B".utf8).write(to: auth)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: auth.path)
+        try doctor("d***@gmail.com")
         await model.checkAccountLogin()
         let second = try expect(model.selectedAccount, "Droid login did not finish")
         try expect(second.id != first.id && second.identity.accountID == "Droid work", "Droid accounts were not separate")
@@ -742,6 +760,25 @@ struct ProductionAccountViewModelCheck {
         try expect(model.accountLoginSession?.accountID == first.id, "Droid re-sign-in lost the target")
         try expect(prompts.last?.contains("Droid personal") == true, "Droid sign-in confirmation did not name the target")
         await model.cancelAccountLogin()
+        model.closeAccountModal()
+        await model.beginAddAccount()
+        model.selectedProviderID = .droid
+        model.droidAccountName = "Droid duplicate"
+        await model.startAccountLogin()
+        let duplicate = try expect(model.accountLoginSession, "Duplicate login did not start")
+        let duplicateHome = paths.applicationSupport.appending(path: "account-login/\(duplicate.id.uuidString)/home/.factory")
+        try fm.createDirectory(at: duplicateHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let duplicateAuth = duplicateHome.appending(path: "auth.v2.loginkeychain")
+        try Data("synthetic-C".utf8).write(to: duplicateAuth)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: duplicateAuth.path)
+        try doctor("s***@gmail.com")
+        model.droidConfirmation = { message, _ in prompts.append(message); return false }
+        await model.checkAccountLogin()
+        try expect(prompts.last == "This looks like Droid personal (s***@gmail.com). Add it anyway?", "Duplicate warning did not reach the GUI")
+        try expect(model.status?.accounts.count == 2 && model.accountLoginSession?.id == duplicate.id, "Cancel saved or discarded the duplicate")
+        model.droidConfirmation = { message, _ in prompts.append(message); return true }
+        await model.checkAccountLogin()
+        try expect(model.status?.accounts.count == 3 && model.selectedAccount?.identity.accountID == "Droid duplicate", "Confirmed duplicate was not added")
     }
 
     @MainActor

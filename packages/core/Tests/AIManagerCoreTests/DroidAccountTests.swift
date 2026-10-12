@@ -24,6 +24,15 @@ final class DroidAccountTests: XCTestCase {
         umask 077
         test -n "$FACTORY_HOME_OVERRIDE"
         test -z "${FACTORY_API_KEY:-}"
+        if test "${1:-}" = doctor; then
+          test "$2" = --auth
+          test "$3" = --json
+          fake_root=$(dirname "$0")
+          printf '%s\\n%s\\n' "$FACTORY_HOME_OVERRIDE" "$FACTORY_DISABLE_KEYRING" > "$fake_root/doctor-invocation"
+          test -f "$fake_root/doctor.json" || exit 1
+          cat "$fake_root/doctor.json"
+          exit 0
+        fi
         mkdir -p "$FACTORY_HOME_OVERRIDE/.factory"
         printf 'synthetic-login-B' > "$FACTORY_HOME_OVERRIDE/.factory/auth.v2.loginkeychain"
         """
@@ -61,6 +70,112 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertEqual(exit, 0)
         let check = try await manager.checkAccountLogin(id: start.session.id, droidName: "Work")
         return (first, try XCTUnwrap(check.account))
+    }
+
+    private func doctor(_ hint: String, status: String = "pass") throws {
+        let data = try JSONSerialization.data(withJSONObject: ["results": [
+            ["id": "auth.verify", "status": status, "detail": "authenticated as \(hint) via stored login session"]
+        ]])
+        try CoreSupport.atomicWrite(data, to: root.appending(path: "doctor.json"), fileManager: fm)
+    }
+
+    func testDoctorParsesOnlyPassingMaskedStoredLogin() throws {
+        try doctor("S***@gmail.com")
+        let data = try Data(contentsOf: root.appending(path: "doctor.json"))
+        XCTAssertEqual(DroidProviderAdapter.identityHint(data), "s***@gmail.com")
+        for hint in ["full@gmail.com", "bad***@", "s***@gmail.com extra", "s***@gmail.com\n"] {
+            try doctor(hint)
+            XCTAssertNil(DroidProviderAdapter.identityHint(try Data(contentsOf: root.appending(path: "doctor.json"))))
+        }
+        try doctor("s***@gmail.com", status: "fail")
+        XCTAssertNil(DroidProviderAdapter.identityHint(try Data(contentsOf: root.appending(path: "doctor.json"))))
+        XCTAssertNil(DroidProviderAdapter.identityHint(Data("unknown".utf8)))
+    }
+
+    func testDoctorImportStoresHintUsingPrivateCopyAndMatchingKeyringMode() async throws {
+        try doctor("s***@gmail.com")
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Personal")
+        XCTAssertEqual(account.identity.email, "s***@gmail.com")
+        var invocation = try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")
+        XCTAssertNotEqual(String(invocation[0]), paths.droidHome.deletingLastPathComponent().path)
+        XCTAssertEqual(invocation[1], "0")
+        XCTAssertFalse(fm.fileExists(atPath: String(invocation[0])))
+        try writeLogin(paths.droidHome, value: "fallback", fallback: true)
+        try doctor("d***@gmail.com")
+        _ = try await manager.importDroidAccount(name: "Work")
+        invocation = try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(invocation[1], "1")
+    }
+
+    func testDoctorMismatchRejectsAndDiscardsStagingWithoutChangingAccountOrLive() async throws {
+        try doctor("s***@gmail.com")
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Personal")
+        let before = try await manager.status()
+        let start = try await manager.startAccountLogin(accountID: account.id, confirmDroidAccount: true)
+        _ = try await manager.run(start.launchSpec)
+        try doctor("d***@gmail.com")
+        do { _ = try await manager.checkAccountLogin(id: start.session.id); XCTFail("Wrong mask accepted") }
+        catch {
+            XCTAssertEqual(error as? AIManagerError, .signInIdentityMismatch(signedIn: "d***@gmail.com", target: "s***@gmail.com"))
+        }
+        XCTAssertFalse(CoreSupport.entryExists(start.launchSpec.workingDirectory!))
+        let after = try await manager.status()
+        XCTAssertEqual(after.accounts, before.accounts)
+        XCTAssertEqual(after.defaultAccountID(for: .droid), account.id)
+        XCTAssertEqual(try Data(contentsOf: paths.droidHome.appending(path: "auth.v2.loginkeychain")), Data("synthetic-login-A".utf8))
+        let next = try await manager.startAccountLogin(providerID: .droid)
+        try await manager.cancelAccountLogin(id: next.session.id)
+    }
+
+    func testDoctorMatchingMaskAcceptsAccountScopedRefresh() async throws {
+        try doctor("s***@gmail.com")
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Personal")
+        let start = try await manager.startAccountLogin(accountID: account.id, confirmDroidAccount: true)
+        _ = try await manager.run(start.launchSpec)
+        let check = try await manager.checkAccountLogin(id: start.session.id)
+        XCTAssertEqual(check.account?.id, account.id)
+        XCTAssertEqual(check.account?.identity.email, "s***@gmail.com")
+        XCTAssertEqual(check.account?.identity.accountID, "Personal")
+        XCTAssertEqual(try Data(contentsOf: paths.droidHome.appending(path: "auth.v2.loginkeychain")), Data("synthetic-login-B".utf8))
+    }
+
+    func testDoctorFailureAndUnknownFormatFallBackAndPreserveSavedHint() async throws {
+        let manager = try manager()
+        let fallback = try await manager.importDroidAccount(name: "No hint")
+        XCTAssertNil(fallback.identity.email)
+        XCTAssertTrue(fallback.verification.detail.contains("could not confirm"))
+        try doctor("s***@gmail.com")
+        let start = try await manager.startAccountLogin(accountID: fallback.id, confirmDroidAccount: true)
+        _ = try await manager.run(start.launchSpec)
+        _ = try await manager.checkAccountLogin(id: start.session.id)
+        let retry = try await manager.startAccountLogin(accountID: fallback.id, confirmDroidAccount: true)
+        _ = try await manager.run(retry.launchSpec)
+        try CoreSupport.atomicWrite(Data("{\"results\": []}".utf8), to: root.appending(path: "doctor.json"), fileManager: fm)
+        let check = try await manager.checkAccountLogin(id: retry.session.id)
+        XCTAssertEqual(check.account?.identity.email, "s***@gmail.com")
+        XCTAssertTrue(check.message.contains("could not confirm"))
+    }
+
+    func testDuplicateMaskRequiresConfirmationBeforeImportOrNewSignIn() async throws {
+        try doctor("s***@gmail.com")
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Personal")
+        let start = try await manager.startAccountLogin(providerID: .droid)
+        _ = try await manager.run(start.launchSpec)
+        do { _ = try await manager.checkAccountLogin(id: start.session.id, droidName: "Other"); XCTFail("Duplicate accepted") }
+        catch {
+            XCTAssertEqual(error as? DroidAccountError, .duplicateIdentity(name: "Personal", hint: "s***@gmail.com"))
+            XCTAssertEqual(error.localizedDescription, "This looks like Personal (s***@gmail.com). Add it anyway?")
+        }
+        let status = try await manager.status()
+        XCTAssertEqual(status.accounts.count, 1)
+        let check = try await manager.checkAccountLogin(id: start.session.id, droidName: "Other", allowDuplicateDroid: true)
+        XCTAssertNotEqual(check.account?.id, account.id)
+        do { _ = try await manager.importDroidAccount(name: "Again"); XCTFail("Duplicate import accepted") }
+        catch { XCTAssertEqual(error as? DroidAccountError, .duplicateIdentity(name: "Personal", hint: "s***@gmail.com")) }
     }
 
     func testImportOpaqueLoginAndPrivateCopiesWithoutChangingLiveFiles() async throws {

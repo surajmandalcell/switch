@@ -54,6 +54,9 @@ extension AccountIdentity {
   /// Primary account label. Secret accounts have no email, so a short key tail tells them apart.
   /// Emails follow the domain display and privacy settings.
   var accountLabel: String {
+    if providerID == .droid, let accountID {
+      return email.map { "\(accountID) · \(EmailPrivacy.display($0))" } ?? accountID
+    }
     if let email, !email.isEmpty { return EmailPrivacy.display(email) }
     if let accountID, !accountID.isEmpty { return accountID }
     if let userID, !userID.isEmpty, providerID != .codex {

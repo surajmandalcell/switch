@@ -519,11 +519,24 @@ final class AccountViewModel: ObservableObject {
             ) {
                 let check: AccountLoginCheck
                 do {
-                    check = try await manager.checkAccountLogin(id: session.id, credentialChoice: credentialChoice, droidName: droidAccountName)
-                } catch let error as DroidAccountError {
-                    guard case .running = error else { throw error }
-                    guard confirmDroidAction(error.localizedDescription, action: "Switch") else { return }
-                    check = try await manager.checkAccountLogin(id: session.id, droidName: droidAccountName, allowRunningDroid: true)
+                    var allowRunning = false, allowDuplicate = false
+                    while true {
+                        do {
+                            check = try await manager.checkAccountLogin(id: session.id, credentialChoice: credentialChoice,
+                                droidName: droidAccountName, allowRunningDroid: allowRunning, allowDuplicateDroid: allowDuplicate)
+                            break
+                        } catch let error as DroidAccountError {
+                            switch error {
+                            case .running where !allowRunning:
+                                guard confirmDroidAction(error.localizedDescription, action: "Switch") else { return }
+                                allowRunning = true
+                            case .duplicateIdentity where !allowDuplicate:
+                                guard confirmDroidAction(error.localizedDescription, action: "Add anyway") else { return }
+                                allowDuplicate = true
+                            default: throw error
+                            }
+                        }
+                    }
                 } catch let error as AIManagerError {
                     if case .signInIdentityMismatch = error {
                         pendingLoginSessions.removeAll { $0.id == session.id }
@@ -548,6 +561,7 @@ final class AccountViewModel: ObservableObject {
                     notice = status?.isDefault(account) == true
                         ? "New \(providerName) sessions will use \(name)."
                         : "\(name) was saved. Choose Use for New Sessions when you want to switch."
+                    if session.providerID == .droid { notice = check.message }
                     await loadCachedUsage()
                     Task { await self.refreshAnyUsage(accountID: account.id) }
                 }
@@ -625,11 +639,20 @@ final class AccountViewModel: ObservableObject {
     func importDroidAccount() async {
         guard let manager else { reportUnavailable(); return }
         await perform(failure: "Could not import Droid.", recovery: "Enter a name and check that Factory is signed in.") {
-            let account = try await manager.importDroidAccount(name: droidAccountName,
-                apiKey: droidAPIKey.isEmpty ? nil : droidAPIKey)
+            let account: AccountRecord
+            do {
+                account = try await manager.importDroidAccount(name: droidAccountName,
+                    apiKey: droidAPIKey.isEmpty ? nil : droidAPIKey)
+            } catch let error as DroidAccountError {
+                guard case .duplicateIdentity = error else { throw error }
+                guard confirmDroidAction(error.localizedDescription, action: "Add anyway") else { return }
+                account = try await manager.importDroidAccount(name: droidAccountName,
+                    apiKey: droidAPIKey.isEmpty ? nil : droidAPIKey, allowDuplicate: true)
+            }
             droidAPIKey = ""
             try await reloadStatus(using: manager)
             finishProviderAccount(account)
+            notice = account.verification.detail
         }
     }
 

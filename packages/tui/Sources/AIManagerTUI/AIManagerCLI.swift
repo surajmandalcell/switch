@@ -100,7 +100,14 @@ struct AIManagerCLI {
         case "import-droid":
             guard let name = input.option("--name") else { throw CLIError.message("Enter the account name with --name.") }
             try confirm(input, "Save the encrypted Droid login as \(name)?")
-            await output(try await manager.importDroidAccount(name: name), json: input.json)
+            let account: AccountRecord
+            do { account = try await manager.importDroidAccount(name: name) }
+            catch let error as DroidAccountError {
+                guard case .duplicateIdentity = error else { throw error }
+                try confirm(input, error.localizedDescription)
+                account = try await manager.importDroidAccount(name: name, allowDuplicate: true)
+            }
+            await output(account, json: input.json)
         case "check-login": try await checkLogin(input, manager: manager)
         case "cancel-login":
             let id = try input.requiredLoginSessionID()
@@ -249,7 +256,7 @@ struct AIManagerCLI {
             guard let target = status.accounts.first(where: { $0.id == accountID && $0.identity.providerID == provider }) else {
                 throw AIManagerError.accountNotFound
             }
-            try confirm(input, "Sign in to \(displayName(target.identity))? Droid's encrypted identity cannot be checked by Switch.")
+            try confirm(input, "Sign in to \(displayName(target.identity))? Droid's masked email cannot prove the full account identity.")
             await output(SafeLoginStart(try await manager.startAccountLogin(accountID: accountID, confirmDroidAccount: true)), json: input.json)
             return
         }
@@ -260,13 +267,19 @@ struct AIManagerCLI {
         let id = try input.requiredLoginSessionID()
         try confirm(input, "Check this login and save the account if sign-in is complete?")
         let checked: AccountLoginCheck
-        do {
-            checked = try await manager.checkAccountLogin(id: id, credentialChoice: input.loginCredentialChoice,
-                                                         droidName: input.option("--name") ?? "Droid 1")
-        } catch let error as DroidAccountError {
-            guard case .running = error else { throw error }
-            try confirm(input, error.localizedDescription)
-            checked = try await manager.checkAccountLogin(id: id, droidName: input.option("--name") ?? "Droid 1", allowRunningDroid: true)
+        var allowRunning = false, allowDuplicate = false
+        while true {
+            do {
+                checked = try await manager.checkAccountLogin(id: id, credentialChoice: input.loginCredentialChoice,
+                    droidName: input.option("--name") ?? "Droid 1", allowRunningDroid: allowRunning, allowDuplicateDroid: allowDuplicate)
+                break
+            } catch let error as DroidAccountError {
+                switch error {
+                case .running where !allowRunning: try confirm(input, error.localizedDescription); allowRunning = true
+                case .duplicateIdentity where !allowDuplicate: try confirm(input, error.localizedDescription); allowDuplicate = true
+                default: throw error
+                }
+            }
         }
         await output(SafeLoginCheck(checked), json: input.json)
     }
@@ -1081,6 +1094,9 @@ struct AIManagerCLI {
 
     static func displayName(_ identity: AccountIdentity?) -> String {
         guard let identity else { return "Unresolved account" }
+        if identity.providerID == .droid, let name = identity.accountID {
+            return identity.email.map { "\(name) · \($0)" } ?? name
+        }
         if let email = identity.email, let workspace = identity.workspaceID { return "\(email) · \(workspace)" }
         return identity.email ?? identity.accountID
             ?? (identity.providerID.isGenericProvider ? identity.userID.map { "account \($0.prefix(8))" } : nil)
