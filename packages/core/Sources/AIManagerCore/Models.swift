@@ -677,6 +677,7 @@ public enum AIManagerError: LocalizedError, Equatable {
     case invalidReplacementAccount
     case cliNotFound
     case operationFailed(String)
+    case signInIdentityMismatch(signedIn: String, target: String)
 
     public var errorDescription: String? {
         switch self {
@@ -695,6 +696,8 @@ public enum AIManagerError: LocalizedError, Equatable {
         case .invalidReplacementAccount: "The replacement account must be a different saved account."
         case .cliNotFound: "Codex CLI was not found."
         case .operationFailed(let value): value
+        case .signInIdentityMismatch(let signedIn, let target):
+            "Signed in as \(signedIn). Sign in as \(target) to refresh this account."
         }
     }
 }

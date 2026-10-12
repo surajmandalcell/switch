@@ -266,7 +266,7 @@ struct ProviderAccountStore {
     // MARK: Sign-in
 
     /// Prepares a private temp home and the command to run. The GUI opens it in Terminal.
-    func startLogin(_ providerID: ProviderID) throws -> AccountLoginStart {
+    func startLogin(_ providerID: ProviderID, accountID: UUID? = nil) throws -> AccountLoginStart {
         guard let spec = spec(providerID), spec.style == .files,
               let login = spec.login, let command = login.first else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) has no sign-in command.")
@@ -276,7 +276,7 @@ struct ProviderAccountStore {
                 "\(spec.name) sign-in needs `\(command)`. Install it, then try again.")
         }
         try pruneStaleLogins()
-        let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date())
+        let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date(), accountID: accountID)
         let home = loginHome(session.id)
         var launchEnvironment = environment
         launchEnvironment["HOME"] = home.path
@@ -312,7 +312,37 @@ struct ProviderAccountStore {
                 return .init(session: session, state: .waitingForLogin,
                              message: "\(spec.name) sign-in has not produced account access yet.")
             }
-            let account = try importLive(spec.id, from: home)
+            let account: AccountRecord
+            if let accountID = session.accountID {
+                let position = try position(accountID, in: index)
+                let target = index.accounts[position]
+                let foundIdentity = identity(spec, found)
+                guard target.identity.providerID == spec.id,
+                      target.identity.userID == foundIdentity.key else {
+                    index.pending.removeAll { $0.id == id }
+                    try writeIndex(index)
+                    try fileManager.removeItem(at: loginRoot(id))
+                    throw target.identity.signInMismatch(foundIdentity.email ?? foundIdentity.key)
+                }
+                let isDefault = index.defaults[spec.id.rawValue] == accountID
+                let live = isDefault ? try readLive(spec, home: nil) : ProviderCredential()
+                if isDefault, !live.files.isEmpty,
+                   (!isComplete(spec, live) || identity(spec, live).key != foundIdentity.key) {
+                    throw AIManagerError.credentialConflict
+                }
+                _ = try persist(accountID, found, live: false, liveDigest: nil)
+                if isDefault {
+                    _ = try writeBackup(spec.id, live)
+                    do { try writeLive(spec, found, home: nil) }
+                    catch {
+                        try writeLive(spec, live, home: nil)
+                        throw error
+                    }
+                }
+                account = try record(accountID, in: readIndex())
+            } else {
+                account = try importLive(spec.id, from: home)
+            }
             index = try readIndex()
             index.pending.removeAll { $0.id == id }
             try writeIndex(index)

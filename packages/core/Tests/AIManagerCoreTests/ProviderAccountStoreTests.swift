@@ -526,6 +526,55 @@ final class ProviderAccountStoreTests: XCTestCase {
         XCTAssertTrue(after.pendingLoginSessions.isEmpty)
     }
 
+    func testAccountScopedFileLoginRefreshesOnlyTargetAndRejectsMismatch() async throws {
+        let manager = try makeManager([filesSpec()])
+        try writeState("A", in: userHome)
+        let active = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "test-files"))
+        let secondHome = root.appending(path: "second")
+        try writeState("B", in: secondHome)
+        let second = try makeStore([filesSpec()]).importLive(ProviderID(rawValue: "test-files"), from: secondHome)
+        let live = try Data(contentsOf: userHome.appending(path: authPath))
+
+        let refresh = try await manager.startAccountLogin(accountID: second.id)
+        let home = URL(fileURLWithPath: try XCTUnwrap(refresh.launchSpec.environment["HOME"]))
+        try writeState("B", in: home, token: "fresh-B")
+        let refreshed = try await manager.checkAccountLogin(id: refresh.session.id)
+        XCTAssertEqual(refreshed.account?.id, second.id)
+        let stored = try makeStore([filesSpec()]).credential(for: second.id).credential
+        XCTAssertEqual(stored.json(authPath)?["token"].string, "fresh-B")
+        XCTAssertEqual(try Data(contentsOf: userHome.appending(path: authPath)), live)
+
+        let activeRefresh = try await manager.startAccountLogin(accountID: active.id)
+        let activeHome = URL(fileURLWithPath: try XCTUnwrap(activeRefresh.launchSpec.environment["HOME"]))
+        try writeState("A", in: activeHome, token: "fresh-A")
+        let activeResult = try await manager.checkAccountLogin(id: activeRefresh.session.id)
+        XCTAssertEqual(activeResult.account?.id, active.id)
+        XCTAssertTrue(try String(contentsOf: userHome.appending(path: authPath)).contains("fresh-A"))
+
+        let indexURL = paths.applicationSupport.appending(path: "provider-accounts/accounts.json")
+        let credentials = try [active, second].map { try Data(contentsOf: $0.credentialFile) }
+        let indexBefore = try Data(contentsOf: indexURL)
+        let liveBefore = try Data(contentsOf: userHome.appending(path: authPath))
+        let mismatch = try await manager.startAccountLogin(accountID: second.id)
+        let mismatchHome = URL(fileURLWithPath: try XCTUnwrap(mismatch.launchSpec.environment["HOME"]))
+        try writeState("A", in: mismatchHome, token: "wrong")
+        do {
+            _ = try await manager.checkAccountLogin(id: mismatch.session.id)
+            XCTFail("A different identity must be rejected")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Signed in as A@x.com. Sign in as B@x.com to refresh this account.")
+        }
+        XCTAssertEqual(try [active, second].map { try Data(contentsOf: $0.credentialFile) }, credentials)
+        XCTAssertEqual(try Data(contentsOf: userHome.appending(path: authPath)), liveBefore)
+        // Only the pending session is removed from this provider's combined index.
+        let store = try makeStore([filesSpec()])
+        XCTAssertEqual(try store.defaults()["test-files"], active.id)
+        XCTAssertEqual(try store.accounts().count, 2)
+        XCTAssertTrue(try store.pending().isEmpty)
+        XCTAssertEqual(try Data(contentsOf: indexURL), indexBefore)
+        XCTAssertFalse(fileManager.fileExists(atPath: mismatchHome.deletingLastPathComponent().path))
+    }
+
     func testReadProviderUsagePersistsRefreshedStoreCredentialsAndChecksAccounts() async throws {
         let manager = try makeManager([secretSpec, filesSpec(rotate: true)])
         try writeState("A", in: userHome)

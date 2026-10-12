@@ -78,11 +78,11 @@ struct ClaudeCodeProfiles {
         }
     }
 
-    func startLogin() throws -> AccountLoginStart {
+    func startLogin(accountID: UUID? = nil) throws -> AccountLoginStart {
         guard let executable = executable() else {
             throw AIManagerError.operationFailed("Claude Code CLI was not found.")
         }
-        let session = AccountLoginSession(id: UUID(), providerID: .claudeCode, createdAt: Date())
+        let session = AccountLoginSession(id: UUID(), providerID: .claudeCode, createdAt: Date(), accountID: accountID)
         let config = home(session.id)
         let spec = launchSpec(executable: executable, home: config, arguments: ["auth", "login"])
         try lock.withLock {
@@ -127,6 +127,30 @@ struct ClaudeCodeProfiles {
             guard index.pending.contains(where: { $0.id == id }) else {
                 throw AIManagerError.sourceChanged
             }
+            if let accountID = session.accountID {
+                guard let position = index.accounts.firstIndex(where: { $0.id == accountID }) else {
+                    throw AIManagerError.accountNotFound
+                }
+                let target = index.accounts[position]
+                guard target.identity.email?.caseInsensitiveCompare(email) == .orderedSame else {
+                    index.pending.removeAll { $0.id == id }
+                    try writeIndex(index)
+                    try fileManager.removeItem(at: home(id).deletingLastPathComponent())
+                    throw target.identity.signInMismatch(email)
+                }
+                let credential = home(id).appending(path: ".credentials.json")
+                guard let bytes = Self.boundedRead(credential) else {
+                    throw AIManagerError.invalidSource("Claude sign-in did not produce file-based credentials.")
+                }
+                let destination = home(accountID).appending(path: ".credentials.json")
+                try CoreSupport.atomicWrite(bytes, to: destination, fileManager: fileManager)
+                index.accounts[position].verification = .init(state: .verifiedLocally, checkedAt: Date(),
+                                                              detail: "Claude Code reports this profile is signed in.")
+                index.pending.removeAll { $0.id == id }
+                try writeIndex(index)
+                try fileManager.removeItem(at: home(id).deletingLastPathComponent())
+                return index.accounts[position]
+            }
             let identity = AccountIdentity(providerID: .claudeCode, email: email,
                                            userID: email, accountID: id.uuidString,
                                            authMode: .oauth)
@@ -144,17 +168,17 @@ struct ClaudeCodeProfiles {
             try writeIndex(index)
             return account
         }
-        _ = loginRunner.cancel(id)
+        if session.accountID == nil { _ = loginRunner.cancel(id) }
         return .init(session: session, state: .completed, account: account,
                      message: "Claude Code profile was saved.")
     }
 
     func cancelLogin(_ id: UUID) async throws {
-        guard try pending().contains(where: { $0.id == id }) else {
+        guard let session = try pending().first(where: { $0.id == id }) else {
             throw AIManagerError.invalidSource("Claude Code sign-in is no longer active.")
         }
-        _ = loginRunner.cancel(id)
-        if let executable = executable() {
+        if session.accountID == nil { _ = loginRunner.cancel(id) }
+        if session.accountID == nil, let executable = executable() {
             let status = try await statusCheck(launchSpec(executable: executable, home: home(id),
                                                            arguments: ["auth", "status"]))
             if status.loggedIn {
