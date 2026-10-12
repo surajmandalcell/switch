@@ -17,6 +17,13 @@ private actor CountingChatHistoryProvider: ChatHistoryProviding {
     func refreshCount() -> Int { refreshes }
 }
 
+private final class FireCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func increment() { lock.lock(); count += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
 private struct SilentChatHistoryMonitor: ChatHistoryMonitoring {
     func changes() -> AsyncStream<Void> { AsyncStream { _ in } }
 }
@@ -126,6 +133,28 @@ struct ProductionAccountViewModelCheck {
                    "Chat History republished its view while the library was unchanged")
         withExtendedLifetime(idlePublication) {}
 
+        // The debouncer alone, with no fseventsd: a burst of pokes inside the quiet window fires
+        // once, and a poke after the window fires again.
+        let debounceQueue = DispatchQueue(label: "com.switch.debounce-check")
+        let debounceFires = FireCounter()
+        let debouncer = ChatHistoryDebouncer(queue: debounceQueue, quiet: .milliseconds(400)) {
+            debounceFires.increment()
+        }
+        for _ in 0..<8 {
+            debounceQueue.sync { debouncer.poke() }
+            usleep(10_000)
+        }
+        try await Task.sleep(for: .milliseconds(900))
+        try expect(debounceFires.value == 1,
+                   "A burst of pokes did not fire the debouncer once (\(debounceFires.value))")
+        debounceQueue.sync { debouncer.poke() }
+        try await Task.sleep(for: .milliseconds(900))
+        try expect(debounceFires.value == 2,
+                   "A poke after a quiet window did not fire the debouncer (\(debounceFires.value))")
+        debounceQueue.sync { debouncer.poke(); debouncer.cancel() }
+        try await Task.sleep(for: .milliseconds(300))
+        try expect(debounceFires.value == 2, "A cancelled debouncer still fired")
+
         let eventHistory = CountingChatHistoryProvider()
         let eventHistoryModel = AccountViewModel(
             paths: paths, manager: manager, chatHistoryProvider: eventHistory)
@@ -146,10 +175,12 @@ struct ProductionAccountViewModelCheck {
         let eventFile = eventDirectory.appending(path: "history-event.jsonl")
         try Data().write(to: eventFile)
         let eventHandle = try FileHandle(forWritingTo: eventFile)
-        // Eight writes in quick succession. The gaps are short blocking sleeps, not task sleeps,
-        // so a busy machine cannot stretch the burst past the monitor's 500 ms quiet window and
-        // split it into two real bursts.
-        for index in 0..<8 {
+        // Eight writes in quick succession. The exact refresh count for them is up to fseventsd,
+        // which can deliver the batches of one burst more than the 500 ms quiet window apart on a
+        // busy machine (750 ms seen under disk load). The debouncer check above pins the exact
+        // coalescing; here the real monitor must refresh at least once and must coalesce.
+        let burstWrites = 8
+        for index in 0..<burstWrites {
             try eventHandle.seekToEnd()
             try eventHandle.write(contentsOf: Data("{\"event\":\(index)}\n".utf8))
             usleep(5_000)
@@ -170,8 +201,8 @@ struct ProductionAccountViewModelCheck {
         let eventRefreshCount = lastRefreshCount - initialEventRefreshCount
         eventWatch.cancel()
         await eventWatch.value
-        try expect(eventRefreshCount == 1,
-                   "A burst of conversation writes did not produce one history refresh (\(eventRefreshCount))")
+        try expect(eventRefreshCount >= 1 && eventRefreshCount < burstWrites,
+                   "A burst of conversation writes did not coalesce into a few history refreshes (\(eventRefreshCount))")
         try fileManager.removeItem(at: eventFile)
 
         let model = AccountViewModel(paths: paths, manager: manager)

@@ -46,7 +46,10 @@ private final class FSEventSubscription: @unchecked Sendable {
     label: "com.switch.chat-history-events", qos: .utility)
   private var stream: FSEventStreamRef?
   private var stopped = false
-  private var pendingSignal: DispatchWorkItem?
+  private lazy var debouncer = ChatHistoryDebouncer(queue: queue, quiet: .milliseconds(500)) { [weak self] in
+    guard let self, !self.stopped else { return }
+    self.continuation.yield()
+  }
 
   init(home: URL, continuation: AsyncStream<Void>.Continuation) {
     homePath = home.standardizedFileURL.path
@@ -102,8 +105,7 @@ private final class FSEventSubscription: @unchecked Sendable {
     queue.async { [self] in
       guard !stopped else { return }
       stopped = true
-      pendingSignal?.cancel()
-      pendingSignal = nil
+      debouncer.cancel()
       if let stream {
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
@@ -117,13 +119,38 @@ private final class FSEventSubscription: @unchecked Sendable {
     guard zip(paths, flags).contains(where: {
       ChatHistoryEventPolicy.shouldRefresh(homePath: homePath, path: $0.0, flags: $0.1)
     }) else { return }
-    pendingSignal?.cancel()
+    debouncer.poke()
+  }
+}
+
+/// Fires once after `quiet` has passed with no `poke`. Every call must come from `queue`.
+/// The quiet window counts from the last event batch FSEvents delivers. FSEvents may deliver the
+/// batches of one burst far apart on a busy machine (750 ms seen under disk load), so a burst can
+/// give two fires there. That is a duplicate refresh, never a lost one.
+final class ChatHistoryDebouncer: @unchecked Sendable {
+  private let queue: DispatchQueue
+  private let quiet: DispatchTimeInterval
+  private let fire: @Sendable () -> Void
+  private var pending: DispatchWorkItem?
+
+  init(queue: DispatchQueue, quiet: DispatchTimeInterval, fire: @escaping @Sendable () -> Void) {
+    self.queue = queue
+    self.quiet = quiet
+    self.fire = fire
+  }
+
+  func poke() {
+    pending?.cancel()
     let work = DispatchWorkItem { [weak self] in
-      guard let self, !self.stopped else { return }
-      self.pendingSignal = nil
-      self.continuation.yield()
+      self?.pending = nil
+      self?.fire()
     }
-    pendingSignal = work
-    queue.asyncAfter(deadline: .now() + .milliseconds(500), execute: work)
+    pending = work
+    queue.asyncAfter(deadline: .now() + quiet, execute: work)
+  }
+
+  func cancel() {
+    pending?.cancel()
+    pending = nil
   }
 }
