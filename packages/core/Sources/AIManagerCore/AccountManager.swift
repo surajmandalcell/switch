@@ -341,7 +341,8 @@ public actor AccountManager {
         id: UUID,
         credentialChoice: ConflictChoice? = nil,
         droidName: String = "Droid 1",
-        allowRunningDroid: Bool = false
+        allowRunningDroid: Bool = false,
+        allowDuplicateDroid: Bool = false
     ) async throws -> AccountLoginCheck {
         try ensureNoRecovery()
         if try claudeProfiles.pending().contains(where: { $0.id == id }) {
@@ -351,7 +352,7 @@ public actor AccountManager {
             return try providerStore.checkLogin(id)
         }
         let session = try loadLoginSession(id)
-        if session.providerID == .droid { return try checkDroidLogin(session, name: droidName, allowRunning: allowRunningDroid) }
+        if session.providerID == .droid { return try checkDroidLogin(session, name: droidName, allowRunning: allowRunningDroid, allowDuplicate: allowDuplicateDroid) }
         if session.accountID != nil { return try await refreshLoginAccount(session) }
         if session.providerID == .grokBuild {
             return try await checkGrokAccountLogin(
@@ -1560,13 +1561,13 @@ extension AccountManager {
 
     // MARK: Droid opaque file logins
 
-    public func importDroidAccount(name: String, apiKey: String? = nil) throws -> AccountRecord {
+    public func importDroidAccount(name: String, apiKey: String? = nil, allowDuplicate: Bool = false) throws -> AccountRecord {
         try lock.withLock {
             try ensureNoRecovery()
             // Import takes the same writer lock but never changes live authentication.
             try droidProvider.requireLogin(droidProvider.files(in: paths.droidHome))
             return try droidProvider.withWriteLock(home: paths.droidHome) {
-                let account = try saveDroidAccount(from: paths.droidHome, name: name, targetID: nil, adoptLive: true)
+                let account = try saveDroidAccount(from: paths.droidHome, name: name, targetID: nil, adoptLive: true, allowDuplicate: allowDuplicate)
                 if let apiKey, !apiKey.isEmpty { try saveDroidUsageKey(apiKey, accountID: account.id) }
                 return account
             }
@@ -1653,7 +1654,7 @@ extension AccountManager {
         return start
     }
 
-    private func checkDroidLogin(_ session: AccountLoginSession, name: String, allowRunning: Bool) throws -> AccountLoginCheck {
+    private func checkDroidLogin(_ session: AccountLoginSession, name: String, allowRunning: Bool, allowDuplicate: Bool) throws -> AccountLoginCheck {
         let home = loginHome(session.id).appending(path: ".factory")
         guard ["auth.v2.loginkeychain", "auth.v2.file"].contains(where: { CoreSupport.entryExists(home.appending(path: $0)) }) else {
             return .init(session: session, state: .waitingForLogin,
@@ -1671,23 +1672,28 @@ extension AccountManager {
                 if refreshLive {
                     return try droidProvider.withWriteLock(home: paths.droidHome) {
                         try saveDroidAccount(from: home, name: target?.identity.accountID ?? name,
-                                             targetID: target?.id, adoptLive: false, refreshLive: true)
+                                             targetID: target?.id, adoptLive: false, refreshLive: true, allowDuplicate: allowDuplicate)
                     }
                 }
                 return try saveDroidAccount(from: home, name: target?.identity.accountID ?? name,
-                                            targetID: target?.id, adoptLive: false)
+                                            targetID: target?.id, adoptLive: false, allowDuplicate: allowDuplicate)
             }
-        } } catch DroidAccountError.writeLockBusy {
+        } } catch let error as AIManagerError {
+            if case .signInIdentityMismatch = error {
+                try fileManager.removeItem(at: loginRoot(session.id))
+            }
+            throw error
+        } catch DroidAccountError.writeLockBusy {
             return .init(session: session, state: .waitingForLogin,
                          message: "Droid is still saving the login. Switch will check it again.")
         }
         // Terminal owns the process. Retire metadata without killing it or deleting an open home.
         try retireLoginSession(session.id)
         return .init(session: session, state: .completed, account: account,
-                     message: "Droid account saved. Choose Switch to use this login for new requests.")
+                     message: "Droid account saved. Choose Switch to use this login for new requests. \(account.verification.detail)")
     }
 
-    private func saveDroidAccount(from source: URL, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false) throws -> AccountRecord {
+    private func saveDroidAccount(from source: URL, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false, allowDuplicate: Bool = false) throws -> AccountRecord {
         let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty, label.count <= 100, !label.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
             throw AIManagerError.invalidSource("Enter a Droid account name with 1 to 100 characters.")
@@ -1695,22 +1701,45 @@ extension AccountManager {
         let files = try droidProvider.files(in: source)
         try droidProvider.requireLogin(files)
         var registry = try loadRegistry()
+        // Doctor may refresh tokens; run it only on a disposable copy, never the live home.
+        let probe = paths.applicationSupport.appending(path: "staging/droid-identity-\(UUID().uuidString)")
+        try CoreSupport.privateDirectory(probe.appending(path: ".factory"), fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: probe) }
+        for (name, bytes) in files {
+            try CoreSupport.atomicWrite(bytes, to: probe.appending(path: ".factory/\(name)"), fileManager: fileManager)
+        }
+        let hint = resolveDroidExecutable().flatMap {
+            droidProvider.doctor(executable: $0, home: probe, keyring: files["auth.v2.loginkeychain"] != nil)
+        }
+        let detail = hint.map { "Droid doctor reported \($0). Equal masks can belong to different people." }
+            ?? "Droid doctor could not confirm a masked email. Saved using the account name only."
+        let previous = registry.accounts.first { $0.id == targetID }
+        if let hint, let savedHint = previous?.identity.email, hint != savedHint.lowercased() {
+            throw AIManagerError.signInIdentityMismatch(signedIn: hint, target: savedHint)
+        }
+        if targetID == nil, !allowDuplicate, let hint,
+           let existing = registry.accounts.first(where: { $0.identity.providerID == .droid && $0.identity.email?.lowercased() == hint }) {
+            throw DroidAccountError.duplicateIdentity(name: existing.identity.accountID ?? "Droid", hint: hint)
+        }
         let id = targetID ?? UUID(), operationID = UUID()
         let staged = paths.applicationSupport.appending(path: "staging/\(operationID.uuidString)/droid-auth")
         try CoreSupport.privateDirectory(staged, fileManager: fileManager)
         for (name, bytes) in files { try CoreSupport.atomicWrite(bytes, to: staged.appending(path: name), fileManager: fileManager) }
         let digest = try treeDigest(staged)
-        if targetID == nil, let existing = registry.accounts.first(where: { $0.identity.providerID == .droid && $0.credentialDigest == digest }) {
+        if targetID == nil, let index = registry.accounts.firstIndex(where: { $0.identity.providerID == .droid && $0.credentialDigest == digest }) {
+            var existing = registry.accounts[index]
+            existing.identity.email = hint ?? existing.identity.email
+            existing.verification.detail = detail
+            registry.accounts[index] = existing
             try fileManager.removeItem(at: staged.deletingLastPathComponent())
             if adoptLive {
                 registry.setDefaultAccountID(existing.id, for: .droid)
-                try saveRegistry(registry)
             }
+            try saveRegistry(registry)
             return existing
         }
         let saved = credentialFile(for: id, providerID: .droid)
         let home = accountsRoot.appending(path: "\(id.uuidString)/home")
-        let previous = registry.accounts.first { $0.id == id }
         var operation = RecoveryOperation(id: operationID, kind: "import-droid", phase: .prepared,
             source: staged, destination: saved, backup: paths.applicationSupport.appending(path: "backups/\(operationID.uuidString)"),
             expectedDigest: digest, previousDigest: CoreSupport.entryExists(saved) ? try treeDigest(saved) : nil,
@@ -1721,9 +1750,9 @@ extension AccountManager {
         try faultInjector(.afterCredentialPublication)
         if refreshLive { try publishDroidFiles(from: staged, files: files, operation: &operation) }
         try CoreSupport.privateDirectory(home, fileManager: fileManager)
-        let account = AccountRecord(id: id, identity: .init(providerID: .droid, accountID: label, authMode: .oauth),
+        let account = AccountRecord(id: id, identity: .init(providerID: .droid, email: hint ?? previous?.identity.email, accountID: label, authMode: .oauth),
             credentialFile: saved, home: home, source: source, importedAt: previous?.importedAt ?? Date(),
-            verification: .init(state: .imported, detail: "Encrypted Droid login saved. Account name supplied by the owner."), credentialDigest: digest)
+            verification: .init(state: .imported, detail: detail), credentialDigest: digest)
         if let index = registry.accounts.firstIndex(where: { $0.id == id }) { registry.accounts[index] = account }
         else { registry.accounts.append(account) }
         if adoptLive { registry.setDefaultAccountID(id, for: .droid) }

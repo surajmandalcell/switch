@@ -26,14 +26,16 @@ public enum DroidAccountError: LocalizedError, Equatable {
     case loginInProgress
     case existingLoginRequired
     case writeLockBusy
+    case duplicateIdentity(name: String, hint: String)
 
     public var errorDescription: String? {
         switch self {
         case .running: "Factory.app is running. Switching changes its account for new requests."
-        case .confirmSignIn(let name): "Sign in to \(name)? Switch cannot check the identity inside Droid's encrypted login."
+        case .confirmSignIn(let name): "Sign in to \(name)? Droid's masked email cannot prove the full account identity."
         case .loginInProgress: "A Droid sign-in is already open. Finish or cancel it before starting another."
         case .existingLoginRequired: "Sign in to Factory on this Mac first, then add a Droid account. An existing login is required for the shared encryption key."
         case .writeLockBusy: "Droid is writing its login, or its write lock needs attention. Finish that operation and retry."
+        case .duplicateIdentity(let name, let hint): "This looks like \(name) (\(hint)). Add it anyway?"
         }
     }
 }
@@ -41,6 +43,62 @@ public enum DroidAccountError: LocalizedError, Equatable {
 struct DroidProviderAdapter {
     static let authNames = ["auth.v2.key", "auth.v2.file", "auth.v2.loginkeychain"]
     let fileManager: FileManager
+
+    static func identityHint(_ data: Data) -> String? {
+        guard data.count <= 65_536,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = object["results"] as? [[String: Any]] else { return nil }
+        let matches = results.filter { $0["id"] as? String == "auth.verify" }
+        guard matches.count == 1, matches[0]["status"] as? String == "pass",
+              let detail = matches[0]["detail"] as? String else { return nil }
+        let prefix = "authenticated as ", suffix = " via stored login session"
+        guard detail.hasPrefix(prefix), detail.hasSuffix(suffix) else { return nil }
+        let hint = String(detail.dropFirst(prefix.count).dropLast(suffix.count))
+        guard hint.count <= 320, hint.contains("*"),
+              hint.range(of: #"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"#, options: .regularExpression) != nil else { return nil }
+        return hint.lowercased()
+    }
+
+    func doctor(executable: URL, home: URL, keyring: Bool) -> String? {
+        let output = home.appending(path: "doctor-output.json")
+        do {
+            try CoreSupport.atomicWrite(Data(), to: output, fileManager: fileManager)
+            let handle = try FileHandle(forWritingTo: output)
+            defer { try? handle.close(); try? fileManager.removeItem(at: output) }
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["doctor", "--auth", "--json"]
+            var environment = ProcessInfo.processInfo.environment
+            environment.removeValue(forKey: "FACTORY_API_KEY")
+            environment["HOME"] = home.path
+            environment["FACTORY_HOME_OVERRIDE"] = home.path
+            environment["FACTORY_DISABLE_KEYRING"] = keyring ? "0" : "1"
+            process.environment = environment
+            process.currentDirectoryURL = home
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = handle
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let deadline = Date().addingTimeInterval(10)
+            while process.isRunning, Date() < deadline {
+                let size = (try? fileManager.attributesOfItem(atPath: output.path)[.size] as? NSNumber)?.intValue ?? 0
+                if size > 65_536 { break }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if process.isRunning {
+                process.terminate()
+                // Bound shutdown even if the executable ignores SIGTERM.
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                process.waitUntilExit()
+                return nil
+            }
+            process.waitUntilExit()
+            guard process.terminationStatus == 0,
+                  let size = try fileManager.attributesOfItem(atPath: output.path)[.size] as? NSNumber,
+                  size.intValue <= 65_536 else { return nil }
+            return Self.identityHint(try Data(contentsOf: output))
+        } catch { return nil }
+    }
 
     func files(in home: URL) throws -> [String: Data] {
         guard CoreSupport.entryExists(home) else { return [:] }

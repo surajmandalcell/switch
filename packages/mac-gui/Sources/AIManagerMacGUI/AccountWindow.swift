@@ -189,7 +189,7 @@ enum AccountSearch {
     let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace })
     guard !terms.isEmpty else { return true }
     let haystack = [
-      account.identity.email ?? account.identity.accountLabel,
+      account.identity.accountLabel, account.identity.email ?? "",
       account.identity.providerID.guiName, account.identity.workspaceID ?? "",
     ].joined(separator: " ").lowercased()
     return terms.allSatisfy { haystack.contains($0) }
@@ -3113,7 +3113,7 @@ private struct AddAccountFlow: View {
                 }
               }
             }
-            Text("Switch saves the encrypted login. It cannot check who signed in. Type /login in Terminal when adding another account.")
+            Text("Switch saves the encrypted login and checks Droid's masked email. Equal masks can belong to different people. Type /login in Terminal when adding another account.")
               .aimText(.secondary)
           }
           HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
@@ -3588,6 +3588,7 @@ private struct ImportResultPage: View {
 extension AccountIdentity {
   fileprivate var heroName: String { accountLabel }
   fileprivate var displayName: String {
+    if providerID == .droid { return accountLabel }
     if let email, let workspaceID { return "\(EmailPrivacy.display(email)) · \(workspaceID)" }
     return email.map { EmailPrivacy.display($0) } ?? accountID ?? "Unresolved account"
   }

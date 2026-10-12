@@ -54,9 +54,15 @@ Factory.app has work running, live tests use a separate test home through
 `FACTORY_HOME_OVERRIDE` with the droid CLI, and they never touch `~/.factory`.
 
 Droid identities stay opaque. The owner names each import or sign-in, for example "Droid 1".
-Account-scoped sign-in confirms the target name before starting; Switch cannot detect a wrong login.
+Account-scoped sign-in confirms the target name before starting. Switch runs `droid doctor --auth --json`
+on a private login copy with `FACTORY_HOME_OVERRIDE` and matching `FACTORY_DISABLE_KEYRING`.
+The passing `auth.verify` result supplies a masked email hint, shown beside the account name.
+Different saved and new hints reject re-sign-in and discard staging without changing the account.
+Equal masks can belong to different people, so the name confirmation remains required.
+Add Account warns before adding a mask that matches an existing Droid account.
+Failed or unknown doctor output falls back to named accounts and reports that limit.
 Only the active default refreshes live files through the guarded switch path. Other accounts refresh
-only their saved copy. Droid has no verified non-interactive identity or limits command. An optional
+only their saved copy. Droid has no verified non-interactive limits command. An optional
 Factory API key belongs to each Droid account and reuses the existing Factory usage provider.
 The generic Factory API-key provider remains separate and keeps its own default.
 The write lock is a nonempty directory published by rename, with a 0600 `owner.json`
