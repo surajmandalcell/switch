@@ -54,7 +54,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 refreshUsage: { [weak self] in await self?.refreshEnabledUsage() },
                 openSettings: { [weak self] in self?.menuController?.showSettings(nil) },
                 openTool: { [weak self] accountID in await self?.model.openAccount(accountID) },
-                refreshAccount: { [weak self] accountID in await self?.refreshUsage(of: accountID) }
+                refreshAccount: { [weak self] accountID in await self?.refreshUsage(of: accountID) },
+                signInAccount: { [weak self] accountID in await self?.model.beginSignIn(for: accountID) }
             ))
         self.statusItemController = statusItemController
         GlobalShortcut.shared.onTrigger = { [weak statusItemController] in

@@ -27,11 +27,23 @@ if rg -n '\.font\(' "$repo_root/packages/mac-gui/Sources" --glob '!AIManagerDesi
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL font lint: set fonts with .aimText(_:) or .aimFont(_:)' >&2
   exit 1
 fi
-# Native structure: Settings is a centered column of shared cards and the sidebar is the window's own AIMSidebar.
+# Flat controls: system pickers, checkboxes, and bordered buttons draw a light rim in Dark Mode. Use the AIM parts.
+if rg -n '\.pickerStyle\(|(^|[^A-Za-z])(Date)?Picker\(|\.toggleStyle\(\.(checkbox|switch)\)|\.buttonStyle\(\.bordered' "$repo_root/packages/mac-gui/Sources" \
+    --glob '!AIManagerParts.swift' --glob '!AccountWindow.swift' --glob '!AIManagerApp.swift'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL system rimmed control: use AIMPopUp, AIMSegmentedPicker, AIMToggleStyle, or AIMCheckboxToggleStyle' >&2
+  exit 1
+fi
+# Native structure: Settings is a column of shared cards as wide as the top bar, and the sidebar is the window's own AIMSidebar.
 window_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountWindow.swift"
-settings_body="$(awk '/^struct SettingsPage: View/{f=1} f{print} /^private struct DataLocationRow/{f=0}' "$window_source")"
-if ! printf '%s\n' "$settings_body" | rg -q 'AIMScrollPage\(maxWidth: 720\)' || printf '%s\n' "$settings_body" | rg -q '^\s*Form \{'; then
-  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings is not a centered column of AIMSection cards' >&2
+settings_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/SettingsPage.swift"
+settings_body="$(awk '/^struct SettingsPage: View/{f=1} f{print} /^private struct DataLocationRow/{f=0}' "$settings_source")"
+if ! printf '%s\n' "$settings_body" | rg -q 'AIMScrollPage \{' || printf '%s\n' "$settings_body" | rg -q 'maxWidth|^\s*Form \{'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings is not a full-width column of AIMSection cards' >&2
+  exit 1
+fi
+settings_groups="$(printf '%s\n' "$settings_body" | awk '/AIMSection\("/{split($0, parts, "\""); print parts[2]} /AIMSection\(SettingsCopy.notificationsTitle\)/{print "Notifications"}')"
+if [[ "$settings_groups" != $'General\nAppearance\nAccounts\nMenu bar\nNotifications\nData locations\nReset\nDemo states' ]]; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings groups do not match the product contract' >&2
   exit 1
 fi
 parts_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerParts.swift"

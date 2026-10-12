@@ -1,0 +1,282 @@
+import AIManagerCore
+import AppKit
+import SwiftUI
+
+struct SettingsPage: View {
+  @ObservedObject var model: AccountViewModel
+  @StateObject private var launchAtLogin = LaunchAtLoginSettings()
+  @StateObject private var notificationPermission = QuotaNotificationPermission()
+  @AppStorage(ProviderStatusPoller.enabledKey) private var checkProviderStatus = true
+  @AppStorage(EmailPrivacy.key) private var hideEmails = false
+  @AppStorage(EmailPrivacy.domainsKey) private var showEmailDomains = false
+  @AppStorage(AppearanceOverride.key) private var windowAppearance = "system"
+  @AppStorage("launchPlace") private var launchPlace = "last"
+  @AppStorage(QuotaNotificationSettings.almostOutKey) private var notifyAlmostOut = false
+  @AppStorage(QuotaNotificationSettings.paceKey) private var notifyPace = false
+  @AppStorage(QuotaNotificationSettings.availableAgainKey) private var notifyAvailable = false
+  @AppStorage(QuotaNotificationSettings.signInAgainKey) private var notifySignIn = false
+  @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
+  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
+  @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset
+  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
+  @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
+  @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto
+  @AppStorage(PopoverRefreshPreference.key) private var refreshOnOpen = false
+  @State private var confirmsReset = false
+  @State private var resetCount = 0
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var body: some View {
+    // Every card shares the top bar's left and right edges.
+    AIMScrollPage {
+      AIMSection("General") {
+        launchAtLoginRow
+        Toggle(isOn: $minimizeToTray) {
+          Text("Minimize to menu bar")
+          Text("Hide the window and keep Switch available from its menu-bar icon.")
+            .aimText(.secondary).lineLimit(1)
+        }
+        LabeledContent {
+          AIMPopUp(
+            options: ["last", "overview"], selection: $launchPlace,
+            accessibilityLabel: "When Switch opens", label: { $0 == "last" ? "Last place" : "Overview" })
+        } label: {
+          Text("When Switch opens")
+          Text("Choose the page shown when Switch starts.").aimText(.secondary).lineLimit(1)
+        }
+        LabeledContent {
+          ShortcutRecorder().id(resetCount)
+        } label: {
+          Text(SettingsCopy.menuShortcut)
+          Text(SettingsCopy.menuShortcutHelp).aimText(.secondary).lineLimit(1)
+        }
+      }
+      AIMSection("Appearance") {
+        LabeledContent {
+          AIMSegmentedPicker(
+            options: ["system", "light", "dark"], selection: $windowAppearance,
+            accessibilityLabel: "Appearance", label: { $0.capitalized })
+        } label: {
+          Text("Appearance")
+          Text("Choose the window and menu bar appearance.").aimText(.secondary).lineLimit(1)
+        }
+        Toggle(isOn: $showUsageAsUsed) {
+          Text("Show percentage used")
+          Text("Turn off to show the percentage left in every usage view.").aimText(.secondary).lineLimit(1)
+        }
+        LabeledContent {
+          AIMSegmentedPicker(
+            options: [false, true], selection: $resetIsExact,
+            accessibilityLabel: "Reset time format", label: { $0 ? "Exact time" : "Countdown" })
+        } label: {
+          Text(SettingsCopy.resetTimes)
+          Text(SettingsCopy.resetTimesHelp).aimText(.secondary).lineLimit(1)
+        }
+        LabeledContent {
+          AIMSegmentedPicker(
+            options: HourFormat.allCases, selection: $hourFormat,
+            accessibilityLabel: "Hour format", label: \.label)
+        } label: {
+          Text(SettingsCopy.timeFormat)
+          Text(SettingsCopy.timeFormatHelp).aimText(.secondary).lineLimit(1)
+        }
+      }
+      AIMSection("Accounts") {
+        Toggle(isOn: $showEmailDomains) {
+          Text("Show email domains")
+          Text("Show the full address instead of the name before @.").aimText(.secondary).lineLimit(1)
+        }
+        Toggle(isOn: $hideEmails) {
+          Text(SettingsCopy.hideEmails)
+          Text(SettingsCopy.hideEmailsHelp).aimText(.secondary).lineLimit(1)
+        }
+        Toggle(isOn: $checkProviderStatus) {
+          Text(SettingsCopy.checkProviderStatus)
+          Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary).lineLimit(1)
+        }
+        Toggle(isOn: Binding(
+          get: { model.claudeShellIntegrationOn },
+          set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
+        ) {
+          Text(SettingsCopy.claudeShell)
+          Text(SettingsCopy.claudeShellHelp).aimText(.secondary).lineLimit(1)
+          if let error = model.claudeShellIntegrationError {
+            Text(error).aimText(.secondary, tint: AIMTheme.red)
+          }
+        }
+      }
+      AIMSection("Menu bar") {
+        Toggle(isOn: $defaultShowUsage) {
+          Text("Show account usage")
+          Text("Accounts without their own choice show cached usage in Menubar.")
+            .aimText(.secondary).lineLimit(1)
+        }
+        LabeledContent {
+          AIMPopUp(
+            options: MenuBarTokenPeriod.allCases, selection: $menuTokenPeriod,
+            accessibilityLabel: "Menubar token period", label: \.label)
+        } label: {
+          Text("Token summary")
+          Text("Choose the period shown beside each account’s usage.").aimText(.secondary).lineLimit(1)
+        }
+        Toggle(isOn: $refreshOnOpen) {
+          Text(SettingsCopy.refreshOnOpen)
+          Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary).lineLimit(1)
+        }
+      }
+      AIMSection(SettingsCopy.notificationsTitle) {
+        ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { _, row in
+          Toggle(isOn: notificationBinding(row.key)) {
+            Text(row.title)
+            Text(row.help).aimText(.secondary).lineLimit(1)
+          }
+        }
+        if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
+          LabeledContent {
+            AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
+          } label: {
+            Label("Notifications are turned off for Switch in System Settings.",
+                  systemImage: AIMIcon.Name.warning.symbol)
+              .foregroundStyle(AIMTheme.amber)
+          }
+        }
+      }
+      AIMSection("Data locations") {
+        DataLocationRow(
+          title: "Codex home",
+          detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
+          path: model.paths.defaultHome.path
+        ) {
+          model.showDataLocation(model.paths.defaultHome, name: "Codex home")
+        }
+        DataLocationRow(
+          title: "Codex account vault",
+          detail: "Private Codex auth.json snapshots.",
+          path: model.paths.credentialStore.path
+        ) {
+          model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
+        }
+        DataLocationRow(
+          title: "Grok Build home",
+          detail: "Grok configuration, rules, plugins, sessions, and the active login.",
+          path: model.paths.grokHome.path
+        ) {
+          model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
+        }
+        DataLocationRow(
+          title: "Grok Build account vault",
+          detail: "Private Grok subscription OAuth snapshots.",
+          path: model.paths.grokCredentialStore.path
+        ) {
+          model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
+        }
+      }
+      AIMSection("Reset") {
+        LabeledContent {
+          AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
+        } label: {
+          Text(SettingsCopy.resetSettings)
+          Text(SettingsCopy.resetSettingsHelp).aimText(.secondary).lineLimit(1)
+        }
+      }
+      if let notice = model.notice {
+        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
+          .transition(reduceMotion ? .identity : .opacity)
+      }
+      #if AI_MANAGER_PREVIEW
+      if model.isDemo {
+        AIMSection("Demo states") {
+          HStack(spacing: AIMTheme.rowSpacing) {
+            AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
+            AIMButton(title: "Empty state") { model.reset(to: .empty) }
+            AIMButton(title: "Issues and backups") { model.reset(to: .allStates) }
+            Spacer()
+          }
+          HStack(spacing: AIMTheme.rowSpacing) {
+            AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
+              Task { await model.refresh() }
+            }
+            Spacer()
+            AIMButton(title: "Show demo error", tone: .danger) { model.showDemoError() }
+          }
+        }
+      }
+      #endif
+    }
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
+    .onAppear { launchAtLogin.refresh() }
+    .confirmationDialog(
+      "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
+    ) {
+      Button("Reset settings", role: .destructive, action: resetSettings)
+    } message: {
+      Text("Accounts, saved sign-ins, and Open at Login stay as they are.")
+    }
+    .onChange(of: checkProviderStatus) { model.providerStatusSettingChanged() }
+    .onChange(of: showEmailDomains) { model.objectWillChange.send() }
+    .task {
+      await notificationPermission.refresh()
+      await model.loadClaudeShellIntegration()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+      launchAtLogin.refresh()
+      Task { await notificationPermission.refresh() }
+    }
+  }
+
+  private func resetSettings() {
+    SettingsReset.reset()
+    GlobalShortcut.shared.apply(nil)
+    resetCount += 1
+    model.providerStatusSettingChanged()
+  }
+
+  /// A toggle that asks macOS for notification permission the first time it turns on.
+  private func notificationBinding(_ key: String) -> Binding<Bool> {
+    let stored: Binding<Bool>
+    switch key {
+    case QuotaNotificationSettings.almostOutKey: stored = $notifyAlmostOut
+    case QuotaNotificationSettings.paceKey: stored = $notifyPace
+    case QuotaNotificationSettings.availableAgainKey: stored = $notifyAvailable
+    default: stored = $notifySignIn
+    }
+    return Binding(
+      get: { stored.wrappedValue },
+      set: { enabled in
+        stored.wrappedValue = enabled
+        if enabled { notificationPermission.requestIfNeeded() }
+      })
+  }
+
+  @ViewBuilder private var launchAtLoginRow: some View {
+    Toggle(isOn: Binding(
+      get: { launchAtLogin.isOn },
+      set: launchAtLogin.setEnabled)
+    ) {
+      Text("Open at Login")
+      Text(launchAtLogin.detail).aimText(.secondary).lineLimit(1)
+    }
+    .disabled(!launchAtLogin.canChange)
+    if launchAtLogin.requiresApproval {
+      LabeledContent("Approval needed") {
+        AIMButton(title: "Open Login Items", action: launchAtLogin.openLoginItems)
+      }
+    }
+  }
+}
+
+private struct DataLocationRow: View {
+  let title: String
+  let detail: String
+  let path: String
+  let reveal: () -> Void
+
+  var body: some View {
+    LabeledContent {
+      AIMButton(title: "Reveal", icon: .folder, action: reveal)
+    } label: {
+      Text(title)
+      Text(detail).aimText(.secondary).lineLimit(1)
+      AIMCopyablePath(path: path)
+    }
+  }
+}

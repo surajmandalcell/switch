@@ -78,7 +78,8 @@ struct ProviderChooserPage: View {
 
   private var searchField: some View {
     TextField("Search providers", text: $query)
-      .textFieldStyle(.roundedBorder)
+      .textFieldStyle(.plain)
+      .aimFieldChrome(focused: searchFocused)
       .focused($searchFocused)
       .onSubmit(onContinueIfPossible)
       .onKeyPress(.downArrow) { move(1); return .handled }

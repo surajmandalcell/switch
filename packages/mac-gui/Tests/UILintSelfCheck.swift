@@ -9,20 +9,22 @@ enum AIMTextRole { case title, section, body, secondary, caption }
 // This harness uses the same recorder as the window, with no ordered-in window.
 private struct LintCard: View {
     let bad: Bool
+    var uneven = false
     var body: some View {
         VStack(spacing: 16) {
             row.padding(.horizontal, 16)
             row.padding(.horizontal, bad ? 10 : 16)
         }
-        .padding(.vertical, 16)
+        .padding(.top, 16)
+        .padding(.bottom, uneven ? 28 : 16)
         .frame(width: 320)
         .uiLint(.card(radius: 10), fill: Color(nsColor: .controlBackgroundColor))
     }
     private var row: some View {
         HStack {
-            Text("Name").uiLint(.align("name", .start))
+            Text("Name").uiLint(.align("name", .start), .item)
             Spacer()
-            Text("Value").uiLint(.align("value", .end))
+            Text("Value").uiLint(.align("value", .end), .item)
         }
     }
 }
@@ -32,13 +34,13 @@ private struct LintCard: View {
         NSApplication.shared.setActivationPolicy(.prohibited)
         let directory = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for bad in [true, false] {
+        for (name, bad, uneven) in [("BAD", true, false), ("UNEVEN", false, true), ("GOOD", false, false)] {
             UILintStore.shared.items.removeAll()
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 180),
                 styleMask: [.borderless], backing: .buffered, defer: false)
             window.appearance = NSAppearance(named: .aqua)
             UILintStore.shared.appearance = window.effectiveAppearance
-            let view = NSHostingView(rootView: LintCard(bad: bad).frame(maxWidth: .infinity, maxHeight: .infinity))
+            let view = NSHostingView(rootView: LintCard(bad: bad, uneven: uneven).frame(maxWidth: .infinity, maxHeight: .infinity))
             window.contentView = view
             window.orderOut(nil)
             let deadline = Date().addingTimeInterval(0.5)
@@ -60,8 +62,8 @@ private struct LintCard: View {
                 precondition(positions.count == 2 && abs(abs(positions[0] - positions[1]) - (bad ? 6 : 0)) < 0.1,
                     "Measured column edges must differ by 6 points for BAD and 0 for GOOD")
             }
-            try UILintStore.shared.write(to: directory.appendingPathComponent(bad ? "BAD.json" : "GOOD.json"),
-                size: view.bounds.size, page: bad ? "BAD" : "GOOD", appearance: "light")
+            try UILintStore.shared.write(to: directory.appendingPathComponent("\(name).json"),
+                size: view.bounds.size, page: name, appearance: "light")
             window.contentView = nil
         }
     }

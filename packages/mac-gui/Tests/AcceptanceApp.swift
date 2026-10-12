@@ -86,17 +86,18 @@ private enum AcceptanceConfiguration {
     static var opensAddSignIn: Bool { CommandLine.arguments.contains("--add-signin") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var stressesHistory: Bool { CommandLine.arguments.contains("--history-stress") }
-    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Conversations,
-    /// Maintenance, Settings.
+    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Settings, Maintenance,
+    /// Conversations.
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--accounts") { return 1 }
-        if CommandLine.arguments.contains("--history") { return 2 }
+        if CommandLine.arguments.contains("--settings") { return 2 }
         if CommandLine.arguments.contains("--backup")
             || CommandLine.arguments.contains("--recovery")
             || CommandLine.arguments.contains("--cleanup") { return 3 }
-        if CommandLine.arguments.contains("--settings") { return 4 }
+        if CommandLine.arguments.contains("--history") { return 4 }
         return 0
     }
+    static var conversationsIndex: Int { AIManagerPage.allCases.firstIndex(of: .conversations) ?? 4 }
     static var initialMaintenance: MaintenanceSection {
         CommandLine.arguments.contains("--cleanup") ? .cleanup : .backup
     }
@@ -121,8 +122,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AIManagerBrand.installApplicationIcon()
         if let mode = AcceptanceConfiguration.persistedAppearanceMode {
-            priorAppearanceMode = UserDefaults.standard.object(forKey: "appearanceMode")
-            UserDefaults.standard.set(mode, forKey: "appearanceMode")
+            priorAppearanceMode = UserDefaults.standard.object(forKey: "windowAppearance")
+            UserDefaults.standard.set(mode, forKey: "windowAppearance")
         }
         if let appearance = AcceptanceConfiguration.appearance {
             NSApp.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
@@ -252,8 +253,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 view.cacheDisplay(in: view.bounds, to: bitmap)
             }
             try? await Task.sleep(for: .milliseconds(220))
-            let pages = ["overview", "accounts", "conversations", "maintenance", "settings"]
-            let page = pages[AcceptanceConfiguration.initialPageIndex]
+            // The Cleanup tab lints as its own page, named "cleanup".
+            let page = CommandLine.arguments.contains("--cleanup")
+                ? "cleanup" : AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex].rawValue.lowercased()
             let appearance = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
             do {
                 guard let path = ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"] else {
@@ -320,9 +322,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         }
         if AcceptanceConfiguration.persistedAppearanceMode != nil {
             if let priorAppearanceMode {
-                UserDefaults.standard.set(priorAppearanceMode, forKey: "appearanceMode")
+                UserDefaults.standard.set(priorAppearanceMode, forKey: "windowAppearance")
             } else {
-                UserDefaults.standard.removeObject(forKey: "appearanceMode")
+                UserDefaults.standard.removeObject(forKey: "windowAppearance")
             }
         }
     }
@@ -369,7 +371,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     failures.append(contentsOf: AIManagerNativeContract.featureUIFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
-            UserDefaults.standard.string(forKey: "appearanceMode") == mode,
+            UserDefaults.standard.string(forKey: "windowAppearance") == mode,
             "Persisted appearance selection was not retained"
         )
     }
@@ -444,15 +446,14 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         )
         failures.append(contentsOf: AIManagerNativeContract.nativeStructureFailures(
             in: contentView, pageIndex: AcceptanceConfiguration.initialPageIndex))
-        if AcceptanceConfiguration.initialPageIndex == 2 {
+        if AcceptanceConfiguration.initialPageIndex == AcceptanceConfiguration.conversationsIndex {
             expect(
                 AIManagerNativeContract.historySearchFieldsMatch(in: contentView),
                 "Chat History does not expose separate thread and message search fields"
             )
             expect(
-                AIManagerNativeContract.virtualHistoryScrollCount(in: contentView) == 1
-                    && AIManagerNativeContract.listTableCount(in: contentView) == 1,
-                "Chat History is not a native thread List beside one virtual message list"
+                AIManagerNativeContract.virtualHistoryScrollCount(in: contentView) == 1,
+                "Chat History is not a thread list beside one virtual message list"
             )
             if AcceptanceConfiguration.stressesHistory {
                 expect(

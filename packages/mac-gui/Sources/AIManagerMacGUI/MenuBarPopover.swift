@@ -206,6 +206,7 @@ struct MenuBarPopoverActions {
   let openTool: ((UUID) async -> Void)?
   /// Refreshes one account. Nil falls back to the all-accounts refresh.
   let refreshAccount: ((UUID) async -> Void)?
+  let signInAccount: ((UUID) async -> Void)?
 
   init(
     openMainWindow: @escaping () -> Void,
@@ -214,7 +215,8 @@ struct MenuBarPopoverActions {
     copyText: ((String) -> Void)? = nil,
     openSettings: @escaping () -> Void = {},
     openTool: ((UUID) async -> Void)? = nil,
-    refreshAccount: ((UUID) async -> Void)? = nil
+    refreshAccount: ((UUID) async -> Void)? = nil,
+    signInAccount: ((UUID) async -> Void)? = nil
   ) {
     self.openSettings = openSettings
     self.openMainWindow = openMainWindow
@@ -223,6 +225,7 @@ struct MenuBarPopoverActions {
     self.copyText = copyText
     self.openTool = openTool
     self.refreshAccount = refreshAccount
+    self.signInAccount = signInAccount
   }
 }
 
@@ -261,6 +264,11 @@ final class MenuBarPopoverStore: ObservableObject {
   func openMainWindow() {
     actions.openMainWindow()
     didRequestDismissal?()
+  }
+
+  func signIn(accountID: UUID) async {
+    openMainWindow()
+    await actions.signInAccount?(accountID)
   }
 
   func openSettings() {
@@ -335,8 +343,8 @@ final class MenuBarPopoverStore: ObservableObject {
 /// account, and a fixed footer. The material, fonts, and colors all come from the system.
 struct MenuBarPopover: View {
   static let width: CGFloat = 360
-  static let minimumHeight: CGFloat = 150
-  static let footerHeight: CGFloat = 60
+  static let minimumHeight: CGFloat = 94
+  static let footerHeight: CGFloat = 36
   /// Rows carry their own padding and hairline, so the list adds no inset or spacing.
   static let listInset: CGFloat = 0
   static let cardSpacing: CGFloat = 0
@@ -349,6 +357,7 @@ struct MenuBarPopover: View {
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
   @FocusState private var focusedID: UUID?
   @State private var keyboardActive = false
+  @State private var scrollOffset: CGFloat = 0
 
   var body: some View {
     VStack(spacing: 0) {
@@ -359,6 +368,7 @@ struct MenuBarPopover: View {
       accounts: store.snapshot.accounts,
       visibleScreenHeight: store.visibleScreenHeight).height)
     .onKeyPress(phases: .down) { press in handle(press) }
+    .simultaneousGesture(TapGesture().onEnded { keyboardActive = false })
   }
 
   @ViewBuilder
@@ -391,7 +401,30 @@ struct MenuBarPopover: View {
                 .focusEffectDisabled()
               }
             }
+            .background(GeometryReader { geometry in
+              Color.clear.preference(key: MenuBarScrollOffset.self,
+                value: -geometry.frame(in: .named("menuBarList")).minY)
+            })
           }
+          .padding(.trailing, 6)
+        }
+        .coordinateSpace(name: "menuBarList")
+        .scrollIndicators(.hidden)
+        .onPreferenceChange(MenuBarScrollOffset.self) { scrollOffset = $0 }
+        .overlay(alignment: .trailing) {
+          GeometryReader { geometry in
+            let contentHeight = rows.map(Self.accountRowHeight).reduce(0, +)
+            let viewport = geometry.size.height
+            if contentHeight > viewport {
+              let thumbHeight = max(20, viewport * viewport / contentHeight)
+              Capsule().fill(Color.primary.opacity(0.25))
+                .frame(width: 3, height: thumbHeight)
+                .offset(x: geometry.size.width - 4,
+                  y: min(max(scrollOffset / (contentHeight - viewport), 0), 1) * (viewport - thumbHeight))
+            }
+          }
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
         }
         .scrollBounceBehavior(.basedOnSize)
         .onChange(of: focusedID) { _, id in
@@ -408,6 +441,9 @@ struct MenuBarPopover: View {
   private func handle(_ press: KeyPress) -> KeyPress.Result {
     let rows = store.rows
     switch press.key {
+    case .tab:
+      keyboardActive = true
+      return .ignored
     case .downArrow, .upArrow:
       keyboardActive = true
       guard let next = MenuBarPresentation.neighbor(
@@ -423,4 +459,9 @@ struct MenuBarPopover: View {
       return .ignored
     }
   }
+}
+
+private struct MenuBarScrollOffset: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

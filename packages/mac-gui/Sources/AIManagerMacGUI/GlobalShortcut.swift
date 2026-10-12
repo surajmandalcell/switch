@@ -142,11 +142,10 @@ struct ShortcutRecorder: View {
       }
       Button(action: toggleRecording) {
         Text(recording ? "Press a shortcut…" : combo?.display ?? Self.placeholder)
-          .foregroundStyle(combo == nil && !recording ? Color.secondary : Color.primary)
+          .foregroundStyle(recording ? Color.white : (combo == nil ? Color.secondary : Color.primary))
           .frame(minWidth: 112)
       }
-      .buttonStyle(.bordered)
-      .tint(recording ? AIMTheme.blue : nil)
+      .buttonStyle(AIMPushButtonStyle(prominent: recording))
       .accessibilityLabel("Global shortcut")
       .accessibilityValue(combo?.display ?? "Not set")
       .accessibilityHint("Records a shortcut that opens the menu popover from anywhere")

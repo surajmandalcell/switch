@@ -126,6 +126,24 @@ async function main() {
     // A search hint can use Secondary text inside a synthetic button; judge its role against global sizes.
     const findings = report.findings.filter(finding => measuredRules.has(finding.rule) &&
       !(finding.rule === 'font-size' && policy.fontSizes.some(size => finding.actual === `${size}px`)));
+    // Our own post-check, next to lintapple: a card's inner padding is even. The gap from the card's
+    // top edge to its first content item (text, control, tile, or tagged item) must equal the gap
+    // from its last content item to the bottom edge, within 1 pt. Scrolling cards are skipped.
+    const isContent = node => node.kind === 'text' || node.kind === 'control' ||
+      node.tags.some(tag => tag.name === 'item' || (tag.name === 'tile' && !node.children.length));
+    const inside = (node, card) => { for (let up = node.parent; up; up = up.parent) if (up === card) return true; return false; };
+    for (const card of nodes.filter(node => node.tags.some(tag => tag.name === 'card') &&
+        !node.tags.some(tag => tag.name === 'scrolls'))) {
+      const items = nodes.filter(node => node !== card && inside(node, card) && isContent(node));
+      if (!items.length) continue;
+      const top = Math.min(...items.map(node => node.frame.y)) - card.frame.y;
+      const bottom = card.frame.y + card.frame.height - Math.max(...items.map(node => node.frame.y + node.frame.height));
+      if (Math.abs(top - bottom) > 1) {
+        const selector = `card-inset@${card.source}`;
+        selectors.set(selector, `card ${card.source ?? ''}`.trim());
+        findings.push({ rule: 'card-inset', selector, actual: `top ${top.toFixed(1)} pt, bottom ${bottom.toFixed(1)} pt` });
+      }
+    }
     console.log(`${doc.page} ${doc.appearance}: ${findings.length ? `FAIL ${findings.length} geometry findings` : 'PASS geometry'} (${nodes.length} measured items)`);
     for (const finding of findings) console.log(`${finding.rule} | ${finding.selector} | ${finding.actual ?? finding.message} | ${selectors.get(finding.selector) ?? 'unknown source'}`);
     process.exitCode = findings.length ? 1 : 0;
