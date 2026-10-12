@@ -44,16 +44,11 @@ enum PopoverRefreshPreference {
   static func isEnabled(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: key) }
 }
 
-/// The window and the menu-bar popover follow the system appearance. Settings has no appearance
-/// control, so a stored `appearanceMode` is ignored; only Preview builds honor it, for the
-/// `--persisted-light` and `--persisted-dark` acceptance renders.
+/// The window and menu-bar popover share the owner's appearance choice in every build.
 enum AppearanceOverride {
+  static let key = "windowAppearance"
   static var mode: String {
-    #if AI_MANAGER_PREVIEW
-    UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
-    #else
-    "system"
-    #endif
+    UserDefaults.standard.string(forKey: key) ?? "system"
   }
 }
 
@@ -62,7 +57,8 @@ enum AppearanceOverride {
 /// system-owned login item are not preferences and stay.
 enum SettingsReset {
   static let keys = [
-    "appearanceMode", "usageTokenPeriod", ChatFilterPersistence.defaultsKey,
+    "appearanceMode", AppearanceOverride.key, "launchPlace", EmailPrivacy.domainsKey,
+    "usageTokenPeriod", ChatFilterPersistence.defaultsKey,
     AIManagerWindowBehavior.minimizeToTrayKey,
     MenuBarUsagePreferences.defaultKey, MenuBarTokenPeriod.preferenceKey,
     UsagePercentagePreferences.showsUsedKey, ProviderStatusPoller.enabledKey, EmailPrivacy.key,

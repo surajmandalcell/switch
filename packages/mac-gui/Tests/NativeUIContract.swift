@@ -579,7 +579,7 @@ enum AIManagerNativeContract {
     }
     expect(gemini.usesGenericDetail && !(model.status?.accounts.first?.usesGenericDetail ?? true),
       "Only non-Codex, non-Grok, non-Claude accounts use the generic detail")
-    expect(gemini.identity.accountLabel == "ada.lovelace@example.test", "Generic account label ignores email")
+    expect(gemini.identity.accountLabel == "ada.lovelace", "Generic account label ignores the domain default")
     let chartAccount = model.addDemoProviderAccount(ProviderID(rawValue: "openrouter"))
     expect(model.providerUsage[chartAccount.id]?.usage?.charts.first?.points.count == 30,
       "The OpenRouter demo account has no 30-day chart")
@@ -641,11 +641,22 @@ enum AIManagerNativeContract {
         "A notification toggle is on by default")
       expect(!EmailPrivacy.isEnabled(defaults: defaults) && ProviderStatusPoller.isEnabled(defaults: defaults),
         "Hide email addresses is not off, or provider status is not on, by default")
+      expect(!EmailPrivacy.showsDomains(defaults: defaults),
+        "Show email domains is not off by default")
+      expect(defaults.string(forKey: AppearanceOverride.key) == nil
+        && defaults.string(forKey: "launchPlace") == nil,
+        "Appearance or launch place has a stored default")
       defaults.removePersistentDomain(forName: suite)
     }
     let demo = AccountViewModel(scenario: .demo)
     let settings = fits(SettingsPage(model: demo))
     expect(settings.fittingSize.width > 0 && settings.fittingSize.height > 0, "Settings collapsed")
+    expect(SettingsReset.keys.contains(AppearanceOverride.key)
+      && SettingsReset.keys.contains(EmailPrivacy.domainsKey)
+      && SettingsReset.keys.contains("launchPlace"), "Reset omits a new Settings choice")
+    if let account = demo.status?.accounts.first, let email = account.identity.email {
+      expect(AccountSearch.matches(account, query: email), "Search does not match the full email address")
+    }
 
     // Status dot: yellow for minor and maintenance, red for major and critical, nothing otherwise.
     func entry(_ indicator: ProviderIncident.Indicator) -> ProviderStatusEntry {
@@ -847,6 +858,9 @@ enum AIManagerNativeContract {
     defaults.set(true, forKey: QuotaNotificationSettings.almostOutKey)
     defaults.set(false, forKey: MenuBarUsagePreferences.overrideKey(for: uuid))
     defaults.set("x", forKey: HiddenUsageRows.key(for: uuid))
+    defaults.set("dark", forKey: AppearanceOverride.key)
+    defaults.set("overview", forKey: "launchPlace")
+    defaults.set(true, forKey: EmailPrivacy.domainsKey)
     defaults.set("keep", forKey: "Switch.mainWindowPlacement.v1")
     SettingsReset.reset(defaults: defaults)
     expect(!ResetDisplay.isExact(defaults: defaults) && !PopoverRefreshPreference.isEnabled(defaults: defaults)
@@ -855,6 +869,10 @@ enum AIManagerNativeContract {
       && HiddenUsageRows.hidden(for: uuid, defaults: defaults).isEmpty
       && GlobalShortcutPreferences.load(defaults: defaults) == nil,
       "Reset settings left a preference behind")
+    expect(defaults.string(forKey: AppearanceOverride.key) == nil
+      && defaults.string(forKey: "launchPlace") == nil
+      && !EmailPrivacy.showsDomains(defaults: defaults),
+      "Reset settings did not restore the new choices")
     expect(defaults.string(forKey: "Switch.mainWindowPlacement.v1") == "keep", "Reset settings cleared window placement")
     let settings = fits(SettingsPage(model: demo))
     expect(settings.fittingSize.height > 0, "Settings collapsed with the new rows")
@@ -1000,11 +1018,11 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Overview", "Accounts", "Conversations", "Maintenance", "Settings"]
+    let expectedPages = ["Overview", "Accounts", "Settings", "Maintenance", "Conversations"]
     if AIManagerPage.allCases.map(\.rawValue) != expectedPages {
       failures.append("The sidebar and View menu page order is incorrect")
     }
-    let expectedSymbols = ["house", "person.crop.circle", "bubble.left.and.bubble.right", "externaldrive", "gearshape"]
+    let expectedSymbols = ["house.fill", "person.2.fill", "gearshape.fill", "wrench.and.screwdriver.fill", "ellipsis.message.fill"]
     if AIManagerPage.allCases.map(\.icon.symbol) != expectedSymbols
       || expectedSymbols.contains(where: { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil })
     {
@@ -1121,8 +1139,10 @@ enum AIManagerNativeContract {
       expect(window.standardWindowButton(button).map { !$0.isHidden } == true,
         "The traffic light \(button.rawValue) is missing")
     }
-    expect(window.toolbar == nil && window.titlebarAppearsTransparent && window.titleVisibility == .hidden,
-      "The window has a toolbar bar or an opaque title bar; the content draws its own top row")
+    expect(window.toolbar?.items.isEmpty == true && window.toolbarStyle == .unified
+      && window.titlebarAppearsTransparent && window.titleVisibility == .hidden
+      && window.titlebarSeparatorStyle == .none,
+      "The window needs an empty unified toolbar and a transparent title bar; the content draws its own top row")
     expect(window.isOpaque && window.backgroundColor.alphaComponent == 1,
       "The window has a transparent exterior")
     expect(window.contentMinSize.width >= AIManagerWindow.minimumSize.width

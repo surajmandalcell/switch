@@ -51,7 +51,7 @@ enum OverviewFormat {
   }
 }
 
-/// "Sign in" for an account whose saved login stopped working: the Add Account flow for its provider.
+/// Refreshes the saved account through an isolated, account-scoped sign-in.
 struct SignInButton: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
@@ -61,7 +61,7 @@ struct SignInButton: View {
   var width: CGFloat? = nil
 
   var body: some View {
-    Button("Sign in") { Task { await model.beginSignIn(for: account.identity.providerID) } }
+    Button("Sign in") { Task { await model.beginSignIn(for: account.id) } }
       .buttonStyle(AIMPushButtonStyle(prominent: prominent, width: width))
       .disabled(model.isBusy)
       .accessibilityHint("Signs in to \(account.identity.providerID.guiName) again")
@@ -345,8 +345,10 @@ struct OverviewPage: View {
       }
     }
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
+    // The page remembers its focused account while the app runs.
+    .onChange(of: focusedID) { _, id in AIMPlace.overviewFocus = id }
     .onAppear {
-      focusedID = focusedID ?? OverviewFocus.defaultAccountID(in: model.status)
+      focusedID = focusedID ?? AIMPlace.overviewFocus ?? OverviewFocus.defaultAccountID(in: model.status)
       #if AI_MANAGER_PREVIEW
       // Preview screenshots: `--select=claude-code` also focuses that account here.
       if PreviewArguments.value("select") != nil, let id = model.selectedAccountID { focusedID = id }
@@ -561,7 +563,7 @@ struct AccountsTableCard: View {
 
   var body: some View {
     AIMCard(
-      title: "Accounts",
+      title: "Accounts", bottomInset: AIMTheme.tableEndInset,
       accessory: {
         Text("\(total) \(total == 1 ? "account" : "accounts")").aimText(.secondary)
       }
@@ -587,15 +589,44 @@ struct AccountsTableCard: View {
     }
   }
 
+  /// One group per provider, in the order each provider first appears.
+  private var groups: [(provider: ProviderID, accounts: [AccountRecord])] {
+    var order: [ProviderID] = []
+    var byProvider: [ProviderID: [AccountRecord]] = [:]
+    for account in accounts {
+      let provider = account.identity.providerID
+      if byProvider[provider] == nil { order.append(provider) }
+      byProvider[provider, default: []].append(account)
+    }
+    return order.map { ($0, byProvider[$0] ?? []) }
+  }
+
+  /// The 24 pt label row above a group: a 12 pt provider glyph and "Codex CLI · 2".
+  private func groupLabel(_ provider: ProviderID, count: Int) -> some View {
+    HStack(spacing: 6) {
+      ProviderGlyph(providerID: provider, size: 12).foregroundStyle(.secondary)
+      Text("\(provider.guiName) · \(count)").aimText(.secondary).lineLimit(1)
+    }
+    .aimColumn(AIMColumns.accounts[0], group: Self.group)
+    .padding(.horizontal, AIMTheme.cardInset)
+    .frame(height: AIMTheme.groupLabelHeight)
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(.isHeader)
+  }
+
   private var rows: some View {
     VStack(spacing: 0) {
-      ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
-        if index > 0 { AIMRowSeparator() }
-        AccountsTableRow(
-          account: account, model: model, selected: account.id == focusedID, now: now,
-          hideEmails: hideEmails, showsUsed: showsUsed,
-          focus: { focus(account.id) }, delete: { delete(account) },
-          onMove: onMove, contextMenu: contextMenu)
+      ForEach(Array(groups.enumerated()), id: \.element.provider) { groupIndex, group in
+        if groupIndex > 0 { AIMRowSeparator() }
+        groupLabel(group.provider, count: group.accounts.count)
+        ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
+          if index > 0 { AIMRowSeparator() }
+          AccountsTableRow(
+            account: account, model: model, selected: account.id == focusedID, now: now,
+            hideEmails: hideEmails, showsUsed: showsUsed,
+            focus: { focus(account.id) }, delete: { delete(account) },
+            onMove: onMove, contextMenu: contextMenu)
+        }
       }
     }
   }
@@ -613,6 +644,7 @@ private struct AccountsTableRow: View {
   let onMove: ((UUID, UUID) -> Void)?
   let contextMenu: ((AccountRecord) -> AnyView)?
 
+  @FocusState private var keyboardFocus: Bool
   private var name: String { EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails) }
 
   var body: some View {
@@ -620,17 +652,13 @@ private struct AccountsTableRow: View {
     let group = AccountsTableCard.group
     let window = AccountUsageSummary.windows(for: account, model: model).first
     let isDefault = model.status?.isDefault(account) == true
-    let row = AIMTableRow(highlighted: selected) {
+    let row = AIMTableRow(highlighted: selected, focused: keyboardFocus) {
+      // The group label above says the provider; a status dot follows the name only for an incident.
       HStack(spacing: AIMTheme.rowSpacing) {
-        ProviderMark(providerID: account.identity.providerID, size: 20)
         Text(name).aimText(.body).lineLimit(1).truncationMode(.middle)
-      }
-      .aimColumn(columns[0], group: group)
-      HStack(spacing: 5) {
-        Text(account.identity.providerID.guiName).aimText(.secondary).lineLimit(1)
         ProviderStatusDot(entry: model.providerStatus[account.identity.providerID], size: 6)
       }
-      .aimColumn(columns[1], group: group)
+      .aimColumn(columns[0], group: group)
       HStack(spacing: AIMTheme.rowSpacing) {
         UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed).frame(minWidth: 40)
         Text(OverviewFormat.percent(window, showsUsed: showsUsed))
@@ -639,10 +667,10 @@ private struct AccountsTableRow: View {
           .uiLint(.number)
       }
       .accessibilityElement(children: .combine)
-      .aimColumn(columns[2], group: group)
+      .aimColumn(columns[1], group: group)
       Text(window?.resetsAt.map { OverviewFormat.compactReset($0, now: now, usedPercent: window?.usedPercent) } ?? "–")
         .aimText(.secondary).lineLimit(1)
-        .aimColumn(columns[3], group: group)
+        .aimColumn(columns[2], group: group)
       HStack(spacing: AIMTheme.rowSpacing) {
         switch OverviewFormat.rowAction(for: account, model: model) {
         case .isDefault:
@@ -657,12 +685,14 @@ private struct AccountsTableRow: View {
         AccountMoreMenu(account: account, model: model, delete: delete)
       }
       .uiLint(.actions)
-      .aimColumn(columns[4], group: group)
+      .aimColumn(columns[3], group: group)
     }
     row
       .contentShape(Rectangle())
       .onTapGesture(perform: focus)
-      .focusable()
+      // Keyboard focus only (Tab with Full Keyboard Access): a click selects, it never focuses.
+      .focusable(true, interactions: .activate)
+      .focused($keyboardFocus)
       .onKeyPress(.return) { focus(); return .handled }
       .contextMenu {
         if let contextMenu { contextMenu(account) } else {
@@ -752,6 +782,9 @@ struct CurrentLimitsCard: View {
             }
           }
         }
+        // The well puts the title 20 pt below the card's top edge and the tiles 6 pt above the
+        // bottom; 14 pt more inside the well gives the tiles the same 20 pt below.
+        .padding(.bottom, 14)
       }
     }
   }
@@ -800,6 +833,7 @@ struct RecentActivityCard: View {
     let source = OverviewActivity.source(for: account, model: model, now: now)
     AIMCard(
       title: "Recent activity", note: "(\(account.identity.providerID.guiName))", divider: true,
+      bottomInset: AIMTheme.textRowsEndInset,
       accessory: { AIMCardLink(title: "View full history", action: viewHistory) }
     ) {
       switch source {
@@ -859,10 +893,11 @@ struct MaintenanceStatusCard: View {
   private var pending: Int { model.status?.pendingRecovery.count ?? 0 }
 
   var body: some View {
-    AIMCard(title: "Maintenance", divider: true) {
+    AIMCard(title: "Maintenance", divider: true, bottomInset: 0) {
       HStack(spacing: 12) {
         ZStack {
           Circle().fill(pending == 0 ? AIMTheme.green : AIMTheme.yellow).frame(width: 28, height: 28)
+            .uiLint(.item)
           Image(systemName: pending == 0 ? "checkmark" : "exclamationmark")
             .aimFont(.section).foregroundStyle(.white)
         }
@@ -881,7 +916,9 @@ struct MaintenanceStatusCard: View {
         }
         .buttonStyle(AIMPushButtonStyle())
       }
-      .padding(AIMTheme.cardInset)
+      .padding(.horizontal, AIMTheme.cardInset)
+      // The title text sits 14 pt below the top edge; the content ends 14 pt above the bottom.
+      .padding(.vertical, 14)
     }
   }
 }

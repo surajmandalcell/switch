@@ -3,15 +3,17 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export AI_MANAGER_BUILD_PATH="${AI_MANAGER_BUILD_PATH:-/Volumes/External1TB/data/_custom/switch-build/lint}"
 case "$AI_MANAGER_BUILD_PATH" in
-  /Volumes/External1TB/data/_custom/switch-build/lint) ;;
-  *) printf '%s\n' 'Lint build output must be /Volumes/External1TB/data/_custom/switch-build/lint.' >&2; exit 2 ;;
+  /Volumes/External1TB/data/_custom/switch-build/lint)
+    trap 'rm -r /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-run /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-core /Volumes/External1TB/data/_custom/switch-build/lint/module-cache 2>/dev/null || true; rm /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-self-check/check 2>/dev/null || true' EXIT ;;
+  /Volumes/External1TB/data/_custom/switch-build/settings)
+    trap 'rm -r /Volumes/External1TB/data/_custom/switch-build/settings/ui-lint-run /Volumes/External1TB/data/_custom/switch-build/settings/ui-lint-core 2>/dev/null || true; rm /Volumes/External1TB/data/_custom/switch-build/settings/ui-lint-self-check/check 2>/dev/null || true' EXIT ;;
+  *) printf '%s\n' 'Lint build output must use the lint or settings build folder.' >&2; exit 2 ;;
 esac
-trap 'rm -r /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-run /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-core /Volumes/External1TB/data/_custom/switch-build/lint/module-cache 2>/dev/null || true; rm /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-self-check/check 2>/dev/null || true' EXIT
 export PLAYWRIGHT_BROWSERS_PATH=/Volumes/External1TB/data/_custom/playwright
 export CLANG_MODULE_CACHE_PATH="$AI_MANAGER_BUILD_PATH/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$AI_MANAGER_BUILD_PATH/module-cache/swiftpm"
 export TMPDIR="$AI_MANAGER_BUILD_PATH/ui-lint-run/tmp"
-frontmost() { lsappinfo info -only name "$(lsappinfo front)"; }
+frontmost() { lsappinfo front; }
 front="$(frontmost)"
 # Only these two entry points are allowed: prohibited self-check and ordered-out contract export.
 if ! rg -q 'setActivationPolicy\(.prohibited\)' "$repo_root/packages/mac-gui/Tests/UILintSelfCheck.swift" ||
@@ -54,8 +56,15 @@ if [[ "$bad_status" != 1 ]] || ! printf '%s\n' "$bad" | rg -q '^layout-alignment
    printf '%s\n' "$bad" | rg '^[-a-z]+ \|' | rg -q -v '^layout-alignment '; then
   printf '%s\n' 'SELF_CHECK_FAIL: BAD must fail with layout-alignment only.' >&2; exit 2
 fi
+uneven_status=0
+uneven="$(node "$repo_root/packages/mac-gui/ui-lint/mirror.mjs" "$AI_MANAGER_BUILD_PATH/ui-lint-self-check/UNEVEN.json")" || uneven_status=$?
+printf '%s\n' "$uneven"
+if [[ "$uneven_status" != 1 ]] || ! printf '%s\n' "$uneven" | rg -q '^card-inset ' ||
+   printf '%s\n' "$uneven" | rg '^[-a-z]+ \|' | rg -q -v '^card-inset '; then
+  printf '%s\n' 'SELF_CHECK_FAIL: UNEVEN must fail with card-inset only.' >&2; exit 2
+fi
 node "$repo_root/packages/mac-gui/ui-lint/mirror.mjs" "$AI_MANAGER_BUILD_PATH/ui-lint-self-check/GOOD.json"
-printf '%s\n' 'SELF_CHECK_PASS: BAD catches inset mismatch; GOOD passes.'
+printf '%s\n' 'SELF_CHECK_PASS: BAD catches inset mismatch; UNEVEN catches card padding; GOOD passes.'
 
 products="$AI_MANAGER_BUILD_PATH/ui-lint-core"
 mkdir -p "$products"
@@ -85,9 +94,9 @@ install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app/Contents/Info.plis
 /usr/bin/plutil -replace CFBundleIdentifier -string com.mandalsuraj.switch.ui-lint "$app/Contents/Info.plist"
 status=0
 for appearance in light dark; do
-  for page in overview accounts conversations maintenance settings; do
+  for page in overview accounts conversations maintenance cleanup settings; do
     args=()
-    case "$page" in accounts) args=(--accounts);; conversations) args=(--history);; maintenance) args=(--backup);; settings) args=(--settings);; esac
+    case "$page" in accounts) args=(--accounts);; conversations) args=(--history);; maintenance) args=(--backup);; cleanup) args=(--cleanup);; settings) args=(--settings);; esac
     run_offscreen env HOME="$run_root/home" CFFIXED_USER_HOME="$run_root/home" \
       CODEX_HOME="$run_root/codex" CLAUDE_CONFIG_DIR="$run_root/claude" GROK_HOME="$run_root/grok" \
       AI_MANAGER_ROOT="$run_root/manager" AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \

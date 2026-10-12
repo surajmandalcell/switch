@@ -401,7 +401,7 @@ and dark before a UI change ships.
   "N% left", bar, reset text). An action row: "Using as default" with a checkmark (prominent,
   inert) or Make Default (prominent), Open <tool>; on the right Copy, then a More menu (Show in
   Menubar, Refresh, Check, Delete), which comes last in cards and table rows. (2) Accounts: title with the count, then a table with
-  columns Account (20 pt icon and name), Usage (bar and percent), Resets, and Actions
+  columns Account (name, under its provider group label), Usage (bar and percent), Resets, and Actions
   (a green Default chip or a Switch button, plus a More menu); clicking a row focuses it.
   (3) Current limits of the focused account: up to three window tiles (label, "N% left", bar,
   reset) and "View all limits →". (4) Recent activity for the focused account's tool from local

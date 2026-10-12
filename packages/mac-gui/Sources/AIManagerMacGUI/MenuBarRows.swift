@@ -5,15 +5,16 @@ import SwiftUI
 /// Pure rules of the popover: labels, bar colors, countdown text, geometry, keyboard order.
 /// Kept apart from the views so the contract can test them without a window.
 enum MenuBarPresentation {
-  static let rowPaddingH: CGFloat = 20
-  static let rowPaddingV: CGFloat = 12
-  static let tileSize: CGFloat = 40
-  static let tileSpacing: CGFloat = 12
-  static let headerHeight: CGFloat = 40
-  static let lineGap: CGFloat = 2
-  static let lineHeight: CGFloat = 22
-  static let lineSpacing: CGFloat = 2
-  static let captionHeight: CGFloat = 16
+  static let rowPaddingH: CGFloat = 12
+  static let rowPaddingV: CGFloat = 6
+  static let tileSize: CGFloat = 28
+  static let tileSpacing: CGFloat = 8
+  static let headerHeight: CGFloat = 28
+  static let lineGap: CGFloat = 1
+  static let lineHeight: CGFloat = 16
+  static let signInHeight: CGFloat = 24
+  static let lineSpacing: CGFloat = 0
+  static let captionHeight: CGFloat = 14
   static let dividerHeight: CGFloat = 1
   static let labelWidth: CGFloat = 48
   static let percentWidth: CGFloat = 44
@@ -96,7 +97,8 @@ enum MenuBarPresentation {
     let count = CGFloat(lineCount(account))
     var height = rowPaddingV * 2 + headerHeight + lineGap + count * lineHeight
       + (count - 1) * lineSpacing + dividerHeight
-    if hasTokenCaption(account) { height += lineSpacing + captionHeight }
+    if !account.isVerified { height += signInHeight - lineHeight }
+    if hasTokenCaption(account) { height += lineGap + captionHeight }
     return height
   }
 
@@ -226,10 +228,11 @@ struct MenuBarRow: View {
       Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: P.dividerHeight)
     }
     .frame(height: P.rowHeight(account))
+    .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
-      RoundedRectangle(cornerRadius: 8)
+      RoundedRectangle(cornerRadius: 6)
         .fill(isFocused ? Color.accentColor.opacity(0.16) : hovered ? Color.primary.opacity(0.07) : .clear)
-        .padding(.horizontal, 6).padding(.vertical, 3)
+        .padding(5)
     }
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
@@ -248,8 +251,9 @@ struct MenuBarRow: View {
       VStack(alignment: .leading, spacing: 1) {
         HStack(spacing: 4) {
           Text(account.identity)
-            .aimText(.section)
-            .lineLimit(1).truncationMode(.middle)
+            .aimText(.body)
+            .lineLimit(1).truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .help(account.identity)
           if account.isActive {
             Image(systemName: "checkmark")
@@ -263,6 +267,7 @@ struct MenuBarRow: View {
       }
       Spacer(minLength: 4)
       trailing
+        .fixedSize(horizontal: true, vertical: false)
     }
     .frame(height: P.headerHeight)
   }
@@ -277,6 +282,7 @@ struct MenuBarRow: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
           }
           .buttonStyle(.plain)
+          .focusEffectDisabled()
           .help("\(error) Click to copy.")
           .accessibilityLabel("Copy account error")
         }
@@ -297,21 +303,22 @@ struct MenuBarRow: View {
         Image(nsImage: image).resizable().scaledToFit().padding(6)
       } else {
         Image(nsImage: AIManagerBrand.providerIcon(for: account.providerID))
-          .resizable().scaledToFit().padding(10).foregroundStyle(.primary)
+          .resizable().scaledToFit().padding(6).foregroundStyle(.primary)
       }
     }
     .frame(width: P.tileSize, height: P.tileSize)
-    .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary))
-    .clipShape(RoundedRectangle(cornerRadius: 10))
+    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+    .clipShape(RoundedRectangle(cornerRadius: 6))
     .accessibilityHidden(true)
   }
 
   @ViewBuilder private var content: some View {
     switch P.content(for: account) {
     case .signIn:
-      Button("Sign in") { store.openMainWindow() }
-        .buttonStyle(.bordered)
-        .frame(height: P.lineHeight)
+      Button("Sign in") { Task { await store.signIn(accountID: account.id) } }
+        .buttonStyle(MenuBarButtonStyle())
+        .focusEffectDisabled()
+        .frame(height: P.signInHeight)
         .padding(.leading, P.tileSize + P.tileSpacing)
         .help("Open Switch to sign in")
     case .lines(let lines):
@@ -366,7 +373,7 @@ struct MenuBarFooter: View {
   private static let iconSide: CGFloat = 18
 
   var body: some View {
-    HStack(spacing: AIMTheme.rowSpacing) {
+    HStack(spacing: 8) {
       Button {
         Task { await store.refreshUsage() }
       } label: {
@@ -379,9 +386,8 @@ struct MenuBarFooter: View {
         }
         .frame(width: Self.iconSide, height: Self.iconSide)
       }
-      .buttonStyle(.bordered)
-      .buttonBorderShape(.circle)
-      .controlSize(.large)
+      .buttonStyle(MenuBarButtonStyle())
+      .focusEffectDisabled()
       .keyboardShortcut("r", modifiers: .command)
       .disabled(!store.canRefreshUsage)
       .help(refreshHelp)
@@ -393,27 +399,27 @@ struct MenuBarFooter: View {
         Image(systemName: "gearshape")
           .frame(width: Self.iconSide, height: Self.iconSide)
       }
-      .buttonStyle(.bordered)
-      .buttonBorderShape(.circle)
-      .controlSize(.large)
+      .buttonStyle(MenuBarButtonStyle())
+      .focusEffectDisabled()
       .help("Settings")
       .accessibilityLabel("Settings")
+
+      Spacer(minLength: 8)
 
       Button {
         store.openMainWindow()
       } label: {
-        Text("Open Switch")
-          .frame(maxWidth: .infinity)
-          .overlay(alignment: .trailing) {
-            Text("⌘O").aimFont(.secondary).opacity(0.8)
-          }
+        HStack(spacing: 8) {
+          Text("Open Switch").aimText(.body)
+          Text("⌘O").aimText(.secondary)
+        }
       }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
+      .buttonStyle(MenuBarButtonStyle())
+      .focusEffectDisabled()
       .keyboardShortcut("o", modifiers: .command)
       .help("Open Switch (⌘O)")
     }
-    .padding(.horizontal, 16)
+    .padding(.horizontal, 12)
     .frame(height: MenuBarPopover.footerHeight)
     .overlay(alignment: .top) {
       if store.rows.isEmpty { Divider() }
@@ -423,5 +429,25 @@ struct MenuBarFooter: View {
   private var refreshHelp: String {
     guard let at = store.snapshot.lastRefreshedAt else { return "Refresh usage (⌘R)" }
     return "Refresh usage (⌘R). Refreshed \(at.formatted(.relative(presentation: .numeric)))."
+  }
+}
+
+/// Flat fills keep footer and sign-in controls quiet in both appearances.
+private struct MenuBarButtonStyle: ButtonStyle {
+  var height: CGFloat = 24
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var isFocused
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .aimText(.body)
+      .padding(.horizontal, 6)
+      .frame(height: height)
+      .background(RoundedRectangle(cornerRadius: 5).fill(
+        isFocused ? Color.accentColor.opacity(0.16)
+          : Color.primary.opacity(configuration.isPressed ? 0.12 : 0.05)))
+      .contentShape(RoundedRectangle(cornerRadius: 5))
+      .opacity(isEnabled ? 1 : 0.45)
+      .uiLint(.control)
   }
 }

@@ -184,6 +184,7 @@ struct UsageBar: View {
       .frame(height: geometry.size.height, alignment: .leading)
     }
     .frame(height: Self.height)
+    .uiLint(.item)
     .accessibilityHidden(true)
   }
 }
@@ -206,6 +207,50 @@ struct Badge: View {
   }
 }
 
+// MARK: - Focus
+
+/// A click or a selection never draws a focus ring. Keyboard focus is a subtle tint in the
+/// control's own shape. System rings come back only with Full Keyboard Access or Increase Contrast.
+enum AIMFocus {
+  @MainActor static var showsSystemRings: Bool {
+    NSApp.isFullKeyboardAccessEnabled || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+  }
+
+  @MainActor static var ringType: NSFocusRingType { showsSystemRings ? .default : .none }
+}
+
+extension View {
+  /// A faint fill in the view's own rounded shape while it has keyboard focus. It never changes layout.
+  func aimKeyboardTint(_ focused: Bool, radius: CGFloat = 6) -> some View {
+    background(
+      RoundedRectangle(cornerRadius: radius, style: .continuous)
+        .fill(focused ? AIMTheme.focusTint : Color.clear))
+  }
+}
+
+/// What each page remembers while the app runs, and the UserDefaults keys that survive a launch.
+@MainActor enum AIMPlace {
+  static let lastPageKey = "lastPage"
+  static let maintenanceTabKey = "maintenanceTab"
+  static let launchPlaceKey = "launchPlace"
+  /// Scroll offsets by scroll view name.
+  static var scroll: [String: CGFloat] = [:]
+  /// The Overview's focused account.
+  static var overviewFocus: UUID?
+
+  /// The page shown at launch: the last page (default) or the Overview.
+  static func launchPage(defaults: UserDefaults = .standard) -> AIManagerPage {
+    guard defaults.string(forKey: launchPlaceKey) != "overview",
+      let name = defaults.string(forKey: lastPageKey), let page = AIManagerPage(rawValue: name)
+    else { return .overview }
+    return page
+  }
+
+  static func maintenanceTab(defaults: UserDefaults = .standard) -> MaintenanceSection {
+    defaults.string(forKey: maintenanceTabKey).flatMap(MaintenanceSection.init(rawValue:)) ?? .cleanup
+  }
+}
+
 // MARK: - Paths
 
 struct AIMCopyablePath: View {
@@ -215,6 +260,7 @@ struct AIMCopyablePath: View {
   @Environment(\.isEnabled) private var isEnabled
   @State private var copied = false
   @State private var feedbackTask: Task<Void, Never>?
+  @FocusState private var focused: Bool
 
   var body: some View {
     Text(path)
@@ -222,7 +268,9 @@ struct AIMCopyablePath: View {
       .lineLimit(1).truncationMode(.middle)
       .contentShape(Rectangle())
       .highPriorityGesture(TapGesture().onEnded { copy() })
-      .focusable()
+      .focusable(true, interactions: .activate)
+      .focused($focused)
+      .aimKeyboardTint(focused, radius: 3)
       .onKeyPress(.return) { copy(); return .handled }
       .onKeyPress(.space) { copy(); return .handled }
       .help("Click to copy \(path)")
@@ -294,12 +342,12 @@ struct AIMIcon: View {
       case .calendar: "calendar"
       case .database: "cylinder.split.1x2"
       case .arrowRight: "arrow.right"
-      case .overview: "house"
+      case .overview: "house.fill"
       case .link: "arrow.up.right.square"
-      case .account: "person.crop.circle"
-      case .settings: "gearshape"
-      case .history: "bubble.left.and.bubble.right"
-      case .maintenance: "externaldrive"
+      case .account: "person.2.fill"
+      case .settings: "gearshape.fill"
+      case .history: "ellipsis.message.fill"
+      case .maintenance: "wrench.and.screwdriver.fill"
       case .backup: "archivebox"
       case .cleanup: "eraser"
       case .search: "magnifyingglass"
@@ -358,9 +406,11 @@ struct AIMPanel<Content: View>: View {
   var title: String? = nil
   var accessory: AnyView? = nil
   @ViewBuilder var content: Content
+  var file: StaticString = #fileID
+  var line: UInt = #line
 
   var body: some View {
-    AIMCard(title: title, accessory: { accessory ?? AnyView(EmptyView()) }) {
+    AIMCard(title: title, file: file, line: line, accessory: { accessory ?? AnyView(EmptyView()) }) {
       VStack(spacing: 0) { content }
     }
   }
@@ -376,12 +426,15 @@ where Item.ID: Hashable {
   let fixedRowHeight: CGFloat?
   let contentRevision: Int
   let onReachEnd: (() -> Void)?
+  /// Names this list's remembered scroll position; nil forgets it.
+  let restoreKey: String?
   let rowContent: (Item) -> AnyView
   @Environment(\.aimCopyPath) private var copyPath
 
   init(
     items: [Item], rowSpacing: CGFloat = 0, fixedRowHeight: CGFloat? = nil,
     contentRevision: Int = 0,
+    restoreKey: String? = nil,
     onReachEnd: (() -> Void)? = nil,
     rowContent: @escaping (Item) -> AnyView
   ) {
@@ -389,6 +442,7 @@ where Item.ID: Hashable {
     self.rowSpacing = rowSpacing
     self.fixedRowHeight = fixedRowHeight
     self.contentRevision = contentRevision
+    self.restoreKey = restoreKey
     self.onReachEnd = onReachEnd
     self.rowContent = rowContent
   }
@@ -398,6 +452,7 @@ where Item.ID: Hashable {
   func makeNSView(context: Context) -> AIMOwnedScrollView {
     let scrollView = AIMOwnedScrollView(frame: .zero)
     scrollView.onReachEnd = onReachEnd
+    scrollView.restoreKey = restoreKey
     let tableView = AIMVirtualTableView(frame: .zero)
     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
     column.resizingMask = .autoresizingMask
@@ -407,11 +462,14 @@ where Item.ID: Hashable {
     tableView.style = .plain
     tableView.selectionHighlightStyle = .none
     tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-    tableView.focusRingType = .none
+    tableView.focusRingType = AIMFocus.ringType
     tableView.delegate = context.coordinator
     tableView.dataSource = context.coordinator
     scrollView.documentView = tableView
     context.coordinator.tableView = tableView
+    scrollView.onWidthChange = { [weak coordinator = context.coordinator] width in
+      coordinator?.widthChanged(width)
+    }
     updateCoordinator(context.coordinator)
     tableView.reloadData()
     return scrollView
@@ -420,10 +478,7 @@ where Item.ID: Hashable {
   func updateNSView(_ scrollView: AIMOwnedScrollView, context: Context) {
     scrollView.onReachEnd = onReachEnd
     updateCoordinator(context.coordinator)
-    if let tableView = context.coordinator.tableView,
-       let column = tableView.tableColumns.first {
-      column.width = scrollView.contentSize.width
-    }
+    context.coordinator.widthChanged(scrollView.contentSize.width)
   }
 
   private func updateCoordinator(_ coordinator: Coordinator) {
@@ -444,6 +499,51 @@ where Item.ID: Hashable {
     private var contentRevision = 0
     private var rowContent: ((Item) -> AnyView)?
     private var copyPath: @MainActor (String) -> Bool = { _ in false }
+    private var width: CGFloat = 0
+    /// Measured row heights by item, width, and content revision.
+    private var heights: [HeightKey: CGFloat] = [:]
+    private let measurer = NSHostingController(rootView: AnyView(EmptyView()))
+
+    private struct HeightKey: Hashable {
+      let id: Item.ID
+      let width: Int
+      let revision: Int
+    }
+
+    /// The column follows the scroll view's width; rows that wrap are measured again at the new width.
+    func widthChanged(_ next: CGFloat) {
+      guard let tableView, next > 0, abs(next - width) > 0.5 else { return }
+      width = next
+      tableView.tableColumns.first?.width = next
+      heights.removeAll(keepingCapacity: true)
+      if fixedRowHeight == nil, !items.isEmpty {
+        // Row heights jump to the new width at once, never through an animation.
+        NSAnimationContext.runAnimationGroup { context in
+          context.duration = 0
+          context.allowsImplicitAnimation = false
+          tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<items.count))
+        }
+      }
+      (tableView.enclosingScrollView as? AIMOwnedScrollView)?.restorePosition()
+    }
+
+    /// The height of a row at the column width. Auto layout measures a hosted SwiftUI text at its
+    /// ideal single-line width, which clips wrapped messages, so the height comes from the hosting
+    /// controller at the real width.
+    private func measuredHeight(_ item: Item) -> CGFloat {
+      guard width > 0 else { return 24 }
+      let key = HeightKey(id: item.id, width: Int(width.rounded()), revision: contentRevision)
+      if let cached = heights[key] { return cached }
+      guard let rowContent else { return 24 }
+      if heights.count > 4_000 { heights.removeAll(keepingCapacity: true) }
+      measurer.rootView = AnyView(
+        rowContent(item).environment(\.aimCopyPath, copyPath).environment(\.uiLintSuppressed, true)
+          .foregroundStyle(.primary).id(item.id))
+      let size = measurer.sizeThatFits(in: CGSize(width: max(width, 1), height: .greatestFiniteMagnitude))
+      let height = max(1, ceil(size.height))
+      heights[key] = height
+      return height
+    }
 
     func update(
       items nextItems: [Item], rowSpacing: CGFloat, fixedRowHeight: CGFloat?,
@@ -460,7 +560,7 @@ where Item.ID: Hashable {
       self.copyPath = copyPath
       guard let tableView else { return }
       tableView.intercellSpacing = NSSize(width: 0, height: rowSpacing)
-      tableView.usesAutomaticRowHeights = fixedRowHeight == nil
+      tableView.usesAutomaticRowHeights = false
       if let fixedRowHeight { tableView.rowHeight = fixedRowHeight }
       let sameIDs = oldItems.map(\.id) == nextItems.map(\.id)
       if sameIDs {
@@ -487,7 +587,9 @@ where Item.ID: Hashable {
     func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-      fixedRowHeight ?? -1
+      if let fixedRowHeight { return fixedRowHeight }
+      guard items.indices.contains(row), rowContent != nil else { return 24 }
+      return measuredHeight(items[row])
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -495,16 +597,24 @@ where Item.ID: Hashable {
       let identifier = NSUserInterfaceItemIdentifier("AIMVirtualCell")
       let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? AIMVirtualCell
         ?? AIMVirtualCell(identifier: identifier)
+      // The id gives a recycled cell fresh view state for its new item.
       cell.host.rootView = AnyView(
         rowContent(items[row])
           .environment(\.aimCopyPath, copyPath)
-          .foregroundStyle(.primary))
+          .foregroundStyle(.primary)
+          .id(items[row].id))
       return cell
     }
   }
 }
 
-final class AIMVirtualTableView: NSTableView {}
+final class AIMVirtualTableView: NSTableView {
+  /// Never a ring, except with Full Keyboard Access or Increase Contrast.
+  override var focusRingType: NSFocusRingType {
+    get { AIMFocus.ringType }
+    set {}
+  }
+}
 
 private final class AIMVirtualCell: NSTableCellView {
   let host = NSHostingView(rootView: AnyView(EmptyView()))
@@ -527,23 +637,90 @@ private final class AIMVirtualCell: NSTableCellView {
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }
 
-/// The system scroll view. `onReachEnd` fires near the bottom so long conversations page in.
+/// The thin scroll bar of every AppKit scroll view: a legacy-style scroller with a fixed 10 pt
+/// gutter that is always reserved, no slot or border, and a 6 pt rounded knob in the secondary label
+/// color. It draws only when the content can scroll, and a little stronger on hover and drag.
+final class AIMScroller: NSScroller {
+  static let gutter: CGFloat = 10
+  private var hovering = false
+  private var dragging = false
+
+  override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
+    gutter
+  }
+
+  override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
+
+  override func draw(_ dirtyRect: NSRect) { drawKnob() }
+
+  override func drawKnob() {
+    guard isEnabled, knobProportion < 1 else { return }
+    let knob = rect(for: .knob)
+    guard knob.height > 0 else { return }
+    let bar = NSRect(x: knob.midX - 3, y: knob.minY + 1, width: 6, height: max(0, knob.height - 2))
+    NSColor.secondaryLabelColor.withAlphaComponent(hovering || dragging ? 0.9 : 0.6).setFill()
+    NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3).fill()
+  }
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    trackingAreas.forEach(removeTrackingArea)
+    addTrackingArea(NSTrackingArea(
+      rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+  }
+
+  override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+  override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+
+  override func mouseDown(with event: NSEvent) {
+    dragging = true
+    needsDisplay = true
+    super.mouseDown(with: event)
+    dragging = false
+    needsDisplay = true
+  }
+}
+
+/// The scroll view of the virtual lists, with the thin always-visible scroller in a fixed gutter.
+/// `onReachEnd` fires near the bottom so long conversations page in.
 final class AIMOwnedScrollView: NSScrollView {
   var onReachEnd: (() -> Void)?
+  var onWidthChange: ((CGFloat) -> Void)?
+  /// Names the remembered scroll position; nil forgets it.
+  var restoreKey: String?
+  private var restored = false
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
     drawsBackground = false
     borderType = .noBorder
     hasHorizontalScroller = false
+    scrollerStyle = .legacy
+    verticalScroller = AIMScroller()
     hasVerticalScroller = true
-    autohidesScrollers = true
+    autohidesScrollers = false
   }
 
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
+  override func layout() {
+    super.layout()
+    onWidthChange?(contentSize.width)
+  }
+
+  /// Puts a remembered offset back once, after the first measured layout.
+  func restorePosition() {
+    guard !restored else { return }
+    restored = true
+    guard let restoreKey, let saved = AIMPlace.scroll[restoreKey], let documentView else { return }
+    let travel = max(0, documentView.frame.height - contentView.bounds.height)
+    contentView.scroll(to: NSPoint(x: 0, y: min(max(saved, 0), travel)))
+    reflectScrolledClipView(contentView)
+  }
+
   override func reflectScrolledClipView(_ clipView: NSClipView) {
     super.reflectScrolledClipView(clipView)
+    if restored, let restoreKey { AIMPlace.scroll[restoreKey] = clipView.bounds.minY }
     guard let documentView, documentView.isFlipped,
           documentView.frame.height > 0, clipView.bounds.height > 0,
           documentView.frame.height - clipView.bounds.maxY < 180 else { return }

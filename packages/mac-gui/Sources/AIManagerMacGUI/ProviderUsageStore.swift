@@ -17,8 +17,10 @@ extension ProviderID {
 /// notifications agree.
 enum EmailPrivacy {
   static let key = "hideEmailAddresses"
+  static let domainsKey = "showEmailDomains"
 
   static func isEnabled(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: key) }
+  static func showsDomains(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: domainsKey) }
 
   /// `a••••@example.com`: the first character, four bullets, and the domain. The bullet count is
   /// fixed so the length of the address is not revealed.
@@ -31,15 +33,18 @@ enum EmailPrivacy {
   private static let pattern = try? NSRegularExpression(
     pattern: #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+"#)
 
-  /// Masks every email address in `text` when the setting is on; otherwise returns `text`. A SwiftUI
-  /// view passes its own `@AppStorage` value as `hide`, so it redraws when the setting changes.
-  static func display(_ text: String, hide: Bool = EmailPrivacy.isEnabled()) -> String {
-    guard hide, text.contains("@"), let pattern else { return text }
+  /// Privacy takes priority over the domain display choice.
+  static func display(
+    _ text: String, hide: Bool = EmailPrivacy.isEnabled(),
+    showDomains: Bool = EmailPrivacy.showsDomains()
+  ) -> String {
+    guard hide || !showDomains, text.contains("@"), let pattern else { return text }
     let whole = NSRange(text.startIndex..., in: text)
     var result = text
     for match in pattern.matches(in: text, range: whole).reversed() {
       guard let range = Range(match.range, in: result) else { continue }
-      result.replaceSubrange(range, with: mask(String(result[range])))
+      let email = String(result[range])
+      result.replaceSubrange(range, with: hide ? mask(email) : String(email.prefix { $0 != "@" }))
     }
     return result
   }
@@ -47,7 +52,7 @@ enum EmailPrivacy {
 
 extension AccountIdentity {
   /// Primary account label. Secret accounts have no email, so a short key tail tells them apart.
-  /// Emails are masked when "Hide email addresses" is on.
+  /// Emails follow the domain display and privacy settings.
   var accountLabel: String {
     if let email, !email.isEmpty { return EmailPrivacy.display(email) }
     if let accountID, !accountID.isEmpty { return accountID }

@@ -75,5 +75,18 @@ enum MenuBarPopoverPreviewData {
         isVerified: false, isActive: false, providerID: .claudeCode),
     ])
   }
+
+  static func snapshot(accountCount: Int) -> MenuBarSnapshot {
+    let accounts = fullSnapshot.accounts
+    return MenuBarSnapshot(accounts: (0..<accountCount).map { index in
+      let account = accounts[index % accounts.count]
+      return MenuBarAccountSnapshot(
+        id: UUID(),
+        identity: index == 4 ? "a.very.long.synthetic.account.name.for.truncation@example.test" : account.identity,
+        detail: account.detail, isVerified: account.isVerified,
+        isActive: index < accounts.count && account.isActive,
+        usage: account.usage, providerID: account.providerID)
+    })
+  }
 }
 #endif

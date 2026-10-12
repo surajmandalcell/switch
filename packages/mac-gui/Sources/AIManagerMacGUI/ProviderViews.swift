@@ -36,6 +36,7 @@ struct ProviderMark: View {
     .overlay {
       RoundedRectangle(cornerRadius: size * 0.22).strokeBorder(AIMTheme.line, lineWidth: 0.5)
     }
+    .uiLint(.item)
     .accessibilityHidden(true)
   }
 }

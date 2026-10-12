@@ -12,10 +12,20 @@ extension AIMTheme {
   static let cardInset: CGFloat = 16
   static let titleRowHeight: CGFloat = 44
   static let rowHeight: CGFloat = 36
+  /// The provider label row above a group of account rows.
+  static let groupLabelHeight: CGFloat = 24
   static let headerHeight: CGFloat = 28
   /// A tile sits 6 inside its card with a 4 radius; its text lines up with the 16 inset.
   static let tileInset: CGFloat = 6
   static let tileRadius: CGFloat = 4
+  /// A row highlight sits this far inside its 36 pt row, above and below.
+  static let highlightInset: CGFloat = 2
+  /// A titled card puts its first content 14 pt below the top edge, so its last content sits 14 pt
+  /// above the bottom edge. Form rows (AIMRows) end with `contentInset`; a table of 22 pt controls
+  /// and a list of text-only rows add what their 36 pt rows lack.
+  static let contentInset: CGFloat = 14
+  static let tableEndInset: CGFloat = 7
+  static let textRowsEndInset: CGFloat = 4
   static let sidebarWidth: CGFloat = 220
   static let topBarHeight: CGFloat = 52
   /// Push button heights: in cards, and in table rows.
@@ -48,7 +58,16 @@ extension AIMTheme {
   static let tileFill = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.04))
   static let controlFill = dynamic(light: .white, dark: NSColor(white: 1, alpha: 0.12))
   static let controlPressed = dynamic(light: NSColor(white: 0.93, alpha: 1), dark: NSColor(white: 1, alpha: 0.2))
-  static let controlBorder = dynamic(light: NSColor(white: 0, alpha: 0.14), dark: NSColor(white: 1, alpha: 0.14))
+  /// Light mode keeps the Sequoia hairline rim and shadow; Dark Mode controls are flat fills only.
+  static let controlBorder = dynamic(light: NSColor(white: 0, alpha: 0.14), dark: .clear)
+  static let primaryBorder = dynamic(light: NSColor(white: 0, alpha: 0.12), dark: .clear)
+  static let controlShadow = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: .clear)
+  /// The track of a segmented control and the fill of its selected segment.
+  static let segmentTrack = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.08))
+  static let switchOff = dynamic(light: NSColor(white: 0, alpha: 0.12), dark: NSColor(white: 1, alpha: 0.18))
+  static let segmentSelected = dynamic(light: .white, dark: NSColor(white: 1, alpha: 0.2))
+  /// Keyboard focus: a faint fill in the control's own shape.
+  static let focusTint = Color.accentColor.opacity(0.16)
   static let rowHighlight = Color.accentColor.opacity(0.12)
 }
 
@@ -84,12 +103,19 @@ struct AIMCard<Accessory: View, Content: View>: View {
   var edges = AIMCardEdges.both
   /// A well: the title and tiles sit in an inner body 6 in from every side, radius 4 (10 - 6).
   var well = false
+  /// The content scrolls to the card's edges (a list), so the even-padding check skips it.
+  var scrolls = false
+  /// Space under the content. A title puts the first content 14 pt below the top edge, so a card
+  /// that ends in rows adds what its last row lacks (see AIMTheme.rowsEndInset and friends).
+  var bottomInset: CGFloat = 1
   var accessory: Accessory
   var content: Content
+  private let source: (file: StaticString, line: UInt)
 
   init(
     title: String? = nil, note: String? = nil, divider: Bool = false, edges: AIMCardEdges = .both,
-    well: Bool = false,
+    well: Bool = false, scrolls: Bool = false, bottomInset: CGFloat = 1,
+    file: StaticString = #fileID, line: UInt = #line,
     @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content
   ) {
     self.title = title
@@ -97,6 +123,9 @@ struct AIMCard<Accessory: View, Content: View>: View {
     self.divider = divider
     self.edges = edges
     self.well = well
+    self.scrolls = scrolls
+    self.bottomInset = bottomInset
+    self.source = (file, line)
     self.accessory = accessory()
     self.content = content()
   }
@@ -124,14 +153,22 @@ struct AIMCard<Accessory: View, Content: View>: View {
     }
     .environment(\.aimCardID, cardID)
     .modifier(WellBody(well: well))
-    // 1 pt of bottom padding keeps a 22 pt control in a 36 pt last row 8 pt from the edge.
-    .padding(.bottom, well ? 0 : 1)
+    .padding(.bottom, bottomInset)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(AIMTheme.card, in: shape)
     .clipShape(shape)
     .overlay(shape.strokeBorder(AIMTheme.cardBorder, lineWidth: 0.5))
-    .uiLint(.card(radius: AIMTheme.radius), fill: AIMTheme.card)
+    .uiLint(.card(radius: AIMTheme.radius), fill: AIMTheme.card, file: source.file, line: source.line)
+    .modifier(CardScrollTag(scrolls: scrolls))
     .modifier(CardEdgeTags(edges: edges))
+  }
+}
+
+private struct CardScrollTag: ViewModifier {
+  let scrolls: Bool
+
+  @ViewBuilder func body(content: Content) -> some View {
+    if scrolls { content.uiLint(.scrolls) } else { content }
   }
 }
 
@@ -153,13 +190,12 @@ private struct WellBody: ViewModifier {
 
 private struct CardEdgeTags: ViewModifier {
   let edges: AIMCardEdges
-  @Environment(\.aimCardGroup) private var group
 
   @ViewBuilder func body(content: Content) -> some View {
     switch edges {
-    case .both: content.uiLint(.align("\(group)-start", .start)).uiLint(.align("\(group)-end", .end))
-    case .start: content.uiLint(.align("\(group)-start", .start))
-    case .end: content.uiLint(.align("\(group)-end", .end))
+    case .both: content.uiLint(.align("cards-start", .start)).uiLint(.align("cards-end", .end))
+    case .start: content.uiLint(.align("cards-start", .start))
+    case .end: content.uiLint(.align("cards-end", .end))
     }
   }
 }
@@ -167,11 +203,12 @@ private struct CardEdgeTags: ViewModifier {
 extension AIMCard where Accessory == EmptyView {
   init(
     title: String? = nil, note: String? = nil, divider: Bool = false, edges: AIMCardEdges = .both,
-    well: Bool = false, @ViewBuilder content: () -> Content
+    well: Bool = false, scrolls: Bool = false, bottomInset: CGFloat = 1,
+    file: StaticString = #fileID, line: UInt = #line, @ViewBuilder content: () -> Content
   ) {
     self.init(
-      title: title, note: note, divider: divider, edges: edges, well: well, accessory: { EmptyView() },
-      content: content)
+      title: title, note: note, divider: divider, edges: edges, well: well, scrolls: scrolls,
+      bottomInset: bottomInset, file: file, line: line, accessory: { EmptyView() }, content: content)
   }
 }
 
@@ -224,32 +261,107 @@ struct AIMToggleStyle: ToggleStyle {
     HStack(alignment: .center, spacing: AIMTheme.sectionSpacing) {
       VStack(alignment: .leading, spacing: 2) { configuration.label }
       Spacer(minLength: AIMTheme.rowSpacing)
-      Toggle(isOn: configuration.$isOn) { EmptyView() }
-        .toggleStyle(.switch).labelsHidden()
+      Button { configuration.isOn.toggle() } label: { Color.clear }
+        .buttonStyle(AIMSwitchButtonStyle(isOn: configuration.isOn))
     }
     .accessibilityElement(children: .combine)
+    .accessibilityValue(configuration.isOn ? "On" : "Off")
+    .accessibilityAddTraits(.isToggle)
+  }
+}
+
+/// The flat switch: a 38 x 22 capsule track with a white knob. The system switch draws a light
+/// rim in Dark Mode; this one is a fill only (the hairline rim and knob shadow are light only).
+private struct AIMSwitchButtonStyle: ButtonStyle {
+  let isOn: Bool
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var focused
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  func makeBody(configuration: Configuration) -> some View {
+    let track = Capsule()
+    ZStack(alignment: isOn ? .trailing : .leading) {
+      track.fill(isOn ? Color.accentColor : AIMTheme.switchOff)
+      Circle().fill(Color.white).frame(width: 18, height: 18).padding(2)
+        .shadow(color: AIMTheme.controlShadow, radius: 0.5, y: 0.5)
+    }
+    .frame(width: 38, height: 22)
+    .overlay(track.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
+    .overlay(track.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+    .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
+    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: isOn)
+    .contentShape(track)
+  }
+}
+
+/// A checkbox row: a 16 pt rounded box and its label. Flat fill in Dark Mode (the system checkbox
+/// draws a light rim); the box fills with the accent and a white tick when on.
+struct AIMCheckboxToggleStyle: ToggleStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    Button { configuration.isOn.toggle() } label: {
+      HStack(spacing: 6) {
+        Color.clear.frame(width: 16, height: 16)
+        configuration.label
+      }
+    }
+    .buttonStyle(AIMCheckboxButtonStyle(isOn: configuration.isOn))
+    .accessibilityValue(configuration.isOn ? "Checked" : "Unchecked")
+    .accessibilityAddTraits(.isToggle)
+  }
+}
+
+private struct AIMCheckboxButtonStyle: ButtonStyle {
+  let isOn: Bool
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var focused
+
+  func makeBody(configuration: Configuration) -> some View {
+    let box = RoundedRectangle(cornerRadius: 4, style: .continuous)
+    configuration.label
+      .overlay(alignment: .leading) {
+        ZStack {
+          box.fill(isOn ? Color.accentColor : AIMTheme.controlFill)
+          box.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear)
+          box.strokeBorder(isOn ? Color.clear : AIMTheme.controlBorder, lineWidth: 0.5)
+          if isOn {
+            AIMIcon(name: .check).aimFont(.caption).fontWeight(.bold).foregroundStyle(Color.white)
+          }
+        }
+        .frame(width: 16, height: 16)
+        .opacity(configuration.isPressed ? 0.8 : 1)
+      }
+      .opacity(isEnabled ? 1 : 0.45)
+      .contentShape(Rectangle())
   }
 }
 
 /// Lays its children out as the rows of a card: 16 inset, at least 36 tall, a hairline between.
+/// The last row ends `contentInset` above the card's bottom edge whatever it holds, and without a
+/// title the first row starts `contentInset` below the top edge, so top and bottom padding match.
 private struct AIMRowsRoot: _VariadicView_UnaryViewRoot {
+  var titled = true
+
   func body(children: _VariadicView.Children) -> some View {
     VStack(spacing: 0) {
       ForEach(Array(children.enumerated()), id: \.offset) { index, child in
+        let first = index == 0 && !titled, last = index == children.count - 1
         if index > 0 { AIMRowSeparator() }
         child
           .frame(maxWidth: .infinity, alignment: .leading)
           .aimBodyEdges()
-          .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, AIMTheme.rowSpacing)
-          .frame(maxWidth: .infinity, minHeight: AIMTheme.rowHeight, alignment: .leading)
+          .padding(.horizontal, AIMTheme.cardInset)
+          .padding(.top, first ? AIMTheme.contentInset : AIMTheme.rowSpacing)
+          .padding(.bottom, last ? AIMTheme.contentInset : AIMTheme.rowSpacing)
+          .frame(maxWidth: .infinity, minHeight: first || last ? 0 : AIMTheme.rowHeight, alignment: .leading)
       }
     }
   }
 }
 
 struct AIMRows<Content: View>: View {
+  var titled = true
   @ViewBuilder var content: Content
-  var body: some View { _VariadicView.Tree(AIMRowsRoot()) { content } }
+  var body: some View { _VariadicView.Tree(AIMRowsRoot(titled: titled)) { content } }
 }
 
 /// A titled card of rows (the card replacement for a form Section). The title row holds an
@@ -258,19 +370,24 @@ struct AIMSection<Accessory: View, Content: View>: View {
   var title: String? = nil
   var accessory: Accessory
   var content: Content
+  private let source: (file: StaticString, line: UInt)
 
   init(
-    _ title: String? = nil, @ViewBuilder accessory: () -> Accessory,
-    @ViewBuilder content: () -> Content
+    _ title: String? = nil, file: StaticString = #fileID, line: UInt = #line,
+    @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content
   ) {
     self.title = title
+    self.source = (file, line)
     self.accessory = accessory()
     self.content = content()
   }
 
   var body: some View {
-    AIMCard(title: title, divider: title != nil, accessory: { accessory }) {
-      AIMRows { content }
+    AIMCard(
+      title: title, divider: title != nil, bottomInset: 0,
+      file: source.file, line: source.line, accessory: { accessory }
+    ) {
+      AIMRows(titled: title != nil) { content }
         .labeledContentStyle(AIMLabeledContentStyle())
         .toggleStyle(AIMToggleStyle())
     }
@@ -278,13 +395,15 @@ struct AIMSection<Accessory: View, Content: View>: View {
 }
 
 extension AIMSection where Accessory == EmptyView {
-  init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
-    self.init(title, accessory: { EmptyView() }, content: content)
+  init(
+    _ title: String? = nil, file: StaticString = #fileID, line: UInt = #line,
+    @ViewBuilder content: () -> Content
+  ) {
+    self.init(title, file: file, line: line, accessory: { EmptyView() }, content: content)
   }
 }
 
 private struct AIMPageHeaderKey: EnvironmentKey { static let defaultValue = AnyView(EmptyView()) }
-private struct AIMCardGroupKey: EnvironmentKey { static let defaultValue = "cards" }
 private struct AIMCardIDKey: EnvironmentKey { static let defaultValue = "" }
 
 extension View {
@@ -307,13 +426,6 @@ extension EnvironmentValues {
     set { self[AIMCardIDKey.self] = newValue }
   }
 
-  /// The lint alignment group of a card's edges: "cards" for full-width pages (shared with the
-  /// search field), "column" for the centered Settings column.
-  var aimCardGroup: String {
-    get { self[AIMCardGroupKey.self] }
-    set { self[AIMCardGroupKey.self] = newValue }
-  }
-
   /// The window's top row (Add, More, search) and error bar. A page draws it inside its own
   /// content, so it always has the cards' width, with legacy or overlay scroll bars.
   var aimPageHeader: AnyView {
@@ -323,26 +435,20 @@ extension EnvironmentValues {
 }
 
 /// A scrolling page: the header pinned on top, then full-width cards 12 apart, all inside one
-/// scroll view so the header and the cards share their left and right edges. `maxWidth` makes a
-/// centered column (Settings).
+/// scroll view so the header and the cards share their left and right edges.
 struct AIMScrollPage<Content: View>: View {
-  var maxWidth: CGFloat? = nil
   @ViewBuilder var content: Content
   @Environment(\.aimPageHeader) private var header
 
+  @Environment(\.aimPageName) private var pageName
+
   var body: some View {
-    ScrollView {
+    // The 20 pt page margin is the scroll bar's gutter, so the cards keep one width whether or not
+    // the page scrolls.
+    AIMScrollView(name: pageName, gutter: AIMTheme.pageMargin, topInset: AIMTheme.topBarHeight) {
       LazyVStack(spacing: AIMTheme.cardGap, pinnedViews: [.sectionHeaders]) {
         Section {
-          if let maxWidth {
-            // The header stays full width; only the cards form the centered column.
-            VStack(spacing: AIMTheme.cardGap) { content }
-              .frame(maxWidth: maxWidth)
-              .frame(maxWidth: .infinity)
-              .environment(\.aimCardGroup, "column")
-          } else {
-            content
-          }
+          content
         } header: {
           header.frame(maxWidth: .infinity).background(AIMTheme.page)
         }
@@ -350,6 +456,187 @@ struct AIMScrollPage<Content: View>: View {
       .padding([.horizontal, .bottom], AIMTheme.pageMargin)
     }
     .modifier(PlainTopEdge())
+    // A page (or Maintenance tab) with another name gets its own scroll view and remembered offset.
+    .id(pageName)
+  }
+}
+
+private struct AIMPageNameKey: EnvironmentKey { static let defaultValue = "" }
+
+extension EnvironmentValues {
+  /// Names the page for its remembered scroll position.
+  var aimPageName: String {
+    get { self[AIMPageNameKey.self] }
+    set { self[AIMPageNameKey.self] = newValue }
+  }
+}
+
+// MARK: - Scroll bar
+
+/// Reads a SwiftUI ScrollView's AppKit scroll view: hides the system indicators, reports the
+/// offset and sizes, scrolls on request, and remembers the offset by name.
+@MainActor final class AIMScrollBarModel: ObservableObject {
+  @Published private(set) var offset: CGFloat = 0
+  @Published private(set) var content: CGFloat = 0
+  @Published private(set) var viewport: CGFloat = 0
+  var name = ""
+  private weak var scrollView: NSScrollView?
+  private var observers: [NSObjectProtocol] = []
+  private var pending: CGFloat?
+  private var restoreDeadline = Date.distantPast
+
+  var canScroll: Bool { viewport > 0 && content > viewport + 0.5 }
+  var travel: CGFloat { max(0, content - viewport) }
+
+  func attach(_ next: NSScrollView) {
+    guard scrollView !== next else { return }
+    observers.forEach(NotificationCenter.default.removeObserver)
+    observers = []
+    scrollView = next
+    quietSystemScrollers(next)
+    let clip = next.contentView
+    clip.postsBoundsChangedNotifications = true
+    var watched: [NSView] = [clip]
+    if let document = next.documentView {
+      document.postsFrameChangedNotifications = true
+      watched.append(document)
+    }
+    for view in watched {
+      for name in [NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
+        observers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) {
+          [weak self] _ in MainActor.assumeIsolated { self?.sync() }
+        })
+      }
+    }
+    if !name.isEmpty, let saved = AIMPlace.scroll[name], saved > 0 {
+      pending = saved
+      restoreDeadline = Date().addingTimeInterval(1.5)
+    }
+    sync()
+  }
+
+  /// With a mouse attached macOS uses legacy scrollers, which reserve a 17 pt strip beside the
+  /// content even when hidden; the page draws its own bar in its own gutter, so none is reserved.
+  /// SwiftUI sets the legacy style again when it updates, so every sync puts it back.
+  private func quietSystemScrollers(_ scrollView: NSScrollView) {
+    if scrollView.scrollerStyle != .overlay { scrollView.scrollerStyle = .overlay }
+    if scrollView.hasVerticalScroller { scrollView.hasVerticalScroller = false }
+    if scrollView.hasHorizontalScroller { scrollView.hasHorizontalScroller = false }
+  }
+
+  private func sync() {
+    guard let scrollView, let document = scrollView.documentView else { return }
+    let clip = scrollView.contentView
+    quietSystemScrollers(scrollView)
+    if let wanted = pending {
+      if Date() > restoreDeadline { pending = nil }
+      else if document.frame.height - clip.bounds.height >= wanted - 0.5 {
+        pending = nil
+        scroll(to: wanted)
+      }
+    }
+    let next = (clip.bounds.minY, document.frame.height, clip.bounds.height)
+    if abs(next.0 - offset) > 0.1 { offset = next.0 }
+    if abs(next.1 - content) > 0.1 { content = next.1 }
+    if abs(next.2 - viewport) > 0.1 { viewport = next.2 }
+    if pending == nil, !name.isEmpty { AIMPlace.scroll[name] = next.0 }
+  }
+
+  func scroll(to y: CGFloat) {
+    guard let scrollView else { return }
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), travel)))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+  }
+}
+
+private struct AIMScrollBinder: NSViewRepresentable {
+  let model: AIMScrollBarModel
+  let name: String
+
+  func makeNSView(context: Context) -> Probe {
+    model.name = name
+    let view = Probe()
+    view.model = model
+    return view
+  }
+
+  func updateNSView(_ view: Probe, context: Context) { view.model = model }
+
+  final class Probe: NSView {
+    var model: AIMScrollBarModel?
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      guard window != nil else { return }
+      // The scroll view exists once SwiftUI has placed the content.
+      DispatchQueue.main.async { [weak self] in
+        guard let self, let scroll = self.enclosingScrollView else { return }
+        MainActor.assumeIsolated { self.model?.attach(scroll) }
+      }
+    }
+  }
+}
+
+/// The thin bar: a transparent track in a fixed gutter and a 6 pt rounded thumb. It shows whenever
+/// the content can scroll, can be dragged, and a click on the track jumps there.
+private struct AIMScrollBar: View {
+  @ObservedObject var model: AIMScrollBarModel
+  @State private var hovering = false
+  @State private var dragStart: CGFloat?
+
+  var body: some View {
+    GeometryReader { geometry in
+      let track = geometry.size.height
+      let thumb = model.canScroll ? min(track, max(28, track * model.viewport / model.content)) : 0
+      let free = max(1, track - thumb)
+      let top = model.travel > 0 ? free * min(max(model.offset / model.travel, 0), 1) : 0
+      ZStack(alignment: .top) {
+        Color.clear
+        if model.canScroll {
+          Capsule()
+            .fill(Color(nsColor: .secondaryLabelColor).opacity(hovering || dragStart != nil ? 0.9 : 0.6))
+            .frame(width: 6, height: thumb)
+            .offset(y: top)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .contentShape(Rectangle())
+      .onHover { hovering = $0 && model.canScroll }
+      .gesture(DragGesture(minimumDistance: 0)
+        .onChanged { value in
+          guard model.canScroll else { return }
+          if dragStart == nil {
+            let inside = value.startLocation.y >= top && value.startLocation.y <= top + thumb
+            dragStart = inside ? model.offset : model.travel * min(max((value.startLocation.y - thumb / 2) / free, 0), 1)
+            if !inside { model.scroll(to: dragStart ?? 0) }
+          }
+          model.scroll(to: (dragStart ?? 0) + (value.location.y - value.startLocation.y) / free * model.travel)
+        }
+        .onEnded { _ in dragStart = nil })
+    }
+    .accessibilityHidden(true)
+  }
+}
+
+/// A vertical scroll view without system indicators. The thin bar sits in a trailing gutter of
+/// `gutter` points that is always reserved: the caller's content already leaves that margin, so the
+/// content width never changes when the bar appears.
+struct AIMScrollView<Content: View>: View {
+  var name = ""
+  var gutter: CGFloat = AIMScroller.gutter
+  /// Space above the bar's track, for a pinned top bar.
+  var topInset: CGFloat = 0
+  @ViewBuilder var content: Content
+  @StateObject private var model = AIMScrollBarModel()
+
+  var body: some View {
+    ScrollView(.vertical) {
+      content.background(AIMScrollBinder(model: model, name: name))
+    }
+    .scrollIndicators(.hidden)
+    .overlay(alignment: .trailing) {
+      AIMScrollBar(model: model).frame(width: gutter).padding(.top, topInset)
+    }
   }
 }
 
@@ -389,6 +676,7 @@ extension View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(AIMTheme.tileFill, in: shape)
       .overlay(shape.strokeBorder(AIMTheme.cardBorder, lineWidth: 0.5))
+      .uiLint(.item)
   }
 }
 
@@ -405,10 +693,11 @@ struct AIMColumn: Identifiable {
 
 enum AIMColumns {
   static let gap: CGFloat = 12
+  /// No Provider column: the group label above the rows says it. The account name and the
+  /// usage bar share the freed width.
   static let accounts: [AIMColumn] = [
     AIMColumn(id: "account", title: "Account"),
-    AIMColumn(id: "provider", title: "Provider", width: 112),
-    AIMColumn(id: "usage", title: "Usage", width: 176),
+    AIMColumn(id: "usage", title: "Usage", width: 260),
     AIMColumn(id: "resets", title: "Resets", width: 88),
     AIMColumn(id: "actions", title: "Actions", width: AIMTheme.rowButtonWidth + 8 + AIMTheme.rowControlHeight),
   ]
@@ -455,6 +744,8 @@ struct AIMTableHeader: View {
 /// from the card edge with a 4 radius so the corners stay concentric.
 struct AIMTableRow<Content: View>: View {
   var highlighted = false
+  /// Keyboard focus: a fainter fill in the same shape. Selection is a fill, never an outline.
+  var focused = false
   @ViewBuilder var content: Content
 
   var body: some View {
@@ -463,10 +754,11 @@ struct AIMTableRow<Content: View>: View {
       .frame(height: AIMTheme.rowHeight)
       .frame(maxWidth: .infinity)
       .background(alignment: .center) {
-        if highlighted {
+        if highlighted || focused {
           RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
-            .fill(AIMTheme.rowHighlight)
+            .fill(highlighted ? AIMTheme.rowHighlight : AIMTheme.focusTint)
             .padding(.horizontal, AIMTheme.tileInset)
+            .padding(.vertical, AIMTheme.highlightInset)
         }
       }
       .environment(\.aimControlHeight, AIMTheme.rowControlHeight)
@@ -490,19 +782,23 @@ struct AIMPushButtonStyle: ButtonStyle {
   /// A fixed width, so a table row's Switch button matches the Default chip.
   var width: CGFloat? = nil
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var focused
   @Environment(\.aimControlHeight) private var height
 
   func makeBody(configuration: Configuration) -> some View {
     let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
     configuration.label
+      .labelStyle(AIMButtonLabelStyle())
       .aimFont(.body)
       .foregroundStyle(prominent ? Color.white : Color.primary)
       .lineLimit(1)
       .padding(.horizontal, square ? 0 : (height < AIMTheme.controlHeight ? 10 : 12))
       .frame(width: square ? height : width, height: height)
       .background(shape.fill(fill(pressed: configuration.isPressed)))
-      .overlay(shape.strokeBorder(prominent ? Color.black.opacity(0.12) : AIMTheme.controlBorder, lineWidth: 0.5))
-      .shadow(color: .black.opacity(prominent || !isEnabled ? 0 : 0.06), radius: 0.5, y: 0.5)
+      .overlay(shape.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
+      // The rim and shadow are light-mode only; Dark Mode controls are flat fills.
+      .overlay(shape.strokeBorder(prominent ? AIMTheme.primaryBorder : AIMTheme.controlBorder, lineWidth: 0.5))
+      .shadow(color: prominent || !isEnabled ? .clear : AIMTheme.controlShadow, radius: 0.5, y: 0.5)
       .opacity(isEnabled ? 1 : 0.45)
       .contentShape(shape)
       .uiLint(.control)
@@ -511,6 +807,16 @@ struct AIMPushButtonStyle: ButtonStyle {
   private func fill(pressed: Bool) -> Color {
     if prominent { return Color.accentColor.opacity(pressed ? 0.8 : 1) }
     return pressed ? AIMTheme.controlPressed : AIMTheme.controlFill
+  }
+}
+
+/// An icon and a title 6 pt apart, the same in every button.
+struct AIMButtonLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 6) {
+      configuration.icon
+      configuration.title
+    }
   }
 }
 
@@ -595,9 +901,122 @@ struct AIMSearchField: View {
     .padding(.horizontal, 8)
     .frame(width: AIMTheme.toolbarSearchWidth, height: AIMTheme.controlHeight)
     .background(AIMTheme.controlFill, in: shape)
+    .overlay(shape.fill(focus.wrappedValue ? AIMTheme.focusTint : Color.clear).allowsHitTesting(false))
     .overlay(shape.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+    .contentShape(shape)
+    // Clicking the icon, the hint, or the padding focuses the field.
+    .onTapGesture { focus.wrappedValue = true }
     .uiLint(.control)
     .uiLint(.align("cards-end", .end))
+  }
+}
+
+/// The 28 pt text field of cards and sheets: a flat fill (hairline rim in light mode only), 8 pt
+/// side padding, keyboard focus as a tint. Use with `.textFieldStyle(.plain)`.
+struct AIMFieldChrome: ViewModifier {
+  var focused = false
+  var width: CGFloat? = nil
+
+  func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+    content
+      .aimFont(.body)
+      .padding(.horizontal, 8)
+      .frame(width: width, height: AIMTheme.controlHeight)
+      .background(AIMTheme.controlFill, in: shape)
+      .overlay(shape.fill(focused ? AIMTheme.focusTint : Color.clear).allowsHitTesting(false))
+      .overlay(shape.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+      .uiLint(.control)
+  }
+}
+
+extension View {
+  func aimFieldChrome(focused: Bool = false, width: CGFloat? = nil) -> some View {
+    modifier(AIMFieldChrome(focused: focused, width: width))
+  }
+}
+
+/// A pop-up menu button in the push-button look (the system pop-up draws a light rim in Dark Mode).
+struct AIMPopUp<Option: Hashable>: View {
+  let options: [Option]
+  @Binding var selection: Option
+  let accessibilityLabel: String
+  /// A divider follows these options.
+  var separatorAfter: Set<Option> = []
+  let label: (Option) -> String
+
+  var body: some View {
+    Menu {
+      ForEach(options, id: \.self) { option in
+        Button { selection = option } label: {
+          if option == selection {
+            Label(label(option), systemImage: AIMIcon.Name.check.symbol)
+          } else {
+            Text(label(option))
+          }
+        }
+        if separatorAfter.contains(option) { Divider() }
+      }
+    } label: {
+      HStack(spacing: 6) {
+        Text(label(selection))
+        Image(systemName: "chevron.up.chevron.down").aimFont(.secondary).foregroundStyle(.secondary)
+      }
+    }
+    .menuStyle(.button)
+    .buttonStyle(AIMPushButtonStyle())
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+/// A date field in the push-button look (the system date field draws a light rim in Dark Mode).
+/// It opens a calendar popover. `after` is the earliest date allowed.
+struct AIMDateField: View {
+  let title: String
+  @Binding var selection: Date
+  var after: Date? = nil
+  @State private var open = false
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Text(title).aimText(.body)
+      Button { open.toggle() } label: {
+        Text(selection.formatted(date: .abbreviated, time: .omitted)).monospacedDigit()
+      }
+      .buttonStyle(AIMPushButtonStyle())
+      .accessibilityLabel(title)
+      .accessibilityValue(selection.formatted(date: .long, time: .omitted))
+      .popover(isPresented: $open, arrowEdge: .bottom) {
+        DatePicker(title, selection: $selection, in: (after ?? .distantPast)..., displayedComponents: .date)
+          .datePickerStyle(.graphical).labelsHidden().padding(8)
+      }
+    }
+  }
+}
+
+/// A two-state chip that reads as a push button and fills with the accent when on.
+struct AIMChipToggleStyle: ToggleStyle {
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var focused
+
+  func makeBody(configuration: Configuration) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+    Button { configuration.isOn.toggle() } label: {
+      configuration.label
+        .aimFont(.body)
+        .padding(.horizontal, 10)
+        .frame(height: AIMTheme.rowControlHeight)
+        .background(shape.fill(configuration.isOn ? Color.accentColor.opacity(0.22) : AIMTheme.controlFill))
+        .overlay(shape.fill(focused ? AIMTheme.focusTint : Color.clear))
+        .overlay(shape.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+        .contentShape(shape)
+        .uiLint(.control)
+    }
+    .buttonStyle(.plain)
+    .opacity(isEnabled ? 1 : 0.45)
+    .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
   }
 }
 
@@ -658,15 +1077,24 @@ struct AIMSidebar: View {
         Text(page.rawValue).aimText(.body)
         Spacer(minLength: 0)
       }
-      .padding(.horizontal, 10)
-      .frame(height: 32)
-      .background(
-        selected ? Color.accentColor.opacity(0.18) : Color.clear,
-        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
+    .buttonStyle(AIMSidebarRowStyle(selected: selected))
     .accessibilityIdentifier("sidebar-\(page.rawValue)")
     .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+}
+
+/// A sidebar row: selection is an accent fill, keyboard focus a fainter fill, never an outline.
+private struct AIMSidebarRowStyle: ButtonStyle {
+  let selected: Bool
+  @Environment(\.isFocused) private var focused
+
+  func makeBody(configuration: Configuration) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+    configuration.label
+      .padding(.horizontal, 10)
+      .frame(height: 32)
+      .background(selected ? Color.accentColor.opacity(0.18) : (focused ? AIMTheme.focusTint : Color.clear), in: shape)
+      .contentShape(Rectangle())
   }
 }

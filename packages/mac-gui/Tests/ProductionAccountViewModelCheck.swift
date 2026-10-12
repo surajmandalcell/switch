@@ -47,6 +47,8 @@ struct ProductionAccountViewModelCheck {
             path: "iia-directeur-gui-check-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fileManager.removeItem(at: root) }
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try await checkAccountScopedSignIn(root: root)
+        print("ACCOUNT_SCOPED_SIGN_IN_PASS")
 
         let launched = root.appending(path: "codex-was-launched")
         let executable = root.appending(path: "bin/codex")
@@ -616,6 +618,49 @@ struct ProductionAccountViewModelCheck {
         await model.deleteAccount(accounts[2].id)
         try expect(!model.canDeleteAccount(accounts[1].id),
                    "The only remaining default can be deleted without a fallback")
+    }
+
+    @MainActor
+    private static func checkAccountScopedSignIn(root: URL) async throws {
+        let loginRoot = root.appending(path: "scoped-login")
+        let paths = ManagerPaths(
+            applicationSupport: loginRoot.appending(path: "support"),
+            credentialStore: loginRoot.appending(path: "user/.switch/codex"),
+            defaultHome: loginRoot.appending(path: "user/.codex"),
+            sharedRoot: loginRoot.appending(path: "user/.codex"),
+            orcaAccountsRoot: loginRoot.appending(path: "orca"),
+            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: loginRoot)
+        let live = try writeSource(at: paths.defaultHome, account: "target", workspace: "personal")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: paths.defaultHome.appending(path: "auth.json").path)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive },
+                                        loginRunner: .init(launch: { _, _ in }, cancel: { _ in
+                                            fatalError("Account-scoped sign-in must not cancel a CLI")
+                                        }))
+        let model = AccountViewModel(paths: paths, manager: manager)
+        await model.load()
+        let account = try expect(model.status?.accounts.first, "No synthetic account was adopted: \(model.errorMessage ?? "no load error")")
+        await model.beginSignIn(for: account.id)
+        let session = try expect(model.accountLoginSession, "Account sign-in did not start")
+        try expect(session.accountID == account.id, "Account sign-in lost its target")
+        let home = paths.applicationSupport.appending(path: "account-login/\(session.id.uuidString)/home")
+        _ = try writeSource(at: home, account: "other", workspace: "personal")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: home.appending(path: "auth.json").path)
+        await model.checkAccountLogin()
+        try expect(model.errorMessage?.contains("Signed in as other@example.test") == true,
+                   "Identity mismatch did not reach the GUI")
+        try expect(model.accountLoginSession == nil && model.pendingLoginSessions.isEmpty,
+                   "The GUI kept a discarded sign-in session")
+        try expect(try Data(contentsOf: account.credentialFile) == live,
+                   "GUI mismatch changed the managed credential")
+        try expect(try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")) == live,
+                   "GUI mismatch changed the live login")
+        model.closeAccountModal()
+        await model.beginSignIn(for: account.id)
+        try expect(model.accountLoginSession?.accountID == account.id, "Account sign-in could not restart after mismatch")
+        await model.cancelAccountLogin()
+        model.closeAccountModal()
+        await model.beginSignIn(for: ProviderID.codex)
+        try expect(model.accountLoginSession?.accountID == nil, "Add account reused an existing-account target")
     }
 
     @MainActor

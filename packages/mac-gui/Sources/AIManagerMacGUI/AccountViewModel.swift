@@ -110,6 +110,7 @@ final class AccountViewModel: ObservableObject {
     @Published var accountLoginSession: AccountLoginSession?
     @Published var accountLoginState: AccountLoginState?
     @Published var accountLoginMessage: String?
+    private var signInAccountID: UUID?
     @Published var selectedProviderID: ProviderID = .codex
     /// Providers whose login is already present on this Mac, found when Add Account opens.
     @Published private(set) var signedInProviderIDs: Set<ProviderID> = []
@@ -399,13 +400,29 @@ final class AccountViewModel: ObservableObject {
         account.verification.state == .needsSignIn || providerUsage[account.id]?.needsSignIn == true
     }
 
-    /// Re-adds the provider through the Add Account flow. Built-in providers start their sign-in
-    /// at once; others open with the provider already chosen.
+    /// Provider-scoped sign-in is reserved for adding an account.
     func beginSignIn(for providerID: ProviderID) async {
         await beginAddAccount()
         guard showImport, accountLoginSession == nil else { return }
         selectedProviderID = providerID
         if ProviderChoices.builtIn.contains(providerID) { await startAccountLogin() }
+    }
+
+    func beginSignIn(for accountID: UUID) async {
+        guard !isUnavailable else { reportUnavailable(); return }
+        guard !isBusy, let account = status?.accounts.first(where: { $0.id == accountID }) else { return }
+        resetAccountModal()
+        accountModalMode = .add
+        showImport = true
+        signInAccountID = accountID
+        selectedProviderID = account.identity.providerID
+        if let pending = pendingLoginSessions.first(where: { $0.accountID == accountID }) {
+            accountLoginSession = pending
+            accountLoginState = .waitingForLogin
+            accountLoginMessage = "Finish signing in to this account, then choose Check Now."
+        } else {
+            await startAccountLogin()
+        }
     }
 
     func beginAdvancedImport() async {
@@ -430,7 +447,12 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t start sign-in.",
                 recovery: "Confirm that \(providerName) is installed, then try again."
             ) {
-                let start = try await manager.startAccountLogin(providerID: providerID)
+                let start: AccountLoginStart
+                if let accountID = signInAccountID {
+                    start = try await manager.startAccountLogin(accountID: accountID)
+                } else {
+                    start = try await manager.startAccountLogin(providerID: providerID)
+                }
                 accountLoginSession = start.session
                 accountLoginState = .waitingForLogin
                 accountLoginMessage = "Finish signing in to \(providerName), then return here and choose Check Now."
@@ -466,7 +488,8 @@ final class AccountViewModel: ObservableObject {
             let session = AccountLoginSession(
                 id: UUID(uuidString: "45A9767B-D942-41B6-88D8-2410E367B815")!,
                 providerID: selectedProviderID,
-                createdAt: DemoData.now
+                createdAt: DemoData.now,
+                accountID: signInAccountID
             )
             accountLoginSession = session
             pendingLoginSessions = [session]
@@ -486,10 +509,18 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t complete sign-in.",
                 recovery: "Finish the \(providerName) sign-in and choose Check Now again."
             ) {
-                let check = try await manager.checkAccountLogin(
-                    id: session.id,
-                    credentialChoice: credentialChoice
-                )
+                let check: AccountLoginCheck
+                do {
+                    check = try await manager.checkAccountLogin(id: session.id, credentialChoice: credentialChoice)
+                } catch let error as AIManagerError {
+                    if case .signInIdentityMismatch = error {
+                        pendingLoginSessions.removeAll { $0.id == session.id }
+                        accountLoginSession = nil
+                        accountLoginState = .needsAttention
+                        accountLoginMessage = error.localizedDescription
+                    }
+                    throw error
+                }
                 accountLoginState = check.state
                 accountLoginMessage = check.message
                 if let account = check.account {
@@ -513,7 +544,9 @@ final class AccountViewModel: ObservableObject {
             accountLoginState = .completed
             accountLoginMessage = "Demo account access was saved in memory."
             pendingLoginSessions.removeAll { $0.id == session.id }
-            if session.providerID != .codex {
+            if let accountID = session.accountID {
+                selectedAccountID = accountID
+            } else if session.providerID != .codex {
                 selectedAccountID = addDemoProviderAccount(session.providerID).id
             } else if let account = status?.accounts.first {
                 selectedAccountID = account.id
@@ -2038,6 +2071,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     private func resetAccountLogin() {
+        signInAccountID = nil
         accountLoginSession = nil
         accountLoginState = nil
         accountLoginMessage = nil
@@ -2353,7 +2387,7 @@ enum DemoData {
                 (.tool, "read_file\nAccountWindow.swift"),
                 (.other, "Checked the modal grid and row spacing."),
                 (.user, "Keep every source row visible and give the groups more breathing room."),
-                (.assistant, "The import step now groups each source with its location and chat count. The choice stays visible while the review panel updates below it."),
+                (.assistant, "The import step now groups each source with its location and chat count. The choice stays visible while the review panel updates below it.\n\n" + (1...24).map { "Step \($0): the source list, the review count, and the selected location stay in sync after each change." }.joined(separator: "\n")),
                 (.tool, "```swift\nlet sources = discoveredSources.filter(\\.isSupported)\nfor source in sources {\n  review(source)\n}\n```"),
                 (.other, "The selected source and review count matched after switching tabs."),
                 (.user, "Check scrolling over the message and code blocks too."),

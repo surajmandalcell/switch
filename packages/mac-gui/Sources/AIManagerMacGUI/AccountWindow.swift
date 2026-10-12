@@ -67,6 +67,11 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
     window.titlebarSeparatorStyle = .none
+    // An empty unified toolbar makes macOS center the traffic lights in a 52 pt bar.
+    let toolbar = NSToolbar(identifier: "SwitchWindowToolbar")
+    toolbar.showsBaselineSeparator = false
+    window.toolbar = toolbar
+    window.toolbarStyle = .unified
     let host = NSHostingController(rootView: rootView)
     host.sizingOptions = []
     window.contentViewController = host
@@ -184,7 +189,7 @@ enum AccountSearch {
     let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace })
     guard !terms.isEmpty else { return true }
     let haystack = [
-      EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails),
+      account.identity.email ?? account.identity.accountLabel,
       account.identity.providerID.guiName, account.identity.workspaceID ?? "",
     ].joined(separator: " ").lowercased()
     return terms.allSatisfy { haystack.contains($0) }
@@ -195,29 +200,35 @@ enum AccountSearch {
   }
 }
 
-/// The main window: a native sidebar (Overview, Accounts, Conversations, Maintenance, Settings), a
+/// The main window: a native sidebar (Overview, Accounts, Settings, Maintenance, Conversations), a
 /// unified toolbar with account search, Add, and More, and the selected page.
 struct AccountWindow: View {
   @ObservedObject var model: AccountViewModel
   @StateObject private var target = WindowTarget()
   @State private var page: AIManagerPage = .overview
   @State private var searchQuery = ""
-  @State private var maintenanceSection: MaintenanceSection = .backup
+  @State private var maintenanceSection: MaintenanceSection = .cleanup
   @FocusState private var searchFocused: Bool
-  private var appearanceMode: String { AppearanceOverride.mode }
+  @AppStorage(AppearanceOverride.key) private var appearanceMode = "system"
   @Environment(\.colorScheme) private var systemScheme
   private var themeOverride: ColorScheme? {
     appearanceMode == "dark" ? .dark : (appearanceMode == "light" ? .light : nil)
   }
   private var dark: Bool { (themeOverride ?? systemScheme) == .dark }
 
+  /// A launch without an explicit page opens `launchPlace`: the last page and Maintenance tab
+  /// (UserDefaults `lastPage`, `maintenanceTab`) or the Overview.
   init(
-    model: AccountViewModel, initialPageIndex: Int = 0, initialMaintenance: MaintenanceSection = .backup
+    model: AccountViewModel, initialPageIndex: Int? = nil, initialMaintenance: MaintenanceSection? = nil
   ) {
     self.model = model
     let pages = AIManagerPage.allCases
-    _page = State(initialValue: pages.indices.contains(initialPageIndex) ? pages[initialPageIndex] : .overview)
-    _maintenanceSection = State(initialValue: initialMaintenance)
+    if let initialPageIndex {
+      _page = State(initialValue: pages.indices.contains(initialPageIndex) ? pages[initialPageIndex] : .overview)
+    } else {
+      _page = State(initialValue: AIMPlace.launchPage())
+    }
+    _maintenanceSection = State(initialValue: initialMaintenance ?? AIMPlace.maintenanceTab())
   }
 
   var body: some View {
@@ -232,6 +243,9 @@ struct AccountWindow: View {
     }
     // The content runs under the transparent title bar; the sidebar and top row clear the lights.
     .ignoresSafeArea()
+    // No focus rings or effects: a click never draws one. Keyboard focus is a tint in each
+    // control's own shape; system rings come back only with Full Keyboard Access or Increase Contrast.
+    .focusEffectDisabled(!AIMFocus.showsSystemRings)
     .sheet(isPresented: Binding(
       get: { model.showImport },
       set: { if !$0 { model.closeAccountModal() } })
@@ -266,6 +280,9 @@ struct AccountWindow: View {
     .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.focusSearch)) { _ in
       searchFocused = true
     }
+    .onChange(of: maintenanceSection) { _, tab in
+      UserDefaults.standard.set(tab.rawValue, forKey: AIMPlace.maintenanceTabKey)
+    }
     .task(id: model.hasLoaded, priority: .utility) {
       if model.hasLoaded { await model.watchActivity() }
     }
@@ -273,21 +290,25 @@ struct AccountWindow: View {
 
   private func show(_ next: AIManagerPage) {
     page = next
+    UserDefaults.standard.set(next.rawValue, forKey: AIMPlace.lastPageKey)
     NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: next)
   }
 
   @ViewBuilder private var pageView: some View {
-    switch page {
-    case .overview:
-      OverviewPage(model: model, query: searchQuery) { target in
-        if target == .maintenance { maintenanceSection = .backup }
-        show(target)
+    Group {
+      switch page {
+      case .overview:
+        OverviewPage(model: model, query: searchQuery) { target in
+          if target == .maintenance { maintenanceSection = .backup }
+          show(target)
+        }
+      case .accounts: AccountsPage(model: model, query: searchQuery)
+      case .conversations: HistoryPage(model: model)
+      case .maintenance: MaintenancePage(model: model, section: $maintenanceSection)
+      case .settings: SettingsPage(model: model)
       }
-    case .accounts: AccountsPage(model: model, query: searchQuery)
-    case .conversations: HistoryPage(model: model)
-    case .maintenance: MaintenancePage(model: model, section: $maintenanceSection)
-    case .settings: SettingsPage(model: model)
     }
+    .environment(\.aimPageName, page.rawValue)
   }
 
   /// The content's top row, lightest to heaviest from left to right: Add, More, then the 300 pt
@@ -1032,6 +1053,7 @@ struct ActivityHeatmap: View {
       }
     }
     .frame(width: 15 + CGFloat(weeks.count) * pitch - 3, height: 7 * pitch - 3)
+    .uiLint(.item)
     .overlay(alignment: .topLeading) {
       RoundedRectangle(cornerRadius: max(1, size * 0.18))
         .fill(Color.primary).frame(width: size, height: size)
@@ -1108,6 +1130,7 @@ private struct ActivityCell: View {
         }
         .frame(width: size, height: size)
         .contentShape(Rectangle())
+        .uiLint(.item)
     }
     .buttonStyle(.plain)
     .help("\(day.date.formatted(date: .complete, time: .omitted)): \(UsagePresentation.exactTokens(day.tokens)) tokens")
@@ -1365,17 +1388,43 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
   @Binding var selection: Option
   let accessibilityLabel: String
   let label: (Option) -> String
+  /// A fixed segment width, and a 14 pt icon before each title. Icons use the label color.
+  var segmentWidth: CGFloat? = nil
+  var icon: ((Option) -> AIMIcon.Name)? = nil
 
-  /// The native segmented control, for compact mutually exclusive choices.
+  /// A flat segmented control for compact mutually exclusive choices: a 28 pt track with a filled
+  /// selected segment (the system control draws a light rim in Dark Mode).
   var body: some View {
-    Picker(accessibilityLabel, selection: $selection) {
+    let track = RoundedRectangle(cornerRadius: 7, style: .continuous)
+    let segment = RoundedRectangle(cornerRadius: 5, style: .continuous)
+    HStack(spacing: 2) {
       ForEach(options, id: \.self) { option in
-        Text(label(option)).tag(option)
+        let selected = option == selection
+        Button { selection = option } label: {
+          HStack(spacing: 6) {
+            if let icon {
+              AIMIcon(name: icon(option)).aimFont(.body).foregroundStyle(Color.primary)
+                .frame(width: 14, height: 14)
+            }
+            Text(label(option)).aimFont(.body).lineLimit(1)
+          }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, segmentWidth == nil ? 12 : 0)
+            .frame(width: segmentWidth, height: AIMTheme.controlHeight - 4)
+            .background(selected ? AIMTheme.segmentSelected : Color.clear, in: segment)
+            .overlay(segment.strokeBorder(selected ? AIMTheme.controlBorder : Color.clear, lineWidth: 0.5))
+            .contentShape(segment)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
       }
     }
-    .pickerStyle(.segmented)
-    .labelsHidden()
+    .padding(2)
+    .frame(height: AIMTheme.controlHeight)
+    .background(AIMTheme.segmentTrack, in: track)
+    .uiLint(.control)
     .fixedSize()
+    .accessibilityElement(children: .contain)
     .accessibilityLabel(accessibilityLabel)
   }
 }
@@ -1385,15 +1434,9 @@ private struct TokenPeriodPicker: View {
 
   var body: some View {
     // Five periods are too many for a segmented control, so they sit in a pop-up menu.
-    Picker("Token period", selection: $selection) {
-      ForEach(CodexTokenPeriod.allCases, id: \.self) { period in
-        Text(period.label).tag(period)
-      }
-    }
-    .pickerStyle(.menu)
-    .labelsHidden()
-    .fixedSize()
-    .accessibilityLabel("Token period")
+    AIMPopUp(
+      options: CodexTokenPeriod.allCases, selection: $selection,
+      accessibilityLabel: "Token period", label: \.label)
   }
 }
 
@@ -1440,8 +1483,10 @@ struct UsageFact: View {
   let value: String
   var help: String? = nil
   var body: some View {
-    LabeledContent(label) {
-      Text(value).monospacedDigit().foregroundStyle(.secondary)
+    LabeledContent {
+      Text(value).aimText(.secondary).monospacedDigit()
+    } label: {
+      Text(label).aimText(.body)
     }
     .help(help ?? "")
   }
@@ -1452,14 +1497,16 @@ struct UsageFact: View {
 struct DetailRow: View {
   let label: String, value: String
   var body: some View {
-    LabeledContent(label) {
+    LabeledContent {
       // Paths use the system monospaced font; other values read in the system font.
       if value.hasPrefix("/") || value.hasPrefix("~/") {
         AIMCopyablePath(path: value)
       } else {
-        Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        Text(value).aimText(.secondary).lineLimit(1).truncationMode(.middle)
           .textSelection(.enabled).help(value)
       }
+    } label: {
+      Text(label).aimText(.body)
     }
   }
 }
@@ -1497,8 +1544,8 @@ private struct CleanupPage: View {
         HStack(spacing: AIMTheme.sectionSpacing) {
           CleanupRangeSelect(selection: $range).disabled(unavailable)
           if range == .custom {
-            DatePicker("From", selection: $from, displayedComponents: .date)
-            DatePicker("Through", selection: $through, in: from..., displayedComponents: .date)
+            AIMDateField(title: "From", selection: $from)
+            AIMDateField(title: "Through", selection: $through, after: from)
           }
           Spacer(minLength: 0)
           if loading { ProgressView().controlSize(.small) }
@@ -1546,14 +1593,14 @@ private struct CleanupPage: View {
                   let ids = Set(entries.map(\.id))
                   if enabled { selectedSamples.formUnion(ids) } else { selectedSamples.subtract(ids) }
                   review = nil
-                })).toggleStyle(.checkbox).frame(maxWidth: .infinity, alignment: .leading)
+                })).toggleStyle(AIMCheckboxToggleStyle()).frame(maxWidth: .infinity, alignment: .leading)
             }
             if visibleSamples.isEmpty { Text("No cached samples in this date range.").aimText(.secondary) }
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         Toggle("Shared conversation index · \(sizeText(sizes.conversationBytes))", isOn: $clearIndex)
-          .toggleStyle(.checkbox).disabled(range != .all || sizes.conversationBytes == 0)
+          .toggleStyle(AIMCheckboxToggleStyle()).disabled(range != .all || sizes.conversationBytes == 0)
           .help("Choose All time to clear search metadata. This index rebuilds when Chat History opens.")
         Text("Caches rebuild when needed. Daily activity stays saved.")
           .aimText(.secondary)
@@ -1680,7 +1727,7 @@ private struct CleanupPage: View {
                   set: { enabled in
                     if enabled { selectedConversations.insert(item.id) } else { selectedConversations.remove(item.id) }
                     review = nil
-                  })).toggleStyle(.checkbox).lineLimit(1)
+                  })).toggleStyle(AIMCheckboxToggleStyle()).lineLimit(1)
                   .disabled(item.exclusionReason != nil).help(item.exclusionReason ?? item.relativePath)
                 Spacer(minLength: 4)
                 Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted))
@@ -1696,7 +1743,7 @@ private struct CleanupPage: View {
                 let ids = Set(selectable.map(\.id))
                 if enabled { selectedConversations.formUnion(ids) } else { selectedConversations.subtract(ids) }
                 review = nil
-              })).toggleStyle(.checkbox).disabled(selectable.isEmpty).help(project)
+              })).toggleStyle(AIMCheckboxToggleStyle()).disabled(selectable.isEmpty).help(project)
                 .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
@@ -1773,15 +1820,10 @@ struct CleanupRangeSelect: View {
   @Binding var selection: CleanupDateRange
 
   var body: some View {
-    Picker("Time range", selection: $selection) {
-      ForEach(CleanupDateRange.allCases) { option in
-        Text(option.rawValue).tag(option)
-        if option == .month || option == .olderYear { Divider() }
-      }
-    }
-    .pickerStyle(.menu)
-    .fixedSize()
-    .accessibilityIdentifier("cleanup-time-range")
+    AIMPopUp(
+      options: CleanupDateRange.allCases, selection: $selection, accessibilityLabel: "Time range",
+      separatorAfter: [.month, .olderYear], label: \.rawValue)
+      .accessibilityIdentifier("cleanup-time-range")
   }
 }
 
@@ -1912,271 +1954,6 @@ enum SettingsCopy {
   ]
 }
 
-struct SettingsPage: View {
-  @ObservedObject var model: AccountViewModel
-  @StateObject private var launchAtLogin = LaunchAtLoginSettings()
-  @StateObject private var notificationPermission = QuotaNotificationPermission()
-  @AppStorage(ProviderStatusPoller.enabledKey) private var checkProviderStatus = true
-  @AppStorage(EmailPrivacy.key) private var hideEmails = false
-  @AppStorage(QuotaNotificationSettings.almostOutKey) private var notifyAlmostOut = false
-  @AppStorage(QuotaNotificationSettings.paceKey) private var notifyPace = false
-  @AppStorage(QuotaNotificationSettings.availableAgainKey) private var notifyAvailable = false
-  @AppStorage(QuotaNotificationSettings.signInAgainKey) private var notifySignIn = false
-  @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
-  @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
-  @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset.rawValue
-  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
-  @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
-  @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
-  @AppStorage(PopoverRefreshPreference.key) private var refreshOnOpen = false
-  @State private var confirmsReset = false
-  @State private var resetCount = 0
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  var body: some View {
-    // A centered column of cards: every card shares the column's left and right edges.
-    AIMScrollPage(maxWidth: 720) {
-      AIMSection("App behavior") {
-        launchAtLoginRow
-        Toggle(isOn: $minimizeToTray) {
-          Text("Minimize to Menubar")
-          Text("Hide the window and keep Switch available from its menu-bar icon.")
-            .aimText(.secondary)
-        }
-        Toggle(isOn: $showUsageAsUsed) {
-          Text("Show percentage used")
-          Text("Turn off to show the percentage left in every usage view.").aimText(.secondary)
-        }
-        Toggle(isOn: $checkProviderStatus) {
-          Text(SettingsCopy.checkProviderStatus)
-          Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary)
-        }
-        LabeledContent {
-          Picker("Reset time format", selection: $resetIsExact) {
-            Text("Countdown").tag(false)
-            Text("Exact time").tag(true)
-          }
-          .pickerStyle(.segmented).labelsHidden().fixedSize()
-          .accessibilityLabel("Reset time format")
-        } label: {
-          Text(SettingsCopy.resetTimes)
-          Text(SettingsCopy.resetTimesHelp).aimText(.secondary)
-        }
-        LabeledContent {
-          Picker("Hour format", selection: $hourFormat) {
-            ForEach(HourFormat.allCases, id: \.rawValue) { format in
-              Text(format.label).tag(format.rawValue)
-            }
-          }
-          .pickerStyle(.segmented).labelsHidden().fixedSize()
-          .accessibilityLabel("Hour format")
-        } label: {
-          Text(SettingsCopy.timeFormat)
-          Text(SettingsCopy.timeFormatHelp).aimText(.secondary)
-        }
-        LabeledContent {
-          ShortcutRecorder().id(resetCount)
-        } label: {
-          Text(SettingsCopy.menuShortcut)
-          Text(SettingsCopy.menuShortcutHelp).aimText(.secondary)
-        }
-        Toggle(isOn: $refreshOnOpen) {
-          Text(SettingsCopy.refreshOnOpen)
-          Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary)
-        }
-      }
-      AIMSection(SettingsCopy.notificationsTitle) {
-        ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { _, row in
-          Toggle(isOn: notificationBinding(row.key)) {
-            Text(row.title)
-            Text(row.help).aimText(.secondary)
-          }
-        }
-        if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
-          LabeledContent {
-            AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
-          } label: {
-            Label("Notifications are turned off for Switch in System Settings.",
-                  systemImage: AIMIcon.Name.warning.symbol)
-              .foregroundStyle(AIMTheme.amber)
-          }
-        }
-      }
-      AIMSection("Claude Code") {
-        Toggle(isOn: Binding(
-          get: { model.claudeShellIntegrationOn },
-          set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
-        ) {
-          Text(SettingsCopy.claudeShell)
-          Text(SettingsCopy.claudeShellHelp).aimText(.secondary)
-          if let error = model.claudeShellIntegrationError {
-            Text(error).aimText(.secondary, tint: AIMTheme.red)
-          }
-        }
-      }
-      AIMSection("Privacy") {
-        Toggle(isOn: $hideEmails) {
-          Text(SettingsCopy.hideEmails)
-          Text(SettingsCopy.hideEmailsHelp).aimText(.secondary)
-        }
-      }
-      AIMSection("Reset") {
-        LabeledContent {
-          AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
-        } label: {
-          Text(SettingsCopy.resetSettings)
-          Text(SettingsCopy.resetSettingsHelp).aimText(.secondary)
-        }
-      }
-      AIMSection("Menubar defaults") {
-        Toggle(isOn: $defaultShowUsage) {
-          Text("Show account usage")
-          Text("Accounts without their own choice show cached usage in Menubar.")
-            .aimText(.secondary)
-        }
-        LabeledContent {
-          Picker("Menubar token period", selection: $menuTokenPeriod) {
-            ForEach(MenuBarTokenPeriod.allCases) { period in
-              Text(period.label).tag(period.rawValue)
-            }
-          }
-          .pickerStyle(.menu).labelsHidden().fixedSize()
-          .accessibilityLabel("Menubar token period")
-        } label: {
-          Text("Token summary")
-          Text("Choose the period shown beside each account’s usage.").aimText(.secondary)
-        }
-      }
-      #if AI_MANAGER_PREVIEW
-      if model.isDemo {
-        AIMSection("Demo states") {
-          HStack(spacing: AIMTheme.rowSpacing) {
-            AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
-            AIMButton(title: "Empty state") { model.reset(to: .empty) }
-            AIMButton(title: "Issues and backups") { model.reset(to: .allStates) }
-            Spacer()
-          }
-          HStack(spacing: AIMTheme.rowSpacing) {
-            AIMButton(title: "Refresh demo data", icon: .refresh, disabled: model.isBusy) {
-              Task { await model.refresh() }
-            }
-            Spacer()
-            AIMButton(title: "Show demo error", tone: .danger) { model.showDemoError() }
-          }
-        }
-      }
-      #endif
-      AIMSection("Data locations") {
-        DataLocationRow(
-          title: "Codex home",
-          detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
-          path: model.paths.defaultHome.path
-        ) {
-          model.showDataLocation(model.paths.defaultHome, name: "Codex home")
-        }
-        DataLocationRow(
-          title: "Codex account vault",
-          detail: "Private Codex auth.json snapshots.",
-          path: model.paths.credentialStore.path
-        ) {
-          model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
-        }
-        DataLocationRow(
-          title: "Grok Build home",
-          detail: "Grok configuration, rules, plugins, sessions, and the active login.",
-          path: model.paths.grokHome.path
-        ) {
-          model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
-        }
-        DataLocationRow(
-          title: "Grok Build account vault",
-          detail: "Private Grok subscription OAuth snapshots.",
-          path: model.paths.grokCredentialStore.path
-        ) {
-          model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
-        }
-      }
-      if let notice = model.notice {
-        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
-          .transition(reduceMotion ? .identity : .opacity)
-      }
-    }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
-    .onAppear { launchAtLogin.refresh() }
-    .confirmationDialog(
-      "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
-    ) {
-      Button("Reset settings", role: .destructive, action: resetSettings)
-    } message: {
-      Text("Accounts, saved sign-ins, and Open at Login stay as they are.")
-    }
-    .onChange(of: checkProviderStatus) { model.providerStatusSettingChanged() }
-    .task {
-      await notificationPermission.refresh()
-      await model.loadClaudeShellIntegration()
-    }
-    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-      launchAtLogin.refresh()
-      Task { await notificationPermission.refresh() }
-    }
-  }
-
-  private func resetSettings() {
-    SettingsReset.reset()
-    GlobalShortcut.shared.apply(nil)
-    resetCount += 1
-    model.providerStatusSettingChanged()
-  }
-
-  /// A toggle that asks macOS for notification permission the first time it turns on.
-  private func notificationBinding(_ key: String) -> Binding<Bool> {
-    let stored: Binding<Bool>
-    switch key {
-    case QuotaNotificationSettings.almostOutKey: stored = $notifyAlmostOut
-    case QuotaNotificationSettings.paceKey: stored = $notifyPace
-    case QuotaNotificationSettings.availableAgainKey: stored = $notifyAvailable
-    default: stored = $notifySignIn
-    }
-    return Binding(
-      get: { stored.wrappedValue },
-      set: { enabled in
-        stored.wrappedValue = enabled
-        if enabled { notificationPermission.requestIfNeeded() }
-      })
-  }
-
-  @ViewBuilder private var launchAtLoginRow: some View {
-    Toggle(isOn: Binding(
-      get: { launchAtLogin.isOn },
-      set: launchAtLogin.setEnabled)
-    ) {
-      Text("Open at Login")
-      Text(launchAtLogin.detail).aimText(.secondary)
-    }
-    .disabled(!launchAtLogin.canChange)
-    if launchAtLogin.requiresApproval {
-      LabeledContent("Approval needed") {
-        AIMButton(title: "Open Login Items", action: launchAtLogin.openLoginItems)
-      }
-    }
-  }
-}
-
-private struct DataLocationRow: View {
-  let title: String
-  let detail: String
-  let path: String
-  let reveal: () -> Void
-
-  var body: some View {
-    LabeledContent {
-      AIMButton(title: "Reveal", icon: .folder, action: reveal)
-    } label: {
-      Text(title)
-      Text(detail).aimText(.secondary)
-      AIMCopyablePath(path: path)
-    }
-  }
-}
 
 private struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
@@ -2187,12 +1964,12 @@ private struct HistoryPage: View {
     AIMFixedPage {
       HStack(spacing: AIMTheme.cardGap) {
         AIMCard(
-          title: "Conversations", edges: .start,
+          title: "Conversations", edges: .start, scrolls: true,
           accessory: { threadAccessory },
           content: { threadList.frame(maxHeight: .infinity) }
         )
         .frame(width: 300)
-        AIMCard(edges: .end) {
+        AIMCard(edges: .end, scrolls: true) {
           ChatDetailPane(model: model)
             .id(model.selectedChatID)
             .frame(maxHeight: .infinity)
@@ -2253,16 +2030,21 @@ private struct HistoryPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        List(model.chatHistory.threads, selection: Binding(
-          get: { model.selectedChatID },
-          set: { if let id = $0 { Task { await model.selectChat(id) } } })
-        ) { thread in
-          ChatThreadRow(thread: thread)
+        // A lazy column in the shared scroll view: a selected row is a fill, never an outline, and
+        // the thin scroll bar sits in a fixed gutter at the trailing edge.
+        AIMScrollView(name: "threads") {
+          LazyVStack(spacing: 0) {
+            ForEach(model.chatHistory.threads) { thread in
+              ChatThreadButton(thread: thread, selected: thread.id == model.selectedChatID) {
+                Task { await model.selectChat(thread.id) }
+              }
+            }
+          }
+          // The highlight sits as far from the card edge on the left as the gutter makes it on the right.
+          .padding(.leading, AIMScroller.gutter)
+          .padding(.trailing, AIMScroller.gutter)
+          .padding(.bottom, AIMScroller.gutter)
         }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
-        // The list's own 10 pt inset plus 6 puts the highlight on the 16 pt content edge.
-        .padding(.horizontal, AIMTheme.tileInset)
       }
     }
   }
@@ -2292,20 +2074,47 @@ private struct HistorySearchField: View {
   @Binding var text: String
   let placeholder: String
 
+  @FocusState private var focused: Bool
+
   var body: some View {
-    TextField(placeholder, text: $text)
-      .textFieldStyle(.roundedBorder)
-      .overlay(alignment: .trailing) {
-        if !text.isEmpty {
-          Button { text = "" } label: {
-            Image(systemName: "xmark.circle.fill")
-          }
-          .buttonStyle(.borderless)
-          .padding(.trailing, AIMTheme.rowSpacing)
+    HStack(spacing: 6) {
+      TextField(placeholder, text: $text)
+        .textFieldStyle(.plain)
+        .focused($focused)
+      if !text.isEmpty {
+        Button { text = "" } label: { Image(systemName: "xmark.circle.fill").aimFont(.body) }
+          .buttonStyle(.plain).foregroundStyle(.secondary)
           .help("Clear search")
           .accessibilityLabel("Clear search")
-        }
       }
+    }
+    .aimFieldChrome(focused: focused)
+    .contentShape(Rectangle())
+    .onTapGesture { focused = true }
+  }
+}
+
+/// A thread row of the list: a fill when selected or focused with the keyboard, never an outline.
+private struct ChatThreadButton: View {
+  let thread: ChatThreadSummary
+  let selected: Bool
+  let action: () -> Void
+  @State private var hovered = false
+
+  var body: some View {
+    Button(action: action) {
+      ChatThreadRow(thread: thread)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, AIMTheme.tileInset)
+        .frame(height: 44)
+        .background(
+          selected ? AIMTheme.rowHighlight : (hovered ? AIMTheme.tileFill : Color.clear),
+          in: RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous))
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovered = $0 }
+    .accessibilityAddTraits(selected ? .isSelected : [])
   }
 }
 
@@ -2355,6 +2164,8 @@ private struct ChatDetailPane: View {
   @State private var isSearching = false
   @State private var presentations: [String: ChatMessagePresentation] = [:]
   @State private var presentationRevision = 0
+  /// Long messages the reader opened with Show more.
+  @State private var expandedMessages: Set<String> = []
 
   init(model: AccountViewModel) {
     self.model = model
@@ -2406,7 +2217,7 @@ private struct ChatDetailPane: View {
           }
         }
 
-        HStack(spacing: 6) {
+        HStack(spacing: AIMTheme.rowSpacing) {
           Text("Show").aimText(.secondary)
           ForEach(ChatFilterChoice.allCases) { choice in
             ChatFilterButton(
@@ -2432,6 +2243,7 @@ private struct ChatDetailPane: View {
         AIMVirtualList(
           items: detailItems(detail), rowSpacing: 0,
           contentRevision: presentationRevision,
+          restoreKey: "messages-\(model.selectedChatID ?? "")",
           onReachEnd: { Task { await model.loadMoreChatMessages() } }
         ) { item in
           AnyView(detailRow(item))
@@ -2516,7 +2328,12 @@ private struct ChatDetailPane: View {
         message: message,
         presentation: presentations[message.id],
         fallbackText: model.renderedChatMessages[message.id] ?? AttributedString(message.text),
-        separated: separated)
+        separated: separated,
+        expanded: expandedMessages.contains(message.id),
+        toggleExpanded: {
+          if !expandedMessages.insert(message.id).inserted { expandedMessages.remove(message.id) }
+          presentationRevision &+= 1
+        })
     case let .empty(text):
       VStack(spacing: 6) {
         AIMIcon(name: .search).aimText(.section).foregroundStyle(.secondary)
@@ -2654,7 +2471,7 @@ private struct ChatFilterButton: View {
 
   var body: some View {
     Toggle(choice.rawValue, isOn: Binding(get: { selected }, set: { _ in action() }))
-      .toggleStyle(.button)
+      .toggleStyle(AIMChipToggleStyle())
       .accessibilityLabel("Show \(choice.rawValue.lowercased())")
   }
 }
@@ -2679,7 +2496,8 @@ private struct ChatFilteredCopyButton: View {
       Label(copied ? "Copied" : "Copy shown",
         systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
     }
-    .buttonStyle(.bordered)
+    // The shared 28 pt push button: even side padding and a 6 pt icon-to-label gap.
+    .buttonStyle(AIMPushButtonStyle())
     .disabled(messages.isEmpty)
     .help("Copy the messages currently shown")
     .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
@@ -2691,7 +2509,17 @@ private struct ChatMessageRow: View {
   let presentation: ChatMessagePresentation?
   let fallbackText: AttributedString
   let separated: Bool
+  /// A very long message shows a collapsed preview with Show more; the copy button always copies
+  /// the full original text.
+  let expanded: Bool
+  let toggleExpanded: () -> Void
   @State private var hovered = false
+
+  static let collapsedHeight: CGFloat = 260
+
+  private var isLong: Bool {
+    message.text.utf8.count > 1_800 || message.text.utf8.reduce(0) { $1 == 10 ? $0 + 1 : $0 } > 16
+  }
 
   var body: some View {
     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
@@ -2705,15 +2533,43 @@ private struct ChatMessageRow: View {
       }
       .aimText(.secondary)
 
-      ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-        .padding(.horizontal, AIMTheme.sectionSpacing)
-        .padding(.vertical, AIMTheme.rowSpacing + 2)
-        .frame(maxWidth: message.role == .user ? 460 : 620, alignment: .leading)
-        .background(messageSurface)
-        .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+      VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+        if isLong && !expanded {
+          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(height: Self.collapsedHeight, alignment: .top)
+            .clipped()
+            // The preview fades out instead of cutting a line in half.
+            .mask(alignment: .top) {
+              VStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                  .frame(height: 40)
+              }
+            }
+        } else {
+          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
+        }
+        if isLong {
+          Button(action: toggleExpanded) {
+            Text(expanded ? "Show less" : "Show more")
+              .aimFont(.body).foregroundStyle(AIMTheme.linkColor)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(expanded ? "Show less of this message" : "Show the whole message")
+        }
+      }
+      .padding(.horizontal, AIMTheme.sectionSpacing)
+      .padding(.vertical, AIMTheme.rowSpacing + 2)
+      .frame(maxWidth: message.role == .user ? 460 : 620, alignment: .leading)
+      .background(messageSurface)
+      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
     }
     .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
-    .padding(.horizontal, AIMTheme.sectionSpacing)
+    // The right side gives the scroll bar gutter back, so a bubble ends on the card's 16 pt inset.
+    .padding(.leading, AIMTheme.sectionSpacing)
+    .padding(.trailing, AIMTheme.sectionSpacing - AIMScroller.gutter)
     .padding(.top, separated ? 10 : 4)
     .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     .onHover { hovered = $0 }
@@ -2961,10 +2817,10 @@ private struct BackupPage: View {
   }
 }
 
-/// Maintenance: backup and recovery, and Cleanup.
+/// Maintenance: Cleanup first, then backup and recovery.
 enum MaintenanceSection: String, CaseIterable {
-  case backup = "Backup"
   case cleanup = "Cleanup"
+  case backup = "Backup"
 }
 
 private struct MaintenancePage: View {
@@ -2977,7 +2833,9 @@ private struct MaintenancePage: View {
       HStack {
         AIMSegmentedPicker(
           options: MaintenanceSection.allCases, selection: $section,
-          accessibilityLabel: "Maintenance section", label: \.rawValue)
+          accessibilityLabel: "Maintenance section", label: \.rawValue, segmentWidth: 120,
+          icon: { $0 == .cleanup ? .cleanup : .backup })
+          .uiLint(.align("cards-start", .start))
         Spacer(minLength: 0)
       }
       switch section {
@@ -2985,6 +2843,8 @@ private struct MaintenancePage: View {
       case .cleanup: CleanupPage(model: model)
       }
     }
+    // Each tab remembers its own scroll position.
+    .environment(\.aimPageName, "maintenance-\(section.rawValue)")
   }
 }
 

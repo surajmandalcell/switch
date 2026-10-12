@@ -5,7 +5,20 @@ enum UILintEdge: String { case start, center, end }
 enum UILintTag: Hashable {
     case card(radius: CGFloat), tile(radius: CGFloat)
     case control, actions, stack, number
+    /// Visible content such as an icon or a bar, for the card padding check.
+    case item
+    /// A card whose content scrolls to its edges, so the padding check skips it.
+    case scrolls
     case align(String, UILintEdge)
+}
+
+private struct UILintSuppressedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    /// Off-screen measuring hosts set this so their layout never reaches the lint export.
+    var uiLintSuppressed: Bool {
+        get { self[UILintSuppressedKey.self] }
+        set { self[UILintSuppressedKey.self] = newValue }
+    }
 }
 
 extension View {
@@ -81,8 +94,13 @@ private struct UILintRecorder: ViewModifier {
     var monospaced = false
     var tint: Color? = nil
     @State private var id = UUID()
+    @Environment(\.uiLintSuppressed) private var suppressed
 
     func body(content: Content) -> some View {
+        if suppressed { content } else { recorded(content) }
+    }
+
+    private func recorded(_ content: Content) -> some View {
         content.background {
             GeometryReader { geometry in
                 Color.clear
@@ -109,6 +127,8 @@ private struct UILintRecorder: ViewModifier {
             case .actions: names.append(["name": "actions"])
             case .stack: names.append(["name": "stack"])
             case .number: names.append(["name": "number"])
+            case .item: names.append(["name": "item"])
+            case .scrolls: names.append(["name": "scrolls"])
             case .align(let group, let edge): names.append(["name": "align", "group": group, "edge": edge.rawValue])
             }
         }

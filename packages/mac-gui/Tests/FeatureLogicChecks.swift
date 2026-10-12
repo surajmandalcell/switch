@@ -47,9 +47,14 @@ enum FeatureLogicChecks {
         try expect(EmailPrivacy.mask("alice@example.com") == "a••••@example.com", "Email mask has the wrong shape")
         try expect(EmailPrivacy.mask("no-at-sign") == "no-at-sign" && EmailPrivacy.mask("@x.com") == "@x.com",
                    "A non-email was masked")
-        try expect(EmailPrivacy.display("alice@example.com", hide: false) == "alice@example.com",
+        try expect(EmailPrivacy.display("alice@example.com", hide: false, showDomains: true) == "alice@example.com",
                    "Emails were masked while the setting is off")
         let sentence = "Signed in as bob.smith@corp.example.org and a@b.co now"
+        try expect(EmailPrivacy.display(sentence, hide: false, showDomains: false)
+                   == "Signed in as bob.smith and a now", "Email domains were not removed")
+        try expect(EmailPrivacy.display("alice@example.com", hide: true, showDomains: true)
+                   == EmailPrivacy.display("alice@example.com", hide: true, showDomains: false),
+                   "Show email domains overrides privacy")
         let masked = EmailPrivacy.display(sentence, hide: true)
         try expect(masked == "Signed in as b••••@corp.example.org and a••••@b.co now", "Embedded emails: \(masked)")
         try expect(EmailPrivacy.display(masked, hide: true) == masked, "Masking is not idempotent")
@@ -58,12 +63,20 @@ enum FeatureLogicChecks {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         try expect(!EmailPrivacy.isEnabled(defaults: defaults), "Hide email addresses is not off by default")
+        try expect(!EmailPrivacy.showsDomains(defaults: defaults), "Show email domains is not off by default")
+        defaults.set(true, forKey: EmailPrivacy.domainsKey)
+        try expect(EmailPrivacy.showsDomains(defaults: defaults), "Show email domains cannot be enabled")
         let identity = AccountIdentity(email: "carol@example.com", userID: "u", accountID: "a", authMode: .chatGPT)
         UserDefaults.standard.set(true, forKey: EmailPrivacy.key)
         let hidden = identity.accountLabel
         UserDefaults.standard.removeObject(forKey: EmailPrivacy.key)
-        try expect(hidden == "c••••@example.com" && identity.accountLabel == "carol@example.com",
+        try expect(hidden == "c••••@example.com" && identity.accountLabel == "carol",
                    "accountLabel does not follow the privacy setting")
+        UserDefaults.standard.set(true, forKey: EmailPrivacy.domainsKey)
+        let full = identity.accountLabel
+        UserDefaults.standard.removeObject(forKey: EmailPrivacy.domainsKey)
+        try expect(full == "carol@example.com" && identity.accountLabel == "carol",
+                   "accountLabel does not follow Show email domains")
     }
 
     private static func settingDefaults() throws {
