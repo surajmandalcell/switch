@@ -342,10 +342,18 @@ two accounts never collapse or clip.
 
 ## 4. Visual system
 
-Switch follows the macOS Human Interface Guidelines and the owner's 2026-10-11 mockups of
-the menu bar popover and an Overview window. Native components and system styling replace the
-earlier Soft rectangles design, its custom palettes, Inter and PT Mono, custom window chrome,
-custom hover fades, and the body translucency setting.
+Switch follows the macOS Human Interface Guidelines, the owner's menu bar popover mockup, and
+the owner's Overview concept (`docs/design/overview-concept.png`). The window stays close to the
+concept and looks like macOS Sequoia 15 on every macOS version: no Liquid Glass, a translucent
+sidebar, a light grey content background (dark grey in Dark Mode), white grouped cards with a
+hairline border (a slightly lighter fill in Dark Mode), and Sequoia-style push buttons, menus, and
+search field. Where the running macOS draws a newer glass style, Switch draws the Sequoia style
+itself. System semantic colors and the user's accent color, in light and dark.
+
+**Design gate:** lintapple (`packages/mac-gui/ui-lint`) checks the HTML reference of the window
+(Overview plus the shared parts in their other states) and a mirror page exported from the real
+SwiftUI layout of every window page. Both pass with zero findings in light
+and dark before a UI change ships.
 
 - **Type and color:** exactly five text roles, all macOS text styles, used the same way on
   every screen and in the popover: Title (Title 2 semibold, 17 pt, at most once per page, for
@@ -353,26 +361,38 @@ custom hover fades, and the body translucency setting.
   Body (13 pt regular, every row label, value, and button), Secondary (Subheadline, 11 pt, in
   the secondary color, for providers, descriptions, and reset text), and Caption (10 pt, badges
   only). Numbers keep their role and add monospaced digits; only paths and IDs use the
-  monospaced font. No other sizes or weights. Settings and detail facts use native grouped
-  forms; lists use native List, Table, and sidebar styles at their default row heights. Content
-  uses 20 pt margins, 16 pt between sections, and 8 pt inside rows. System semantic colors and
-  the user's accent color in light and dark. Remaining-quota bars are green above 50% left, yellow from 20% to
-  50%, and red below 20%; the pace verdict uses the same colors; an unknown value shows an empty
-  grey track. Show percentage used flips text and fill to the used share.
-- **Window:** a standard titled window with traffic lights, a unified toolbar, and a translucent
-  sidebar with SF Symbols. The toolbar holds a "Search accounts…" field at least 300 pt wide
-  (Command-K focuses it; it filters every account list), an Add button, and a More menu.
-  Content uses native grouped forms (System Settings style) and native tables; Overview and
-  the account detail fill the content width, Settings stays a centered grouped form.
-- **Overview (simplified on owner request):** two cards only. (1) The focused account: provider
-  icon tile, name with a chevron menu that picks another account, provider and a green Active
-  dot or an attention badge, then one simple row per window (label, bar, "N% left", reset), and
-  actions: a Default badge or Make Default (prominent), Open <tool>, and a More menu (Copy,
-  Show in Menubar, Refresh, Check, Delete). (2) Accounts: a native table with Account (icon,
-  name, provider as a second line), Usage (primary window bar and percent), Resets, and a
-  Default badge or Switch button. Activity and maintenance live on their own pages.
-- **Accounts, Conversations, Maintenance, Settings:** the existing pages restyled with the same
-  native cards, lists, and controls.
+  monospaced font. No other sizes or weights. Buttons and the Default state chip use Body.
+  Remaining-quota bars are 6 pt capsules, green above 50% left, yellow from 20% to 50%, and red
+  below 20%; the pace verdict uses the same colors; an unknown value shows an empty grey track.
+  Show percentage used flips text and fill to the used share.
+- **Geometry (points):** content margins 20, 12 between cards. A card has a 10 radius and a
+  16 inset; its title row (Section title left, Secondary count or an accent "View … →" link
+  right) is 44 tall. Every card spans the full content width, and its title, column headers,
+  rows, and separators share the same 16 inset, so no header is wider than its body. Rows are
+  36 tall with hairline separators. Push buttons are 28 tall in cards and 22 tall in table rows;
+  icon buttons are square. A tile inside a card sits 6 in with a 4 radius, so corners stay
+  concentric, and its text lines up with the card's 16 inset.
+- **Window:** traffic lights over a translucent 220 pt sidebar headed "Switch", with SF Symbol
+  rows Overview, Accounts, Conversations, Maintenance, Settings. No toolbar bar: the content's
+  top row holds, from the right edge in, a "Search accounts…" field 300 pt wide with a ⌘K hint
+  (Command-K focuses it; it filters every account list), then a More menu and an Add button to
+  its left, so the bar reads lightest to heaviest. Settings stays a centered grouped form.
+- **Overview:** five cards, as in the concept. (1) Focused account: a 44 pt provider icon tile,
+  the name (Title) with a chevron menu that picks another account, the provider (Secondary) with
+  a green Active dot or an attention badge; a hairline divider, then the primary window (label,
+  "N% left", bar, reset text). An action row: "Using as default" with a checkmark (prominent,
+  inert) or Make Default (prominent), Open <tool>; on the right Copy, then a More menu (Show in
+  Menubar, Refresh, Check, Delete), which comes last in cards and table rows. (2) Accounts: title with the count, then a table with
+  columns Account (20 pt icon and name), Provider, Usage (bar and percent), Resets, and Actions
+  (a green Default chip or a Switch button, plus a More menu); clicking a row focuses it.
+  (3) Current limits of the focused account: up to three window tiles (label, "N% left", bar,
+  reset) and "View all limits →". (4) Recent activity for the focused account's tool from local
+  history: Today, Yesterday, and Last 30 days with tokens and an estimated cost, and "View full
+  history →"; a tool without local history says so in one Secondary line. (5) Maintenance: a
+  green check and "All systems operational" or a yellow warning naming pending backup work,
+  plus Open Backup.
+- **Accounts, Conversations, Maintenance, Settings:** the same cards, tables, rows, and buttons
+  as the Overview.
 - **Menu bar popover:** native popover material, about 360 pt wide. Each row with Show in
   Menubar on has a 40-point rounded provider icon tile, the account name (headline) over the
   provider (secondary), the primary reset countdown at the top right, then one line per window
@@ -431,7 +451,7 @@ compatible emulators.
 
 Automated tests use synthetic credentials and isolated homes. A UI change must pass the
 focused Mac GUI contract, production and Preview model checks, System/Light/Dark snapshots,
-and the full native gate before installation. Core or CLI changes additionally pass both
+the lintapple design gate (section 4), and the full native gate before installation. Core or CLI changes additionally pass both
 unprivileged read-only Linux Docker architectures. A public GitHub release may use an ad hoc
 signature when Developer ID signing is unavailable. Keep end-user install copy concise and
 do not add warning blocks about signing or Gatekeeper.
