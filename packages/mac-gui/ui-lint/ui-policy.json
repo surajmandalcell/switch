@@ -1,0 +1,88 @@
+{
+  "fonts": [
+    "-apple-system",
+    "BlinkMacSystemFont",
+    "system-ui",
+    "SF Pro Text",
+    "SF Pro Display",
+    "SF Pro",
+    "SF Mono",
+    "ui-monospace"
+  ],
+  "fontSizes": [
+    10,
+    11,
+    13,
+    17
+  ],
+  "typeRules": [
+    {
+      "selector": "h1",
+      "sizes": [
+        17
+      ]
+    },
+    {
+      "selector": "h2",
+      "sizes": [
+        13
+      ]
+    },
+    {
+      "selector": "button, [role=button]",
+      "sizes": [
+        13
+      ]
+    }
+  ],
+  "minControlSize": 20,
+  "controlSizeRules": [],
+  "minControlGap": 8,
+  "minControlInset": 8,
+  "controlContainers": [
+    "[data-ui-container]"
+  ],
+  "minLayoutGap": 8,
+  "bannedCopy": [
+    "unlock your potential",
+    "seamlessly",
+    "game-changing"
+  ],
+  "viewports": [
+    {
+      "width": 1080,
+      "height": 760
+    },
+    {
+      "width": 860,
+      "height": 560
+    }
+  ],
+  "colorSchemes": [
+    "light",
+    "dark"
+  ],
+  "exceptions": [
+    {
+      "selector": ".sec, .sec *, th, th span, .search kbd, .search input",
+      "rules": [
+        "text-contrast"
+      ],
+      "reason": "secondaryLabelColor is the system secondary text color. It measures 3.9:1 on white in Light Mode. Switch uses the system color, so the SwiftUI app matches."
+    },
+    {
+      "selector": ".btn.prominent",
+      "rules": [
+        "text-contrast"
+      ],
+      "reason": "A prominent push button is white text on controlAccentColor (#007AFF), 4.0:1. This is the system pair that SwiftUI draws."
+    },
+    {
+      "selector": ".sidebar .brand, .sidebar a",
+      "rules": [
+        "text-contrast"
+      ],
+      "reason": "The sidebar is a translucent material with a color wash, so axe cannot resolve its background. Contrast is checked by eye on the 2x screenshots."
+    }
+  ]
+}

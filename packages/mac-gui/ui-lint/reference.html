@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switch window reference</title>
+<style>
+/*
+ System colors measured on this Mac with NSColor, converted to sRGB (scratchpad colors.swift).
+ The SwiftUI app reads the same NSColors, so these are the target values.
+                                   aqua (light)            darkAqua (dark)
+ windowBackgroundColor             #FFFFFF                 #1E1E1E
+ controlBackgroundColor            #FFFFFF                 #1E1E1E
+ underPageBackgroundColor          #F6F6F6                 #282828
+ separatorColor                    #000000 a0.098          #FFFFFF a0.098
+ gridColor                         #E6E6E6                 #1A1A1A
+ labelColor                        #000000 a0.847          #FFFFFF a0.847
+ secondaryLabelColor               #000000 a0.498          #FFFFFF a0.549
+ tertiaryLabelColor                #000000 a0.259          #FFFFFF a0.247
+ quaternaryLabelColor              #000000 a0.098          #FFFFFF a0.098
+ controlAccentColor                #007AFF                 #007AFF
+ systemGreen                       #34C759                 #30D158
+ systemYellow                      #FFCC00                 #FFD600
+ systemRed                         #FF383C                 #FF4245
+ systemOrange                      #FF8D28                 #FF9230
+ selectedContentBackgroundColor    #0064E1                 #0059D1
+ unemphasizedSelectedContentBg     #DCDCDC                 #464646
+ controlColor (push button fill)   #FFFFFF                 #FFFFFF a0.247
+ linkColor                         #0068DA                 #419CFF
+ Interpretation: this Mac reports windowBackgroundColor as white in light. Sequoia 15 itself draws
+ #ECECEC, so the light content background uses underPageBackgroundColor (#F6F6F6) and the dark
+ card fill uses underPageBackgroundColor (#282828) over the #1E1E1E window background.
+ The sidebar is a material, not a color: --sidebar and its wash approximate Sequoia vibrancy.
+*/
+:root {
+  color-scheme: light dark;
+  --page: #F6F6F6;
+  --card: #FFFFFF;
+  --sidebar: #ECECEF;
+  --wash: linear-gradient(165deg, rgba(120, 140, 255, .12), rgba(255, 130, 170, .07) 45%, rgba(90, 170, 255, .13));
+  --label: rgba(0, 0, 0, .847);
+  --sec: rgba(0, 0, 0, .498);
+  --quat: rgba(0, 0, 0, .098);
+  --quin: rgba(0, 0, 0, .047);
+  --sep: rgba(0, 0, 0, .098);
+  --accent: #007AFF;
+  --link: #0068DA;
+  --green: #34C759;
+  --yellow: #FFCC00;
+  --red: #FF383C;
+  --orange: #FF8D28;
+  --green-text: color-mix(in srgb, #34C759 50%, #000);
+  --orange-text: color-mix(in srgb, #FF8D28 50%, #000);
+  --control: #FFFFFF;
+  --control-edge: rgba(0, 0, 0, .13);
+  --control-shadow: 0 1px 1px rgba(0, 0, 0, .09), 0 0 0 .5px rgba(0, 0, 0, .04);
+  --control-hi: none;
+  --sel-row: color-mix(in srgb, #007AFF 11%, transparent);
+  --tile: rgba(0, 0, 0, .027);
+  --card-edge: rgba(0, 0, 0, .098);
+  --card-shadow: 0 .5px 1px rgba(0, 0, 0, .05);
+  --track: rgba(0, 0, 0, .098);
+  --switch-off: rgba(0, 0, 0, .098);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #1E1E1E;
+    --card: #282828;
+    --sidebar: #2B2B2E;
+    --wash: linear-gradient(165deg, rgba(120, 140, 255, .16), rgba(255, 130, 170, .09) 45%, rgba(90, 170, 255, .17));
+    --label: rgba(255, 255, 255, .847);
+    --sec: rgba(255, 255, 255, .549);
+    --quat: rgba(255, 255, 255, .098);
+    --quin: rgba(255, 255, 255, .047);
+    --sep: rgba(255, 255, 255, .098);
+    --link: #419CFF;
+    --green: #30D158;
+    --yellow: #FFD600;
+    --red: #FF4245;
+    --orange: #FF9230;
+    --green-text: color-mix(in srgb, #30D158 60%, #fff);
+    --orange-text: #FF9230;
+    --control: rgba(255, 255, 255, .247);
+    --control-edge: rgba(255, 255, 255, .06);
+    --control-shadow: 0 1px 1px rgba(0, 0, 0, .25);
+    --control-hi: inset 0 .5px 0 rgba(255, 255, 255, .16);
+    --sel-row: color-mix(in srgb, #007AFF 16%, transparent);
+    --tile: rgba(255, 255, 255, .047);
+    --card-edge: rgba(255, 255, 255, .098);
+    --card-shadow: none;
+    --track: rgba(255, 255, 255, .098);
+    --switch-off: rgba(255, 255, 255, .247);
+  }
+}
+* { box-sizing: border-box; }
+html { background-color: var(--page); }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  font: 400 13px/16px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro Text", "SF Pro", sans-serif;
+  color: var(--label);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; margin: 0; }
+button { cursor: default; }
+h1, h2 { margin: 0; }
+/* five text roles: Title 17/600, Section 13/700, Body 13/400, Secondary 11/400, Caption 10/400 */
+h1 { font: 600 17px/22px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro Display", sans-serif; }
+h2 { font: 700 13px/16px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro Text", sans-serif; }
+.sec { font-size: 11px; line-height: 14px; color: var(--sec); }
+.cap { font-size: 10px; line-height: 12px; }
+[data-ui-number], td, th { font-variant-numeric: tabular-nums; }
+.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.tip { display: none; }
+
+/* window */
+.window { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100vh; }
+.sidebar { position: relative; background: var(--sidebar); border-right: 1px solid var(--sep); display: flex; flex-direction: column; }
+.sidebar::before { content: ""; position: absolute; inset: 0; background: var(--wash); pointer-events: none; }
+.sidebar > * { position: relative; }
+.chrome { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 20px; }
+.light { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .22); }
+.light.r { background: #FF5F57; } .light.y { background: #FEBC2E; } .light.g { background: #28C840; }
+.brand { margin-left: 12px; font-weight: 700; }
+.sidebar ul { list-style: none; margin: 0; padding: 0 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar a { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 6px; color: var(--label); text-decoration: none; }
+.sidebar a .i { width: 17px; height: 17px; color: var(--accent); }
+.sidebar a[aria-current="page"] { background: color-mix(in srgb, var(--accent) 17%, transparent); }
+
+.content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.topbar { height: 52px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 20px; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 20px; }
+.cards { display: flex; flex-direction: column; gap: 12px; }
+
+/* controls: Sequoia push button bezel */
+.btn, .ibtn, .popup {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 12px; border-radius: 6px; white-space: nowrap;
+  background: var(--control); border: .5px solid var(--control-edge); box-shadow: var(--control-shadow), var(--control-hi);
+  color: var(--label);
+}
+.btn, .ibtn, .popup, .chip { flex: none; }
+.ibtn { width: 28px; padding: 0; }
+.btn.sm, .popup.sm { height: 22px; padding: 0 10px; border-radius: 5px; }
+.ibtn.sm { width: 22px; height: 22px; border-radius: 5px; }
+.btn.prominent { background: var(--accent); border-color: rgba(0, 0, 0, .12); color: #fff; box-shadow: 0 1px 1px rgba(0, 0, 0, .12), inset 0 .5px 0 rgba(255, 255, 255, .28); }
+.btn.flat { background: transparent; border-color: transparent; box-shadow: none; }
+.btn .i, .popup .i { width: 14px; height: 14px; }
+.btn.sm { min-width: 56px; }
+.chip { display: inline-flex; align-items: center; justify-content: center; min-width: 56px; height: 22px; padding: 0 10px; border-radius: 5px; background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green-text); }
+.has-tip { position: relative; }
+.has-tip:hover > .tip, .has-tip:focus-visible > .tip { display: block; position: absolute; top: calc(100% + 6px); right: 0; z-index: 2; padding: 3px 8px; border-radius: 5px; background: var(--card); border: .5px solid var(--sep); box-shadow: 0 2px 8px rgba(0, 0, 0, .2); font-size: 11px; line-height: 14px; white-space: nowrap; }
+.search { display: flex; align-items: center; gap: 6px; width: 300px; height: 28px; padding: 0 8px; border-radius: 6px; background: var(--card); border: .5px solid var(--control-edge); box-shadow: inset 0 .5px 1px rgba(0, 0, 0, .06); }
+.search .i { color: var(--sec); width: 14px; height: 14px; }
+.search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: 0; padding: 0; }
+.search input::placeholder { color: var(--sec); opacity: 1; }
+.search kbd { font: inherit; font-size: 11px; line-height: 14px; color: var(--sec); }
+.switch { position: relative; width: 38px; height: 22px; padding: 0; border-radius: 11px; border: 0; background: var(--switch-off); }
+.switch i { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
+.switch[aria-checked="true"] { background: var(--green); }
+.switch[aria-checked="true"] i { left: 18px; }
+.popup .i { color: var(--sec); }
+
+/* card */
+.card { background: var(--card); border: 1px solid var(--card-edge); border-radius: 10px; box-shadow: var(--card-shadow); overflow: hidden; padding-bottom: 1px; }
+.card-body { border-radius: 9px; }
+.card.well { padding: 5px; }
+.card.well .card-body { border-radius: 4px; }
+.card-title { height: 44px; margin: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card-title.rule { border-bottom: 1px solid var(--sep); }
+.card-title .lead { display: flex; align-items: baseline; gap: 6px; }
+.link { color: var(--link); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+.link .i { width: 12px; height: 12px; }
+.well .card-title { margin: 0 10px; }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th { height: 28px; padding: 0; text-align: left; font-weight: 400; font-size: 11px; line-height: 14px; color: var(--sec); }
+td { height: 36px; padding: 0; }
+th, td { white-space: nowrap; }
+th:first-child, td:first-child { padding-left: 16px; }
+th:last-child, td:last-child { padding-right: 16px; }
+/* every cell holds one wrapper; its bottom border is the row separator, so separators share the cell insets */
+th > *, td > * { display: flex; align-items: center; border-bottom: 1px solid var(--sep); }
+th > * { height: 28px; }
+td > * { height: 36px; }
+tbody tr:last-child td > *, tr.sel td > *, tr:has(+ tr.sel) td > * { border-bottom-color: transparent; }
+tr.sel td { background: var(--sel-row); }
+th.end > *, td.end > * { justify-content: flex-end; }
+td.num { text-align: right; }
+.acct { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 12px; }
+.acct .name { overflow: hidden; text-overflow: ellipsis; }
+.ptile { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; flex: none; background: var(--quat); }
+.ptile .i { width: 13px; height: 13px; }
+.ptile.claude, .tile44.claude { background: color-mix(in srgb, var(--orange) 16%, transparent); color: var(--orange); }
+.use { display: flex; align-items: center; gap: 8px; padding-right: 16px; }
+.use .pct { min-width: 36px; text-align: right; }
+.acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+
+/* quota bar: 6 pt capsule, color by share left */
+.bar { display: block; flex: none; width: 72px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 3px; background: var(--green); }
+.bar.y i { background: var(--yellow); }
+.bar.r i { background: var(--red); }
+.bar.wide { width: 100%; }
+
+/* focused account */
+.focus { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.focus-top { display: flex; align-items: center; gap: 12px; }
+.tile44 { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--quat); }
+.tile44 .i { width: 24px; height: 24px; }
+.who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.who .id { display: flex; align-items: center; gap: 2px; }
+.who .id .ibtn { width: 24px; height: 24px; background: transparent; border-color: transparent; box-shadow: none; color: var(--sec); }
+.who .prov { display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
+.badge { display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange-text); }
+.vdiv { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--sep); flex: none; }
+.winblock { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
+.winblock .line, .tile .line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.focus-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+[data-ui-actions] { display: flex; align-items: center; gap: 8px; }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tile { border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--tile); border: .5px solid var(--sep); min-width: 0; }
+
+/* rows */
+.row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 16px; }
+.row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.status { width: 28px; height: 28px; flex: none; }
+.status.ok { color: var(--green); }
+.status.warn { color: var(--yellow); }
+.cellicon { display: flex; align-items: center; gap: 12px; }
+.cellicon .i { color: var(--sec); width: 16px; height: 16px; }
+.form-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 36px; margin: 0 16px; }
+.form-row + .form-row { border-top: 1px solid var(--sep); height: 37px; }
+code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; font-size: 13px; line-height: 16px; }
+.empty { display: flex; align-items: center; height: 36px; margin: 0 16px; }
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<symbol id="i-house" viewBox="0 0 16 16"><path d="M2.2 7.6 8 2.8l5.8 4.8M3.6 6.6V13h3V9.6h2.8V13h3V6.6"/></symbol>
+<symbol id="i-person" viewBox="0 0 16 16"><circle cx="8" cy="5.2" r="2.6"/><path d="M3 13.6c.5-2.5 2.5-3.8 5-3.8s4.5 1.3 5 3.8"/></symbol>
+<symbol id="i-bubbles" viewBox="0 0 16 16"><path d="M6.2 2.8C3.7 2.8 1.8 4.5 1.8 6.6c0 1.1.6 2.1 1.5 2.8l-.5 1.9 2.1-1c.4.1.9.2 1.3.2 2.5 0 4.4-1.7 4.4-3.9S8.7 2.8 6.2 2.8z"/><path d="M10.6 6.3c2 .3 3.6 1.8 3.6 3.6 0 1-.5 1.9-1.3 2.5l.4 1.6-1.8-.8c-.3.1-.7.1-1 .1-1.2 0-2.3-.5-3-1.3"/></symbol>
+<symbol id="i-cyl" viewBox="0 0 16 16"><ellipse cx="8" cy="4.2" rx="5" ry="2"/><path d="M3 4.2v7.4c0 1.1 2.2 2 5 2s5-.9 5-2V4.2M3 7.9c0 1.1 2.2 2 5 2s5-.9 5-2"/></symbol>
+<symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.3"/><circle cx="8" cy="8" r="1.6"/><path d="M8 1.9v1.9M8 12.2v1.9M1.9 8h1.9M12.2 8h1.9M3.7 3.7l1.3 1.3M11 11l1.3 1.3M12.3 3.7 11 5M5 11l-1.3 1.3" stroke-width="2"/></symbol>
+<symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+<symbol id="i-dots" viewBox="0 0 16 16"><circle cx="3.4" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8" r="1.15" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2 13.6 13.6"/></symbol>
+<symbol id="i-chev-down" viewBox="0 0 16 16"><path d="M4 6.2 8 10l4-3.8"/></symbol>
+<symbol id="i-chev-ud" viewBox="0 0 16 16"><path d="M5.2 6.2 8 3.5l2.8 2.7M5.2 9.8 8 12.5l2.8-2.7"/></symbol>
+<symbol id="i-check" viewBox="0 0 16 16"><path d="M3.4 8.4 6.6 11.6 12.6 4.6"/></symbol>
+<symbol id="i-play" viewBox="0 0 16 16"><path d="M5.2 3.4v9.2l7.2-4.6z"/></symbol>
+<symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.4" y="5.4" width="8" height="8.2" rx="1.6"/><path d="M10.6 3.6v-.2A1.4 1.4 0 0 0 9.2 2H4A1.4 1.4 0 0 0 2.6 3.4v5.8A1.4 1.4 0 0 0 4 10.6h.4"/></symbol>
+<symbol id="i-bars" viewBox="0 0 16 16"><rect x="2.4" y="8" width="3" height="5.6" rx=".8"/><rect x="6.5" y="2.4" width="3" height="11.2" rx=".8"/><rect x="10.6" y="5.6" width="3" height="8" rx=".8"/></symbol>
+<symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.4"/></symbol>
+<symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.4" width="11" height="10.2" rx="1.8"/><path d="M2.5 6.8h11M5.5 2v2.6M10.5 2v2.6"/></symbol>
+<symbol id="i-okfill" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7.2" fill="currentColor" stroke="none"/><path d="M4.8 8.2 7 10.4l4.2-4.6" stroke="#fff" stroke-width="1.6"/></symbol>
+<symbol id="i-warnfill" viewBox="0 0 16 16"><path d="M8 1.9 14.9 13.6H1.1z" fill="currentColor" stroke="currentColor" stroke-width="1.4"/><path d="M8 6v3.4" stroke="#000" stroke-opacity=".75" stroke-width="1.5"/><circle cx="8" cy="11.4" r=".85" fill="#000" fill-opacity=".75" stroke="none"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></symbol>
+<symbol id="i-claude" viewBox="0 0 16 16"><path d="M8 1.8v12.4M2.6 4.9l10.8 6.2M2.6 11.1l10.8-6.2" stroke-width="1.9"/></symbol>
+<symbol id="i-codex" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="1.9" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-grok" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M4.6 11.6l6.8-7.2"/></symbol>
+<symbol id="i-bot" viewBox="0 0 16 16"><rect x="2.6" y="5.2" width="10.8" height="7.8" rx="2.2"/><circle cx="6" cy="9" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="9" r=".9" fill="currentColor" stroke="none"/><path d="M8 5.2V3"/></symbol>
+</svg>
+
+<div class="window">
+  <aside class="sidebar" aria-label="Switch">
+    <div class="chrome" aria-hidden="true"><span class="light r"></span><span class="light y"></span><span class="light g"></span><span class="brand">Switch</span></div>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#overview" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-house"/></svg>Overview</a></li>
+        <li><a href="#accounts" ><svg class="i" aria-hidden="true"><use href="#i-person"/></svg>Accounts</a></li>
+        <li><a href="#conversations" ><svg class="i" aria-hidden="true"><use href="#i-bubbles"/></svg>Conversations</a></li>
+        <li><a href="#maintenance" ><svg class="i" aria-hidden="true"><use href="#i-cyl"/></svg>Maintenance</a></li>
+        <li><a href="#settings" ><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg>Settings</a></li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="content" data-ui-align="end">
+    <div class="topbar" data-ui-actions>
+      <button type="button" class="ibtn has-tip" aria-label="Add account" aria-describedby="tip-add"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><span class="tip" role="tooltip" id="tip-add">Add account</span></button>
+      <button type="button" class="ibtn has-tip" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-more"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-more">More</span></button>
+      <label class="search" data-ui-align-item><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input type="search" placeholder="Search accounts…" aria-label="Search accounts"><kbd>⌘K</kbd></label>
+    </div>
+    <div class="scroll">
+      <div class="cards-wrap" data-ui-align-item>
+        <div class="cards" data-ui-stack data-ui-align="start">
+
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-label="Focused account">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="focus">
+                <div class="focus-top">
+                  <div class="tile44 claude" aria-hidden="true"><svg class="i"><use href="#i-claude"/></svg></div>
+                  <div class="who">
+                    <div class="id"><h1>ada@example.test</h1><button type="button" class="ibtn has-tip" aria-label="Choose account" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-choose"><svg class="i" aria-hidden="true"><use href="#i-chev-down"/></svg><span class="tip" role="tooltip" id="tip-choose">Choose account</span></button></div>
+                    <div class="prov sec"><span>Claude Code</span><span class="dot" aria-hidden="true"></span><span>Active</span></div>
+                  </div>
+                  <div class="vdiv" aria-hidden="true"></div>
+                  <div class="winblock">
+                    <div class="line"><span>Weekly</span><span data-ui-number>100% left</span></div>
+                    <span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span>
+                    <span class="sec" data-ui-number>Resets in 6d 8h 56m</span>
+                  </div>
+                </div>
+                <div class="focus-actions">
+                  <div data-ui-actions>
+                    <button type="button" class="btn prominent" aria-disabled="true"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Using as default</button>
+                    <button type="button" class="btn"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Open Claude Code</button>
+                  </div>
+                  <div data-ui-actions>
+                    <button type="button" class="btn"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button>
+                    <button type="button" class="ibtn has-tip" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-focus-more"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-focus-more">More</span></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-accounts">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="card-title"><h2 id="h-accounts">Accounts</h2><span class="sec" data-ui-number>4 accounts</span></div>
+              <table data-ui-align="start">
+                <colgroup><col><col style="width:88px"><col style="width:132px"><col style="width:72px"><col style="width:106px"></colgroup>
+                <thead><tr>
+                  <th scope="col"><span data-ui-align-item>Account</span></th><th scope="col"><span>Provider</span></th><th scope="col"><span>Usage</span></th><th scope="col"><span>Resets</span></th><th scope="col" class="end"><span>Actions</span></th>
+                </tr></thead>
+                <tbody>
+                  <tr class="sel">
+                    <td><div class="acct" data-ui-align-item><span class="ptile claude" aria-hidden="true"><svg class="i"><use href="#i-claude"/></svg></span><span class="name">ada@example.test</span></div></td>
+                    <td><span class="sec">Claude Code</span></td>
+                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="pct" data-ui-number>100%</span></div></td>
+                    <td><span class="sec" data-ui-number>in 6d 8h</span></td>
+                    <td><div class="acts" data-ui-actions><span class="chip">Default</span><button type="button" class="ibtn sm has-tip" aria-label="More for ada@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r1"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r1">More</span></button></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="acct" data-ui-align-item><span class="ptile" aria-hidden="true"><svg class="i"><use href="#i-codex"/></svg></span><span class="name">grace@example.test</span></div></td>
+                    <td><span class="sec">Codex CLI</span></td>
+                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="0% left"><i style="width:0%"></i></span><span class="pct" data-ui-number>0%</span></div></td>
+                    <td><span class="sec" data-ui-number>in 20d 13h</span></td>
+                    <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for grace@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r2"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r2">More</span></button></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="acct" data-ui-align-item><span class="ptile" aria-hidden="true"><svg class="i"><use href="#i-grok"/></svg></span><span class="name">alan@example.test</span></div></td>
+                    <td><span class="sec">Grok Build</span></td>
+                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="pct" data-ui-number>100%</span></div></td>
+                    <td><span class="sec" data-ui-number>in 1h 45m</span></td>
+                    <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for alan@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r3"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r3">More</span></button></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="acct" data-ui-align-item><span class="ptile claude" aria-hidden="true"><svg class="i"><use href="#i-claude"/></svg></span><span class="name">edsger@example.test</span></div></td>
+                    <td><span class="sec">Claude Code</span></td>
+                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="pct" data-ui-number>100%</span></div></td>
+                    <td><span class="sec" data-ui-number>in 6d 8h</span></td>
+                    <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for edsger@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r4"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r4">More</span></button></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card well" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-limits">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="card-title"><h2 id="h-limits">Current limits</h2><a class="link" href="#limits">View all limits<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a></div>
+              <div class="tiles">
+                <div class="tile"><div class="line"><span>Session</span><span data-ui-number>100% left</span></div><span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="sec" data-ui-number>Resets in 1h 45m</span></div>
+                <div class="tile"><div class="line"><span>Weekly</span><span data-ui-number>100% left</span></div><span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="sec" data-ui-number>Resets in 6d 8h 56m</span></div>
+                <div class="tile"><div class="line"><span>Fable weekly</span><span data-ui-number>100% left</span></div><span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="sec" data-ui-number>Resets in 6d 8h 57m</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-activity">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="card-title rule"><span class="lead"><h2 id="h-activity">Recent activity</h2><span class="sec">(Claude Code)</span></span><a class="link" href="#history">View full history<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a></div>
+              <table>
+                <colgroup><col><col style="width:150px"><col style="width:130px"></colgroup>
+                <tbody>
+                  <tr><td><div class="cellicon"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><span>Today</span></div></td><td><span class="cell"><span data-ui-number>3.2M</span>&nbsp;<span class="sec">tokens</span></span></td><td class="num end"><span data-ui-number>≈ $7.01</span></td></tr>
+                  <tr><td><div class="cellicon"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span>Yesterday</span></div></td><td><span class="cell"><span data-ui-number>1.3B</span>&nbsp;<span class="sec">tokens</span></span></td><td class="num end"><span data-ui-number>≈ $337.58</span></td></tr>
+                  <tr><td><div class="cellicon"><svg class="i" aria-hidden="true"><use href="#i-cal"/></svg><span>Last 30 days</span></div></td><td><span class="cell"><span data-ui-number>6.2B</span>&nbsp;<span class="sec">tokens</span></span></td><td class="num end"><span data-ui-number>≈ $1,930.51</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-maint">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="card-title rule"><h2 id="h-maint">Maintenance</h2></div>
+              <div class="row">
+                <svg class="i status ok" aria-hidden="true"><use href="#i-okfill"/></svg>
+                <div class="grow"><span>All systems operational</span><span class="sec">No pending backup work.</span></div>
+                <button type="button" class="btn"><svg class="i" aria-hidden="true"><use href="#i-cyl"/></svg>Open Backup</button>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
