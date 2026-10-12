@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export AI_MANAGER_BUILD_PATH="${AI_MANAGER_BUILD_PATH:-/Volumes/External1TB/data/_custom/switch-build/lint}"
-case "$AI_MANAGER_BUILD_PATH" in
-  /Volumes/External1TB/data/_custom/switch-build/lint)
-    trap 'rm -r /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-run /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-core /Volumes/External1TB/data/_custom/switch-build/lint/module-cache 2>/dev/null || true; rm /Volumes/External1TB/data/_custom/switch-build/lint/ui-lint-self-check/check 2>/dev/null || true' EXIT ;;
-  /Volumes/External1TB/data/_custom/switch-build/settings)
-    trap 'rm -r /Volumes/External1TB/data/_custom/switch-build/settings/ui-lint-run /Volumes/External1TB/data/_custom/switch-build/settings/ui-lint-core 2>/dev/null || true; rm /Volumes/External1TB/data/_custom/switch-build/settings/ui-lint-self-check/check 2>/dev/null || true' EXIT ;;
-  *) printf '%s\n' 'Lint build output must use the lint or settings build folder.' >&2; exit 2 ;;
-esac
+# Every run builds in its own folder, so parallel runs never share objects or run state.
+lint_root=/Volumes/External1TB/data/_custom/switch-build
+mkdir -p "$lint_root"
+export AI_MANAGER_BUILD_PATH="$(mktemp -d "$lint_root/lint-run.XXXXXX")"
+trap 'rm -rf "$AI_MANAGER_BUILD_PATH"' EXIT
 export PLAYWRIGHT_BROWSERS_PATH=/Volumes/External1TB/data/_custom/playwright
 export CLANG_MODULE_CACHE_PATH="$AI_MANAGER_BUILD_PATH/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$AI_MANAGER_BUILD_PATH/module-cache/swiftpm"

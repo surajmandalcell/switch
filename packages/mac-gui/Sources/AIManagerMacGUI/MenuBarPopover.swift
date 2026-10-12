@@ -3,6 +3,12 @@ import AIManagerCore
 import SwiftUI
 
 struct MenuBarUsageSnapshot: Equatable, Sendable {
+  struct Window: Equatable, Sendable {
+    let title: String
+    let used: Int?
+    let resetsAt: Date?
+    let minutes: Int?
+  }
   let usedPercentage: Int?
   let secondaryUsedPercentage: Int?
   let resetsAt: Date?
@@ -24,6 +30,7 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
   let secondaryDetail: String?
   /// One compact line for accounts that report only a balance, such as "$12.40".
   let balanceText: String?
+  let providerWindows: [Window]?
 
   init(
     usedPercentage: Int?,
@@ -40,7 +47,8 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     secondaryMinutes: Int? = nil,
     primaryDetail: String? = nil,
     secondaryDetail: String? = nil,
-    balanceText: String? = nil
+    balanceText: String? = nil,
+    providerWindows: [Window]? = nil
   ) {
     self.usedPercentage = usedPercentage.map { max($0, 0) }
     self.secondaryUsedPercentage = secondaryUsedPercentage.map { max($0, 0) }
@@ -57,6 +65,7 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     self.primaryDetail = primaryDetail
     self.secondaryDetail = secondaryDetail
     self.balanceText = balanceText
+    self.providerWindows = providerWindows
   }
 
   /// First two windows of a non-Codex provider, session-like windows first. Nil when the usage
@@ -65,7 +74,7 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     func isSessionLike(_ window: UsageWindow) -> Bool {
       window.title.localizedCaseInsensitiveContains("session") || (window.windowMinutes ?? .max) <= 300
     }
-    let windows = usage.windows.filter { $0.usedPercent != nil }
+    let windows = usage.windows
     let ordered = windows.filter(isSessionLike) + windows.filter { !isSessionLike($0) }
     let balance = usage.cost?.balance.map { Fmt.money($0, currency: usage.cost?.currency ?? "USD") }
     guard !ordered.isEmpty || balance != nil else { return nil }
@@ -82,7 +91,11 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
       secondaryMinutes: second?.windowMinutes,
       primaryDetail: first?.detail,
       secondaryDetail: second?.detail,
-      balanceText: ordered.isEmpty ? balance : nil)
+      balanceText: ordered.isEmpty ? balance : nil,
+      providerWindows: ordered.map {
+        Window(title: $0.title, used: $0.usedPercent.map { Int($0.rounded()) },
+          resetsAt: $0.resetsAt, minutes: $0.windowMinutes)
+      })
   }
 
   init?(
@@ -344,10 +357,9 @@ final class MenuBarPopoverStore: ObservableObject {
 struct MenuBarPopover: View {
   static let width: CGFloat = 360
   static let minimumHeight: CGFloat = 94
-  static let footerHeight: CGFloat = 36
-  /// Rows carry their own padding and hairline, so the list adds no inset or spacing.
-  static let listInset: CGFloat = 0
-  static let cardSpacing: CGFloat = 0
+  static let footerHeight: CGFloat = 44
+  static let listInset: CGFloat = 8
+  static let cardSpacing: CGFloat = 8
 
   static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     MenuBarPresentation.rowHeight(account)
@@ -385,7 +397,7 @@ struct MenuBarPopover: View {
       ScrollViewReader { proxy in
         ScrollView {
           TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(spacing: 0) {
+            VStack(spacing: Self.cardSpacing) {
               ForEach(rows) { account in
                 MenuBarRow(
                   account: account,
@@ -401,6 +413,7 @@ struct MenuBarPopover: View {
                 .focusEffectDisabled()
               }
             }
+            .padding(.vertical, Self.listInset + Self.cardSpacing / 2)
             .background(GeometryReader { geometry in
               Color.clear.preference(key: MenuBarScrollOffset.self,
                 value: -geometry.frame(in: .named("menuBarList")).minY)

@@ -1,4 +1,5 @@
 import AppKit
+import AIManagerCore
 import SwiftUI
 
 // Native design tokens. Switch follows the macOS Human Interface Guidelines: the system font in
@@ -145,22 +146,47 @@ enum AIMMotion {
 // MARK: - Usage bars
 
 enum UsageBarColor {
-  /// Green above 50% left, yellow from 20% to 50%, red below 20%. Nil is an unknown value.
   static func color(leftPercent: Double?) -> Color? {
-    guard let left = leftPercent else { return nil }
-    return left > 50 ? AIMTheme.green : (left >= 20 ? AIMTheme.yellow : AIMTheme.red)
+    guard let leftPercent else { return nil }
+    return leftPercent > 50 ? AIMTheme.green : (leftPercent >= 20 ? AIMTheme.yellow : AIMTheme.red)
+  }
+  enum Palette: String { case P1, P2, P3 }
+
+  static var palette: Palette {
+    #if AI_MANAGER_PREVIEW
+    return ProcessInfo.processInfo.environment["AI_MANAGER_BAR_PALETTE"].flatMap(Palette.init(rawValue:)) ?? .P1
+    #else
+    return .P1
+    #endif
+  }
+
+  static func color(usedPercent: Double?, providerID: ProviderID? = nil) -> Color? {
+    guard let usedPercent else { return nil }
+    if usedPercent >= 90 { return AIMTheme.red }
+    switch palette {
+    case .P1: return Color(nsColor: .secondaryLabelColor)
+    case .P2: return AIMTheme.green
+    case .P3:
+      switch providerID {
+      case .claudeCode: return Color(hex: 0xD97757)
+      case .codex: return Color(hex: 0x10A37F)
+      case .grokBuild: return Color(nsColor: .labelColor)
+      default: return AIMTheme.blue
+      }
+    }
   }
 }
 
-/// The one usage bar: a 6-point capsule in the Overview, Accounts, the account detail, and the
-/// popover. `usedPercent` drives the color (by the share left) unless `tint` overrides it; "Show
+/// The one usage bar: a 4-point capsule in the Overview, Accounts, the account detail, and the
+/// popover. `usedPercent` drives the shared palette unless `tint` overrides it; "Show
 /// percentage used" flips the fill to the used share. An unknown value shows an empty grey track.
 /// The fill is clamped to the track, so overage never overflows. The pace tick draws over the bar
 /// and never changes the layout height.
 struct UsageBar: View {
-  static let height: CGFloat = 6
+  static let height: CGFloat = 4
   let usedPercent: Double?
   var showsUsed = false
+  var providerID: ProviderID? = nil
   /// Overrides the color by percent, for example the popover's pace-aware level.
   var tint: Color? = nil
   /// Even-pace marker as a 0...1 position.
@@ -168,11 +194,11 @@ struct UsageBar: View {
 
   var body: some View {
     let used = usedPercent.map { min(max($0, 0), 100) }
-    let color = tint ?? UsageBarColor.color(leftPercent: used.map { 100 - $0 })
+    let color = tint ?? UsageBarColor.color(usedPercent: used, providerID: providerID)
     let fill = used.map { (showsUsed ? $0 : 100 - $0) / 100 } ?? 0
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
-        Capsule().fill(AIMTheme.track)
+        Capsule().fill(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
         if let color, fill > 0 {
           Capsule().fill(color).frame(width: max(Self.height, geometry.size.width * fill))
         }
@@ -237,6 +263,10 @@ extension View {
   static var scroll: [String: CGFloat] = [:]
   /// The Overview's focused account.
   static var overviewFocus: UUID?
+  /// The page and Maintenance tab the window shows now, so a render check can compare them with
+  /// the page it asked for.
+  static var visiblePage: AIManagerPage?
+  static var visibleMaintenance: MaintenanceSection?
 
   /// The page shown at launch: the last page (default) or the Overview.
   static func launchPage(defaults: UserDefaults = .standard) -> AIManagerPage {

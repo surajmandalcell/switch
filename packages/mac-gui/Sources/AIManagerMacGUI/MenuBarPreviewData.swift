@@ -40,13 +40,12 @@ enum MenuBarPopoverPreviewData {
         isVerified: false, isActive: false),
     ])
 
-  /// Four synthetic rows in the states the design shows: two windows, one window, unknown, and
-  /// needing sign-in. The live Preview status item and the popover screenshots use this one.
-  static var fullSnapshot: MenuBarSnapshot {
+  /// Six synthetic accounts: service windows agree, except the Weekly-only Codex plan.
+  static var sixAccountSnapshot: MenuBarSnapshot {
     MenuBarSnapshot(accounts: [
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "0E0A2001-7F3A-4C27-9D84-5B1E2A6C0001")!,
-        identity: "ada.lovelace@example.test", detail: "Claude Code",
+        identity: "ada.lovelace@example.test", detail: "Claude Code · Pro",
         isVerified: true, isActive: true,
         usage: MenuBarUsageSnapshot(
           usedPercentage: 24, secondaryUsedPercentage: 59,
@@ -57,27 +56,55 @@ enum MenuBarPopoverPreviewData {
         providerID: .claudeCode),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "0E0A2002-7F3A-4C27-9D84-5B1E2A6C0002")!,
-        identity: "grace.hopper@example.test", detail: "Codex CLI",
+        identity: "grace.hopper@example.test", detail: "Codex CLI · Plus",
         isVerified: true, isActive: true,
         usage: MenuBarUsageSnapshot(
-          usedPercentage: 88,
-          resetsAt: Date().addingTimeInterval(5 * 86_400 + 13 * 3_600),
+          usedPercentage: 41, secondaryUsedPercentage: 88,
+          resetsAt: Date().addingTimeInterval(90 * 60),
+          secondaryResetsAt: Date().addingTimeInterval(5 * 86_400 + 13 * 3_600),
           fetchedAt: Date().addingTimeInterval(-300),
-          primaryLabel: "Weekly", primaryMinutes: 10_080),
+          primaryMinutes: 300, secondaryMinutes: 10_080),
         providerID: .codex),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "0E0A2003-7F3A-4C27-9D84-5B1E2A6C0003")!,
-        identity: "alan.turing@example.test", detail: "Grok Build",
-        isVerified: true, isActive: true, usage: nil, providerID: .grokBuild),
+        identity: "linus.torvalds@example.test", detail: "Codex CLI · Weekly plan",
+        isVerified: true, isActive: false,
+        usage: MenuBarUsageSnapshot(usedPercentage: 67,
+          resetsAt: Date().addingTimeInterval(3 * 86_400), primaryLabel: "Weekly",
+          primaryMinutes: 10_080), providerID: .codex),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "0E0A2004-7F3A-4C27-9D84-5B1E2A6C0004")!,
         identity: "katherine.johnson@example.test", detail: "Claude Code",
-        isVerified: false, isActive: false, providerID: .claudeCode),
+        isVerified: true, isActive: false,
+        usage: MenuBarUsageSnapshot(usedPercentage: 35, secondaryUsedPercentage: 91,
+          resetsAt: Date().addingTimeInterval(2 * 3_600),
+          secondaryResetsAt: Date().addingTimeInterval(86_400),
+          primaryMinutes: 300, secondaryMinutes: 10_080), providerID: .claudeCode),
+      MenuBarAccountSnapshot(
+        id: UUID(uuidString: "0E0A2005-7F3A-4C27-9D84-5B1E2A6C0005")!,
+        identity: "alan.turing@example.test", detail: "Grok Build",
+        isVerified: true, isActive: false,
+        usage: MenuBarUsageSnapshot(usedPercentage: 54, secondaryUsedPercentage: 26,
+          resetsAt: Date().addingTimeInterval(4 * 3_600),
+          secondaryResetsAt: Date().addingTimeInterval(5 * 86_400),
+          primaryMinutes: 300, secondaryMinutes: 10_080), providerID: .grokBuild),
+      MenuBarAccountSnapshot(
+        id: UUID(uuidString: "0E0A2006-7F3A-4C27-9D84-5B1E2A6C0006")!,
+        identity: "margaret.hamilton@example.test", detail: "Gemini CLI",
+        isVerified: true, isActive: false,
+        usage: MenuBarUsageSnapshot(usedPercentage: 19, secondaryUsedPercentage: 72,
+          resetsAt: Date().addingTimeInterval(3 * 3_600),
+          secondaryResetsAt: Date().addingTimeInterval(4 * 86_400),
+          primaryMinutes: 300, secondaryMinutes: 10_080), providerID: .geminiCLI),
     ])
   }
 
+  static var fullSnapshot: MenuBarSnapshot {
+    MenuBarSnapshot(accounts: Array(sixAccountSnapshot.accounts.prefix(4)))
+  }
+
   static func snapshot(accountCount: Int) -> MenuBarSnapshot {
-    let accounts = fullSnapshot.accounts
+    let accounts = sixAccountSnapshot.accounts
     return MenuBarSnapshot(accounts: (0..<accountCount).map { index in
       let account = accounts[index % accounts.count]
       return MenuBarAccountSnapshot(

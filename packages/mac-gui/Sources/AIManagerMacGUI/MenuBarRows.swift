@@ -10,17 +10,18 @@ enum MenuBarPresentation {
   static let tileSize: CGFloat = 28
   static let tileSpacing: CGFloat = 8
   static let headerHeight: CGFloat = 28
-  static let lineGap: CGFloat = 1
-  static let lineHeight: CGFloat = 16
+  static let lineGap: CGFloat = 4
+  static let lineHeight: CGFloat = 18
   static let signInHeight: CGFloat = 24
   static let lineSpacing: CGFloat = 0
   static let captionHeight: CGFloat = 14
   static let dividerHeight: CGFloat = 1
-  static let labelWidth: CGFloat = 48
-  static let percentWidth: CGFloat = 44
+  static let labelWidth: CGFloat = 56
+  static let percentWidth: CGFloat = 36
+  static let resetWidth: CGFloat = 64
 
   struct Line: Equatable {
-    /// Short window name; nil when the account has a single window.
+    /// Window name in the fixed first column.
     let label: String?
     /// Nil is an unknown value: an empty track and an em dash.
     let used: Int?
@@ -32,10 +33,10 @@ enum MenuBarPresentation {
 
   enum Level: Equatable { case good, caution, low }
 
-  /// "5h" for 300-minute windows, "Weekly" for 10080, else the window's own title.
+  /// A shared short name for service windows.
   static func windowLabel(minutes: Int?, title: String) -> String {
     switch minutes {
-    case 300: "5h"
+    case 300: "Session"
     case 10_080: "Weekly"
     default: title
     }
@@ -47,6 +48,12 @@ enum MenuBarPresentation {
     guard account.isVerified else { return .signIn }
     guard let usage = account.usage else {
       return .lines([Line(label: nil, used: nil, resetsAt: nil, minutes: nil, balance: nil)])
+    }
+    if let providerWindows = usage.providerWindows, !providerWindows.isEmpty {
+      return .lines(providerWindows.map {
+        Line(label: windowLabel(minutes: $0.minutes, title: $0.title), used: $0.used,
+          resetsAt: $0.resetsAt, minutes: $0.minutes, balance: nil)
+      })
     }
     var windows: [(title: String, used: Int, reset: Date?, minutes: Int?)] = []
     if let used = usage.usedPercentage {
@@ -61,7 +68,7 @@ enum MenuBarPresentation {
     }
     return .lines(windows.map {
       Line(
-        label: windows.count > 1 ? windowLabel(minutes: $0.minutes, title: $0.title) : nil,
+        label: windowLabel(minutes: $0.minutes, title: $0.title),
         used: $0.used, resetsAt: $0.reset, minutes: $0.minutes, balance: nil)
     })
   }
@@ -187,9 +194,11 @@ enum MenuBarPresentation {
           ?? "Usage unknown"
         parts.append([line.label, value].compactMap { $0 }.joined(separator: " "))
       }
-      if let reset = lines.first?.resetsAt {
-        let text = resetText(reset, now: now, exact: exact, used: lines.first?.used)
-        parts.append(reset > now ? "Resets " + text : text)
+      for line in lines {
+        if let reset = line.resetsAt {
+          let text = resetText(reset, now: now, exact: exact, used: line.used)
+          parts.append(reset > now ? "Resets " + text : text)
+        }
       }
     }
     return parts.joined(separator: ", ")
@@ -248,7 +257,7 @@ struct MenuBarRow: View {
   private var header: some View {
     HStack(spacing: P.tileSpacing) {
       tile
-      VStack(alignment: .leading, spacing: 1) {
+      VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 4) {
           Text(account.identity)
             .aimText(.body)
@@ -262,8 +271,6 @@ struct MenuBarRow: View {
               .help("Default for \(P.providerLabel(account))")
           }
         }
-        Text(P.providerLabel(account))
-          .aimText(.secondary).lineLimit(1)
       }
       Spacer(minLength: 4)
       trailing
@@ -286,29 +293,12 @@ struct MenuBarRow: View {
           .help("\(error) Click to copy.")
           .accessibilityLabel("Copy account error")
         }
-        if let reset = P.headerReset(for: account) {
-          Text(P.resetText(reset, now: now, exact: exact,
-            hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: P.headerUsed(for: account)))
-            .aimText(.secondary).monospacedDigit().lineLimit(1)
-        }
       }
     }
   }
 
   private var tile: some View {
-    Group {
-      // Color marks on transparent SVG; the PNG marks carry a white square, so they use the glyph.
-      if AIManagerBrand.providerArtwork.first(where: { $0.providerID == account.providerID })?
-        .fileExtension == "svg", let image = AIManagerBrand.providerImage(for: account.providerID) {
-        Image(nsImage: image).resizable().scaledToFit().padding(6)
-      } else {
-        Image(nsImage: AIManagerBrand.providerIcon(for: account.providerID))
-          .resizable().scaledToFit().padding(6).foregroundStyle(.primary)
-      }
-    }
-    .frame(width: P.tileSize, height: P.tileSize)
-    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
-    .clipShape(RoundedRectangle(cornerRadius: 6))
+    ProviderMark(providerID: account.providerID, size: P.tileSize)
     .accessibilityHidden(true)
   }
 
@@ -330,7 +320,7 @@ struct MenuBarRow: View {
   }
 
   private func lineView(_ line: P.Line) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 6) {
       if let label = line.label {
         Text(label).aimText(.secondary).lineLimit(1).frame(width: P.labelWidth, alignment: .leading)
       }
@@ -339,16 +329,19 @@ struct MenuBarRow: View {
         Spacer(minLength: 0)
         Text(balance).aimText(.secondary).monospacedDigit()
       } else {
-        UsageBar(
-          usedPercent: line.used.map(Double.init), showsUsed: showsUsed,
-          tint: line.used.map {
-            P.color(P.level(used: $0, resetsAt: line.resetsAt, minutes: line.minutes, now: now))
-          })
+        UsageBar(usedPercent: line.used.map(Double.init), showsUsed: showsUsed,
+          providerID: account.providerID)
         Text(line.used.map {
           "\(UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed))%"
         } ?? "—")
           .aimText(.secondary).monospacedDigit()
           .frame(width: P.percentWidth, alignment: .trailing)
+        Text(line.resetsAt.map {
+          P.resetText($0, now: now, exact: exact,
+            hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: line.used)
+        } ?? "")
+          .aimText(.secondary).monospacedDigit().lineLimit(1)
+          .frame(width: P.resetWidth, alignment: .trailing)
       }
     }
     .frame(height: P.lineHeight)

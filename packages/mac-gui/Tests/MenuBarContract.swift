@@ -30,17 +30,17 @@ enum AIManagerMenuBarContract {
 
     // Geometry.
     expect(MenuBarPopover.width == 360, "Menu-bar popover is not 360 points wide")
-    expect(MenuBarPopover.footerHeight == 36 && MenuBarPopover.minimumHeight == 94,
+    expect(MenuBarPopover.footerHeight == 44 && MenuBarPopover.minimumHeight == 94,
       "Menu-bar footer or minimum height changed")
     expect(P.tileSize == 28, "Provider icon tile is not 28 points")
     let two = account("a", usage: twoWindows), one = account("b", usage: oneWindow)
-    expect(P.rowHeight(two) == 74 && P.rowHeight(one) == 58, "Row heights changed: \(P.rowHeight(two)) \(P.rowHeight(one))")
-    expect(P.rowHeight(account("c")) == 58 && P.rowHeight(account("d", verified: false)) == 66,
+    expect(P.rowHeight(two) == 81 && P.rowHeight(one) == 63, "Row heights changed: \(P.rowHeight(two)) \(P.rowHeight(one))")
+    expect(P.rowHeight(account("c")) == 63 && P.rowHeight(account("d", verified: false)) == 69,
       "Unknown and sign-in rows are not one line tall")
     expect(P.rowHeight(account("e", usage: twoWindows, shows: false)) == 0, "A hidden account still takes space")
     let withTokens = MenuBarUsageSnapshot(
       usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 1_000_000)
-    expect(P.rowHeight(account("f", usage: withTokens)) == 58 + 15, "Token summary line has the wrong height")
+    expect(P.rowHeight(account("f", usage: withTokens)) == 63 + 18, "Token summary line has the wrong height")
 
     func size(_ accounts: [MenuBarAccountSnapshot], _ screen: CGFloat) -> NSSize {
       AIManagerStatusItemController.contentSize(accounts: accounts, visibleScreenHeight: screen)
@@ -49,15 +49,15 @@ enum AIManagerMenuBarContract {
     expect(size([], 900).height == 94, "Empty popover does not use its minimum height")
     expect(size([account("g", usage: twoWindows, shows: false)], 900).height == 94,
       "Hidden accounts leave blank space")
-    expect(size([two], 900).height == 110 && size([two, one], 900).height == 168,
+    expect(size([two], 900).height == 149 && size([two, one], 900).height == 220,
       "One or two rows do not fit exactly")
-    expect(size([two, one], 300).height == 168 && size([one], 100).height == 94,
+    expect(size([two, one], 300).height == 220 && size([one], 100).height == 94,
       "Small screens clip one or two rows below the minimum")
     expect(size(many, 900).height == 720, "Rows do not scroll at 80% of the screen height")
-    expect(size(many, 2_000).height == 1_516, "A tall screen clips rows below its cap")
+    expect(size(many, 2_000).height == 1_600, "A tall screen clips rows below its cap")
     expect(size(many, 601).height == 480, "The screen cap rounds beyond 80%")
     expect(size(many, 900).width == 360, "Popover width changes with its contents")
-    for (count, height) in [(4, CGFloat(292)), (8, 548)] {
+    for (count, height) in [(4, CGFloat(398)), (6, 576), (8, 754)] {
       let preview = MenuBarPopoverPreviewData.snapshot(accountCount: count)
       expect(preview.accounts.count == count && Set(preview.accounts.map(\.id)).count == count,
         "Popover preview lost accounts or repeats row IDs")
@@ -65,20 +65,30 @@ enum AIManagerMenuBarContract {
     }
 
     // Window labels, content, and the header reset.
-    expect(P.windowLabel(minutes: 300, title: "Session") == "5h"
+    expect(P.windowLabel(minutes: 300, title: "Session") == "Session"
       && P.windowLabel(minutes: 10_080, title: "Sonnet") == "Weekly"
       && P.windowLabel(minutes: 1_440, title: "Daily") == "Daily"
       && P.windowLabel(minutes: nil, title: "Credits") == "Credits", "Window labels are wrong")
     if case .lines(let lines) = P.content(for: two) {
-      expect(lines.map(\.label) == ["5h", "Weekly"] && lines.map(\.used) == [24, 59],
+      expect(lines.map(\.label) == ["Session", "Weekly"] && lines.map(\.used) == [24, 59],
         "Two-window row lines are wrong")
     } else { failures.append("Two-window row has no lines") }
     if case .lines(let lines) = P.content(for: one) {
-      expect(lines.count == 1 && lines[0].label == nil, "A single window shows a label")
+      expect(lines.count == 1 && lines[0].label == "Weekly", "A single window lost its label")
     } else { failures.append("Single-window row has no lines") }
+    let providerWindows = account("provider", usage: MenuBarUsageSnapshot(
+      usedPercentage: nil, providerWindows: [
+        .init(title: "Session", used: 20, resetsAt: nil, minutes: 300),
+        .init(title: "Weekly", used: nil, resetsAt: nil, minutes: 10_080),
+        .init(title: "Monthly", used: 65, resetsAt: nil, minutes: 43_200)]),
+      provider: .claudeCode)
+    if case .lines(let lines) = P.content(for: providerWindows) {
+      expect(lines.map(\.label) == ["Session", "Weekly", "Monthly"]
+        && lines.map(\.used) == [20, nil, 65], "Provider windows or an unknown limit disappeared")
+    } else { failures.append("Provider windows have no lines") }
     let weeklyOnly = account("h", usage: MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 96))
     if case .lines(let lines) = P.content(for: weeklyOnly) {
-      expect(lines.count == 1 && lines[0].label == nil && lines[0].used == 96, "Weekly-only row is wrong")
+      expect(lines.count == 1 && lines[0].label == "Weekly" && lines[0].used == 96, "Weekly-only row is wrong")
     } else { failures.append("Weekly-only row has no lines") }
     if case .lines(let lines) = P.content(for: account("i")) {
       expect(lines.count == 1 && lines[0].used == nil && lines[0].balance == nil, "Unknown row invents a value")
@@ -90,16 +100,9 @@ enum AIManagerMenuBarContract {
     } else { failures.append("Balance-only row has no line") }
     expect(P.headerReset(for: two) == twoWindows.resetsAt, "Header reset is not the first window's")
 
-    // Bar colors: green above 50% left, yellow 20 to 50, red below 20; pace only worsens.
-    expect(P.level(used: 49, resetsAt: nil, minutes: nil, now: now) == .good
-      && P.level(used: 50, resetsAt: nil, minutes: nil, now: now) == .caution
-      && P.level(used: 80, resetsAt: nil, minutes: nil, now: now) == .caution
-      && P.level(used: 81, resetsAt: nil, minutes: nil, now: now) == .low
-      && P.level(used: 130, resetsAt: nil, minutes: nil, now: now) == .low, "Bar color bands are wrong")
-    expect(P.level(used: 45, resetsAt: now.addingTimeInterval(4 * 3_600), minutes: 300, now: now) == .low,
-      "A running-out pace verdict does not turn the bar red")
-    expect(P.level(used: 10, resetsAt: now.addingTimeInterval(4 * 3_600), minutes: 300, now: now) == .good,
-      "A healthy pace changes the bar color")
+    expect(UsageBar.height == 4 && UsageBarColor.color(usedPercent: 90) == AIMTheme.red
+      && UsageBarColor.color(usedPercent: 89) != AIMTheme.red,
+      "Shared bar height or 90-percent threshold changed")
 
     // Reset text follows the Countdown or Exact-time setting.
     func countdown(_ interval: TimeInterval) -> String {
@@ -136,12 +139,13 @@ enum AIManagerMenuBarContract {
   private static func renderSnapshots(to directory: URL) -> [String] {
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      for count in [1, 4, 8] {
+      for palette in ["P1", "P2", "P3"] {
+        setenv("AI_MANAGER_BAR_PALETTE", palette, 1)
         for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
           UILintStore.shared.items.removeAll()
           UILintStore.shared.colors.removeAll()
           UILintStore.shared.appearance = NSAppearance(named: appearance)!
-          let snapshot = MenuBarPopoverPreviewData.snapshot(accountCount: count)
+          let snapshot = MenuBarPopoverPreviewData.sixAccountSnapshot
           let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts, visibleScreenHeight: 2_000)
           let store = MenuBarPopoverStore(snapshot: snapshot,
             actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), visibleScreenHeight: 2_000)
@@ -160,15 +164,16 @@ enum AIManagerMenuBarContract {
           guard let png = bitmap.representation(using: .png, properties: [:]) else {
             return ["Popover snapshot PNG is unavailable"]
           }
-          let filename = "menu-bar-\(count)-\(label).png"
+          let filename = "popover-\(palette)-\(label).png"
           try png.write(to: directory.appendingPathComponent(filename))
           if CommandLine.arguments.contains("--ui-lint") {
-            try UILintStore.shared.write(to: directory.appendingPathComponent("menu-bar-\(count)-\(label).json"),
+            try UILintStore.shared.write(to: directory.appendingPathComponent("popover-\(palette)-\(label).json"),
               size: size, page: "menu-bar", appearance: label)
           }
           print("POPOVER_SHOT \(filename) \(Int(size.width))x\(Int(size.height)) pt")
         }
       }
+      unsetenv("AI_MANAGER_BAR_PALETTE")
       return []
     } catch { return ["Popover snapshots failed: \(error)"] }
   }
@@ -255,9 +260,9 @@ enum AIManagerMenuBarContract {
       if !condition() { failures.append(message) }
     }
     func views(in root: NSView) -> [NSView] { [root] + root.subviews.flatMap { views(in: $0) } }
-    let full = MenuBarPopoverPreviewData.fullSnapshot
-    expect(full.accounts.map { P.content(for: $0) == .signIn ? 0 : P.lineCount($0) } == [2, 1, 1, 0],
-      "Preview rows do not cover two windows, one window, unknown, and sign-in")
+    let full = MenuBarPopoverPreviewData.sixAccountSnapshot
+    expect(full.accounts.map(P.lineCount) == [2, 2, 1, 2, 2, 2],
+      "Preview rows do not cover consistent service windows and the Weekly-only plan")
 
     for (accounts, screen) in [
       (Array(full.accounts.prefix(1)), CGFloat(900)), (Array(full.accounts.prefix(2)), 900),
@@ -314,38 +319,6 @@ enum AIManagerMenuBarContract {
     }
     expect(opens == 1, "Command-O does not open the main window from the popover")
 
-    // Bar colors on real pixels, light and dark: first row is 5h 24% used (green) over Weekly
-    // 59% used (yellow).
-    let store = MenuBarPopoverStore(
-      snapshot: full, actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
-    let host = NSHostingView(rootView: MenuBarPopover(store: store))
-    let size = AIManagerStatusItemController.contentSize(accounts: full.accounts, visibleScreenHeight: 900)
-    let window = NSWindow(
-      contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
-    window.contentView = host
-    host.frame = NSRect(origin: .zero, size: size)
-    for name in [NSAppearance.Name.aqua, .darkAqua] {
-      window.appearance = NSAppearance(named: name)
-      host.layoutSubtreeIfNeeded()
-      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-        failures.append("Popover could not be captured"); continue
-      }
-      host.cacheDisplay(in: host.bounds, to: bitmap)
-      func color(x: CGFloat, y: CGFloat) -> NSColor? {
-        bitmap.colorAt(
-          x: Int(x * CGFloat(bitmap.pixelsWide) / host.bounds.width),
-          y: Int(y * CGFloat(bitmap.pixelsHigh) / host.bounds.height))?.usingColorSpace(.sRGB)
-      }
-      let firstLineY = P.rowPaddingV + P.headerHeight + P.lineGap + P.lineHeight / 2
-      let secondLineY = firstLineY + P.lineHeight + P.lineSpacing
-      let barX = P.rowPaddingH + P.tileSize + P.tileSpacing + P.labelWidth + 8 + 12
-      if let green = color(x: barX, y: firstLineY), let yellow = color(x: barX, y: secondLineY) {
-        expect(green.greenComponent > green.redComponent + 0.2 && green.greenComponent > green.blueComponent + 0.2,
-          "A bar above 50% left is not green (\(name.rawValue))")
-        expect(yellow.redComponent > 0.7 && yellow.greenComponent > 0.6 && yellow.blueComponent < 0.45,
-          "A bar from 20% to 50% left is not yellow (\(name.rawValue))")
-      } else { failures.append("Popover bar pixels are unavailable") }
-    }
     return failures
   }
 

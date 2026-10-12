@@ -108,3 +108,25 @@ for appearance in system light dark; do
   fi
   printf 'MAC_GUI_CONTRACT_PASS %s\n' "$appearance"
 done
+
+# Both system scroll bar styles (legacy as with a mouse, overlay as with a trackpad): after a page
+# round trip every card and the top bar end at W-20 and no scroll view reserves a scroller strip.
+for style in always overlay; do
+  run_root="$test_root/scrollers-$style"
+  artifacts="$run_root/artifacts"
+  mkdir -p "$run_root/home" "$run_root/codex-home" "$run_root/manager" "$run_root/tmp" "$artifacts"
+  HOME="$run_root/home" \
+  CFFIXED_USER_HOME="$run_root/home" \
+  CODEX_HOME="$run_root/codex-home" \
+  AI_MANAGER_ROOT="$run_root/manager" \
+  AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \
+  AI_MANAGER_CODEX_EXECUTABLE="/usr/bin/false" \
+  AI_MANAGER_ACCEPTANCE_ARTIFACTS="$artifacts" \
+  TMPDIR="$run_root/tmp" \
+    "$executable" --contract-only --persisted-light "--scrollers=$style"
+  if [[ "$(/usr/bin/plutil -extract passed raw -o - "$artifacts/window-contract.json")" != "true" ]]; then
+    /usr/bin/plutil -p "$artifacts/window-contract.json" >&2
+    exit 1
+  fi
+  printf 'MAC_GUI_CONTRACT_PASS scrollers %s\n' "$style"
+done

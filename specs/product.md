@@ -423,13 +423,15 @@ and dark before a UI change ships.
   with no light rim. Every container has equal top and bottom inner padding; hover and
   selection highlights have even insets.
 - **Menu bar popover:** native popover material, about 360 pt wide, compact, with no app name
-  header. Accounts with Show in Menubar on are grouped by provider under a small group header
-  (provider icon and name; the exact header variant is still open), and the group's accounts
-  sit compactly under it, names truncated to one line.
-  A checkmark marks each provider's default. Clicking an account expands its details (every
-  window with bar, percent, and reset, plus Switch and Open <tool>); its context menu offers
-  Switch, Open <tool>, Refresh, and Copy name. Hover highlights have even insets. A compact
-  footer holds Refresh and Settings icon buttons and an "Open Switch" button showing Command-O.
+  header. Each shown account has one row with its provider icon and a one-line truncated name;
+  the icon replaces the provider-name line. Show in Menubar uses the Settings default or an
+  account override. Each account shows its service's reported windows, including unknown values;
+  plan differences and an account's hidden-row override can reduce them. Each line aligns the window name,
+  a 4 pt rounded bar, percentage, and reset in fixed columns. The shared bar palette token uses
+  a calm neutral fill by default and red from 90% used; preview-only P2 uses green and P3 uses
+  provider color, each with the same red threshold. A checkmark marks each provider's default.
+  The context menu offers Switch, Open <tool>, Refresh, and Copy name. Hover highlights have even
+  insets. A compact footer holds Refresh and Settings icon buttons and Open Switch with Command-O.
 - **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
   never touches the real clipboard); every icon action has an accessible name and keyboard
   focus; Reduce Motion and Reduce Transparency follow the system; Preview data is synthetic.
