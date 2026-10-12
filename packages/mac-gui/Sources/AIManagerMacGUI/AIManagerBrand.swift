@@ -37,36 +37,108 @@ enum AIManagerBrand {
     return image
   }
 
+  // MARK: Official provider brand marks
+
+  /// One provider's brand look. `file` is the official 24-unit vector mark in
+  /// `Icons/ProviderBrand/<file>.pdf`; `tile` is the brand's tile color; `tint` recolors a
+  /// single-color mark per appearance, and nil keeps the mark's own colors.
+  struct ProviderBrand: Equatable {
+    struct Pair: Equatable {
+      let light: UInt32
+      let dark: UInt32
+    }
+    let file: String
+    let glyph: String?
+    let tile: Pair
+    let tint: Pair?
+
+    /// Black mark on white; white on black in Dark Mode.
+    static func flip(_ file: String) -> Self {
+      .init(
+        file: file, glyph: file, tile: .init(light: 0xFFFFFF, dark: 0x000000),
+        tint: .init(light: 0x000000, dark: 0xFFFFFF))
+    }
+    /// Multicolor mark on a fixed tile; the dense-row glyph is the official `<file>-mono` mark
+    /// when the source has one.
+    static func color(_ file: String, tile: UInt32 = 0xFFFFFF, mono: Bool = true) -> Self {
+      .init(
+        file: file, glyph: mono ? file + "-mono" : nil, tile: .init(light: tile, dark: tile),
+        tint: nil)
+    }
+    /// Single-color mark on the brand's own tile color, the same in both appearances.
+    static func tinted(_ file: String, mark: UInt32, tile: UInt32) -> Self {
+      .init(
+        file: file, glyph: file, tile: .init(light: tile, dark: tile),
+        tint: .init(light: mark, dark: mark))
+    }
+  }
+
+  /// Provider id -> brand look. Marks and sources: `Resources/Icons/ProviderBrand/BRAND-SOURCES.md`.
+  /// A provider without an entry has no findable official mark and keeps its template glyph.
+  static let providerBrands: [String: ProviderBrand] = [
+    "codex": .flip("openai"), "openai": .flip("openai"), "azureopenai": .color("azure"),
+    "claude-code": .color("claude", tile: 0xFAF9F5),
+    "gemini-cli": .color("gemini"), "antigravity-cli": .color("antigravity"),
+    "grok-build": .flip("grok"), "xai": .flip("xai"), "xapi": .flip("x"),
+    "cursor": .flip("cursor"), "windsurf": .flip("windsurf"), "copilot": .flip("githubcopilot"),
+    "clinepass": .flip("cline"), "amp": .color("amp"), "opencodego": .flip("opencode"),
+    "kilo": .flip("kilocode"), "deepseek": .color("deepseek"), "qwencloud": .color("qwen"),
+    "alibaba": .color("alibabacloud"), "alibabatokenplan": .color("bailian"),
+    "mistral": .color("mistral"), "ollama": .flip("ollama"), "perplexity": .color("perplexity"),
+    "groq": .tinted("groq", mark: 0xFFFFFF, tile: 0xF55036),
+    "huggingface": .color("huggingface"), "vercel": .flip("vercel"), "v0": .flip("v0"),
+    "replicate": .flip("replicate"), "elevenlabs": .flip("elevenlabs"), "notion": .flip("notion"),
+    "poe": .color("poe"), "raycast": .tinted("raycast", mark: 0xFFFFFF, tile: 0xFF6363),
+    "warp": .tinted("warp", mark: 0xFFFFFF, tile: 0x01A4FF),
+    "deepgram": .color("deepgram", tile: 0x0A0A0A), "gitkraken": .color("gitkraken"),
+    "jetbrains": .flip("jetbrains"), "zed": .color("zed"), "openrouter": .color("openrouter"),
+    "kimi": .color("kimi"), "kimi-api": .color("kimi"), "moonshot": .color("kimi"),
+    "minimax": .color("minimax"), "stepfun": .color("stepfun"), "tavily": .color("tavily"),
+    "venice": .color("venice"), "vertexai": .color("vertexai"), "bedrock": .color("bedrock"),
+    "doubao": .color("doubao"), "exa": .color("exa"), "fireworks": .color("fireworks"),
+    "deepinfra": .color("deepinfra"), "longcat": .color("longcat"), "qoder": .color("qoder"),
+    "atlascloud": .flip("atlascloud"), "ibmbob": .color("ibm"), "zai": .flip("zai"),
+    "manus": .flip("manus"), "nous": .flip("nousresearch"), "mimo": .flip("xiaomimimo"),
+    "zenmux": .flip("zenmux"), "kiro": .color("kiro", tile: 0x9046FF, mono: false),
+    "devin": .flip("devin"), "augment": .flip("augment"),
+    "factory": .tinted("factory", mark: 0xFAFAFA, tile: 0x020202),
+  ]
+
+  static func providerBrand(for providerID: ProviderID) -> ProviderBrand? {
+    providerBrands[providerID.rawValue]
+  }
+
+  /// Compatibility for callers that ask whether artwork exists; every brand mark is a PDF.
   struct ProviderArtwork: Equatable {
     let providerID: ProviderID
     let resourceName: String
     let fileExtension: String
   }
 
-  static let providerArtwork: [ProviderArtwork] = [
-    .init(providerID: .codex, resourceName: "ProviderCodex", fileExtension: "png"),
-    .init(providerID: .claudeCode, resourceName: "ProviderClaudeCode", fileExtension: "svg"),
-    .init(providerID: .geminiCLI, resourceName: "ProviderGeminiCLI", fileExtension: "svg"),
-    .init(
-      providerID: .antigravityCLI,
-      resourceName: "ProviderAntigravityCLI",
-      fileExtension: "png"),
-  ]
+  static let providerArtwork: [ProviderArtwork] = providerBrands.keys.sorted().map {
+    .init(providerID: ProviderID(rawValue: $0), resourceName: providerBrands[$0]!.file, fileExtension: "pdf")
+  }
 
   private static var providerImageCache: [String: NSImage] = [:]
 
-  /// The official color mark, read from disk once; lists redraw it on every selection.
-  static func providerImage(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage? {
-    guard let artwork = providerArtwork.first(where: { $0.providerID == providerID }) else {
-      return nil
-    }
-    if let cached = providerImageCache[artwork.resourceName] { return cached }
-    guard let image = image(
-      named: artwork.resourceName,
-      extension: artwork.fileExtension,
-      bundle: bundle) else { return nil }
-    providerImageCache[artwork.resourceName] = image
+  private static func brandPDF(_ name: String, template: Bool, in bundle: Bundle) -> NSImage? {
+    let key = bundle.bundleURL.path + "|" + name + (template ? "|t" : "")
+    if let cached = providerImageCache[key] { return cached }
+    // A mark whose SVG uses mask or blur filters ships as a 384-pixel PNG, since PDF export drops them.
+    guard let url = ["pdf", "png"].lazy.compactMap({
+      bundle.url(forResource: name, withExtension: $0, subdirectory: "Icons/ProviderBrand")
+    }).first, let image = NSImage(contentsOf: url)
+    else { return nil }
+    image.isTemplate = template
+    providerImageCache[key] = image
     return image
+  }
+
+  /// The official brand mark: a template for single-color marks (the tile tints it), full color
+  /// otherwise. Read from disk once; lists redraw it on every selection.
+  static func providerImage(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage? {
+    guard let brand = providerBrand(for: providerID) else { return nil }
+    return brandPDF(brand.file, template: brand.tint != nil, in: bundle)
   }
 
   static let providerGlyphNames: [String: String] = [
@@ -108,13 +180,15 @@ enum AIManagerBrand {
     providerIconAliases[providerID.rawValue] ?? providerID.rawValue
   }
 
-  /// Monochrome template icon for any provider id. Existing glyphs win, then the packaged
-  /// CodexBar SVG, then a monogram. Loaded once per id; callers never touch the disk on redraw.
+  /// Monochrome template icon for any provider id. The official mono brand mark wins, then the
+  /// older glyphs, the packaged CodexBar SVG, and a monogram. Loaded once per id; callers never
+  /// touch the disk on redraw.
   static func providerIcon(for providerID: ProviderID, in bundle: Bundle = .main) -> NSImage {
     let key = bundle.bundleURL.path + "|" + providerID.rawValue
     if let image = providerIconCache[key] { return image }
     let name = providerIconName(for: providerID)
-    let image = providerGlyph(for: providerID, in: bundle)
+    let image = providerBrand(for: providerID)?.glyph.flatMap { brandPDF($0, template: true, in: bundle) }
+      ?? providerGlyph(for: providerID, in: bundle)
       ?? providerGlyph(for: ProviderID(rawValue: name), in: bundle)
       ?? providerSVG(named: name, in: bundle)
       ?? monogram(for: providerID)
@@ -126,7 +200,7 @@ enum AIManagerBrand {
   static func hasProviderArtwork(for providerID: ProviderID, in bundle: Bundle = .main) -> Bool {
     let name = providerIconName(for: providerID)
     return providerGlyphNames[providerID.rawValue] != nil || providerGlyphNames[name] != nil
-      || providerSVGURL(named: name, in: bundle) != nil
+      || providerBrand(for: providerID) != nil || providerSVGURL(named: name, in: bundle) != nil
   }
 
   private static func providerSVGURL(named name: String, in bundle: Bundle) -> URL? {
@@ -210,11 +284,17 @@ enum AIManagerBrand {
     ] where resourceURL(named: name, extension: fileExtension, bundle: bundle) == nil {
       failures.append("Brand asset \(name).\(fileExtension) is unavailable")
     }
-    for artwork in providerArtwork {
-      guard providerImage(for: artwork.providerID, in: bundle) != nil else {
-        failures.append(
-          "Provider asset \(artwork.resourceName).\(artwork.fileExtension) did not load")
+    for id in providerBrands.keys.sorted() {
+      let providerID = ProviderID(rawValue: id)
+      guard let brand = providerBrand(for: providerID),
+        let mark = providerImage(for: providerID, in: bundle),
+        mark.size.width > 0, mark.isTemplate == (brand.tint != nil)
+      else {
+        failures.append("Provider brand mark \(id) did not load")
         continue
+      }
+      if let glyph = brand.glyph, brandPDF(glyph, template: true, in: bundle) == nil {
+        failures.append("Provider brand glyph \(glyph) for \(id) did not load")
       }
     }
     for id in providerGlyphNames.keys.sorted() {

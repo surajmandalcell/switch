@@ -45,6 +45,16 @@ then
   exit 1
 fi
 
+# Official brand marks: every PDF is a real PDF, the source table ships, and the PNG fallback is square.
+brand="$icons/ProviderBrand"
+test -s "$brand/BRAND-SOURCES.md"
+for pdf in "$brand"/*.pdf
+do
+  [[ "$(head -c 4 "$pdf")" == "%PDF" ]]
+done
+[[ "$(sips -g pixelWidth "$brand/antigravity.png" | awk '/pixelWidth/ {print $2}')" == \
+  "$(sips -g pixelHeight "$brand/antigravity.png" | awk '/pixelHeight/ {print $2}')" ]]
+
 [[ "$(shasum -a 256 "$icons/ProviderCodex.png" | awk '{print $1}')" == \
   "6025a4347a8eaed17e31eaebf7834e33ec4af26cc7f59be586ac59ba5157fa1c" ]]
 [[ "$(shasum -a 256 "$icons/ProviderClaudeCode.svg" | awk '{print $1}')" == \
