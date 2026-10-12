@@ -20,6 +20,7 @@ no icon dependency at runtime.
 `SWITCH-MARK-PROVENANCE.txt` records the supplied reference digest, tracing
 settings, and measured fidelity.
 
-The `Provider*` files are unchanged official provider marks used in the Add
-Account catalog. `PROVIDER-ICON-PROVENANCE.txt` records their primary sources,
-retrieval date, exact digests, and ownership notice.
+`ProviderBrand/` holds the official logo of every provider that has one, drawn
+by `ProviderMark` on the brand's tile. `ProviderBrand/BRAND-SOURCES.md` records
+each source, license, and tile look. The older `Provider*` files and
+`PROVIDER-ICON-PROVENANCE.txt` are superseded and no longer drawn.
