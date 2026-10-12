@@ -403,7 +403,7 @@ struct MenuBarPopover: View {
             VStack(spacing: 0) {
               ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.offset) { index, group in
                 if index > 0 {
-                  Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+                  AIMHairline()
                     .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupGap)
                 }
                 HStack(spacing: MenuBarPresentation.tileSpacing) {

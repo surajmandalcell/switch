@@ -64,9 +64,7 @@ struct ProviderMark: View {
     }
     .frame(width: size, height: size)
     .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
-    .overlay {
-      RoundedRectangle(cornerRadius: size * 0.22).strokeBorder(AIMTheme.line, lineWidth: 0.5)
-    }
+    .aimBorder(AIMTheme.line, in: RoundedRectangle(cornerRadius: size * 0.22))
     .uiLint(.item)
     .accessibilityHidden(true)
   }

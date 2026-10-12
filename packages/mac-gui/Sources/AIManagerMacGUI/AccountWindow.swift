@@ -1418,7 +1418,7 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
             .padding(.horizontal, segmentWidth == nil ? 12 : 0)
             .frame(width: segmentWidth, height: AIMTheme.controlHeight - 4)
             .background(selected ? AIMTheme.segmentSelected : Color.clear, in: segment)
-            .overlay(segment.strokeBorder(selected ? AIMTheme.controlBorder : Color.clear, lineWidth: 0.5))
+            .aimBorder(selected ? AIMTheme.controlBorder : Color.clear, in: segment)
             .contentShape(segment)
         }
         .buttonStyle(.plain)
@@ -2205,7 +2205,7 @@ private struct ChatDetailPane: View {
       } else {
         Color.clear.frame(height: 58)
       }
-      Divider()
+      AIMHairline()
 
       VStack(spacing: AIMTheme.rowSpacing) {
         HStack(spacing: AIMTheme.rowSpacing) {
@@ -2237,7 +2237,7 @@ private struct ChatDetailPane: View {
       }
       .padding(.horizontal, AIMTheme.sectionSpacing)
       .padding(.vertical, AIMTheme.rowSpacing)
-      Divider()
+      AIMHairline()
 
       if model.isChatLoading {
         VStack(spacing: AIMTheme.rowSpacing) {
@@ -2659,7 +2659,7 @@ private struct ChatPresentationBlockView: View {
         language: language, preview: preview, expandedText: expanded,
         sourceWasTruncated: sourceWasTruncated)
     case .divider:
-      Divider().padding(.vertical, 2)
+      AIMHairline().padding(.vertical, 2)
     }
   }
 

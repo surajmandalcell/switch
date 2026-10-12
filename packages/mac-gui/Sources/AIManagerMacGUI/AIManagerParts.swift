@@ -53,12 +53,13 @@ extension AIMTheme {
   }
   /// White cards in light; a little lighter than the page in dark.
   static let card = dynamic(light: .white, dark: .underPageBackgroundColor)
-  static let cardBorder = dynamic(light: NSColor(white: 0, alpha: 0.10), dark: NSColor(white: 1, alpha: 0.10))
+  /// One device pixel (see `aimPixel`). Dark is half the alpha of light: it keeps the look of the old half-point stroke.
+  static let cardBorder = dynamic(light: NSColor(white: 0, alpha: 0.10), dark: NSColor(white: 1, alpha: 0.05))
   static let hairline = Color(nsColor: .separatorColor)
   static let tileFill = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.04))
   static let controlFill = dynamic(light: .white, dark: NSColor(white: 1, alpha: 0.12))
   static let controlPressed = dynamic(light: NSColor(white: 0.93, alpha: 1), dark: NSColor(white: 1, alpha: 0.2))
-  /// Light mode keeps the Sequoia hairline rim and shadow; Dark Mode controls are flat fills only.
+  /// Light mode keeps a one-pixel rim; Dark Mode controls are flat fills only.
   static let controlBorder = dynamic(light: NSColor(white: 0, alpha: 0.14), dark: .clear)
   static let primaryBorder = dynamic(light: NSColor(white: 0, alpha: 0.12), dark: .clear)
   static let controlShadow = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: .clear)
@@ -83,10 +84,36 @@ extension EnvironmentValues {
 
 // MARK: - Hairline
 
+/// Every border and rule is exactly one device pixel: 1 pt at 1x, 0.5 pt at 2x. A 0.5 pt line at 1x
+/// falls between pixels and smears, darkest at the rounded corners. Read it here and nowhere else.
+extension EnvironmentValues {
+  var aimPixel: CGFloat { 1 / max(displayScale, 1) }
+}
+
+private struct AIMBorder<S: InsettableShape>: ViewModifier {
+  @Environment(\.aimPixel) private var pixel
+  let color: Color
+  let shape: S
+  func body(content: Content) -> some View {
+    content.overlay(shape.strokeBorder(color, lineWidth: pixel).allowsHitTesting(false))
+  }
+}
+
+extension View {
+  /// A one-pixel border drawn inside `shape`.
+  func aimBorder<S: InsettableShape>(_ color: Color, in shape: S) -> some View {
+    modifier(AIMBorder(color: color, shape: shape))
+  }
+}
+
+/// A one-pixel rule: horizontal by default, vertical when `vertical` (give it a height).
 struct AIMHairline: View {
-  @Environment(\.displayScale) private var scale
+  @Environment(\.aimPixel) private var pixel
+  var vertical = false
   var body: some View {
-    Rectangle().fill(AIMTheme.hairline).frame(height: 1 / max(scale, 1)).accessibilityHidden(true)
+    Rectangle().fill(AIMTheme.hairline)
+      .frame(width: vertical ? pixel : nil, height: vertical ? nil : pixel)
+      .accessibilityHidden(true)
   }
 }
 
@@ -157,7 +184,7 @@ struct AIMCard<Accessory: View, Content: View>: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(AIMTheme.card, in: shape)
     .clipShape(shape)
-    .overlay(shape.strokeBorder(AIMTheme.cardBorder, lineWidth: 0.5))
+    .aimBorder(AIMTheme.cardBorder, in: shape)
     .uiLint(.card(radius: AIMTheme.radius), fill: AIMTheme.card, file: source.file, line: source.line)
     .modifier(CardScrollTag(scrolls: scrolls))
     .modifier(CardEdgeTags(edges: edges))
@@ -287,7 +314,7 @@ private struct AIMSwitchButtonStyle: ButtonStyle {
     }
     .frame(width: 38, height: 22)
     .overlay(track.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
-    .overlay(track.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+    .aimBorder(AIMTheme.controlBorder, in: track)
     .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: isOn)
     .contentShape(track)
@@ -322,7 +349,7 @@ private struct AIMCheckboxButtonStyle: ButtonStyle {
         ZStack {
           box.fill(isOn ? Color.accentColor : AIMTheme.controlFill)
           box.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear)
-          box.strokeBorder(isOn ? Color.clear : AIMTheme.controlBorder, lineWidth: 0.5)
+          Color.clear.aimBorder(isOn ? Color.clear : AIMTheme.controlBorder, in: box)
           if isOn {
             AIMIcon(name: .check).aimFont(.caption).fontWeight(.bold).foregroundStyle(Color.white)
           }
@@ -667,7 +694,7 @@ extension View {
     return padding(AIMTheme.cardInset - AIMTheme.tileInset)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(AIMTheme.tileFill, in: shape)
-      .overlay(shape.strokeBorder(AIMTheme.cardBorder, lineWidth: 0.5))
+      .aimBorder(AIMTheme.cardBorder, in: shape)
       .uiLint(.item)
   }
 }
@@ -788,9 +815,9 @@ struct AIMPushButtonStyle: ButtonStyle {
       .frame(width: square ? height : width, height: height)
       .background(shape.fill(fill(pressed: configuration.isPressed)))
       .overlay(shape.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
-      // The rim and shadow are light-mode only; Dark Mode controls are flat fills.
-      .overlay(shape.strokeBorder(prominent ? AIMTheme.primaryBorder : AIMTheme.controlBorder, lineWidth: 0.5))
-      .shadow(color: prominent || !isEnabled ? .clear : AIMTheme.controlShadow, radius: 0.5, y: 0.5)
+      // The rim is light-mode only; Dark Mode controls are flat fills. No drop shadow: a half-point
+      // blur falls between pixels at 1x and smears the edge.
+      .aimBorder(prominent ? AIMTheme.primaryBorder : AIMTheme.controlBorder, in: shape)
       .opacity(isEnabled ? 1 : 0.45)
       .contentShape(shape)
       .uiLint(.control)
@@ -894,7 +921,7 @@ struct AIMSearchField: View {
     .frame(width: AIMTheme.toolbarSearchWidth, height: AIMTheme.controlHeight)
     .background(AIMTheme.controlFill, in: shape)
     .overlay(shape.fill(focus.wrappedValue ? AIMTheme.focusTint : Color.clear).allowsHitTesting(false))
-    .overlay(shape.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+    .aimBorder(AIMTheme.controlBorder, in: shape)
     .contentShape(shape)
     // Clicking the icon, the hint, or the padding focuses the field.
     .onTapGesture { focus.wrappedValue = true }
@@ -917,7 +944,7 @@ struct AIMFieldChrome: ViewModifier {
       .frame(width: width, height: AIMTheme.controlHeight)
       .background(AIMTheme.controlFill, in: shape)
       .overlay(shape.fill(focused ? AIMTheme.focusTint : Color.clear).allowsHitTesting(false))
-      .overlay(shape.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+      .aimBorder(AIMTheme.controlBorder, in: shape)
       .uiLint(.control)
   }
 }
@@ -1002,7 +1029,7 @@ struct AIMChipToggleStyle: ToggleStyle {
         .frame(height: AIMTheme.rowControlHeight)
         .background(shape.fill(configuration.isOn ? Color.accentColor.opacity(0.22) : AIMTheme.controlFill))
         .overlay(shape.fill(focused ? AIMTheme.focusTint : Color.clear))
-        .overlay(shape.strokeBorder(AIMTheme.controlBorder, lineWidth: 0.5))
+        .aimBorder(AIMTheme.controlBorder, in: shape)
         .contentShape(shape)
         .uiLint(.control)
     }
@@ -1053,7 +1080,7 @@ struct AIMSidebar: View {
       }
     }
     .overlay(alignment: .trailing) {
-      Rectangle().fill(AIMTheme.hairline).frame(width: 1 / 2).accessibilityHidden(true)
+      AIMHairline(vertical: true)
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Sidebar")
