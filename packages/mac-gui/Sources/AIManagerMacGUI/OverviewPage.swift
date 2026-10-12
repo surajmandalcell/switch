@@ -454,6 +454,15 @@ struct FocusedAccountCard: View {
           }
           .buttonStyle(AIMPushButtonStyle())
           .disabled(model.isBusy)
+        } else if let dashboard = ProviderCatalog.spec(providerID)?.dashboard {
+          // Generic accounts open their provider's dashboard, as their detail page used to.
+          Button {
+            model.openDashboard(dashboard)
+          } label: {
+            Label("Open dashboard", systemImage: AIMIcon.Name.arrowRight.symbol)
+          }
+          .buttonStyle(AIMPushButtonStyle())
+          .disabled(model.isBusy)
         }
       }
       .uiLint(.actions)

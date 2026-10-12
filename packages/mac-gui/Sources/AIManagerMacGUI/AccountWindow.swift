@@ -461,6 +461,14 @@ private struct AccountsPage: View {
           contextMenu: { AnyView(accountContextMenu(for: $0)) })
       }
       if let account = model.selectedAccount {
+        // The Overview's focused-account card, for the selected account.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+          FocusedAccountCard(
+            account: account, accounts: model.status?.accounts ?? [], model: model,
+            now: context.date, hideEmails: hideEmails, showsUsed: showsUsed,
+            focus: { model.selectedAccountID = $0 },
+            delete: { prepareDeletion(of: account) })
+        }
         if account.usesGenericDetail {
           ProviderAccountDetail(account: account, model: model) {
             prepareDeletion(of: account)
@@ -609,36 +617,6 @@ private struct AccountDetail: View {
   }
   var body: some View {
     AIMDetailPage {
-      AIMSection("Identity") {
-        VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
-          HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
-            Text(EmailPrivacy.display(account.identity.heroName, hide: hideEmails))
-              .aimText(.title)
-              .lineLimit(1).textSelection(.enabled)
-            identityStatus
-          }
-          if let workspaceID = account.identity.workspaceID {
-            Text(workspaceID).aimText(.secondary, monospaced: true).textSelection(.enabled)
-          } else {
-            Text("Personal workspace").aimText(.secondary).textSelection(.enabled)
-          }
-          if let entry = model.providerStatus[account.identity.providerID],
-             entry.incident.severity != nil {
-            HStack(spacing: 6) {
-              ProviderStatusDot(entry: entry)
-              Text(account.identity.providerID.guiName).aimText(.secondary)
-            }
-          }
-          if account.verification.state.attentionLabel != nil {
-            Text(EmailPrivacy.display(account.verification.detail)).aimText(.secondary)
-              .textSelection(.enabled)
-          }
-          ViewThatFits(in: .horizontal) {
-            HStack(spacing: AIMTheme.rowSpacing) { actions }
-            VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) { actions }
-          }
-        }
-      }
       if account.identity.providerID == .codex {
         AccountUsagePanel(account: account, model: model)
       } else if ProviderUsagePanel.applies(to: account, in: model) {
@@ -692,34 +670,6 @@ private struct AccountDetail: View {
       }
     }
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
-  }
-  private var identityStatus: some View {
-    HStack(spacing: 6) {
-      if model.status?.isDefault(account) == true {
-        Badge(text: "Default")
-      }
-      if let attention = account.verification.state.attentionLabel {
-        Badge(text: attention, tint: account.verification.state.color)
-      }
-    }
-  }
-  @ViewBuilder private var actions: some View {
-    if model.needsSignIn(account) {
-      SignInButton(account: account, model: model)
-    } else if model.status?.isDefault(account) != true {
-      DefaultAccountButton(isDefault: false, disabled: model.isBusy) {
-        Task { await model.switchDefault(to: account.id) }
-      }
-    }
-    AIMButton(
-      title: model.status?.isDefault(account) == true
-        ? AccountActionCopy.open(account.identity.providerID)
-        : AccountActionCopy.useAndOpen(account.identity.providerID),
-      disabled: model.isBusy
-    ) {
-      Task { await model.openAccount(account.id) }
-    }
-    AccountMoreMenu(account: account, model: model, delete: delete)
   }
 }
 
@@ -2228,12 +2178,6 @@ private struct DataLocationRow: View {
   }
 }
 
-enum HistoryHeaderLayout {
-  static let height: CGFloat = 40
-  static let countWidth: CGFloat = 128
-  static let warningWidth: CGFloat = 32
-}
-
 private struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
   @State private var threadQuery = ""
@@ -2242,8 +2186,12 @@ private struct HistoryPage: View {
     // Two cards: the thread list and the selected conversation.
     AIMFixedPage {
       HStack(spacing: AIMTheme.cardGap) {
-        AIMCard(edges: .start) { threadList.frame(maxHeight: .infinity) }
-          .frame(width: 300)
+        AIMCard(
+          title: "Conversations", edges: .start,
+          accessory: { threadAccessory },
+          content: { threadList.frame(maxHeight: .infinity) }
+        )
+        .frame(width: 300)
         AIMCard(edges: .end) {
           ChatDetailPane(model: model)
             .id(model.selectedChatID)
@@ -2256,72 +2204,67 @@ private struct HistoryPage: View {
     .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
   }
 
-  private var threadList: some View {
-      VStack(spacing: 0) {
-        HStack(spacing: 0) {
-          Text("Conversations").aimText(.section)
-          Spacer(minLength: AIMTheme.rowSpacing)
-          if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
-            WarningCopyButton(label: "Copy history warning") {
-              model.copyWarnings([historyIssueText])
-            }
-            .help(historyIssueText)
-            .frame(width: HistoryHeaderLayout.warningWidth, height: HistoryHeaderLayout.height)
-          }
-          Group {
-            if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
-              ProgressView().controlSize(.small)
-            } else {
-              HStack(spacing: 6) {
-                if let error = model.chatHistoryError {
-                  Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
-                    .help(error)
-                    .accessibilityLabel(error)
-                }
-                Text(historyCountText)
-                  .aimText(.secondary)
-                  .monospacedDigit()
-                  .contentTransition(.numericText())
-              }
-            }
-          }
-          .frame(width: HistoryHeaderLayout.countWidth,
-            height: HistoryHeaderLayout.height, alignment: .trailing)
+  /// The title row's trailing side: a warning button, an error dot, and the count.
+  private var threadAccessory: some View {
+    HStack(spacing: 6) {
+      if model.chatHistory.skippedFileCount > 0 || model.chatHistory.unreadableRecordCount > 0 {
+        WarningCopyButton(label: "Copy history warning") {
+          model.copyWarnings([historyIssueText])
         }
-        .padding(.leading, AIMTheme.sectionSpacing)
-        .padding(.trailing, AIMTheme.rowSpacing)
-        .frame(height: HistoryHeaderLayout.height)
-
-        HistorySearchField(text: $threadQuery, placeholder: "Search conversations")
-          .padding(.horizontal, AIMTheme.sectionSpacing)
-          .padding(.bottom, AIMTheme.rowSpacing)
-
-        if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
-          VStack(spacing: AIMTheme.rowSpacing) {
-            ProgressView().controlSize(.small)
-            Text("Reading chat library").aimText(.secondary)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if model.chatHistory.threads.isEmpty {
-          VStack(spacing: 4) {
-            AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
-            Text(threadQuery.isEmpty ? "No conversations yet" : "No matching conversations")
-              .aimText(.body)
-            Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
-              .aimText(.secondary)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-          List(model.chatHistory.threads, selection: Binding(
-            get: { model.selectedChatID },
-            set: { if let id = $0 { Task { await model.selectChat(id) } } })
-          ) { thread in
-            ChatThreadRow(thread: thread)
-          }
-          .listStyle(.inset)
-          .scrollContentBackground(.hidden)
-        }
+        .help(historyIssueText)
       }
+      if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
+        ProgressView().controlSize(.small)
+      } else {
+        if let error = model.chatHistoryError {
+          Circle().fill(AIMTheme.red).frame(width: 6, height: 6)
+            .help(error)
+            .accessibilityLabel(error)
+        }
+        Text(historyCountText)
+          .aimText(.secondary)
+          .monospacedDigit()
+          .contentTransition(.numericText())
+      }
+    }
+  }
+
+  private var threadList: some View {
+    VStack(spacing: 0) {
+      HistorySearchField(text: $threadQuery, placeholder: "Search conversations")
+        .frame(maxWidth: .infinity)
+        .aimBodyEdges()
+        .padding(.horizontal, AIMTheme.cardInset)
+        .padding(.bottom, AIMTheme.rowSpacing)
+
+      if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
+        VStack(spacing: AIMTheme.rowSpacing) {
+          ProgressView().controlSize(.small)
+          Text("Reading chat library").aimText(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if model.chatHistory.threads.isEmpty {
+        VStack(spacing: 4) {
+          AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
+          Text(threadQuery.isEmpty ? "No conversations yet" : "No matching conversations")
+            .aimText(.body)
+          Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
+            .aimText(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        List(model.chatHistory.threads, selection: Binding(
+          get: { model.selectedChatID },
+          set: { if let id = $0 { Task { await model.selectChat(id) } } })
+        ) { thread in
+          ChatThreadRow(thread: thread)
+        }
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        // The list's own 10 pt inset plus 6 puts the highlight on the 16 pt content edge.
+        .padding(.horizontal, AIMTheme.tileInset)
+      }
+    }
   }
 
   private var historyCountText: String {

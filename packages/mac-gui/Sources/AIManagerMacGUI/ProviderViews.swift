@@ -517,40 +517,8 @@ struct ProviderAccountDetail: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
 
-  private var spec: ProviderSpec? { ProviderCatalog.spec(account.identity.providerID) }
-  private var state: ProviderUsageState? { model.providerUsage[account.id] }
-  private var isDefault: Bool { model.status?.isDefault(account) == true }
-  private var name: String {
-    EmailPrivacy.display(
-      account.identity.email ?? state?.usage?.email ?? account.identity.accountLabel, hide: hideEmails)
-  }
-  private var subtitle: String {
-    [account.identity.providerID.guiName, state?.usage?.plan?.capitalized, state?.usage?.organization]
-      .compactMap { $0 }.joined(separator: " · ")
-  }
-
   var body: some View {
     AIMDetailPage {
-      AIMSection("Identity") {
-        VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
-          HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
-            Text(name).aimText(.title).lineLimit(1).textSelection(.enabled)
-            badges
-          }
-          HStack(spacing: 6) {
-            ProviderStatusDot(entry: model.providerStatus[account.identity.providerID])
-            Text(subtitle).aimText(.secondary).textSelection(.enabled)
-          }
-          if account.verification.state.attentionLabel != nil {
-            Text(EmailPrivacy.display(account.verification.detail)).aimText(.secondary)
-              .textSelection(.enabled)
-          }
-          ViewThatFits(in: .horizontal) {
-            HStack(spacing: AIMTheme.rowSpacing) { actions }
-            VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) { actions }
-          }
-        }
-      }
       ProviderUsagePanel(account: account, model: model)
       AIMSection("Account details") {
         DetailRow(label: "Saved sign-in", value: account.credentialFile.path)
@@ -568,35 +536,6 @@ struct ProviderAccountDetail: View {
       }
     }
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
-  }
-
-  private var badges: some View {
-    HStack(spacing: 6) {
-      if isDefault {
-        Badge(text: "Default")
-      }
-      if let attention = account.verification.state.attentionLabel {
-        Badge(text: attention, tint: account.verification.state.color)
-      } else if state?.needsSignIn == true {
-        Badge(text: "Needs sign-in", tint: VerificationState.needsSignIn.color)
-      }
-    }
-  }
-
-  @ViewBuilder private var actions: some View {
-    if model.needsSignIn(account) {
-      SignInButton(account: account, model: model)
-    } else if !isDefault {
-      DefaultAccountButton(isDefault: false, disabled: model.isBusy) {
-        Task { await model.switchDefault(to: account.id) }
-      }
-    }
-    if let dashboard = spec?.dashboard {
-      AIMButton(title: "Open dashboard", disabled: model.isBusy) {
-        model.openDashboard(dashboard)
-      }
-    }
-    AccountMoreMenu(account: account, model: model, delete: delete)
   }
 }
 
