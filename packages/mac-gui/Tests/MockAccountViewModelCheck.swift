@@ -56,12 +56,12 @@ struct MockAccountViewModelCheck {
         await model.reloadAfterActivation()
         precondition(model.showImport, "Returning to the app dismissed or reloaded the account dialog")
         precondition(model.status?.accounts.count == modalAccountCount)
-        precondition(Array(model.providers.map(\.id).prefix(3)) == [.codex, .grokBuild, .claudeCode])
+        precondition(Array(model.providers.map(\.id).prefix(4)) == [.codex, .grokBuild, .droid, .claudeCode])
         precondition(model.providers.allSatisfy { $0.availability == .enabled })
         precondition(Set(model.providers.map(\.id)).isSuperset(of: ProviderCatalog.addable.map(\.id)))
         let choices = ProviderChoices.all(descriptors: model.providers)
-        precondition(Array(choices.map(\.id).prefix(3)) == [.codex, .grokBuild, .claudeCode])
-        let generic = Array(choices.dropFirst(3))
+        precondition(Array(choices.map(\.id).prefix(4)) == [.codex, .grokBuild, .droid, .claudeCode])
+        let generic = Array(choices.dropFirst(4))
         precondition(generic.count == ProviderCatalog.addable.count)
         precondition(generic.map(\.name) == generic.map(\.name).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending

@@ -45,7 +45,7 @@ private enum TerminalAccountAction: CaseIterable, Equatable {
 
 extension ProviderID {
     /// Providers that use the generic store and `ProviderSpec` usage, not the Codex, Grok, or Claude paths.
-    var isGenericProvider: Bool { ![ProviderID.codex, .grokBuild, .claudeCode].contains(self) }
+    var isGenericProvider: Bool { ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(self) }
 }
 
 extension TerminalAccountAction {
@@ -97,6 +97,10 @@ struct AIManagerCLI {
             let code = try await LimitsCommands.guardLimit(input, manager: manager)
             if code != 0 { exit(code) }
         case "add", "start-login": try await startLogin(input, manager: manager)
+        case "import-droid":
+            guard let name = input.option("--name") else { throw CLIError.message("Enter the account name with --name.") }
+            try confirm(input, "Save the encrypted Droid login as \(name)?")
+            await output(try await manager.importDroidAccount(name: name), json: input.json)
         case "check-login": try await checkLogin(input, manager: manager)
         case "cancel-login":
             let id = try input.requiredLoginSessionID()
@@ -127,7 +131,12 @@ struct AIManagerCLI {
             try confirm(
                 input,
                 "Use this account in \(providerName(account.identity.providerID))?")
-            await output(try await manager.switchDefault(to: id), json: input.json)
+            do { await output(try await manager.switchDefault(to: id), json: input.json) }
+            catch let error as DroidAccountError {
+                guard case .running = error else { throw error }
+                try confirm(input, error.localizedDescription)
+                await output(try await manager.switchDefault(to: id, allowRunningDroid: true), json: input.json)
+            }
         case "open":
             let id = try input.requiredAccountID()
             let status = try await manager.status()
@@ -235,13 +244,30 @@ struct AIManagerCLI {
             throw AIManagerError.unsupportedSource(reason ?? "This provider is unavailable.")
         }
         try confirm(input, "Start an isolated \(providerName(provider)) account login?")
+        if let accountID = try input.optionalAccountID("--account") {
+            let status = try await manager.status()
+            guard let target = status.accounts.first(where: { $0.id == accountID && $0.identity.providerID == provider }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try confirm(input, "Sign in to \(displayName(target.identity))? Droid's encrypted identity cannot be checked by Switch.")
+            await output(SafeLoginStart(try await manager.startAccountLogin(accountID: accountID, confirmDroidAccount: true)), json: input.json)
+            return
+        }
         await output(SafeLoginStart(try await manager.startAccountLogin(providerID: provider)), json: input.json)
     }
 
     static func checkLogin(_ input: CommandLineInput, manager: AccountManager) async throws {
         let id = try input.requiredLoginSessionID()
         try confirm(input, "Check this login and save the account if sign-in is complete?")
-        let checked = try await manager.checkAccountLogin(id: id, credentialChoice: input.loginCredentialChoice)
+        let checked: AccountLoginCheck
+        do {
+            checked = try await manager.checkAccountLogin(id: id, credentialChoice: input.loginCredentialChoice,
+                                                         droidName: input.option("--name") ?? "Droid 1")
+        } catch let error as DroidAccountError {
+            guard case .running = error else { throw error }
+            try confirm(input, error.localizedDescription)
+            checked = try await manager.checkAccountLogin(id: id, droidName: input.option("--name") ?? "Droid 1", allowRunningDroid: true)
+        }
         await output(SafeLoginCheck(checked), json: input.json)
     }
 
@@ -986,6 +1012,9 @@ struct AIManagerCLI {
         case let started as SafeLoginStart:
             print("Browser sign-in started for \(providerName(started.session.providerID)).")
             print("Login session: \(started.session.id.uuidString)")
+            if started.session.providerID == .droid, let home = started.stagingHome {
+                print("Run Droid with FACTORY_HOME_OVERRIDE=\(home.path), type /login, then exit. Switch has not launched Droid.")
+            }
             print("Check when sign-in finishes: \(started.checkCommand)")
             print("Cancel this login: \(started.cancelCommand)")
             print("Both commands keep working after Switch restarts.")
@@ -1089,6 +1118,8 @@ struct AIManagerCLI {
       ai-manager advanced-import <path> [import options]     Import an existing Codex folder or auth.json
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
+      ai-manager import-droid --name <account-name> [--yes] [--json]
+      ai-manager add droid [--yes] [--json]                Prepare an isolated Terminal login
       ai-manager open <account-uuid> [-- provider arguments]
       ai-manager saved-auth <account-uuid>                Print saved auth or Claude config path
       ai-manager remove <account-uuid> [--replacement <account-uuid>] [--yes] [--json]
@@ -1105,9 +1136,9 @@ struct AIManagerCLI {
     AI_MANAGER_GROK_CREDENTIAL_STORE, AI_MANAGER_GROK_EXECUTABLE,
     AI_MANAGER_CLAUDE_EXECUTABLE.
 
-    Provider IDs: run providers. Every provider except these three takes typed credentials (add --field)
+    Provider IDs: run providers. Every provider except these four takes typed credentials (add --field)
     or the CLI's own sign-in (import, add).
-    Codex CLI, Grok Build, and Claude Code are available in this release. Login sessions survive restarts;
+    Codex CLI, Grok Build, Droid, and Claude Code are available in this release. Login sessions survive restarts;
     use status to recover their IDs, then check-login or cancel-login.
     The Codex check in usage reuses cached limits unless --force is given.
     usage exits 2 for bad arguments and 4 when every fetch failed. Secrets are never printed.
@@ -1716,7 +1747,7 @@ private struct SafeLoginStart: Encodable {
 
     init(_ start: AccountLoginStart) {
         session = SafeLoginSession(start.session)
-        stagingHome = start.launchSpec.environment["CODEX_HOME"].map {
+        stagingHome = (start.launchSpec.environment["CODEX_HOME"] ?? start.launchSpec.environment["FACTORY_HOME_OVERRIDE"]).map {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
         checkCommand = "ai-manager check-login \(start.session.id.uuidString) --yes"
@@ -1948,7 +1979,7 @@ struct CommandLineInput {
         var result: [String] = []; var skip = false
         for value in values.prefix(while: { $0 != "--" }) {
             if skip { skip = false; continue }
-            if ["--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement", "--field", "--provider", "--account", "--min-remaining", "--window"].contains(value) { skip = true; continue }
+            if ["--name", "--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement", "--field", "--provider", "--account", "--min-remaining", "--window"].contains(value) { skip = true; continue }
             if value.hasPrefix("--") { continue }
             result.append(value)
         }

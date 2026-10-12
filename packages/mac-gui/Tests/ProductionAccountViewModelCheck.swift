@@ -55,6 +55,7 @@ struct ProductionAccountViewModelCheck {
         defer { try? fileManager.removeItem(at: root) }
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try await checkAccountScopedSignIn(root: root)
+        try await checkDroidAccounts(root: root)
         print("ACCOUNT_SCOPED_SIGN_IN_PASS")
 
         let launched = root.appending(path: "codex-was-launched")
@@ -457,7 +458,7 @@ struct ProductionAccountViewModelCheck {
         try expect(model.signedInProviderIDs == [ProviderID(rawValue: "kilo")],
                    "Detection found \(model.signedInProviderIDs.map(\.rawValue))")
         let choices = ProviderChoices.all(descriptors: model.providers, signedIn: model.signedInProviderIDs)
-        try expect(choices.dropFirst(3).first?.id.rawValue == "kilo" && choices.dropFirst(3).first?.signedInOnThisMac == true,
+        try expect(choices.dropFirst(ProviderChoices.builtIn.count).first?.id.rawValue == "kilo" && choices.dropFirst(ProviderChoices.builtIn.count).first?.signedInOnThisMac == true,
                    "A signed-in provider does not sort first")
     }
 
@@ -692,6 +693,55 @@ struct ProductionAccountViewModelCheck {
         model.closeAccountModal()
         await model.beginSignIn(for: ProviderID.codex)
         try expect(model.accountLoginSession?.accountID == nil, "Add account reused an existing-account target")
+    }
+
+    @MainActor
+    private static func checkDroidAccounts(root: URL) async throws {
+        let droidRoot = root.appending(path: "droid")
+        let paths = ManagerPaths(applicationSupport: droidRoot.appending(path: "support"),
+            credentialStore: droidRoot.appending(path: "user/.switch/codex"),
+            defaultHome: droidRoot.appending(path: "user/.codex"), sharedRoot: droidRoot.appending(path: "user/.codex"),
+            orcaAccountsRoot: droidRoot.appending(path: "orca"), droidExecutable: URL(fileURLWithPath: "/usr/bin/false"), isolationRoot: droidRoot)
+        let fm = FileManager.default
+        try fm.createDirectory(at: paths.droidHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let live = paths.droidHome.appending(path: "auth.v2.loginkeychain")
+        try Data("synthetic-A".utf8).write(to: live)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: live.path)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, providerSpecs: [],
+            droidProcessLister: { [.init(pid: 42, bundleID: "com.electron.factory", home: paths.droidHome)] })
+        let model = AccountViewModel(paths: paths, manager: manager)
+        await model.load()
+        model.droidAccountName = "Droid personal"
+        await model.importDroidAccount()
+        let first = try expect(model.selectedAccount, "Droid import did not reach the GUI")
+        try expect(first.identity.accountID == "Droid personal", "Droid ignored the owner's name")
+        model.closeAccountModal()
+        await model.beginAddAccount()
+        model.selectedProviderID = .droid
+        model.droidAccountName = "Droid work"
+        await model.startAccountLogin()
+        let session = try expect(model.accountLoginSession, "Droid isolated login did not start")
+        let staged = paths.applicationSupport.appending(path: "account-login/\(session.id.uuidString)/home/.factory")
+        try fm.createDirectory(at: staged, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let auth = staged.appending(path: "auth.v2.loginkeychain")
+        try Data("synthetic-B".utf8).write(to: auth)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: auth.path)
+        await model.checkAccountLogin()
+        let second = try expect(model.selectedAccount, "Droid login did not finish")
+        try expect(second.id != first.id && second.identity.accountID == "Droid work", "Droid accounts were not separate")
+        var prompts: [String] = []
+        model.droidConfirmation = { message, _ in prompts.append(message); return false }
+        await model.switchDefault(to: second.id)
+        try expect(try Data(contentsOf: live) == Data("synthetic-A".utf8), "Cancel changed the Droid login")
+        try expect(prompts.last == "Factory.app is running. Switching changes its account for new requests.", "The running-app warning did not reach the GUI")
+        model.droidConfirmation = { message, _ in prompts.append(message); return true }
+        await model.switchDefault(to: second.id)
+        try expect(try Data(contentsOf: live) == Data("synthetic-B".utf8), "Confirmed Droid switch did not publish the login")
+        model.closeAccountModal()
+        await model.beginSignIn(for: first.id)
+        try expect(model.accountLoginSession?.accountID == first.id, "Droid re-sign-in lost the target")
+        try expect(prompts.last?.contains("Droid personal") == true, "Droid sign-in confirmation did not name the target")
+        await model.cancelAccountLogin()
     }
 
     @MainActor

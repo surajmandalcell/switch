@@ -53,6 +53,16 @@ Droid login needs an existing Factory login on this Mac, so the shared key alrea
 Factory.app has work running, live tests use a separate test home through
 `FACTORY_HOME_OVERRIDE` with the droid CLI, and they never touch `~/.factory`.
 
+Droid identities stay opaque. The owner names each import or sign-in, for example "Droid 1".
+Account-scoped sign-in confirms the target name before starting; Switch cannot detect a wrong login.
+Only the active default refreshes live files through the guarded switch path. Other accounts refresh
+only their saved copy. Droid has no verified non-interactive identity or limits command. An optional
+Factory API key belongs to each Droid account and reuses the existing Factory usage provider.
+The generic Factory API-key provider remains separate and keeps its own default.
+The write lock is a nonempty directory published by rename, with a 0600 `owner.json`
+containing a random token and process ID. Switch honors the `.reclaim` guard and never removes
+another writer's lock. A process whose home cannot be proved requires confirmation too.
+
 Claude Code profiles use separate, stable `CLAUDE_CONFIG_DIR` paths. Claude Code owns their
 credentials, including any macOS Keychain entries; Switch does not copy or parse them. A
 Claude default selects the profile for launches through Switch and its host app, so separate

@@ -157,12 +157,12 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
 
   /// Codex and every provider with a usage spec can be refreshed from the popover.
   var supportsUsageRefresh: Bool {
-    providerID == .codex || ProviderCatalog.spec(providerID) != nil
+    providerID == .codex || providerID == .droid || ProviderCatalog.spec(providerID) != nil
   }
 
   /// Only the agent CLIs launch from Switch; generic providers have no tool to open.
   var supportsLaunch: Bool {
-    [ProviderID.codex, .grokBuild, .claudeCode].contains(providerID)
+    [ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(providerID)
   }
 
   var remainingPercentage: Int? {
