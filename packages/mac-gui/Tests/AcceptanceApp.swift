@@ -157,6 +157,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             rootView: content
         )
         windowController = controller
+        if CommandLine.arguments.contains("--ui-lint"), let window = controller.window {
+            UILintStore.shared.appearance = window.effectiveAppearance
+        }
         let menuController = AIManagerMenuController(
             applicationName: title,
             addAccount: { [weak self] in self?.addAccount() },
@@ -233,10 +236,39 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runContractOnly(in window: NSWindow?) async {
+        if CommandLine.arguments.contains("--ui-lint"), let window {
+            UILintStore.shared.appearance = window.effectiveAppearance
+        }
+        // `--height=1500` renders a taller window, to see every card of a long page.
+        if let raw = PreviewArguments.value("height"), let height = Double(raw), let window {
+            window.setContentSize(NSSize(width: AIManagerWindow.defaultSize.width, height: height))
+        }
         await model.load()
         await configureAccountModal()
         try? await Task.sleep(for: .milliseconds(220))
         window?.contentView?.layoutSubtreeIfNeeded()
+        if CommandLine.arguments.contains("--ui-lint"), let window, let view = window.contentView {
+            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+            }
+            try? await Task.sleep(for: .milliseconds(220))
+            let pages = ["overview", "accounts", "conversations", "maintenance", "settings"]
+            let page = pages[AcceptanceConfiguration.initialPageIndex]
+            let appearance = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
+            do {
+                guard let path = ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"] else {
+                    throw CocoaError(.fileNoSuchFile)
+                }
+                try UILintStore.shared.write(to: URL(fileURLWithPath: path)
+                    .appendingPathComponent("ui-lint-\(page)-\(appearance).json"),
+                    size: view.bounds.size, page: page, appearance: appearance)
+            } catch {
+                FileHandle.standardError.write(Data("UI_LINT_EXPORT_FAIL: \(error)\n".utf8))
+                exit(2)
+            }
+            NSApp.terminate(nil)
+            return
+        }
         if !AcceptanceConfiguration.snapshotOnly {
             menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
@@ -300,9 +332,20 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 enum AIManagerMacGUIAcceptanceApp {
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--ui-lint") && !AcceptanceConfiguration.contractOnly {
+            FileHandle.standardError.write(Data("UI lint requires --contract-only; refusing to show a window.\n".utf8))
+            exit(3)
+        }
         let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
-        guard let instanceLock = AIManagerSingleInstance.acquireOrActivate(
-            bundleIdentifier: bundleIdentifier) else { return }
+        let instanceLock: AIManagerInstanceLock?
+        if AcceptanceConfiguration.contractOnly {
+            // Ordered-out checks never activate another instance or need a desktop instance lock.
+            instanceLock = nil
+        } else {
+            let lock = AIManagerSingleInstance.acquireOrActivate(bundleIdentifier: bundleIdentifier)
+            guard let lock else { return }
+            instanceLock = lock
+        }
         let application = NSApplication.shared
         let delegate = AcceptanceAppDelegate()
         application.setActivationPolicy(AcceptanceConfiguration.contractOnly ? .accessory : .regular)
@@ -408,8 +451,8 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
             )
             expect(
                 AIManagerNativeContract.virtualHistoryScrollCount(in: contentView) == 1
-                    && AIManagerNativeContract.listTableCount(in: contentView) == 2,
-                "Chat History is not a native thread List (plus the sidebar) beside one virtual message list"
+                    && AIManagerNativeContract.listTableCount(in: contentView) == 1,
+                "Chat History is not a native thread List beside one virtual message list"
             )
             if AcceptanceConfiguration.stressesHistory {
                 expect(
@@ -622,7 +665,7 @@ private final class AcceptanceReceipts {
         let fileManager = FileManager.default
         let components = url.pathComponents
         guard url.isFileURL,
-              ["/private/tmp/", "/Volumes/External1TB/tmp/"].contains(where: { url.path.hasPrefix($0) }),
+              ["/private/tmp/", "/Volumes/External1TB/tmp/", "/Volumes/External1TB/data/_custom/switch-build/lint/", "/Volumes/External1TB/data/_custom/switch-build/ui/"].contains(where: { url.path.hasPrefix($0) }),
               !components.contains("."),
               !components.contains("..") else { return nil }
 

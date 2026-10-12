@@ -1124,7 +1124,8 @@ enum AIManagerNativeContract {
       expect(window.standardWindowButton(button).map { !$0.isHidden } == true,
         "The traffic light \(button.rawValue) is missing")
     }
-    expect(window.toolbarStyle == .unified, "The window toolbar is not the unified style")
+    expect(window.toolbar == nil && window.titlebarAppearsTransparent && window.titleVisibility == .hidden,
+      "The window has a toolbar bar or an opaque title bar; the content draws its own top row")
     expect(window.isOpaque && window.backgroundColor.alphaComponent == 1,
       "The window has a transparent exterior")
     expect(window.contentMinSize.width >= AIManagerWindow.minimumSize.width
@@ -1146,7 +1147,14 @@ enum AIManagerNativeContract {
     expect(AIMTheme.radius == 10 && AIMTheme.pageMargin == 20 && AIMTheme.sectionSpacing == 16
       && AIMTheme.rowSpacing == 8,
       "Container geometry is not 10-point corners, 20-point margins, 16-point sections, 8-point rows")
+    // Cards: 12 between cards, a 16 inset, a 44 title row, 36 rows, 28 and 22 push buttons, 6 in
+    // tiles with a 4 radius, a 220 sidebar.
+    expect(AIMTheme.cardGap == 12 && AIMTheme.cardInset == 16 && AIMTheme.titleRowHeight == 44
+      && AIMTheme.rowHeight == 36 && AIMTheme.controlHeight == 28 && AIMTheme.rowControlHeight == 22
+      && AIMTheme.tileInset == 6 && AIMTheme.tileRadius == 4 && AIMTheme.sidebarWidth == 220,
+      "Card geometry is not 12 gap, 16 inset, 44 title row, 36 rows, 28 and 22 buttons, 6 tiles, 220 sidebar")
     failures.append(contentsOf: typographyFailures())
+    failures.append(contentsOf: columnTableFailures())
     // Toolbar search: at least 300 points wide; Command-K comes from the View menu.
     expect(AIManagerToolbar.searchWidth >= 300 && AIManagerToolbar.searchPrompt == "Search accounts…",
       "The toolbar search is narrower than 300 points or has the wrong prompt")
@@ -1192,6 +1200,33 @@ enum AIManagerNativeContract {
       && OverviewFormat.compactReset(reset.addingTimeInterval(20 * 60), now: reset, exact: false) == "in 20m",
       "Overview reset times do not read in 6d 8h, 1h 45m, or 20m form")
     failures.append(contentsOf: overviewFailures())
+    return failures
+  }
+
+  /// The column tables: one flexible column each, the header and rows share one definition and the
+  /// card's 16 inset, and the Account column keeps 160 points at the minimum window width.
+  static func columnTableFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    for (name, columns) in [("accounts", AIMColumns.accounts), ("activity", AIMColumns.activity)] {
+      expect(columns.filter { $0.width == nil }.count == 1, "The \(name) table needs exactly one flexible column")
+    }
+    let fixed = AIMColumns.accounts.compactMap(\.width).reduce(0, +)
+      + AIMColumns.gap * CGFloat(AIMColumns.accounts.count - 1) + 2 * AIMTheme.cardInset
+    let available = AIManagerWindow.minimumSize.width - AIMTheme.sidebarWidth - 2 * AIMTheme.pageMargin
+    expect(available - fixed >= 160,
+      "The accounts table leaves \(available - fixed) points for Account at the minimum window width")
+    let columns = AIMColumns.accounts
+    let header = NSHostingView(rootView: AIMTableHeader(columns: columns, group: "check").frame(width: 640))
+    let row = NSHostingView(rootView: AIMTableRow {
+      ForEach(columns) { column in Text("x").aimColumn(column, group: "check") }
+    }.frame(width: 640))
+    expect(header.fittingSize.width == row.fittingSize.width && header.fittingSize.width == 640,
+      "A table header and its rows do not have the same width")
+    expect(header.fittingSize.height == AIMTheme.headerHeight && row.fittingSize.height == AIMTheme.rowHeight,
+      "A table header is not 28 tall or a row is not 36 tall")
     return failures
   }
 
@@ -1241,30 +1276,19 @@ enum AIManagerNativeContract {
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = host
     host.layoutSubtreeIfNeeded()
-    let tables = views(in: host).compactMap { $0 as? NSTableView }
-    expect(tables.contains { Array($0.tableColumns.map(\.title).prefix(3)) == ["Account", "Usage", "Resets"]
-      && $0.tableColumns.count == 4 },
-      "The Overview accounts card is not a native table of Account, Usage, Resets, and Default or Switch")
     expect(host.fittingSize.height > 0, "The Overview collapsed")
-
-    // The longest reset text is not truncated at the default window width: the reset column is
-    // at least as wide as the text, and a row laid out in the card's width keeps it.
-    let longReset = Text(OverviewWindowRow.longestReset).aimText(.secondary).fixedSize()
-    let longWidth = NSHostingView(rootView: longReset).fittingSize.width
-    expect(OverviewWindowRow.resetWidth >= longWidth,
-      "The reset column (\(OverviewWindowRow.resetWidth)) is narrower than \"\(OverviewWindowRow.longestReset)\" (\(longWidth))")
-    let now = Date()
-    let longRow = OverviewWindowRow(
-      window: UsageWindow(id: "w", title: "Weekly", usedPercent: 40,
-        resetsAt: now.addingTimeInterval(6 * 86_400 + 23 * 3_600 + 59 * 60 + 30), windowMinutes: 10_080),
-      showsUsed: false, now: now)
-    // The default sidebar takes at most 260 points; the page and the row add their own padding.
-    let rowWidth = AIManagerWindow.defaultSize.width - 260 - 2 * AIMTheme.pageMargin
-      - 2 * AIMTheme.sectionSpacing
-    // Ideal width: title + minimum bar + percent + the full reset column must fit the card.
-    let idealWidth = NSHostingView(rootView: longRow).fittingSize.width
-    expect(idealWidth >= 130 + 40 + 80 + OverviewWindowRow.resetWidth && idealWidth <= rowWidth,
-      "A focused-card window row does not keep the full reset text at the default width (\(idealWidth) of \(rowWidth))")
+    // Recent activity: Claude Code reads its local logs, Codex its retained days, and a tool
+    // without local history gets one line that says so.
+    let claude = model.addDemoProviderAccount(.claudeCode)
+    if case .rows(let rows) = OverviewActivity.source(for: claude, model: model) {
+      expect(rows.map(\.label) == ["Today", "Yesterday", "Last 30 days"],
+        "Recent activity does not list Today, Yesterday, and Last 30 days")
+    } else { failures.append("Recent activity has no rows for the Claude Code account") }
+    if let other = model.status?.accounts.first(where: { $0.identity.providerID.rawValue == "openrouter" }) {
+      if case .message(let text) = OverviewActivity.source(for: other, model: model) {
+        expect(text.contains("no local history"), "A tool without local history does not say so")
+      } else { failures.append("A tool without local history shows rows") }
+    }
 
     // An account that needs sign-in gets a Sign in button instead of a disabled Switch.
     if let stale = model.status?.accounts.first(where: { $0.verification.state == .needsSignIn }),
@@ -1372,19 +1396,16 @@ enum AIManagerNativeContract {
     return failures
   }
 
-  /// The window is native: the sidebar is a source-list outline (a plain List in a
-  /// NavigationSplitView), and the Overview, Accounts, Maintenance, and Settings pages draw a
-  /// grouped Form. `pageIndex` is the index into `AIManagerPage.allCases`.
+  /// The window draws its own sidebar over a translucent visual-effect material. Every page is
+  /// shared cards. `pageIndex` is the index into `AIManagerPage.allCases`.
   static func nativeStructureFailures(in root: NSView, pageIndex: Int) -> [String] {
     var failures: [String] = []
     let all = views(in: root)
-    if !all.contains(where: { ($0 as? NSOutlineView)?.style == .sourceList }) {
-      failures.append("The sidebar is not a native source-list List")
+    if !all.contains(where: { ($0 as? NSVisualEffectView)?.material == .sidebar }) {
+      failures.append("The sidebar has no translucent sidebar material")
     }
-    if [0, 1, 3, 4].contains(pageIndex)
-      && !all.contains(where: { NSStringFromClass(type(of: $0)).contains("PlatformGroupContainer") }) {
-      failures.append("Page \(pageIndex) is not a grouped Form")
-    }
+    // Settings and Maintenance are shared cards; the contract script rejects a Form in SettingsPage.
+    _ = pageIndex
     return failures
   }
 
