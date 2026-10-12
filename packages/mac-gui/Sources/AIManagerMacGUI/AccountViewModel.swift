@@ -110,7 +110,7 @@ final class AccountViewModel: ObservableObject {
     @Published var accountLoginSession: AccountLoginSession?
     @Published var accountLoginState: AccountLoginState?
     @Published var accountLoginMessage: String?
-    private var signInAccountID: UUID?
+    @Published private(set) var signInAccountID: UUID?
     @Published var selectedProviderID: ProviderID = .codex
     /// Providers whose login is already present on this Mac, found when Add Account opens.
     @Published private(set) var signedInProviderIDs: Set<ProviderID> = []
@@ -416,6 +416,7 @@ final class AccountViewModel: ObservableObject {
         showImport = true
         signInAccountID = accountID
         selectedProviderID = account.identity.providerID
+        if selectedProviderID == .droid { droidAccountName = account.identity.accountID ?? "Droid 1" }
         if let pending = pendingLoginSessions.first(where: { $0.accountID == accountID }) {
             accountLoginSession = pending
             accountLoginState = .waitingForLogin
@@ -449,7 +450,13 @@ final class AccountViewModel: ObservableObject {
             ) {
                 let start: AccountLoginStart
                 if let accountID = signInAccountID {
-                    start = try await manager.startAccountLogin(accountID: accountID)
+                    var confirmed = false
+                    if providerID == .droid {
+                        let name = status?.accounts.first { $0.id == accountID }?.identity.accountID ?? "Droid"
+                        guard confirmDroidAction(DroidAccountError.confirmSignIn(name).localizedDescription, action: "Sign in") else { return }
+                        confirmed = true
+                    }
+                    start = try await manager.startAccountLogin(accountID: accountID, confirmDroidAccount: confirmed)
                 } else {
                     start = try await manager.startAccountLogin(providerID: providerID)
                 }
@@ -462,7 +469,7 @@ final class AccountViewModel: ObservableObject {
                 if start.opensInTerminal {
                     // Switch never launches a generic sign-in itself: Terminal runs the saved command.
                     let spec = ProviderCatalog.spec(providerID)
-                    let keys = ["HOME"] + (spec?.files.compactMap(\.homeEnv) ?? [])
+                    let keys = ["HOME", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"] + (spec?.files.compactMap(\.homeEnv) ?? [])
                         + (spec?.loginEnv.keys.sorted() ?? [])
                     let script = try makeLaunchArtifact(
                         start.launchSpec, name: "Sign In to Switch Account.command", exportKeys: keys)
@@ -474,6 +481,7 @@ final class AccountViewModel: ObservableObject {
                                 "Terminal could not open the \(providerName) sign-in file.")
                         }
                         accountLoginMessage = "Terminal opened. Finish signing in to \(providerName) there, then return here and choose Check Now."
+                        if providerID == .droid { accountLoginMessage = "Terminal opened. Type /login, finish signing in, then exit Droid. Switch checks this temporary login automatically." }
                     }
                 }
             }
@@ -511,7 +519,11 @@ final class AccountViewModel: ObservableObject {
             ) {
                 let check: AccountLoginCheck
                 do {
-                    check = try await manager.checkAccountLogin(id: session.id, credentialChoice: credentialChoice)
+                    check = try await manager.checkAccountLogin(id: session.id, credentialChoice: credentialChoice, droidName: droidAccountName)
+                } catch let error as DroidAccountError {
+                    guard case .running = error else { throw error }
+                    guard confirmDroidAction(error.localizedDescription, action: "Switch") else { return }
+                    check = try await manager.checkAccountLogin(id: session.id, droidName: droidAccountName, allowRunningDroid: true)
                 } catch let error as AIManagerError {
                     if case .signInIdentityMismatch = error {
                         pendingLoginSessions.removeAll { $0.id == session.id }
@@ -523,6 +535,10 @@ final class AccountViewModel: ObservableObject {
                 }
                 accountLoginState = check.state
                 accountLoginMessage = check.message
+                if session.providerID == .droid, let account = check.account, !droidAPIKey.isEmpty {
+                    try await manager.setDroidUsageAPIKey(accountID: account.id, apiKey: droidAPIKey)
+                    droidAPIKey = ""
+                }
                 if let account = check.account {
                     try await reloadStatus(using: manager)
                     selectedAccountID = account.id
@@ -601,6 +617,50 @@ final class AccountViewModel: ObservableObject {
     }
 
     // MARK: Generic provider accounts
+
+    @Published var droidAccountName = "Droid 1"
+    @Published var droidAPIKey = ""
+    var droidConfirmation: ((String, String) -> Bool)?
+
+    func importDroidAccount() async {
+        guard let manager else { reportUnavailable(); return }
+        await perform(failure: "Could not import Droid.", recovery: "Enter a name and check that Factory is signed in.") {
+            let account = try await manager.importDroidAccount(name: droidAccountName,
+                apiKey: droidAPIKey.isEmpty ? nil : droidAPIKey)
+            droidAPIKey = ""
+            try await reloadStatus(using: manager)
+            finishProviderAccount(account)
+        }
+    }
+
+    func saveDroidUsageKey(accountID: UUID, key: String) async {
+        guard let manager else { reportUnavailable(); return }
+        await perform {
+            try await manager.setDroidUsageAPIKey(accountID: accountID, apiKey: key)
+        }
+        await refreshProviderUsage(accountID: accountID)
+    }
+
+    private func confirmDroidAction(_ message: String, action: String) -> Bool {
+        if let droidConfirmation { return droidConfirmation(message, action) }
+        guard paths.isolationRoot == nil else { return false }
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: action)
+        alert.buttons.first?.keyEquivalent = "\r"
+        alert.buttons.last?.keyEquivalent = ""
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    private func switchWithDroidConfirmation(_ manager: AccountManager, to id: UUID) async throws -> SwitchResult? {
+        do { return try await manager.switchDefault(to: id) }
+        catch let error as DroidAccountError {
+            guard case .running = error else { throw error }
+            guard confirmDroidAction(error.localizedDescription, action: "Switch") else { return nil }
+            return try await manager.switchDefault(to: id, allowRunningDroid: true)
+        }
+    }
 
     /// Environment variable that may prefill a credential field. Never read in Preview or in an
     /// isolated validation run.
@@ -902,7 +962,7 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t change the default account.",
                 recovery: "Resolve any item in Backup, then try again."
             ) {
-                let result = try await manager.switchDefault(to: id)
+                guard let result = try await switchWithDroidConfirmation(manager, to: id) else { return }
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
                 notice = "New \(providerName) sessions will use this account. Backup: \(result.backup.path)"
@@ -981,7 +1041,7 @@ final class AccountViewModel: ObservableObject {
                 recovery: "Check the saved account, then try again."
             ) {
                 if status?.defaultAccountID(for: providerID) != id {
-                    _ = try await manager.switchDefault(to: id)
+                    guard try await switchWithDroidConfirmation(manager, to: id) != nil else { return }
                     try await reloadStatus(using: manager)
                     selectedAccountID = id
                 }
@@ -1240,7 +1300,13 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t finish the interrupted operation.",
                 recovery: "Review the pending item and its protected backup before retrying."
             ) {
-                let results = try await manager.recover()
+                let results: [RecoveryResult]
+                do { results = try await manager.recover() }
+                catch let error as DroidAccountError {
+                    guard case .running = error else { throw error }
+                    guard confirmDroidAction(error.localizedDescription, action: "Recover") else { return }
+                    results = try await manager.recover(allowRunningDroid: true)
+                }
                 notice = results.isEmpty
                     ? "No backup work was needed."
                     : results.map { backupCopy($0.message) }.joined(separator: " ")
@@ -1268,10 +1334,14 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t resolve the backup conflict.",
                 recovery: "Confirm that Codex is closed, then review the protected backup and retry."
             ) {
-                let result = try await manager.resolveRecoveryConflict(
-                    operationID: operation.id,
-                    choice: choice
-                )
+                let result: RecoveryResult
+                do {
+                    result = try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice)
+                } catch let error as DroidAccountError {
+                    guard case .running = error else { throw error }
+                    guard confirmDroidAction(error.localizedDescription, action: "Recover") else { return }
+                    result = try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice, allowRunningDroid: true)
+                }
                 notice = backupCopy(result.message)
                 try await reloadStatus(using: manager)
             }
@@ -2068,6 +2138,8 @@ final class AccountViewModel: ObservableObject {
         notice = nil
         resetImport()
         resetAccountLogin()
+        droidAPIKey = ""
+        droidAccountName = "Droid \((status?.accounts.filter { $0.identity.providerID == .droid }.count ?? 0) + 1)"
     }
 
     private func resetAccountLogin() {
@@ -2141,7 +2213,7 @@ final class AccountViewModel: ObservableObject {
             at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         let url = directory.appending(path: name)
-        var exports = (exportKeys ?? ["CODEX_HOME", "GROK_HOME", "CLAUDE_CONFIG_DIR"]).compactMap { key in
+        var exports = (exportKeys ?? ["CODEX_HOME", "GROK_HOME", "CLAUDE_CONFIG_DIR", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"]).compactMap { key in
             spec.environment[key].map { "export \(key)=\(shellQuote($0))" }
         }
         if exportKeys == nil, paths.isolationRoot != nil, let home = spec.environment["HOME"] {
@@ -2150,7 +2222,7 @@ final class AccountViewModel: ObservableObject {
         let command = ([spec.executable.path] + spec.arguments).map(shellQuote).joined(separator: " ")
         let workingDirectory = spec.workingDirectory.map { "cd \(shellQuote($0.path))\n" } ?? ""
         let contents = (
-            ["#!/bin/zsh", "set -e", "unset OPENAI_API_KEY CODEX_ACCESS_TOKEN XAI_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_AWS_API_KEY ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS"]
+            ["#!/bin/zsh", "set -e", "unset FACTORY_API_KEY OPENAI_API_KEY CODEX_ACCESS_TOKEN XAI_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_AWS_API_KEY ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS"]
                 + exports + [workingDirectory + "exec \(command)"]
         ).joined(separator: "\n") + "\n"
         try contents.write(to: url, atomically: true, encoding: .utf8)

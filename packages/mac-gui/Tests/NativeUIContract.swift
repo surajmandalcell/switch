@@ -435,9 +435,9 @@ enum AIManagerNativeContract {
     if NSImage(systemSymbolName: AIMIcon.Name.menuBar.symbol, accessibilityDescription: nil) == nil {
       failures.append("The account menu-usage control has no native icon")
     }
-    if [ProviderID.codex, .grokBuild, .claudeCode, .geminiCLI, .antigravityCLI]
+    if [ProviderID.codex, .grokBuild, .droid, .claudeCode, .geminiCLI, .antigravityCLI]
       .map(\.displayName)
-      != ["Codex CLI", "Grok Build", "Claude Code", "Gemini CLI", "Antigravity CLI"]
+      != ["Codex CLI", "Grok Build", "Droid", "Claude Code", "Gemini CLI", "Antigravity CLI"]
     {
       failures.append("Provider names are not derived consistently")
     }
@@ -492,8 +492,14 @@ enum AIManagerNativeContract {
     expect(AIManagerBrand.providerIconName(for: .geminiCLI) == "gemini"
       && AIManagerBrand.providerIconName(for: .antigravityCLI) == "antigravity"
       && AIManagerBrand.providerIconName(for: .grokBuild) == "grok"
+      && AIManagerBrand.providerIconName(for: .droid) == "factory"
       && AIManagerBrand.providerIconName(for: .claudeCode) == "claude",
       "Provider icon aliases are wrong")
+    let droid = MenuBarAccountSnapshot(id: UUID(), identity: "Droid personal", detail: "Droid",
+        isVerified: false, isActive: false, providerID: .droid)
+    expect(droid.supportsLaunch && droid.supportsUsageRefresh && AccountActionCopy.open(.droid) == "Open Droid",
+           "Droid does not expose its first-class launch and usage actions")
+    expect(AIManagerBrand.providerBrand(for: .droid)?.file == "factory", "Droid must use the existing Factory brand mark")
 
     // Menu cards for generic accounts.
     let sessionLast = ProviderUsage(windows: [
@@ -822,12 +828,12 @@ enum AIManagerNativeContract {
     let plain = ProviderChoices.all(descriptors: descriptors)
     let marked = ProviderChoices.all(descriptors: descriptors, signedIn: live)
     expect(plain.allSatisfy { !$0.signedInOnThisMac }, "Providers are marked signed in with no detection")
-    expect(Array(marked.prefix(3).map(\.id)) == [.codex, .grokBuild, .claudeCode]
-      && Set(marked.dropFirst(3).prefix(2).map(\.id)) == live
-      && marked.dropFirst(3).prefix(2).allSatisfy(\.signedInOnThisMac)
-      && marked.dropFirst(5).allSatisfy { !$0.signedInOnThisMac }
+    expect(Array(marked.prefix(4).map(\.id)) == [.codex, .grokBuild, .droid, .claudeCode]
+      && Set(marked.dropFirst(4).prefix(2).map(\.id)) == live
+      && marked.dropFirst(4).prefix(2).allSatisfy(\.signedInOnThisMac)
+      && marked.dropFirst(6).allSatisfy { !$0.signedInOnThisMac }
       && marked.count == plain.count, "Signed-in providers do not sort first under the built-ins")
-    let tail = marked.dropFirst(5).map(\.name)
+    let tail = marked.dropFirst(6).map(\.name)
     expect(tail == tail.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending },
       "Providers that are not signed in lost their alphabetical order")
     await demo.detectSignedInProviders()

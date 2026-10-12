@@ -495,7 +495,7 @@ final class ProviderAccountStoreTests: XCTestCase {
 
     func testProviderCatalogListsEveryAddableSpecAndSupersedesPlaceholders() throws {
         let catalog = AccountManager.providerCatalog
-        XCTAssertEqual(catalog.prefix(3).map(\.id), [.codex, .grokBuild, .claudeCode])
+        XCTAssertEqual(catalog.prefix(4).map(\.id), [.codex, .grokBuild, .droid, .claudeCode])
         for spec in ProviderCatalog.addable {
             XCTAssertEqual(catalog.first { $0.id == spec.id }?.availability, .enabled, spec.id.rawValue)
         }

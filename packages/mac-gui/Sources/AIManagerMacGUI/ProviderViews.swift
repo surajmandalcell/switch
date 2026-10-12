@@ -2,13 +2,36 @@ import AIManagerCore
 import AppKit
 import SwiftUI
 
+struct DroidUsageKeyPanel: View {
+  let account: AccountRecord
+  @ObservedObject var model: AccountViewModel
+  @State private var key = ""
+  var body: some View {
+    AIMSection("Factory usage key") {
+      SecureField("Factory API key", text: $key)
+        .accessibilityLabel("Factory API key for this Droid account")
+      Text("An API key shows usage without opening or decrypting the Droid login.").aimText(.secondary)
+      HStack(spacing: AIMTheme.rowSpacing) {
+        AIMButton(title: "Save key", disabled: model.isBusy || key.isEmpty) {
+          let value = key
+          key = ""
+          Task { await model.saveDroidUsageKey(accountID: account.id, key: value) }
+        }
+        AIMButton(title: "Remove key", disabled: model.isBusy) {
+          Task { await model.saveDroidUsageKey(accountID: account.id, key: "") }
+        }
+      }
+    }
+  }
+}
+
 // Account detail and usage presentation for providers beyond Codex CLI: every generic provider,
 // plus the usage section of Grok Build and Claude Code profiles.
 
 extension AccountRecord {
   /// Accounts shown with the generic detail view. Codex, Grok Build, and Claude Code keep their own.
   var usesGenericDetail: Bool {
-    ![ProviderID.codex, .grokBuild, .claudeCode].contains(identity.providerID)
+    ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(identity.providerID)
   }
 }
 

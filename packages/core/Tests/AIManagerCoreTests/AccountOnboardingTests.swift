@@ -98,12 +98,12 @@ final class AccountOnboardingTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(
             atPath: paths.applicationSupport.appending(path: "account-login").path))
         XCTAssertEqual(
-            AccountManager.providerCatalog.prefix(3).map(\.id), [.codex, .grokBuild, .claudeCode])
+            AccountManager.providerCatalog.prefix(4).map(\.id), [.codex, .grokBuild, .droid, .claudeCode])
         XCTAssertEqual(
-            AccountManager.providerCatalog.prefix(3).map(\.displayName),
-            ["Codex CLI", "Grok Build", "Claude Code"])
+            AccountManager.providerCatalog.prefix(4).map(\.displayName),
+            ["Codex CLI", "Grok Build", "Droid", "Claude Code"])
         XCTAssertEqual(
-            AccountManager.providerCatalog.prefix(3).map(\.availability), [.enabled, .enabled, .enabled])
+            AccountManager.providerCatalog.prefix(4).map(\.availability), [.enabled, .enabled, .enabled, .enabled])
         for (id, name) in [(ProviderID.geminiCLI, "Gemini CLI"), (.antigravityCLI, "Antigravity CLI")] {
             let entries = AccountManager.providerCatalog.filter { $0.id == id }
             XCTAssertEqual(entries.map(\.displayName), [name])

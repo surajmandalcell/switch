@@ -7,7 +7,7 @@ import Foundation
 extension ProviderID {
   /// Display name that knows the generic provider catalog ("OpenRouter", not "Openrouter").
   var guiName: String {
-    [ProviderID.codex, .grokBuild, .claudeCode].contains(self)
+    [ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(self)
       ? displayName : (ProviderCatalog.spec(self)?.name ?? displayName)
   }
 }

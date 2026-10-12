@@ -91,6 +91,8 @@ public actor AccountManager {
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
+    private let droidProvider: DroidProviderAdapter
+    private let droidProcessLister: @Sendable () throws -> [DroidProcess]
     private let claudeProfiles: ClaudeCodeProfiles
     private let providerStore: ProviderAccountStore
     private let providerSpecs: [ProviderSpec]
@@ -103,11 +105,13 @@ public actor AccountManager {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all) throws {
+    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
         self.grokProvider = GrokProviderAdapter(fileManager: fileManager)
+        self.droidProvider = DroidProviderAdapter(fileManager: fileManager)
+        self.droidProcessLister = droidProcessLister ?? { try DroidProviderAdapter.processes() }
         self.claudeProfiles = try ClaudeCodeProfiles(paths: paths, fileManager: fileManager,
                                                       loginRunner: loginRunner)
         self.providerSpecs = providerSpecs
@@ -218,7 +222,7 @@ public actor AccountManager {
     /// Codex, Grok Build, and Claude Code first, then every generic spec. A spec supersedes the
     /// disabled placeholder with the same id.
     static func descriptors(for specs: [ProviderSpec]) -> [ProviderDescriptor] {
-        let builtIn: [ProviderID] = [.codex, .grokBuild, .claudeCode]
+        let builtIn: [ProviderID] = [.codex, .grokBuild, .droid, .claudeCode]
         let generic = specs.filter { !builtIn.contains($0.id) }
         let placeholders: [ProviderDescriptor] = [
             .init(
@@ -231,6 +235,7 @@ public actor AccountManager {
         return [
             .init(id: .codex, displayName: "Codex CLI", availability: .enabled),
             .init(id: .grokBuild, displayName: "Grok Build", availability: .enabled),
+            .init(id: .droid, displayName: "Droid", availability: .enabled),
             .init(id: .claudeCode, displayName: "Claude Code", availability: .enabled),
         ] + placeholders + generic.map {
             ProviderDescriptor(id: $0.id, displayName: $0.name, availability: .enabled)
@@ -261,10 +266,13 @@ public actor AccountManager {
         )
     }
 
-    public func startAccountLogin(accountID: UUID) async throws -> AccountLoginStart {
+    public func startAccountLogin(accountID: UUID, confirmDroidAccount: Bool = false) async throws -> AccountLoginStart {
         let accounts = try loadRegistry().accounts + claudeProfiles.accounts() + providerStore.accounts()
         guard let account = accounts.first(where: { $0.id == accountID }) else {
             throw AIManagerError.accountNotFound
+        }
+        if account.identity.providerID == .droid, !confirmDroidAccount {
+            throw DroidAccountError.confirmSignIn(account.identity.accountID ?? "Droid")
         }
         return try await startAccountLogin(providerID: account.identity.providerID, accountID: accountID)
     }
@@ -275,6 +283,7 @@ public actor AccountManager {
 
     private func startAccountLogin(providerID: ProviderID, accountID: UUID?) async throws -> AccountLoginStart {
         try ensureNoRecovery()
+        if providerID == .droid { return try lock.withLock { try startDroidLogin(accountID: accountID) } }
         if providerID == .claudeCode { return try claudeProfiles.startLogin(accountID: accountID) }
         if ![.codex, .grokBuild].contains(providerID),
            let spec = providerSpecs.first(where: { $0.id == providerID }),
@@ -330,7 +339,9 @@ public actor AccountManager {
 
     public func checkAccountLogin(
         id: UUID,
-        credentialChoice: ConflictChoice? = nil
+        credentialChoice: ConflictChoice? = nil,
+        droidName: String = "Droid 1",
+        allowRunningDroid: Bool = false
     ) async throws -> AccountLoginCheck {
         try ensureNoRecovery()
         if try claudeProfiles.pending().contains(where: { $0.id == id }) {
@@ -340,6 +351,7 @@ public actor AccountManager {
             return try providerStore.checkLogin(id)
         }
         let session = try loadLoginSession(id)
+        if session.providerID == .droid { return try checkDroidLogin(session, name: droidName, allowRunning: allowRunningDroid) }
         if session.accountID != nil { return try await refreshLoginAccount(session) }
         if session.providerID == .grokBuild {
             return try await checkGrokAccountLogin(
@@ -693,7 +705,7 @@ public actor AccountManager {
         return reviewed
     }
 
-    public func switchDefault(to accountID: UUID) async throws -> SwitchResult {
+    public func switchDefault(to accountID: UUID, allowRunningDroid: Bool = false) async throws -> SwitchResult {
         if try providerStore.contains(accountID) { return try providerStore.makeDefault(accountID) }
         if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
             return try claudeProfiles.makeDefault(accountID)
@@ -703,6 +715,12 @@ public actor AccountManager {
             let registry = try loadRegistry()
             guard let selected = registry.accounts.first(where: { $0.id == accountID }) else {
                 throw AIManagerError.accountNotFound
+            }
+            if selected.identity.providerID == .droid {
+                try guardDroidProcesses(allowRunning: allowRunningDroid)
+                return try droidProvider.withWriteLock(home: paths.droidHome) {
+                    try performDroidSwitch(to: accountID)
+                }
             }
             if selected.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(selected)
@@ -776,10 +794,13 @@ public actor AccountManager {
             try saveOperation(operation)
             try CoreSupport.privateDirectory(backup, fileManager: fileManager)
 
-            let ownedTargets = [
+            var ownedTargets = [
                 (account.home, backup.appending(path: "account-home", directoryHint: .isDirectory)),
                 (account.credentialFile, backup.appending(path: "auth.json")),
             ]
+            if account.identity.providerID == .droid {
+                ownedTargets.append((droidUsageKey(accountID), backup.appending(path: "usage-key.json")))
+            }
             for (destination, protected) in ownedTargets where CoreSupport.entryExists(destination) {
                 let digest = try treeDigest(destination)
                 try copyPortable(destination, to: protected)
@@ -887,7 +908,8 @@ public actor AccountManager {
 
     @discardableResult
     public func importLiveProviderAccount(providerID: ProviderID) throws -> AccountRecord {
-        try providerStore.importLive(providerID)
+        if providerID == .droid { return try importDroidAccount(name: "Droid 1") }
+        return try providerStore.importLive(providerID)
     }
 
     /// Read-only identity of the login currently in the provider's real home.
@@ -930,6 +952,16 @@ public actor AccountManager {
                 return try await claudeProfiles.usage(accountID: accountID)
             }
             throw AIManagerError.accountNotFound
+        }
+        if account.identity.providerID == .droid {
+            let file = droidUsageKey(accountID)
+            guard CoreSupport.entryExists(file) else {
+                throw ProviderError.unsupported("Add a Factory API key to this Droid account to show usage. Droid login files stay encrypted.")
+            }
+            try provider.validatePrivateCredentialFile(file)
+            let credential = try decoder.decode(ProviderCredential.self, from: Data(contentsOf: file))
+            let factory = providerSpecs.first { $0.id.rawValue == "factory" } ?? ProviderCatalog.agentFactory
+            return try await factory.fetch(credential).usage
         }
         guard let spec = providerSpecs.first(where: { $0.id == account.identity.providerID }),
               let file = spec.files.first else {
@@ -1033,6 +1065,13 @@ public actor AccountManager {
                 throw AIManagerError.accountNotFound
             }
             account = found
+            if account.identity.providerID == .droid {
+                try validateDroidCredential(account)
+                let result = VerificationResult(state: .verifiedLocally, checkedAt: Date(),
+                    detail: "The encrypted Droid files passed digest and permission checks. Switch cannot check their account identity.")
+                try? recordAccountCheck(result, accountID: accountID, expected: account)
+                return .init(verification: result)
+            }
             if account.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(account)
                 let result = VerificationResult(
@@ -1140,6 +1179,19 @@ public actor AccountManager {
         }
         let registry = try loadRegistry()
         guard let account = registry.accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+        if account.identity.providerID == .droid {
+            try validateDroidCredential(account)
+            guard registry.defaultAccountID(for: .droid) == accountID else {
+                throw AIManagerError.operationFailed("Switch to this account before opening Droid.")
+            }
+            guard let executable = resolveDroidExecutable() else { throw AIManagerError.cliNotFound }
+            var environment = ProcessInfo.processInfo.environment
+            environment.removeValue(forKey: "FACTORY_API_KEY")
+            environment["FACTORY_HOME_OVERRIDE"] = paths.droidHome.deletingLastPathComponent().path
+            environment["FACTORY_DISABLE_KEYRING"] = try droidProvider.files(in: account.credentialFile)["auth.v2.loginkeychain"] == nil ? "1" : "0"
+            if let root = paths.isolationRoot { environment["HOME"] = root.path }
+            return .init(executable: executable, arguments: arguments, environment: environment, workingDirectory: workingDirectory)
+        }
         if account.identity.providerID == .grokBuild {
             return try grokLaunchSpec(
                 account: account,
@@ -1227,7 +1279,11 @@ public actor AccountManager {
             }
             launchedProviderName = account.identity.providerID.displayName
             let alreadyActive: Bool
-            if account.identity.providerID == .grokBuild {
+            if account.identity.providerID == .droid {
+                try guardDroidProcesses(allowRunning: false)
+                _ = try droidProvider.withWriteLock(home: paths.droidHome) { try performDroidSwitch(to: accountID) }
+                alreadyActive = true
+            } else if account.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(account)
                 let live = grokProvider.inspect(home: paths.grokHome)
                 alreadyActive = registry.defaultAccountID(for: .grokBuild) == accountID
@@ -1361,9 +1417,12 @@ public actor AccountManager {
         ).verification
     }
 
-    public func recover() async throws -> [RecoveryResult] {
+    public func recover(allowRunningDroid: Bool = false) async throws -> [RecoveryResult] {
         try await lock.withAsyncLock {
             let reviewed = try pendingOperations()
+            if reviewed.contains(where: touchesDroidLive) {
+                try guardDroidProcesses(allowRunning: allowRunningDroid)
+            }
             let reviewedHomes = try Dictionary(uniqueKeysWithValues: reviewed.map { operation in
                 (operation.id, Set(try affectedRecoveryHomes(operation).map { CoreSupport.canonical($0).path }))
             })
@@ -1376,13 +1435,19 @@ public actor AccountManager {
                 let homes = Set(try affectedRecoveryHomes(operation).map { CoreSupport.canonical($0).path })
                 guard homes == reviewedHomes[operation.id] else { throw AIManagerError.sourceChanged }
             }
-            return try current.map { try recoverOperation($0) }
+            return try current.map { operation in
+                if touchesDroidLive(operation) {
+                    return try droidProvider.withWriteLock(home: paths.droidHome) { try recoverOperation(operation) }
+                }
+                return try recoverOperation(operation)
+            }
         }
     }
 
     public func resolveRecoveryConflict(
         operationID: UUID,
-        choice: RecoveryConflictChoice
+        choice: RecoveryConflictChoice,
+        allowRunningDroid: Bool = false
     ) async throws -> RecoveryResult {
         try await lock.withAsyncLock {
             guard let operation = try pendingOperations().first(where: { $0.id == operationID }) else {
@@ -1402,6 +1467,12 @@ public actor AccountManager {
             let reviewedHomes = Set(affectedHomes.map { CoreSupport.canonical($0).path })
             let currentHomes = Set(try affectedRecoveryHomes(current).map { CoreSupport.canonical($0).path })
             guard currentHomes == reviewedHomes else { throw AIManagerError.sourceChanged }
+            if touchesDroidLive(current) {
+                try guardDroidProcesses(allowRunning: allowRunningDroid)
+                return try droidProvider.withWriteLock(home: paths.droidHome) {
+                    try resolveRecoveryConflict(current, choice: choice)
+                }
+            }
             return try resolveRecoveryConflict(current, choice: choice)
         }
     }
@@ -1487,6 +1558,252 @@ extension AccountManager {
         CodexWriterProbe.check(home: home)
     }
 
+    // MARK: Droid opaque file logins
+
+    public func importDroidAccount(name: String, apiKey: String? = nil) throws -> AccountRecord {
+        try lock.withLock {
+            try ensureNoRecovery()
+            // Import takes the same writer lock but never changes live authentication.
+            try droidProvider.requireLogin(droidProvider.files(in: paths.droidHome))
+            return try droidProvider.withWriteLock(home: paths.droidHome) {
+                let account = try saveDroidAccount(from: paths.droidHome, name: name, targetID: nil, adoptLive: true)
+                if let apiKey, !apiKey.isEmpty { try saveDroidUsageKey(apiKey, accountID: account.id) }
+                return account
+            }
+        }
+    }
+
+    public func setDroidUsageAPIKey(accountID: UUID, apiKey: String) throws {
+        try lock.withLock {
+            try ensureNoRecovery()
+            guard try loadRegistry().accounts.contains(where: { $0.id == accountID && $0.identity.providerID == .droid }) else {
+                throw AIManagerError.accountNotFound
+            }
+            try saveDroidUsageKey(apiKey, accountID: accountID)
+        }
+    }
+
+    private func droidUsageKey(_ id: UUID) -> URL {
+        paths.applicationSupport.appending(path: "droid-usage/\(id.uuidString).json")
+    }
+
+    private func saveDroidUsageKey(_ key: String, accountID: UUID) throws {
+        let value = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            if CoreSupport.entryExists(droidUsageKey(accountID)) { try fileManager.removeItem(at: droidUsageKey(accountID)) }
+        } else {
+            try CoreSupport.atomicWrite(try encoder.encode(ProviderCredential(fields: ["apiKey": value])),
+                                        to: droidUsageKey(accountID), fileManager: fileManager)
+        }
+    }
+
+    private func validateDroidCredential(_ account: AccountRecord) throws {
+        try validateDeleteTargets(account)
+        try droidProvider.requireLogin(droidProvider.files(in: account.credentialFile))
+        let names = try fileManager.contentsOfDirectory(atPath: account.credentialFile.path)
+        guard Set(names).isSubset(of: Set(DroidProviderAdapter.authNames)),
+              try treeDigest(account.credentialFile) == account.credentialDigest else {
+            throw AIManagerError.credentialConflict
+        }
+    }
+
+    private func guardDroidProcesses(allowRunning: Bool) throws {
+        let running = try droidProcessLister().filter {
+            $0.home == nil || CoreSupport.sameLocation($0.home!, paths.droidHome)
+        }
+        if !running.isEmpty, !allowRunning { throw DroidAccountError.running(running) }
+    }
+
+    private func touchesDroidLive(_ operation: RecoveryOperation) -> Bool {
+        operation.kind == "switch-droid" || (operation.kind == "import-droid" && (operation.touchedItems ?? []).contains {
+            DroidProviderAdapter.authNames.contains($0.destination.lastPathComponent)
+                && CoreSupport.sameLocation($0.destination.deletingLastPathComponent(), paths.droidHome)
+        })
+    }
+
+    private func resolveDroidExecutable() -> URL? {
+        if let explicit = paths.droidExecutable { return validatedExecutable(explicit) }
+        guard paths.isolationRoot == nil else { return nil }
+        let candidates = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).appending(path: "droid") }
+            + [paths.userHome.appending(path: ".local/bin/droid"), URL(fileURLWithPath: "/Applications/Factory.app/Contents/Resources/bin/droid")]
+        return candidates.compactMap(validatedExecutable).first
+    }
+
+    private func startDroidLogin(accountID: UUID?) throws -> AccountLoginStart {
+        guard try !loadLoginSessions().contains(where: { $0.providerID == .droid }) else {
+            throw DroidAccountError.loginInProgress
+        }
+        let live = try droidProvider.files(in: paths.droidHome)
+        try droidProvider.requireLogin(live)
+        guard let executable = resolveDroidExecutable() else { throw AIManagerError.cliNotFound }
+        let session = AccountLoginSession(id: UUID(), providerID: .droid, createdAt: Date(), accountID: accountID)
+        try CoreSupport.privateDirectory(loginHome(session.id), fileManager: fileManager)
+        try saveLoginSession(session)
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "FACTORY_API_KEY")
+        environment["FACTORY_HOME_OVERRIDE"] = loginHome(session.id).path
+        environment["FACTORY_DISABLE_KEYRING"] = live["auth.v2.loginkeychain"] == nil ? "1" : "0"
+        if let root = paths.isolationRoot { environment["HOME"] = root.path }
+        // The help exposes only an initial prompt, not a login command. Do not submit /login as an AI request.
+        let spec = LaunchSpec(executable: executable, arguments: [], environment: environment,
+                              workingDirectory: loginHome(session.id))
+        var start = AccountLoginStart(session: session, launchSpec: spec)
+        start.opensInTerminal = true
+        return start
+    }
+
+    private func checkDroidLogin(_ session: AccountLoginSession, name: String, allowRunning: Bool) throws -> AccountLoginCheck {
+        let home = loginHome(session.id).appending(path: ".factory")
+        guard ["auth.v2.loginkeychain", "auth.v2.file"].contains(where: { CoreSupport.entryExists(home.appending(path: $0)) }) else {
+            return .init(session: session, state: .waitingForLogin,
+                         message: "In Terminal, type /login and finish signing in. Then exit Droid to save the account.")
+        }
+        let account: AccountRecord
+        do { account = try lock.withLock {
+            try ensureNoRecovery()
+            let registry = try loadRegistry()
+            let target = registry.accounts.first { $0.id == session.accountID && $0.identity.providerID == .droid }
+            if session.accountID != nil, target == nil { throw AIManagerError.accountNotFound }
+            let refreshLive = target != nil && registry.defaultAccountID(for: .droid) == target?.id
+            if refreshLive { try guardDroidProcesses(allowRunning: allowRunning) }
+            return try droidProvider.withWriteLock(home: home) {
+                if refreshLive {
+                    return try droidProvider.withWriteLock(home: paths.droidHome) {
+                        try saveDroidAccount(from: home, name: target?.identity.accountID ?? name,
+                                             targetID: target?.id, adoptLive: false, refreshLive: true)
+                    }
+                }
+                return try saveDroidAccount(from: home, name: target?.identity.accountID ?? name,
+                                            targetID: target?.id, adoptLive: false)
+            }
+        } } catch DroidAccountError.writeLockBusy {
+            return .init(session: session, state: .waitingForLogin,
+                         message: "Droid is still saving the login. Switch will check it again.")
+        }
+        // Terminal owns the process. Retire metadata without killing it or deleting an open home.
+        try retireLoginSession(session.id)
+        return .init(session: session, state: .completed, account: account,
+                     message: "Droid account saved. Choose Switch to use this login for new requests.")
+    }
+
+    private func saveDroidAccount(from source: URL, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false) throws -> AccountRecord {
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, label.count <= 100, !label.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+            throw AIManagerError.invalidSource("Enter a Droid account name with 1 to 100 characters.")
+        }
+        let files = try droidProvider.files(in: source)
+        try droidProvider.requireLogin(files)
+        var registry = try loadRegistry()
+        let id = targetID ?? UUID(), operationID = UUID()
+        let staged = paths.applicationSupport.appending(path: "staging/\(operationID.uuidString)/droid-auth")
+        try CoreSupport.privateDirectory(staged, fileManager: fileManager)
+        for (name, bytes) in files { try CoreSupport.atomicWrite(bytes, to: staged.appending(path: name), fileManager: fileManager) }
+        let digest = try treeDigest(staged)
+        if targetID == nil, let existing = registry.accounts.first(where: { $0.identity.providerID == .droid && $0.credentialDigest == digest }) {
+            try fileManager.removeItem(at: staged.deletingLastPathComponent())
+            if adoptLive {
+                registry.setDefaultAccountID(existing.id, for: .droid)
+                try saveRegistry(registry)
+            }
+            return existing
+        }
+        let saved = credentialFile(for: id, providerID: .droid)
+        let home = accountsRoot.appending(path: "\(id.uuidString)/home")
+        let previous = registry.accounts.first { $0.id == id }
+        var operation = RecoveryOperation(id: operationID, kind: "import-droid", phase: .prepared,
+            source: staged, destination: saved, backup: paths.applicationSupport.appending(path: "backups/\(operationID.uuidString)"),
+            expectedDigest: digest, previousDigest: CoreSupport.entryExists(saved) ? try treeDigest(saved) : nil,
+            registryAccountID: id, previousDefaultAccountID: registry.defaultAccountID(for: .droid),
+            registryCredentialDigest: digest, previousAccount: previous, setsDefaultAccount: adoptLive)
+        try saveOperation(operation)
+        try replaceRecoverably(source: staged, destination: saved, operation: &operation, backupName: "account-home")
+        try faultInjector(.afterCredentialPublication)
+        if refreshLive { try publishDroidFiles(from: staged, files: files, operation: &operation) }
+        try CoreSupport.privateDirectory(home, fileManager: fileManager)
+        let account = AccountRecord(id: id, identity: .init(providerID: .droid, accountID: label, authMode: .oauth),
+            credentialFile: saved, home: home, source: source, importedAt: previous?.importedAt ?? Date(),
+            verification: .init(state: .imported, detail: "Encrypted Droid login saved. Account name supplied by the owner."), credentialDigest: digest)
+        if let index = registry.accounts.firstIndex(where: { $0.id == id }) { registry.accounts[index] = account }
+        else { registry.accounts.append(account) }
+        if adoptLive { registry.setDefaultAccountID(id, for: .droid) }
+        try saveRegistry(registry)
+        try faultInjector(.afterRegistryCommit)
+        operation.phase = .registryCommitted
+        try saveOperation(operation)
+        try finishOperation(&operation)
+        try fileManager.removeItem(at: staged.deletingLastPathComponent())
+        return account
+    }
+
+    private func performDroidSwitch(to accountID: UUID) throws -> SwitchResult {
+        var registry = try loadRegistry()
+        guard let index = registry.accounts.firstIndex(where: { $0.id == accountID && $0.identity.providerID == .droid }) else {
+            throw AIManagerError.accountNotFound
+        }
+        let requested = registry.accounts[index]
+        try validateDroidCredential(requested)
+        var incoming = try droidProvider.files(in: requested.credentialFile)
+        let outgoing = try droidProvider.files(in: paths.droidHome)
+        let previousDefault = registry.defaultAccountID(for: .droid)
+        if previousDefault == accountID, !outgoing.isEmpty { incoming = outgoing }
+        if !outgoing.isEmpty, previousDefault == nil {
+            throw AIManagerError.operationFailed("Import the current Droid login before switching, so Switch can capture it safely.")
+        }
+        let operationID = UUID()
+        let backup = paths.applicationSupport.appending(path: "backups/\(operationID.uuidString)")
+        let primaryName = incoming["auth.v2.loginkeychain"] != nil ? "auth.v2.loginkeychain" : "auth.v2.file"
+        let primary = paths.droidHome.appending(path: primaryName)
+        var operation = RecoveryOperation(id: operationID, kind: "switch-droid", phase: .prepared,
+            source: requested.credentialFile, destination: primary, backup: backup,
+            expectedDigest: CoreSupport.digest(incoming[primaryName]!), touchedItems: [],
+            previousDigest: outgoing[primaryName].map(CoreSupport.digest),
+            registryAccountID: accountID, previousDefaultAccountID: previousDefault)
+        try saveOperation(operation)
+        // Capture rotated outgoing bytes before publishing any incoming file.
+        if CoreSupport.entryExists(primary) { try copyPortable(primary, to: backup.appending(path: "auth.json")) }
+        if let outgoingIndex = registry.accounts.firstIndex(where: { $0.id == previousDefault }),
+           !outgoing.isEmpty {
+            let staged = paths.applicationSupport.appending(path: "staging/\(operationID.uuidString)/outgoing")
+            try CoreSupport.privateDirectory(staged, fileManager: fileManager)
+            for (name, bytes) in outgoing { try CoreSupport.atomicWrite(bytes, to: staged.appending(path: name), fileManager: fileManager) }
+            operation.previousAccount = registry.accounts[outgoingIndex]
+            try replaceRecoverably(source: staged, destination: registry.accounts[outgoingIndex].credentialFile,
+                                   operation: &operation, backupName: "outgoing-auth")
+            registry.accounts[outgoingIndex].credentialDigest = try treeDigest(staged)
+        }
+        try publishDroidFiles(from: requested.credentialFile, files: incoming, operation: &operation)
+        registry.setDefaultAccountID(accountID, for: .droid)
+        registry.accounts[index].lastUsedAt = Date()
+        try saveRegistry(registry)
+        try faultInjector(.afterRegistryCommit)
+        operation.phase = .registryCommitted
+        try saveOperation(operation)
+        try finishOperation(&operation)
+        let staged = paths.applicationSupport.appending(path: "staging/\(operationID.uuidString)")
+        if CoreSupport.entryExists(staged) { try fileManager.removeItem(at: staged) }
+        return .init(accountID: accountID, backup: backup, previousAccountID: previousDefault)
+    }
+
+    private func publishDroidFiles(from source: URL, files incoming: [String: Data], operation: inout RecoveryOperation) throws {
+        for name in DroidProviderAdapter.authNames {
+            let live = paths.droidHome.appending(path: name)
+            if incoming[name] != nil {
+                try replaceRecoverably(source: source.appending(path: name), destination: live,
+                                       operation: &operation, backupName: "live/\(name)")
+            } else if CoreSupport.entryExists(live) {
+                let protected = operation.backup.appending(path: "live/\(name)")
+                try copyPortable(live, to: protected)
+                operation.touchedItems!.append(.init(destination: live, backup: protected,
+                    expectedDigest: "absent", previousDigest: try treeDigest(live)))
+                try saveOperation(operation)
+                try fileManager.removeItem(at: live)
+            } else { continue }
+            try faultInjector(.afterDefaultCredentialPublication)
+        }
+        guard try droidProvider.files(in: paths.droidHome) == incoming else { throw AIManagerError.sourceChanged }
+    }
+
     private var registryURL: URL { paths.applicationSupport.appending(path: "accounts.json") }
     private var accountsRoot: URL {
         paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
@@ -1495,6 +1812,7 @@ extension AccountManager {
         for accountID: UUID,
         providerID: ProviderID = .codex
     ) -> URL {
+        if providerID == .droid { return paths.droidCredentialStore.appending(path: accountID.uuidString) }
         let root = providerID == .grokBuild
             ? paths.grokCredentialStore : paths.credentialStore
         return root.appending(path: "\(accountID.uuidString).json")
@@ -1511,8 +1829,8 @@ extension AccountManager {
               CoreSupport.isContained(account.home, by: accountsRoot) else {
             throw AIManagerError.unsafePath("managed account home is outside the private account root")
         }
-        let credentialRoot = account.identity.providerID == .grokBuild
-            ? paths.grokCredentialStore : paths.credentialStore
+        let credentialRoot = account.identity.providerID == .droid ? paths.droidCredentialStore
+            : account.identity.providerID == .grokBuild ? paths.grokCredentialStore : paths.credentialStore
         let expectedCredential = credentialFile(
             for: account.id, providerID: account.identity.providerID)
         guard CoreSupport.sameLocation(account.credentialFile, expectedCredential),
@@ -1589,6 +1907,10 @@ extension AccountManager {
             for entry in entries {
                 guard let id = UUID(uuidString: entry.lastPathComponent) else { continue }
                 let reviewed = try loadLoginSessionRecord(id)
+                if reviewed.session.providerID == .droid,
+                   try !droidProcessLister().filter({
+                       $0.home == nil || CoreSupport.sameLocation($0.home!, loginHome(id).appending(path: ".factory"))
+                   }).isEmpty { continue }
                 guard let retiredAt = reviewed.retiredAt,
                       await writerCheck(loginHome(id)) == .inactive else { continue }
                 let current = try loadLoginSessionRecord(id)
@@ -1704,7 +2026,10 @@ extension AccountManager {
                     == expectedCredential.standardizedFileURL.path else {
                     throw AIManagerError.unsafePath("saved credential is outside the private credential store")
                 }
-                if account.identity.providerID == .grokBuild {
+                if account.identity.providerID == .droid {
+                    // Recovery may temporarily differ from the committed digest.
+                    try droidProvider.requireLogin(droidProvider.files(in: account.credentialFile))
+                } else if account.identity.providerID == .grokBuild {
                     try grokProvider.validateManagedCredential(account)
                 } else {
                     try provider.validatePrivateCredentialFile(account.credentialFile)
@@ -3371,7 +3696,7 @@ extension AccountManager {
     }
 
     private func affectedRecoveryHomes(_ operation: RecoveryOperation) throws -> [URL] {
-        guard ["import", "import-grok", "switch", "switch-grok", "settings-link-repair", "usage-credential-refresh", "delete-account", "account-login-refresh"].contains(operation.kind),
+        guard ["import", "import-grok", "import-droid", "switch", "switch-grok", "switch-droid", "settings-link-repair", "usage-credential-refresh", "delete-account", "account-login-refresh"].contains(operation.kind),
               CoreSupport.isContained(operation.backup, by: paths.applicationSupport) else {
             throw AIManagerError.invalidSource("Unknown or unsafe recovery operation.")
         }
@@ -3379,11 +3704,23 @@ extension AccountManager {
         var candidates = [
             paths.defaultHome, paths.sharedRoot, paths.credentialStore,
             paths.grokHome, paths.grokCredentialStore,
+            paths.droidHome, paths.droidCredentialStore, paths.applicationSupport.appending(path: "droid-usage"),
         ]
             + registry.accounts.map(\.home)
         if let previous = operation.previousAccount { candidates.append(previous.home) }
         var homes: [URL] = []
         switch operation.kind {
+        case "import-droid":
+            guard let id = operation.registryAccountID,
+                  CoreSupport.sameLocation(operation.destination, credentialFile(for: id, providerID: .droid)) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+        case "switch-droid":
+            guard DroidProviderAdapter.authNames.contains(operation.destination.lastPathComponent),
+                  CoreSupport.sameLocation(operation.destination.deletingLastPathComponent(), paths.droidHome) else {
+                throw AIManagerError.unsafePath(operation.destination.path)
+            }
+            // The Droid writer lock, rather than Codex writer detection, protects these files.
         case "account-login-refresh":
             guard let account = operation.previousAccount, operation.registryAccountID == account.id,
                   CoreSupport.sameLocation(operation.destination, account.credentialFile) else {
@@ -3471,7 +3808,10 @@ extension AccountManager {
             }
         }
         var seen = Set<String>()
-        return homes.filter { seen.insert(CoreSupport.canonical($0).path).inserted }
+        return homes.filter {
+            if operation.kind.contains("droid") { return false }
+            return seen.insert(CoreSupport.canonical($0).path).inserted
+        }
     }
 
     private func recoveryTargets(_ operation: RecoveryOperation) throws -> [RecoveryTarget] {
@@ -3491,9 +3831,9 @@ extension AccountManager {
             if seen.insert(path).inserted {
                 let prior: URL
                 switch operation.kind {
-                case "import", "import-grok":
+                case "import", "import-grok", "import-droid":
                     prior = operation.backup.appending(path: "account-home", directoryHint: .isDirectory)
-                case "switch", "switch-grok", "account-login-refresh":
+                case "switch", "switch-grok", "switch-droid", "account-login-refresh":
                     prior = operation.backup.appending(path: "auth.json")
                 case "settings-link-repair":
                     throw AIManagerError.invalidSource("Settings-link recovery is missing its recorded item.")
@@ -3584,6 +3924,21 @@ extension AccountManager {
 
     private func reconcileRegistryKeepingCurrent(_ operation: RecoveryOperation) throws {
         switch operation.kind {
+        case "import-droid", "switch-droid":
+            var registry = try loadRegistry()
+            for index in registry.accounts.indices where registry.accounts[index].identity.providerID == .droid {
+                try droidProvider.requireLogin(droidProvider.files(in: registry.accounts[index].credentialFile))
+                registry.accounts[index].credentialDigest = try treeDigest(registry.accounts[index].credentialFile)
+            }
+            if touchesDroidLive(operation) {
+                let live = try droidProvider.files(in: paths.droidHome)
+                guard let matching = try registry.accounts.first(where: {
+                    guard $0.identity.providerID == .droid else { return false }
+                    return try droidProvider.files(in: $0.credentialFile) == live
+                }) else { throw AIManagerError.credentialConflict }
+                registry.setDefaultAccountID(matching.id, for: .droid)
+            }
+            try saveRegistry(registry)
         case "account-login-refresh":
             var registry = try loadRegistry()
             if operation.previousAccount?.identity.providerID == .grokBuild {
@@ -3867,8 +4222,8 @@ extension AccountManager {
     }
 
     private func registryCommitted(_ operation: RecoveryOperation, registry: Registry) -> Bool {
-        if ["switch", "switch-grok"].contains(operation.kind) {
-            let providerID: ProviderID = operation.kind == "switch-grok" ? .grokBuild : .codex
+        if ["switch", "switch-grok", "switch-droid"].contains(operation.kind) {
+            let providerID: ProviderID = operation.kind == "switch-droid" ? .droid : operation.kind == "switch-grok" ? .grokBuild : .codex
             return registry.defaultAccountID(for: providerID) == operation.registryAccountID
         }
         guard let accountID = operation.registryAccountID,
@@ -3876,12 +4231,16 @@ extension AccountManager {
         let accountMatches = registry.accounts.first(where: { $0.id == accountID })?.credentialDigest
             == expectedCredential
         let defaultMatches = operation.setsDefaultAccount != true
-            || registry.defaultAccountID == accountID
+            || registry.defaultAccountID(for: operation.kind == "import-droid" ? .droid : .codex) == accountID
         return accountMatches && defaultMatches
     }
 
     private func publishedRecoveryTargetsMatch(_ operation: RecoveryOperation) throws -> Bool {
         for item in operation.touchedItems ?? [] {
+            if item.expectedDigest == "absent" {
+                guard !CoreSupport.entryExists(item.destination) else { return false }
+                continue
+            }
             if let temporary = item.temporary, CoreSupport.entryExists(temporary) { return false }
             guard !item.expectedDigest.isEmpty,
                   CoreSupport.entryExists(item.destination),
@@ -3891,8 +4250,8 @@ extension AccountManager {
     }
 
     private func restoreRegistry(_ operation: RecoveryOperation, registry: inout Registry) {
-        if ["switch", "switch-grok"].contains(operation.kind) {
-            let providerID: ProviderID = operation.kind == "switch-grok" ? .grokBuild : .codex
+        if ["switch", "switch-grok", "switch-droid"].contains(operation.kind) {
+            let providerID: ProviderID = operation.kind == "switch-droid" ? .droid : operation.kind == "switch-grok" ? .grokBuild : .codex
             registry.setDefaultAccountID(operation.previousDefaultAccountID, for: providerID)
             if let previous = operation.previousAccount,
                let index = registry.accounts.firstIndex(where: { $0.id == previous.id }) {
@@ -3900,7 +4259,7 @@ extension AccountManager {
             }
         } else if let accountID = operation.registryAccountID {
             if operation.setsDefaultAccount == true {
-                registry.defaultAccountID = operation.previousDefaultAccountID
+                registry.setDefaultAccountID(operation.previousDefaultAccountID, for: operation.kind == "import-droid" ? .droid : .codex)
             }
             if let previous = operation.previousAccount,
                let index = registry.accounts.firstIndex(where: { $0.id == accountID }) {

@@ -102,6 +102,7 @@ enum AIManagerBrand {
     "zenmux": .flip("zenmux"), "kiro": .color("kiro", tile: 0x9046FF, mono: false),
     "devin": .flip("devin"), "augment": .flip("augment"),
     "factory": .tinted("factory", mark: 0xFAFAFA, tile: 0x020202),
+    "droid": .tinted("factory", mark: 0xFAFAFA, tile: 0x020202),
   ]
 
   static func providerBrand(for providerID: ProviderID) -> ProviderBrand? {
@@ -160,6 +161,7 @@ enum AIManagerBrand {
   static let providerIconAliases: [String: String] = [
     "gemini-cli": "gemini", "antigravity-cli": "antigravity", "grok-build": "grok",
     "claude-code": "claude", "github-copilot": "copilot",
+    "droid": "factory",
     "kimi-api": "kimi", "moonshot": "kimi", "qwencloud-team": "qwencloud",
     "alibabatokenplan": "alibaba", "azureopenai": "openai",
   ]

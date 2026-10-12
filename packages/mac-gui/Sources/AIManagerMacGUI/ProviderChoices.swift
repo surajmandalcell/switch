@@ -15,7 +15,7 @@ struct ProviderChoice: Identifiable, Equatable {
 }
 
 enum ProviderChoices {
-  static let builtIn: [ProviderID] = [.codex, .grokBuild, .claudeCode]
+  static let builtIn: [ProviderID] = [.codex, .grokBuild, .droid, .claudeCode]
   static let signedInLabel = "Signed in on this Mac"
 
   /// Every generic provider, alphabetical. Built once: the list never changes while the app runs.

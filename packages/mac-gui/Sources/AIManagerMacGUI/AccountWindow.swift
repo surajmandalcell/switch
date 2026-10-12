@@ -648,6 +648,9 @@ private struct AccountDetail: View {
       if account.identity.providerID == .claudeCode {
         ClaudeActivityPanel(model: model)
       }
+      if account.identity.providerID == .droid {
+        DroidUsageKeyPanel(account: account, model: model)
+      }
       AIMSection("Account details") {
         DetailRow(label: account.identity.providerID == .claudeCode ? "Profile config" : "Saved auth",
                   value: account.credentialFile.path)
@@ -655,6 +658,7 @@ private struct AccountDetail: View {
         DetailRow(
           label: "\(account.identity.providerID.guiName) home",
           value: account.identity.providerID == .claudeCode ? account.home.path
+            : account.identity.providerID == .droid ? model.paths.droidHome.path
             : account.identity.providerID == .grokBuild
               ? model.paths.grokHome.path : model.paths.defaultHome.path)
         DetailRow(
@@ -3010,7 +3014,9 @@ private struct AddAccountFlow: View {
 
   private func continueFromProvider() {
     let id = model.selectedProviderID
-    if !ProviderChoices.builtIn.contains(id), ProviderCatalog.spec(id) != nil {
+    if id == .droid {
+      genericProviderID = id
+    } else if !ProviderChoices.builtIn.contains(id), ProviderCatalog.spec(id) != nil {
       genericProviderID = id
     } else {
       Task { await model.startAccountLogin() }
@@ -3092,6 +3098,24 @@ private struct AddAccountFlow: View {
     VStack(spacing: 0) {
       Form {
         Section("\(selectedProviderName) sign-in") {
+          if model.selectedProviderID == .droid {
+            TextField("Account name", text: $model.droidAccountName)
+              .disabled(model.signInAccountID != nil)
+              .accessibilityHint("Name this encrypted login, for example Droid personal.")
+            if model.accountLoginSession == nil {
+              SecureField("Factory API key (optional, for usage)", text: $model.droidAPIKey)
+              HStack(spacing: AIMTheme.rowSpacing) {
+                AIMButton(title: "Import current sign-in", tone: .primary, disabled: model.isBusy) {
+                  Task { await model.importDroidAccount() }
+                }
+                AIMButton(title: "Sign in another account", disabled: model.isBusy) {
+                  Task { await model.startAccountLogin() }
+                }
+              }
+            }
+            Text("Switch saves the encrypted login. It cannot check who signed in. Type /login in Terminal when adding another account.")
+              .aimText(.secondary)
+          }
           HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
             AIMIcon(name: model.accountLoginState == .needsAttention ? .warning : .account)
               .aimFont(.section)
@@ -3157,10 +3181,10 @@ private struct AddAccountFlow: View {
         EmptyView()
       } trailing: {
         // Cancel ends the sign-in session, not only the sheet.
-        Button("Cancel") { Task { await model.cancelAccountLogin() } }
+        Button("Cancel") { Task { await model.cancelAccountLogin(); genericProviderID = nil } }
           .keyboardShortcut(.cancelAction)
         if model.accountLoginState != .credentialChoiceRequired {
-          AIMButton(title: "Check Now", icon: .refresh, tone: .primary) {
+          AIMButton(title: "Check Now", icon: .refresh, tone: .primary, disabled: model.accountLoginSession == nil) {
             Task { await model.checkAccountLogin() }
           }
           .keyboardShortcut(.defaultAction)
@@ -3169,6 +3193,17 @@ private struct AddAccountFlow: View {
       .padding(AIMTheme.pageMargin)
     }
     .frame(maxHeight: .infinity, alignment: .top)
+    .task(id: model.accountLoginSession?.id) {
+      guard model.accountLoginSession?.providerID == .droid else { return }
+      for _ in 0..<120 {
+        do { try await Task.sleep(for: .seconds(5)) } catch { return }
+        guard model.accountLoginSession?.providerID == .droid,
+              model.accountLoginState == .waitingForLogin else { return }
+        await model.checkAccountLogin()
+        if model.errorMessage != nil { return }
+      }
+      model.accountLoginMessage = "Automatic checks stopped after ten minutes. Finish /login, then choose Check Now."
+    }
   }
 
   private var completedPage: some View {

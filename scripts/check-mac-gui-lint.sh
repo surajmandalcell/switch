@@ -2,7 +2,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Every run builds in its own folder, so parallel runs never share objects or run state.
-lint_root=/Volumes/External1TB/data/_custom/switch-build
+lint_root=${AI_MANAGER_BUILD_PATH:-/Volumes/External1TB/data/_custom/switch-build}
 mkdir -p "$lint_root"
 export AI_MANAGER_BUILD_PATH="$(mktemp -d "$lint_root/lint-run.XXXXXX")"
 trap 'rm -rf "$AI_MANAGER_BUILD_PATH"' EXIT

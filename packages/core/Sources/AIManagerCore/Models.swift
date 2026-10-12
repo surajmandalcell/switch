@@ -13,6 +13,9 @@ public struct ManagerPaths: Sendable {
     public var grokHome: URL
     public var grokCredentialStore: URL
     public var grokExecutable: URL?
+    public var droidHome: URL
+    public var droidCredentialStore: URL
+    public var droidExecutable: URL?
     public var claudeExecutable: URL?
     public var isolationRoot: URL?
     /// Home that generic providers resolve CLI credential paths against.
@@ -30,6 +33,9 @@ public struct ManagerPaths: Sendable {
         grokHome: URL? = nil,
         grokCredentialStore: URL? = nil,
         grokExecutable: URL? = nil,
+        droidHome: URL? = nil,
+        droidCredentialStore: URL? = nil,
+        droidExecutable: URL? = nil,
         claudeExecutable: URL? = nil,
         isolationRoot: URL? = nil
     ) {
@@ -45,6 +51,9 @@ public struct ManagerPaths: Sendable {
         self.grokCredentialStore = grokCredentialStore
             ?? applicationSupport.appending(path: "credential-store/grok-build", directoryHint: .isDirectory)
         self.grokExecutable = grokExecutable
+        self.droidHome = droidHome ?? defaultHome.deletingLastPathComponent().appending(path: ".factory")
+        self.droidCredentialStore = droidCredentialStore ?? self.credentialStore.deletingLastPathComponent().appending(path: "droid")
+        self.droidExecutable = droidExecutable
         self.claudeExecutable = claudeExecutable
         self.isolationRoot = isolationRoot
     }
@@ -52,6 +61,8 @@ public struct ManagerPaths: Sendable {
     public static func standard(fileManager: FileManager = .default) -> Self {
         let home = fileManager.homeDirectoryForCurrentUser
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let factoryHome = ProcessInfo.processInfo.environment["FACTORY_HOME_OVERRIDE"]
+            .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).appending(path: ".factory") }
         return .init(
             applicationSupport: support.appending(path: "AI Manager", directoryHint: .isDirectory),
             credentialStore: home.appending(path: ".switch/codex", directoryHint: .isDirectory),
@@ -59,7 +70,9 @@ public struct ManagerPaths: Sendable {
             sharedRoot: home.appending(path: ".codex", directoryHint: .isDirectory),
             orcaAccountsRoot: support.appending(path: "Orca/codex-accounts", directoryHint: .isDirectory),
             grokHome: home.appending(path: ".grok", directoryHint: .isDirectory),
-            grokCredentialStore: home.appending(path: ".switch/grok-build", directoryHint: .isDirectory)
+            grokCredentialStore: home.appending(path: ".switch/grok-build", directoryHint: .isDirectory),
+            droidHome: factoryHome ?? home.appending(path: ".factory"),
+            droidCredentialStore: home.appending(path: ".switch/droid")
         )
     }
 
@@ -75,6 +88,8 @@ public struct ManagerPaths: Sendable {
             paths.defaultHome = value.appending(path: "default-home", directoryHint: .isDirectory)
             paths.grokHome = value.appending(path: "grok-home", directoryHint: .isDirectory)
             paths.grokCredentialStore = value.appending(path: ".switch/grok-build", directoryHint: .isDirectory)
+            paths.droidHome = value.appending(path: ".factory")
+            paths.droidCredentialStore = value.appending(path: ".switch/droid")
             paths.orcaAccountsRoot = value.appending(path: "orca-accounts", directoryHint: .isDirectory)
         }
         if let value = url("AI_MANAGER_SHARED_ROOT"), url("AI_MANAGER_DEFAULT_HOME") == nil,
@@ -88,6 +103,8 @@ public struct ManagerPaths: Sendable {
         if let value = url("AI_MANAGER_ORCA_ACCOUNTS_ROOT"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.orcaAccountsRoot = value }
         if let value = url("AI_MANAGER_CODEX_EXECUTABLE") { paths.codexExecutable = value }
         if let value = url("AI_MANAGER_GROK_EXECUTABLE") { paths.grokExecutable = value }
+        if let value = url("FACTORY_HOME_OVERRIDE"), paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) { paths.droidHome = value.appending(path: ".factory") }
+        if let value = url("AI_MANAGER_DROID_EXECUTABLE") { paths.droidExecutable = value }
         if let value = url("AI_MANAGER_CLAUDE_EXECUTABLE") { paths.claudeExecutable = value }
         return paths
     }
@@ -110,6 +127,7 @@ public struct ProviderID: RawRepresentable, Codable, Hashable, Sendable {
 
     public static let codex = ProviderID(rawValue: "codex")
     public static let grokBuild = ProviderID(rawValue: "grok-build")
+    public static let droid = ProviderID(rawValue: "droid")
 
     public init(from decoder: Decoder) throws {
         self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
