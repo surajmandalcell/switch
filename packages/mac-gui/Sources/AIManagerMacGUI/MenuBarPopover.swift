@@ -249,10 +249,12 @@ final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var isRefreshingUsage = false
   @Published private(set) var visibleScreenHeight: CGFloat
   @Published private(set) var rowErrors: [UUID: String] = [:]
+  @Published private(set) var expandedAccountID: UUID?
 
   let actions: MenuBarPopoverActions
   var didSwitch: (() -> Void)?
   var didRequestDismissal: (() -> Void)?
+  var didChangeLayout: (() -> Void)?
 
   init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions, visibleScreenHeight: CGFloat = 900) {
     self.snapshot = snapshot
@@ -269,10 +271,18 @@ final class MenuBarPopoverStore: ObservableObject {
     rowErrors = rowErrors.filter { error in
       snapshot.accounts.contains { $0.id == error.key }
     }
+    if !snapshot.accounts.contains(where: { $0.id == expandedAccountID && $0.showsUsage }) {
+      expandedAccountID = nil
+    }
   }
 
   /// Accounts with Show in Menubar on, in saved order. These are the popover's rows.
-  var rows: [MenuBarAccountSnapshot] { snapshot.accounts.filter(\.showsUsage) }
+  var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.accounts).flatMap { $0 } }
+
+  func toggleExpanded(_ account: MenuBarAccountSnapshot) {
+    expandedAccountID = expandedAccountID == account.id ? nil : account.id
+    didChangeLayout?()
+  }
 
   func openMainWindow() {
     actions.openMainWindow()
@@ -358,13 +368,6 @@ struct MenuBarPopover: View {
   static let width: CGFloat = 360
   static let minimumHeight: CGFloat = 94
   static let footerHeight: CGFloat = 44
-  static let listInset: CGFloat = 8
-  static let cardSpacing: CGFloat = 8
-
-  static func accountRowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
-    MenuBarPresentation.rowHeight(account)
-  }
-
   @ObservedObject var store: MenuBarPopoverStore
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
   @FocusState private var focusedID: UUID?
@@ -378,7 +381,7 @@ struct MenuBarPopover: View {
     }
     .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
       accounts: store.snapshot.accounts,
-      visibleScreenHeight: store.visibleScreenHeight).height)
+      visibleScreenHeight: store.visibleScreenHeight, expandedID: store.expandedAccountID).height)
     .onKeyPress(phases: .down) { press in handle(press) }
     .simultaneousGesture(TapGesture().onEnded { keyboardActive = false })
   }
@@ -397,8 +400,20 @@ struct MenuBarPopover: View {
       ScrollViewReader { proxy in
         ScrollView {
           TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(spacing: Self.cardSpacing) {
-              ForEach(rows) { account in
+            VStack(spacing: 0) {
+              ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.offset) { index, group in
+                if index > 0 {
+                  Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+                    .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupGap)
+                }
+                HStack(spacing: MenuBarPresentation.tileSpacing) {
+                  ProviderMark(providerID: group[0].providerID, size: 16)
+                  Text(group[0].providerID.guiName).aimText(.secondary).fontWeight(.semibold)
+                  Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupHeaderHeight)
+                VStack(spacing: MenuBarPresentation.accountGap) {
+                ForEach(group) { account in
                 MenuBarRow(
                   account: account,
                   now: context.date,
@@ -411,9 +426,11 @@ struct MenuBarPopover: View {
                 .focusable()
                 .focused($focusedID, equals: account.id)
                 .focusEffectDisabled()
+                }
+                }
               }
             }
-            .padding(.vertical, Self.listInset + Self.cardSpacing / 2)
+            .padding(.vertical, 12)
             .background(GeometryReader { geometry in
               Color.clear.preference(key: MenuBarScrollOffset.self,
                 value: -geometry.frame(in: .named("menuBarList")).minY)
@@ -426,7 +443,7 @@ struct MenuBarPopover: View {
         .onPreferenceChange(MenuBarScrollOffset.self) { scrollOffset = $0 }
         .overlay(alignment: .trailing) {
           GeometryReader { geometry in
-            let contentHeight = rows.map(Self.accountRowHeight).reduce(0, +)
+            let contentHeight = MenuBarPresentation.listHeight(rows, expandedID: store.expandedAccountID)
             let viewport = geometry.size.height
             if contentHeight > viewport {
               let thumbHeight = max(20, viewport * viewport / contentHeight)
@@ -466,7 +483,7 @@ struct MenuBarPopover: View {
       return .handled
     case .return, .space:
       guard let id = focusedID, let account = rows.first(where: { $0.id == id }) else { return .ignored }
-      store.select(account)
+      store.toggleExpanded(account)
       return .handled
     default:
       return .ignored

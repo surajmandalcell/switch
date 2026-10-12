@@ -108,17 +108,6 @@ enum AIManagerBrand {
     providerBrands[providerID.rawValue]
   }
 
-  /// Compatibility for callers that ask whether artwork exists; every brand mark is a PDF.
-  struct ProviderArtwork: Equatable {
-    let providerID: ProviderID
-    let resourceName: String
-    let fileExtension: String
-  }
-
-  static let providerArtwork: [ProviderArtwork] = providerBrands.keys.sorted().map {
-    .init(providerID: ProviderID(rawValue: $0), resourceName: providerBrands[$0]!.file, fileExtension: "pdf")
-  }
-
   private static var providerImageCache: [String: NSImage] = [:]
 
   private static func brandPDF(_ name: String, template: Bool, in bundle: Bundle) -> NSImage? {
@@ -383,6 +372,7 @@ final class AIManagerStatusItemController: NSObject {
 
     store.didSwitch = { [weak self] in self?.closePopover() }
     store.didRequestDismissal = { [weak self] in self?.closePopover() }
+    store.didChangeLayout = { [weak self] in self?.resizePopover() }
     configureButton()
     update(snapshot: snapshot)
   }
@@ -407,16 +397,14 @@ final class AIManagerStatusItemController: NSObject {
 
   static func contentSize(
     accounts: [MenuBarAccountSnapshot],
-    visibleScreenHeight: CGFloat
+    visibleScreenHeight: CGFloat,
+    expandedID: UUID? = nil
   ) -> NSSize {
     let listHeight: CGFloat
-    if accounts.isEmpty {
+    if !accounts.contains(where: \.showsUsage) {
       listHeight = MenuBarPopover.minimumHeight - MenuBarPopover.footerHeight
     } else {
-      listHeight = MenuBarPopover.listInset * 2
-        + accounts.map(MenuBarPopover.accountRowHeight).reduce(0, +)
-        // NSTableView includes intercell spacing after its last row too.
-        + CGFloat(accounts.count) * MenuBarPopover.cardSpacing
+      listHeight = MenuBarPresentation.listHeight(accounts, expandedID: expandedID)
     }
     let idealHeight = MenuBarPopover.footerHeight + listHeight
     let screenMaximum = max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.80))
@@ -432,7 +420,7 @@ final class AIManagerStatusItemController: NSObject {
     popover.contentViewController?.view.layoutSubtreeIfNeeded()
     popover.contentSize = Self.contentSize(
       accounts: store.snapshot.accounts,
-      visibleScreenHeight: store.visibleScreenHeight)
+      visibleScreenHeight: store.visibleScreenHeight, expandedID: store.expandedAccountID)
   }
 
   private func configureButton() {

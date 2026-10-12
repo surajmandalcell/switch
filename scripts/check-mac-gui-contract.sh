@@ -130,3 +130,29 @@ for style in always overlay; do
   fi
   printf 'MAC_GUI_CONTRACT_PASS scrollers %s\n' "$style"
 done
+
+# Focus rings: with Full Keyboard Access on (the owner's Mac, `-AppleKeyboardUIMode 2`), no
+# system focus ring may draw unless Increase Contrast is on. The history page holds the virtual
+# table, Settings the pop-ups and the shortcut recorder, Maintenance the date field.
+for focus_args in "--history --history-stress" "--accounts" "--settings" "--backup" "--cleanup"; do
+  run_root="$test_root/focus-rings-${focus_args//[^a-z]/}"
+  artifacts="$run_root/artifacts"
+  mkdir -p "$run_root/home" "$run_root/codex-home" "$run_root/manager" "$run_root/tmp" "$artifacts"
+  # shellcheck disable=SC2086
+  HOME="$run_root/home" \
+  CFFIXED_USER_HOME="$run_root/home" \
+  CODEX_HOME="$run_root/codex-home" \
+  AI_MANAGER_ROOT="$run_root/manager" \
+  AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \
+  AI_MANAGER_CODEX_EXECUTABLE="/usr/bin/false" \
+  AI_MANAGER_ACCEPTANCE_ARTIFACTS="$artifacts" \
+  TMPDIR="$run_root/tmp" \
+    "$executable" --contract-only --snapshot-only $focus_args --persisted-light \
+      --require-full-keyboard-access -AppleKeyboardUIMode 2
+  if [[ "$(/usr/bin/plutil -extract passed raw -o - "$artifacts/window-contract.json")" != "true" ]]; then
+    /usr/bin/plutil -p "$artifacts/window-contract.json" >&2
+    printf 'MAC_GUI_CONTRACT_FAIL focus rings (%s): a system focus ring can draw with Full Keyboard Access on\n' "$focus_args" >&2
+    exit 1
+  fi
+  printf 'MAC_GUI_CONTRACT_PASS focus rings %s\n' "$focus_args"
+done

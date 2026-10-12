@@ -146,39 +146,27 @@ enum AIMMotion {
 // MARK: - Usage bars
 
 enum UsageBarColor {
-  static func color(leftPercent: Double?) -> Color? {
-    guard let leftPercent else { return nil }
-    return leftPercent > 50 ? AIMTheme.green : (leftPercent >= 20 ? AIMTheme.yellow : AIMTheme.red)
-  }
-  enum Palette: String { case P1, P2, P3 }
-
-  static var palette: Palette {
-    #if AI_MANAGER_PREVIEW
-    return ProcessInfo.processInfo.environment["AI_MANAGER_BAR_PALETTE"].flatMap(Palette.init(rawValue:)) ?? .P1
-    #else
-    return .P1
-    #endif
-  }
-
-  static func color(usedPercent: Double?, providerID: ProviderID? = nil) -> Color? {
+  static func color(usedPercent: Double?, providerID: ProviderID) -> Color? {
     guard let usedPercent else { return nil }
     if usedPercent >= 90 { return AIMTheme.red }
-    switch palette {
-    case .P1: return Color(nsColor: .secondaryLabelColor)
-    case .P2: return AIMTheme.green
-    case .P3:
-      switch providerID {
-      case .claudeCode: return Color(hex: 0xD97757)
-      case .codex: return Color(hex: 0x10A37F)
-      case .grokBuild: return Color(nsColor: .labelColor)
-      default: return AIMTheme.blue
-      }
+    switch providerID.rawValue {
+    case "claude-code": return Color(hex: 0xD97757)
+    case "codex", "openai": return Color(hex: 0x10A37F)
+    case "gemini-cli", "vertexai": return Color(hex: 0x4285F4)
+    case "deepseek": return Color(hex: 0x4D6BFE)
+    case "qwencloud": return Color(hex: 0x615CED)
+    case "mistral": return Color(hex: 0xFF7000)
+    case "groq": return Color(hex: 0xF55036)
+    case "raycast": return Color(hex: 0xFF6363)
+    case "warp": return Color(hex: 0x01A4FF)
+    case "kiro": return Color(hex: 0x9046FF)
+    default: return Color(nsColor: .labelColor)
     }
   }
 }
 
 /// The one usage bar: a 4-point capsule in the Overview, Accounts, the account detail, and the
-/// popover. `usedPercent` drives the shared palette unless `tint` overrides it; "Show
+/// popover. `usedPercent` drives the shared brand palette; "Show
 /// percentage used" flips the fill to the used share. An unknown value shows an empty grey track.
 /// The fill is clamped to the track, so overage never overflows. The pace tick draws over the bar
 /// and never changes the layout height.
@@ -186,15 +174,13 @@ struct UsageBar: View {
   static let height: CGFloat = 4
   let usedPercent: Double?
   var showsUsed = false
-  var providerID: ProviderID? = nil
-  /// Overrides the color by percent, for example the popover's pace-aware level.
-  var tint: Color? = nil
+  let providerID: ProviderID
   /// Even-pace marker as a 0...1 position.
   var tick: Double? = nil
 
   var body: some View {
     let used = usedPercent.map { min(max($0, 0), 100) }
-    let color = tint ?? UsageBarColor.color(usedPercent: used, providerID: providerID)
+    let color = UsageBarColor.color(usedPercent: used, providerID: providerID)
     let fill = used.map { (showsUsed ? $0 : 100 - $0) / 100 } ?? 0
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
@@ -236,10 +222,10 @@ struct Badge: View {
 // MARK: - Focus
 
 /// A click or a selection never draws a focus ring. Keyboard focus is a subtle tint in the
-/// control's own shape. System rings come back only with Full Keyboard Access or Increase Contrast.
+/// control's own shape, even with Full Keyboard Access on. System rings come back only with Increase Contrast.
 enum AIMFocus {
   @MainActor static var showsSystemRings: Bool {
-    NSApp.isFullKeyboardAccessEnabled || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
   }
 
   @MainActor static var ringType: NSFocusRingType { showsSystemRings ? .default : .none }
@@ -678,6 +664,8 @@ final class AIMScroller: NSScroller {
   override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
     gutter
   }
+
+  override var focusRingType: NSFocusRingType { get { .none } set {} }
 
   override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
 

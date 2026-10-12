@@ -5,20 +5,44 @@ import SwiftUI
 /// Pure rules of the popover: labels, bar colors, countdown text, geometry, keyboard order.
 /// Kept apart from the views so the contract can test them without a window.
 enum MenuBarPresentation {
-  static let rowPaddingH: CGFloat = 12
+  static let rowPaddingH: CGFloat = 8
   static let rowPaddingV: CGFloat = 6
-  static let tileSize: CGFloat = 28
+  static let tileSize: CGFloat = 16
   static let tileSpacing: CGFloat = 8
-  static let headerHeight: CGFloat = 28
+  static let headerHeight: CGFloat = 18
+  static let groupHeaderHeight: CGFloat = 26
+  static let accountGap: CGFloat = 8
+  static let groupGap: CGFloat = 12
+  static let expandedHeight: CGFloat = 40
   static let lineGap: CGFloat = 4
   static let lineHeight: CGFloat = 18
   static let signInHeight: CGFloat = 24
   static let lineSpacing: CGFloat = 0
   static let captionHeight: CGFloat = 14
-  static let dividerHeight: CGFloat = 1
+  static let dividerHeight: CGFloat = 0
   static let labelWidth: CGFloat = 56
   static let percentWidth: CGFloat = 36
   static let resetWidth: CGFloat = 64
+
+  static func groups(_ accounts: [MenuBarAccountSnapshot]) -> [[MenuBarAccountSnapshot]] {
+    var groups: [[MenuBarAccountSnapshot]] = []
+    for account in accounts.filter(\.showsUsage) {
+      if let index = groups.firstIndex(where: { $0.first?.providerID == account.providerID }) {
+        groups[index].append(account)
+      } else { groups.append([account]) }
+    }
+    return groups
+  }
+
+  static func listHeight(_ accounts: [MenuBarAccountSnapshot], expandedID: UUID? = nil) -> CGFloat {
+    let groups = groups(accounts)
+    guard !groups.isEmpty else { return 0 }
+    return 24 + groups.reduce(CGFloat.zero) { height, group in
+      height + groupHeaderHeight + group.map(rowHeight).reduce(0, +)
+        + CGFloat(group.count - 1) * accountGap
+    } + CGFloat(groups.count - 1) * groupGap
+      + (groups.flatMap { $0 }.contains(where: { $0.id == expandedID }) ? expandedHeight : 0)
+  }
 
   struct Line: Equatable {
     /// Window name in the fixed first column.
@@ -30,8 +54,6 @@ enum MenuBarPresentation {
     /// Amount text for balance-only accounts, shown instead of a bar.
     let balance: String?
   }
-
-  enum Level: Equatable { case good, caution, low }
 
   /// A shared short name for service windows.
   static func windowLabel(minutes: Int?, title: String) -> String {
@@ -73,18 +95,6 @@ enum MenuBarPresentation {
     })
   }
 
-  /// The reset in the row header: the first window's.
-  static func headerReset(for account: MenuBarAccountSnapshot) -> Date? {
-    guard case .lines(let lines) = content(for: account) else { return nil }
-    return lines.first?.resetsAt
-  }
-
-  /// Used percent of the header window, for the past-reset wording.
-  static func headerUsed(for account: MenuBarAccountSnapshot) -> Int? {
-    guard case .lines(let lines) = content(for: account) else { return nil }
-    return lines.first?.used
-  }
-
   static func hasTokenCaption(_ account: MenuBarAccountSnapshot) -> Bool {
     guard account.isVerified, let usage = account.usage else { return false }
     return usage.tokens != nil && usage.tokenPeriodLabel != nil
@@ -107,32 +117,6 @@ enum MenuBarPresentation {
     if !account.isVerified { height += signInHeight - lineHeight }
     if hasTokenCaption(account) { height += lineGap + captionHeight }
     return height
-  }
-
-  /// Bar color: green above 50% left, yellow from 20% to 50%, red below 20%. A pace verdict of
-  /// close to the limit or running out can only make the color worse.
-  static func level(used: Int, resetsAt: Date?, minutes: Int?, now: Date) -> Level {
-    let left = max(0, 100 - used)
-    var level: Level = left > 50 ? .good : left >= 20 ? .caution : .low
-    let window = UsageWindow(
-      id: "", title: "", usedPercent: Double(used), resetsAt: resetsAt, windowMinutes: minutes)
-    switch UsagePace.meterState(window, now: now) {
-    case .closeToLimit, .level(.warning, _):
-      if level == .good { level = .caution }
-    case .runningOut, .spent, .level(.critical, _):
-      level = .low
-    default:
-      break
-    }
-    return level
-  }
-
-  static func color(_ level: Level) -> Color {
-    switch level {
-    case .good: .green
-    case .caution: .yellow
-    case .low: .red
-    }
   }
 
   /// "6d 8h", "1h 45m", "12m" as a countdown, or the exact clock time such as "5:30 PM" and
@@ -234,48 +218,50 @@ struct MenuBarRow: View {
       }
       .padding(.horizontal, P.rowPaddingH)
       .padding(.vertical, P.rowPaddingV)
-      Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: P.dividerHeight)
+      if store.expandedAccountID == account.id {
+        HStack(spacing: 8) {
+          Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+          if account.supportsLaunch, store.actions.openTool != nil {
+            Button(P.openToolTitle(account)) { store.openTool(account) }
+          }
+          Spacer(minLength: 0)
+        }
+        .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
+        .padding(.leading, P.rowPaddingH + P.tileSize + P.tileSpacing)
+        .padding(.trailing, P.rowPaddingH)
+        .frame(height: P.expandedHeight)
+      }
     }
-    .frame(height: P.rowHeight(account))
+    .frame(height: P.rowHeight(account) + (store.expandedAccountID == account.id ? P.expandedHeight : 0))
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
-        .fill(isFocused ? Color.accentColor.opacity(0.16) : hovered ? Color.primary.opacity(0.07) : .clear)
+        .fill(isFocused || store.expandedAccountID == account.id ? Color.accentColor.opacity(0.12) : hovered ? Color.primary.opacity(0.07) : .clear)
         .padding(5)
     }
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
-    .onTapGesture { store.select(account) }
+    .onTapGesture { store.toggleExpanded(account) }
     .contextMenu { menu }
-    .accessibilityElement(children: account.isVerified ? .ignore : .contain)
+    .accessibilityElement(children: store.expandedAccountID == account.id || !account.isVerified ? .contain : .ignore)
     .accessibilityLabel(P.accessibilityLabel(account, showsUsed: showsUsed, now: now, exact: exact))
     .accessibilityAddTraits(.isButton)
-    .accessibilityHint(store.canSwitch(account) ? "Switches to this account" : "")
+    .accessibilityHint("Shows account actions")
+    .accessibilityAction(named: "Show actions") { store.toggleExpanded(account) }
     .accessibilityAction(named: "Switch") { store.select(account) }
   }
 
   private var header: some View {
     HStack(spacing: P.tileSpacing) {
-      tile
-      VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: 4) {
-          Text(account.identity)
-            .aimText(.body)
-            .lineLimit(1).truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .help(account.identity)
-          if account.isActive {
-            Image(systemName: "checkmark")
-              .aimFont(.secondary)
-              .foregroundStyle(Color.accentColor)
-              .help("Default for \(P.providerLabel(account))")
-          }
-        }
-      }
-      Spacer(minLength: 4)
+      Text(account.identity)
+        .aimText(.body)
+        .lineLimit(1).truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(account.identity)
       trailing
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(width: 18, height: P.headerHeight)
     }
+    .padding(.leading, P.tileSize + P.tileSpacing)
     .frame(height: P.headerHeight)
   }
 
@@ -292,14 +278,13 @@ struct MenuBarRow: View {
           .focusEffectDisabled()
           .help("\(error) Click to copy.")
           .accessibilityLabel("Copy account error")
+        } else if account.isActive {
+          Image(systemName: "checkmark").aimFont(.secondary)
+            .foregroundStyle(Color.accentColor)
+            .help("Default for \(P.providerLabel(account))")
         }
       }
     }
-  }
-
-  private var tile: some View {
-    ProviderMark(providerID: account.providerID, size: P.tileSize)
-    .accessibilityHidden(true)
   }
 
   @ViewBuilder private var content: some View {

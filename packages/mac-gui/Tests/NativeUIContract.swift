@@ -414,7 +414,7 @@ enum AIManagerNativeContract {
       failures.append("Account context actions use unexpected copy")
     }
     if !Set([ProviderID.codex, .claudeCode, .geminiCLI, .antigravityCLI])
-      .isSubset(of: Set(AIManagerBrand.providerArtwork.map(\.providerID)))
+      .isSubset(of: Set(AIManagerBrand.providerBrands.keys.map { ProviderID(rawValue: $0) }))
     {
       failures.append("The Add Account catalog does not map every CLI provider to its brand mark")
     }
@@ -1181,13 +1181,10 @@ enum AIManagerNativeContract {
     // Toolbar search: at least 300 points wide; Command-K comes from the View menu.
     expect(AIManagerToolbar.searchWidth >= 300 && AIManagerToolbar.searchPrompt == "Search accounts…",
       "The toolbar search is narrower than 300 points or has the wrong prompt")
-    // Bars: green above 50% left, yellow 20-50%, red below 20%, grey when unknown.
-    expect(UsageBarColor.color(leftPercent: 51) == AIMTheme.green
-      && UsageBarColor.color(leftPercent: 50) == AIMTheme.yellow
-      && UsageBarColor.color(leftPercent: 20) == AIMTheme.yellow
-      && UsageBarColor.color(leftPercent: 19) == AIMTheme.red
-      && UsageBarColor.color(leftPercent: nil) == nil,
-      "Usage bar colors do not follow the 50 and 20 percent thresholds")
+    expect(UsageBarColor.color(usedPercent: 89, providerID: .codex) == Color(hex: 0x10A37F)
+      && UsageBarColor.color(usedPercent: 90, providerID: .codex) == AIMTheme.red
+      && UsageBarColor.color(usedPercent: nil, providerID: .codex) == nil,
+      "Usage bars lost their provider color or 90 percent warning")
     // Removed settings leave no stored preference behind.
     expect(!SettingsReset.keys.contains("keyboardFocusIndicators")
       && !SettingsReset.keys.contains("bodyTranslucency"),
@@ -1429,6 +1426,27 @@ enum AIManagerNativeContract {
     }
     // Settings and Maintenance are shared cards; the contract script rejects a Form in SettingsPage.
     _ = pageIndex
+    return failures
+  }
+
+  /// No system focus ring, even with Full Keyboard Access on (`-AppleKeyboardUIMode 2`). The rings
+  /// show only with Increase Contrast. `requiresFullKeyboardAccess` proves the run reproduces the
+  /// owner's setting.
+  static func focusRingFailures(in root: NSView, requiresFullKeyboardAccess: Bool) -> [String] {
+    var failures: [String] = []
+    let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    if requiresFullKeyboardAccess && !NSApp.isFullKeyboardAccessEnabled {
+      failures.append("Full Keyboard Access is not on, so the focus ring check proves nothing")
+    }
+    if AIMFocus.showsSystemRings != increaseContrast {
+      failures.append("System focus rings show \(AIMFocus.showsSystemRings) with Increase Contrast \(increaseContrast); only Increase Contrast may show them")
+    }
+    if !increaseContrast {
+      for view in views(in: root) where view.focusRingType != .none
+        && (view is NSControl || view is NSTableView || view is NSTextView) {
+        failures.append("\(NSStringFromClass(type(of: view))) can draw a system focus ring")
+      }
+    }
     return failures
   }
 

@@ -22,5 +22,4 @@ settings, and measured fidelity.
 
 `ProviderBrand/` holds the official logo of every provider that has one, drawn
 by `ProviderMark` on the brand's tile. `ProviderBrand/BRAND-SOURCES.md` records
-each source, license, and tile look. The older `Provider*` files and
-`PROVIDER-ICON-PROVENANCE.txt` are superseded and no longer drawn.
+each source, license, and tile look.
