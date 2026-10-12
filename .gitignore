@@ -23,3 +23,4 @@ npm/vendor/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+node_modules/
