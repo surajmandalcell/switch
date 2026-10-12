@@ -545,6 +545,12 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         )
         failures.append(contentsOf: AIManagerNativeContract.nativeStructureFailures(
             in: contentView, pageIndex: AcceptanceConfiguration.initialPageIndex))
+        // The Add Account and Import sheets are their own windows.
+        for root in [contentView] + (window.attachedSheet?.contentView.map { [$0] } ?? []) {
+            failures.append(contentsOf: AIManagerNativeContract.focusRingFailures(
+                in: root,
+                requiresFullKeyboardAccess: CommandLine.arguments.contains("--require-full-keyboard-access")))
+        }
         if AcceptanceConfiguration.initialPageIndex == AcceptanceConfiguration.conversationsIndex {
             expect(
                 AIManagerNativeContract.historySearchFieldsMatch(in: contentView),

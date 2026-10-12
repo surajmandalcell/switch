@@ -32,15 +32,15 @@ enum AIManagerMenuBarContract {
     expect(MenuBarPopover.width == 360, "Menu-bar popover is not 360 points wide")
     expect(MenuBarPopover.footerHeight == 44 && MenuBarPopover.minimumHeight == 94,
       "Menu-bar footer or minimum height changed")
-    expect(P.tileSize == 28, "Provider icon tile is not 28 points")
+    expect(P.tileSize == 16 && P.groupHeaderHeight == 26, "Service header geometry changed")
     let two = account("a", usage: twoWindows), one = account("b", usage: oneWindow)
-    expect(P.rowHeight(two) == 81 && P.rowHeight(one) == 63, "Row heights changed: \(P.rowHeight(two)) \(P.rowHeight(one))")
-    expect(P.rowHeight(account("c")) == 63 && P.rowHeight(account("d", verified: false)) == 69,
+    expect(P.rowHeight(two) == 70 && P.rowHeight(one) == 52, "Row heights changed: \(P.rowHeight(two)) \(P.rowHeight(one))")
+    expect(P.rowHeight(account("c")) == 52 && P.rowHeight(account("d", verified: false)) == 58,
       "Unknown and sign-in rows are not one line tall")
     expect(P.rowHeight(account("e", usage: twoWindows, shows: false)) == 0, "A hidden account still takes space")
     let withTokens = MenuBarUsageSnapshot(
       usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 1_000_000)
-    expect(P.rowHeight(account("f", usage: withTokens)) == 63 + 18, "Token summary line has the wrong height")
+    expect(P.rowHeight(account("f", usage: withTokens)) == 52 + 18, "Token summary line has the wrong height")
 
     func size(_ accounts: [MenuBarAccountSnapshot], _ screen: CGFloat) -> NSSize {
       AIManagerStatusItemController.contentSize(accounts: accounts, visibleScreenHeight: screen)
@@ -49,20 +49,25 @@ enum AIManagerMenuBarContract {
     expect(size([], 900).height == 94, "Empty popover does not use its minimum height")
     expect(size([account("g", usage: twoWindows, shows: false)], 900).height == 94,
       "Hidden accounts leave blank space")
-    expect(size([two], 900).height == 149 && size([two, one], 900).height == 220,
+    expect(size([two], 900).height == 164 && size([two, one], 900).height == 224,
       "One or two rows do not fit exactly")
-    expect(size([two, one], 300).height == 220 && size([one], 100).height == 94,
+    expect(size([two, one], 300).height == 224 && size([one], 100).height == 94,
       "Small screens clip one or two rows below the minimum")
     expect(size(many, 900).height == 720, "Rows do not scroll at 80% of the screen height")
     expect(size(many, 2_000).height == 1_600, "A tall screen clips rows below its cap")
     expect(size(many, 601).height == 480, "The screen cap rounds beyond 80%")
     expect(size(many, 900).width == 360, "Popover width changes with its contents")
-    for (count, height) in [(4, CGFloat(398)), (6, 576), (8, 754)] {
+    for (count, height) in [(4, CGFloat(410)), (6, 626), (8, 782)] {
       let preview = MenuBarPopoverPreviewData.snapshot(accountCount: count)
       expect(preview.accounts.count == count && Set(preview.accounts.map(\.id)).count == count,
         "Popover preview lost accounts or repeats row IDs")
       expect(size(preview.accounts, 2_000).height == height, "Compact \(count)-account height is wrong")
     }
+    let grouped = P.groups(MenuBarPopoverPreviewData.sixAccountSnapshot.accounts)
+    expect(grouped.map { $0[0].providerID } == [.claudeCode, .codex, .grokBuild, .geminiCLI]
+      && grouped.map(\.count) == [2, 2, 1, 1], "Service groups lost saved order")
+    expect(grouped[0].map(\.identity) == MenuBarPopoverPreviewData.sixAccountSnapshot.accounts
+      .filter { $0.providerID == .claudeCode }.map(\.identity), "Account order changed inside a service")
 
     // Window labels, content, and the header reset.
     expect(P.windowLabel(minutes: 300, title: "Session") == "Session"
@@ -98,10 +103,8 @@ enum AIManagerMenuBarContract {
     if case .lines(let lines) = P.content(for: balance) {
       expect(lines.first?.balance == "$12.40", "Balance-only row lost its balance")
     } else { failures.append("Balance-only row has no line") }
-    expect(P.headerReset(for: two) == twoWindows.resetsAt, "Header reset is not the first window's")
-
-    expect(UsageBar.height == 4 && UsageBarColor.color(usedPercent: 90) == AIMTheme.red
-      && UsageBarColor.color(usedPercent: 89) != AIMTheme.red,
+    expect(UsageBar.height == 4 && UsageBarColor.color(usedPercent: 90, providerID: .codex) == AIMTheme.red
+      && UsageBarColor.color(usedPercent: 89, providerID: .codex) != AIMTheme.red,
       "Shared bar height or 90-percent threshold changed")
 
     // Reset text follows the Countdown or Exact-time setting.
@@ -139,16 +142,17 @@ enum AIManagerMenuBarContract {
   private static func renderSnapshots(to directory: URL) -> [String] {
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      for palette in ["P1", "P2", "P3"] {
-        setenv("AI_MANAGER_BAR_PALETTE", palette, 1)
-        for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+        for (appearance, label, expanded) in [(NSAppearance.Name.aqua, "light", false),
+          (.darkAqua, "dark", false), (.aqua, "expanded-light", true)] {
           UILintStore.shared.items.removeAll()
           UILintStore.shared.colors.removeAll()
           UILintStore.shared.appearance = NSAppearance(named: appearance)!
           let snapshot = MenuBarPopoverPreviewData.sixAccountSnapshot
-          let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts, visibleScreenHeight: 2_000)
           let store = MenuBarPopoverStore(snapshot: snapshot,
-            actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), visibleScreenHeight: 2_000)
+            actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }), visibleScreenHeight: 2_000)
+          if expanded { store.toggleExpanded(snapshot.accounts[3]) }
+          let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts,
+            visibleScreenHeight: 2_000, expandedID: store.expandedAccountID)
           let host = NSHostingView(rootView: MenuBarPopover(store: store)
             .background(Color(nsColor: .windowBackgroundColor)))
           let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -164,16 +168,14 @@ enum AIManagerMenuBarContract {
           guard let png = bitmap.representation(using: .png, properties: [:]) else {
             return ["Popover snapshot PNG is unavailable"]
           }
-          let filename = "popover-\(palette)-\(label).png"
+          let filename = "popover-\(label).png"
           try png.write(to: directory.appendingPathComponent(filename))
           if CommandLine.arguments.contains("--ui-lint") {
-            try UILintStore.shared.write(to: directory.appendingPathComponent("popover-\(palette)-\(label).json"),
+            try UILintStore.shared.write(to: directory.appendingPathComponent("popover-\(label).json"),
               size: size, page: "menu-bar", appearance: label)
           }
           print("POPOVER_SHOT \(filename) \(Int(size.width))x\(Int(size.height)) pt")
         }
-      }
-      unsetenv("AI_MANAGER_BAR_PALETTE")
       return []
     } catch { return ["Popover snapshots failed: \(error)"] }
   }
@@ -225,6 +227,18 @@ enum AIManagerMenuBarContract {
 
     expect(store.rows.map(\.id) == [active.id, other.id, signIn.id, generic.id],
       "Rows are not the Show in Menubar accounts in saved order")
+    var layoutChanges = 0
+    store.didChangeLayout = { layoutChanges += 1 }
+    store.toggleExpanded(other)
+    expect(store.expandedAccountID == other.id && switched.isEmpty && layoutChanges == 1,
+      "Expanding an account switches it or fails to resize")
+    let expandedSize = AIManagerStatusItemController.contentSize(accounts: store.snapshot.accounts,
+      visibleScreenHeight: 2_000, expandedID: other.id)
+    let collapsedSize = AIManagerStatusItemController.contentSize(accounts: store.snapshot.accounts,
+      visibleScreenHeight: 2_000)
+    expect(expandedSize.height == collapsedSize.height + 40, "Expanded actions have the wrong height")
+    store.toggleExpanded(other)
+    expect(store.expandedAccountID == nil && layoutChanges == 2, "Account actions do not collapse")
     store.select(active)
     store.select(signIn)
     await settle()
@@ -286,7 +300,7 @@ enum AIManagerMenuBarContract {
         "Hosted popover does not fit its rows: \(host.fittingSize) vs \(expected)")
       expect(!views(in: host).contains { $0 is NSVisualEffectView },
         "The popover draws its own backdrop instead of the native popover material")
-      let rowsHeight = accounts.map(P.rowHeight).reduce(0, +)
+      let rowsHeight = P.listHeight(accounts)
       let cap = floor(screen * 0.8)
       for scroll in views(in: host).compactMap({ $0 as? NSScrollView }) {
         let document = scroll.documentView?.frame.height ?? 0

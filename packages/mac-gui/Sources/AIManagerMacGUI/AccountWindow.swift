@@ -1357,7 +1357,7 @@ private struct UsageMeter: View {
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 60)) { context in
-      ProviderWindowMeter(window: window, now: context.date)
+      ProviderWindowMeter(window: window, providerID: .codex, now: context.date)
     }
   }
 }

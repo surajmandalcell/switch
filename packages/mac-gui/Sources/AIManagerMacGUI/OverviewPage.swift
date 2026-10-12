@@ -416,7 +416,7 @@ struct FocusedAccountCard: View {
             .flipsUsedAndLeft(showsUsed)
             .uiLint(.number)
         }
-        UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed)
+        UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID)
         if let reset = window.resetsAt {
           ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent).lineLimit(1)
         }
@@ -660,7 +660,8 @@ private struct AccountsTableRow: View {
       }
       .aimColumn(columns[0], group: group)
       HStack(spacing: AIMTheme.rowSpacing) {
-        UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed).frame(minWidth: 40)
+        UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed,
+          providerID: account.identity.providerID).frame(minWidth: 40)
         Text(OverviewFormat.percent(window, showsUsed: showsUsed))
           .aimText(.body).monospacedDigit().lineLimit(1)
           .frame(width: 44, alignment: .trailing)
@@ -776,7 +777,8 @@ struct CurrentLimitsCard: View {
         HStack(alignment: .top, spacing: AIMTheme.tileInset) {
           ForEach(0..<3, id: \.self) { index in
             if windows.indices.contains(index) {
-              LimitTile(window: windows[index], showsUsed: showsUsed, now: now)
+              LimitTile(window: windows[index], providerID: account.identity.providerID,
+                showsUsed: showsUsed, now: now)
             } else {
               Color.clear.frame(maxWidth: .infinity)
             }
@@ -792,6 +794,7 @@ struct CurrentLimitsCard: View {
 
 private struct LimitTile: View {
   let window: UsageWindow
+  let providerID: ProviderID
   let showsUsed: Bool
   let now: Date
 
@@ -807,7 +810,7 @@ private struct LimitTile: View {
           .flipsUsedAndLeft(showsUsed)
           .uiLint(.number)
       }
-      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed)
+      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID)
       if let reset = window.resetsAt {
         ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent).lineLimit(1)
       } else {

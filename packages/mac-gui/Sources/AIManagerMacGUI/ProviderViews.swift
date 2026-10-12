@@ -283,7 +283,7 @@ struct ProviderUsagePanel: View {
       usage.windows, hidden: HiddenUsageRows.parse(hiddenRaw), id: \.id)
     ForEach(windows) { window in
       TimelineView(.periodic(from: .now, by: 60)) { context in
-        ProviderWindowMeter(window: window, now: context.date)
+        ProviderWindowMeter(window: window, providerID: account.identity.providerID, now: context.date)
           .usageRowMenu(accountID: account.id, rowID: window.id) {
             Task { await model.refreshProviderUsage(accountID: account.id) }
           }
@@ -299,7 +299,7 @@ struct ProviderUsagePanel: View {
     }
 
     ForEach(Array(usage.sections.enumerated()), id: \.offset) { _, section in
-      ProviderSectionRows(section: section)
+      ProviderSectionRows(section: section, providerID: account.identity.providerID)
     }
 
     HiddenUsageRowsNote(accountID: account.id, rowIDs: usage.windows.map(\.id))
@@ -374,6 +374,7 @@ struct ProviderUsagePanel: View {
 
 struct ProviderWindowMeter: View {
   let window: UsageWindow
+  let providerID: ProviderID
   let now: Date
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
   /// Read so the accessibility value redraws when the reset format changes.
@@ -411,7 +412,7 @@ struct ProviderWindowMeter: View {
           .aimText(.body).monospacedDigit()
           .flipsUsedAndLeft(showsUsed)
       }
-      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, tick: tick)
+      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID, tick: tick)
         .help(UsagePace.tooltip(state) ?? "")
       HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
         if let reset = window.resetsAt {
@@ -494,6 +495,7 @@ struct ProviderCostRow: View {
 
 struct ProviderSectionRows: View {
   let section: UsageSection
+  let providerID: ProviderID
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -506,7 +508,7 @@ struct ProviderSectionRows: View {
           Text(row.label).aimText(.body).lineLimit(1)
           Spacer(minLength: AIMTheme.rowSpacing)
           if let progress = row.progress {
-            UsageBar(usedPercent: (1 - progress) * 100, tint: AIMTheme.blue)
+            UsageBar(usedPercent: (1 - progress) * 100, providerID: providerID)
               .frame(width: 56)
           }
           Text(EmailPrivacy.display(row.value)).aimText(.secondary).monospacedDigit()

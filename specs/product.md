@@ -11,8 +11,8 @@ mark remains the small menu-bar template.
 
 ## 1. Product model
 
-Switch manages provider authentication snapshots. Codex CLI, Grok Build, and Claude Code
-use the dedicated engines below. Every other provider uses the generic provider layer in
+Switch manages provider authentication snapshots. Codex CLI, Grok Build, Droid (Factory), and
+Claude Code use the dedicated engines below. Every other provider uses the generic provider layer in
 section 1a.
 
 For Codex, `~/.codex` is the one live home. Its configuration, instructions, skills,
@@ -36,6 +36,22 @@ sheet accepts the authorization code or complete callback URL and sends it once 
 official CLI without saving it. The official CLI hot-reloads `auth.json`, so an existing Grok
 process may use the newly selected account on its next API call. Switch does not claim that
 existing Grok sessions retain their earlier account.
+
+For Droid (Factory), the live home is `$FACTORY_HOME_OVERRIDE/.factory`, or `~/.factory` when
+the variable is unset, the same rule droid and Factory.app use. Both read one login store there:
+`auth.v2.loginkeychain`, or `auth.v2.file` plus `auth.v2.key` when the keyring is off. It is
+encrypted with one fixed Keychain key that every Factory login reuses. Switching atomically
+replaces only those auth files from an owner-private copy at
+`~/.switch/droid/<account-uuid>/`. Switch first captures the outgoing files into the outgoing
+account and honors droid's `auth.v2.write.lock`. Switch never reads the key or decrypts the
+files. Sessions, settings, and history stay in the live home. droid reads the store on demand,
+so new requests use the new account. When Factory.app or a droid process is running on the live
+home, a switch first asks, and Cancel is the default. The existing login is imported as the
+first account without a new sign-in. Add Account runs droid's interactive `/login` in Terminal
+with a private temporary `FACTORY_HOME_OVERRIDE`, and runs only one Droid login at a time. A
+Droid login needs an existing Factory login on this Mac, so the shared key already exists. While
+Factory.app has work running, live tests use a separate test home through
+`FACTORY_HOME_OVERRIDE` with the droid CLI, and they never touch `~/.factory`.
 
 Claude Code profiles use separate, stable `CLAUDE_CONFIG_DIR` paths. Claude Code owns their
 credentials, including any macOS Keychain entries; Switch does not copy or parse them. A
@@ -418,18 +434,21 @@ and dark before a UI change ships.
 - **Stability and focus:** nothing shifts when content loads, rows are hovered or selected, or
   pages change. Scroll views hide the system indicators and draw a thin, always-visible scroll
   bar in a fixed gutter whose track matches the page, with no border. Clicks and selections
-  never draw focus rings or outlines; keyboard focus is a subtle tint, and system focus rings
-  show only with Full Keyboard Access or Increase Contrast on. Dark Mode controls are flat fills
+  never draw focus rings or outlines, including the sidebar and lists; keyboard focus is a
+  subtle tint even with keyboard navigation (Full Keyboard Access) on. System focus rings show
+  only with Increase Contrast on. Dark Mode controls are flat fills
   with no light rim. Every container has equal top and bottom inner padding; hover and
   selection highlights have even insets.
 - **Menu bar popover:** native popover material, about 360 pt wide, compact, with no app name
-  header. Each shown account has one row with its provider icon and a one-line truncated name;
-  the icon replaces the provider-name line. Show in Menubar uses the Settings default or an
-  account override. Each account shows its service's reported windows, including unknown values;
-  plan differences and an account's hidden-row override can reduce them. Each line aligns the window name,
-  a 4 pt rounded bar, percentage, and reset in fixed columns. The shared bar palette token uses
-  a calm neutral fill by default and red from 90% used; preview-only P2 uses green and P3 uses
-  provider color, each with the same red threshold. A checkmark marks each provider's default.
+  header. Accounts are grouped by service: one group header per service (its brand logo tile and
+  name), then that service's accounts, each as its own row (one-line truncated name, checkmark
+  for the default) with its usage lines under it. Account rows carry no logo and no service
+  name. Show in Menubar uses the Settings default or an account override. Each account shows
+  its service's reported windows, including unknown values; plan differences and an account's
+  hidden-row override can reduce them. Each line aligns the window name, a 4 pt rounded bar,
+  percentage, and reset in fixed columns. Bars everywhere (popover and window) fill with the
+  provider's brand color and turn red from 90% used.
+  Clicking an account reveals Switch and Open <tool> actions while keeping usage visible.
   The context menu offers Switch, Open <tool>, Refresh, and Copy name. Hover highlights have even
   insets. A compact footer holds Refresh and Settings icon buttons and Open Switch with Command-O.
 - **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
