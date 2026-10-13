@@ -236,7 +236,7 @@ struct MenuBarRow: View {
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
-        .fill(isFocused || store.expandedAccountID == account.id ? Color.accentColor.opacity(0.12) : hovered ? Color.primary.opacity(0.07) : .clear)
+        .fill(isFocused || store.expandedAccountID == account.id ? AIMTheme.rowHighlight : hovered ? Color.primary.opacity(0.07) : .clear)
         .padding(5)
     }
     .contentShape(Rectangle())
@@ -280,7 +280,7 @@ struct MenuBarRow: View {
           .accessibilityLabel("Copy account error")
         } else if account.isActive {
           Image(systemName: "checkmark").aimFont(.secondary)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(AIMTheme.passiveIcon)
             .help("Default for \(P.providerLabel(account))")
         }
       }
@@ -422,7 +422,7 @@ private struct MenuBarButtonStyle: ButtonStyle {
       .padding(.horizontal, 6)
       .frame(height: height)
       .background(RoundedRectangle(cornerRadius: 5).fill(
-        isFocused ? Color.accentColor.opacity(0.16)
+        isFocused ? AIMTheme.focusTint
           : Color.primary.opacity(configuration.isPressed ? 0.12 : 0.05)))
       .contentShape(RoundedRectangle(cornerRadius: 5))
       .opacity(isEnabled ? 1 : 0.45)

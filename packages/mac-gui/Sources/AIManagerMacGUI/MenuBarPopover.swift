@@ -143,11 +143,12 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     isActive: Bool,
     usage: MenuBarUsageSnapshot? = nil,
     showsUsage: Bool = true,
-    providerID: ProviderID = .codex
+    providerID: ProviderID = .codex,
+    identityIsFormatted: Bool = false
   ) {
     self.id = id
     self.providerID = providerID
-    self.identity = EmailPrivacy.display(identity)  // popover cards and the status-item tooltip
+    self.identity = identityIsFormatted ? identity : EmailPrivacy.display(identity)
     self.detail = detail
     self.isVerified = isVerified
     self.isActive = isActive
@@ -398,7 +399,7 @@ struct MenuBarPopover: View {
       .accessibilityElement(children: .combine)
     } else {
       ScrollViewReader { proxy in
-        ScrollView {
+        AIMScrollView(name: "menu-bar") {
           TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(spacing: 0) {
               ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.offset) { index, group in
@@ -436,26 +437,10 @@ struct MenuBarPopover: View {
                 value: -geometry.frame(in: .named("menuBarList")).minY)
             })
           }
-          .padding(.trailing, 6)
+          .padding(.trailing, AIMScroller.gutter)
         }
         .coordinateSpace(name: "menuBarList")
-        .scrollIndicators(.hidden)
         .onPreferenceChange(MenuBarScrollOffset.self) { scrollOffset = $0 }
-        .overlay(alignment: .trailing) {
-          GeometryReader { geometry in
-            let contentHeight = MenuBarPresentation.listHeight(rows, expandedID: store.expandedAccountID)
-            let viewport = geometry.size.height
-            if contentHeight > viewport {
-              let thumbHeight = max(20, viewport * viewport / contentHeight)
-              Capsule().fill(Color.primary.opacity(0.25))
-                .frame(width: 3, height: thumbHeight)
-                .offset(x: geometry.size.width - 4,
-                  y: min(max(scrollOffset / (contentHeight - viewport), 0), 1) * (viewport - thumbHeight))
-            }
-          }
-          .allowsHitTesting(false)
-          .accessibilityHidden(true)
-        }
         .scrollBounceBehavior(.basedOnSize)
         .onChange(of: focusedID) { _, id in
           if let id { proxy.scrollTo(id) }

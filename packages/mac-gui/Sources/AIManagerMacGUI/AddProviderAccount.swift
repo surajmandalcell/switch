@@ -28,27 +28,18 @@ struct ProviderChooserPage: View {
     VStack(spacing: AIMTheme.sectionSpacing) {
       searchField
       ScrollViewReader { proxy in
-        List(selection: Binding(
-          get: { model.selectedProviderID },
-          set: { if let id = $0 { model.selectedProviderID = id; searchFocused = true } })
-        ) {
+        AIMScrollView(name: "providers") {
+          LazyVStack(spacing: 2) {
           if rows.isEmpty {
             Text("No provider matches “\(query)”.").aimText(.secondary)
           }
           ForEach(rows) { choice in
             row(choice).id(choice.id)
           }
+          }
+          .padding(.trailing, AIMScroller.gutter)
         }
-        .listStyle(.inset)
         .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
-        .contextMenu(forSelectionType: ProviderID.self) { _ in
-        } primaryAction: { ids in
-          // Double-click continues with the clicked provider.
-          guard let id = ids.first, !model.isBusy,
-                rows.first(where: { $0.id == id })?.available == true else { return }
-          model.selectedProviderID = id
-          onContinue()
-        }
         .onChange(of: model.selectedProviderID) { _, id in proxy.scrollTo(id) }
       }
       .frame(maxHeight: .infinity)
@@ -114,8 +105,23 @@ struct ProviderChooserPage: View {
       }
     }
     .opacity(choice.available ? 1 : 0.64)
-    .tag(choice.id)
-    .selectionDisabled(!choice.available)
+    .padding(8)
+    .background(isSelected ? AIMTheme.rowHighlight : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+    .contentShape(Rectangle())
+    .onTapGesture(count: 2) {
+      guard choice.available, !model.isBusy else { return }
+      model.selectedProviderID = choice.id
+      onContinue()
+    }
+    .onTapGesture {
+      guard choice.available else { return }
+      model.selectedProviderID = choice.id
+      searchFocused = true
+    }
+    .accessibilityAction {
+      guard choice.available else { return }
+      model.selectedProviderID = choice.id
+    }
     .accessibilityLabel(choice.name)
     .accessibilityValue(
       [isSelected ? "Selected" : nil, choice.signedInOnThisMac ? ProviderChoices.signedInLabel : nil]
@@ -167,7 +173,7 @@ struct SecretCredentialsPage: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section("\(spec.name) credentials") {
           HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
             ProviderMark(providerID: spec.id, size: 32)
@@ -183,7 +189,6 @@ struct SecretCredentialsPage: View {
           }
         }
       }
-      .formStyle(.grouped)
 
       ImportFooter(step: 2, labels: ["Provider", "Credentials", "Done"]) {
         AIMButton(title: "Back", disabled: model.isBusy, action: back)
@@ -218,6 +223,8 @@ struct SecretCredentialsPage: View {
         }
       }
       .privacySensitive(field.secure)
+      .textFieldStyle(.plain)
+      .aimFieldChrome(focused: focusedKey == field.key)
       .focused($focusedKey, equals: field.key)
       .onSubmit { if isComplete { save() } }
       .accessibilityLabel(field.optional ? "\(field.title), optional" : field.title)
@@ -252,7 +259,7 @@ struct FilesCredentialsPage: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section("\(spec.name) sign-in") {
           HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
             ProviderMark(providerID: spec.id, size: 32)
@@ -273,7 +280,6 @@ struct FilesCredentialsPage: View {
           }
         }
       }
-      .formStyle(.grouped)
 
       ImportFooter(step: 2, labels: ["Provider", "Sign in", "Done"]) {
         AIMButton(title: "Back", disabled: model.isBusy, action: back)

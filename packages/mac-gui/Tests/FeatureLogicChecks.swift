@@ -51,7 +51,12 @@ enum FeatureLogicChecks {
                    "Emails were masked while the setting is off")
         let sentence = "Signed in as bob.smith@corp.example.org and a@b.co now"
         try expect(EmailPrivacy.display(sentence, hide: false, showDomains: false)
-                   == "Signed in as bob.smith and a now", "Email domains were not removed")
+                   == "Signed in as bob.smith@corp.example and a@b now", "Email endings were not removed")
+        for (full, short) in [("ada@gmail.com", "ada@gmail"), ("ada@mail.example.co.uk", "ada@mail.example")] {
+            try expect(EmailPrivacy.display(full, hide: false, showDomains: false) == short, "Abbreviated email: \(full)")
+            try expect(EmailPrivacy.display(full, hide: false, showDomains: true) == full, "Full email: \(full)")
+            try expect(EmailPrivacy.display(full, hide: true, showDomains: false) == EmailPrivacy.mask(full), "Hidden email: \(full)")
+        }
         try expect(EmailPrivacy.display("alice@example.com", hide: true, showDomains: true)
                    == EmailPrivacy.display("alice@example.com", hide: true, showDomains: false),
                    "Show email domains overrides privacy")
@@ -70,12 +75,12 @@ enum FeatureLogicChecks {
         UserDefaults.standard.set(true, forKey: EmailPrivacy.key)
         let hidden = identity.accountLabel
         UserDefaults.standard.removeObject(forKey: EmailPrivacy.key)
-        try expect(hidden == "c••••@example.com" && identity.accountLabel == "carol",
+        try expect(hidden == "c••••@example.com" && identity.accountLabel == "carol@example",
                    "accountLabel does not follow the privacy setting")
         UserDefaults.standard.set(true, forKey: EmailPrivacy.domainsKey)
         let full = identity.accountLabel
         UserDefaults.standard.removeObject(forKey: EmailPrivacy.domainsKey)
-        try expect(full == "carol@example.com" && identity.accountLabel == "carol",
+        try expect(full == "carol@example.com" && identity.accountLabel == "carol@example",
                    "accountLabel does not follow Show email domains")
     }
 

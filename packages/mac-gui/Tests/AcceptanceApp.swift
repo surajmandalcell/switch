@@ -152,6 +152,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             ? .historyStress
             : (AcceptanceConfiguration.showsAllStates ? .allStates : .demo))
     private var windowController: AIManagerWindowController<AnyView>?
+    private(set) var offscreenSheet: NSWindow?
     private var statusItemController: AIManagerStatusItemController?
     private var menuController: AIManagerMenuController?
     private var instanceActivationObserver: NSObjectProtocol?
@@ -161,6 +162,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AIMNativeFocusPolicy.install()
         AIManagerBrand.installApplicationIcon()
         if let mode = AcceptanceConfiguration.persistedAppearanceMode {
             priorAppearanceMode = UserDefaults.standard.object(forKey: "windowAppearance")
@@ -172,11 +174,15 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         receipts.model = model
         model.$selectedAccountID
             .dropFirst()
-            .sink { [receipts] _ in checkWindowContract(receipts: receipts, stage: "after-account-change") }
+            .sink { [receipts] _ in
+                if !AcceptanceConfiguration.contractOnly { checkWindowContract(receipts: receipts, stage: "after-account-change") }
+            }
             .store(in: &modelObservers)
         model.$showImport
             .dropFirst()
-            .sink { [receipts] _ in checkWindowContract(receipts: receipts, stage: "after-import-state-change") }
+            .sink { [receipts] _ in
+                if !AcceptanceConfiguration.contractOnly { checkWindowContract(receipts: receipts, stage: "after-import-state-change") }
+            }
             .store(in: &modelObservers)
         let content = AnyView(
             AccountWindow(
@@ -211,9 +217,14 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             minimizeWindow: { [weak self] in
                 AIManagerWindowBehavior.minimize(self?.windowController?.window)
             },
-            presentWindow: { [weak self] in self?.windowController?.present() },
+            presentWindow: { [weak self] in
+                if !AcceptanceConfiguration.contractOnly { self?.windowController?.present() }
+            },
             canChangeAccounts: { [weak self] in self?.model.isBusy == false },
-            refreshNow: { AIManagerNativeContract.menuRefreshCalls += 1 }
+            refreshNow: { AIManagerNativeContract.menuRefreshCalls += 1 },
+            activateApplication: {
+                if !AcceptanceConfiguration.contractOnly { NSApp.activate(ignoringOtherApps: true) }
+            }
         )
         self.menuController = menuController
         menuController.install()
@@ -288,8 +299,16 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         }
         await model.load()
         await configureAccountModal()
+        if model.showImport { openOffscreenSheet() }
+        if CommandLine.arguments.contains("--focus-search") {
+            NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)
+        }
         try? await Task.sleep(for: .milliseconds(220))
         window?.contentView?.layoutSubtreeIfNeeded()
+        if !CommandLine.arguments.contains("--ui-lint"), let window {
+            receipts.prepareMenuBarSnapshot(appearance: window.effectiveAppearance)
+            try? await Task.sleep(for: .milliseconds(220))
+        }
         if CommandLine.arguments.contains("--ui-lint"), let window, let view = window.contentView {
             if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
                 view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -318,7 +337,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if !AcceptanceConfiguration.snapshotOnly {
-            menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window)
+            menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window, offscreen: true)
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
             menuNavigationFailures.append(contentsOf: await AIManagerMenuBarContract.failures())
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.appFeatureFailures())
@@ -330,9 +349,110 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             if let view = window?.contentView {
                 menuNavigationFailures.append(contentsOf: await scrollEdgeFailures(in: view))
             }
+            menuNavigationFailures.append(contentsOf: await everySurfaceScrollFailures())
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
+    }
+
+    /// Open both sheet entry points with their parent ordered out. Also walk all pages and
+    /// windows, including the AppKit field editor, rather than checking only the current page.
+    private func everySurfaceScrollFailures() async -> [String] {
+        var failures: [String] = []
+        func inspect(_ surface: String) {
+            AIMNativeFocusPolicy.install()
+            if AIMNativeFocusPolicy.observerCount != 4 {
+                failures.append("\(surface): native focus policy must have exactly one four-observer set")
+            }
+            if NSApp.isActive { failures.append("\(surface): offscreen acceptance activated the app") }
+            for window in NSApp.windows {
+                if window.isVisible { failures.append("\(surface): offscreen acceptance showed a window") }
+                window.contentView?.layoutSubtreeIfNeeded()
+                if let root = window.contentView {
+                    failures += AIManagerNativeContract.scrollPolicyFailures(in: root).map { "\(surface): \($0)" }
+                    failures += AIManagerNativeContract.focusRingFailures(in: root, requiresFullKeyboardAccess: false).map { "\(surface): \($0)" }
+                }
+                for sheet in window.sheets {
+                    if let root = sheet.contentView {
+                        failures += AIManagerNativeContract.scrollPolicyFailures(in: root).map { "\(surface) sheet: \($0)" }
+                    }
+                }
+            }
+        }
+        for page in AIManagerPage.allCases {
+            NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+            try? await Task.sleep(for: .milliseconds(250))
+            inspect(page.rawValue)
+        }
+        for importing in [false, true] {
+            if importing { await model.beginAdvancedImport() } else { await model.beginAddAccount() }
+            openOffscreenSheet()
+            try? await Task.sleep(for: .milliseconds(350))
+            inspect(importing ? "Import" : "Add Account")
+            if offscreenSheet?.contentView == nil { failures.append("Sheet scroll check did not open its sheet") }
+            if importing {
+                model.selectedSourceID = model.discoveries.first(where: { $0.support == .supportedChatGPT })?.id
+                await model.reviewImport()
+                try? await Task.sleep(for: .milliseconds(250))
+                inspect("Import review")
+                if let plan = model.importPlan {
+                    for conflict in plan.conflicts { model.conflictChoices[conflict.relativePath] = .keepShared }
+                    await model.commitImport()
+                    try? await Task.sleep(for: .milliseconds(250))
+                    inspect("Import result")
+                } else { failures.append("Import review did not open") }
+            } else {
+                await model.startAccountLogin()
+                try? await Task.sleep(for: .milliseconds(250))
+                inspect("Sign-in")
+                await model.checkAccountLogin()
+                try? await Task.sleep(for: .milliseconds(250))
+                inspect("Add Account complete")
+                await model.cancelAccountLogin()
+            }
+            model.closeAccountModal()
+            offscreenSheet?.close()
+            offscreenSheet = nil
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        for id in [ProviderID(rawValue: "openrouter"), .geminiCLI] {
+            guard let spec = ProviderCatalog.spec(id) else { failures.append("Missing credential form fixture"); continue }
+            let content = spec.style == .secret
+                ? AnyView(SecretCredentialsPage(spec: spec, model: model, back: {}))
+                : AnyView(FilesCredentialsPage(spec: spec, model: model, back: {}))
+            openOffscreenSheet(content)
+            try? await Task.sleep(for: .milliseconds(250))
+            inspect("\(id.rawValue) credentials")
+            offscreenSheet?.close()
+            offscreenSheet = nil
+        }
+        let broken = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        broken.hasVerticalScroller = true
+        if AIManagerNativeContract.scrollPolicyFailures(in: broken).isEmpty {
+            failures.append("Scroll contract accepted a system scroller")
+        }
+        NotificationCenter.default.post(name: AIManagerNavigation.request,
+            object: AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex])
+        try? await Task.sleep(for: .milliseconds(250))
+        return failures
+    }
+
+    /// Host the production sheet content without beginSheet, orderFront, or application activation.
+    private func openOffscreenSheet(_ supplied: AnyView? = nil) {
+        offscreenSheet?.close()
+        let content: AnyView = supplied ?? (model.accountModalMode == .add
+            ? AnyView(AddAccountFlow(model: model)) : AnyView(ImportFlow(model: model)))
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 600),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        sheet.appearance = windowController?.window?.effectiveAppearance
+        sheet.contentView = NSHostingView(rootView: content
+            .frame(width: 680, height: 600).tint(AIMTheme.passiveIcon)
+            .background(AIMTheme.page)
+            .renderScaled())
+        sheet.orderOut(nil)
+        offscreenSheet = sheet
+        sheet.contentView?.layoutSubtreeIfNeeded()
     }
 
     /// After a page round trip, every card and the top bar end at W-20 and no scroll view reserves a
@@ -520,6 +640,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         return
     }
     failures.append(contentsOf: AIManagerNativeContract.windowChromeFailures(window))
+    if AcceptanceConfiguration.contractOnly {
+        expect(!NSApp.isActive && !window.isVisible, "Offscreen acceptance activated or showed the app")
+    }
     expect(
         window.contentRect(forFrameRect: window.frame).size.width >= AIManagerWindow.minimumSize.width,
         "Acceptance window is smaller than its minimum size"
@@ -577,7 +700,10 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         failures.append(contentsOf: AIManagerNativeContract.nativeStructureFailures(
             in: contentView, pageIndex: AcceptanceConfiguration.initialPageIndex))
         // The Add Account and Import sheets are their own windows.
-        for root in [contentView] + (window.attachedSheet?.contentView.map { [$0] } ?? []) {
+        let sheetRoot = window.attachedSheet?.contentView
+            ?? (NSApp.delegate as? AcceptanceAppDelegate)?.offscreenSheet?.contentView
+        for root in [contentView] + (sheetRoot.map { [$0] } ?? []) {
+            failures.append(contentsOf: AIManagerNativeContract.scrollPolicyFailures(in: root))
             failures.append(contentsOf: AIManagerNativeContract.focusRingFailures(
                 in: root,
                 requiresFullKeyboardAccess: CommandLine.arguments.contains("--require-full-keyboard-access")))
@@ -627,6 +753,23 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
 @MainActor
 private final class AcceptanceReceipts {
     weak var model: AccountViewModel?
+    private var menuBarHost: NSWindow?
+
+    func prepareMenuBarSnapshot(appearance: NSAppearance) {
+        let snapshot = MenuBarPopoverPreviewData.snapshot
+        let store = MenuBarPopoverStore(snapshot: snapshot,
+            actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
+        let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts, visibleScreenHeight: 900)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = appearance
+        window.contentView = NSHostingView(rootView: MenuBarPopover(store: store)
+            .background(AIMTheme.panel).renderScaled())
+        window.orderOut(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        menuBarHost = window
+    }
     private static let stableDirectory = URL(
         fileURLWithPath: ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"]
             ?? "/private/tmp/ai-manager-build/mac-gui-acceptance/artifacts",
@@ -715,6 +858,11 @@ private final class AcceptanceReceipts {
 
     func writeSnapshot(of view: NSView) {
         writeSnapshot(of: view, filename: "window.png")
+        if let sheet = view.window?.attachedSheet?.contentView
+            ?? (NSApp.delegate as? AcceptanceAppDelegate)?.offscreenSheet?.contentView {
+            sheet.layoutSubtreeIfNeeded()
+            writeSnapshot(of: sheet, filename: "sheet.png")
+        }
         guard let directory else { return }
         let hierarchy = AIManagerNativeContract.hierarchySnapshot(in: view)
         let encoder = JSONEncoder()
@@ -731,7 +879,7 @@ private final class AcceptanceReceipts {
             snapshot: snapshot,
             actions: MenuBarPopoverActions(
                 openMainWindow: {}, switchAccount: { _ in }))
-        let view = NSHostingView(rootView: MenuBarPopover(store: store).renderScaled())
+        let view = menuBarHost?.contentView ?? NSHostingView(rootView: MenuBarPopover(store: store).renderScaled())
         view.appearance = appearance
         view.frame = NSRect(
             origin: .zero,

@@ -26,6 +26,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   private let presentWindow: () -> Void
   private let canChangeAccounts: () -> Bool
   private let refreshNow: () -> Void
+  private let activateApplication: () -> Void
 
   init(
     applicationName: String,
@@ -35,9 +36,11 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
     minimizeWindow: @escaping () -> Void,
     presentWindow: @escaping () -> Void,
     canChangeAccounts: @escaping () -> Bool,
-    refreshNow: @escaping () -> Void = {}
+    refreshNow: @escaping () -> Void = {},
+    activateApplication: (() -> Void)? = nil
   ) {
     self.refreshNow = refreshNow
+    self.activateApplication = activateApplication ?? { NSApp.activate(ignoringOtherApps: true) }
     self.applicationName = applicationName
     self.addAccount = addAccount
     self.advancedImport = advancedImport
@@ -71,7 +74,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
   @objc func showMaintenance(_ sender: Any?) { navigate(to: .maintenance) }
   @objc func focusSearch(_ sender: Any?) {
     presentWindow()
-    NSApp.activate(ignoringOtherApps: true)
+    activateApplication()
     NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)
   }
   @objc func performAddAccount(_ sender: Any?) { addAccount() }
@@ -87,7 +90,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
 
   private func navigate(to page: AIManagerPage) {
     presentWindow()
-    NSApp.activate(ignoringOtherApps: true)
+    activateApplication()
     NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
   }
 

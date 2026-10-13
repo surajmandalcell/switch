@@ -98,6 +98,73 @@ extension View {
   }
 }
 
+/// AppKit's field editor is shared by plain and secure fields, including fields in sheets.
+@MainActor
+enum AIMNativeFocusPolicy {
+  private static var observers: [NSObjectProtocol] = []
+  private static let responders = NSMapTable<NSWindow, NSResponder>.weakToWeakObjects()
+  private static let editorFields = NSMapTable<NSWindow, NSTextField>.weakToWeakObjects()
+  static var observerCount: Int { observers.count }
+  private(set) static var applicationCount = 0
+
+  /// App lifetime ownership prevents pages and scroll hosts from multiplying observers.
+  static func install() {
+    guard observers.isEmpty else { return }
+    for name in [NSWindow.didUpdateNotification, NSWindow.didBecomeKeyNotification,
+                 NSControl.textDidBeginEditingNotification, NSTextView.didBeginEditingNotification] {
+      observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+        MainActor.assumeIsolated {
+          if let window = note.object as? NSWindow {
+            update(window, force: note.name == NSWindow.didBecomeKeyNotification)
+          } else if let view = note.object as? NSView {
+            apply(view)
+            // AppKit can reuse the same editor for another field and reset its attributes
+            // after this notification. Reapply once on the next window update.
+            if let window = view.window { responders.removeObject(forKey: window) }
+          }
+        }
+      })
+    }
+  }
+
+  /// Only the posting window's responder is inspected, with no view-tree traversal.
+  private static func update(_ window: NSWindow, force: Bool) {
+    let responder = window.firstResponder
+    let field = (responder as? NSTextView)?.delegate as? NSTextField
+    // Moving between fields can change the logical responder without replacing its shared editor.
+    guard force || responders.object(forKey: window) !== responder
+      || editorFields.object(forKey: window) !== field else { return }
+    if let responder { responders.setObject(responder, forKey: window) }
+    else { responders.removeObject(forKey: window) }
+    if let field { editorFields.setObject(field, forKey: window) }
+    else { editorFields.removeObject(forKey: window) }
+    if let view = responder as? NSView { apply(view) }
+  }
+
+  private static func apply(_ view: NSView) {
+    applicationCount += 1
+    view.focusRingType = AIMFocus.ringType
+    let editor: NSTextView?
+    if let text = view as? NSTextView {
+      editor = text
+      if text.isFieldEditor, let field = text.delegate as? NSTextField {
+        field.focusRingType = AIMFocus.ringType
+      }
+    } else {
+      editor = (view as? NSTextField)?.currentEditor() as? NSTextView
+    }
+    guard let editor else { return }
+    editor.focusRingType = AIMFocus.ringType
+    let field = (view as? NSTextField) ?? (editor.delegate as? NSTextField)
+    let dark = (field ?? editor).effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    if dark {
+      editor.selectedTextAttributes = [
+        .backgroundColor: NSColor(white: 1, alpha: 0.12), .foregroundColor: NSColor.labelColor
+      ]
+    }
+  }
+}
+
 enum AIMTheme {
   /// Rounded container corners.
   static let radius: CGFloat = 10
@@ -676,7 +743,7 @@ final class AIMScroller: NSScroller {
     let knob = rect(for: .knob)
     guard knob.height > 0 else { return }
     let bar = NSRect(x: knob.midX - 3, y: knob.minY + 1, width: 6, height: max(0, knob.height - 2))
-    NSColor.secondaryLabelColor.withAlphaComponent(hovering || dragging ? 0.9 : 0.6).setFill()
+    NSColor.labelColor.withAlphaComponent(hovering || dragging ? 0.25 : 0.15).setFill()
     NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3).fill()
   }
 

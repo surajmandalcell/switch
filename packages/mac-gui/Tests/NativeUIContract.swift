@@ -592,7 +592,7 @@ enum AIManagerNativeContract {
     }
     expect(gemini.usesGenericDetail && !(model.status?.accounts.first?.usesGenericDetail ?? true),
       "Only non-Codex, non-Grok, non-Claude accounts use the generic detail")
-    expect(gemini.identity.accountLabel == "ada.lovelace", "Generic account label ignores the domain default")
+    expect(gemini.identity.accountLabel == "ada.lovelace@example", "Generic account label ignores the domain default")
     let chartAccount = model.addDemoProviderAccount(ProviderID(rawValue: "openrouter"))
     expect(model.providerUsage[chartAccount.id]?.usage?.charts.first?.points.count == 30,
       "The OpenRouter demo account has no 30-day chart")
@@ -1102,7 +1102,7 @@ enum AIManagerNativeContract {
     return failures
   }
 
-  @MainActor static func exerciseMenuNavigation(in window: NSWindow?) -> [String] {
+  @MainActor static func exerciseMenuNavigation(in window: NSWindow?, offscreen: Bool = false) -> [String] {
     guard let mainMenu = NSApp.mainMenu, let window else { return ["Menu navigation test could not resolve the app window"] }
     var failures: [String] = []
     var shownPages: [AIManagerPage] = []
@@ -1122,7 +1122,9 @@ enum AIManagerNativeContract {
     } else {
       failures.append("Command+, could not resolve its menu item")
     }
-    if !window.isVisible { failures.append("Command+, did not bring the main window forward") }
+    if offscreen {
+      if window.isVisible { failures.append("Offscreen menu navigation ordered its window in") }
+    } else if !window.isVisible { failures.append("Command+, did not bring the main window forward") }
     if shownPages.last != .settings { failures.append("Command+, did not navigate to Settings") }
 
     for page in AIManagerPage.allCases {
@@ -1177,13 +1179,23 @@ enum AIManagerNativeContract {
     expect(AIMTheme.radius == 10 && AIMTheme.pageMargin == 20 && AIMTheme.sectionSpacing == 16
       && AIMTheme.rowSpacing == 8,
       "Container geometry is not 10-point corners, 20-point margins, 16-point sections, 8-point rows")
-    // Cards: 12 between cards, a 16 inset, a 44 title row, 36 rows, 28 and 22 push buttons, 6 in
-    // tiles with a 4 radius, a 220 sidebar.
+    // Cards and tile rows share a 16 pt inset; tiles have a 12 pt gap and 6 pt corners.
     expect(AIMTheme.cardGap == 12 && AIMTheme.cardInset == 16 && AIMTheme.titleRowHeight == 44
       && AIMTheme.rowHeight == 36 && AIMTheme.controlHeight == 28 && AIMTheme.rowControlHeight == 22
-      && AIMTheme.tileInset == 6 && AIMTheme.tileRadius == 4 && AIMTheme.sidebarWidth == 220,
-      "Card geometry is not 12 gap, 16 inset, 44 title row, 36 rows, 28 and 22 buttons, 6 tiles, 220 sidebar")
+      && AIMTheme.tileInset == 16 && AIMTheme.tileGap == 12 && AIMTheme.tileRadius == 6 && AIMTheme.sidebarWidth == 220,
+      "Card geometry is not 12 gap, 16 inset, 44 title row, 36 rows, 28 and 22 buttons, 16 tile inset, 6 radius, 220 sidebar")
     failures.append(contentsOf: typographyFailures())
+    NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+      for tint in [AIMTheme.rowHighlight, AIMTheme.sidebarSelection, AIMTheme.focusTint,
+                   AIMTheme.segmentSelected, AIMTheme.checkboxSelection] {
+        guard let color = NSColor(tint).usingColorSpace(.sRGB) else {
+          failures.append("A neutral dark fill could not be resolved"); continue
+        }
+        expect(abs(color.redComponent - color.greenComponent) < 0.001
+          && abs(color.redComponent - color.blueComponent) < 0.001,
+          "Dark selection or focus has an accent tint")
+      }
+    }
     failures.append(contentsOf: columnTableFailures())
     // Toolbar search: at least 300 points wide; Command-K comes from the View menu.
     expect(AIManagerToolbar.searchWidth >= 300 && AIManagerToolbar.searchPrompt == "Search accounts…",
@@ -1436,6 +1448,23 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// Every owned scroll host uses either a custom fixed gutter or no AppKit scroller reserve.
+  static func scrollPolicyFailures(in root: NSView) -> [String] {
+    views(in: root).compactMap { $0 as? NSScrollView }.flatMap { scroll -> [String] in
+      var failures: [String] = []
+      if scroll.hasHorizontalScroller { failures.append("A scroll host shows a horizontal system scroller") }
+      if scroll.hasVerticalScroller && !(scroll.verticalScroller is AIMScroller) {
+        failures.append("A scroll host shows a vertical system scroller")
+      }
+      let reserve = scroll.bounds.width - scroll.contentView.frame.width
+      let expected = scroll is AIMOwnedScrollView ? AIMScroller.gutter : 0
+      if abs(reserve - expected) > 0.5 {
+        failures.append("A scroll host reserves \(reserve) pt instead of the custom \(expected) pt gutter")
+      }
+      return failures
+    }
+  }
+
   /// No system focus ring, even with Full Keyboard Access on (`-AppleKeyboardUIMode 2`). The rings
   /// show only with Increase Contrast. `requiresFullKeyboardAccess` proves the run reproduces the
   /// owner's setting.
@@ -1448,10 +1477,53 @@ enum AIManagerNativeContract {
     if AIMFocus.showsSystemRings != increaseContrast {
       failures.append("System focus rings show \(AIMFocus.showsSystemRings) with Increase Contrast \(increaseContrast); only Increase Contrast may show them")
     }
-    if !increaseContrast {
-      for view in views(in: root) where view.focusRingType != .none
-        && (view is NSControl || view is NSTableView || view is NSTextView) {
-        failures.append("\(NSStringFromClass(type(of: view))) can draw a system focus ring")
+    // Unfocused controls cannot draw a ring. Exercise every eligible responder offscreen
+    // instead of requiring a policy tree walk to mutate controls that never receive focus.
+    if let window = root.window {
+      let original = window.firstResponder
+      let originalField = (original as? NSTextView)?.delegate as? NSTextField
+      let selection = (original as? NSTextView)?.selectedRange()
+      defer {
+        let currentField = (window.firstResponder as? NSTextView)?.delegate as? NSTextField
+        if window.firstResponder !== original || currentField !== originalField {
+          window.makeFirstResponder(originalField ?? original)
+        }
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        if let selection, let editor = window.firstResponder as? NSTextView { editor.setSelectedRange(selection) }
+      }
+      for view in views(in: root) where view is NSControl || view is NSTextView {
+        // Field editors are reached through their field, not independent keyboard stops.
+        if (view as? NSTextView)?.isFieldEditor == true { continue }
+        guard view.acceptsFirstResponder else { continue }
+        let currentField = (window.firstResponder as? NSTextView)?.delegate as? NSTextField
+        if window.firstResponder !== view && currentField !== view {
+          guard window.makeFirstResponder(view) else { continue }
+        }
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        let focused = window.firstResponder as? NSView
+        if view.focusRingType != AIMFocus.ringType || focused?.focusRingType != AIMFocus.ringType {
+          failures.append("\(NSStringFromClass(type(of: view))) can draw the wrong keyboard focus ring")
+        }
+        // Selection belongs to editing. Exercise the control's editing-start path separately
+        // from the first-responder update, after AppKit has configured its shared editor.
+        if view is NSTextField {
+          NotificationCenter.default.post(name: NSControl.textDidBeginEditingNotification, object: view)
+        } else if view is NSTextView {
+          NotificationCenter.default.post(name: NSTextView.didBeginEditingNotification, object: view)
+        }
+        if let editor = focused as? NSTextView,
+           ((editor.delegate as? NSTextField) ?? editor).effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+           editor.selectedTextAttributes[.backgroundColor] as? NSColor != NSColor(white: 1, alpha: 0.12) {
+          failures.append("\(NSStringFromClass(type(of: view))) focused dark text selection is not neutral: \(editor.selectedTextAttributes)")
+        }
+      }
+      NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+      let applications = AIMNativeFocusPolicy.applicationCount
+      for _ in 0..<20 {
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+      }
+      if AIMNativeFocusPolicy.applicationCount != applications {
+        failures.append("Unchanged first responder repeats native focus work")
       }
     }
     return failures

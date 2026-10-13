@@ -347,6 +347,11 @@ struct OverviewPage: View {
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
     // The page remembers its focused account while the app runs.
     .onChange(of: focusedID) { _, id in AIMPlace.overviewFocus = id }
+    #if AI_MANAGER_PREVIEW
+    .onChange(of: model.selectedAccountID) { _, id in
+      if PreviewArguments.value("select") != nil { focusedID = id }
+    }
+    #endif
     .onAppear {
       focusedID = focusedID ?? AIMPlace.overviewFocus ?? OverviewFocus.defaultAccountID(in: model.status)
       #if AI_MANAGER_PREVIEW
@@ -371,7 +376,7 @@ struct FocusedAccountCard: View {
   @Environment(\.aimCopyPath) private var copyPath
 
   private var providerID: ProviderID { account.identity.providerID }
-  private var name: String { EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails) }
+  private var name: String { account.identity.accountLabel }
   private var isDefault: Bool { model.status?.isDefault(account) == true }
 
   var body: some View {
@@ -487,7 +492,7 @@ struct FocusedAccountCard: View {
         Button {
           focus(item.id)
         } label: {
-          let title = "\(EmailPrivacy.display(item.identity.accountLabel, hide: hideEmails)) · \(item.identity.providerID.guiName)"
+          let title = "\(item.identity.accountLabel) · \(item.identity.providerID.guiName)"
           if item.id == account.id {
             Label(title, systemImage: AIMIcon.Name.check.symbol)
           } else {
@@ -645,7 +650,7 @@ private struct AccountsTableRow: View {
   let contextMenu: ((AccountRecord) -> AnyView)?
 
   @FocusState private var keyboardFocus: Bool
-  private var name: String { EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails) }
+  private var name: String { account.identity.accountLabel }
 
   var body: some View {
     let columns = AIMColumns.accounts
@@ -740,7 +745,7 @@ struct AccountCell: View {
     HStack(spacing: AIMTheme.rowSpacing) {
       ProviderMark(providerID: account.identity.providerID, size: 20)
       VStack(alignment: .leading, spacing: 0) {
-        Text(EmailPrivacy.display(account.identity.accountLabel, hide: hideEmails))
+        Text(account.identity.accountLabel)
           .aimText(.body).lineLimit(1).truncationMode(.middle)
         HStack(spacing: 5) {
           Text(account.identity.providerID.guiName).aimText(.secondary).lineLimit(1)
@@ -763,7 +768,7 @@ struct CurrentLimitsCard: View {
   var body: some View {
     let windows = Array(AccountUsageSummary.windows(for: account, model: model).prefix(3))
     AIMCard(
-      title: "Current limits", well: !windows.isEmpty,
+      title: "Current limits", well: !windows.isEmpty, bottomInset: 0,
       accessory: { AIMCardLink(title: "View all limits", action: viewAll) }
     ) {
       if windows.isEmpty {
@@ -773,20 +778,13 @@ struct CurrentLimitsCard: View {
           .aimText(.secondary)
           .padding(.horizontal, AIMTheme.cardInset).padding(.bottom, AIMTheme.cardInset)
       } else {
-        // Always three slots, so a tile keeps its width when a tool reports fewer windows.
-        HStack(alignment: .top, spacing: AIMTheme.tileInset) {
-          ForEach(0..<3, id: \.self) { index in
-            if windows.indices.contains(index) {
-              LimitTile(window: windows[index], providerID: account.identity.providerID,
-                showsUsed: showsUsed, now: now)
-            } else {
-              Color.clear.frame(maxWidth: .infinity)
-            }
+        HStack(alignment: .top, spacing: AIMTheme.tileGap) {
+          ForEach(windows) { window in
+            LimitTile(window: window, providerID: account.identity.providerID,
+              showsUsed: showsUsed, now: now)
           }
         }
-        // The well puts the title 20 pt below the card's top edge and the tiles 6 pt above the
-        // bottom; 14 pt more inside the well gives the tiles the same 20 pt below.
-        .padding(.bottom, 14)
+        .uiLint(.stack)
       }
     }
   }

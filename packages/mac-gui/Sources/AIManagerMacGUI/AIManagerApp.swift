@@ -14,6 +14,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var quotaNotifier: QuotaNotifier?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AIMNativeFocusPolicy.install()
         NSApp.disableRelaunchOnLogin()
         AIManagerBrand.installApplicationIcon()
         let controller = AIManagerWindowController(
@@ -305,7 +306,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     isActive: status.isDefault(account),
                     usage: usage,
                     showsUsage: showsUsage,
-                    providerID: providerID)
+                    providerID: providerID, identityIsFormatted: true)
             },
             lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
                 + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max())

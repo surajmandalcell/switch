@@ -33,6 +33,19 @@ enum EmailPrivacy {
   private static let pattern = try? NSRegularExpression(
     pattern: #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+"#)
 
+  /// Remove the public ending, retaining the mailbox and host. Country domains can have
+  /// a category before the country code, as in example.co.uk.
+  static func abbreviated(_ email: String) -> String {
+    guard let at = email.lastIndex(of: "@") else { return email }
+    var host = email[email.index(after: at)...].split(separator: ".")
+    guard host.count > 1 else { return email }
+    let ending = host.removeLast().lowercased()
+    let categories: Set<String> = ["co", "com", "net", "org", "gov", "ac", "edu", "sch", "mil", "ltd", "plc", "id", "ne", "or", "go"]
+    if ending.count == 2, host.count > 1, let category = host.last,
+       categories.contains(category.lowercased()) { host.removeLast() }
+    return String(email[...at]) + host.joined(separator: ".")
+  }
+
   /// Privacy takes priority over the domain display choice.
   static func display(
     _ text: String, hide: Bool = EmailPrivacy.isEnabled(),
@@ -44,7 +57,7 @@ enum EmailPrivacy {
     for match in pattern.matches(in: text, range: whole).reversed() {
       guard let range = Range(match.range, in: result) else { continue }
       let email = String(result[range])
-      result.replaceSubrange(range, with: hide ? mask(email) : String(email.prefix { $0 != "@" }))
+      result.replaceSubrange(range, with: hide ? mask(email) : abbreviated(email))
     }
     return result
   }

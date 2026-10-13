@@ -47,6 +47,11 @@ if [[ "$settings_groups" != $'General\nAppearance\nAccounts\nMenu bar\nNotificat
   exit 1
 fi
 parts_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerParts.swift"
+if rg -n '(^|[^A-Za-z])(ScrollView\s*(\(|\{)|List\s*\(|Form\s*\{)|\.scrollIndicators\(\.hidden\)' \
+    "$repo_root/packages/mac-gui/Sources" --glob '!AIManagerParts.swift'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL every surface must use AIMScrollView or AIMSheetForm' >&2
+  exit 1
+fi
 if ! rg -q 'AIMSidebar\(' "$window_source" || ! rg -q 'NSVisualEffectView' "$parts_source" \
   || rg -q '\.toolbar \{|NavigationSplitView' "$window_source"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the window must draw its own sidebar (AIMSidebar over a visual-effect material) with no toolbar bar' >&2
