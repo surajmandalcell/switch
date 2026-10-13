@@ -23,6 +23,95 @@ private final class PaginationTestDocument: NSView {
 
 @MainActor
 enum AIManagerNativeContract {
+  static func popoverPolishFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    typealias P = MenuBarPresentation
+    func separatorAlpha<V: View>(_ view: V, x: Int) -> CGFloat {
+      let host = NSHostingView(rootView: view.frame(width: 240, height: 1).environment(\.displayScale, 1))
+      let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 1),
+        styleMask: .borderless, backing: .buffered, defer: false)
+      window.appearance = NSAppearance(named: .aqua)
+      window.contentView = host
+      host.frame = NSRect(x: 0, y: 0, width: 240, height: 1)
+      host.layoutSubtreeIfNeeded()
+      let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 240, pixelsHigh: 1,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+      bitmap.size = host.bounds.size
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      return bitmap.colorAt(x: x, y: 0)?.alphaComponent ?? 0
+    }
+    let original = separatorAlpha(AIMHairline(), x: 120)
+    let center = separatorAlpha(MenuBarSeparator(), x: 120)
+    expect(original > 0 && abs(center / original - 0.5) < 0.05, "Rendered separator is not half the hairline opacity")
+    expect(separatorAlpha(MenuBarSeparator(), x: 0) < center / 8
+      && separatorAlpha(MenuBarSeparator(), x: 239) < center / 8
+      && separatorAlpha(MenuBarSeparator(), x: 12) < center * 0.6,
+      "Rendered separator mask does not fade at both ends")
+    expect(P.separatorOpacity == 0.5 && P.separatorFade == 0.12, "Popover separators lack half-opacity fading edges")
+    expect(P.hoverOverhang == 4, "Popover hover does not overhang by four points")
+    for model in ["Fable", "Sonnet", "Opus", "Future Model"] {
+      expect(P.windowLabel(minutes: 10_080, title: UsageWindow.modelScopedTitle(model: model)) == model,
+        "Popover model window lost \(model)")
+    }
+    let usage = MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
+      .init(id: "s", title: "Session", usedPercent: 20, windowMinutes: 300),
+      .init(id: "w", title: "Weekly", usedPercent: nil, windowMinutes: 10_080),
+      .init(id: "f", title: "Weekly Fable", usedPercent: 36, windowMinutes: 10_080),
+      .init(id: "m", title: "Monthly", usedPercent: 80, windowMinutes: 43_200)
+    ], cost: UsageCost(used: 2, limit: 10, currency: "USD", period: "Monthly")))
+    let account = MenuBarAccountSnapshot(id: UUID(), identity: "popover@example.test", detail: "",
+      isVerified: true, isActive: false, usage: usage, providerID: .claudeCode)
+    expect(P.lines(for: account).map(\.label) == ["Session", "Weekly"], "Collapsed popover does not keep two windows")
+    expect(P.lines(for: account, expanded: true).map(\.label) == ["Session", "Weekly", "Fable", "Monthly", "Monthly"],
+      "Expanded popover omits reported windows or credits")
+    expect(P.lines(for: account, expanded: true)[1].used == nil, "Unknown reported windows disappear")
+    expect(P.rowHeight(account) == 70 && P.expansionHeight(account) == 94, "Popover expansion moves existing content")
+    let codex = MenuBarPopoverPreviewData.sixAccountSnapshot.accounts[1]
+    expect(P.lines(for: codex, expanded: true).map(\.label) == ["Session", "Weekly", "Spark", "Monthly"],
+      "Expanded Codex omits a model bucket, credits, or repeats the default bucket")
+    expect(!P.showsSwitch(codex) && P.showsSwitch(account), "Default accounts show a ghost Switch action")
+    for sample in [account, codex] {
+      expect(P.labelColumnWidth(sample, expanded: false) == 56, "Collapsed labels moved their columns")
+      for line in P.lines(for: sample, expanded: true) {
+        if let label = line.label {
+          let width = (label as NSString).size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .subheadline)]).width
+          expect(width <= P.labelColumnWidth(sample, expanded: true), "Expanded label truncates: \(label)")
+        }
+      }
+    }
+    let long = MenuBarAccountSnapshot(id: UUID(), identity: "long@example.test", detail: "", isVerified: true,
+      isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: 20, providerWindows: [
+        .init(title: "Session", used: 20, resetsAt: nil, minutes: 300),
+        .init(title: "Weekly", used: 40, resetsAt: nil, minutes: 10_080),
+        .init(title: "Weekly Future Model", used: 60, resetsAt: nil, minutes: 10_080)]))
+    expect(P.labelColumnWidth(long, expanded: false) == 56 && P.labelColumnWidth(long, expanded: true) > 56,
+      "Expanded labels do not fit the longest model name independently of collapsed columns")
+    let suite = "switch-popover-contract-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let actions = MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in })
+    let store = MenuBarPopoverStore(snapshot: MenuBarSnapshot(accounts: [account]), actions: actions, defaults: defaults)
+    store.toggleExpanded(account)
+    let reopened = MenuBarPopoverStore(snapshot: MenuBarSnapshot(accounts: [account]), actions: actions,
+      defaults: UserDefaults(suiteName: suite)!)
+    expect(reopened.expandedAccountID == account.id, "Expanded popover account does not survive a new store")
+    let loading = MenuBarPopoverStore(snapshot: .empty, actions: actions, defaults: defaults)
+    loading.update(snapshot: MenuBarSnapshot(accounts: [account]))
+    expect(loading.expandedAccountID == account.id, "Expanded popover account does not survive startup loading")
+    reopened.toggleExpanded(account)
+    expect(defaults.string(forKey: MenuBarUsagePreferences.expandedAccountKey) == nil, "Collapsed popover account stays saved")
+    let signedOut = MenuBarAccountSnapshot(id: account.id, identity: account.identity, detail: "",
+      isVerified: false, isActive: false, providerID: .claudeCode)
+    store.update(snapshot: MenuBarSnapshot(accounts: [signedOut]))
+    expect(P.signInSubtitle == "Sign in again to see usage" && P.rowHeight(store.rows[0]) == P.rowHeight(account),
+      "Signed-out popover changes row height or lacks the subtitle")
+    return failures
+  }
+
   static func presentationContractFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -30,6 +119,7 @@ enum AIManagerNativeContract {
     }
 
     failures.append(contentsOf: nativeDesignFailures())
+    failures.append(contentsOf: popoverPolishFailures())
 
     let loginEvent = NSAppleEventDescriptor(
       eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
@@ -981,7 +1071,68 @@ enum AIManagerNativeContract {
       failures.append("Chat presentation could not parse structured Markdown: \(error)")
     }
 
-    let longCode = (0..<30).map { "line \($0)" }.joined(separator: "\n")
+    // Code shows in full up to the bound; only a block past it is compacted behind a button.
+    let shortCode = ChatMessage(
+      id: "short-code", role: .assistant,
+      text: "```text\n" + (0..<(ChatMessagePresenter.compactCodeLines - 1)).map { "line \($0)" }.joined(separator: "\n") + "\n```",
+      timestamp: nil)
+    if let presentation = try? ChatMessagePresenter.parse(shortCode),
+      !presentation.blocks.contains(where: {
+        if case let .code(_, _, preview, expanded, _) = $0 {
+          return expanded == nil && preview.split(separator: "\n").count == ChatMessagePresenter.compactCodeLines - 1
+        }
+        return false
+      })
+    {
+      failures.append("Chat presentation compacts code that is within the bound")
+    }
+    // A longer fence holds a shorter one, and tool output keeps its line breaks.
+    let nested = ChatMessage(
+      id: "nested", role: .assistant,
+      text: "Before\n\n````markdown\n```swift\nlet nested = 1\n```\n````\n\nAfter", timestamp: nil)
+    if let presentation = try? ChatMessagePresenter.parse(nested) {
+      let codes = presentation.blocks.compactMap { block -> String? in
+        if case let .code(_, language, preview, _, _) = block, language == "markdown" { return preview }
+        return nil
+      }
+      if codes != ["```swift\nlet nested = 1\n```"] || presentation.blocks.count != 3 {
+        failures.append("Chat presentation does not keep a nested fence inside its outer fence")
+      }
+    }
+    let toolText = "name\n  indented line\n\nlast"
+    if let presentation = try? ChatMessagePresenter.parse(
+      ChatMessage(id: "tool", role: .tool, text: toolText, timestamp: nil)),
+      presentation.blocks.count != 1 || !presentation.blocks.contains(where: {
+        if case let .code(_, nil, preview, _, _) = $0 { return preview == toolText }
+        return false
+      })
+    {
+      failures.append("Tool output is not shown as one preformatted block")
+    }
+    if let presentation = try? ChatMessagePresenter.parse(
+      ChatMessage(id: "breaks", role: .assistant, text: "one\ntwo", timestamp: nil)),
+      case let .paragraph(_, text)? = presentation.blocks.first, !String(text.characters).contains("\n")
+    {
+      failures.append("Chat presentation joins the author's line breaks")
+    }
+    let placeSuite = "Switch.ChatPlaceContract.\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: placeSuite) {
+      defer { defaults.removePersistentDomain(forName: placeSuite) }
+      ChatPlace.saveSelected("thread-a", defaults)
+      ChatPlace.saveMessageQuery("needle", for: "thread-a", defaults)
+      ChatPlace.saveAnchor(ChatScrollAnchor(messageID: "m7", offset: 12.5), for: "thread-a", defaults)
+      ChatPlace.saveAnchor(ChatScrollAnchor(messageID: "m2", offset: 3), for: "thread-b", defaults)
+      if ChatPlace.selectedID(defaults) != "thread-a"
+        || ChatPlace.messageQuery(for: "thread-a", defaults) != "needle"
+        || ChatPlace.messageQuery(for: "thread-b", defaults) != ""
+        || ChatPlace.anchor(for: "thread-a", defaults) != ChatScrollAnchor(messageID: "m7", offset: 12.5)
+        || ChatPlace.anchor(for: "thread-b", defaults) != ChatScrollAnchor(messageID: "m2", offset: 3)
+        || ChatPlace.anchor(for: "thread-c", defaults) != nil
+      {
+        failures.append("Conversations do not remember the selected chat, its search, or its reading place")
+      }
+    }
+    let longCode = (0..<(ChatMessagePresenter.compactCodeLines + 30)).map { "line \($0)" }.joined(separator: "\n")
     let bounded = ChatMessage(
       id: "bounded", role: .assistant,
       text: "```text\n\(longCode)\n```\n"
@@ -1239,6 +1390,7 @@ enum AIManagerNativeContract {
       && OverviewFormat.compactReset(reset.addingTimeInterval(20 * 60), now: reset, exact: false) == "in 20m",
       "Overview reset times do not read in 6d 8h, 1h 45m, or 20m form")
     failures.append(contentsOf: overviewFailures())
+    failures.append(contentsOf: MainActor.assumeIsolated { accountsPageFailures() })
     return failures
   }
 
@@ -1249,23 +1401,145 @@ enum AIManagerNativeContract {
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
       if !condition() { failures.append(message) }
     }
-    for (name, columns) in [("accounts", AIMColumns.accounts), ("activity", AIMColumns.activity)] {
-      expect(columns.filter { $0.width == nil }.count == 1, "The \(name) table needs exactly one flexible column")
-    }
+    expect(AIMColumns.accounts.filter { $0.width == nil }.count == 1,
+      "The accounts table needs exactly one flexible column")
     let fixed = AIMColumns.accounts.compactMap(\.width).reduce(0, +)
       + AIMColumns.gap * CGFloat(AIMColumns.accounts.count - 1) + 2 * AIMTheme.cardInset
     let available = AIManagerWindow.minimumSize.width - AIMTheme.sidebarWidth - 2 * AIMTheme.pageMargin
     expect(available - fixed >= 160,
       "The accounts table leaves \(available - fixed) points for Account at the minimum window width")
     let columns = AIMColumns.accounts
-    let header = NSHostingView(rootView: AIMTableHeader(columns: columns, group: "check").frame(width: 640))
     let row = NSHostingView(rootView: AIMTableRow {
       ForEach(columns) { column in Text("x").aimColumn(column, group: "check") }
     }.frame(width: 640))
-    expect(header.fittingSize.width == row.fittingSize.width && header.fittingSize.width == 640,
-      "A table header and its rows do not have the same width")
-    expect(header.fittingSize.height == AIMTheme.headerHeight && row.fittingSize.height == AIMTheme.rowHeight,
-      "A table header is not 28 tall or a row is not 36 tall")
+    expect(row.fittingSize.width == 640 && row.fittingSize.height == AIMTheme.rowHeight,
+      "A table row is not as wide as its table or not 36 tall")
+    return failures
+  }
+
+  /// The Accounts page: no table header, zebra groups, a fixed-frame focused card with
+  /// "Unavailable" and "Sign in again", no name picker, remembered choices, and motion tokens.
+  @MainActor static func accountsPageFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    func alpha(_ color: Color, dark: Bool) -> CGFloat {
+      var result: CGFloat = -1
+      NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
+        result = NSColor(color).usingColorSpace(.sRGB)?.alphaComponent ?? -1
+      }
+      return result
+    }
+    func texts(in element: Any, into found: inout [String], depth: Int = 0) {
+      guard depth < 40, let element = element as? NSAccessibilityProtocol else { return }
+      found += [element.accessibilityLabel(), element.accessibilityValue() as? String,
+                element.accessibilityHelp(), element.accessibilityTitle()].compactMap { $0 }
+      for child in element.accessibilityChildren() ?? [] { texts(in: child, into: &found, depth: depth + 1) }
+    }
+
+    let model = AccountViewModel(scenario: .demo)
+    let accounts = model.status?.accounts ?? []
+
+    // Preview data holds every service the owner uses, Droid included.
+    expect(Set(accounts.map(\.identity.providerID)).isSuperset(of: [.codex, .grokBuild, .claudeCode, .droid]),
+      "The Preview lacks Codex CLI, Grok Build, Claude Code, or Droid accounts")
+    expect(accounts.first { $0.identity.providerID == .droid }?.identity.accountLabel.hasPrefix("Droid personal") == true,
+      "The Preview Droid account is not named Droid personal")
+
+    // Separators are lighter than the card border; the zebra fill is faint; hover reads on both stripes.
+    for dark in [false, true] {
+      let name = dark ? "Dark" : "Light"
+      expect(alpha(AIMTheme.tableSeparator, dark: dark) < alpha(AIMTheme.cardBorder, dark: dark),
+        "\(name): table separators are not lighter than the card border")
+      let zebra = alpha(AIMTheme.zebra, dark: dark)
+      expect(abs(zebra - (dark ? 0.03 : 0.025)) < 0.002, "\(name): the zebra fill is not about \(dark ? "3" : "2.5") percent")
+      expect(alpha(AIMTheme.rowHover, dark: dark) > 1.8 * zebra && alpha(AIMTheme.rowHighlight, dark: dark) > alpha(AIMTheme.rowHover, dark: dark),
+        "\(name): hover or selection does not read on a zebra stripe")
+    }
+
+    // The accounts table: no header row (height is exactly title + groups + rows), alternating stripes.
+    expect((0..<5).map(AccountsTableCard.isStriped) == [false, true, false, true, false],
+      "Zebra stripes do not alternate by provider group")
+    let groupSizes = Dictionary(grouping: accounts, by: { $0.identity.providerID }).values.map(\.count)
+    let table = NSHostingView(rootView: AccountsTableCard(
+      accounts: accounts, total: accounts.count, query: "", model: model, focusedID: accounts.first?.id,
+      now: Date(), hideEmails: false, showsUsed: false, focus: { _ in }, delete: { _ in }
+    ).frame(width: 780).environment(\.colorScheme, .light))
+    let tableWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 700), styleMask: .borderless,
+      backing: .buffered, defer: false)
+    tableWindow.appearance = NSAppearance(named: .aqua)
+    tableWindow.contentView = table
+    table.frame = NSRect(x: 0, y: 0, width: 780, height: 700)
+    table.layoutSubtreeIfNeeded()
+    let bare = AIMTheme.titleRowHeight + groupSizes.reduce(0) { $0 + AIMTheme.groupLabelHeight + CGFloat($1) * AIMTheme.rowHeight }
+      + AIMTheme.tableEndInset
+    let separators = CGFloat(groupSizes.reduce(0, +) - 1)
+    let height = table.fittingSize.height
+    expect(height >= bare && height <= bare + separators + 2,
+      "The accounts table is \(height) tall; with no header row it is \(bare) plus \(separators) separators")
+
+    // Focused card: the same frame for a signed-in, a signed-out, and an unchecked account.
+    func cardSize(_ account: AccountRecord) -> NSSize {
+      NSHostingView(rootView: FocusedAccountCard(
+        account: account, model: model, now: Date(), hideEmails: false, showsUsed: false,
+        delete: {}).frame(width: 760)).fittingSize
+    }
+    let signedIn = accounts.first { $0.identity.providerID == .codex && !model.needsSignIn($0) }
+    let signedOut = accounts.first { model.needsSignIn($0) }
+    if let signedIn, let signedOut {
+      expect(!AccountUsageSummary.windows(for: signedIn, model: model).isEmpty
+        && AccountUsageSummary.windows(for: signedOut, model: model).isEmpty,
+        "The signed-in and signed-out demo accounts do not differ in usage")
+      expect(cardSize(signedIn) == cardSize(signedOut),
+        "The focused card changes size between a signed-in and a signed-out account")
+      expect(Set(accounts.map { cardSize($0).height }).count == 1,
+        "The focused card height depends on the account")
+      expect(SignInButton(account: signedOut, model: model).title == "Sign in again"
+        && UsageWindowBlock.unavailable == "Unavailable", "The signed-out card does not say Sign in again / Unavailable")
+      let card = NSHostingView(rootView: FocusedAccountCard(
+        account: signedOut, model: model, now: Date(), hideEmails: false, showsUsed: false,
+        delete: {}).frame(width: 760, height: 160))
+      card.frame = NSRect(x: 0, y: 0, width: 760, height: 160)
+      let cardWindow = NSWindow(contentRect: card.frame, styleMask: .borderless, backing: .buffered, defer: false)
+      cardWindow.contentView = card
+      card.layoutSubtreeIfNeeded()
+      // Four controls (Sign in again, Open Codex CLI, Copy, More); a name picker would be a fifth.
+      var controls = 0
+      func walk(_ view: NSView) {
+        if String(describing: type(of: view)).contains("FocusRing") { controls += 1 }
+        view.subviews.forEach(walk)
+      }
+      walk(card)
+      expect(controls == 4, "The signed-out focused card has \(controls) controls, not 4: a name picker is back")
+    } else { failures.append("The Preview lacks a signed-in and a signed-out Codex account") }
+
+    // Choices survive a restart: scroll offsets, the selected account, and the usage period.
+    let suite = "switch-accounts-restart-\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: suite) {
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let memory = AIMScrollMemory(defaults: defaults)
+      memory["Accounts"] = 412
+      memory.save()
+      expect(AIMScrollMemory(defaults: defaults)["Accounts"] == 412, "The Accounts scroll position is not remembered")
+      let chosen = accounts.last?.id
+      AIMPlace.saveAccountsFocus(chosen, defaults: defaults)
+      expect(AIMPlace.accountsFocus(in: accounts.map(\.id), defaults: defaults) == chosen,
+        "The selected account is not remembered")
+      expect(AIMPlace.accountsFocus(in: [], defaults: defaults) == nil,
+        "A removed account is restored as the selection")
+      defaults.set(CodexTokenPeriod.weekly.rawValue, forKey: UsageActivityCalendar.periodKey)
+      expect(defaults.string(forKey: UsageActivityCalendar.periodKey).flatMap(CodexTokenPeriod.init(rawValue:)) == .weekly,
+        "The usage period is not remembered")
+    }
+
+    // Motion: every token is 100-350 ms, and Reduce Motion removes movement but keeps fades.
+    expect(AIMMotion.all.allSatisfy { $0 >= 0.1 && $0 <= 0.35 }, "A motion token is outside 100-350 ms")
+    expect(AIMMotion.scale(pressed: true, reduceMotion: false) == 0.97
+      && AIMMotion.scale(pressed: true, reduceMotion: true) == 1
+      && AIMMotion.rise(reduceMotion: true) == 0 && AIMMotion.rise(reduceMotion: false) > 0
+      && AIMMotion.move(reduceMotion: true) == nil && AIMMotion.move(reduceMotion: false) != nil,
+      "Motion tokens do not respect Reduce Motion")
     return failures
   }
 
@@ -1296,38 +1570,21 @@ enum AIManagerNativeContract {
     return failures
   }
 
-  /// The Overview page: its cards, the native Table's columns, and the activity data per provider.
+  /// The Overview dashboard: the page lays out, its charts' data and colors, and the account row actions.
   static func overviewFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
       if !condition() { failures.append(message) }
     }
     let model = AccountViewModel(scenario: .demo)
-    guard let codex = model.status?.accounts.first(where: { $0.identity.providerID == .codex }) else {
-      return ["The Overview fixture has no Codex account"]
-    }
-    // The focused card lists one row per window; the demo Codex account has Session and Weekly.
-    expect(AccountUsageSummary.windows(for: codex, model: model).count >= 2,
-      "The focused account card has no window rows")
-    let host = NSHostingView(rootView: OverviewPage(model: model, query: "")
+    let host = NSHostingView(rootView: OverviewPage(model: model)
       .frame(width: 900, height: 900))
     host.frame = NSRect(x: 0, y: 0, width: 900, height: 900)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = host
     host.layoutSubtreeIfNeeded()
     expect(host.fittingSize.height > 0, "The Overview collapsed")
-    // Recent activity: Claude Code reads its local logs, Codex its retained days, and a tool
-    // without local history gets one line that says so.
-    let claude = model.addDemoProviderAccount(.claudeCode)
-    if case .rows(let rows) = OverviewActivity.source(for: claude, model: model) {
-      expect(rows.map(\.label) == ["Today", "Yesterday", "Last 30 days"],
-        "Recent activity does not list Today, Yesterday, and Last 30 days")
-    } else { failures.append("Recent activity has no rows for the Claude Code account") }
-    if let other = model.status?.accounts.first(where: { $0.identity.providerID.rawValue == "openrouter" }) {
-      if case .message(let text) = OverviewActivity.source(for: other, model: model) {
-        expect(text.contains("no local history"), "A tool without local history does not say so")
-      } else { failures.append("A tool without local history shows rows") }
-    }
+    failures.append(contentsOf: overviewChartFailures(model: model))
 
     // An account that needs sign-in gets a Sign in button instead of a disabled Switch.
     if let stale = model.status?.accounts.first(where: { $0.verification.state == .needsSignIn }),
@@ -1341,6 +1598,98 @@ enum AIManagerNativeContract {
       let signIn = NSHostingView(rootView: SignInButton(account: stale, model: model))
       expect(signIn.fittingSize.width > 0, "The Sign in button collapsed")
     } else { failures.append("The Overview fixture has no account that needs sign-in") }
+    return failures
+  }
+
+  /// The Overview charts' data, colors, and hover math on synthetic history.
+  static func overviewChartFailures(model: AccountViewModel) -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    expect(OverviewDay.epoch("1970-01-01") == 0 && OverviewDay.epoch("2026-10-03") == 20_729
+      && OverviewDay.long("2026-10-03") == "Sat, Oct 3, 2026" && OverviewDay.short("2026-01-09") == "Jan 9",
+      "Overview day labels are wrong")
+    // The date axis has 3 to 5 labels; the ridges fill the plot at any count and stay above the axis band.
+    let axisDays = (0..<30).map { String(format: "2026-09-%02d", $0 + 1) }
+    expect([7, 30].allSatisfy { (3...5).contains(OverviewDateAxis.labels(Array(axisDays.prefix($0))).count) }
+      && OverviewDateAxis.labels(axisDays).first?.text == "Sep 1" && OverviewDateAxis.labels(axisDays).last?.fraction == 1,
+      "The date axis does not have 3 to 5 labels from end to end")
+    expect((1...6).allSatisfy { count in
+      let layout = OverviewRidgeLayout(size: CGSize(width: 800, height: 300), count: count)
+      return layout.baseline(0) - layout.peak <= OverviewRidgeLayout.margin + 0.5
+        && abs(layout.baseline(count - 1) - (300 - OverviewRidgeLayout.axis - OverviewRidgeLayout.margin)) < 0.5
+    }, "The ridges do not fill the plot")
+    expect(OverviewPalette.hash("a") == 0xE40C292C && OverviewPalette.hash("") == 2_166_136_261,
+      "The model and project palette hash is not stable")
+    let shades = (0..<3).map { OverviewPalette.account(service: "codex", rank: $0) }
+    expect(Set(shades).count == 3 && shades[0] == Color(hex: 0x10A37F),
+      "Accounts of one service do not keep the brand color and distinct shades")
+    // Waffle cells always add up to 100 and tiny shares keep a "<1%" label.
+    expect(OverviewWaffle.cells([1, 1, 1]) == [34, 33, 33] && OverviewWaffle.cells([1_000_000, 1]).reduce(0, +) == 100
+      && OverviewWaffle.cells([0, 0]) == [0, 0] && OverviewWaffle.cells([]).isEmpty
+      && OverviewWaffle.owners([2, 1]) == [0, 0, 1] && OverviewWaffle.percent(0) == "<1%",
+      "Waffle cells do not add up to 100")
+    // A zero day between two busy days stays on its baseline: the curve never dips below it.
+    var curve = Path()
+    curve.addMonotone([CGPoint(x: 0, y: 10), CGPoint(x: 1, y: 10), CGPoint(x: 2, y: 0), CGPoint(x: 3, y: 10),
+      CGPoint(x: 4, y: 10)], connect: false)
+    expect(curve.boundingRect.minY >= -0.001 && curve.boundingRect.maxY <= 10.001,
+      "The ridge curve overshoots its points")
+    expect([OverviewMotion.stream, OverviewMotion.heatmap, OverviewMotion.ridge, OverviewMotion.waffle]
+      .allSatisfy { (0.15...0.6).contains($0) } && OverviewMotion.ease(0) == 0 && OverviewMotion.ease(1) == 1,
+      "A chart draw-in is outside 150 to 600 ms")
+    let layout = OverviewHeatLayout(size: CGSize(width: 800, height: 120), offset: 3, count: 365)
+    expect([0, 100, 364].allSatisfy {
+      let rect = layout.rect(index: $0)
+      return layout.index(at: CGPoint(x: rect.midX, y: rect.midY)) == $0
+    } && layout.index(at: CGPoint(x: layout.rect(index: 100).maxX + 1, y: layout.rect(index: 100).midY)) == nil,
+      "The heatmap hover does not find its day")
+
+    guard let snapshot = model.usageHistory else { return failures + ["The demo has no usage history"] }
+    let accounts = model.status?.accounts ?? []
+    let year = snapshot.summary(period: .year, grouping: .model)
+    for period in [UsagePeriod.week, .month] {
+      for grouping in UsageGrouping.allCases {
+        let data = OverviewDataset.make(
+          summary: snapshot.summary(period: period, grouping: grouping), year: year, accounts: accounts, hideEmails: false)
+        let name = "\(period.rawValue) by \(grouping.rawValue)"
+        expect(!data.series.isEmpty && data.series.count <= OverviewDataset.maxSeries + 1
+          && Set(data.series.map(\.id)).count == data.series.count
+          && data.series.allSatisfy { $0.daily.count == data.days.count },
+          "The Overview \(name) series are wrong")
+        expect(data.streamSummary.hasPrefix("Last \(period.days) days, ") && data.streamSummary.contains(" tokens by ")
+          && data.heatmapSummary.hasPrefix("Last 12 months, ") && !data.ridgeSummary.isEmpty
+          && data.waffleSummary.contains(" percent"), "The Overview \(name) VoiceOver summaries are wrong")
+        expect(Set(data.series.map(\.color)).count == data.series.count, "Overview \(name) series share a color")
+        if grouping == .account {
+          expect(data.series.allSatisfy { $0.label != "Removed account" }, "Overview account series lack a name")
+        }
+        expect(data.heatLevel(0) == 0 && data.heatLevel(Int64.max) == 4, "The heatmap levels are wrong")
+      }
+    }
+    // More than six groups fold into one gray "Other" series that keeps the total.
+    let many = (0..<9).map { UsageHistoryPoint(day: "2026-10-03", service: "codex", model: "m\($0)", project: "p", tokens: Int64(10 - $0)) }
+    let crowded = UsageHistorySnapshot(points: many, today: "2026-10-03")
+    let folded = OverviewDataset.make(
+      summary: crowded.summary(period: .week, grouping: .model), year: crowded.summary(period: .year, grouping: .model),
+      accounts: [], hideEmails: false)
+    expect(folded.series.count == 7 && folded.series.last?.id == "other"
+      && folded.series.reduce(0, { $0 + $1.tokens }) == 54, "Extra groups do not fold into Other")
+    // Claude history that no account owns leaves "by account" empty, and the chart says why.
+    let shared = UsageHistorySnapshot(
+      points: [UsageHistoryPoint(day: "2026-10-03", service: "claude-code", model: "m", project: "p", tokens: 5)],
+      today: "2026-10-03")
+    let byAccount = OverviewDataset.make(
+      summary: shared.summary(period: .week, grouping: .account), year: shared.summary(period: .year, grouping: .model),
+      accounts: [], hideEmails: false)
+    expect(byAccount.series.isEmpty && byAccount.emptyText.contains("share history"),
+      "An empty by-account chart does not explain shared Claude history")
+    let quiet = OverviewDataset.make(
+      summary: UsageHistorySnapshot(points: [], today: "2026-10-03").summary(period: .month, grouping: .model),
+      year: shared.summary(period: .year, grouping: .model), accounts: [], hideEmails: false)
+    expect(quiet.series.isEmpty && quiet.emptyText.hasPrefix("No usage in the last 30 days"),
+      "An empty chart does not say the period has no usage")
     return failures
   }
 

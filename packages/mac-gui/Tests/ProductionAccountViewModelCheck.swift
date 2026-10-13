@@ -32,6 +32,11 @@ private struct SilentChatHistoryMonitor: ChatHistoryMonitoring {
 struct ProductionAccountViewModelCheck {
     @MainActor
     static func main() async throws {
+        // The remembered selection and Maintenance source live in this binary's own defaults domain,
+        // which is the real user's. Start and end without them so a second run behaves like the first.
+        let defaultsDomain = ProcessInfo.processInfo.processName
+        UserDefaults.standard.removePersistentDomain(forName: defaultsDomain)
+        defer { UserDefaults.standard.removePersistentDomain(forName: defaultsDomain) }
         try expect(AccountViewModel.usageRefreshInterval == 3 * 60,
                    "Usage refresh cadence is not three minutes")
         let refreshClock = Date(timeIntervalSince1970: 10_000)
@@ -233,22 +238,90 @@ struct ProductionAccountViewModelCheck {
         try expect(model.selectedChat?.messages.map(\.role) == [.user, .assistant],
                    "Production chat detail did not decode user and assistant messages")
         try expect(
-            model.renderedChatMessages.values.contains {
-                String($0.characters) == "The synthetic chat is readable."
+            model.chatPresentations.values.contains { presentation in
+                presentation.blocks.contains {
+                    if case let .paragraph(_, text) = $0 { return String(text.characters) == "The synthetic chat is readable." }
+                    return false
+                }
             },
             "Production chat detail did not prepare Markdown before publication")
 
-        let cleanupData = try await model.cleanupData()
-        try expect(cleanupData.conversations.count == 1, "Cleanup inventory missed the shared conversation")
-        let cleanupPlan = try await model.reviewConversationCleanup(cleanupData.conversations)
-        try await model.applyCleanup(cleanupPlan, samples: [], clearIndex: false)
-        let trashedData = try await model.cleanupData()
-        try expect(trashedData.conversations.isEmpty && trashedData.trash.count == 1,
+        // Maintenance source picker: one shared Codex home, with the chosen source remembered.
+        let maintenance = model.maintenance
+        maintenance.refreshSources()
+        let codexSource = try expect(maintenance.sources.first { $0.id == "codex" },
+                                     "The source picker has no shared Codex home")
+        try expect(codexSource.title == "Codex CLI" && codexSource.home.standardizedFileURL == paths.sharedRoot.standardizedFileURL,
+                   "The Codex source does not point at the shared home")
+        maintenance.sourceID = "codex"
+        try expect(UserDefaults.standard.string(forKey: MaintenancePlace.sourceKey) == "codex",
+                   "The chosen Maintenance source was not remembered")
+
+        // A file written in the last five minutes is a running session and is never listed.
+        for url in [sessions.appending(path: "shared.jsonl"), sessions] {
+            try fileManager.setAttributes([.modificationDate: Date().addingTimeInterval(-2 * 86_400)], ofItemAtPath: url.path)
+        }
+        func cleanupConversations() async throws -> [CleanupItem] {
+            try await model.cleanupScan(codexSource).categories.first { $0.id == "conversations" }?.selectable ?? []
+        }
+        let found = try await cleanupConversations()
+        try expect(found.count == 1, "Cleanup inventory missed the shared conversation")
+        let scanned = try await model.cleanupScan(codexSource).categories.flatMap(\.items)
+        try expect(!scanned.contains { ["config.toml", "auth.json"].contains(($0.path as NSString).lastPathComponent) },
+                   "Cleanup listed a settings or login file")
+        let cleanupPlan = try await model.reviewCleanup(codexSource, found)
+        try await model.applyCleanup(codexSource, plan: cleanupPlan, samples: [], clearIndex: false)
+        let trashed = try await model.cleanupTrash(codexSource)
+        let leftover = try await cleanupConversations()
+        try expect(leftover.isEmpty && trashed.count == 1,
                    "Production Cleanup did not expose recoverable conversation trash")
-        try await model.restoreCleanup(trashedData.trash[0].id)
-        let restoredData = try await model.cleanupData()
-        try expect(restoredData.conversations.count == 1 && restoredData.trash.isEmpty,
+        try await model.restoreCleanup(codexSource, trashed[0].id)
+        let restoredTrash = try await model.cleanupTrash(codexSource)
+        let restoredItems = try await cleanupConversations()
+        try expect(restoredItems.count == 1 && restoredTrash.isEmpty,
                    "Production Cleanup did not restore the original conversation")
+
+        // Backup through the model: two snapshots, the second links what did not change, and a restore
+        // into a folder reproduces the files.
+        let drive = root.appending(path: "backup-drive", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: drive, withIntermediateDirectories: true)
+        let backupSet = try expect(await maintenance.createSet(for: codexSource, destination: drive),
+                                   "Backup could not create a set for the Codex source")
+        try expect(!backupSet.includeLogins, "A new backup set includes login files")
+        let agentsFile = paths.sharedRoot.appending(path: "AGENTS.md")
+        try Data("first version".utf8).write(to: agentsFile)
+        await maintenance.backUp(backupSet)
+        try Data("second version".utf8).write(to: agentsFile)
+        await maintenance.backUp(backupSet)
+        let backups = (maintenance.status(for: backupSet)?.snapshots ?? []).sorted { $0.date < $1.date }
+        try expect(backups.count == 2, "Two backups did not leave two snapshots (\(backups.count))")
+        func inode(_ snapshot: BackupSnapshot, _ path: String) throws -> NSNumber? {
+            try fileManager.attributesOfItem(atPath: snapshot.folder.appending(path: "files/" + path).path)[.systemFileNumber] as? NSNumber
+        }
+        try expect(try inode(backups[0], "sessions/shared.jsonl") == inode(backups[1], "sessions/shared.jsonl"),
+                   "The second backup copied an unchanged file instead of linking it")
+        try expect(try inode(backups[0], "config.toml") == inode(backups[1], "config.toml"),
+                   "The second backup copied the unchanged settings file")
+        try expect(try inode(backups[0], "AGENTS.md") != inode(backups[1], "AGENTS.md"),
+                   "The second backup linked a file that changed")
+        try expect(!backups[1].manifest.entries.contains { $0.path.hasSuffix("auth.json") },
+                   "A backup without login files contains auth.json")
+        let restoreFolder = root.appending(path: "restored", directoryHint: .isDirectory)
+        await maintenance.restore(backups[0], set: backupSet, items: nil, to: restoreFolder)
+        try expect(try Data(contentsOf: restoreFolder.appending(path: "sessions/shared.jsonl"))
+                   == Data(contentsOf: sessions.appending(path: "shared.jsonl")),
+                   "Restoring into a folder did not reproduce the session file")
+        try expect(try String(contentsOf: restoreFolder.appending(path: "AGENTS.md"), encoding: .utf8) == "first version",
+                   "Restoring the first backup did not bring back the first version of a file")
+        try fileManager.removeItem(at: agentsFile)
+        try expect(maintenance.recent.count == 2 && maintenance.recent.allSatisfy { $0.source == backupSet.name },
+                   "The recent backups list does not show both snapshots")
+        var waitingSet = backupSet
+        waitingSet.destination = URL(fileURLWithPath: "/Volumes/SwitchCheckMissingDrive/Backups")
+        await maintenance.update(waitingSet)
+        if case .waiting(let volume)? = maintenance.status(for: waitingSet)?.state {
+            try expect(volume == "SwitchCheckMissingDrive", "The waiting state names the wrong volume")
+        } else { throw CheckFailure(message: "A missing destination did not show the waiting state") }
 
         await model.beginImport()
         let discovered = try expect(

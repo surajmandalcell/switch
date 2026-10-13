@@ -204,7 +204,6 @@ struct SettingsPage: View {
       #endif
     }
     .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
-    .onAppear { launchAtLogin.refresh() }
     .confirmationDialog(
       "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
     ) {
@@ -215,12 +214,15 @@ struct SettingsPage: View {
     .onChange(of: checkProviderStatus) { model.providerStatusSettingChanged() }
     .onChange(of: showEmailDomains) { model.objectWillChange.send() }
     .task {
+      await launchAtLogin.refresh()
       await notificationPermission.refresh()
       await model.loadClaudeShellIntegration()
     }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-      launchAtLogin.refresh()
-      Task { await notificationPermission.refresh() }
+      Task {
+        await launchAtLogin.refresh()
+        await notificationPermission.refresh()
+      }
     }
   }
 
@@ -284,13 +286,13 @@ private struct DataLocationRow: View {
 
 @MainActor
 final class LaunchAtLoginSettings: ObservableObject {
-  @Published private(set) var status: SMAppService.Status
+  @Published private(set) var status: SMAppService.Status = .notRegistered
+  @Published private(set) var hasStatus = false
   @Published private(set) var errorMessage: String?
   private let service: SMAppService
 
   init(service: SMAppService = .mainApp) {
     self.service = service
-    status = service.status
   }
 
   var isOn: Bool {
@@ -301,7 +303,8 @@ final class LaunchAtLoginSettings: ObservableObject {
   }
 
   var canChange: Bool {
-    switch status {
+    guard hasStatus else { return false }
+    return switch status {
     case .notFound: false
     default: true
     }
@@ -337,11 +340,13 @@ final class LaunchAtLoginSettings: ObservableObject {
     } catch {
       errorMessage = error.localizedDescription
     }
-    refresh(clearError: false)
+    Task { await refresh(clearError: false) }
   }
 
-  func refresh(clearError: Bool = true) {
-    status = service.status
+  func refresh(clearError: Bool = true) async {
+    let service = self.service
+    status = await Task.detached(priority: .utility) { service.status }.value
+    hasStatus = true
     if clearError { errorMessage = nil }
   }
 

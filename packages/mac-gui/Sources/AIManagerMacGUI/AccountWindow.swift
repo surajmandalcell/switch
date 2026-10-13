@@ -303,11 +303,20 @@ struct AccountWindow: View {
     NotificationCenter.default.post(name: AIManagerNavigation.didShowPage, object: next)
   }
 
-  @ViewBuilder private var pageView: some View {
-    Group {
-      switch page {
+  private var pageView: some View {
+    AIMVisitedPageHost(
+      page: page, query: searchQuery, maintenance: maintenanceSection,
+      busy: model.isBusy, loaded: model.hasLoaded, error: model.errorMessage,
+      importing: model.showImport, searchFocused: searchFocused
+    ) { requested in
+      AnyView(content(for: requested).environment(\.aimPageName, requested.rawValue))
+    }
+  }
+
+  @ViewBuilder private func content(for requested: AIManagerPage) -> some View {
+      switch requested {
       case .overview:
-        OverviewPage(model: model, query: searchQuery) { target in
+        OverviewPage(model: model) { target in
           if target == .maintenance { maintenanceSection = .backup }
           show(target)
         }
@@ -316,8 +325,6 @@ struct AccountWindow: View {
       case .maintenance: MaintenancePage(model: model, section: $maintenanceSection)
       case .settings: SettingsPage(model: model)
       }
-    }
-    .environment(\.aimPageName, page.rawValue)
   }
 
   /// The content's top row, lightest to heaviest from left to right: Add, More, then the 300 pt
@@ -371,6 +378,137 @@ struct AccountWindow: View {
   }
 }
 
+/// Detached hosts keep their SwiftUI state without participating in layout, input, or accessibility.
+private struct AIMVisitedPageHost: NSViewRepresentable {
+  let page: AIManagerPage
+  let query: String
+  let maintenance: MaintenanceSection
+  let busy: Bool
+  let loaded: Bool
+  let error: String?
+  let importing: Bool
+  let searchFocused: Bool
+  let content: (AIManagerPage) -> AnyView
+
+  struct Inputs: Equatable {
+    let query: String
+    let maintenance: MaintenanceSection
+    let busy: Bool
+    let loaded: Bool
+    let error: String?
+    let importing: Bool
+    let searchFocused: Bool
+    let scheme: ColorScheme
+    let reduceMotion: Bool
+    let reduceTransparency: Bool
+    let contrast: ColorSchemeContrast
+    let scale: CGFloat
+    let direction: LayoutDirection
+    let lintSuppressed: Bool
+  }
+
+  func makeNSView(context: Context) -> Container {
+    let container = Container()
+    container.identifier = NSUserInterfaceItemIdentifier("visited-page-host")
+    return container
+  }
+
+  func updateNSView(_ container: Container, context: Context) {
+    let environment = context.environment
+    let inputs = Inputs(
+      query: query, maintenance: maintenance, busy: busy, loaded: loaded, error: error,
+      importing: importing, searchFocused: searchFocused, scheme: environment.colorScheme,
+      reduceMotion: environment.accessibilityReduceMotion,
+      reduceTransparency: environment.accessibilityReduceTransparency,
+      contrast: environment.colorSchemeContrast, scale: environment.displayScale,
+      direction: environment.layoutDirection, lintSuppressed: environment.uiLintSuppressed)
+    container.show(page, inputs: inputs) { requested, active in
+      AnyView(content(requested).environment(\.self, environment).ignoresSafeArea()
+        .disabled(!active).allowsHitTesting(active).accessibilityHidden(!active))
+    }
+    container.needsLayout = true
+  }
+
+  final class Container: NSView {
+    private var hosts: [AIManagerPage: NSHostingView<AnyView>] = [:]
+    private var inputs: [AIManagerPage: Inputs] = [:]
+    private(set) var current: AIManagerPage?
+    private var makePage: ((AIManagerPage, Bool) -> AnyView)?
+    private var prewarmed: Set<AIManagerPage> = []
+    private var latestInputs: Inputs?
+    private var warming = false
+
+    func show(_ page: AIManagerPage, inputs next: Inputs, root: @escaping (AIManagerPage, Bool) -> AnyView) {
+      makePage = root
+      latestInputs = next
+      let host: NSHostingView<AnyView>
+      if let existing = hosts[page] {
+        host = existing
+        let wasPrewarmed = prewarmed.remove(page) != nil
+        if inputs[page] != next || wasPrewarmed { host.rootView = root(page, true) }
+      } else {
+        host = NSHostingView(rootView: root(page, true))
+        host.sizingOptions = []
+        host.focusRingType = .none
+        host.autoresizingMask = [.width, .height]
+        hosts[page] = host
+      }
+      inputs[page] = next
+      guard current != page else { return }
+      if let previous = current.flatMap({ hosts[$0] }) {
+        if let responder = window?.firstResponder as? NSView, responder.isDescendant(of: previous) {
+          window?.makeFirstResponder(nil)
+        }
+        previous.removeFromSuperview()
+      }
+      current = page
+      host.setAccessibilityHidden(false)
+      host.frame = bounds
+      addSubview(host)
+    }
+
+    override func layout() {
+      super.layout()
+      if let current { hosts[current]?.frame = bounds }
+      if !warming, bounds.width > 0, bounds.height > 0 {
+        warming = true
+        scheduleWarmPage()
+      }
+    }
+
+    private func scheduleWarmPage() {
+      // Start after the first frame; warm one detached page per idle run-loop turn.
+      RunLoop.main.perform(inModes: [.default]) { [weak self] in
+        MainActor.assumeIsolated { self?.warmPage() }
+      }
+    }
+
+    private func warmPage() {
+      guard let makePage, let latestInputs,
+        let page = AIManagerPage.allCases.first(where: { hosts[$0] == nil }) else { return }
+      let host = NSHostingView(rootView: makePage(page, false))
+      host.sizingOptions = []
+      host.focusRingType = .none
+      host.autoresizingMask = [.width, .height]
+      host.frame = bounds
+      hosts[page] = host
+      prewarmed.insert(page)
+      inputs[page] = latestInputs
+      // Hosting views realize their native controls only after joining a window.
+      host.setAccessibilityHidden(true)
+      host.frame.origin.x = bounds.maxX
+      addSubview(host)
+      host.layoutSubtreeIfNeeded()
+      if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+      }
+      host.removeFromSuperview()
+      host.frame = bounds
+      scheduleWarmPage()
+    }
+  }
+}
+
 /// A standard button. `primary` is the prominent (accent) style and `danger` a destructive one.
 enum ButtonTone { case normal, primary, danger }
 struct AIMButton: View {
@@ -417,7 +555,7 @@ struct AIMIconButton: View {
     Button(role: tone == .danger ? .destructive : nil, action: action) {
       AIMIcon(name: icon).aimText(.body)
     }
-    .buttonStyle(.borderless)
+    .buttonStyle(AIMIconButtonStyle())
     .foregroundStyle(tone == .danger ? AIMTheme.red : (active ? AIMTheme.blue : Color.secondary))
     .background {
       if icon == .copy { AIMCopyCursor(enabled: isEnabled && !disabled).allowsHitTesting(false) }

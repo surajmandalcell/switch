@@ -63,6 +63,119 @@ private struct WindowContractObservation: Codable {
 /// `AI_MANAGER_RENDER_SCALE=1|2` renders every snapshot at that pixel density and tells SwiftUI the
 /// same `displayScale`, so a 1x display and a 2x display can both be checked on one Mac.
 enum RenderScale {
+    @MainActor private static func backgroundLuminance(_ bitmap: NSBitmapImageRep) -> Double {
+        func linear(_ component: CGFloat) -> Double {
+            let value = Double(component)
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        var sum = 0.0
+        for y in 0..<8 { for x in 12..<348 {
+            if let pixel = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) {
+                sum += 0.2126 * linear(pixel.redComponent) + 0.7152 * linear(pixel.greenComponent) + 0.0722 * linear(pixel.blueComponent)
+            }
+        } }
+        return sum / (8 * 336)
+    }
+
+    @MainActor static func popoverPolishShots() async throws {
+        guard let path = ProcessInfo.processInfo.environment["AI_MANAGER_POPOVER_SHOTS"] else { return }
+        let directory = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let baseline = CommandLine.arguments.contains("--popover-baseline")
+        var measurements: [[String: Any]] = []
+        for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+            for (backdrop, color) in [("black", Color.black), ("white", Color.white)] {
+                for state in baseline ? ["collapsed"] : ["collapsed", "expanded", "expanded-codex", "hover", "signed-out"] {
+                    let snapshot = state == "signed-out" ? MenuBarPopoverPreviewData.snapshot : MenuBarPopoverPreviewData.sixAccountSnapshot
+                    let suite = "switch-popover-shots-\(UUID().uuidString)"
+                    let defaults = UserDefaults(suiteName: suite)!
+                    defer { defaults.removePersistentDomain(forName: suite) }
+                    let store = MenuBarPopoverStore(snapshot: snapshot,
+                        actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }),
+                        visibleScreenHeight: 2_000, defaults: defaults)
+                    if state == "expanded" { store.toggleExpanded(snapshot.accounts[0]) }
+                    if state == "expanded-codex" { store.toggleExpanded(snapshot.accounts[1]) }
+                    UILintStore.shared.items.removeAll()
+                    UILintStore.shared.colors.removeAll()
+                    UILintStore.shared.appearance = NSAppearance(named: appearance)!
+                    let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts,
+                        visibleScreenHeight: 2_000, expandedID: store.expandedAccountID)
+                    let host = NSHostingView(rootView: MenuBarPopover(store: store,
+                        previewHoveredID: state == "hover" ? snapshot.accounts[0].id : nil)
+                        .background(.regularMaterial).background(color).renderScaled())
+                    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                        styleMask: .borderless, backing: .buffered, defer: false)
+                    window.appearance = NSAppearance(named: appearance)
+                    window.contentView = host
+                    host.frame = NSRect(origin: .zero, size: size)
+                    host.layoutSubtreeIfNeeded()
+                    try? await Task.sleep(for: .milliseconds(450))
+                    host.layoutSubtreeIfNeeded()
+                    guard let png = png(of: host), let bitmap = NSBitmapImageRep(data: png) else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    let label = "\(baseline ? "before" : "after")-\(state)-\(name)-\(backdrop)"
+                    try png.write(to: directory.appendingPathComponent(label + ".png"))
+                    try UILintStore.shared.write(to: directory.appendingPathComponent(label + ".json"),
+                        size: size, page: "menu-bar", appearance: name)
+                    measurements.append(["shot": label, "backgroundLuminance": backgroundLuminance(bitmap)])
+                    print("POPOVER_POLISH_SHOT \(label) \(size)")
+                }
+            }
+        }
+        try JSONSerialization.data(withJSONObject: measurements, options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent(baseline ? "before-metrics.json" : "after-metrics.json"))
+        if !baseline {
+            var before: [[String: Any]] = []
+            for appearance in ["light", "dark"] { for backdrop in ["black", "white"] {
+                let label = "before-collapsed-\(appearance)-\(backdrop)"
+                if let bitmap = NSBitmapImageRep(data: try Data(contentsOf: directory.appendingPathComponent(label + ".png"))) {
+                    before.append(["shot": label, "backgroundLuminance": backgroundLuminance(bitmap)])
+                }
+            } }
+            try JSONSerialization.data(withJSONObject: before, options: [.prettyPrinted, .sortedKeys])
+                .write(to: directory.appendingPathComponent("before-metrics.json"))
+            func frames(_ label: String, group: String) throws -> [CGRect] {
+                let object = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent(label + ".json"))) as! [String: Any]
+                return (object["items"] as! [[String: Any]]).filter {
+                    ($0["tags"] as! [[String: Any]]).contains { $0["group"] as? String == group }
+                }.map {
+                    let frame = $0["frame"] as! [String: Double]
+                    return CGRect(x: frame["x"]!, y: frame["y"]!, width: frame["width"]!, height: frame["height"]!)
+                }.sorted { $0.minY < $1.minY }
+            }
+            for appearance in ["light", "dark"] { for backdrop in ["black", "white"] {
+                let suffix = "\(appearance)-\(backdrop)"
+                for state in ["collapsed", "expanded", "expanded-codex"] {
+                    let ink = try frames("after-\(state)-" + suffix, group: "menuBarUsageLabelInk")
+                    let columns = try frames("after-\(state)-" + suffix, group: "menuBarUsageLabels")
+                    guard !ink.isEmpty, ink.count == columns.count,
+                          zip(ink, columns).allSatisfy({ ink, column in ink.width <= column.width + 0.5 }) else {
+                        throw NSError(domain: "Popover label truncates: \(state)-\(suffix)", code: 1)
+                    }
+                }
+                let old = try frames("before-collapsed-" + suffix, group: "menuBarRows")
+                let rows = try frames("after-collapsed-" + suffix, group: "menuBarRows")
+                let hover = try frames("after-hover-" + suffix, group: "menuBarRows")
+                guard old.count == 6 && old == rows && rows == hover else {
+                    throw NSError(domain: "Popover row frames changed: \(suffix)", code: 1)
+                }
+                let fills = try frames("after-hover-" + suffix, group: "menuBarHoverFill")
+                guard fills.count == rows.count, zip(rows, fills).allSatisfy({ row, fill in
+                    abs(fill.minY - row.minY + 4) < 0.5 && abs(fill.height - row.height - 8) < 0.5
+                      && abs(fill.minX - 4) < 0.5 && abs(fill.maxX - 356) < 0.5
+                }) else { throw NSError(domain: "Popover hover extent changed: \(suffix)", code: 1) }
+                let signedOut = try frames("after-signed-out-" + suffix, group: "menuBarRows").last!
+                let button = try frames("after-signed-out-" + suffix, group: "menuBarSignInTrailing").last!
+                let subtitle = try frames("after-signed-out-" + suffix, group: "menuBarSignInSubtitle").last!
+                guard abs(button.maxX - signedOut.maxX + 8) < 0.5,
+                      abs(button.midY - signedOut.midY) < 0.5, subtitle.maxX <= button.minX else {
+                    throw NSError(domain: "Signed-out button is not trailing and centered: \(suffix)", code: 1)
+                }
+                print("POPOVER_GEOMETRY_PASS \(suffix): six unchanged row frames, 4pt hover overhang, trailing sign-in")
+            } }
+        }
+    }
     static var value: CGFloat? {
         ProcessInfo.processInfo.environment["AI_MANAGER_RENDER_SCALE"].flatMap(Double.init).map { CGFloat($0) }
     }
@@ -290,6 +403,37 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runContractOnly(in window: NSWindow?) async {
+        if CommandLine.arguments.contains("--conversations-check") {
+            // The check hosts its own scale fixture; discard the unrelated startup demo tree.
+            window?.contentViewController = nil
+            window?.contentView = nil
+            window?.close()
+            let failures: [String]
+            if CommandLine.arguments.contains("--page-switch-only") {
+                failures = await ConversationsCheck.pageSwitchTimes()
+            } else if CommandLine.arguments.contains("--page-roundtrip-only") {
+                failures = await ConversationsCheck.roundTripCheck()
+            } else if CommandLine.arguments.contains("--restart-only") {
+                failures = await ConversationsCheck.restartCheck()
+            } else {
+                failures = await ConversationsCheck.run()
+            }
+            failures.forEach { print("CONVERSATIONS_FAIL \($0)") }
+            print(failures.isEmpty ? "CONVERSATIONS_PASS" : "CONVERSATIONS_FAILED \(failures.count)")
+            exit(failures.isEmpty ? 0 : 1)
+        }
+        if CommandLine.arguments.contains("--popover-polish-only") {
+            do { try await RenderScale.popoverPolishShots() }
+            catch { print("POPOVER_POLISH_FAIL \(error)"); exit(1) }
+            if !CommandLine.arguments.contains("--popover-baseline") {
+                let failures = AIManagerNativeContract.popoverPolishFailures()
+                for failure in failures { print("POPOVER_POLISH_FAIL \(failure)") }
+                if !failures.isEmpty { exit(1) }
+                print("POPOVER_POLISH_PASS")
+            }
+            NSApp.terminate(nil)
+            return
+        }
         if CommandLine.arguments.contains("--ui-lint"), let window {
             UILintStore.shared.appearance = window.effectiveAppearance
         }
@@ -303,8 +447,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--focus-search") {
             NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)
         }
+        MaintenanceExtras.prepare()
+        await MaintenanceExtras.unplugDrive(model: model)
         try? await Task.sleep(for: .milliseconds(220))
         window?.contentView?.layoutSubtreeIfNeeded()
+        await MaintenanceExtras.write(model: model, window: window)
         if !CommandLine.arguments.contains("--ui-lint"), let window {
             receipts.prepareMenuBarSnapshot(appearance: window.effectiveAppearance)
             try? await Task.sleep(for: .milliseconds(220))
@@ -991,5 +1138,59 @@ private final class AcceptanceReceipts {
         }
         try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         return url
+    }
+}
+
+/// Extra Maintenance renders for `--maintenance-extras`: the source picker list, the restore sheet,
+/// and the Overview's recent-backups card (with backups and empty). `--maintenance-expanded` opens
+/// the first categories of the Cleanup list.
+@MainActor
+private enum MaintenanceExtras {
+    /// `--maintenance-waiting` unplugs the preview backup drive, so the page shows its waiting state.
+    static func unplugDrive(model: AccountViewModel) async {
+        guard CommandLine.arguments.contains("--maintenance-waiting"), let root = model.maintenance.demoRoot else { return }
+        try? FileManager.default.removeItem(at: root.appending(path: "Backup Drive"))
+        await model.maintenance.refreshAll()
+    }
+
+    static func prepare() {
+        guard CommandLine.arguments.contains("--maintenance-expanded") else { return }
+        UserDefaults.standard.set(
+            ["conversations", "conversations//Users/ada/dev/switch", "logs"].joined(separator: "\n"),
+            forKey: MaintenancePlace.expandedKey)
+    }
+
+    static func write(model: AccountViewModel, window: NSWindow?) async {
+        guard CommandLine.arguments.contains("--maintenance-extras"),
+              let path = ProcessInfo.processInfo.environment["AI_MANAGER_ACCEPTANCE_ARTIFACTS"] else { return }
+        let directory = URL(fileURLWithPath: path)
+        let store = model.maintenance
+        var shots: [(String, AnyView, CGFloat)] = [
+            ("picker", AnyView(MaintenanceSourcePanel(store: store) { _ in }), MaintenanceSourcePanel.width),
+            ("recent-backups", AnyView(RecentBackupsCard(model: model).padding(AIMTheme.pageMargin)), 880),
+            ("recent-backups-empty",
+             AnyView(RecentBackupsCard(model: AccountViewModel(scenario: .empty)).padding(AIMTheme.pageMargin)), 880),
+        ]
+        if let set = store.sets.first, let snapshot = store.status(for: set)?.snapshots.first {
+            shots.append(("restore-sheet",
+                AnyView(BackupRestoreSheet(request: BackupRestoreRequest(snapshot: snapshot, set: set), store: store) {}), 520))
+        }
+        for (name, view, width) in shots {
+            let host = NSHostingView(rootView: view.frame(width: width).background(AIMTheme.page)
+                .tint(AIMTheme.passiveIcon).renderScaled())
+            let offscreen = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 100),
+                                     styleMask: .borderless, backing: .buffered, defer: false)
+            offscreen.isReleasedWhenClosed = false
+            offscreen.appearance = window?.effectiveAppearance
+            offscreen.contentView = host
+            host.layoutSubtreeIfNeeded()
+            let size = host.fittingSize
+            host.frame = NSRect(origin: .zero, size: NSSize(width: width, height: size.height))
+            offscreen.setContentSize(host.frame.size)
+            try? await Task.sleep(for: .milliseconds(450))
+            host.layoutSubtreeIfNeeded()
+            if let data = RenderScale.png(of: host) { try? data.write(to: directory.appendingPathComponent("\(name).png")) }
+            offscreen.close()
+        }
     }
 }

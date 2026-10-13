@@ -45,7 +45,7 @@ for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
     mac_gui_sources+=("$source_snapshot/$(basename "$source")")
   fi
 done
-for check in NativeUIContract MenuBarContract AcceptanceApp; do
+for check in NativeUIContract MenuBarContract ConversationsCheck AcceptanceApp; do
   cp "$repo_root/packages/mac-gui/Tests/$check.swift" "$source_snapshot/$check.swift"
 done
 
@@ -64,7 +64,10 @@ rm -rf "$app_path"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 chmod 0755 "$app_path" "$app_path/Contents" "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 
+# AI_MANAGER_ACCEPTANCE_SWIFTC_FLAGS=-O builds an optimized app, for timing checks that should match a release.
+# shellcheck disable=SC2086
 swiftc \
+  ${AI_MANAGER_ACCEPTANCE_SWIFTC_FLAGS:-} \
   -parse-as-library \
   -D AI_MANAGER_PREVIEW \
   -target "$(uname -m)-apple-macos14.0" \
@@ -76,6 +79,7 @@ swiftc \
   "${mac_gui_sources[@]}" \
   "$source_snapshot/NativeUIContract.swift" \
   "$source_snapshot/MenuBarContract.swift" \
+  "$source_snapshot/ConversationsCheck.swift" \
   "$source_snapshot/AcceptanceApp.swift" \
   -o "$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 

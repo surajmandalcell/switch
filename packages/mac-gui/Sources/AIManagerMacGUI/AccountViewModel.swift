@@ -91,7 +91,9 @@ final class AccountViewModel: ObservableObject {
     enum Scenario { case demo, empty, allStates, historyStress }
     #endif
 
-    @Published var status: ManagerStatus?
+    @Published var status: ManagerStatus? {
+        didSet { rebuildAccountPresentations() }
+    }
     @Published var selectedAccountID: UUID? {
         didSet {
             if let oldValue, oldValue != selectedAccountID { previousSelectedAccountID = oldValue }
@@ -121,24 +123,39 @@ final class AccountViewModel: ObservableObject {
     @Published var importResult: ImportResult?
     @Published var accountHistory: [UUID: HistorySummary] = [:]
     @Published private(set) var accountUsage: [UUID: CachedCodexAccountUsage] = [:]
-    @Published private(set) var usageSnapshots: [UUID: CodexAccountUsageSnapshot] = [:]
+    @Published private(set) var usageSnapshots: [UUID: CodexAccountUsageSnapshot] = [:] {
+        didSet { rebuildAccountPresentations() }
+    }
     @Published private(set) var retainedDailyUsage: [UUID: [CodexDailyUsageSnapshot]] = [:]
     @Published private(set) var apiPrice: CodexAPIPrice?
     @Published private(set) var usageRefreshAccountID: UUID?
     @Published private(set) var usageError: String?
     /// Usage of every account whose provider is not Codex. Codex keeps its own pipeline above.
-    @Published private(set) var providerUsage: [UUID: ProviderUsageState] = [:]
+    @Published private(set) var providerUsage: [UUID: ProviderUsageState] = [:] {
+        didSet { rebuildAccountPresentations() }
+    }
+    @Published private(set) var accountWindows: [UUID: [UsageWindow]] = [:]
+    private var presentationPreferences: AnyCancellable?
+    private var presentationHiddenRows: [UUID: String] = [:]
     /// Last good incident of each provider that has a saved account. Empty when status checks are off.
     @Published private(set) var providerStatus: [ProviderID: ProviderStatusEntry] = [:]
     /// Local Claude Code usage across all profiles, from the log scan.
     @Published private(set) var claudeActivity: ClaudeActivitySummary?
     @Published private(set) var isClaudeActivityLoading = false
+    /// A year of daily usage for the Overview charts. Nil until the first load ends.
+    @Published private(set) var usageHistory: UsageHistorySnapshot?
+    /// Counts loads, so a page can tell a new snapshot from the one it drew.
+    @Published private(set) var usageHistoryVersion = 0
     @Published private(set) var claudeShellIntegrationOn = false
     @Published private(set) var claudeShellIntegrationError: String?
     @Published private(set) var chatHistory = ChatHistorySnapshot()
-    @Published private(set) var selectedChatID: String?
+    @Published private(set) var selectedChatID: String? {
+        didSet { if selectedChatID != oldValue { ChatPlace.saveSelected(selectedChatID) } }
+    }
     @Published private(set) var selectedChat: ChatThreadDetail?
-    @Published private(set) var renderedChatMessages: [String: AttributedString] = [:]
+    /// The Markdown blocks of every loaded message, parsed off the main actor together with the page,
+    /// so a row never shows plain text first and then changes height.
+    @Published private(set) var chatPresentations: [String: ChatMessagePresentation] = [:]
     @Published private(set) var isChatHistoryLoading = false
     @Published private(set) var isChatPageLoading = false
     private var selectedChatQuery = ""
@@ -149,6 +166,8 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var hasLoaded = false
 
     let paths: ManagerPaths
+    /// Maintenance: the chosen source, backup sets, schedule, and recent snapshots.
+    lazy var maintenance = MaintenanceStore(model: self)
     private let manager: AccountManager?
     private var usageCache: CodexUsageStatisticsCache?
     private let usageDatabaseURL: URL?
@@ -160,6 +179,8 @@ final class AccountViewModel: ObservableObject {
     private let claudeCostCacheURL: URL?
     private let claudePricing: ClaudePricingSource?
     private var usageErrorAccountID: UUID?
+    private var usageHistoryLoadedAt: Date?
+    private var isUsageHistoryLoading = false
     private let chatHistoryProvider: (any ChatHistoryProviding)?
     private let chatHistoryMonitor: (any ChatHistoryMonitoring)?
     #if AI_MANAGER_PREVIEW
@@ -206,6 +227,9 @@ final class AccountViewModel: ObservableObject {
             unavailableReason = "Switch could not open its private data folder. \(error.localizedDescription)"
             errorMessage = unavailableReason
         }
+        // Conversations reopens on the conversation that was selected at quit.
+        selectedChatID = ChatPlace.selectedID()
+        watchPresentationPreferences()
     }
 
     #if AI_MANAGER_PREVIEW
@@ -223,6 +247,7 @@ final class AccountViewModel: ObservableObject {
         chatHistoryMonitor = nil
         self.scenario = scenario
         reset(to: scenario)
+        watchPresentationPreferences()
     }
 
     var isDemo: Bool { scenario != nil }
@@ -232,8 +257,61 @@ final class AccountViewModel: ObservableObject {
         status?.accounts.first { $0.id == selectedAccountID }
     }
 
+    private func watchPresentationPreferences() {
+        presentationPreferences = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let hidden = self.hiddenPresentationRows()
+                if hidden != self.presentationHiddenRows { self.rebuildAccountPresentations() }
+            }
+    }
+
+    private func hiddenPresentationRows() -> [UUID: String] {
+        Dictionary(uniqueKeysWithValues: (status?.accounts ?? []).map {
+            ($0.id, UserDefaults.standard.string(forKey: "hiddenUsageRows.\($0.id.uuidString)") ?? "")
+        })
+    }
+
+    private func rebuildAccountPresentations() {
+        presentationHiddenRows = hiddenPresentationRows()
+        let next = Dictionary(uniqueKeysWithValues: (status?.accounts ?? []).map {
+            ($0.id, makeAccountWindows(for: $0))
+        })
+        if next != accountWindows { accountWindows = next }
+    }
+
+    private func makeAccountWindows(for account: AccountRecord) -> [UsageWindow] {
+        if account.verification.state == .needsSignIn { return [] }
+        let hidden = Set((presentationHiddenRows[account.id] ?? "").split(separator: "\n").map(String.init))
+        if account.identity.providerID == .codex {
+            guard let limits = usageSnapshots[account.id]?.rateLimits else { return [] }
+            var seen = Set<String>()
+            var result: [(window: UsageWindow, bucket: String)] = []
+            func append(_ bucket: CodexRateLimitBucketSnapshot, key: String) {
+                guard seen.insert(bucket.id ?? key).inserted else { return }
+                let name = CodexBucketNaming.title(id: bucket.id, name: bucket.name, model: bucket.model, fallback: key)
+                for row in bucket.windowRows(idPrefix: "\(key)/") where !hidden.contains(row.usage.id) {
+                    result.append((row.usage, name))
+                }
+            }
+            if let bucket = limits.defaultBucket { append(bucket, key: bucket.id ?? "default") }
+            for (key, bucket) in limits.buckets.sorted(by: {
+                $0.key.localizedStandardCompare($1.key) == .orderedAscending
+            }) { append(bucket, key: key) }
+            let titles = result.map(\.window.title)
+            return result.map { item in
+                var window = item.window
+                if titles.filter({ $0 == window.title }).count > 1 { window.title = "\(item.bucket) · \(window.title)" }
+                return window
+            }
+        }
+        guard let state = providerUsage[account.id], !state.needsSignIn, let usage = state.usage else { return [] }
+        return usage.windows.filter { !hidden.contains($0.id) }
+    }
+
     func load() async {
-        defer { hasLoaded = true }
+        defer { hasLoaded = true; maintenance.start() }
         guard let manager else {
             #if AI_MANAGER_PREVIEW
             if status == nil, let scenario { reset(to: scenario) }
@@ -310,7 +388,8 @@ final class AccountViewModel: ObservableObject {
         guard isDemo else { return }
         actionGeneration += 1
         self.scenario = scenario
-        let accounts = scenario == .empty ? [] : DemoData.accounts + DemoData.genericAccounts
+        let accounts = scenario == .empty
+            ? [] : DemoData.accounts + DemoData.serviceAccounts + DemoData.genericAccounts
         var defaultAccountIDs: [String: UUID] = [:]
         for account in accounts where defaultAccountIDs[account.identity.providerID.rawValue] == nil {
             defaultAccountIDs[account.identity.providerID.rawValue] = account.id
@@ -352,7 +431,13 @@ final class AccountViewModel: ObservableObject {
         })
         providerUsage = scenario == .empty ? [:] : DemoData.providerUsageStates
         providerStatus = scenario == .empty || !ProviderStatusPoller.isEnabled() ? [:] : DemoData.providerStatus
-        claudeActivity = nil
+        claudeActivity = scenario == .empty ? nil : DemoData.claudeActivity
+        // `--overview-loading` and `--overview-empty` render the two states a screenshot cannot reach otherwise.
+        let arguments = CommandLine.arguments
+        usageHistory = arguments.contains("--overview-loading") ? nil
+            : scenario == .empty || arguments.contains("--overview-empty")
+            ? UsageHistorySnapshot(points: [], today: DemoData.usageHistory(accounts: []).today)
+            : DemoData.usageHistory(accounts: accounts)
         claudeShellIntegrationOn = false
         claudeShellIntegrationError = nil
         accountUsage = [:]
@@ -370,14 +455,45 @@ final class AccountViewModel: ObservableObject {
             matchingThreadCount: demoThreads.count)
         selectedChatID = demoThreads.first?.id
         selectedChat = selectedChatID.flatMap(DemoData.chatDetail)
-        renderedChatMessages = Dictionary(uniqueKeysWithValues: (selectedChat?.messages ?? []).map {
-            ($0.id, (try? AttributedString(markdown: $0.text)) ?? AttributedString($0.text))
+        chatPresentations = Dictionary(uniqueKeysWithValues: (selectedChat?.messages ?? []).compactMap { message in
+            (try? ChatMessagePresenter.parse(message)).map { (message.id, $0) }
         })
         isChatHistoryLoading = false
         isChatLoading = false
         chatHistoryError = nil
         hasScannedChatHistory = true
         hasLoaded = true
+    }
+
+    /// Preview only: many accounts and a long daily activity history, so the page-switch check
+    /// runs against a large dataset.
+    func installScaleFixture(accountCount: Int, activityDays: Int) {
+        guard isDemo, var next = status else { return }
+        let codex = next.accounts.filter { $0.identity.providerID == .codex }
+        guard !codex.isEmpty else { return }
+        for index in 0..<accountCount {
+            var copy = codex[index % codex.count]
+            copy.id = UUID()
+            copy.identity.email = "scale\(index)@example.test"
+            next.accounts.append(copy)
+        }
+        status = next
+        let day = ISO8601DateFormatter()
+        day.formatOptions = [.withFullDate]
+        day.timeZone = TimeZone(secondsFromGMT: 0)
+        let days = (0..<activityDays).map { offset in
+            CodexDailyUsageSnapshot(
+                startDate: day.string(from: Date().addingTimeInterval(-Double(offset) * 86_400)),
+                tokens: Int64(40_000 + (offset * 7_919) % 3_000_000))
+        }
+        for (offset, account) in next.accounts.enumerated() where account.identity.providerID == .codex {
+            let base = DemoData.usage(account: account, offset: offset)
+            usageSnapshots[account.id] = CodexAccountUsageSnapshot(
+                account: base.account, requiresOpenAIAuthentication: base.requiresOpenAIAuthentication,
+                rateLimits: base.rateLimits, usage: base.usage, dailyUsage: days, fetchedAt: base.fetchedAt)
+            retainedDailyUsage[account.id] = days
+            accountHistory[account.id] = HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true)
+        }
     }
     #endif
 
@@ -1602,6 +1718,49 @@ final class AccountViewModel: ObservableObject {
         if let summary { claudeActivity = summary }  // a failed scan keeps the last good numbers
     }
 
+    /// Reads the Overview history off the main actor. A snapshot younger than `maxAge` stays, so a
+    /// page switch shows the last charts at once. The scanners keep their own disk caches.
+    func loadUsageHistory(maxAge: TimeInterval = 60) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return }
+        #endif
+        guard !isUsageHistoryLoading, manager != nil, hasLoaded else { return }
+        if let loadedAt = usageHistoryLoadedAt, Date().timeIntervalSince(loadedAt) < maxAge { return }
+        isUsageHistoryLoading = true
+        defer { isUsageHistoryLoading = false }
+        await prepareUsageCache()
+        let accounts = status?.accounts ?? []
+        let support = paths.applicationSupport
+        var sources = UsageHistorySources(ledger: usageCache, pricing: claudePricing?.loader())
+        // A test home never reads the real Claude or Grok folders.
+        if paths.isolationRoot == nil, let pricing = claudePricing {
+            let grok = accounts.filter { $0.identity.providerID == .grokBuild }
+            sources.claude = ClaudeCostScanner(
+                cacheURL: support.appending(path: "cache/claude-history.json"), pricing: pricing.loader())
+            sources.claudeHomes = UsageHistory.claudeProfileHomes(
+                applicationSupport: support,
+                accountIDs: accounts.filter { $0.identity.providerID == .claudeCode }.map(\.id))
+            sources.grokSessions = UsageHistory.grokSessionsFolder()
+            sources.grokAccountID = grok.count == 1 ? grok.first?.id.uuidString.lowercased() : nil
+        }
+        // Providers with a transcript scanner above must not be counted twice from their charts.
+        let scanned: Set<ProviderID> = [.codex, .claudeCode, .grokBuild]
+        sources.charts = accounts.filter { !scanned.contains($0.identity.providerID) }.flatMap { account in
+            (providerUsage[account.id]?.usage?.charts ?? []).map {
+                ProviderChartSource(
+                    service: account.identity.providerID.rawValue,
+                    accountID: account.id.uuidString.lowercased(), chart: $0)
+            }
+        }
+        let loaded = sources
+        // ponytail: a new engine per load re-parses Grok sessions; keep one engine if that shows in Overview.
+        usageHistory = await Task.detached(priority: .utility) {
+            await UsageHistory(sources: loaded).snapshot()
+        }.value
+        usageHistoryVersion += 1
+        usageHistoryLoadedAt = Date()
+    }
+
     func loadClaudeShellIntegration() async {
         guard let manager else { return }
         claudeShellIntegrationOn = await manager.claudeShellIntegrationInstalled()
@@ -1816,40 +1975,72 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    func cleanupData() async throws -> (conversations: [CleanupConversation], samples: [CleanupUsageSample], trash: [ConversationCleanupBatch]) {
+    // MARK: Maintenance (Cleanup)
+
+    /// One scan of a source: file metadata only. Codex also reads its conversation index for titles and dates.
+    func cleanupScan(_ source: CleanupSource) async throws -> CleanupScan {
+        var summaries: [ChatThreadSummary] = []
+        var readsIndex = source.tool == .codex
         #if AI_MANAGER_PREVIEW
-        if isDemo { return ([], [], []) }
+        if isDemo { readsIndex = false }
+        #endif
+        if readsIndex {
+            _ = try await chatHistoryProvider?.refresh(query: "")
+            summaries = await chatHistoryProvider?.cleanupSummaries() ?? []
+        }
+        return try await Task.detached(priority: .utility) {
+            try AccountManager.scanCleanup(source, summaries: summaries)
+        }.value
+    }
+
+    /// Switch's own usage samples (Codex source only).
+    func cleanupSamples() async throws -> [CleanupUsageSample] {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return [] }
         #endif
         await prepareUsageCache()
-        guard let manager, let usageCache else { throw AIManagerError.operationFailed("Cleanup storage is unavailable.") }
-        _ = try await chatHistoryProvider?.refresh(query: "")
-        let summaries = await chatHistoryProvider?.cleanupSummaries() ?? []
-        let conversations = try await manager.cleanupInventory(summaries: summaries)
-        let samples = try await usageCache.cleanupSamples()
-        let trash = try await manager.cleanupTrash()
-        return (conversations, samples, trash)
+        return try await usageCache?.cleanupSamples() ?? []
     }
 
-    func reviewConversationCleanup(_ items: [CleanupConversation]) async throws -> ConversationCleanupPlan {
-        guard let manager else { throw AIManagerError.operationFailed("Cleanup is unavailable.") }
-        return try await manager.reviewCleanup(items)
+    func cleanupTrash(_ source: CleanupSource) async throws -> [ConversationCleanupBatch] {
+        if let manager { return try await manager.cleanupTrash(source) }
+        return try ConversationCleanup(home: source.home, userHome: source.userHome).batches()
     }
 
-    func applyCleanup(_ plan: ConversationCleanupPlan?, samples: [CleanupUsageSample], clearIndex: Bool) async throws {
-        guard !isBusy, let manager, let usageCache, let chatHistoryProvider else {
-            throw AIManagerError.operationFailed("Cleanup is unavailable while another action is running.")
-        }
+    func reviewCleanup(_ source: CleanupSource, _ items: [CleanupItem]) async throws -> ConversationCleanupPlan {
+        if let manager { return try await manager.reviewCleanup(source, items) }
+        // Without a manager only the Preview runs cleanup, on its synthetic Mac.
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return try ConversationCleanup(home: source.home, userHome: source.userHome).review(items) }
+        #endif
+        throw AIManagerError.operationFailed("Cleanup is unavailable.")
+    }
+
+    func applyCleanup(_ source: CleanupSource, plan: ConversationCleanupPlan?, samples: [CleanupUsageSample], clearIndex: Bool) async throws {
+        guard !isBusy else { throw AIManagerError.operationFailed("Cleanup is unavailable while another action is running.") }
         isBusy = true
         defer { isBusy = false }
         if let plan {
-            _ = try await manager.moveConversationsToTrash(plan) { sources in
-                try await chatHistoryProvider.preserveActivity(for: sources)
+            if let manager {
+                let provider = chatHistoryProvider
+                _ = try await manager.moveToCleanupTrash(source, plan) { sources in
+                    guard let provider else { throw AIManagerError.operationFailed("The activity ledger is unavailable. Conversations were kept.") }
+                    try await provider.preserveActivity(for: sources)
+                }
+            } else {
+                _ = try ConversationCleanup(home: source.home, userHome: source.userHome).moveToTrash(plan)
             }
+        }
+        guard let usageCache, let chatHistoryProvider else {
+            notice = Self.cleanupNotice(plan, samples: samples.count, clearIndex: false)
+            return
+        }
+        if plan != nil, source.tool == .codex {
             chatDetailTask?.cancel()
             chatSelectionGeneration += 1
             selectedChat = nil
             selectedChatID = nil
-            renderedChatMessages = [:]
+            chatPresentations = [:]
             hasScannedChatHistory = false
         }
         try await usageCache.removeCleanupSamples(samples)
@@ -1859,29 +2050,40 @@ final class AccountViewModel: ObservableObject {
             chatHistory = ChatHistorySnapshot()
             selectedChat = nil
             selectedChatID = nil
-            renderedChatMessages = [:]
+            chatPresentations = [:]
             hasScannedChatHistory = false
         }
-        let moved = plan?.conversations.count ?? 0
-        let bytes = ByteCountFormatter.string(fromByteCount: plan?.bytes ?? 0, countStyle: .file)
-        notice = "Cleanup complete: \(moved) conversations (\(bytes)) moved to recoverable trash; \(samples.count) usage samples cleared\(clearIndex ? "; conversation index cleared" : ""). Daily activity totals were retained."
+        notice = Self.cleanupNotice(plan, samples: samples.count, clearIndex: clearIndex)
     }
 
-    func restoreCleanup(_ id: UUID) async throws {
-        guard !isBusy, let manager else { throw AIManagerError.operationFailed("Another action is running.") }
-        isBusy = true
-        defer { isBusy = false }
-        try await manager.restoreCleanupTrash(id)
-        hasScannedChatHistory = false
-        notice = "Conversations restored."
+    private static func cleanupNotice(_ plan: ConversationCleanupPlan?, samples: Int, clearIndex: Bool) -> String {
+        var parts: [String] = []
+        if let plan {
+            let bytes = ByteCountFormatter.string(fromByteCount: plan.bytes, countStyle: .file)
+            parts.append("\(plan.items.count.formatted()) \(plan.items.count == 1 ? "item" : "items") (\(bytes)) moved to Switch's recoverable trash")
+        }
+        if samples > 0 { parts.append("\(samples.formatted()) usage samples cleared") }
+        if clearIndex { parts.append("conversation index cleared") }
+        return "Cleanup complete: " + parts.joined(separator: "; ") + ". Restore brings the items back; daily activity totals stay saved."
     }
 
-    func emptyCleanup(_ id: UUID) async throws {
-        guard !isBusy, let manager else { throw AIManagerError.operationFailed("Another action is running.") }
+    func restoreCleanup(_ source: CleanupSource, _ id: UUID) async throws {
+        guard !isBusy else { throw AIManagerError.operationFailed("Another action is running.") }
         isBusy = true
         defer { isBusy = false }
-        try await manager.permanentlyRemoveCleanupTrash(id)
-        notice = "Selected conversation trash permanently removed."
+        if let manager { try await manager.restoreCleanupTrash(source, id) }
+        else { try ConversationCleanup(home: source.home, userHome: source.userHome).restore(id) }
+        if source.tool == .codex { hasScannedChatHistory = false }
+        notice = "Items restored."
+    }
+
+    func emptyCleanup(_ source: CleanupSource, _ id: UUID) async throws {
+        guard !isBusy else { throw AIManagerError.operationFailed("Another action is running.") }
+        isBusy = true
+        defer { isBusy = false }
+        if let manager { try await manager.permanentlyRemoveCleanupTrash(source, id) }
+        else { try ConversationCleanup(home: source.home, userHome: source.userHome).permanentlyRemove(id) }
+        notice = "Items removed from the trash for good."
     }
 
     func clearConversationIndex() async {
@@ -1894,7 +2096,7 @@ final class AccountViewModel: ObservableObject {
             chatHistory = ChatHistorySnapshot()
             selectedChatID = nil
             selectedChat = nil
-            renderedChatMessages = [:]
+            chatPresentations = [:]
             isChatHistoryLoading = false
             isChatLoading = false
             chatHistoryError = nil
@@ -2019,7 +2221,7 @@ final class AccountViewModel: ObservableObject {
         guard selectedChatID != id || selectedChat?.thread.id != id else { return }
         selectedChatID = id
         selectedChat = nil
-        renderedChatMessages = [:]
+        chatPresentations = [:]
         selectedChatQuery = ""
         selectedChatFilter = .all
         isChatPageLoading = false
@@ -2046,6 +2248,11 @@ final class AccountViewModel: ObservableObject {
             if let summary = visible.first(where: { $0.id == selectedChatID }),
                selectedChat?.thread != summary {
                 await loadSelectedChat(selectedChatID)
+            } else if requestedChatHistoryQuery.isEmpty, selectedChat == nil, !visible.isEmpty,
+                      !visible.contains(where: { $0.id == selectedChatID }) {
+                // The remembered conversation is gone: open the newest one instead.
+                self.selectedChatID = visible[0].id
+                await loadSelectedChat(visible[0].id)
             }
             return
         }
@@ -2082,7 +2289,7 @@ final class AccountViewModel: ObservableObject {
                 return ChatThreadDetail(thread: detail.thread,
                     messages: matches, omittedMessageCount: 0, matchingMessageCount: matches.count)
             }
-            renderedChatMessages = (try? await Self.render(messages: detail?.messages ?? [])) ?? [:]
+            chatPresentations = (try? await ChatMessagePresenter.render(messages: detail?.messages ?? [])) ?? [:]
             selectedChat = detail
             return
         }
@@ -2096,17 +2303,17 @@ final class AccountViewModel: ObservableObject {
             } onCancel: {
                 task.cancel()
             }
-            let rendered = try await Self.render(messages: detail?.messages ?? [])
+            let rendered = try await ChatMessagePresenter.render(messages: detail?.messages ?? [])
             guard !Task.isCancelled,
                   generation == chatSelectionGeneration,
                   selectedChatID == id else { return }
             if appending, let detail, let previous {
-                renderedChatMessages.merge(rendered) { _, new in new }
+                chatPresentations.merge(rendered) { _, new in new }
                 selectedChat = ChatThreadDetail(thread: detail.thread,
                     messages: previous.messages + detail.messages, omittedMessageCount: 0,
                     matchingMessageCount: detail.matchingMessageCount, nextOffset: detail.nextOffset)
             } else {
-                renderedChatMessages = rendered
+                chatPresentations = rendered
                 if detail != selectedChat { selectedChat = detail }
             }
             chatDetailTask = nil
@@ -2117,26 +2324,6 @@ final class AccountViewModel: ObservableObject {
             chatDetailTask = nil
             let message = "The selected chat could not open. \(error.localizedDescription)"
             if chatHistoryError != message { chatHistoryError = message }
-        }
-    }
-
-    nonisolated private static func render(
-        messages: [ChatMessage]
-    ) async throws -> [String: AttributedString] {
-        let task = Task.detached(priority: .userInitiated) {
-            var rendered: [String: AttributedString] = [:]
-            rendered.reserveCapacity(messages.count)
-            for (index, message) in messages.enumerated() {
-                if index.isMultiple(of: 16) { try Task.checkCancellation() }
-                let text = String(message.text.prefix(120_000))
-                rendered[message.id] = (try? AttributedString(markdown: text)) ?? AttributedString(text)
-            }
-            return rendered
-        }
-        return try await withTaskCancellationHandler {
-            try await task.value
-        } onCancel: {
-            task.cancel()
         }
     }
 
@@ -2276,10 +2463,22 @@ enum DemoData {
         genericAccount(ProviderID(rawValue: "zai")),
     ]
 
+    /// The owner's other services, so Preview shows every kind of account: Grok Build, Claude Code,
+    /// and Droid (a named login with a masked email hint).
+    static let serviceAccounts: [AccountRecord] = {
+        var droid = genericAccount(.droid)
+        droid.identity.accountID = "Droid personal"
+        droid.identity.email = "s***@gmail.com"
+        return [genericAccount(.grokBuild), genericAccount(.claudeCode), droid]
+    }()
+
     static func genericAccount(_ providerID: ProviderID) -> AccountRecord {
         let email: String?
         let key: String
         switch providerID.rawValue {
+        case "grok-build": (email, key) = ("grok.demo@example.test", "grok-demo")
+        case "claude-code": (email, key) = ("claude.demo@example.test", "claude-demo")
+        case "droid": (email, key) = (nil, "droid-demo")
         case "openrouter": (email, key) = (nil, "or-9f3a1c27d84e")
         case "gemini-cli": (email, key) = ("ada.lovelace@example.test", "gemini-ada")
         case "cursor": (email, key) = ("grace.hopper@example.test", "cursor-grace")
@@ -2289,6 +2488,9 @@ enum DemoData {
         let spec = ProviderCatalog.spec(providerID)
         // Stable identifiers so the checks and screenshots can name these accounts.
         let literal: String? = [
+            "grok-build": "0E0A1005-7F3A-4C27-9D84-5B1E2A6C0005",
+            "claude-code": "0E0A1006-7F3A-4C27-9D84-5B1E2A6C0006",
+            "droid": "0E0A1007-7F3A-4C27-9D84-5B1E2A6C0007",
             "openrouter": "0E0A1001-7F3A-4C27-9D84-5B1E2A6C0001",
             "gemini-cli": "0E0A1002-7F3A-4C27-9D84-5B1E2A6C0002",
             "cursor": "0E0A1003-7F3A-4C27-9D84-5B1E2A6C0003",
@@ -2299,7 +2501,7 @@ enum DemoData {
             id: digest,
             identity: AccountIdentity(
                 providerID: providerID, email: email, userID: key,
-                authMode: spec?.style == .files ? .oauth : .apiKey),
+                authMode: spec?.style == .files || [.grokBuild, .droid, .claudeCode].contains(providerID) ? .oauth : .apiKey),
             credentialFile: URL(fileURLWithPath: "/Demo/.switch/\(providerID.rawValue)/\(digest.uuidString).json"),
             home: URL(fileURLWithPath: "/Demo/Accounts/\(providerID.rawValue)", isDirectory: true),
             source: URL(fileURLWithPath: "/Demo/Sources/\(providerID.rawValue)", isDirectory: true),
@@ -2325,7 +2527,7 @@ enum DemoData {
     /// Usage whose resets are relative to the real clock, so countdowns and pace stay lifelike.
     static var providerUsageStates: [UUID: ProviderUsageState] {
         var result: [UUID: ProviderUsageState] = [:]
-        for (offset, account) in genericAccounts.enumerated() {
+        for (offset, account) in (serviceAccounts + genericAccounts).enumerated() {
             let providerID = account.identity.providerID
             var state = ProviderUsageState(
                 usage: providerUsage(for: providerID, offset: offset), checkedAt: Date())
@@ -2402,6 +2604,21 @@ enum DemoData {
                         windowMinutes: minutes, detail: detail)
         }
         switch providerID.rawValue {
+        case "claude-code":
+            return ProviderUsage(
+                windows: [
+                    window("session", "Session", used: 31, minutes: 300, resetsIn: 3 * 3_600 + 12 * 60),
+                    window("weekly", "Weekly", used: 46, minutes: 10_080, resetsIn: 4 * 86_400 + 3_600),
+                    // A model-specific weekly window is named by its model.
+                    window("weekly-fable", "Weekly Fable", used: 72, minutes: 10_080,
+                           resetsIn: 4 * 86_400 + 3_600),
+                ],
+                plan: "Max", email: "claude.demo@example.test", fetchedAt: now.addingTimeInterval(-120))
+        case "droid":
+            return ProviderUsage(
+                windows: [window("standard", "Standard tokens", used: 41, minutes: 43_200,
+                                 resetsIn: 12 * 86_400, detail: "20.5M / 50M tokens")],
+                plan: "Pro", fetchedAt: now.addingTimeInterval(-300))
         case "openrouter":
             return ProviderUsage(
                 cost: UsageCost(used: 37.6, balance: 12.4, currency: "USD", period: "This month"),
@@ -2512,10 +2729,10 @@ enum DemoData {
             omittedMessageCount: 0)
     }
 
+    /// Two Codex CLI accounts: one signed in and the default, one that needs sign-in.
     static let accounts = [
         account(id: "7A08CA5E-F528-4E45-B730-DAF68B0A3133", email: "ladygaga@gmail.com", workspace: "personal", state: .verifiedWithCodex, detail: "Codex CLI account check completed at 10:15 AM."),
         account(id: "5EA89BE0-D9A1-4727-983B-91640279C396", email: "bankai39@gmail.com", workspace: "design-team", state: .needsSignIn, detail: "Sign in before this account can launch Codex."),
-        account(id: "A9FC9B4F-94AC-4645-AF6C-617546DBA966", email: "joestar89@gmail.com", workspace: "research-team", state: .imported, detail: "Imported locally. The account check has not run."),
     ]
 
     private static func utcDay(_ date: Date) -> String {
@@ -2523,6 +2740,50 @@ enum DemoData {
         formatter.formatOptions = [.withFullDate]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+
+    /// A year of synthetic daily usage for the Overview: an account total for each Codex, Gemini,
+    /// and Cursor demo account, plus shared transcripts by model and project.
+    static func usageHistory(accounts: [AccountRecord]) -> UsageHistorySnapshot {
+        let today = Int(now.timeIntervalSince1970 / 86_400)
+        func noise(_ day: Int, _ salt: Int) -> Double {
+            abs(sin(Double(day * 31 + salt * 17) * 12.9898) * 43_758.5453).truncatingRemainder(dividingBy: 1)
+        }
+        func tokens(_ day: Int, _ salt: Int, _ base: Double) -> Int64 {
+            let age = Double(day - (today - 364)) / 364
+            let weekday = (day + 4) % 7  // 0 is Sunday
+            let rhythm = weekday == 0 || weekday == 6 ? 0.35 : 1
+            let spike = noise(day, salt + 50) > 0.93 ? 2.2 : 1
+            if noise(day, salt + 90) < 0.07 { return 0 }
+            return Int64(base * (0.55 + 0.45 * age) * rhythm * spike * (0.4 + 1.2 * noise(day, salt)))
+        }
+        let owned = accounts.filter { ["codex", "gemini-cli", "cursor"].contains($0.identity.providerID.rawValue) }
+        let transcripts: [(service: String, model: String, project: String, base: Double)] = [
+            ("codex", "gpt-5.6-sol", "/Users/demo/dev/switch", 2_500_000),
+            ("codex", "gpt-5.6-sol", "/Users/demo/dev/site", 1_200_000),
+            ("codex", "gpt-5.5-luna", "/Users/demo/dev/dotfiles", 600_000),
+            ("claude-code", "claude-sonnet-5-5", "/Users/demo/dev/switch", 2_200_000),
+            ("claude-code", "claude-opus-5", "/Users/demo/dev/recap", 1_100_000),
+            ("claude-code", "claude-haiku-5", "/Users/demo/dev/dotfiles", 400_000),
+            ("grok-build", "grok-build-2", "/Users/demo/dev/switch", 500_000),
+        ]
+        var points: [UsageHistoryPoint] = []
+        for day in (today - 364)...today {
+            let name = utcDay(Date(timeIntervalSince1970: Double(day) * 86_400))
+            for (index, account) in owned.enumerated() {
+                let count = tokens(day, index + 1, 3_000_000 / Double(index + 1))
+                points.append(UsageHistoryPoint(
+                    day: name, service: account.identity.providerID.rawValue,
+                    accountID: account.id.uuidString.lowercased(), tokens: count, costUSD: Double(count) * 3.1e-6))
+            }
+            for (index, row) in transcripts.enumerated() {
+                let count = tokens(day, index + 20, row.base)
+                points.append(UsageHistoryPoint(
+                    day: name, service: row.service, model: row.model, project: row.project,
+                    tokens: count, costUSD: Double(count) * 4.2e-6))
+            }
+        }
+        return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)))
     }
 
     static func usage(account: AccountRecord, offset: Int) -> CodexAccountUsageSnapshot {
