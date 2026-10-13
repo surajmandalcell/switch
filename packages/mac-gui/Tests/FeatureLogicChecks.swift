@@ -31,6 +31,12 @@ private actor CallLog {
 
 enum FeatureLogicChecks {
     static func run() async throws {
+        for model in ["Fable", "Sonnet", "Opus", "Future Model"] {
+            try expect(UsageWindow.modelScopedTitle(model: model) == "Weekly \(model)",
+                       "Model-scoped usage lost its reported model name")
+        }
+        try expect(UsageWindow.modelScopedTitle(model: " Fable ", period: "Monthly") == "Monthly Fable",
+                   "Model-scoped titles do not handle other periods or surrounding spaces")
         try emailPrivacy()
         try settingDefaults()
         try notificationEngine()

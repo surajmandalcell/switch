@@ -7,6 +7,8 @@ build_path="${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}"
 output_path="$build_path/mac-gui-production-check"
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/switch-mac-gui-production.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
+# Removed test defaults suites still leave an empty plist (cfprefsd writes it later); clear old ones.
+find "$HOME/Library/Preferences" -maxdepth 1 -name 'switch-*-????????-????-????-????-????????????.plist' -mmin +10 -delete 2>/dev/null || true
 
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$build_path/module-cache/swiftpm"
@@ -24,10 +26,12 @@ swiftc \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ChatHistoryMonitor.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ChatMessagePresentation.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderUsageStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderChoices.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/QuotaNotificationLogic.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ClaudeActivity.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MaintenanceStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \
   "$repo_root/packages/mac-gui/Tests/FeatureLogicChecks.swift" \
   "$repo_root/packages/mac-gui/Tests/ProductionAccountViewModelCheck.swift" \

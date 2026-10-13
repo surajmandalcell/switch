@@ -14,6 +14,8 @@ executable="$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 mkdir -p "$build_path"
 test_root="$(mktemp -d "$build_path/switch-mac-gui-contract.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
+# Removed test defaults suites still leave an empty plist (cfprefsd writes it later); clear old ones.
+find "$HOME/Library/Preferences" -maxdepth 1 -name 'switch-*-????????-????-????-????-????????????.plist' -mmin +10 -delete 2>/dev/null || true
 
 # The type ramp is five roles (AIMTextRole). No hardcoded sizes or removed font helpers.
 # A hit here fails the contract before the app is built.
@@ -160,4 +162,23 @@ for focus_args in "--history --history-stress" "--accounts" "--settings" "--back
     exit 1
   fi
   printf 'MAC_GUI_CONTRACT_PASS focus rings %s\n' "$focus_args"
+done
+
+# Conversations: long messages (code blocks of hundreds of lines, long lines, nested fences) render
+# with no clipped or overlapping row at two window widths, and every page switch renders its first
+# frame within the bound against a large synthetic dataset.
+for conversation_args in "--conversations-check" "--conversations-check --page-switch-only"; do
+  run_root="$test_root/conversations-${conversation_args//[^a-z]/}"
+  mkdir -p "$run_root/home" "$run_root/codex-home" "$run_root/manager" "$run_root/tmp" "$run_root/artifacts"
+  # shellcheck disable=SC2086
+  HOME="$run_root/home" \
+  CFFIXED_USER_HOME="$run_root/home" \
+  CODEX_HOME="$run_root/codex-home" \
+  AI_MANAGER_ROOT="$run_root/manager" \
+  AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \
+  AI_MANAGER_CODEX_EXECUTABLE="/usr/bin/false" \
+  AI_MANAGER_ACCEPTANCE_ARTIFACTS="$run_root/artifacts" \
+  TMPDIR="$run_root/tmp" \
+    "$executable" --contract-only $conversation_args
+  printf 'MAC_GUI_CONTRACT_PASS conversations %s\n' "$conversation_args"
 done

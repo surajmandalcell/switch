@@ -84,7 +84,8 @@ mkdir -p "$run_root/home" "$run_root/codex" "$run_root/claude" "$run_root/grok" 
 app="$run_root/Switch Lint.app"
 mkdir -p "$app/Contents/MacOS"
 swiftc "${flags[@]}" "${sources[@]}" "$repo_root/packages/mac-gui/Tests/NativeUIContract.swift" \
-  "$repo_root/packages/mac-gui/Tests/MenuBarContract.swift" "$repo_root/packages/mac-gui/Tests/AcceptanceApp.swift" \
+  "$repo_root/packages/mac-gui/Tests/MenuBarContract.swift" "$repo_root/packages/mac-gui/Tests/ConversationsCheck.swift" \
+  "$repo_root/packages/mac-gui/Tests/AcceptanceApp.swift" \
   -o "$app/Contents/MacOS/check"
 install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleExecutable -string check "$app/Contents/Info.plist"

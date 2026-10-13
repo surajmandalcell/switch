@@ -25,8 +25,18 @@ struct MockAccountViewModelCheck {
         precondition(model.selectedProviderID == .codex)
         let genericCount = DemoData.genericAccounts.count
         precondition(genericCount == 4)
-        precondition(model.status?.accounts.count == 3 + genericCount)
-        precondition(model.providerUsage.count == genericCount, "Generic demo accounts lack usage")
+        // Preview data covers every service the owner uses: two Codex CLI accounts (one needing
+        // sign-in), Grok Build, Claude Code with a model weekly window, and a named Droid login.
+        let baseCount = DemoData.accounts.count + DemoData.serviceAccounts.count + genericCount
+        precondition(DemoData.accounts.count == 2 && DemoData.accounts.filter { $0.identity.providerID == .codex }.count == 2)
+        precondition(DemoData.accounts.filter { $0.verification.state == .needsSignIn }.count == 1)
+        precondition(DemoData.serviceAccounts.map(\.identity.providerID) == [.grokBuild, .claudeCode, .droid])
+        let droidDemo = DemoData.serviceAccounts[2].identity
+        precondition(droidDemo.accountID == "Droid personal" && droidDemo.email == "s***@gmail.com")
+        precondition(model.status?.accounts.count == baseCount)
+        precondition(model.providerUsage.count == DemoData.serviceAccounts.count + genericCount, "Demo accounts lack usage")
+        let claudeDemo = DemoData.serviceAccounts[1]
+        precondition(model.providerUsage[claudeDemo.id]?.usage?.windows.map(\.title).contains("Weekly Fable") == true)
         precondition(model.providerUsage.values.allSatisfy { $0.usage != nil })
         precondition(model.status?.pendingRecovery.count == 2)
         precondition(model.status?.linkedSettingsDivergences.count == 1)
@@ -41,7 +51,7 @@ struct MockAccountViewModelCheck {
         await model.searchChatHistory(query: "account import")
         precondition(model.chatHistory.matchingThreadCount == 1)
         precondition(model.selectedChat?.messages.count == 10)
-        precondition(model.renderedChatMessages.count == 10)
+        precondition(model.chatPresentations.count == 10)
         await model.searchChatHistory(query: "no-such-chat")
         precondition(model.chatHistory.matchingThreadCount == 0)
         precondition(model.selectedChatID == initialChatID)
@@ -99,7 +109,7 @@ struct MockAccountViewModelCheck {
         precondition(model.importPlan?.conflicts.first(where: { $0.relativePath == "rules" })?.externalTargetBytes == 12_480)
         await model.commitImport()
         precondition(model.importResult?.importedChats == 248)
-        precondition(model.status?.accounts.count == 4 + genericCount)
+        precondition(model.status?.accounts.count == baseCount + 1)
         let firstImportedID = model.importResult?.account.id
 
         model.resetImport()
@@ -108,7 +118,7 @@ struct MockAccountViewModelCheck {
         await model.reviewImport()
         await model.commitImport()
         precondition(model.importResult?.importedChats == 0)
-        precondition(model.status?.accounts.count == 5 + genericCount)
+        precondition(model.status?.accounts.count == baseCount + 2)
         precondition(model.importResult?.account.id != firstImportedID)
         let secondImportedID = model.importResult?.account.id
 
@@ -116,7 +126,7 @@ struct MockAccountViewModelCheck {
         await model.reviewImport()
         await model.commitImport()
         precondition(model.importResult?.account.id == secondImportedID)
-        precondition(model.status?.accounts.count == 5 + genericCount)
+        precondition(model.status?.accounts.count == baseCount + 2)
         await model.switchDefault()
         precondition(model.status?.defaultAccountID == model.selectedAccountID)
         let accountCountBeforeRefresh = model.status?.accounts.count
@@ -175,9 +185,12 @@ struct MockAccountViewModelCheck {
 
         model.reset(to: .demo)
         let demoDefault = model.status!.defaultAccountID!
-        let demoReplacement = model.status!.accounts.first {
-            $0.id != demoDefault && $0.verification.state != .needsSignIn
+        // The demo has two Codex accounts and one needs sign-in; sign it in so it can replace the default.
+        let replacementIndex = model.status!.accounts.firstIndex {
+            $0.id != demoDefault && $0.identity.providerID == .codex
         }!
+        model.status!.accounts[replacementIndex].verification.state = .verifiedWithCodex
+        let demoReplacement = model.status!.accounts[replacementIndex]
         model.selectedAccountID = demoReplacement.id
         model.selectedAccountID = demoDefault
         await model.deleteAccount(demoDefault)
@@ -233,9 +246,8 @@ struct MockAccountViewModelCheck {
         precondition(model.providerStatus[ProviderID(rawValue: "cursor")] == nil)
         await model.refreshProviderStatus()
         precondition(model.providerStatus.count == 3, "A demo status refresh changed the synthetic incidents")
-        precondition(model.claudeActivity == nil)
         let claude = model.addDemoProviderAccount(.claudeCode)
-        precondition(claude.identity.providerID == .claudeCode)
+        precondition(claude.identity.providerID == .claudeCode && claude.id == claudeDemo.id, "Preview adds a second Claude account")
         precondition(model.claudeActivity?.rows.map(\.label) == ["Today", "Yesterday", "Last 30 days"])
         await model.refreshClaudeActivity(force: true)
         precondition(!model.isClaudeActivityLoading && model.claudeActivity?.rows.count == 3)
@@ -244,13 +256,29 @@ struct MockAccountViewModelCheck {
         await model.setClaudeShellIntegration(false)
         precondition(!model.claudeShellIntegrationOn)
 
+        // Maintenance preview: the real scanner and backup engine run on a synthetic Mac.
+        let maintenance = model.maintenance
+        maintenance.refreshSources()
+        precondition(["codex", "claude"].allSatisfy { id in maintenance.sources.contains { $0.id == id } },
+                     "The preview source picker lacks Codex or Claude")
+        let demoCodex = maintenance.sources.first { $0.id == "codex" }!
+        let demoScan = try! await model.cleanupScan(demoCodex)
+        let demoCategory = { (id: String) in demoScan.categories.first { $0.id == id }?.items.count ?? 0 }
+        precondition(demoCategory("conversations") == 10 && demoCategory("agents") == 4,
+                     "Preview cleanup mixes agent sessions into conversations")
+        precondition(!demoScan.categories.flatMap(\.items).contains { ["auth.json", "config.toml"].contains(($0.path as NSString).lastPathComponent) },
+                     "Preview cleanup lists a login or settings file")
+        precondition(maintenance.sets.count == 2 && maintenance.recent.count == 3,
+                     "The preview backups do not fill the recent list")
+        if let demoRoot = maintenance.demoRoot { try? FileManager.default.removeItem(at: demoRoot) }
+
         model.reset(to: .empty)
         precondition(model.providerStatus.isEmpty && model.claudeActivity == nil)
         precondition(model.status?.accounts.isEmpty == true)
         precondition(model.providerUsage.isEmpty)
         precondition(model.discoveries.isEmpty)
         model.reset()
-        precondition(model.status?.accounts.count == 3 + genericCount)
+        precondition(model.status?.accounts.count == baseCount)
         precondition(!FileManager.default.fileExists(atPath: root.path), "Mock actions wrote to disk")
         print("MOCK_ACCOUNT_VIEW_MODEL_PASS")
     }
