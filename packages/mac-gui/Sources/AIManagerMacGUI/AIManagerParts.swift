@@ -888,20 +888,22 @@ private struct AIMPushButtonFace: View {
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
     let pressed = configuration.isPressed
+    // A disabled button dims each part, not the whole face: a group opacity makes Core Animation
+    // draw the face through an offscreen layer as large as the card (9 rows cost about 40 ms).
+    let dim = isEnabled ? 1.0 : 0.45
     configuration.label
       .labelStyle(AIMButtonLabelStyle())
       .aimFont(.body)
-      .foregroundStyle(prominent ? Color.white : Color.primary)
+      .foregroundStyle((prominent ? Color.white : Color.primary).opacity(dim))
       .lineLimit(1)
       .padding(.horizontal, square ? 0 : (height < AIMTheme.controlHeight ? 10 : 12))
       .frame(width: square ? height : width, height: height)
-      .background(shape.fill(fill(pressed: pressed)))
+      .background(shape.fill(fill(pressed: pressed).opacity(dim)))
       .overlay(shape.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
       .overlay(shape.fill(hovering && isEnabled && !pressed ? hoverTint : Color.clear))
       // The rim is light-mode only; Dark Mode controls are flat fills. No drop shadow: a half-point
       // blur falls between pixels at 1x and smears the edge.
-      .aimBorder(prominent ? AIMTheme.primaryBorder : AIMTheme.controlBorder, in: shape)
-      .opacity(isEnabled ? 1 : 0.45)
+      .aimBorder((prominent ? AIMTheme.primaryBorder : AIMTheme.controlBorder).opacity(dim), in: shape)
       .contentShape(shape)
       .uiLint(.control)
       .onHover { hovering = $0 }
