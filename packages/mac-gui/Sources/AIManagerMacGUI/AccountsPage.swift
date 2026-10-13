@@ -1372,8 +1372,9 @@ struct FocusedAccountCard: View {
 // MARK: - Card 2: accounts table
 
 /// The accounts table: rows share `AIMColumns.accounts` and the card's 16 inset, with no header row.
-/// Provider groups alternate a faint fill (zebra). Clicking a row focuses it. `onMove` turns on
-/// drag-and-drop reordering.
+/// An indented outline: each provider has a 32 pt header (brand tile, name, count) and its accounts
+/// sit 24 pt in, joined to the tile by a guide line with an elbow at each row. Clicking a row
+/// focuses it. `onMove` turns on drag-and-drop reordering.
 struct AccountsTableCard: View {
   let accounts: [AccountRecord]
   let total: Int
@@ -1390,9 +1391,6 @@ struct AccountsTableCard: View {
   var contextMenu: ((AccountRecord) -> AnyView)? = nil
 
   static let group = "accounts"
-
-  /// Every second provider group carries the zebra fill.
-  static func isStriped(_ groupIndex: Int) -> Bool { !groupIndex.isMultiple(of: 2) }
 
   var body: some View {
     AIMCard(
@@ -1431,42 +1429,68 @@ struct AccountsTableCard: View {
     return order.map { ($0, byProvider[$0] ?? []) }
   }
 
-  /// The 24 pt label row above a group: a 12 pt provider glyph and "Codex CLI · 2".
-  private func groupLabel(_ provider: ProviderID, count: Int) -> some View {
-    HStack(spacing: 6) {
-      ProviderGlyph(providerID: provider, size: 12).foregroundStyle(.secondary)
-      Text("\(provider.guiName) · \(count)").aimText(.secondary).lineLimit(1)
+  /// The 32 pt header above a group: a 16 pt brand tile, the provider name, and a count pill.
+  private func groupHeader(_ provider: ProviderID, count: Int) -> some View {
+    HStack(spacing: 8) {
+      ProviderMark(providerID: provider, size: 16)
+      Text(provider.guiName).aimText(.secondary, tint: .primary).fontWeight(.semibold).lineLimit(1)
+      Text("\(count)").aimText(.caption).foregroundStyle(.secondary).monospacedDigit()
+        .padding(.vertical, 1).padding(.horizontal, 6)
+        .background(AIMTheme.countPill, in: Capsule())
+      Spacer(minLength: 0)
     }
-    .aimColumn(AIMColumns.accounts[0], group: Self.group)
     .padding(.horizontal, AIMTheme.cardInset)
-    .frame(height: AIMTheme.groupLabelHeight)
+    .frame(height: AIMTheme.groupHeaderHeight)
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(.isHeader)
   }
 
-  /// Every second group gets the zebra fill across the card width; the card's rounded clip trims
-  /// its corners. The last group also carries the card's bottom inset, so its fill reaches the edge.
+  /// Groups sit 6 pt apart. Separators and the guide are overlays, so a group is exactly its header
+  /// plus 36 pt for each account. The last group also carries the card's bottom inset.
   private var rows: some View {
     let groups = self.groups
-    return VStack(spacing: 0) {
+    return VStack(spacing: AIMTheme.groupGap) {
       ForEach(Array(groups.enumerated()), id: \.element.provider) { groupIndex, group in
         let isLast = groupIndex == groups.count - 1
-        if groupIndex > 0 { AIMRowSeparator() }
         VStack(spacing: 0) {
-          groupLabel(group.provider, count: group.accounts.count)
+          groupHeader(group.provider, count: group.accounts.count)
           ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
-            if index > 0 { AIMRowSeparator() }
             AccountsTableRow(
               account: account, model: model, selected: account.id == focusedID, now: now,
               hideEmails: hideEmails, showsUsed: showsUsed,
               focus: { focus(account.id) }, delete: { delete(account) },
               onMove: onMove, contextMenu: contextMenu)
+              .overlay(alignment: .top) {
+                if index > 0 { AIMRowSeparator(indent: AIMTheme.groupIndent).allowsHitTesting(false) }
+              }
           }
         }
+        .overlay(alignment: .topLeading) { AccountsGuide(rows: group.accounts.count) }
         .padding(.bottom, isLast ? AIMTheme.tableEndInset : 0)
-        .background(Self.isStriped(groupIndex) ? AIMTheme.zebra : Color.clear)
       }
     }
+  }
+}
+
+/// The outline of one group: a 1 pt line from just under the brand tile to the middle of the last
+/// row, and a 10 pt elbow at each row's center that stops 6.5 pt short of the name.
+private struct AccountsGuide: View {
+  let rows: Int
+
+  var body: some View {
+    Canvas { context, _ in
+      let x = AIMTheme.cardInset + 7.5
+      let header = AIMTheme.groupHeaderHeight, row = AIMTheme.rowHeight
+      let top = header - 4
+      let bottom = header + CGFloat(rows - 1) * row + row / 2
+      var guide = Path(CGRect(x: x, y: top, width: 1, height: bottom - top))
+      for index in 0..<rows {
+        guide.addRect(CGRect(x: x, y: header + CGFloat(index) * row + row / 2, width: 10, height: 1))
+      }
+      context.fill(guide, with: .color(AIMTheme.guideLine))
+    }
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
   }
 }
 
@@ -1485,6 +1509,22 @@ private struct AccountsTableRow: View {
   @FocusState private var keyboardFocus: Bool
   private var name: String { account.identity.accountLabel }
 
+  /// Why the usage cell has no bar, from the state the model already keeps.
+  private var usageReason: String {
+    let provider = account.identity.providerID
+    let state = model.providerUsage[account.id]
+    let isCodex = provider == .codex
+    if model.needsSignIn(account) { return "Sign in to see usage" }
+    if isCodex ? model.usageRefreshAccountID == account.id : state?.isRefreshing == true {
+      return "Checking usage…"
+    }
+    if isCodex ? model.usageError(for: account.id) != nil : state?.error != nil {
+      return "Couldn’t check usage"
+    }
+    if !isCodex, state?.checkedAt != nil { return "\(provider.guiName) reports no usage" }
+    return "No usage yet"
+  }
+
   var body: some View {
     let columns = AIMColumns.accounts
     let group = AccountsTableCard.group
@@ -1496,27 +1536,36 @@ private struct AccountsTableRow: View {
     #else
     let previewHover = false
     #endif
-    let row = AIMTableRow(highlighted: selected, focused: keyboardFocus, previewHovering: previewHover) {
-      // The group label above says the provider; a status dot follows the name only for an incident.
+    let row = AIMTableRow(
+      highlighted: selected, focused: keyboardFocus, previewHovering: previewHover, indent: AIMTheme.groupIndent
+    ) {
+      // The group header above says the provider; a status dot follows the name only for an incident.
       HStack(spacing: AIMTheme.rowSpacing) {
         Text(name).aimText(.body).lineLimit(1).truncationMode(.middle)
         ProviderStatusDot(entry: model.providerStatus[account.identity.providerID], size: 6)
       }
       .aimColumn(columns[0], group: group)
+      // The bar and "83% · 6d 19h"; with no window, the reason fills the cell instead.
       HStack(spacing: AIMTheme.rowSpacing) {
-        UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed,
-          providerID: account.identity.providerID).frame(minWidth: 40)
-        Text(percent)
-          .aimText(.body).monospacedDigit().lineLimit(1)
-          .aimRolling(percent)
-          .frame(width: 44, alignment: .trailing)
-          .uiLint(.number)
+        if let window {
+          UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed,
+            providerID: account.identity.providerID).frame(minWidth: 40)
+          HStack(spacing: 0) {
+            Text(percent).aimText(.body).monospacedDigit().aimRolling(percent).uiLint(.number)
+            if let reset = window.resetsAt {
+              let text = OverviewFormat.compactReset(reset, now: now, usedPercent: window.usedPercent)
+              Text(" · " + (text.hasPrefix("in ") ? String(text.dropFirst(3)) : text))
+                .aimText(.body).foregroundStyle(.secondary)
+            }
+          }
+          .lineLimit(1)
+          .frame(width: 104, alignment: .trailing)
+        } else {
+          Text(usageReason).aimText(.secondary).lineLimit(1)
+        }
       }
       .accessibilityElement(children: .combine)
       .aimColumn(columns[1], group: group)
-      Text(window?.resetsAt.map { OverviewFormat.compactReset($0, now: now, usedPercent: window?.usedPercent) } ?? "–")
-        .aimText(.secondary).lineLimit(1)
-        .aimColumn(columns[2], group: group)
       HStack(spacing: AIMTheme.rowSpacing) {
         switch OverviewFormat.rowAction(for: account, model: model) {
         case .isDefault:
@@ -1531,7 +1580,7 @@ private struct AccountsTableRow: View {
         AccountMoreMenu(account: account, model: model, delete: delete)
       }
       .uiLint(.actions)
-      .aimColumn(columns[3], group: group)
+      .aimColumn(columns[2], group: group)
     }
     row
       .contentShape(Rectangle())

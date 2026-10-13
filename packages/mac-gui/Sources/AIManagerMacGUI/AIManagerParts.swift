@@ -12,8 +12,11 @@ extension AIMTheme {
   static let cardInset: CGFloat = 16
   static let titleRowHeight: CGFloat = 44
   static let rowHeight: CGFloat = 36
-  /// The provider label row above a group of account rows.
-  static let groupLabelHeight: CGFloat = 24
+  /// The Accounts table: a provider header row, account rows indented under its name, and a gap
+  /// between groups. The tile is 16 pt with an 8 pt gap, so the indent lines up with the name.
+  static let groupHeaderHeight: CGFloat = 32
+  static let groupIndent: CGFloat = 24
+  static let groupGap: CGFloat = 6
   /// Tiles share the card's inset, with a 12 pt gap and a 6 pt radius.
   static let tileInset: CGFloat = 16
   static let tileGap: CGFloat = 12
@@ -58,9 +61,11 @@ extension AIMTheme {
   static let hairline = Color(nsColor: .separatorColor)
   /// Table separators stay lighter than the card border (light 6% against 10%, dark 4% against 5%).
   static let tableSeparator = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.04))
-  /// The fill of every second provider group in a table (zebra), across the card width.
-  static let zebra = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.03))
-  /// Pointer hover on a row: stronger than the zebra fill so it reads on both stripes, fainter than selection.
+  /// The outline guide line and elbows of a provider group: fainter than a border, still readable.
+  static let guideLine = dynamic(light: NSColor(white: 0, alpha: 0.13), dark: NSColor(white: 1, alpha: 0.13))
+  /// The count pill behind the number in a provider header.
+  static let countPill = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.07))
+  /// Pointer hover on a row: fainter than selection.
   static let rowHover = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.07))
   static let tileFill = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.04))
   static let controlFill = dynamic(light: .white, dark: NSColor(white: 1, alpha: 0.12))
@@ -778,12 +783,11 @@ struct AIMColumn: Identifiable {
 
 enum AIMColumns {
   static let gap: CGFloat = 12
-  /// No Provider column: the group label above the rows says it. The account name and the
-  /// usage bar share the freed width.
+  /// No Provider column (the group header says it) and no Resets column (the usage cell ends in
+  /// the reset time). The account name takes the free width.
   static let accounts: [AIMColumn] = [
     AIMColumn(id: "account"),
-    AIMColumn(id: "usage", width: 260),
-    AIMColumn(id: "resets", width: 88),
+    AIMColumn(id: "usage", width: 340),
     AIMColumn(id: "actions", width: AIMTheme.rowButtonWidth + 8 + AIMTheme.rowControlHeight),
   ]
 }
@@ -809,14 +813,19 @@ struct AIMTableRow<Content: View>: View {
   var focused = false
   /// Draws the hover fill without a pointer, for Preview screenshots.
   var previewHovering = false
+  /// Extra leading space for rows under a group header. The highlight then starts 8 pt left of the
+  /// content and ends 8 pt right of it, instead of 6 pt from the card edges.
+  var indent: CGFloat = 0
   @ViewBuilder var content: Content
   @State private var pointerInside = false
 
   var body: some View {
     let hovering = pointerInside || previewHovering
     let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
+    let wash = indent > 0 ? AIMTheme.cardInset - 8 : 6
     HStack(spacing: AIMColumns.gap) { content }
-      .padding(.horizontal, AIMTheme.cardInset)
+      .padding(.leading, AIMTheme.cardInset + indent)
+      .padding(.trailing, AIMTheme.cardInset)
       .frame(height: AIMTheme.rowHeight)
       .frame(maxWidth: .infinity)
       .background(alignment: .center) {
@@ -825,7 +834,8 @@ struct AIMTableRow<Content: View>: View {
           shape.fill(AIMTheme.focusTint).opacity(focused && !highlighted ? 1 : 0)
           shape.fill(AIMTheme.rowHighlight).opacity(highlighted ? 1 : 0)
         }
-        .padding(.horizontal, 6)
+        .padding(.leading, wash + indent)
+        .padding(.trailing, wash)
         .padding(.vertical, AIMTheme.highlightInset)
         .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
         .animation(AIMMotion.fade(AIMMotion.hover), value: highlighted)
@@ -837,12 +847,14 @@ struct AIMTableRow<Content: View>: View {
   }
 }
 
-/// A lighter-than-border rule between rows, on the 16 inset.
+/// A lighter-than-border rule between rows, on the 16 inset (`indent` moves its start in).
 struct AIMRowSeparator: View {
   @Environment(\.aimPixel) private var pixel
+  var indent: CGFloat = 0
   var body: some View {
     Rectangle().fill(AIMTheme.tableSeparator).frame(height: pixel)
-      .padding(.horizontal, AIMTheme.cardInset)
+      .padding(.leading, AIMTheme.cardInset + indent)
+      .padding(.trailing, AIMTheme.cardInset)
       .accessibilityHidden(true)
   }
 }

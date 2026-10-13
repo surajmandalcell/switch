@@ -1429,11 +1429,16 @@ enum AIManagerNativeContract {
     }
     expect(AIMColumns.accounts.filter { $0.width == nil }.count == 1,
       "The accounts table needs exactly one flexible column")
+    expect(AIMColumns.accounts.map(\.id) == ["account", "usage", "actions"]
+      && AIMColumns.accounts.map(\.width) == [nil, 340, AIMTheme.rowButtonWidth + 8 + AIMTheme.rowControlHeight],
+      "The accounts columns are not account (flexible), usage 340, and actions")
     let fixed = AIMColumns.accounts.compactMap(\.width).reduce(0, +)
-      + AIMColumns.gap * CGFloat(AIMColumns.accounts.count - 1) + 2 * AIMTheme.cardInset
+      + AIMColumns.gap * CGFloat(AIMColumns.accounts.count - 1) + 2 * AIMTheme.cardInset + AIMTheme.groupIndent
     let available = AIManagerWindow.minimumSize.width - AIMTheme.sidebarWidth - 2 * AIMTheme.pageMargin
     expect(available - fixed >= 160,
       "The accounts table leaves \(available - fixed) points for Account at the minimum window width")
+    expect(AIMTheme.groupHeaderHeight == 32 && AIMTheme.groupIndent == 24 && AIMTheme.groupGap == 6
+      && AIMTheme.rowHeight == 36, "The accounts table geometry is not header 32, indent 24, gap 6, row 36")
     let columns = AIMColumns.accounts
     let row = NSHostingView(rootView: AIMTableRow {
       ForEach(columns) { column in Text("x").aimColumn(column, group: "check") }
@@ -1443,7 +1448,7 @@ enum AIManagerNativeContract {
     return failures
   }
 
-  /// The Accounts page: no table header, zebra groups, a fixed-frame focused card with
+  /// The Accounts page: no table header, an indented outline of provider groups, a fixed-frame focused card with
   /// "Unavailable" and "Sign in again", no name picker, remembered choices, and motion tokens.
   @MainActor static func accountsPageFailures() -> [String] {
     var failures: [String] = []
@@ -1473,20 +1478,18 @@ enum AIManagerNativeContract {
     expect(accounts.first { $0.identity.providerID == .droid }?.identity.accountLabel.hasPrefix("Droid personal") == true,
       "The Preview Droid account is not named Droid personal")
 
-    // Separators are lighter than the card border; the zebra fill is faint; hover reads on both stripes.
+    // Separators are lighter than the card border; the guide line is faint; selection reads over hover.
     for dark in [false, true] {
       let name = dark ? "Dark" : "Light"
       expect(alpha(AIMTheme.tableSeparator, dark: dark) < alpha(AIMTheme.cardBorder, dark: dark),
         "\(name): table separators are not lighter than the card border")
-      let zebra = alpha(AIMTheme.zebra, dark: dark)
-      expect(abs(zebra - (dark ? 0.03 : 0.025)) < 0.002, "\(name): the zebra fill is not about \(dark ? "3" : "2.5") percent")
-      expect(alpha(AIMTheme.rowHover, dark: dark) > 1.8 * zebra && alpha(AIMTheme.rowHighlight, dark: dark) > alpha(AIMTheme.rowHover, dark: dark),
-        "\(name): hover or selection does not read on a zebra stripe")
+      expect(abs(alpha(AIMTheme.guideLine, dark: dark) - 0.13) < 0.002, "\(name): the guide line is not about 13 percent")
+      expect(alpha(AIMTheme.rowHighlight, dark: dark) > alpha(AIMTheme.rowHover, dark: dark),
+        "\(name): selection does not read over hover")
     }
 
-    // The accounts table: no header row (height is exactly title + groups + rows), alternating stripes.
-    expect((0..<5).map(AccountsTableCard.isStriped) == [false, true, false, true, false],
-      "Zebra stripes do not alternate by provider group")
+    // The accounts table: a 32 pt header per provider, 36 pt rows, 6 pt between groups, no zebra fill, no
+    // column header (height is exactly title + groups + rows + gaps + end inset).
     let groupSizes = Dictionary(grouping: accounts, by: { $0.identity.providerID }).values.map(\.count)
     let table = NSHostingView(rootView: AccountsTableCard(
       accounts: accounts, total: accounts.count, query: "", model: model, focusedID: accounts.first?.id,
@@ -1498,12 +1501,12 @@ enum AIManagerNativeContract {
     tableWindow.contentView = table
     table.frame = NSRect(x: 0, y: 0, width: 780, height: 700)
     table.layoutSubtreeIfNeeded()
-    let bare = AIMTheme.titleRowHeight + groupSizes.reduce(0) { $0 + AIMTheme.groupLabelHeight + CGFloat($1) * AIMTheme.rowHeight }
-      + AIMTheme.tableEndInset
-    let separators = CGFloat(groupSizes.reduce(0, +) - 1)
+    let expected = AIMTheme.titleRowHeight
+      + groupSizes.reduce(0) { $0 + AIMTheme.groupHeaderHeight + CGFloat($1) * AIMTheme.rowHeight }
+      + AIMTheme.groupGap * CGFloat(groupSizes.count - 1) + AIMTheme.tableEndInset
     let height = table.fittingSize.height
-    expect(height >= bare && height <= bare + separators + 2,
-      "The accounts table is \(height) tall; with no header row it is \(bare) plus \(separators) separators")
+    expect(height >= expected && height <= expected + 2,
+      "The accounts table is \(height) tall; the outline formula gives \(expected)")
 
     // Focused card: the same frame for a signed-in, a signed-out, and an unchecked account.
     func cardSize(_ account: AccountRecord) -> NSSize {
