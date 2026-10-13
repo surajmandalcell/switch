@@ -388,29 +388,24 @@ two accounts never collapse or clip.
 
 ## 4. Visual system
 
-Switch follows the macOS Human Interface Guidelines, the owner's menu bar popover mockup, and
-the owner's Overview concept (`docs/design/overview-concept.png`). The window stays close to the
-concept and looks like macOS Sequoia 15 on every macOS version: no Liquid Glass, a translucent
-sidebar, a light grey content background (dark grey in Dark Mode), white grouped cards with a
-hairline border (a slightly lighter fill in Dark Mode), and Sequoia-style push buttons, menus, and
-search field. Where the running macOS draws a newer glass style, Switch draws the Sequoia style
-itself. System semantic colors and the user's accent color, in light and dark.
+Follow macOS HIG, the owner's popover mockup, and Overview concept (`docs/design/overview-concept.png`).
+Keep the concept's Sequoia 15 style on every macOS version; draw it when the OS supplies glass.
+No Liquid Glass. Use a translucent sidebar, light grey content (dark grey in Dark Mode), white
+grouped cards with hairline borders (slightly lighter fills in Dark Mode), and Sequoia push
+buttons, menus, and search. Use semantic colors and the user's accent in both appearances.
 
-**Design gate:** lintapple (`packages/mac-gui/ui-lint`) checks the HTML reference of the window
-(Overview plus the shared parts in their other states) and a mirror page exported from the real
-SwiftUI layout of every window page. Both pass with zero findings in light
-and dark before a UI change ships.
+**Design gate:** lintapple (`packages/mac-gui/ui-lint`) checks the HTML reference (Overview and
+shared-part states) and a measured SwiftUI mirror of every page. Both must have zero findings
+in light and dark before a UI change ships.
 
-- **Type and color:** exactly five text roles, all macOS text styles, used the same way on
-  every screen and in the popover: Title (Title 2 semibold, 17 pt, at most once per page, for
-  the focused account name), Section (Headline, 13 pt bold, card and form section titles),
-  Body (13 pt regular, every row label, value, and button), Secondary (Subheadline, 11 pt, in
-  the secondary color, for providers, descriptions, and reset text), and Caption (10 pt, badges
-  only). Numbers keep their role and add monospaced digits; only paths and IDs use the
-  monospaced font. No other sizes or weights. Buttons and the Default state chip use Body.
-  Remaining-quota bars are 6 pt capsules, green above 50% left, yellow from 20% to 50%, and red
-  below 20%; the pace verdict uses the same colors; an unknown value shows an empty grey track.
-  Show percentage used flips text and fill to the used share.
+- **Type and color:** five macOS roles, consistent across screens and popover: Title (Title 2,
+  semibold, 17 pt, focused account name, once per page); Section (Headline, bold, 13 pt, card/form
+  titles); Body (regular, 13 pt, row labels, values, buttons, Default chip); Secondary (Subheadline,
+  11 pt, secondary color, providers/descriptions/resets); Caption (10 pt, badges). No other sizes
+  or weights. Numbers add monospaced digits; only paths and IDs use a monospaced font.
+  Remaining-quota bars are 6 pt capsules: green above 50% left, yellow at 20-50%, red below 20%.
+  Pace uses the same colors; unknown values show an empty grey track. Show percentage used flips
+  text and fill to the used share.
 - **Geometry (points):** content margins 20, 12 between cards. A card has a 10 radius and a
   16 inset; its title row (Section title left, Secondary count or an accent "View … →" link
   right) is 44 tall. Every card spans the full content width, and its title, column headers,
@@ -419,16 +414,14 @@ and dark before a UI change ships.
   icon buttons are square. Tiles inside a card (for example Current limits) follow the card's
   16 inset: the first tile starts at 16, the last ends 16 from the right edge, tiles sit 12
   apart with a 6 radius, and the card keeps 16 below the tiles.
-- **Window:** a translucent 220 pt sidebar under a 52 pt unified title bar (an empty system
-  toolbar, so macOS places the traffic lights). The traffic lights sit at the system inset, not
-  in the corner, and share one vertical center with the "Switch" name and the content's top
-  row. Sidebar rows use filled SF Symbols in the order of section 2: Overview `house.fill`,
-  Accounts `person.2.fill`, Settings `gearshape.fill`, Maintenance
-  `wrench.and.screwdriver.fill`, Conversations `ellipsis.message.fill`. The content's top row
-  holds, from the right edge in, a "Search accounts…" field 300 pt wide with a ⌘K hint
-  (Command-K focuses it; it filters every account list), then a More menu and an Add button to
-  its left, so the bar reads lightest to heaviest. Settings uses the full content width, so its
-  cards end at the top bar's edge like every page.
+- **Window:** translucent 220 pt sidebar, 52 pt unified title bar, empty system toolbar.
+  Traffic lights use the system inset and share a vertical center with "Switch" and the top row.
+  Sidebar filled SF Symbols follow section 2: Overview `house.fill`, Accounts `person.2.fill`,
+  Settings `gearshape.fill`, Maintenance `wrench.and.screwdriver.fill`, Conversations
+  `ellipsis.message.fill`. The top row reads Add, More, then "Search accounts…" at the right edge,
+  following the lightest-to-heaviest rule. Search is 300 pt wide, filters every account list,
+  and shows ⌘K; Command-K focuses it. Settings cards span the full content width and end at the
+  top bar's edge, like every page.
 - **Overview:** five cards, as in the concept. (1) Focused account: a 44 pt provider icon tile,
   the name (Title) with a chevron menu that picks another account, the provider (Secondary) with
   a green Active dot or an attention badge; a hairline divider, then the primary window (label,
@@ -493,45 +486,35 @@ Continue buttons and a small step indicator; every step keeps its buttons visibl
 
 ## 5. Terminal distribution
 
-The existing `ai-manager` executable owns the terminal interface and opens it when
-run without arguments. The repository root provides `make tui` as the source checkout
-entry point. Distribute the Apple Silicon macOS executable as the `@smdl/switch` npm
-package, so npx opens the interface and a global install exposes `switch` and
-the existing `ai-manager` alias.
-The root README has a terminal getting-started section with all three paths. The npm package
-holds the compiled executable, with no reimplemented account logic and no Swift build step.
+`ai-manager` owns the terminal interface and opens it without arguments. `make tui` is the
+checkout entry point. Distribute the compiled Apple Silicon macOS executable as `@smdl/switch`:
+npx opens the interface; global installation exposes `switch` and the `ai-manager` alias.
+The root README documents all three paths. The package adds no account logic or Swift build step.
 
-The interactive terminal uses the approved **09 Amber Menu** structure: a compact
-character-cell account list grouped by provider, one inverse selected row, selected-account
-limits, and arrow-key navigation. Each action starts with a compact semantic glyph while retaining
-its full text label. The TUI exposes account deletion with an explicit confirmation and preserves
-every existing account operation.
-It leaves foreground and background colors to the terminal and uses only native bold,
-dim, and inverse ANSI attributes, avoiding appearance detection. Piped output and
-`NO_COLOR` remain plain text. Show an animated loader immediately while the initial
-account refresh runs, then clear it before drawing the menu. Cached limits are displayed
-when present; the interface never manufactures missing usage.
+Use **09 Amber Menu**: compact character-cell accounts grouped by provider, one inverse selected
+row, selected-account limits, and arrow navigation. Keep every account operation, including
+confirmed deletion. Actions retain their full text after a compact semantic glyph. Leave colors
+to the terminal; use only bold, dim, and inverse ANSI attributes, without appearance detection.
+Piped output and `NO_COLOR` are plain. Start the animated loader with the initial refresh and
+clear it before the menu. Show cached limits; never invent usage.
 
-On an attached terminal, navigation uses raw keyboard input: Up and Down move focus,
-Right or Enter opens the focused account, Enter runs the focused action, and Left or
-Escape returns; no command-letter navigation is shown or required. Normal input returns
-for free-text path entry and the launched Codex process, and always on exit. Raw mode keeps the
-terminal's output processing so every line returns to column zero in Terminal, iTerm, and
-compatible emulators.
+Attached terminals use raw input: Up/Down move focus, Right/Enter opens the account, Enter runs
+the action, and Left/Escape returns. No command-letter navigation. Restore normal input for
+paths, the launched Codex process, and exit. Preserve terminal output processing so lines start
+at column zero in Terminal, iTerm, and compatible emulators.
 
 ## 6. Verification contract
 
-Automated tests use synthetic credentials and isolated homes. A UI change must pass the
-focused Mac GUI contract, production and Preview model checks, System/Light/Dark snapshots,
-the lintapple design gate (section 4), and the full native gate before installation. Core or CLI changes additionally pass both
-unprivileged read-only Linux Docker architectures. A public GitHub release may use an ad hoc
-signature when Developer ID signing is unavailable. Keep end-user install copy concise and
-do not add warning blocks about signing or Gatekeeper.
-Build, validate, and upload Mac archives from the maintainer's local Mac, not GitHub Actions.
-The README identifies the current Switch download accurately (older product releases are not
-Switch) and leads with provider-neutral switching; provider-specific paths, session behavior,
-and limits live in concise provider notes, not in a Codex-centered product model.
-Before installed-app GUI actions, compare the packaged and `/Applications/Switch.app`
-executable SHA-256 values, verify the embedded revision against the committed build, and
-check that the running process maps the installed binary's inode. A stale process or
-checksum mismatch must be corrected before clicking; record this proof in the install receipt.
+Tests use synthetic credentials and isolated homes. Before UI installation, pass the Mac GUI
+contract, production and Preview model checks, System/Light/Dark snapshots, lintapple (section 4),
+and the full native gate. Core or CLI changes also pass both Linux Docker architectures without
+privileges or writes. Public GitHub releases may use ad hoc signing if Developer ID is unavailable.
+Keep install copy concise, without signing or Gatekeeper warning blocks.
+
+Build, validate, and upload Mac archives on the maintainer's Mac, not GitHub Actions. The README
+links the current Switch download; older product releases are not Switch. Lead with provider-neutral
+switching. Keep provider paths, session behavior, and limits in concise provider notes.
+
+Before installed-app GUI actions, match the packaged and `/Applications/Switch.app` executable
+SHA-256 values, the embedded and committed revisions, and the running process's installed binary
+inode. Correct stale processes or checksum mismatches before clicking. Record proof in the install receipt.
