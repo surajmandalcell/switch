@@ -419,8 +419,13 @@ in light and dark before a UI change ships.
   "Using as default" or Make Default, Open <tool>, Copy, More). The card's right side keeps its
   space: an account without usage shows its bars disabled with "Unavailable", and its primary
   button reads "Sign in again". The table has no column header and no Provider column. Each
-  provider group has a 24 pt label row (12 pt icon, "Codex CLI · 2") and alternate groups get a
-  subtle fill (zebra), so groups read apart. Separators are lighter than card borders.
+  provider group starts with a 32 pt header row: a 16 pt brand tile, the provider name in
+  semibold, and a count pill. Its accounts sit 24 pt in, under the provider name, and a thin
+  guide line runs from the tile down to an elbow at each account, like a Finder outline. Groups
+  are 6 pt apart with no zebra fill. Row separators start at the indent and stay lighter than
+  card borders. The usage column holds the bar and "83% · 6d 19h" (percent, then reset time);
+  there is no reset column. A row without usage says why in that column ("Sign in to see
+  usage"), so the reason replaces the empty bar and dashes.
 - **Conversations, Maintenance, Settings:** the same cards, rows, and buttons. Maintenance
   shows Cleanup, then Backup, in a 28 pt segmented control with 120 pt segments, left-aligned
   to the cards, label-colored icons, and a searchable source picker at the bar's right end.
