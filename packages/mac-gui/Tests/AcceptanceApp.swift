@@ -600,7 +600,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        if !AcceptanceConfiguration.snapshotOnly {
+        if !AcceptanceConfiguration.snapshotOnly, CGDisplayIsAsleep(CGMainDisplayID()) != 0 {
+            // A sleeping display stops display links and Core Animation, so the motion and reveal checks cannot pass.
+            menuNavigationFailures = ["display is asleep: wake it and rerun"]
+        } else if !AcceptanceConfiguration.snapshotOnly {
             menuNavigationFailures = AIManagerNativeContract.exerciseMenuNavigation(in: window, offscreen: true)
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
             menuNavigationFailures.append(contentsOf: await AIManagerMenuBarContract.failures())
