@@ -5,136 +5,104 @@ import Darwin
 import Glibc
 #endif
 
-public struct CleanupConversation: Identifiable, Codable, Sendable, Equatable {
-    public var id: String { relativePath }
-    public let relativePath: String
+/// One removable thing: a transcript with its companions, a log, a cache folder, an old version.
+/// `root` 0 is the source home; 1 is the user home (for example `~/Library/Caches`).
+public struct CleanupItem: Identifiable, Codable, Sendable, Hashable {
+    public var id: String { "\(root):\(path)" }
+    public let root: Int
+    public let path: String
+    public let companions: [String]
     public let title: String
-    public let project: String
-    public let archived: Bool
+    public let project: String?
     public let updatedAt: Date
     public let bytes: Int64
-    public let exclusionReason: String?
+    public let isDirectory: Bool
+    public let protectedReason: String?
     let inode: UInt64
     let device: UInt64
-    let modifiedAt: Date
+    let modifiedAt: Double
+
+    var allPaths: [String] { [path] + companions }
 }
 
 public struct ConversationCleanupPlan: Sendable {
     public let id: UUID
-    public let conversations: [CleanupConversation]
-    public var bytes: Int64 { conversations.reduce(0) { $0 + $1.bytes } }
+    public let items: [CleanupItem]
+    public var bytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
     let home: URL
+    let userHome: URL
     let digests: [String: String]
 }
 
 public struct ConversationCleanupBatch: Identifiable, Codable, Sendable {
     public let id: UUID
     public let createdAt: Date
-    public var conversations: [CleanupConversation]
-    public var bytes: Int64 { conversations.reduce(0) { $0 + $1.bytes } }
+    public var items: [CleanupItem]
+    public var bytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
     var home: URL
+    var userHome: URL
     var digests: [String: String]
     var phase: String
 }
 
-/// Only transcript files in the two explicit conversation roots enter Cleanup.
-struct ConversationCleanup {
-    let home: URL
+/// Moves reviewed items into a private trash inside the source home, with a journal.
+/// Every path is checked: no link ancestors, no changed files, the same disk, no protected names.
+public struct ConversationCleanup {
+    public let home: URL
+    public let userHome: URL
     private let files = FileManager.default
     private var trash: URL { home.appending(path: ".switch-trash") }
 
-    init(home: URL) { self.home = CoreSupport.canonical(home) }
-
-    func inventory(summaries: [ChatThreadSummary]) throws -> [CleanupConversation] {
-        let known = Dictionary(summaries.map { (CoreSupport.canonical($0.source).path, $0) },
-                               uniquingKeysWith: { first, _ in first })
-        var result: [CleanupConversation] = []
-        var visited = 0
-        for name in ["sessions", "archived_sessions"] {
-            let root = home.appending(path: name)
-            guard CoreSupport.entryExists(root) else { continue }
-            try validateAncestors(root, within: home)
-            var scanError: Error?
-            guard let iterator = files.enumerator(at: root, includingPropertiesForKeys: [.isSymbolicLinkKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { _, error in
-                    scanError = error
-                    return false
-                }) else { throw AIManagerError.operationFailed("Could not read the conversation folders.") }
-            for case let rawURL as URL in iterator {
-                let url = rawURL.standardizedFileURL
-                try Task.checkCancellation()
-                visited += 1
-                guard visited <= 500_000 else { throw AIManagerError.operationFailed("The conversation inventory is too large.") }
-                if try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
-                    iterator.skipDescendants()
-                    continue
-                }
-                guard url.pathExtension.lowercased() == "jsonl" else { continue }
-                try validateAncestors(url.deletingLastPathComponent(), within: home)
-                var info = stat()
-                guard lstat(url.path, &info) == 0 else { throw AIManagerError.sourceChanged }
-                guard info.st_mode & S_IFMT == S_IFREG else { continue }
-                let exclusionReason = info.st_uid != getuid() ? "This file belongs to another user. Cleanup keeps it."
-                    : info.st_nlink != 1 ? "This file is shared through a hard link. Cleanup keeps it." : nil
-                let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
-                guard let modified = values.contentModificationDate else { throw AIManagerError.sourceChanged }
-                let summary = known[url.path]
-                result.append(CleanupConversation(relativePath: String(url.path.dropFirst(home.path.count + 1)),
-                    title: summary?.title ?? url.deletingPathExtension().lastPathComponent,
-                    project: summary?.workingDirectory ?? "Unknown project", archived: name == "archived_sessions",
-                    updatedAt: summary?.updatedAt ?? modified, bytes: Int64(info.st_size), exclusionReason: exclusionReason,
-                    inode: UInt64(info.st_ino), device: UInt64(info.st_dev), modifiedAt: modified))
-            }
-            if let scanError { throw scanError }
-        }
-        return result.sorted { $0.updatedAt > $1.updatedAt }
+    public init(home: URL, userHome: URL? = nil) {
+        self.home = CoreSupport.canonical(home)
+        self.userHome = CoreSupport.canonical(userHome ?? FileManager.default.homeDirectoryForCurrentUser)
     }
 
-    func review(_ selected: [CleanupConversation]) throws -> ConversationCleanupPlan {
+    public func review(_ selected: [CleanupItem]) throws -> ConversationCleanupPlan {
         guard Set(selected.map(\.id)).count == selected.count else { throw AIManagerError.sourceChanged }
         var digests: [String: String] = [:]
         for item in selected {
             try Task.checkCancellation()
-            let source = try sourceURL(item)
-            try validate(item, at: source, within: home)
-            digests[item.id] = try CoreSupport.digest(file: source)
-            try validate(item, at: source, within: home)
+            try validate(item, in: .live)
+            digests[item.id] = try fingerprint(item, in: .live)
         }
-        return .init(id: UUID(), conversations: selected, home: home, digests: digests)
+        return .init(id: UUID(), items: selected, home: home, userHome: userHome, digests: digests)
     }
 
-    func validate(_ plan: ConversationCleanupPlan) throws {
-        guard plan.home == home else { throw AIManagerError.sourceChanged }
-        for item in plan.conversations {
-            let source = try sourceURL(item)
-            try validate(item, at: source, within: home)
-            guard try CoreSupport.digest(file: source) == plan.digests[item.id] else { throw AIManagerError.sourceChanged }
-            try validate(item, at: source, within: home)
+    public func validate(_ plan: ConversationCleanupPlan) throws {
+        guard plan.home == home, plan.userHome == userHome else { throw AIManagerError.sourceChanged }
+        for item in plan.items {
+            try validate(item, in: .live)
+            guard try fingerprint(item, in: .live) == plan.digests[item.id] else { throw AIManagerError.sourceChanged }
         }
     }
 
-    func moveToTrash(_ plan: ConversationCleanupPlan) throws -> ConversationCleanupBatch {
+    public func moveToTrash(_ plan: ConversationCleanupPlan) throws -> ConversationCleanupBatch {
         try validate(plan)
-        guard !plan.conversations.isEmpty else { throw AIManagerError.operationFailed("Select conversations before reviewing Cleanup.") }
-        var batch = ConversationCleanupBatch(id: plan.id, createdAt: Date(), conversations: plan.conversations,
-            home: home, digests: plan.digests, phase: "moving")
+        guard !plan.items.isEmpty else { throw AIManagerError.operationFailed("Select items before reviewing Cleanup.") }
+        var batch = ConversationCleanupBatch(id: plan.id, createdAt: Date(), items: plan.items,
+            home: home, userHome: userHome, digests: plan.digests, phase: "moving")
         try prepareDirectory(trash)
         let folder = batchFolder(batch.id)
         guard !CoreSupport.entryExists(folder) else { throw AIManagerError.sourceChanged }
         try prepareDirectory(folder)
         try save(batch)
-        for item in batch.conversations {
+        for item in batch.items {
             try Task.checkCancellation()
-            let source = try sourceURL(item)
-            let target = folder.appending(path: item.relativePath)
-            try prepareDirectory(target.deletingLastPathComponent())
-            let targetDevice = try directoryStat(target.deletingLastPathComponent()).st_dev
-            guard UInt64(targetDevice) == item.device else {
-                throw AIManagerError.operationFailed("Cleanup trash must be on the same disk as its conversations.")
+            try validate(item, in: .live)
+            guard try fingerprint(item, in: .live) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            // Companions move first and the item last, so an item in the trash is always complete.
+            for path in item.allPaths.reversed() {
+                let source = try url(item.root, path)
+                guard CoreSupport.entryExists(source) else { continue }
+                let target = folder.appending(path: "\(item.root)/\(path)")
+                try prepareDirectory(target.deletingLastPathComponent())
+                var info = stat()
+                guard lstat(target.deletingLastPathComponent().path, &info) == 0, UInt64(info.st_dev) == item.device else {
+                    throw AIManagerError.operationFailed("Cleanup trash must be on the same disk as the items.")
+                }
+                try files.moveItem(at: source, to: target)
             }
-            try validate(item, at: source, within: home)
-            guard try CoreSupport.digest(file: source) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
-            try files.moveItem(at: source, to: target)
         }
         batch.phase = "trashed"
         try save(batch)
@@ -142,85 +110,159 @@ struct ConversationCleanup {
     }
 
     // Existence on each side reconciles an interrupted move without replaying deletion.
-    func batches() throws -> [ConversationCleanupBatch] {
+    public func batches() throws -> [ConversationCleanupBatch] {
         guard CoreSupport.entryExists(trash) else { return [] }
         try validateAncestors(trash, within: home)
         return try files.contentsOfDirectory(at: trash, includingPropertiesForKeys: nil).compactMap { folder in
             guard let id = UUID(uuidString: folder.lastPathComponent) else { return nil }
             var batch = try load(id)
             guard batch.phase != "finished" else { return nil }
-            batch.conversations = try batch.conversations.filter { item in
-                let target = folder.appending(path: item.relativePath)
-                guard CoreSupport.entryExists(target) else { return false }
-                try validate(item, at: target, within: folder)
-                guard try CoreSupport.digest(file: target) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            batch.items = try batch.items.filter { item in
+                guard CoreSupport.entryExists(folder.appending(path: "\(item.root)/\(item.path)")) else { return false }
+                try validate(item, in: .trash(folder))
+                guard try batch.phase == "restoring" || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
                 return true
             }
-            return batch.conversations.isEmpty ? nil : batch
+            return batch.items.isEmpty ? nil : batch
         }.sorted { $0.createdAt > $1.createdAt }
     }
 
-    func restore(_ id: UUID) throws {
+    public func restore(_ id: UUID) throws {
         var batch = try load(id)
         let folder = batchFolder(id)
-        let present = batch.conversations.filter { CoreSupport.entryExists(folder.appending(path: $0.relativePath)) }
+        let present = batch.items.filter { CoreSupport.entryExists(folder.appending(path: "\($0.root)/\($0.path)")) }
         // Check every collision before restoring anything.
         for item in present {
-            let source = folder.appending(path: item.relativePath)
-            try validate(item, at: source, within: folder)
-            guard try CoreSupport.digest(file: source) == batch.digests[item.id],
-                  !CoreSupport.entryExists(try sourceURL(item)) else { throw AIManagerError.sourceChanged }
-            try validateAncestors(try sourceURL(item).deletingLastPathComponent(), within: home)
+            try validate(item, in: .trash(folder))
+            guard try batch.phase == "restoring" || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            for path in item.allPaths where CoreSupport.entryExists(folder.appending(path: "\(item.root)/\(path)")) {
+                let destination = try url(item.root, path)
+                guard !CoreSupport.entryExists(destination) else { throw AIManagerError.sourceChanged }
+                try validateAncestors(destination.deletingLastPathComponent(), within: root(item.root))
+            }
         }
         batch.phase = "restoring"
         try save(batch)
         for item in present {
-            let source = folder.appending(path: item.relativePath)
-            let destination = try sourceURL(item)
-            try validate(item, at: source, within: folder)
-            try prepareDirectory(destination.deletingLastPathComponent())
-            try files.moveItem(at: source, to: destination)
+            for path in item.allPaths.reversed() {
+                let source = folder.appending(path: "\(item.root)/\(path)")
+                guard CoreSupport.entryExists(source) else { continue }
+                let destination = try url(item.root, path)
+                try prepareDirectory(destination.deletingLastPathComponent(), within: root(item.root))
+                try files.moveItem(at: source, to: destination)
+            }
         }
         try finish(&batch)
     }
 
-    func permanentlyRemove(_ id: UUID) throws {
+    public func permanentlyRemove(_ id: UUID) throws {
         var batch = try load(id)
         let folder = batchFolder(id)
-        for item in batch.conversations {
-            let target = folder.appending(path: item.relativePath)
-            guard CoreSupport.entryExists(target) else { continue }
-            try validate(item, at: target, within: folder)
-            guard try CoreSupport.digest(file: target) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+        for item in batch.items where CoreSupport.entryExists(folder.appending(path: "\(item.root)/\(item.path)")) {
+            try validate(item, in: .trash(folder))
+            guard try fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
         }
         batch.phase = "removing"
         try save(batch)
-        for item in batch.conversations {
-            let target = folder.appending(path: item.relativePath)
-            guard CoreSupport.entryExists(target) else { continue }
-            try validate(item, at: target, within: folder)
-            try files.removeItem(at: target)
+        for item in batch.items {
+            for path in item.allPaths {
+                let target = folder.appending(path: "\(item.root)/\(path)")
+                guard CoreSupport.entryExists(target) else { continue }
+                try validateAncestors(target.deletingLastPathComponent(), within: folder)
+                try files.removeItem(at: target)
+            }
         }
         try finish(&batch)
     }
 
     private func finish(_ batch: inout ConversationCleanupBatch) throws {
         batch.phase = "finished"
-        batch.conversations = []
+        batch.items = []
         batch.digests = [:]
         try save(batch)
     }
 
+    // MARK: Paths
+
+    private enum Place { case live, trash(URL) }
+
     private func batchFolder(_ id: UUID) -> URL { trash.appending(path: id.uuidString) }
+    private func root(_ index: Int) -> URL { index == 0 ? home : userHome }
+
+    private func url(_ rootIndex: Int, _ path: String) throws -> URL {
+        guard [0, 1].contains(rootIndex), CleanupGuard.acceptable(path) else {
+            throw AIManagerError.unsafePath("Cleanup does not accept this path.")
+        }
+        return root(rootIndex).appending(path: path)
+    }
+
+    private func place(_ item: CleanupItem, _ path: String, _ place: Place) throws -> (URL, URL) {
+        switch place {
+        case .live: return (try url(item.root, path), root(item.root))
+        case .trash(let folder):
+            guard CleanupGuard.acceptable(path) else { throw AIManagerError.unsafePath("Cleanup does not accept this path.") }
+            return (folder.appending(path: "\(item.root)/\(path)"), folder)
+        }
+    }
+
+    private func validate(_ item: CleanupItem, in where_: Place) throws {
+        guard item.protectedReason == nil else { throw AIManagerError.unsafePath("Cleanup found a protected item: \(item.title)") }
+        for path in item.allPaths {
+            let (target, within) = try place(item, path, where_)
+            if path != item.path, !CoreSupport.entryExists(target) { continue }
+            try validateAncestors(target.deletingLastPathComponent(), within: within)
+            var info = stat()
+            guard lstat(target.path, &info) == 0, info.st_uid == getuid() else {
+                throw AIManagerError.unsafePath("Cleanup found a missing or foreign item: \(target.lastPathComponent)")
+            }
+            let kind = info.st_mode & S_IFMT
+            guard kind == S_IFREG || kind == S_IFDIR else {
+                throw AIManagerError.unsafePath("Cleanup found a linked or unsafe item: \(target.lastPathComponent)")
+            }
+            if kind == S_IFREG, info.st_nlink != 1 {
+                throw AIManagerError.unsafePath("Cleanup found a linked or unsafe item: \(target.lastPathComponent)")
+            }
+            if path == item.path {
+                guard UInt64(info.st_ino) == item.inode, UInt64(info.st_dev) == item.device else { throw AIManagerError.sourceChanged }
+            }
+        }
+    }
+
+    /// Size, modified time and inode of every entry below the item (links are never followed).
+    private func fingerprint(_ item: CleanupItem, in where_: Place) throws -> String {
+        var lines: [String] = []
+        for path in item.allPaths {
+            let (target, _) = try place(item, path, where_)
+            guard CoreSupport.entryExists(target) else { continue }
+            try describe(target, name: path, into: &lines)
+        }
+        return CoreSupport.digest(Data(lines.joined(separator: "\n").utf8))
+    }
+
+    private func describe(_ url: URL, name: String, into lines: inout [String]) throws {
+        try Task.checkCancellation()
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { throw AIManagerError.sourceChanged }
+        lines.append("\(name)|\(info.st_mode & S_IFMT)|\(info.st_size)|\(CleanupScanner.modified(info))|\(info.st_ino)")
+        if info.st_mode & S_IFMT == S_IFDIR {
+            for child in try files.contentsOfDirectory(atPath: url.path).sorted() {
+                try describe(url.appending(path: child), name: name + "/" + child, into: &lines)
+            }
+        }
+    }
 
     private func load(_ id: UUID) throws -> ConversationCleanupBatch {
         let folder = batchFolder(id)
         let manifest = folder.appending(path: "manifest.json")
-        _ = try regularFile(manifest, within: home)
+        try validateAncestors(folder, within: home)
+        var info = stat()
+        guard lstat(manifest.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid(), info.st_nlink == 1 else {
+            throw AIManagerError.unsafePath("Cleanup found a linked or unsafe journal.")
+        }
         let batch = try JSONDecoder().decode(ConversationCleanupBatch.self, from: Data(contentsOf: manifest))
-        guard batch.id == id, batch.home == home,
-              Set(batch.conversations.map(\.id)).count == batch.conversations.count,
-              batch.conversations.allSatisfy({ validRelativePath($0.relativePath) }) else { throw AIManagerError.sourceChanged }
+        guard batch.id == id, batch.home == home, batch.userHome == userHome,
+              Set(batch.items.map(\.id)).count == batch.items.count,
+              batch.items.allSatisfy({ item in item.allPaths.allSatisfy(CleanupGuard.acceptable) }) else { throw AIManagerError.sourceChanged }
         return batch
     }
 
@@ -228,35 +270,6 @@ struct ConversationCleanup {
         let folder = batchFolder(batch.id)
         try validateAncestors(folder, within: home)
         try CoreSupport.atomicWrite(JSONEncoder().encode(batch), to: folder.appending(path: "manifest.json"), fileManager: files)
-    }
-
-    private func sourceURL(_ item: CleanupConversation) throws -> URL {
-        guard validRelativePath(item.relativePath) else { throw AIManagerError.unsafePath("Cleanup only accepts conversation files.") }
-        return home.appending(path: item.relativePath)
-    }
-
-    private func validRelativePath(_ path: String) -> Bool {
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        return parts.count >= 2 && ["sessions", "archived_sessions"].contains(String(parts[0]))
-            && parts.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
-            && path.hasSuffix(".jsonl")
-    }
-
-    private func validate(_ item: CleanupConversation, at url: URL, within root: URL) throws {
-        let info = try regularFile(url, within: root)
-        let modified = try url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-        guard UInt64(info.st_ino) == item.inode, UInt64(info.st_dev) == item.device,
-              Int64(info.st_size) == item.bytes, modified == item.modifiedAt else { throw AIManagerError.sourceChanged }
-    }
-
-    private func regularFile(_ url: URL, within root: URL) throws -> stat {
-        try validateAncestors(url.deletingLastPathComponent(), within: root)
-        var info = stat()
-        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-              info.st_uid == getuid(), info.st_nlink == 1 else {
-            throw AIManagerError.unsafePath("Cleanup found a linked or unsafe file: \(url.lastPathComponent)")
-        }
-        return info
     }
 
     private func directoryStat(_ url: URL) throws -> stat {
@@ -280,9 +293,10 @@ struct ConversationCleanup {
         }
     }
 
-    private func prepareDirectory(_ url: URL) throws {
-        try validateAncestors(url, within: home)
+    private func prepareDirectory(_ url: URL, within root: URL? = nil) throws {
+        let root = root ?? home
+        try validateAncestors(url, within: root)
         try CoreSupport.privateDirectory(url, fileManager: files)
-        try validateAncestors(url, within: home)
+        try validateAncestors(url, within: root)
     }
 }

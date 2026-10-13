@@ -175,45 +175,60 @@ public actor AccountManager {
         return try status()
     }
 
-    public func cleanupInventory(summaries: [ChatThreadSummary] = []) throws -> [CleanupConversation] {
-        try ConversationCleanup(home: paths.sharedRoot).inventory(summaries: summaries)
+    /// Scans one source. It reads only metadata and runs without the manager lock.
+    public static func scanCleanup(_ source: CleanupSource, summaries: [ChatThreadSummary] = []) throws -> CleanupScan {
+        try CleanupScanner(source: source, summaries: summaries).scan()
     }
 
-    public func reviewCleanup(_ conversations: [CleanupConversation]) throws -> ConversationCleanupPlan {
-        try ConversationCleanup(home: paths.sharedRoot).review(conversations)
+    public func reviewCleanup(_ source: CleanupSource, _ items: [CleanupItem]) throws -> ConversationCleanupPlan {
+        try ConversationCleanup(home: source.home, userHome: source.userHome).review(items)
     }
 
-    public func cleanupTrash() throws -> [ConversationCleanupBatch] {
-        try ConversationCleanup(home: paths.sharedRoot).batches()
+    public func cleanupTrash(_ source: CleanupSource) throws -> [ConversationCleanupBatch] {
+        try ConversationCleanup(home: source.home, userHome: source.userHome).batches()
     }
 
-    public func moveConversationsToTrash(
+    public func moveToCleanupTrash(
+        _ source: CleanupSource,
         _ plan: ConversationCleanupPlan,
         preserveActivity: @Sendable ([URL]) async throws -> Void
     ) async throws -> ConversationCleanupBatch {
         try await lock.withAsyncLock {
             try ensureNoRecovery()
-            try await ensureWritersInactive([paths.sharedRoot])
-            let cleanup = ConversationCleanup(home: paths.sharedRoot)
+            try await ensureCleanupWritersInactive(source)
+            let cleanup = ConversationCleanup(home: source.home, userHome: source.userHome)
             try cleanup.validate(plan)
-            try await preserveActivity(plan.conversations.map { plan.home.appending(path: $0.relativePath) })
-            try await ensureWritersInactive([paths.sharedRoot])
+            // Only Codex keeps a daily activity ledger; its transcripts are recorded before they move.
+            if source.tool == .codex {
+                let transcripts = plan.items.filter { $0.root == 0 && $0.path.hasSuffix(".jsonl") }
+                try await preserveActivity(transcripts.map { plan.home.appending(path: $0.path) })
+            }
+            try await ensureCleanupWritersInactive(source)
             return try cleanup.moveToTrash(plan)
         }
     }
 
-    public func restoreCleanupTrash(_ id: UUID) async throws {
+    public func restoreCleanupTrash(_ source: CleanupSource, _ id: UUID) async throws {
         try await lock.withAsyncLock {
             try ensureNoRecovery()
-            try await ensureWritersInactive([paths.sharedRoot])
-            try ConversationCleanup(home: paths.sharedRoot).restore(id)
+            try await ensureCleanupWritersInactive(source)
+            try ConversationCleanup(home: source.home, userHome: source.userHome).restore(id)
         }
     }
 
-    public func permanentlyRemoveCleanupTrash(_ id: UUID) throws {
+    public func permanentlyRemoveCleanupTrash(_ source: CleanupSource, _ id: UUID) throws {
         try lock.withLock {
             try ensureNoRecovery()
-            try ConversationCleanup(home: paths.sharedRoot).permanentlyRemove(id)
+            try ConversationCleanup(home: source.home, userHome: source.userHome).permanentlyRemove(id)
+        }
+    }
+
+    private func ensureCleanupWritersInactive(_ source: CleanupSource) async throws {
+        if source.tool == .codex { return try await ensureWritersInactive([source.home]) }
+        switch ToolWriterProbe.check(tool: source.tool, home: source.home) {
+        case .active: throw AIManagerError.operationFailed("\(source.title) is writing to its folder. Close it and try again.")
+        case .unknown: throw AIManagerError.writerStateUnknown
+        case .inactive: break
         }
     }
 
