@@ -104,4 +104,42 @@ final class ZCodeImportTests: XCTestCase {
         let accounts = try await manager.status().accounts
         XCTAssertTrue(accounts.isEmpty)
     }
+
+    private func zaiRow(_ key: String) -> (integration: String, value: String) {
+        ("zai-coding-plan", #"{"type":"key","key":"\#(key)"}"#)
+    }
+
+    func testOpenCodeDatabaseKeyEqualToTheZCodeKeyMakesOneAccount() async throws {
+        try writeFile([("individual", "fake-key-one")])
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [zaiRow("fake-key-one")])
+        let manager = try manager()
+        let added = await manager.importLiveLogins()
+        XCTAssertEqual(added.map(\.identity.accountID), ["Z Code individual plan"])
+        let accounts = try await manager.status().accounts
+        XCTAssertEqual(accounts.count, 1)
+    }
+
+    func testOpenCodeDatabaseKeyImportsOnceAndSkipsCopilotAndRemovedKeys() async throws {
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [zaiRow("fake-key-two"), ("github-copilot", #"{"type":"oauth","key":"x"}"#)])
+        let manager = try manager()
+        let first = await manager.importLiveLogins()
+        let record = try XCTUnwrap(first.first)
+        XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(record.identity.accountID, "OpenCode z.ai coding plan")
+        XCTAssertTrue(record.autoImported)
+        let again = await manager.importLiveLogins()
+        XCTAssertTrue(again.isEmpty)
+        _ = try await manager.deleteAccount(accountID: record.id)
+        let afterDelete = await manager.importLiveLogins()
+        XCTAssertTrue(afterDelete.isEmpty)
+    }
+
+    func testMissingOrBrokenOpenCodeDatabaseImportsNoZaiKey() async throws {
+        let manager = try manager()
+        var added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [("zai-coding-plan", "not json")])
+        added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
+    }
 }

@@ -286,6 +286,8 @@ public struct CredentialField: Sendable, Equatable {
 /// "/x/auth.json" and CLOUDSDK_CONFIG=/y resolves ".config/gcloud/adc.json" to "/y/adc.json".
 /// - `key`: the account owns only that top-level JSON member, for shared files such as
 ///   OpenCode's or Kilo's auth.json.
+/// - `databaseRow`: when the `key` member is missing, read that integration's active row from the
+///   `credential` table of `opencode.db` beside the file (OpenCode 2 keeps logins there).
 /// - `sqliteTable` + `sqliteKeys`: the account owns only those rows of a `key`/`value` table,
 ///   for app databases such as Cursor's state.vscdb or Kiro's data.sqlite3.
 public struct LiveFile: Sendable, Equatable {
@@ -293,14 +295,17 @@ public struct LiveFile: Sendable, Equatable {
     public let homeEnv: String?
     public let optional: Bool
     public let key: String?
+    public let databaseRow: String?
     public let sqliteTable: String?
     public let sqliteKeys: [String]
 
-    public init(_ path: String, homeEnv: String? = nil, optional: Bool = false, key: String? = nil) {
+    public init(_ path: String, homeEnv: String? = nil, optional: Bool = false, key: String? = nil,
+                databaseRow: String? = nil) {
         self.path = path
         self.homeEnv = homeEnv
         self.optional = optional
         self.key = key
+        self.databaseRow = databaseRow
         self.sqliteTable = nil
         self.sqliteKeys = []
     }
@@ -310,6 +315,7 @@ public struct LiveFile: Sendable, Equatable {
         self.homeEnv = nil
         self.optional = optional
         self.key = nil
+        self.databaseRow = nil
         self.sqliteTable = table
         self.sqliteKeys = keys
     }

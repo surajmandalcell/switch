@@ -963,6 +963,13 @@ public actor AccountManager {
                 added.append(record)
             }
         }
+        // OpenCode 2 keeps its z.ai coding-plan key in its database; the same key as a Z Code one is skipped.
+        let openCode = paths.userHome.appending(path: ".local/share/opencode")
+        if let login = OpenCodeGoUsage.databaseLogin("zai-coding-plan", directory: openCode),
+           let record = try? providerStore.autoImportSecret(
+               ProviderID(rawValue: "zai"), fields: ["apiKey": login.key], name: "OpenCode z.ai coding plan", removed: removed) {
+            added.append(record)
+        }
         return added
     }
 
