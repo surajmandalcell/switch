@@ -357,13 +357,12 @@ and apply at once; main-window usage ignores them.
 Accounts support drag-and-drop reordering, plus Move up and Move down context-menu actions.
 Persist the order atomically in the existing private registry, shared by the app and CLI;
 reopening preserves it, new accounts append, and deletion preserves remaining relative order.
-Reordering never selects, activates, verifies, or changes credentials. Reject stale or foreign
-account identifiers without changing the order; an unchanged drop performs no write.
+Reordering never selects, activates, or changes credentials. Stale or foreign IDs change
+nothing; an unchanged drop writes nothing.
 If Codex returns only a weekly limit, show it without inventing a 5-hour value. The tray
 percentage uses the 5-hour limit when available, otherwise the weekly limit, subtracting
 the clamped used percentage from 100. The popover continues to show used percentages.
-Package a sourced monochrome glyph catalog for current and future providers locally;
-having artwork does not enable an unsupported provider or add any network work on menu open.
+Bundle a monochrome glyph per provider; a glyph never enables a provider or adds network work.
 
 The popover's layout is in section 4. A hidden or missing limit takes no space and is never
 fabricated. Refresh checks enabled accounts in saved order without activating an account or
@@ -411,13 +410,14 @@ in light and dark before a UI change ships.
   focused-account card and no account table. A Week/Month period control and an Accounts/Models/
   Projects grouping control (both remembered) drive the cards: (1) totals (tokens, estimated
   cost, active accounts, busiest day) with rolling digits; (2) a streamgraph of daily tokens per
-  group; (3) a one-year activity heatmap across all accounts; (4) a ridgeline of daily usage per
-  group; (5) a waffle chart of each group's share; (6) Maintenance: recent backups (time, source,
-  size, state) and Open Backup, or a prompt to set up a backup. Charts follow uiarc.dev's
-  ridgeline, activity heatmap, waffle chart, and streamgraph, with their draw-in animations,
-  hover values, brand colors per service, and one stable palette per model. Data comes from
-  retained local history and the activity ledger, computed off the main actor; a group without
-  data shows an explained empty state in the same space.
+  group; (3) a one-year activity heatmap across all accounts; (4) Trends, a ridgeline of daily
+  usage per group, each ridge scaled to its own peak, filling a fixed-height card; (5) a waffle
+  chart of each group's share; (6) Maintenance: recent backups (time, source, size, state) and
+  Open Backup, or a prompt to set up a backup. Charts follow uiarc.dev's ridgeline, activity
+  heatmap, waffle chart, and streamgraph, with their draw-in animations, hover values, a faint
+  date axis, and one stable palette. Groups past six fold into "Other"; account grouping leaves
+  out history no account owns. Data comes from local history and the activity ledger, computed
+  off the main actor; a group without data shows an explained empty state in the same space.
 - **Accounts:** the account table, then the focused account card for the selected row (44 pt
   icon tile, name with no picker, provider with an Active dot or badge, primary window, actions:
   "Using as default" or Make Default, Open <tool>, Copy, More). The card's right side keeps its
