@@ -55,7 +55,9 @@ Factory.app has work running, live tests use a separate test home through
 
 Droid identities stay opaque. The owner names each import or sign-in, for example "Droid 1".
 Account-scoped sign-in confirms the target name before starting. Switch runs `droid doctor --auth --json`
-on a private login copy with `FACTORY_HOME_OVERRIDE` and matching `FACTORY_DISABLE_KEYRING`.
+with `FACTORY_HOME_OVERRIDE` and matching `FACTORY_DISABLE_KEYRING` on the login's own home (the
+sign-in staging home, or the live home on import, with Factory.app's bundled droid when present),
+never on a copy: a refresh there could spend a rotating refresh token and sign Factory.app out.
 The passing `auth.verify` result supplies a masked email hint, shown beside the account name.
 Different saved and new hints reject re-sign-in and discard staging without changing the account.
 Equal masks can belong to different people, so the name confirmation remains required.
@@ -148,7 +150,9 @@ remains unknown and blocks destructive changes; unlocked stale runtime files are
 
 The sidebar and View menu list pages from the shortest name to the longest: Overview, Accounts,
 Settings, Maintenance (cleanup, backup, recovery), Conversations (chat history). Command+, opens
-Settings. Each page remembers its tab, selection, and scroll position. "When Switch opens" (Last
+Settings. Switch remembers every choice across restarts: page, tab, each page's selected account,
+scroll position, filters, chart period and grouping, cleanup source and range, backup source and
+destination, the selected conversation, and expanded popover rows. "When Switch opens" (Last
 place, the default, or Overview) picks the page shown at launch. Settings groups, in order:
 General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut), Appearance
 (System, Light, or Dark; Show percentage used; Reset times; Time format), Accounts (Show full
@@ -157,10 +161,9 @@ dropped, and "ada@mail.example.co.uk" reads "ada@mail.example"; Hide email addre
 status; the Claude terminal setting), Menu bar, Notifications, Data locations, and Reset. The
 items are:
 
-1. **App behavior** — Open at Login and Minimize to menu bar. Open at Login is off by default
-   and uses the macOS login-item service as its source of truth; a login launch starts quietly
-   in the menu bar, an ordinary launch opens the window, and if macOS requires approval,
-   Settings explains it and links to Login Items.
+1. **App behavior** — Open at Login (off by default, backed by the macOS login-item service;
+   a login launch starts quietly in the menu bar, and needed approval links to Login Items) and
+   Minimize to menu bar.
    **Reset times** (Countdown, the default, or Exact time) and **Time format** (Auto, 12-hour,
    24-hour) set how every reset text reads, such as "Resets in 2h 5m" or "Resets 5:30 PM"
    ("tomorrow", a weekday, or a date when it is not today). Clicking any reset text switches the
@@ -169,12 +172,10 @@ items are:
    shortcut (Command, Option, or Control plus a key; Delete clears) that opens or closes the
    menu popover from anywhere; it is off by default.
    **Refresh when the menu opens** is off by default.
-   **Reset settings** (own panel, behind a confirmation) returns every Settings choice, the
-   per-account Menubar and hidden-row choices, and the shortcut to their defaults; accounts,
-   saved sign-ins, window placement, and Open at Login stay.
-2. **Data locations** — Codex home and vault (`~/.codex`, `~/.switch/codex`) plus
-   Grok Build home and vault (`~/.grok`, `~/.switch/grok-build`), each with a
-   plain-language purpose and an explicit Reveal action.
+   **Reset settings** (own panel, confirmed) resets every Settings choice, per-account Menubar
+   and hidden rows, and the shortcut; accounts, sign-ins, placement, and Open at Login stay.
+2. **Data locations** — Codex and Grok Build homes and vaults (`~/.codex`, `~/.switch/codex`,
+   `~/.grok`, `~/.switch/grok-build`), each with its purpose and a Reveal action.
 3. **Menu bar defaults** — Show account usage, initially on. Accounts without an
    explicit override follow this default. Changing it preserves explicit account choices.
 4. **Notifications** — Almost Out (under 10% left), pace alerts (Cutting It Close, Will
@@ -189,15 +190,20 @@ items are:
    It adds one marked line to `~/.zshrc` (backup kept) that sources Switch's `claude`
    shell function.
 7. **Privacy** — Hide email addresses masks them everywhere as `a••••@example.com`.
-8. Demo controls only in locally launched Preview builds. Production and installed builds
+8. Demo controls only in locally launched Preview builds; Preview data covers every service the
+   owner uses, Droid included. Production and installed builds
    must not compile or render them.
 
-Settings never lists files as “Linked entries,” never implies that each account owns a
-separate configuration or chat library, and never exposes internal managed-home topology.
-An account-specific legacy repair may appear on that account only when action is required.
+Settings never lists files as "Linked entries," implies per-account chat libraries, or exposes
+managed-home topology. A legacy repair appears on its account only when action is required.
 
-Cleanup is a disclosure tree for shared active/archived conversations grouped by project, account usage samples, and the shared
-conversation index. Conversations are shared data and are never attributed to the selected account.
+Maintenance's source picker (searchable, built like the account picker) lists one entry per
+tool home that accounts share, such as "Codex CLI · 3 accounts", and one per account where each
+account has its own home, such as a Claude Code profile. Cleanup and Backup act on that source.
+Cleanup is a disclosure tree of the source's known clutter by category, with real sizes: active and
+archived conversations by project, logs, caches, debug and temp files, file history, shell
+snapshots, usage samples, and the conversation index. Categories follow established cleanup
+tools for each AI tool. Conversations are shared data and are never attributed to the selected account.
 Provide date ranges, older-than shortcuts, all time, and a custom interval. Conversation dates mean
 last updated; a selected conversation is removed as a whole. Untimestamped indexes support all time.
 Preview exact selected items and bytes before one explicit confirmation. Conversation removal uses
@@ -211,6 +217,16 @@ The time range is a native pop-up button. Expanded rows align to the leading edg
 nesting level. Cleanup groups use clear headings, aligned counts and brief descriptions; keep
 selection totals and Review together.
 
+Backup keeps versioned snapshots of the source's chosen files and folders (presets per source
+plus custom items) in a destination folder the owner picks. The first snapshot copies
+everything; later ones copy only changed files and hard-link unchanged ones, so each snapshot is
+complete alone. A snapshot is written to a temporary folder with a manifest (path, size, modified
+time, SHA-256) and renamed when complete. Options: Back Up Now, a schedule (off, daily, weekly),
+snapshots to keep, and Restore of a whole snapshot or chosen items, either in place after a safety
+snapshot of the current files, or to another folder. Login files are excluded unless the owner
+includes them per backup set. Backup never deletes source data; pruning removes only Switch's own
+snapshots. A missing destination, such as an unplugged drive, waits and says so.
+
 Chat History loads messages in chronological pages as the reader scrolls, with no permanent
 older-message cutoff. Filters and search cover the complete conversation, keep their persisted
 choices, and paginate results. Copy shown exports exactly the loaded filtered messages in order.
@@ -221,6 +237,8 @@ no reliable counters. The sidebar shows a small spinner in place of the count on
 page loads, and counts include the word conversations. Each message role has a filled surface with
 shared leading alignment, not left border markers; prompt, response, tool, and other roles stay
 distinct. Code blocks wrap long lines so vertical scrolling continues through the conversation.
+Nothing clips or overlaps: each message header (role, model, date) keeps its own line, and
+responses and code blocks always show their full height.
 
 ## 3. Usage presentation
 
@@ -230,8 +248,8 @@ five minutes with four checks at a time and a 60-second limit each, waits five m
 after a failure, and keeps the last good value with an Outdated tag. Their detail page
 shows every window as the standard meter with a reset countdown and the OpenUsage pace
 verdict (blue ahead, yellow close, red running out, with an even-pace tick), then money
-and short detail rows. Their menu cards show the first two windows, or one balance line
-when the provider returns only money. Add Account lists Codex CLI, Grok Build, and Claude
+and short detail rows. Their menu cards show the first two windows (all when expanded), or one
+balance line when the provider returns only money. Add Account lists Codex CLI, Grok Build, and Claude
 Code first, then every other provider alphabetically, with a search field. File-based
 providers already signed in on this Mac (read off the main actor) show "Signed in on this Mac"
 and sort after the built-ins. A usage row's context menu offers Hide, Show all, and Refresh;
@@ -240,15 +258,13 @@ status item's context menu offers Open, Refresh Usage, Settings, and Quit. The C
 account page also shows Claude Code activity for all profiles from the local transcripts,
 priced as an API-equivalent estimate.
 
-A provider with a daily series (30 days, or its native span) returns a chart: id, title, unit
-(USD, tokens, requests, credits, or a currency code), and dated points. The detail page draws one
-72-point bar chart each below the windows, with the title and the total (or the hovered or
-arrow-key-focused day and its exact value) in the header row and a VoiceOver summary such as
-"30 days, total $12.40, peak $2.10 on Oct 3". The Claude Code activity panel charts its 30-day
-cost the same way. Menu cards show no charts. `switch usage --json` adds
-`charts` (schema `switch.limits.v1`, additive) and the CLI and TUI draw one ▁▂▃▄▅▆▇█ line each.
-A window may report more than 100 percent used (overage): text shows the real percent
-("130% used", or "0% left"), and every bar fill is clamped to its track. Sub-cent money shows up
+A provider with a daily series (30 days or its native span) returns a chart: id, title, unit (USD,
+tokens, requests, credits, or a currency), and dated points. The detail page draws a 72-point bar
+chart per series under the windows, with the title and total (or the hovered or focused day's
+value) in its header and a VoiceOver summary ("30 days, total $12.40, peak $2.10 on Oct 3"); the
+Claude Code panel charts 30-day cost the same way. Menu cards show no charts. `switch usage
+--json` adds `charts` (`switch.limits.v1`); the CLI and TUI draw one ▁▂▃▄▅▆▇█ line each. Overage
+shows the real percent ("130% used", "0% left") with bar fills clamped. Sub-cent money shows up
 to four decimals ("$0.0042").
 
 Usage refresh reads the selected saved credential in a disposable private home and never
@@ -266,17 +282,13 @@ statistics. Optional fields are conditional:
   menu-bar percentage. Title a model bucket by its limit name, and "Spark" for GPT-5.3-Codex-Spark.
   Codex meters use the generic pace tick, colors, and tooltip.
 - Show credits as dollars plus floored credits (4 cents each), such as `$31.84 · 796 credits`.
-- After the app-server read, Switch also calls `wham/usage` and `wham/rate-limit-reset-credits`
-  with the private copy's ChatGPT access token and account id. It never refreshes the token: an
-  expired token skips these extras. They add a "Reset credits: N" fact (soonest expiry, every
-  expiry in its tooltip), model buckets the app-server did not list, a credits fact when no
-  bucket has one, and a "Monthly credits" window from `individual_limit` (root, `rate_limit`, or
-  `spend_control`). Code review percent, workspace `remaining_balance`, and the
-  suspicious-reset guard are not shown.
-- Keep actionable core states: “Usage has not been checked,” a refresh error, or the absence
-  of all rate-limit windows.
-- Never manufacture a value from transcripts and never combine stale usage with Needs
-  sign-in.
+- After the app-server read, Switch calls `wham/usage` and `wham/rate-limit-reset-credits` with
+  the private copy's access token and account id, never refreshing it (expired skips them). They
+  add "Reset credits: N" (soonest expiry; all in its tooltip), unlisted model buckets, a credits
+  fact when no bucket has one, and "Monthly credits" from `individual_limit` (root, `rate_limit`,
+  or `spend_control`). Code review percent, `remaining_balance`, and the reset guard stay hidden.
+- Keep actionable states: "Usage has not been checked," a refresh error, or no windows at all.
+- Never manufacture a value from transcripts or combine stale usage with Needs sign-in.
 
 Refresh every saved Codex account at launch and on a fixed three-minute cadence while the app
 runs. Use one cache-backed model for the main window and menu bar, so both update from the same
@@ -293,82 +305,55 @@ Daily activity uses a GitHub-style calendar instead of a date table. Its header 
 segmented control: Today, Yesterday, Weekly, Monthly, and Yearly drive both the visible token
 total and the activity range, initially Yearly. Other compact, mutually exclusive period
 filters use segmented controls too. The selected range persists across app restarts.
-Selecting an account only changes the displayed account; it must not activate credentials
-or wait on file reads, queries, or repeated calendar aggregation. Build each calendar's
-days, weeks, and token maximum once per body update, not once per cell. The full pane stays
-responsive, including accounts with a year of activity; measure the real pane's layout and
-drawing. Defer expensive display work without showing the previous account's data.
-Dense month/year grids use one native Canvas with exact-day pointer selection, arrow keys,
-and native accessibility actions for each date. Weekday labels align to a Sunday-first grid.
-Routine account or hover redraws must not reload or reassign the Dock icon.
-Automatic activity indexing runs at utility priority, leaving foreground interactions
-ahead of long transcript scans. Accessible date actions share the drawn markers' bounds.
-Cell intensity reflects the token count within the selected range, and a selected day shows
-its date and exact token count. Returned Lifetime, Peak day, streak, and Longest turn facts align at the right of the
-Ordinary usage and Authentication row rather than occupying another row below the limits.
+Selecting an account changes only the display: no credential activation and no waiting on file
+reads, queries, or calendar aggregation. Build each calendar's days, weeks, and maximum once per
+body update. The pane stays responsive with a year of activity (measure real layout and drawing)
+and never shows the previous account's data. Dense grids use one Canvas with exact-day pointer
+selection, arrow keys, and per-date accessibility actions on the markers' bounds; weekday labels
+follow a Sunday-first grid. Redraws never reload the Dock icon. Indexing runs at utility priority.
+Cell intensity follows the selected range; a selected day shows its date and exact tokens.
+Lifetime, Peak day, streak, and Longest turn sit at the right of the Ordinary usage row.
 
-Retain a compact durable daily summary separately from expiring quota snapshots. Merge
-repeated authoritative account/day totals without double counting and preserve days omitted
-from later responses. Retain per-project daily summaries from explicit local token events,
-without assigning shared conversations to the currently selected account or retaining message
-content. Incremental scans, app restarts, and deletion of old source conversations must not
-erase or duplicate retained totals. Clearing rebuildable caches must preserve this ledger.
-The ledger is an owner-private SQLite database at application support `activity/daily.sqlite`.
-Account totals come from authoritative Codex account/day responses; newer values replace prior
-values, including downward corrections and zero. Local project totals use UTC event days and
-increases in cumulative token counters, never repeated last-turn counters. Thread IDs deduplicate
-archived or copied transcripts. Unknown fork boundaries and reset or incomplete source records
-retain known totals with an incomplete indication. Project totals remain separate from account
-totals, and selected days identify their shared-home provenance. One background file monitor and
-coalesced bounded worker scans maintain summaries independently of the visible page.
-The monitor ignores shared-home writes outside active conversations, archived conversations, and
-thread metadata. It coalesces bursts before it refreshes. An append-only JSONL change parses only
-the verified appended bytes after the first complete scan; replacement, truncation, or an unsafe
-record boundary falls back to a complete parse. Thread metadata is read and applied only when the
-database or its write-ahead files change. An unchanged hidden app performs no transcript scan.
+Keep a durable daily ledger, apart from expiring quota snapshots, in the owner-private SQLite
+`activity/daily.sqlite`. Account/day totals come from authoritative Codex responses: newer values
+replace older ones (downward and zero too), and omitted days stay. Project/day totals come from
+local token events: UTC days, increases of cumulative counters (never repeated last-turn
+counters), thread IDs to drop archived or copied duplicates, and an incomplete flag for unknown
+forks or reset records. They never attach shared conversations to the selected account, keep no
+message content, stay apart from account totals, and record shared-home provenance per day.
+Incremental scans, restarts, source deletion, and cache clearing never erase or duplicate totals.
+One background monitor watches only active and archived conversations and thread metadata,
+coalesces bursts, parses only verified appended JSONL bytes after the first full scan (a
+replacement, truncation, or unsafe boundary forces a full parse), and reads thread metadata only
+when its database or WAL changes. A hidden app with no changes scans nothing.
 
-Show retained token statistics for the selected account inside the Daily activity section, not
-a separate panel. A fixed-height summary line shows only the selected period's total, with the
-exact count in its tooltip and accessibility value; async price availability must not move
-surrounding content. Rolling Weekly, Monthly, and Yearly periods include the current UTC day and
-cover 7, 30, and 365 days. Add no account or provider filter and no source label such as Shared
-Codex home. Omit Daily activity until the account has retained history, then keep explicit
-zeroes. The TUI account screen uses the same periods and data as one contiguous filter group.
+The selected account's retained token statistics live inside Daily activity: one fixed-height
+line with the period total (exact count in tooltip and accessibility value); late prices never
+move content. Weekly, Monthly, and Yearly roll over 7, 30, and 365 days including today (UTC).
+No account or provider filter and no source label. Omit Daily activity until history exists, then
+keep explicit zeroes. The TUI account screen uses the same periods and data.
 
-The Codex account's popover row may add one compact token summary line for the configured
-token period. Settings owns a segmented choice for Since reset, Today, Yesterday, Weekly,
-Monthly, or Yearly; Since reset is the default. Since-reset totals use the weekly window start when the service returns a duration
-and reset time, and otherwise fall back to Weekly without inventing precision.
+The Codex popover row may add one token summary line for the period chosen in Settings (Since
+reset, the default, Today, Yesterday, Weekly, Monthly, Yearly). Since reset starts at the weekly
+window start when the service returns duration and reset time, else falls back to Weekly.
 
-Show an API-equivalent comparison beside the selected token total when the shared Codex config has
-a model with published pricing. Follow OpenUsage's pricing source pattern: prefer the public
-LiteLLM model catalog, cache its raw response for 24 hours, and use a stale valid cache when offline.
-The Codex account feed supplies aggregate tokens but not an input/output/cache breakdown, so never
-present the comparison as billed cost. Label the visible value as an input-rate equivalent and put
-the configured model plus cached-input, input, and output equivalents in help and accessibility
-text. Keep tokens visible when pricing is unavailable.
+Beside the token total, show an API-equivalent value when the shared Codex config's model has
+published pricing: LiteLLM's public catalog, cached 24 hours, stale cache offline. The feed has no
+input/output/cache split, so label it an input-rate equivalent, never billed cost, and put the
+model plus cached-input, input, and output equivalents in help text. Tokens stay without pricing.
 
-Retained shared-home project totals continue to support history and cleanup but must not appear as
-the selected account's token statistics. The menu popover remains focused on account switching,
-enabled quota data, and the compact account token summary. Its scrollable body is followed by the
-fixed refresh timestamp and refresh/Open
-App actions. It has no separate token-statistics band, brand/count/refresh header, column header,
-session explanation, Add Account action, or Quit action. Account creation belongs in the main
-window.
+Shared-home project totals serve history and cleanup, never the selected account's statistics.
+The popover body scrolls above a fixed refresh time and Refresh/Open actions. It has no token band,
+brand header, column header, session explanation, Add Account, or Quit.
 
-Every account has a **Show in Menubar** checkmark item in its More menu (header and table
-row), with Use Settings default; it controls both that account's popover row and its
-menu-bar entry.
-With any account enabled, replace Switch's tray mark with **remaining** quota percentages
-for the first four enabled accounts in the saved sidebar order. Show one 12-point monochrome
-glyph per service, followed by all that service's selected percentages. Order services by
-their first selected account and preserve sidebar order within each service. Changing the
-default never changes this order. When an enabled account has no cached limit, show a dash, with its identity
-and unavailable-limit state in the tooltip and accessible description; never invent a value.
-Keep the Switch mark only when no account is enabled. All accounts remain listed and
-switchable. Disabled usage has no refresh action or placeholder; enabling display does
-not activate an account. Preferences persist by account UUID and update the menu at once.
-Main-window usage and its cache remain available regardless of this display preference.
+Each account's More menu has a **Show in Menubar** checkmark (with Use Settings default) that
+controls its popover row and menu-bar entry. With any account enabled, the tray shows
+**remaining** percentages for the first four enabled accounts in saved order: one 12-point
+monochrome glyph per service, then that service's percentages, services ordered by their first
+account. Changing the default never reorders. No cached limit shows a dash, explained in the
+tooltip and accessible description. With none enabled, the Switch mark stays. Disabled usage has
+no refresh or placeholder; enabling never activates an account. Choices persist by account UUID
+and apply at once; main-window usage ignores them.
 Accounts support drag-and-drop reordering, plus Move up and Move down context-menu actions.
 Persist the order atomically in the existing private registry, shared by the app and CLI;
 reopening preserves it, new accounts append, and deletion preserves remaining relative order.
@@ -422,26 +407,27 @@ in light and dark before a UI change ships.
   following the lightest-to-heaviest rule. Search is 300 pt wide, filters every account list,
   and shows ⌘K; Command-K focuses it. Settings cards span the full content width and end at the
   top bar's edge, like every page.
-- **Overview:** five cards, as in the concept. (1) Focused account: a 44 pt provider icon tile,
-  the name (Title) with a chevron menu that picks another account, the provider (Secondary) with
-  a green Active dot or an attention badge; a hairline divider, then the primary window (label,
-  "N% left", bar, reset text). An action row: "Using as default" with a checkmark (prominent,
-  inert) or Make Default (prominent), Open <tool>; on the right Copy, then a More menu (Show in
-  Menubar, Refresh, Check, Delete), which comes last in cards and table rows. (2) Accounts: title with the count, then a table with
-  columns Account (name, under its provider group label), Usage (bar and percent), Resets, and Actions
-  (a green Default chip or a Switch button, plus a More menu); clicking a row focuses it.
-  (3) Current limits of the focused account: up to three window tiles (label, "N% left", bar,
-  reset) and "View all limits →". (4) Recent activity for the focused account's tool from local
-  history: Today, Yesterday, and Last 30 days with tokens and an estimated cost, and "View full
-  history →"; a tool without local history says so in one Secondary line. (5) Maintenance: a
-  green check and "All systems operational" or a yellow warning naming pending backup work,
-  plus Open Backup.
-- **Accounts, Conversations, Maintenance, Settings:** the same cards, tables, rows, and buttons
-  as the Overview. Account tables have no Provider column. Provider groups are light: a 24 pt
-  label row (12 pt provider icon, "Codex CLI · 2" in Secondary) above each group and one
-  hairline between groups at the 16 inset; account rows then drop their own provider icon.
-  Maintenance shows Cleanup first, then Backup, in a 28 pt segmented control with 120 pt
-  segments, left-aligned to the cards; segment icons use the label color, never the accent.
+- **Overview:** a usage dashboard. Account switching lives only on Accounts, so Overview has no
+  focused-account card and no account table. A Week/Month period control and an Accounts/Models/
+  Projects grouping control (both remembered) drive the cards: (1) totals (tokens, estimated
+  cost, active accounts, busiest day) with rolling digits; (2) a streamgraph of daily tokens per
+  group; (3) a one-year activity heatmap across all accounts; (4) a ridgeline of daily usage per
+  group; (5) a waffle chart of each group's share; (6) Maintenance: recent backups (time, source,
+  size, state) and Open Backup, or a prompt to set up a backup. Charts follow uiarc.dev's
+  ridgeline, activity heatmap, waffle chart, and streamgraph, with their draw-in animations,
+  hover values, brand colors per service, and one stable palette per model. Data comes from
+  retained local history and the activity ledger, computed off the main actor; a group without
+  data shows an explained empty state in the same space.
+- **Accounts:** the account table, then the focused account card for the selected row (44 pt
+  icon tile, name with no picker, provider with an Active dot or badge, primary window, actions:
+  "Using as default" or Make Default, Open <tool>, Copy, More). The card's right side keeps its
+  space: an account without usage shows its bars disabled with "Unavailable", and its primary
+  button reads "Sign in again". The table has no column header and no Provider column. Each
+  provider group has a 24 pt label row (12 pt icon, "Codex CLI · 2") and alternate groups get a
+  subtle fill (zebra), so groups read apart. Separators are lighter than card borders.
+- **Conversations, Maintenance, Settings:** the same cards, rows, and buttons. Maintenance
+  shows Cleanup, then Backup, in a 28 pt segmented control with 120 pt segments, left-aligned
+  to the cards, label-colored icons, and a searchable source picker at the bar's right end.
 - **Stability and focus:** nothing shifts when content loads, rows are hovered or selected, or
   pages change. Every scroll view (pages, sheets and dialogs such as Add Account, popovers,
   pickers, and text views) hides the system indicators and draws a thin, always-present scroll
@@ -454,8 +440,16 @@ in light and dark before a UI change ships.
   icon, including its original background color, never a generic dark tile. Dark Mode controls are flat fills
   with no light rim. Every container has equal top and bottom inner padding; hover and
   selection highlights have even insets.
-- **Menu bar popover:** native popover material, about 360 pt wide, compact, with no app name
-  header. Accounts are grouped by service: one group header per service (its brand logo tile and
+- **Motion:** micro-interactions everywhere: hover and press fades, bars filling on appear and
+  on change, rolling numbers, cards fading in on page change, sliding segment indicators,
+  springy popover row expansion, and chart draw-ins, at 150-350 ms with ease-out or a soft
+  spring. Reduce Motion keeps fades only. A page switch shows its first frame with no visible
+  delay; heavy work runs off the main actor.
+- **Menu bar popover:** about 360 pt wide, compact, with no app name header. Its surface is
+  brighter and less see-through than the default popover material, like modern macOS menus, in
+  both appearances. Separators use half the hairline opacity and fade out at both ends. Hover
+  highlights reach a few points past the row above and below and further right, with no change
+  to row spacing. Accounts are grouped by service: one group header per service (its brand logo tile and
   name), then that service's accounts, each as its own row (one-line truncated name, checkmark
   for the default) with its usage lines under it. Account rows carry no logo and no service
   name. Show in Menubar uses the Settings default or an account override. Each account shows
@@ -463,7 +457,10 @@ in light and dark before a UI change ships.
   hidden-row override can reduce them. Each line aligns the window name, a 4 pt rounded bar,
   percentage, and reset in fixed columns. Bars everywhere (popover and window) fill with the
   provider's brand color and turn red from 90% used.
-  Clicking an account reveals Switch and Open <tool> actions while keeping usage visible.
+  Clicking an account expands it to every reported window (model buckets and credits too) plus
+  Switch and Open <tool> actions. An account that needs sign-in shows "Sign in again to see
+  usage" as its subtitle, with Sign in at the row's right. A model-specific weekly window is
+  named by its model: "Weekly Fable" in the window and just "Fable" in the popover.
   The context menu offers Switch, Open <tool>, Refresh, and Copy name. Hover highlights have even
   insets. A compact footer holds Refresh and Settings icon buttons and Open Switch with Command-O.
 - **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
@@ -475,8 +472,7 @@ account, then the previous selection, then the most recently used, then the firs
 confirmation names the replacement, and a failed activation keeps the account. With no eligible
 fallback, Delete account stays disabled with its normal label. Conversations and settings stay.
 
-Background reconciliation never disables the interface or republishes unchanged account,
-history, and usage values. Secondary text identifies the provider (such as Codex CLI); only
+Background reconciliation never disables the interface or republishes unchanged values. Secondary text identifies the provider (such as Codex CLI); only
 states that need action add a badge. The Dock and Spotlight icon and the monochrome menu-bar
 template are unchanged.
 
