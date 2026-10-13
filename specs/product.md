@@ -416,6 +416,13 @@ in light and dark before a UI change ships.
   following the lightest-to-heaviest rule. Search is 300 pt wide, filters every account list,
   and shows ⌘K; Command-K focuses it. Settings cards span the full content width and end at the
   top bar's edge, like every page.
+- **Messages:** the result of an action (for example "Droid opened in Terminal.") is a
+  macOS notification from Switch: a banner in the screen's top-right corner, kept in
+  Notification Center, shown also while Switch is in front, without sound. The text names
+  the result in a few plain words. Switch asks macOS for permission the first time it posts
+  one; when notifications are off, no message appears. Pages never show a message card.
+  Errors stay in the red bar under the top row with Copy and Dismiss. Preview and isolated
+  checks never post a notification.
 - **Overview:** a usage dashboard. Account switching lives only on Accounts, so Overview has no
   focused-account card and no account table. A Week/Month period control and an Accounts/Models/
   Projects grouping control (both remembered) drive the cards: (1) totals (tokens, estimated

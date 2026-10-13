@@ -270,9 +270,6 @@ struct OverviewPage: View {
         }
         RecentBackupsCard(model: model) { navigate(.maintenance) }
       }
-      if let notice = model.notice {
-        AIMPanel { Notice(text: notice, tone: AIMTheme.blue).aimRow() }
-      }
     }
     .task { await model.loadUsageHistory() }
     .task(id: LoadKey(

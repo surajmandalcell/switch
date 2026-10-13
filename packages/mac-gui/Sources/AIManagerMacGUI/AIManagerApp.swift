@@ -26,6 +26,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             controller.present()
             NSApp.activate(ignoringOtherApps: true)
         }
+        model.messagePoster = ActionMessage.post
         instanceActivationObserver = DistributedNotificationCenter.default().addObserver(
             forName: AIManagerSingleInstance.activationNotification(
                 bundleIdentifier: AIManagerSingleInstance.bundleIdentifier()),

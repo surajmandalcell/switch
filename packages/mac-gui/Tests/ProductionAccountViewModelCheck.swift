@@ -61,6 +61,7 @@ struct ProductionAccountViewModelCheck {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try await checkAccountScopedSignIn(root: root)
         try await checkDroidAccounts(root: root)
+        try await checkActionMessages(root: root)
         print("ACCOUNT_SCOPED_SIGN_IN_PASS")
 
         let launched = root.appending(path: "codex-was-launched")
@@ -911,6 +912,52 @@ struct ProductionAccountViewModelCheck {
                 "refresh_token": "synthetic",
             ],
         ], options: [.sortedKeys])
+    }
+
+    /// The result of an action reaches the message poster in production and never in an isolated run.
+    @MainActor
+    private static func checkActionMessages(root: URL) async throws {
+        func makeModel(_ name: String, isolated: Bool) throws -> (AccountViewModel, () -> [String]) {
+            let base = root.appending(path: name)
+            let paths = ManagerPaths(
+                applicationSupport: base.appending(path: "support"),
+                defaultHome: base.appending(path: "live"),
+                sharedRoot: base.appending(path: "live"),
+                orcaAccountsRoot: base.appending(path: "orca"),
+                isolationRoot: isolated ? base : nil)
+            let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+            let model = AccountViewModel(
+                paths: paths, manager: manager, chatHistoryProvider: CountingChatHistoryProvider(),
+                chatHistoryMonitor: SilentChatHistoryMonitor())
+            var posted: [String] = []
+            model.messagePoster = { posted.append($0) }
+            return (model, { posted })
+        }
+        let (live, livePosted) = try makeModel("message-live", isolated: false)
+        await live.clearUsageCache()
+        try expect(livePosted() == ["Usage cache cleared."], "A production action did not post its message once")
+        live.notice = nil
+        try expect(livePosted().count == 1, "Clearing the message posted a notification")
+        let (isolated, isolatedPosted) = try makeModel("message-isolated", isolated: true)
+        await isolated.clearUsageCache()
+        try expect(isolated.notice == "Usage cache cleared." && isolatedPosted().isEmpty,
+                   "An isolated run posted a notification")
+
+        // Back Up Now posts its result; a scheduled backup posts nothing.
+        let (backups, backupPosted) = try makeModel("message-backup", isolated: false)
+        let home = root.appending(path: "message-backup/live")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data("notes".utf8).write(to: home.appending(path: "AGENTS.md"))
+        let drive = root.appending(path: "message-backup/drive")
+        try FileManager.default.createDirectory(at: drive, withIntermediateDirectories: true)
+        backups.maintenance.refreshSources()
+        let source = try expect(backups.maintenance.sources.first { $0.id == "codex" }, "No Codex backup source")
+        let set = try expect(await backups.maintenance.createSet(for: source, destination: drive), "No backup set")
+        await backups.maintenance.backUp(set)
+        try expect(backupPosted().count == 1 && backupPosted()[0].hasPrefix("Backed up "),
+                   "Back Up Now did not post its result")
+        await backups.maintenance.backUp(set, scheduled: true)
+        try expect(backupPosted().count == 1 && backups.errorMessage == nil, "A scheduled backup posted a message")
     }
 
     private static func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {

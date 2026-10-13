@@ -104,7 +104,12 @@ final class AccountViewModel: ObservableObject {
     @Published var isBusy = false
     @Published var refreshedAt: Date?
     @Published var errorMessage: String?
-    @Published var notice: String?
+    /// The result of the last action. No page renders it: the app posts it as a macOS notification.
+    @Published var notice: String? {
+        didSet { if let notice { postMessage(notice) } }
+    }
+    /// Delivers a message to the user. Only the app installs one; checks and Preview leave it nil.
+    var messagePoster: ((String) -> Void)?
     @Published var showImport = false
     @Published var accountModalMode: AccountModalMode = .add
     @Published var providers: [ProviderDescriptor] = AccountManager.providerCatalog
@@ -363,7 +368,7 @@ final class AccountViewModel: ObservableObject {
             await perform(failure: "Couldn’t refresh accounts.", recovery: "Try Refresh again.") {
                 apply(try await manager.refreshAccounts(includeDiscoveries: false))
                 refreshedAt = Date()
-                notice = "Accounts, sign-ins, and backup state refreshed."
+                notice = "Accounts refreshed."
             }
             await loadCachedUsage()
             Task { await self.loadAPIPricing() }
@@ -676,8 +681,7 @@ final class AccountViewModel: ObservableObject {
                     let providerName = account.identity.providerID.guiName
                     notice = status?.isDefault(account) == true
                         ? "New \(providerName) sessions will use \(name)."
-                        : "\(name) was saved. Choose Use for New Sessions when you want to switch."
-                    if session.providerID == .droid { notice = check.message }
+                        : "\(name) saved."
                     await loadCachedUsage()
                     Task { await self.refreshAnyUsage(accountID: account.id) }
                 }
@@ -768,7 +772,7 @@ final class AccountViewModel: ObservableObject {
             droidAPIKey = ""
             try await reloadStatus(using: manager)
             finishProviderAccount(account)
-            notice = account.verification.detail
+            notice = "Droid account saved."
         }
     }
 
@@ -1101,10 +1105,10 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t change the default account.",
                 recovery: "Resolve any item in Backup, then try again."
             ) {
-                guard let result = try await switchWithDroidConfirmation(manager, to: id) else { return }
+                guard try await switchWithDroidConfirmation(manager, to: id) != nil else { return }
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
-                notice = "New \(providerName) sessions will use this account. Backup: \(result.backup.path)"
+                notice = "New \(providerName) sessions will use this account."
             }
             if status?.defaultAccountID(for: providerID) == id {
                 await loadCachedUsage()
@@ -1136,7 +1140,11 @@ final class AccountViewModel: ObservableObject {
                 let result = await manager.checkAccount(accountID: id)
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
-                notice = result.verification.detail
+                // A failed check needs action, so it goes to the red bar, not a passing message.
+                switch result.verification.state {
+                case .verifiedLocally, .verifiedWithCodex: notice = "Account checked."
+                default: errorMessage = result.verification.detail
+                }
                 if let usage = result.usage {
                     usageSnapshots[id] = usage
                     await prepareUsageCache()
@@ -1195,7 +1203,7 @@ final class AccountViewModel: ObservableObject {
                     throw AIManagerError.operationFailed(
                         "Terminal could not open the \(providerName) launch file.")
                 }
-                notice = "Terminal accepted the \(providerName) launch request."
+                notice = "\(providerName) opened in Terminal."
             }
             return
         }
@@ -1252,13 +1260,13 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t repair the account data.",
                 recovery: "Refresh the account and review the changed entry again."
             ) {
-                let result = try await manager.repairLinkedSetting(
+                _ = try await manager.repairLinkedSetting(
                     accountID: issue.accountID,
                     relativePath: issue.relativePath,
                     reviewedFingerprint: issue.localFingerprint
                 )
                 try await reloadStatus(using: manager)
-                notice = "The account data entry was restored. The displaced local entry is preserved in \(result.backup.path)."
+                notice = "Account data restored."
             }
             return
         }
@@ -1335,7 +1343,7 @@ final class AccountViewModel: ObservableObject {
                     selectedAccountID = status?.firstDefaultAccountID ?? status?.accounts.first?.id
                 }
                 let accountName = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "Account")
-                notice = "\(accountName) was deleted from Switch."
+                notice = "\(accountName) deleted."
             }
             return
         }
@@ -1446,9 +1454,9 @@ final class AccountViewModel: ObservableObject {
                     guard confirmDroidAction(error.localizedDescription, action: "Recover") else { return }
                     results = try await manager.recover(allowRunningDroid: true)
                 }
-                notice = results.isEmpty
-                    ? "No backup work was needed."
-                    : results.map { backupCopy($0.message) }.joined(separator: " ")
+                notice = results.isEmpty ? "No backup work was needed."
+                    : results.contains { $0.outcome == .conflict } ? "Backup work needs your choice."
+                    : "Backup work finished."
                 try await reloadStatus(using: manager)
             }
             return
@@ -1473,15 +1481,14 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t resolve the backup conflict.",
                 recovery: "Confirm that Codex is closed, then review the protected backup and retry."
             ) {
-                let result: RecoveryResult
                 do {
-                    result = try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice)
+                    _ = try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice)
                 } catch let error as DroidAccountError {
                     guard case .running = error else { throw error }
                     guard confirmDroidAction(error.localizedDescription, action: "Recover") else { return }
-                    result = try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice, allowRunningDroid: true)
+                    _ = try await manager.resolveRecoveryConflict(operationID: operation.id, choice: choice, allowRunningDroid: true)
                 }
-                notice = backupCopy(result.message)
+                notice = choice == .preserveCurrent ? "Current files kept." : "Protected backup restored."
                 try await reloadStatus(using: manager)
             }
             return
@@ -1971,7 +1978,7 @@ final class AccountViewModel: ObservableObject {
             usageSnapshots.removeAll()
             usageError = nil
             usageErrorAccountID = nil
-            notice = "Usage cache cleared. Refresh an account to fetch it again."
+            notice = "Usage cache cleared."
         }
     }
 
@@ -2060,11 +2067,11 @@ final class AccountViewModel: ObservableObject {
         var parts: [String] = []
         if let plan {
             let bytes = ByteCountFormatter.string(fromByteCount: plan.bytes, countStyle: .file)
-            parts.append("\(plan.items.count.formatted()) \(plan.items.count == 1 ? "item" : "items") (\(bytes)) moved to Switch's recoverable trash")
+            parts.append("\(plan.items.count.formatted()) \(plan.items.count == 1 ? "item" : "items") (\(bytes)) moved to the trash")
         }
         if samples > 0 { parts.append("\(samples.formatted()) usage samples cleared") }
         if clearIndex { parts.append("conversation index cleared") }
-        return "Cleanup complete: " + parts.joined(separator: "; ") + ". Restore brings the items back; daily activity totals stay saved."
+        return parts.isEmpty ? "Cleanup finished." : parts.joined(separator: "; ") + "."
     }
 
     func restoreCleanup(_ source: CleanupSource, _ id: UUID) async throws {
@@ -2083,7 +2090,7 @@ final class AccountViewModel: ObservableObject {
         defer { isBusy = false }
         if let manager { try await manager.permanentlyRemoveCleanupTrash(source, id) }
         else { try ConversationCleanup(home: source.home, userHome: source.userHome).permanentlyRemove(id) }
-        notice = "Items removed from the trash for good."
+        notice = "Items deleted for good."
     }
 
     func clearConversationIndex() async {
@@ -2100,7 +2107,7 @@ final class AccountViewModel: ObservableObject {
             isChatHistoryLoading = false
             isChatLoading = false
             chatHistoryError = nil
-            notice = "Conversation index cleared. It will rebuild when Chat History opens."
+            notice = "Conversation index cleared."
         }
     }
 
@@ -2383,6 +2390,14 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    private func postMessage(_ text: String) {
+        guard paths.isolationRoot == nil, let messagePoster else { return }
+        #if AI_MANAGER_PREVIEW
+        guard !isDemo else { return }
+        #endif
+        messagePoster(text)
+    }
+
     private func reportUnavailable() {
         guard isUnavailable else { return }
         errorMessage = unavailableReason ?? "Switch is unavailable until its private data folder can be opened."
@@ -2442,12 +2457,6 @@ final class AccountViewModel: ObservableObject {
 
     private func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private func backupCopy(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "Recovery", with: "Backup")
-            .replacingOccurrences(of: "recovery", with: "backup")
     }
 }
 

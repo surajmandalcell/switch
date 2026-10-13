@@ -25,7 +25,6 @@ struct SettingsPage: View {
   @AppStorage(PopoverRefreshPreference.key) private var refreshOnOpen = false
   @State private var confirmsReset = false
   @State private var resetCount = 0
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     // Every card shares the top bar's left and right edges.
     AIMScrollPage {
@@ -179,10 +178,6 @@ struct SettingsPage: View {
           Text(SettingsCopy.resetSettingsHelp).aimText(.secondary).lineLimit(1)
         }
       }
-      if let notice = model.notice {
-        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
-          .transition(reduceMotion ? .identity : .opacity)
-      }
       #if AI_MANAGER_PREVIEW
       if model.isDemo {
         AIMSection("Demo states") {
@@ -203,7 +198,6 @@ struct SettingsPage: View {
       }
       #endif
     }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
     .confirmationDialog(
       "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
     ) {

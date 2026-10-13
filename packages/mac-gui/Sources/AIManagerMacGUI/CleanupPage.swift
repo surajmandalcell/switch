@@ -155,7 +155,7 @@ struct CleanupPage: View {
         if let review { reviewCard(review) }
         if !trash.isEmpty { trashCard }
       }
-      noticeCard
+      errorCard
     }
     .task(id: source?.id) {
       if scan == nil || scannedSourceID != source?.id { await reload() }
@@ -458,13 +458,10 @@ struct CleanupPage: View {
     .transition(.opacity)
   }
 
-  @ViewBuilder private var noticeCard: some View {
-    if error != nil || model.notice != nil {
-      AIMSection {
-        if let error { Notice(text: error, tone: AIMTheme.amber) }
-        if let notice = model.notice { Notice(text: notice, tone: AIMTheme.blue) }
-      }
-      .transition(.opacity)
+  @ViewBuilder private var errorCard: some View {
+    if let error {
+      AIMSection { Notice(text: error, tone: AIMTheme.amber) }
+        .transition(.opacity)
     }
   }
 
