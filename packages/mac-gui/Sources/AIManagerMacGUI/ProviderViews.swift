@@ -350,7 +350,10 @@ struct ProviderUsagePanel: View {
 
   // MARK: Empty, error, and sign-in states
 
-  private var emptyState: some View {
+  @ViewBuilder private var emptyState: some View {
+    // The same meter as a populated row, disabled, so the panel keeps its shape.
+    UsageWindowBlock(window: nil, providerID: account.identity.providerID, showsUsed: false,
+      now: Date(), spacing: AIMTheme.rowSpacing)
     HStack(spacing: AIMTheme.sectionSpacing) {
       AIMIcon(name: .info).aimText(.body).foregroundStyle(.secondary)
       VStack(alignment: .leading, spacing: 2) {
@@ -430,7 +433,7 @@ struct ProviderWindowMeter: View {
         }
         Spacer(minLength: 4)
         Text(used.map { UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed) } ?? "–")
-          .aimText(.body).monospacedDigit()
+          .aimText(.body).monospacedDigit().aimRolling(displayed)
           .flipsUsedAndLeft(showsUsed)
       }
       UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID, tick: tick)

@@ -206,8 +206,81 @@ extension Color {
   }
 }
 
+/// Motion tokens (150-350 ms except the short state fades). Fades keep running with Reduce Motion;
+/// anything that moves or scales does not: `scale`, `rise`, and `move` collapse to nothing.
 enum AIMMotion {
+  /// A short state change such as a switch knob or a notice.
   static let state = 0.10
+  /// Row and button hover fade, and the press dim.
+  static let hover = 0.12
+  static let fill = 0.35
+  static let roll = 0.30
+  static let slide = 0.25
+  static let appear = 0.25
+  static let pressedScale: CGFloat = 0.97
+  static let riseDistance: CGFloat = 6
+  /// A card starts this opaque, so its first frame is already readable.
+  static let appearOpacity = 0.4
+  /// Every token, for the contract check (hover, state, and press fades are under 150 ms by design).
+  static let all = [state, hover, fill, roll, slide, appear]
+
+  /// False in offscreen render checks (`--contract-only`): they read the final frame at once.
+  static let isLive = !CommandLine.arguments.contains("--contract-only")
+
+  static func fade(_ duration: Double) -> Animation { .easeOut(duration: duration) }
+  /// A soft spring for things that travel; nil under Reduce Motion.
+  static func move(reduceMotion: Bool) -> Animation? {
+    reduceMotion ? nil : .spring(duration: slide, bounce: 0.12)
+  }
+  static func scale(pressed: Bool, reduceMotion: Bool) -> CGFloat {
+    pressed && !reduceMotion ? pressedScale : 1
+  }
+  static func rise(reduceMotion: Bool) -> CGFloat { reduceMotion ? 0 : riseDistance }
+}
+
+private struct AIMRolling<Value: Equatable>: ViewModifier {
+  let value: Value
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  func body(content: Content) -> some View {
+    content
+      .contentTransition(reduceMotion ? .opacity : .numericText())
+      .animation(AIMMotion.fade(AIMMotion.roll), value: value)
+  }
+}
+
+/// A card or block fades in and rises a few points when it first shows.
+private struct AIMAppear: ViewModifier {
+  @State private var shown = !AIMMotion.isLive
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  func body(content: Content) -> some View {
+    content
+      .opacity(shown ? 1 : AIMMotion.appearOpacity)
+      .offset(y: shown ? 0 : AIMMotion.rise(reduceMotion: reduceMotion))
+      .onAppear { withAnimation(AIMMotion.fade(AIMMotion.appear)) { shown = true } }
+  }
+}
+
+extension View {
+  /// Digits roll when `value` changes (a cross-fade under Reduce Motion).
+  func aimRolling<Value: Equatable>(_ value: Value) -> some View { modifier(AIMRolling(value: value)) }
+  func aimAppear() -> some View { modifier(AIMAppear()) }
+
+  /// Dips to a faint opacity and fades back whenever `value` changes, so swapped content fades in
+  /// instead of jumping. The view keeps its frame.
+  @ViewBuilder func aimFadeOnChange<Value: Equatable>(_ value: Value) -> some View {
+    if AIMMotion.isLive {
+      keyframeAnimator(initialValue: 1.0, trigger: value) { view, opacity in
+        view.opacity(opacity)
+      } keyframes: { _ in
+        KeyframeTrack {
+          LinearKeyframe(AIMMotion.appearOpacity, duration: 0.01)
+          CubicKeyframe(1, duration: AIMMotion.appear)
+        }
+      }
+    } else { self }
+  }
 }
 
 // MARK: - Usage bars
@@ -244,16 +317,20 @@ struct UsageBar: View {
   let providerID: ProviderID
   /// Even-pace marker as a 0...1 position.
   var tick: Double? = nil
+  /// The share drawn now: nil until the bar first shows, then it eases to each new value.
+  @State private var drawn: Double?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     let used = usedPercent.map { min(max($0, 0), 100) }
     let color = UsageBarColor.color(usedPercent: used, providerID: providerID)
     let fill = used.map { (showsUsed ? $0 : 100 - $0) / 100 } ?? 0
+    let shown = drawn ?? (AIMMotion.isLive ? 0 : fill)
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
         Capsule().fill(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
         if let color, fill > 0 {
-          Capsule().fill(color).frame(width: max(Self.height, geometry.size.width * fill))
+          Capsule().fill(color).frame(width: max(Self.height, geometry.size.width * shown))
         }
         if let tick {
           Rectangle().fill(Color.primary.opacity(0.7)).frame(width: 1.5, height: Self.height + 4)
@@ -265,6 +342,13 @@ struct UsageBar: View {
     .frame(height: Self.height)
     .uiLint(.item)
     .accessibilityHidden(true)
+    .onAppear { settle(to: fill) }
+    .onChange(of: fill) { _, next in settle(to: next) }
+  }
+
+  /// Fills from empty on first show and eases between values; Reduce Motion sets it at once.
+  private func settle(to fill: Double) {
+    if reduceMotion { drawn = fill } else { withAnimation(AIMMotion.fade(AIMMotion.fill)) { drawn = fill } }
   }
 }
 
@@ -307,15 +391,57 @@ extension View {
   }
 }
 
+/// Scroll offsets by scroll view name. They live in UserDefaults, so a page opens where it was left
+/// after a restart. Writes are batched (a scroll fires many), and the last one is flushed on quit.
+@MainActor final class AIMScrollMemory {
+  static let key = "scrollOffsets"
+  private let defaults: UserDefaults
+  private var offsets: [String: CGFloat]
+  private var flush: DispatchWorkItem?
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+    offsets = (defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]).mapValues { CGFloat($0) }
+    NotificationCenter.default.addObserver(
+      forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+    ) { [weak self] _ in MainActor.assumeIsolated { self?.save() } }
+  }
+
+  subscript(name: String) -> CGFloat? {
+    get { offsets[name] }
+    set {
+      guard offsets[name] != newValue else { return }
+      offsets[name] = newValue
+      flush?.cancel()
+      let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.save() } }
+      flush = work
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+  }
+
+  func save() { defaults.set(offsets.mapValues { Double($0) }, forKey: Self.key) }
+}
+
 /// What each page remembers while the app runs, and the UserDefaults keys that survive a launch.
 @MainActor enum AIMPlace {
   static let lastPageKey = "lastPage"
   static let maintenanceTabKey = "maintenanceTab"
   static let launchPlaceKey = "launchPlace"
-  /// Scroll offsets by scroll view name.
-  static var scroll: [String: CGFloat] = [:]
-  /// The Overview's focused account.
-  static var overviewFocus: UUID?
+  static let accountsFocusKey = "accountsFocus"
+  static let scroll = AIMScrollMemory()
+  /// The Accounts page restores its selection once per launch.
+  static var accountsFocusRestored = false
+
+  /// The account the Accounts page had selected, when it still exists in `accounts`.
+  static func accountsFocus(in accounts: [UUID], defaults: UserDefaults = .standard) -> UUID? {
+    defaults.string(forKey: accountsFocusKey).flatMap(UUID.init(uuidString:)).flatMap {
+      accounts.contains($0) ? $0 : nil
+    }
+  }
+
+  static func saveAccountsFocus(_ id: UUID?, defaults: UserDefaults = .standard) {
+    defaults.set(id?.uuidString, forKey: accountsFocusKey)
+  }
   /// The page and Maintenance tab the window shows now, so a render check can compare them with
   /// the page it asked for.
   static var visiblePage: AIManagerPage?

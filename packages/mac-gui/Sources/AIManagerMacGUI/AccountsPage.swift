@@ -33,25 +33,37 @@ struct AccountsPage: View {
         // The Overview's focused-account card, for the selected account.
         TimelineView(.periodic(from: .now, by: 60)) { context in
           FocusedAccountCard(
-            account: account, accounts: model.status?.accounts ?? [], model: model,
-            now: context.date, hideEmails: hideEmails, showsUsed: showsUsed,
-            focus: { model.selectedAccountID = $0 },
-            delete: { prepareDeletion(of: account) })
+            account: account, model: model, now: context.date, hideEmails: hideEmails,
+            showsUsed: showsUsed, delete: { prepareDeletion(of: account) })
         }
-        if account.usesGenericDetail {
-          ProviderAccountDetail(account: account, model: model) {
-            prepareDeletion(of: account)
-          }
-        } else {
-          AccountDetail(account: account, model: model) {
-            prepareDeletion(of: account)
+        .aimFadeOnChange(account.id)
+        Group {
+          if account.usesGenericDetail {
+            ProviderAccountDetail(account: account, model: model) {
+              prepareDeletion(of: account)
+            }
+          } else {
+            AccountDetail(account: account, model: model) {
+              prepareDeletion(of: account)
+            }
           }
         }
+        .aimFadeOnChange(account.id)
       } else {
         EmptyAccountView(model: model)
       }
     }
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
+    // The page restores its selection once per launch, then remembers each change.
+    .onChange(of: model.hasLoaded, initial: true) { _, loaded in
+      guard loaded, !AIMPlace.accountsFocusRestored else { return }
+      AIMPlace.accountsFocusRestored = true
+      let ids = model.status?.accounts.map(\.id) ?? []
+      if let saved = AIMPlace.accountsFocus(in: ids) { model.selectedAccountID = saved }
+    }
+    .onChange(of: model.selectedAccountID) { _, id in
+      if AIMPlace.accountsFocusRestored { AIMPlace.saveAccountsFocus(id) }
+    }
   }
 
   @ViewBuilder
@@ -437,9 +449,11 @@ enum UsagePresentation {
 }
 
 struct UsageActivityCalendar: View {
+  /// The remembered activity range (UserDefaults), shared by every account.
+  static let periodKey = "usageTokenPeriod"
   let rows: [CodexDailyUsageSnapshot]
   @ObservedObject var model: AccountViewModel
-  @AppStorage("usageTokenPeriod") private var storedPeriod = CodexTokenPeriod.yearly.rawValue
+  @AppStorage(UsageActivityCalendar.periodKey) private var storedPeriod = CodexTokenPeriod.yearly.rawValue
   @State private var selectedDate: Date?
   @State private var projects: [CodexProjectDailyActivity] = []
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -767,6 +781,8 @@ private struct AccountUsagePanel: View {
           UsageUnavailableRow(text: "Rate limits unavailable")
         }
       } else {
+        UsageWindowBlock(window: nil, providerID: account.identity.providerID, showsUsed: false,
+          now: Date(), spacing: AIMTheme.rowSpacing)
         HStack(spacing: AIMTheme.sectionSpacing) {
           AIMIcon(name: .info).aimText(.body).foregroundStyle(.secondary)
           VStack(alignment: .leading, spacing: 2) {
@@ -1072,9 +1088,11 @@ struct SignInButton: View {
   var prominent = true
   /// A fixed width, so the button matches the Default chip in a table row.
   var width: CGFloat? = nil
+  /// "Sign in again" on the focused card; a table row passes the short "Sign in".
+  var title = "Sign in again"
 
   var body: some View {
-    Button("Sign in") { Task { await model.beginSignIn(for: account.id) } }
+    Button(title) { Task { await model.beginSignIn(for: account.id) } }
       .buttonStyle(AIMPushButtonStyle(prominent: prominent, width: width))
       .disabled(model.isBusy)
       .accessibilityHint("Signs in to \(account.identity.providerID.guiName) again")
@@ -1095,37 +1113,9 @@ enum AccountUsageSummary {
   /// The visible usage windows of an account, primary first. Empty when usage is unknown or the
   /// account needs a new sign-in (stale values never sit beside that state).
   @MainActor static func windows(for account: AccountRecord, model: AccountViewModel) -> [UsageWindow] {
-    if account.verification.state == .needsSignIn { return [] }
-    if account.identity.providerID == .codex {
-      guard let limits = model.usage(for: account.id)?.rateLimits else { return [] }
-      let hidden = HiddenUsageRows.hidden(for: account.id)
-      var seen = Set<String>()
-      var result: [(window: UsageWindow, bucket: String)] = []
-      func append(_ bucket: CodexRateLimitBucketSnapshot, key: String) {
-        guard seen.insert(bucket.id ?? key).inserted else { return }
-        let name = CodexBucketNaming.title(
-          id: bucket.id, name: bucket.name, model: bucket.model, fallback: key)
-        for row in bucket.windowRows(idPrefix: "\(key)/") where !hidden.contains(row.usage.id) {
-          result.append((row.usage, name))
-        }
-      }
-      if let bucket = limits.defaultBucket { append(bucket, key: bucket.id ?? "default") }
-      for (key, bucket) in limits.buckets.sorted(by: {
-        $0.key.localizedStandardCompare($1.key) == .orderedAscending
-      }) { append(bucket, key: key) }
-      // A window shares its title with another one only across buckets; name its bucket then.
-      let titles = result.map(\.window.title)
-      return result.map { item in
-        var window = item.window
-        if titles.filter({ $0 == window.title }).count > 1 { window.title = "\(item.bucket) · \(window.title)" }
-        return window
-      }
-    }
-    guard let state = model.providerUsage[account.id], !state.needsSignIn, let usage = state.usage else {
-      return []
-    }
-    return HiddenUsageRows.applying(to: usage, for: account.id).windows
+    model.accountWindows[account.id] ?? []
   }
+
 }
 
 // MARK: - Shared account actions
@@ -1252,12 +1242,10 @@ extension AccountViewModel {
 
 struct FocusedAccountCard: View {
   let account: AccountRecord
-  let accounts: [AccountRecord]
   @ObservedObject var model: AccountViewModel
   let now: Date
   let hideEmails: Bool
   let showsUsed: Bool
-  let focus: (UUID) -> Void
   let delete: () -> Void
   @Environment(\.aimCopyPath) private var copyPath
 
@@ -1265,60 +1253,41 @@ struct FocusedAccountCard: View {
   private var name: String { account.identity.accountLabel }
   private var isDefault: Bool { model.status?.isDefault(account) == true }
 
+  /// The right side keeps this width whatever the account shows, so nothing moves between accounts.
+  static let usageWidth: CGFloat = 300
+
   var body: some View {
-    let windows = AccountUsageSummary.windows(for: account, model: model)
+    let window = AccountUsageSummary.windows(for: account, model: model).first
     AIMCard {
       VStack(alignment: .leading, spacing: AIMTheme.cardInset) {
         HStack(alignment: .center, spacing: AIMTheme.cardInset) {
           HStack(spacing: 12) {
             ProviderMark(providerID: providerID, size: 44)
             VStack(alignment: .leading, spacing: 2) {
-              accountMenu
+              Text(name).aimText(.title).lineLimit(1).truncationMode(.middle)
+                .accessibilityAddTraits(.isHeader)
               HStack(spacing: AIMTheme.rowSpacing) {
                 Text(providerID.guiName).aimText(.secondary)
                 incidentBadge
                 statusBadge
               }
+              .frame(height: 18)
             }
           }
           .frame(maxWidth: .infinity, alignment: .leading)
           AIMHairline(vertical: true).frame(height: 44)
-          primaryWindow(windows.first)
-            .frame(minWidth: 240, maxWidth: 420)
+          UsageWindowBlock(
+            window: window, providerID: providerID, showsUsed: showsUsed, now: now,
+            note: window == nil && !model.needsSignIn(account) ? UsagePresentation.emptyUsageTitle(
+              failure: model.usageError(for: account.id) ?? model.providerUsage[account.id]?.error,
+              needsSignIn: false) : nil)
+            .frame(width: Self.usageWidth)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Focused account")
         actionRow
       }
       .padding(AIMTheme.cardInset)
-    }
-  }
-
-  @ViewBuilder private func primaryWindow(_ window: UsageWindow?) -> some View {
-    if let window {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: AIMTheme.rowSpacing) {
-          Text(window.title).aimText(.body).lineLimit(1)
-          Spacer(minLength: AIMTheme.rowSpacing)
-          Text(window.usedPercent.map {
-            UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
-          } ?? "–")
-            .aimText(.body).monospacedDigit().lineLimit(1)
-            .flipsUsedAndLeft(showsUsed)
-            .uiLint(.number)
-        }
-        UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID)
-        if let reset = window.resetsAt {
-          ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent).lineLimit(1)
-        }
-      }
-      .accessibilityElement(children: .combine)
-    } else {
-      Text(UsagePresentation.emptyUsageTitle(
-        failure: model.usageError(for: account.id) ?? model.providerUsage[account.id]?.error,
-        needsSignIn: account.verification.state == .needsSignIn))
-        .aimText(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -1372,37 +1341,6 @@ struct FocusedAccountCard: View {
     }
   }
 
-  private var accountMenu: some View {
-    Menu {
-      ForEach(accounts) { item in
-        Button {
-          focus(item.id)
-        } label: {
-          let title = "\(item.identity.accountLabel) · \(item.identity.providerID.guiName)"
-          if item.id == account.id {
-            Label(title, systemImage: AIMIcon.Name.check.symbol)
-          } else {
-            Text(title)
-          }
-        }
-      }
-    } label: {
-      // A button-style menu draws its label as ordinary text, so the Title role applies.
-      HStack(spacing: 6) {
-        Text(name).aimText(.title).lineLimit(1).truncationMode(.middle)
-        Image(systemName: "chevron.down").aimFont(.secondary).foregroundStyle(.secondary)
-      }
-    }
-    .menuStyle(.button)
-    .buttonStyle(.plain)
-    .menuIndicator(.hidden)
-    .fixedSize()
-    // No ring at rest; the menu stays focusable and opens with Space or Return.
-    .focusEffectDisabled()
-    .accessibilityLabel("Focused account: \(name)")
-    .accessibilityHint("Choose another account")
-  }
-
   /// A provider incident: a small orange "Incident" badge with the incident text as its tooltip.
   /// The hero keeps its one green Active dot; table rows show the small dot instead.
   @ViewBuilder private var incidentBadge: some View {
@@ -1433,8 +1371,9 @@ struct FocusedAccountCard: View {
 
 // MARK: - Card 2: accounts table
 
-/// The accounts table: header and rows share `AIMColumns.accounts` and the card's 16 inset.
-/// Clicking a row focuses it. `onMove` turns on drag-and-drop reordering.
+/// The accounts table: rows share `AIMColumns.accounts` and the card's 16 inset, with no header row.
+/// Provider groups alternate a faint fill (zebra). Clicking a row focuses it. `onMove` turns on
+/// drag-and-drop reordering.
 struct AccountsTableCard: View {
   let accounts: [AccountRecord]
   let total: Int
@@ -1452,11 +1391,15 @@ struct AccountsTableCard: View {
 
   static let group = "accounts"
 
+  /// Every second provider group carries the zebra fill.
+  static func isStriped(_ groupIndex: Int) -> Bool { !groupIndex.isMultiple(of: 2) }
+
   var body: some View {
     AIMCard(
-      title: "Accounts", bottomInset: AIMTheme.tableEndInset,
+      title: "Accounts", bottomInset: 0,
       accessory: {
         Text("\(total) \(total == 1 ? "account" : "accounts")").aimText(.secondary)
+          .monospacedDigit().aimRolling(total)
       }
     ) {
       if loading {
@@ -1464,18 +1407,14 @@ struct AccountsTableCard: View {
           ProgressView().controlSize(.small)
           Text("Loading accounts…").aimText(.secondary)
         }
-        .aimRow()
+        .aimRow().padding(.bottom, AIMTheme.tableEndInset)
       } else if accounts.isEmpty {
         Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
-          .aimText(.secondary).aimRow()
+          .aimText(.secondary).aimRow().padding(.bottom, AIMTheme.tableEndInset)
       } else {
-        VStack(spacing: 0) {
-          AIMTableHeader(columns: AIMColumns.accounts, group: Self.group)
-          AIMHairline()
-          rows
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Accounts")
+        rows
+          .accessibilityElement(children: .contain)
+          .accessibilityLabel("Accounts")
       }
     }
   }
@@ -1505,19 +1444,27 @@ struct AccountsTableCard: View {
     .accessibilityAddTraits(.isHeader)
   }
 
+  /// Every second group gets the zebra fill across the card width; the card's rounded clip trims
+  /// its corners. The last group also carries the card's bottom inset, so its fill reaches the edge.
   private var rows: some View {
-    VStack(spacing: 0) {
+    let groups = self.groups
+    return VStack(spacing: 0) {
       ForEach(Array(groups.enumerated()), id: \.element.provider) { groupIndex, group in
+        let isLast = groupIndex == groups.count - 1
         if groupIndex > 0 { AIMRowSeparator() }
-        groupLabel(group.provider, count: group.accounts.count)
-        ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
-          if index > 0 { AIMRowSeparator() }
-          AccountsTableRow(
-            account: account, model: model, selected: account.id == focusedID, now: now,
-            hideEmails: hideEmails, showsUsed: showsUsed,
-            focus: { focus(account.id) }, delete: { delete(account) },
-            onMove: onMove, contextMenu: contextMenu)
+        VStack(spacing: 0) {
+          groupLabel(group.provider, count: group.accounts.count)
+          ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
+            if index > 0 { AIMRowSeparator() }
+            AccountsTableRow(
+              account: account, model: model, selected: account.id == focusedID, now: now,
+              hideEmails: hideEmails, showsUsed: showsUsed,
+              focus: { focus(account.id) }, delete: { delete(account) },
+              onMove: onMove, contextMenu: contextMenu)
+          }
         }
+        .padding(.bottom, isLast ? AIMTheme.tableEndInset : 0)
+        .background(Self.isStriped(groupIndex) ? AIMTheme.zebra : Color.clear)
       }
     }
   }
@@ -1543,7 +1490,13 @@ private struct AccountsTableRow: View {
     let group = AccountsTableCard.group
     let window = AccountUsageSummary.windows(for: account, model: model).first
     let isDefault = model.status?.isDefault(account) == true
-    let row = AIMTableRow(highlighted: selected, focused: keyboardFocus) {
+    let percent = OverviewFormat.percent(window, showsUsed: showsUsed)
+    #if AI_MANAGER_PREVIEW
+    let previewHover = PreviewArguments.value("hover-account") == account.id.uuidString
+    #else
+    let previewHover = false
+    #endif
+    let row = AIMTableRow(highlighted: selected, focused: keyboardFocus, previewHovering: previewHover) {
       // The group label above says the provider; a status dot follows the name only for an incident.
       HStack(spacing: AIMTheme.rowSpacing) {
         Text(name).aimText(.body).lineLimit(1).truncationMode(.middle)
@@ -1553,8 +1506,9 @@ private struct AccountsTableRow: View {
       HStack(spacing: AIMTheme.rowSpacing) {
         UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed,
           providerID: account.identity.providerID).frame(minWidth: 40)
-        Text(OverviewFormat.percent(window, showsUsed: showsUsed))
+        Text(percent)
           .aimText(.body).monospacedDigit().lineLimit(1)
+          .aimRolling(percent)
           .frame(width: 44, alignment: .trailing)
           .uiLint(.number)
       }
@@ -1568,7 +1522,7 @@ private struct AccountsTableRow: View {
         case .isDefault:
           AIMStateChip(text: "Default")
         case .signIn:
-          SignInButton(account: account, model: model, prominent: false, width: AIMTheme.rowButtonWidth)
+          SignInButton(account: account, model: model, prominent: false, width: AIMTheme.rowButtonWidth, title: "Sign in")
         case .switchTo:
           Button("Switch") { Task { await model.switchDefault(to: account.id) } }
             .buttonStyle(AIMPushButtonStyle(width: AIMTheme.rowButtonWidth))
@@ -1642,66 +1596,48 @@ struct AccountCell: View {
   }
 }
 
-// MARK: - Card 3: current limits
-
-struct CurrentLimitsCard: View {
-  let account: AccountRecord
-  @ObservedObject var model: AccountViewModel
-  let now: Date
-  let showsUsed: Bool
-  let viewAll: () -> Void
-
-  var body: some View {
-    let windows = Array(AccountUsageSummary.windows(for: account, model: model).prefix(3))
-    AIMCard(
-      title: "Current limits", well: !windows.isEmpty, bottomInset: 0,
-      accessory: { AIMCardLink(title: "View all limits", action: viewAll) }
-    ) {
-      if windows.isEmpty {
-        Text(UsagePresentation.emptyUsageTitle(
-          failure: model.usageError(for: account.id) ?? model.providerUsage[account.id]?.error,
-          needsSignIn: account.verification.state == .needsSignIn))
-          .aimText(.secondary)
-          .padding(.horizontal, AIMTheme.cardInset).padding(.bottom, AIMTheme.cardInset)
-      } else {
-        HStack(alignment: .top, spacing: AIMTheme.tileGap) {
-          ForEach(windows) { window in
-            LimitTile(window: window, providerID: account.identity.providerID,
-              showsUsed: showsUsed, now: now)
-          }
-        }
-        .uiLint(.stack)
-      }
-    }
-  }
-}
-
-private struct LimitTile: View {
-  let window: UsageWindow
+/// One usage window: label and value, the bar, and the reset line. With no window (needs sign-in,
+/// not checked, error) the same block stays in place, disabled: an empty bar and "Unavailable"
+/// where the value was, so nothing around it moves. `note` fills the reset line with the reason.
+struct UsageWindowBlock: View {
+  let window: UsageWindow?
   let providerID: ProviderID
   let showsUsed: Bool
   let now: Date
+  var note: String? = nil
+  var spacing: CGFloat = 6
+  /// The label of a block with no window.
+  static let emptyTitle = "Usage"
+  static let unavailable = "Unavailable"
+
+  private var value: String {
+    guard let window else { return Self.unavailable }
+    return window.usedPercent.map {
+      UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
+    } ?? "–"
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: spacing) {
       HStack(spacing: AIMTheme.rowSpacing) {
-        Text(window.title).aimText(.body).lineLimit(1)
+        Text(window?.title ?? Self.emptyTitle).aimText(.body).lineLimit(1)
         Spacer(minLength: AIMTheme.rowSpacing)
-        Text(window.usedPercent.map {
-          UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
-        } ?? "–")
-          .aimText(.body).monospacedDigit().lineLimit(1)
-          .flipsUsedAndLeft(showsUsed)
-          .uiLint(.number)
+        if window != nil {
+          Text(value).aimText(.body).monospacedDigit().lineLimit(1).aimRolling(value)
+            .flipsUsedAndLeft(showsUsed).uiLint(.number)
+        } else {
+          Text(value).aimText(.body).lineLimit(1)
+        }
       }
-      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID)
-      if let reset = window.resetsAt {
-        ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent).lineLimit(1)
+      UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed, providerID: providerID)
+      if let reset = window?.resetsAt {
+        ResetTimeText(reset: reset, now: now, usedPercent: window?.usedPercent).lineLimit(1)
       } else {
-        Text(" ").aimText(.secondary)
+        // An empty line keeps the reset line's height.
+        Text(window == nil ? (note ?? " ") : " ").aimText(.secondary).lineLimit(1)
       }
     }
+    .opacity(window == nil ? 0.45 : 1)
     .accessibilityElement(children: .combine)
-    .aimTile()
   }
 }

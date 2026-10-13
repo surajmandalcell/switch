@@ -56,6 +56,8 @@
   --control-shadow: 0 1px 1px rgba(0, 0, 0, .09), 0 0 0 .5px rgba(0, 0, 0, .04);
   --control-hi: none;
   --sel-row: color-mix(in srgb, #007AFF 11%, transparent);
+  --zebra: rgba(0, 0, 0, .025);
+  --tsep: rgba(0, 0, 0, .06);
   --tile: rgba(0, 0, 0, .027);
   --card-edge: rgba(0, 0, 0, .098);
   --card-shadow: 0 .5px 1px rgba(0, 0, 0, .05);
@@ -85,6 +87,8 @@
     --control-shadow: 0 1px 1px rgba(0, 0, 0, .25);
     --control-hi: inset 0 .5px 0 rgba(255, 255, 255, .16);
     --sel-row: color-mix(in srgb, #007AFF 16%, transparent);
+    --zebra: rgba(255, 255, 255, .03);
+    --tsep: rgba(255, 255, 255, .04);
     --tile: rgba(255, 255, 255, .047);
     --card-edge: rgba(255, 255, 255, .098);
     --card-shadow: none;
@@ -180,11 +184,14 @@ th, td { white-space: nowrap; }
 th:first-child, td:first-child { padding-left: 16px; }
 th:last-child, td:last-child { padding-right: 16px; }
 /* every cell holds one wrapper; its bottom border is the row separator, so separators share the cell insets */
-th > *, td > * { display: flex; align-items: center; border-bottom: 1px solid var(--sep); }
+th > *, td > * { display: flex; align-items: center; border-bottom: 1px solid var(--tsep); }
 th > * { height: 28px; }
 td > * { height: 36px; }
 tbody tr:last-child td > *, tr.sel td > *, tr:has(+ tr.sel) td > * { border-bottom-color: transparent; }
 tr.sel td { background: var(--sel-row); }
+/* provider groups: a 24 pt label row, and every second group a faint fill across the card */
+tr.glabel td { height: 24px; padding-left: 16px; }
+tbody.striped { background: var(--zebra); }
 th.end > *, td.end > * { justify-content: flex-end; }
 td.num { text-align: right; }
 .acct { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 12px; }
@@ -209,13 +216,13 @@ td.num { text-align: right; }
 .tile44 { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--quat); }
 .tile44 .i { width: 24px; height: 24px; }
 .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.who .id { display: flex; align-items: center; gap: 2px; }
-.who .id .ibtn { width: 24px; height: 24px; background: transparent; border-color: transparent; box-shadow: none; color: var(--sec); }
+.who .id { display: flex; align-items: center; }
 .who .prov { display: flex; align-items: center; gap: 6px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
 .badge { display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange-text); }
 .vdiv { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--sep); flex: none; }
 .winblock { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
+.winblock.off { opacity: .45; }
 .winblock .line, .tile .line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .focus-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 [data-ui-actions] { display: flex; align-items: center; gap: 8px; }
@@ -295,19 +302,19 @@ code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; f
                 <div class="focus-top">
                   <div class="tile44" aria-hidden="true"><svg class="i"><use href="#i-codex"/></svg></div>
                   <div class="who">
-                    <div class="id"><h1>grace@example.test</h1><button type="button" class="ibtn has-tip" aria-label="Choose account" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-choose"><svg class="i" aria-hidden="true"><use href="#i-chev-down"/></svg><span class="tip" role="tooltip" id="tip-choose">Choose account</span></button></div>
+                    <div class="id"><h1>grace@example.test</h1></div>
                     <div class="prov sec"><span>Codex CLI</span><span class="badge cap">Needs sign-in</span></div>
                   </div>
                   <div class="vdiv" aria-hidden="true"></div>
-                  <div class="winblock">
-                    <div class="line"><span>Session</span><span data-ui-number>38% left</span></div>
-                    <span class="bar wide y" role="img" aria-label="38% left"><i style="width:38%"></i></span>
-                    <span class="sec" data-ui-number>Resets in 1h 45m</span>
+                  <div class="winblock off" aria-disabled="true">
+                    <div class="line"><span>Usage</span><span>Unavailable</span></div>
+                    <span class="bar wide" role="img" aria-label="Unavailable"></span>
+                    <span class="sec">&nbsp;</span>
                   </div>
                 </div>
                 <div class="focus-actions">
                   <div data-ui-actions>
-                    <button type="button" class="btn prominent">Make Default</button>
+                    <button type="button" class="btn prominent">Sign in again</button>
                     <button type="button" class="btn"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Open Codex CLI</button>
                   </div>
                   <div data-ui-actions>
@@ -338,21 +345,20 @@ code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; f
             <div class="card-body" data-ui-radius-inner>
               <div class="card-title"><h2 id="h-selrow">Accounts</h2><span class="sec" data-ui-number>2 accounts</span></div>
               <table data-ui-align="start">
-                <colgroup><col><col style="width:88px"><col style="width:132px"><col style="width:72px"><col style="width:106px"></colgroup>
-                <thead><tr>
-                  <th scope="col"><span data-ui-align-item>Account</span></th><th scope="col"><span>Provider</span></th><th scope="col"><span>Usage</span></th><th scope="col"><span>Resets</span></th><th scope="col" class="end"><span>Actions</span></th>
-                </tr></thead>
+                <colgroup><col><col style="width:132px"><col style="width:72px"><col style="width:106px"></colgroup>
                 <tbody>
+                  <tr class="glabel"><td colspan="4"><span class="sec" data-ui-align-item>Codex CLI · 1</span></td></tr>
                   <tr class="sel">
-                    <td><div class="acct" data-ui-align-item><span class="ptile" aria-hidden="true"><svg class="i"><use href="#i-codex"/></svg></span><span class="name">grace@example.test</span></div></td>
-                    <td><span class="sec">Codex CLI</span></td>
+                    <td><div class="acct" data-ui-align-item><span class="name">grace@example.test</span></div></td>
                     <td class="num"><div class="use"><span class="bar y" role="img" aria-label="38% left"><i style="width:38%"></i></span><span class="pct" data-ui-number>38%</span></div></td>
                     <td><span class="sec" data-ui-number>in 1h 45m</span></td>
                     <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for grace@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-s1"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-s1">More</span></button></div></td>
                   </tr>
+                </tbody>
+                <tbody class="striped">
+                  <tr class="glabel"><td colspan="4"><span class="sec" data-ui-align-item>Grok Build · 1</span></td></tr>
                   <tr>
-                    <td><div class="acct" data-ui-align-item><span class="ptile" aria-hidden="true"><svg class="i"><use href="#i-grok"/></svg></span><span class="name">alan@example.test</span></div></td>
-                    <td><span class="sec">Grok Build</span></td>
+                    <td><div class="acct" data-ui-align-item><span class="name">alan@example.test</span></div></td>
                     <td class="num"><div class="use"><span class="bar r" role="img" aria-label="12% left"><i style="width:12%"></i></span><span class="pct" data-ui-number>12%</span></div></td>
                     <td><span class="sec" data-ui-number>in 2d 3h</span></td>
                     <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for alan@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-s2"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-s2">More</span></button></div></td>
