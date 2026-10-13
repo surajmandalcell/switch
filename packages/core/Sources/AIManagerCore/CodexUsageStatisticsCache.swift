@@ -114,6 +114,15 @@ public struct CodexSharedDailyActivity: Sendable, Equatable {
     }
 }
 
+/// Tokens one thread spent with one model on one UTC day. Input includes cached input;
+/// output includes reasoning, as in Codex token counters.
+struct CodexModelUsage: Codable, Sendable, Equatable {
+    var tokens: Int64 = 0
+    var input: Int64 = 0
+    var cached: Int64 = 0
+    var output: Int64 = 0
+}
+
 struct CodexTranscriptActivity: Sendable {
     let threadID: String?
     let project: String?
@@ -122,10 +131,32 @@ struct CodexTranscriptActivity: Sendable {
     let totalTokens: Int64
     let days: [String: Int64]
     let complete: Bool
+    /// Keyed by `day + "\u{1F}" + model`.
+    var models: [String: CodexModelUsage] = [:]
+}
+
+/// One local-transcript day of a thread: shared-home data, never attached to an account.
+public struct CodexLedgerThreadDay: Sendable, Equatable {
+    public let day: String
+    public let project: String
+    /// Nil when the day has tokens the ledger holds no model for (rows from before models were kept).
+    public let model: String?
+    public let tokens: Int64
+    public let input: Int64
+    public let cached: Int64
+    public let output: Int64
+}
+
+public struct CodexLedgerAccountDay: Sendable, Equatable {
+    public let accountID: String
+    public let day: String
+    public let tokens: Int64
 }
 
 public actor CodexUsageStatisticsCache {
     public static let schemaVersion: Int32 = 1
+    /// Version 2 adds `model_days`; version 1 files migrate in place and keep every row.
+    static let activitySchemaVersion: Int32 = 2
 
     private let databaseURL: URL
     private let activityDatabaseURL: URL?
@@ -177,7 +208,7 @@ public actor CodexUsageStatisticsCache {
                 try Self.configure(database)
                 try Self.checkIntegrity(database)
                 let version = try Self.scalarInt(database, "PRAGMA user_version")
-                guard version <= 1 else {
+                guard version <= Self.activitySchemaVersion else {
                     throw CodexUsageStatisticsCacheError.unsupportedSchema(version)
                 }
                 try Self.transaction(database) {
@@ -202,7 +233,15 @@ public actor CodexUsageStatisticsCache {
                         CREATE TABLE IF NOT EXISTS activity_metadata(
                             key TEXT PRIMARY KEY NOT NULL
                         ) WITHOUT ROWID;
-                        PRAGMA user_version = 1;
+                        CREATE TABLE IF NOT EXISTS model_days(
+                            thread_id TEXT NOT NULL, day TEXT NOT NULL, model TEXT NOT NULL,
+                            tokens INTEGER NOT NULL CHECK(tokens >= 0),
+                            input INTEGER NOT NULL, cached INTEGER NOT NULL, output INTEGER NOT NULL,
+                            PRIMARY KEY(thread_id, day, model),
+                            FOREIGN KEY(thread_id) REFERENCES activity_threads(thread_id)
+                        ) WITHOUT ROWID;
+                        CREATE INDEX IF NOT EXISTS model_days_date ON model_days(day);
+                        PRAGMA user_version = \(Self.activitySchemaVersion);
                         """)
                 }
             }
@@ -509,6 +548,76 @@ public actor CodexUsageStatisticsCache {
         }
     }
 
+    /// Authoritative Codex account/day totals in `startDay...endDay`.
+    public func accountDays(from startDay: String, through endDay: String) throws -> [CodexLedgerAccountDay] {
+        guard Self.validDay(startDay), Self.validDay(endDay), startDay <= endDay,
+              let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            let statement = try Self.prepare(database,
+                "SELECT account_id, day, tokens FROM account_days WHERE day BETWEEN ?1 AND ?2")
+            defer { sqlite3_finalize(statement) }
+            Self.bind(startDay, to: statement, at: 1)
+            Self.bind(endDay, to: statement, at: 2)
+            var rows: [CodexLedgerAccountDay] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let account = Self.text(statement, column: 0), let day = Self.text(statement, column: 1)
+                else { continue }
+                rows.append(.init(accountID: account, day: day, tokens: sqlite3_column_int64(statement, 2)))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read account activity")
+            }
+            return rows
+        }
+    }
+
+    /// Shared-home transcript tokens per project and model in `startDay...endDay`. Project days
+    /// without model rows (kept before models were recorded) come back once with a nil model.
+    public func threadDays(from startDay: String, through endDay: String) throws -> [CodexLedgerThreadDay] {
+        guard Self.validDay(startDay), Self.validDay(endDay), startDay <= endDay,
+              let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            var rows: [CodexLedgerThreadDay] = []
+            let models = try Self.prepare(database, """
+                SELECT t.project, m.day, m.model, SUM(m.tokens), SUM(m.input), SUM(m.cached), SUM(m.output)
+                FROM model_days m JOIN activity_threads t USING(thread_id)
+                WHERE m.day BETWEEN ?1 AND ?2 GROUP BY t.project, m.day, m.model
+                """)
+            defer { sqlite3_finalize(models) }
+            Self.bind(startDay, to: models, at: 1)
+            Self.bind(endDay, to: models, at: 2)
+            while sqlite3_step(models) == SQLITE_ROW {
+                guard let project = Self.text(models, column: 0), let day = Self.text(models, column: 1)
+                else { continue }
+                let model = Self.text(models, column: 2)
+                rows.append(.init(day: day, project: project, model: model == "unknown" ? nil : model,
+                                  tokens: sqlite3_column_int64(models, 3), input: sqlite3_column_int64(models, 4),
+                                  cached: sqlite3_column_int64(models, 5), output: sqlite3_column_int64(models, 6)))
+            }
+            // Whatever a project day holds beyond its model rows has no model.
+            let rest = try Self.prepare(database, """
+                SELECT t.project, d.day,
+                       SUM(d.tokens) - COALESCE((SELECT SUM(m.tokens) FROM model_days m
+                           WHERE m.thread_id = d.thread_id AND m.day = d.day), 0) AS rest
+                FROM project_days d JOIN activity_threads t USING(thread_id)
+                WHERE d.day BETWEEN ?1 AND ?2 GROUP BY t.project, d.thread_id, d.day HAVING rest > 0
+                """)
+            defer { sqlite3_finalize(rest) }
+            Self.bind(startDay, to: rest, at: 1)
+            Self.bind(endDay, to: rest, at: 2)
+            while sqlite3_step(rest) == SQLITE_ROW {
+                guard let project = Self.text(rest, column: 0), let day = Self.text(rest, column: 1)
+                else { continue }
+                rows.append(.init(day: day, project: project, model: nil,
+                                  tokens: sqlite3_column_int64(rest, 2), input: 0, cached: 0, output: 0))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read thread activity")
+            }
+            return rows
+        }
+    }
+
     func recordTranscriptActivity(_ activity: CodexTranscriptActivity, fallbackID: String) throws {
         guard let activityDatabaseURL else { return }
         let id = "codex:" + (activity.threadID ?? fallbackID)
@@ -569,6 +678,30 @@ public actor CodexUsageStatisticsCache {
                 Self.bind(id, to: delete, at: 1)
                 guard sqlite3_step(delete) == SQLITE_DONE else {
                     throw Self.databaseError(database, "Could not replace transcript activity")
+                }
+                let deleteModels = try Self.prepare(database, "DELETE FROM model_days WHERE thread_id = ?1")
+                defer { sqlite3_finalize(deleteModels) }
+                Self.bind(id, to: deleteModels, at: 1)
+                guard sqlite3_step(deleteModels) == SQLITE_DONE else {
+                    throw Self.databaseError(database, "Could not replace transcript model activity")
+                }
+                let insertModel = try Self.prepare(database,
+                    "INSERT OR REPLACE INTO model_days VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+                defer { sqlite3_finalize(insertModel) }
+                for (key, usage) in activity.models {
+                    let parts = key.split(separator: "\u{1F}", maxSplits: 1).map(String.init)
+                    guard parts.count == 2, Self.validDay(parts[0]), usage.tokens >= 0 else { continue }
+                    sqlite3_reset(insertModel)
+                    Self.bind(id, to: insertModel, at: 1)
+                    Self.bind(parts[0], to: insertModel, at: 2)
+                    Self.bind(String(parts[1].prefix(256)), to: insertModel, at: 3)
+                    sqlite3_bind_int64(insertModel, 4, usage.tokens)
+                    sqlite3_bind_int64(insertModel, 5, usage.input)
+                    sqlite3_bind_int64(insertModel, 6, usage.cached)
+                    sqlite3_bind_int64(insertModel, 7, usage.output)
+                    guard sqlite3_step(insertModel) == SQLITE_DONE else {
+                        throw Self.databaseError(database, "Could not save daily model activity")
+                    }
                 }
                 let insert = try Self.prepare(database, "INSERT INTO project_days VALUES(?1, ?2, ?3)")
                 defer { sqlite3_finalize(insert) }

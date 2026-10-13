@@ -397,6 +397,9 @@ enum MajorsSpend {
         /// Dollars, or nil when the record carries no price.
         var cost: Double?
         var tokens: Int
+        /// Set by sources that know the model and an id that repeats in copied logs.
+        var model: String? = nil
+        var key: String? = nil
     }
 
     /// `completeFrom`: the oldest moment the entries fully cover. A period that starts before it is left out.

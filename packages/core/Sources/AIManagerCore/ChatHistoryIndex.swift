@@ -252,6 +252,11 @@ private struct TranscriptParseState: Codable, Sendable {
     let activityComplete: Bool
     let inheritedHistory: Bool
     let hasSessionMetadata: Bool
+    /// Per-day, per-model token split. Nil in states saved before models were kept; such a state
+    /// cannot resume, so one full parse fills it.
+    var activityModels: [String: CodexModelUsage]? = nil
+    var currentModel: String? = nil
+    var previousSplit: CodexModelUsage? = nil
 }
 
 public actor ChatHistoryIndex {
@@ -742,7 +747,8 @@ public actor ChatHistoryIndex {
                 summary: summary,
                 searchText: item.searchText,
                 parseState: parseState,
-                activityRecorded: item.activityRecorded ?? false)
+                // A state saved before models were kept re-records once so the ledger fills model_days.
+                activityRecorded: (item.activityRecorded ?? false) && parseState?.activityModels != nil)
         }
         for item in document.failures where validPersistentPath(item.path) {
             guard item.path.count <= 4_096, item.byteCount >= 0 else { continue }
@@ -925,6 +931,8 @@ public actor ChatHistoryIndex {
             && state.previousTokens >= 0
             && state.activityDays.count <= 100_000
             && state.activityDays.allSatisfy { $0.key.count <= 32 && $0.value >= 0 }
+            && (state.activityModels?.count ?? 0) <= 100_000
+            && (state.activityModels?.allSatisfy { $0.key.count <= 300 && $0.value.tokens >= 0 } ?? true)
             && (state.threadID?.count ?? 0) <= 1_024
             && (state.workingDirectory?.count ?? 0) <= 4_096
             && state.firstActivityEvent.count <= 4_096
@@ -1119,6 +1127,7 @@ private enum TranscriptParser {
               candidate.signature.byteCount > previousSignature.byteCount,
               previousState.parsedByteCount == previousSignature.byteCount,
               previousState.endedAtRecordBoundary,
+              previousState.activityModels != nil,
               previousState.boundaryByteCount <= previousSignature.byteCount,
               let digest = try? boundaryDigest(
                 url: candidate.url,
@@ -1188,6 +1197,9 @@ private enum TranscriptParser {
         dayParser.formatOptions = [.withFullDate]
         dayParser.timeZone = TimeZone(secondsFromGMT: 0)
         var activityDays = state?.activityDays ?? [:]
+        var activityModels = state?.activityModels ?? [:]
+        var currentModel = state?.currentModel
+        var previousSplit = state?.previousSplit ?? CodexModelUsage()
         var previousTokens = state?.previousTokens ?? 0
         var activityEventCount = state?.activityEventCount ?? 0
         var firstActivityEvent = state?.firstActivityEvent ?? ""
@@ -1252,6 +1264,11 @@ private enum TranscriptParser {
                 continue
             }
 
+            if type == "turn_context" {
+                if let model = nonempty(payload?["model"] as? String) { currentModel = String(model.prefix(256)) }
+                continue
+            }
+
             if tokenEvent {
                 guard let info = payload?["info"] as? [String: Any] else { continue }
                 guard let usage = info["total_token_usage"] as? [String: Any],
@@ -1271,11 +1288,31 @@ private enum TranscriptParser {
                 }
                 let delta = total - previousTokens
                 previousTokens = total
+                func counter(_ key: String, _ old: Int64) -> Int64 {
+                    (usage[key] as? NSNumber).map { max($0.int64Value, old) } ?? old
+                }
+                let split = CodexModelUsage(
+                    input: counter("input_tokens", previousSplit.input),
+                    cached: counter("cached_input_tokens", previousSplit.cached),
+                    output: counter("output_tokens", previousSplit.output))
+                let step = CodexModelUsage(
+                    tokens: delta, input: split.input - previousSplit.input,
+                    cached: split.cached - previousSplit.cached, output: split.output - previousSplit.output)
+                previousSplit = split
                 guard let timestamp else { activityComplete = false; continue }
                 guard activityComplete else { continue }
                 let day = dayParser.string(from: timestamp)
                 let (sum, overflow) = activityDays[day, default: 0].addingReportingOverflow(delta)
-                if overflow { activityComplete = false } else { activityDays[day] = sum }
+                if overflow { activityComplete = false } else {
+                    activityDays[day] = sum
+                    let key = day + "\u{1F}" + (currentModel ?? "unknown")
+                    var entry = activityModels[key] ?? CodexModelUsage()
+                    entry.tokens += step.tokens
+                    entry.input += step.input
+                    entry.cached += step.cached
+                    entry.output += step.output
+                    activityModels[key] = entry
+                }
                 continue
             }
 
@@ -1403,7 +1440,10 @@ private enum TranscriptParser {
                 firstActivityEvent: firstActivityEvent,
                 activityComplete: activityComplete,
                 inheritedHistory: inheritedHistory,
-                hasSessionMetadata: hasSessionMetadata)
+                hasSessionMetadata: hasSessionMetadata,
+                activityModels: activityModels,
+                currentModel: currentModel,
+                previousSplit: previousSplit)
         } else {
             parseState = nil
         }
@@ -1412,7 +1452,8 @@ private enum TranscriptParser {
             activity: CodexTranscriptActivity(
                 threadID: threadID, project: workingDirectory, firstEvent: firstActivityEvent,
                 eventCount: activityEventCount, totalTokens: previousTokens, days: activityDays,
-                complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged),
+                complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged,
+                models: activityModels),
             parseState: parseState,
             parsedByteCount: parsedByteCount,
             wasIncremental: state != nil)
@@ -1530,7 +1571,7 @@ private enum TranscriptParser {
     }
 
     private static func mayContainVisibleMessage(_ record: Data) -> Bool {
-        let markers = ["session_meta", "user_message", "user", "assistant",
+        let markers = ["session_meta", "turn_context", "user_message", "user", "assistant",
             "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output",
             "local_shell_call", "web_search_call", "reasoning"].map { Data("\"\($0)\"".utf8) }
         return markers.contains { record.range(of: $0) != nil }
