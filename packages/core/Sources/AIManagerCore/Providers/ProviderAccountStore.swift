@@ -103,7 +103,9 @@ struct ProviderAccountStore {
 
     // MARK: Add and import
 
-    func addSecret(_ providerID: ProviderID, fields: [String: String]) throws -> AccountRecord {
+    /// `name` labels an account that has no email; `auto` marks it as added by discovery.
+    func addSecret(_ providerID: ProviderID, fields: [String: String], name: String? = nil,
+                   auto: Bool = false) throws -> AccountRecord {
         guard let spec = spec(providerID), spec.style == .secret else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) does not take typed credentials.")
         }
@@ -118,7 +120,19 @@ struct ProviderAccountStore {
         }
         return try saveCredential(spec, ProviderCredential(fields: values),
                                   source: vaultURL(spec.id, UUID()).deletingLastPathComponent(),
-                                  rule: .ifNone)
+                                  rule: .ifNone, auto: auto, name: name)
+    }
+
+    /// `addSecret` once per key: nothing happens when a saved account has the same key or
+    /// `removed` lists it.
+    func autoImportSecret(_ providerID: ProviderID, fields: [String: String], name: String,
+                          removed: Set<String>) throws -> AccountRecord? {
+        guard let spec = spec(providerID), spec.style == .secret else { return nil }
+        let key = identity(spec, ProviderCredential(fields: fields)).key
+        guard !removed.contains(Self.removedKey(providerID, key)),
+              try !accounts().contains(where: { $0.identity.providerID == providerID && $0.identity.userID == key })
+        else { return nil }
+        return try addSecret(providerID, fields: fields, name: name, auto: true)
     }
 
     /// Saves the live login in `home` (default: the real user home). Importing from the real home
@@ -466,7 +480,7 @@ struct ProviderAccountStore {
     }
 
     private func saveCredential(_ spec: ProviderSpec, _ credential: ProviderCredential, source: URL,
-                                rule: DefaultRule, auto: Bool = false) throws -> AccountRecord {
+                                rule: DefaultRule, auto: Bool = false, name: String? = nil) throws -> AccountRecord {
         try lock.withLock {
             var index = try readIndex()
             let found = identity(spec, credential)
@@ -481,7 +495,8 @@ struct ProviderAccountStore {
             let record = AccountRecord(
                 id: id,
                 identity: .init(providerID: spec.id, email: found.email ?? old?.identity.email,
-                                userID: found.key, authMode: spec.style == .files ? .oauth : .apiKey),
+                                userID: found.key, accountID: name ?? old?.identity.accountID,
+                                authMode: spec.style == .files ? .oauth : .apiKey),
                 credentialFile: url,
                 home: spec.style == .files ? paths.userHome : url.deletingLastPathComponent(),
                 source: source,
