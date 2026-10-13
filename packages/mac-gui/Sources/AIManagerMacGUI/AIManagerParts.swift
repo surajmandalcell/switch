@@ -63,8 +63,6 @@ extension AIMTheme {
   static let tableSeparator = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.04))
   /// The outline guide line and elbows of a provider group: fainter than a border, still readable.
   static let guideLine = dynamic(light: NSColor(white: 0, alpha: 0.13), dark: NSColor(white: 1, alpha: 0.13))
-  /// The count pill behind the number in a provider header.
-  static let countPill = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.07))
   /// Pointer hover on a row: fainter than selection.
   static let rowHover = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.07))
   static let tileFill = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.04))

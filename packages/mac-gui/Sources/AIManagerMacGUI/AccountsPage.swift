@@ -19,7 +19,7 @@ struct AccountsPage: View {
     AIMScrollPage {
       TimelineView(.periodic(from: .now, by: 60)) { context in
         AccountsTableCard(
-          accounts: accounts, total: model.status?.accounts.count ?? 0, query: query, model: model,
+          accounts: accounts, query: query, model: model,
           focusedID: model.selectedAccountID, now: context.date, hideEmails: hideEmails,
           showsUsed: showsUsed,
           focus: { model.selectedAccountID = $0 },
@@ -1377,7 +1377,6 @@ struct FocusedAccountCard: View {
 /// focuses it. `onMove` turns on drag-and-drop reordering.
 struct AccountsTableCard: View {
   let accounts: [AccountRecord]
-  let total: Int
   let query: String
   @ObservedObject var model: AccountViewModel
   let focusedID: UUID?
@@ -1393,13 +1392,7 @@ struct AccountsTableCard: View {
   static let group = "accounts"
 
   var body: some View {
-    AIMCard(
-      title: "Accounts", bottomInset: 0,
-      accessory: {
-        Text("\(total) \(total == 1 ? "account" : "accounts")").aimText(.secondary)
-          .monospacedDigit().aimRolling(total)
-      }
-    ) {
+    AIMCard(title: "Accounts", bottomInset: 0) {
       if loading {
         HStack(spacing: AIMTheme.rowSpacing) {
           ProgressView().controlSize(.small)
@@ -1429,14 +1422,14 @@ struct AccountsTableCard: View {
     return order.map { ($0, byProvider[$0] ?? []) }
   }
 
-  /// The 32 pt header above a group: a 16 pt brand tile, the provider name, and a count pill.
+  /// The 32 pt header above a group: a 16 pt brand tile, the provider name, and the count as plain "×2".
   private func groupHeader(_ provider: ProviderID, count: Int) -> some View {
     HStack(spacing: 8) {
       ProviderMark(providerID: provider, size: 16)
-      Text(provider.guiName).aimText(.secondary, tint: .primary).fontWeight(.semibold).lineLimit(1)
-      Text("\(count)").aimText(.caption).foregroundStyle(.secondary).monospacedDigit()
-        .padding(.vertical, 1).padding(.horizontal, 6)
-        .background(AIMTheme.countPill, in: Capsule())
+      HStack(spacing: 6) {
+        Text(provider.guiName).aimText(.secondary, tint: .primary).fontWeight(.semibold).lineLimit(1)
+        Text("×\(count)").aimText(.secondary).monospacedDigit().layoutPriority(1)
+      }
       Spacer(minLength: 0)
     }
     .padding(.horizontal, AIMTheme.cardInset)
@@ -1447,6 +1440,7 @@ struct AccountsTableCard: View {
         .padding(.leading, AIMTheme.cardInset + 7.5).allowsHitTesting(false).accessibilityHidden(true)
     }
     .accessibilityElement(children: .combine)
+    .accessibilityLabel("\(provider.guiName), \(count) \(count == 1 ? "account" : "accounts")")
     .accessibilityAddTraits(.isHeader)
   }
 

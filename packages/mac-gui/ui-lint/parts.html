@@ -57,7 +57,6 @@
   --control-hi: none;
   --sel-row: color-mix(in srgb, #007AFF 11%, transparent);
   --guide: rgba(0, 0, 0, .13);
-  --pill: rgba(0, 0, 0, .06);
   --tsep: rgba(0, 0, 0, .06);
   --tile: rgba(0, 0, 0, .027);
   --card-edge: rgba(0, 0, 0, .098);
@@ -89,7 +88,6 @@
     --control-hi: inset 0 .5px 0 rgba(255, 255, 255, .16);
     --sel-row: color-mix(in srgb, #007AFF 16%, transparent);
     --guide: rgba(255, 255, 255, .13);
-    --pill: rgba(255, 255, 255, .07);
     --tsep: rgba(255, 255, 255, .04);
     --tile: rgba(255, 255, 255, .047);
     --card-edge: rgba(255, 255, 255, .098);
@@ -191,14 +189,14 @@ th > * { height: 28px; }
 td > * { height: 36px; }
 tbody tr:last-child td > *, tr.sel td > *, tr:has(+ tr.sel) td > * { border-bottom-color: transparent; }
 tr.sel td { background: var(--sel-row); }
-/* provider groups: a 32 pt header (16 pt tile, name, count pill), accounts indented 24 pt under the
+/* provider groups: a 32 pt header (16 pt tile, name, plain "×2"), accounts indented 24 pt under the
    name, groups 6 pt apart, no zebra. The guide line runs from the tile to each row's elbow. */
 tr.ghead td { height: 32px; padding: 0 16px; }
 tr.ghead .gh { display: flex; align-items: center; gap: 8px; height: 32px; border: 0; font-weight: 600; }
 .gtile { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; flex: none; background: var(--quat); }
 .gtile .i { width: 11px; height: 11px; }
 .gtile.claude { background: color-mix(in srgb, var(--orange) 16%, transparent); color: var(--orange); }
-.gcount { font-size: 11px; line-height: 14px; font-weight: 400; padding: 1px 6px; border-radius: 8px; background: var(--pill); color: var(--sec); }
+.gcount { font-weight: 400; margin-left: -2px; color: var(--sec); } /* plain "×2", 6 pt after the name */
 tr.gap td { height: 6px; padding: 0; }
 /* column gap 12: usage 340 + 12 and actions 94 + 12 + the card's 16 inset */
 .otable td + td { padding-left: 12px; }
@@ -364,11 +362,11 @@ code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; f
 
           <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-selrow">
             <div class="card-body" data-ui-radius-inner>
-              <div class="card-title"><h2 id="h-selrow">Accounts</h2><span class="sec" data-ui-number>2 accounts</span></div>
+              <div class="card-title"><h2 id="h-selrow">Accounts</h2></div>
               <table class="otable" data-ui-align="start">
                 <colgroup><col><col style="width:352px"><col style="width:122px"></colgroup>
                 <tbody>
-                  <tr class="ghead"><td colspan="3"><div class="gh"><span class="gtile" aria-hidden="true"><svg class="i"><use href="#i-codex"/></svg></span>Codex CLI<span class="gcount" data-ui-number>2</span></div></td></tr>
+                  <tr class="ghead"><td colspan="3"><div class="gh"><span class="gtile" aria-hidden="true"><svg class="i"><use href="#i-codex"/></svg></span>Codex CLI<span class="gcount" data-ui-number>×2</span></div></td></tr>
                   <tr class="sel first">
                     <td class="ind"><div class="acct" data-ui-align-item><span class="name">grace@example.test</span></div></td>
                     <td class="num"><div class="use"><span class="bar y" role="img" aria-label="38% left"><i style="width:38%"></i></span><span class="pct" data-ui-number>38% <em>· 1h 45m</em></span></div></td>
@@ -382,7 +380,7 @@ code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; f
                 </tbody>
                 <tbody>
                   <tr class="gap"><td colspan="3"></td></tr>
-                  <tr class="ghead"><td colspan="3"><div class="gh"><span class="gtile" aria-hidden="true"><svg class="i"><use href="#i-grok"/></svg></span>Grok Build<span class="gcount" data-ui-number>1</span></div></td></tr>
+                  <tr class="ghead"><td colspan="3"><div class="gh"><span class="gtile" aria-hidden="true"><svg class="i"><use href="#i-grok"/></svg></span>Grok Build<span class="gcount" data-ui-number>×1</span></div></td></tr>
                   <tr class="first last">
                     <td class="ind"><div class="acct" data-ui-align-item><span class="name">alan@example.test</span></div></td>
                     <td class="num"><div class="use"><span class="bar r" role="img" aria-label="12% left"><i style="width:12%"></i></span><span class="pct" data-ui-number>12% <em>· 2d 3h</em></span></div></td>

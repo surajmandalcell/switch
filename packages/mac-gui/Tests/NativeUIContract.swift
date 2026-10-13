@@ -1492,7 +1492,7 @@ enum AIManagerNativeContract {
     // column header (height is exactly title + groups + rows + gaps + end inset).
     let groupSizes = Dictionary(grouping: accounts, by: { $0.identity.providerID }).values.map(\.count)
     let table = NSHostingView(rootView: AccountsTableCard(
-      accounts: accounts, total: accounts.count, query: "", model: model, focusedID: accounts.first?.id,
+      accounts: accounts, query: "", model: model, focusedID: accounts.first?.id,
       now: Date(), hideEmails: false, showsUsed: false, focus: { _ in }, delete: { _ in }
     ).frame(width: 780).environment(\.colorScheme, .light))
     let tableWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 700), styleMask: .borderless,
