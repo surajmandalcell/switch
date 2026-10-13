@@ -1142,3 +1142,59 @@ private struct AIMSidebarRowStyle: ButtonStyle {
       .contentShape(Rectangle())
   }
 }
+
+struct AIMSegmentedPicker<Option: Hashable>: View {
+  let options: [Option]
+  @Binding var selection: Option
+  let accessibilityLabel: String
+  let label: (Option) -> String
+  /// A fixed segment width, and a 14 pt icon before each title. Icons use the label color.
+  var segmentWidth: CGFloat? = nil
+  var icon: ((Option) -> AIMIcon.Name)? = nil
+
+  /// A flat segmented control for compact mutually exclusive choices: a 28 pt track with a filled
+  /// selected segment (the system control draws a light rim in Dark Mode).
+  var body: some View {
+    let track = RoundedRectangle(cornerRadius: 7, style: .continuous)
+    let segment = RoundedRectangle(cornerRadius: 5, style: .continuous)
+    HStack(spacing: 2) {
+      ForEach(options, id: \.self) { option in
+        let selected = option == selection
+        Button { selection = option } label: {
+          HStack(spacing: 6) {
+            if let icon {
+              AIMIcon(name: icon(option)).aimFont(.body).foregroundStyle(Color.primary)
+                .frame(width: 14, height: 14)
+            }
+            Text(label(option)).aimFont(.body).lineLimit(1)
+          }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, segmentWidth == nil ? 12 : 0)
+            .frame(width: segmentWidth, height: AIMTheme.controlHeight - 4)
+            .background(selected ? AIMTheme.segmentSelected : Color.clear, in: segment)
+            .aimBorder(selected ? AIMTheme.controlBorder : Color.clear, in: segment)
+            .contentShape(segment)
+        }
+        .buttonStyle(AIMSegmentFocusStyle())
+        .accessibilityAddTraits(selected ? .isSelected : [])
+      }
+    }
+    .padding(2)
+    .frame(height: AIMTheme.controlHeight)
+    .background(AIMTheme.segmentTrack, in: track)
+    .uiLint(.control)
+    .fixedSize()
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+private struct AIMSegmentFocusStyle: ButtonStyle {
+  @Environment(\.isFocused) private var focused
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label.overlay {
+      RoundedRectangle(cornerRadius: 5).fill(focused ? AIMTheme.focusTint : Color.clear)
+        .allowsHitTesting(false)
+    }
+  }
+}
