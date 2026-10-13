@@ -420,7 +420,8 @@ in light and dark before a UI change ships.
   space: an account without usage shows its bars disabled with "Unavailable", and its primary
   button reads "Sign in again". The table has no column header and no Provider column. Each
   provider group starts with a 32 pt header row: a 16 pt brand tile, the provider name in
-  semibold, and a count pill. Its accounts sit 24 pt in, under the provider name, and a thin
+  semibold, and the count as plain secondary text ("×2"). The card header shows no account
+  total. Its accounts sit 24 pt in, under the provider name, and a thin
   guide line runs from the tile down to an elbow at each account, like a Finder outline. Groups
   are 6 pt apart with no zebra fill. Row separators start at the indent and stay lighter than
   card borders. The usage column holds the bar and "83% · 6d 19h" (percent, then reset time);
