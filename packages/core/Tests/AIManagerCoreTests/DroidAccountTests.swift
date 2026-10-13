@@ -28,7 +28,9 @@ final class DroidAccountTests: XCTestCase {
           test "$2" = --auth
           test "$3" = --json
           fake_root=$(dirname "$0")
-          printf '%s\\n%s\\n' "$FACTORY_HOME_OVERRIDE" "$FACTORY_DISABLE_KEYRING" > "$fake_root/doctor-invocation"
+          printf '%s\\n%s\\n%s\\n' "$FACTORY_HOME_OVERRIDE" "$FACTORY_DISABLE_KEYRING" "$0" > "$fake_root/doctor-invocation"
+          # A simulated token refresh rewrites the login in place, as the real doctor can.
+          test ! -f "$fake_root/doctor-rewrite" || cp "$fake_root/doctor-rewrite" "$FACTORY_HOME_OVERRIDE/.factory/auth.v2.loginkeychain"
           test -f "$fake_root/doctor.json" || exit 1
           cat "$fake_root/doctor.json"
           exit 0
@@ -38,6 +40,8 @@ final class DroidAccountTests: XCTestCase {
         """
         try script.write(to: fake, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        let bundled = root.appending(path: "bundled-droid")
+        try fm.copyItem(at: fake, to: bundled)
         paths = .init(applicationSupport: root.appending(path: "support"),
             credentialStore: root.appending(path: "user/.switch/codex"),
             defaultHome: root.appending(path: "user/.codex"), sharedRoot: root.appending(path: "user/.codex"),
@@ -92,20 +96,55 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertNil(DroidProviderAdapter.identityHint(Data("unknown".utf8)))
     }
 
-    func testDoctorImportStoresHintUsingPrivateCopyAndMatchingKeyringMode() async throws {
+    func testDoctorImportStoresHintOnTheSourceHomeAndMatchingKeyringMode() async throws {
         try doctor("s***@gmail.com")
         let manager = try manager()
         let account = try await manager.importDroidAccount(name: "Personal")
         XCTAssertEqual(account.identity.email, "s***@gmail.com")
         var invocation = try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")
-        XCTAssertNotEqual(String(invocation[0]), paths.droidHome.deletingLastPathComponent().path)
+        XCTAssertEqual(String(invocation[0]), paths.droidHome.deletingLastPathComponent().path)
         XCTAssertEqual(invocation[1], "0")
-        XCTAssertFalse(fm.fileExists(atPath: String(invocation[0])))
         try writeLogin(paths.droidHome, value: "fallback", fallback: true)
         try doctor("d***@gmail.com")
         _ = try await manager.importDroidAccount(name: "Work")
         invocation = try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")
         XCTAssertEqual(invocation[1], "1")
+    }
+
+    func testDoctorNeverRunsOnACopyAndSavedCopyHoldsRefreshedBytes() async throws {
+        try doctor("s***@gmail.com")
+        try CoreSupport.atomicWrite(Data("refreshed-login".utf8), to: root.appending(path: "doctor-rewrite"), fileManager: fm)
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Personal")
+        let invocation = try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(String(invocation[0]), paths.droidHome.deletingLastPathComponent().path)
+        XCTAssertEqual(try Data(contentsOf: account.credentialFile.appending(path: "auth.v2.loginkeychain")), Data("refreshed-login".utf8))
+        XCTAssertEqual(try Data(contentsOf: paths.droidHome.appending(path: "auth.v2.loginkeychain")), Data("refreshed-login".utf8))
+        let staging = paths.applicationSupport.appending(path: "staging")
+        XCTAssertEqual((try? fm.contentsOfDirectory(atPath: staging.path)) ?? [], [])
+        XCTAssertFalse(CoreSupport.entryExists(paths.droidHome.appending(path: "doctor-output.json")))
+        // Re-sign-in: doctor runs on the staging home and its refreshed bytes are saved.
+        let start = try await manager.startAccountLogin(accountID: account.id, confirmDroidAccount: true)
+        _ = try await manager.run(start.launchSpec)
+        try CoreSupport.atomicWrite(Data("refreshed-staging".utf8), to: root.appending(path: "doctor-rewrite"), fileManager: fm)
+        let check = try await manager.checkAccountLogin(id: start.session.id)
+        let staged = String(try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")[0])
+        XCTAssertNotEqual(staged, paths.droidHome.deletingLastPathComponent().path)
+        XCTAssertEqual(try Data(contentsOf: try XCTUnwrap(check.account).credentialFile.appending(path: "auth.v2.loginkeychain")), Data("refreshed-staging".utf8))
+    }
+
+    func testLiveHomeImportPrefersBundledDroidButStagingKeepsResolved() async throws {
+        try doctor("s***@gmail.com")
+        let bundled = root.appending(path: "bundled-droid")
+        paths.droidBundledExecutable = bundled
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Personal")
+        func executable() throws -> String { String(try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")[2]) }
+        XCTAssertEqual(try executable(), bundled.resolvingSymlinksInPath().path)
+        let start = try await manager.startAccountLogin(accountID: account.id, confirmDroidAccount: true)
+        _ = try await manager.run(start.launchSpec)
+        _ = try await manager.checkAccountLogin(id: start.session.id)
+        XCTAssertEqual(try executable(), root.appending(path: "fake-droid").resolvingSymlinksInPath().path)
     }
 
     func testDoctorMismatchRejectsAndDiscardsStagingWithoutChangingAccountOrLive() async throws {
