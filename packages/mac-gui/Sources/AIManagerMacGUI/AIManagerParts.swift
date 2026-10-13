@@ -14,7 +14,6 @@ extension AIMTheme {
   static let rowHeight: CGFloat = 36
   /// The provider label row above a group of account rows.
   static let groupLabelHeight: CGFloat = 24
-  static let headerHeight: CGFloat = 28
   /// Tiles share the card's inset, with a 12 pt gap and a 6 pt radius.
   static let tileInset: CGFloat = 16
   static let tileGap: CGFloat = 12
@@ -57,6 +56,12 @@ extension AIMTheme {
   /// One device pixel (see `aimPixel`). Dark is half the alpha of light: it keeps the look of the old half-point stroke.
   static let cardBorder = dynamic(light: NSColor(white: 0, alpha: 0.10), dark: NSColor(white: 1, alpha: 0.05))
   static let hairline = Color(nsColor: .separatorColor)
+  /// Table separators stay lighter than the card border (light 6% against 10%, dark 4% against 5%).
+  static let tableSeparator = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.04))
+  /// The fill of every second provider group in a table (zebra), across the card width.
+  static let zebra = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.03))
+  /// Pointer hover on a row: stronger than the zebra fill so it reads on both stripes, fainter than selection.
+  static let rowHover = dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.07))
   static let tileFill = dynamic(light: NSColor(white: 0, alpha: 0.025), dark: NSColor(white: 1, alpha: 0.04))
   static let controlFill = dynamic(light: .white, dark: NSColor(white: 1, alpha: 0.12))
   static let controlPressed = dynamic(light: NSColor(white: 0.93, alpha: 1), dark: NSColor(white: 1, alpha: 0.2))
@@ -192,6 +197,7 @@ struct AIMCard<Accessory: View, Content: View>: View {
     .uiLint(.card(radius: AIMTheme.radius), fill: AIMTheme.card, file: source.file, line: source.line)
     .modifier(CardScrollTag(scrolls: scrolls))
     .modifier(CardEdgeTags(edges: edges))
+    .aimAppear()
   }
 }
 
@@ -726,10 +732,10 @@ extension View {
 
 // MARK: - Columns
 
-/// One column of a table. The header and every row use the same list, so they share widths.
+/// One column of a table. Every row uses the same list, so they share widths. Tables have no
+/// header row: the rows explain themselves.
 struct AIMColumn: Identifiable {
   let id: String
-  let title: String
   /// Nil is the flexible column; a table has exactly one.
   var width: CGFloat? = nil
   var alignment: Alignment = .leading
@@ -740,16 +746,10 @@ enum AIMColumns {
   /// No Provider column: the group label above the rows says it. The account name and the
   /// usage bar share the freed width.
   static let accounts: [AIMColumn] = [
-    AIMColumn(id: "account", title: "Account"),
-    AIMColumn(id: "usage", title: "Usage", width: 260),
-    AIMColumn(id: "resets", title: "Resets", width: 88),
-    AIMColumn(id: "actions", title: "Actions", width: AIMTheme.rowButtonWidth + 8 + AIMTheme.rowControlHeight),
-  ]
-  /// Recent activity: period, tokens, estimated cost.
-  static let activity: [AIMColumn] = [
-    AIMColumn(id: "period", title: "Period"),
-    AIMColumn(id: "tokens", title: "Tokens", width: 200, alignment: .trailing),
-    AIMColumn(id: "cost", title: "Cost", width: 140, alignment: .trailing),
+    AIMColumn(id: "account"),
+    AIMColumn(id: "usage", width: 260),
+    AIMColumn(id: "resets", width: 88),
+    AIMColumn(id: "actions", width: AIMTheme.rowButtonWidth + 8 + AIMTheme.rowControlHeight),
   ]
 }
 
@@ -766,53 +766,49 @@ extension View {
   }
 }
 
-/// The column header row: Secondary titles on the card's 16 inset.
-struct AIMTableHeader: View {
-  let columns: [AIMColumn]
-  let group: String
-
-  var body: some View {
-    HStack(spacing: AIMColumns.gap) {
-      ForEach(columns) { column in
-        Text(column.title).aimText(.secondary).lineLimit(1)
-          .aimColumn(column, group: group)
-      }
-    }
-    .padding(.horizontal, AIMTheme.cardInset)
-    .frame(height: AIMTheme.headerHeight)
-    .accessibilityHidden(true)
-  }
-}
-
-/// One 36 pt table row. Its cells sit on the same 16 inset as the header; a highlight sits 6 in
-/// from the card edge with a 4 radius so the corners stay concentric.
+/// One 36 pt table row on the card's 16 inset. A highlight sits 6 in from the card edge with a 6
+/// radius. Selection, hover, and keyboard focus are fills that fade in and out, never outlines.
 struct AIMTableRow<Content: View>: View {
   var highlighted = false
   /// Keyboard focus: a fainter fill in the same shape. Selection is a fill, never an outline.
   var focused = false
+  /// Draws the hover fill without a pointer, for Preview screenshots.
+  var previewHovering = false
   @ViewBuilder var content: Content
+  @State private var pointerInside = false
 
   var body: some View {
+    let hovering = pointerInside || previewHovering
+    let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
     HStack(spacing: AIMColumns.gap) { content }
       .padding(.horizontal, AIMTheme.cardInset)
       .frame(height: AIMTheme.rowHeight)
       .frame(maxWidth: .infinity)
       .background(alignment: .center) {
-        if highlighted || focused {
-          RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
-            .fill(highlighted ? AIMTheme.rowHighlight : AIMTheme.focusTint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, AIMTheme.highlightInset)
+        ZStack {
+          shape.fill(AIMTheme.rowHover).opacity(hovering && !highlighted ? 1 : 0)
+          shape.fill(AIMTheme.focusTint).opacity(focused && !highlighted ? 1 : 0)
+          shape.fill(AIMTheme.rowHighlight).opacity(highlighted ? 1 : 0)
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, AIMTheme.highlightInset)
+        .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
+        .animation(AIMMotion.fade(AIMMotion.hover), value: highlighted)
+        .allowsHitTesting(false)
       }
+      .contentShape(Rectangle())
+      .onHover { pointerInside = $0 }
       .environment(\.aimControlHeight, AIMTheme.rowControlHeight)
   }
 }
 
-/// A hairline between rows, on the 16 inset.
+/// A lighter-than-border rule between rows, on the 16 inset.
 struct AIMRowSeparator: View {
+  @Environment(\.aimPixel) private var pixel
   var body: some View {
-    AIMHairline().padding(.horizontal, AIMTheme.cardInset)
+    Rectangle().fill(AIMTheme.tableSeparator).frame(height: pixel)
+      .padding(.horizontal, AIMTheme.cardInset)
+      .accessibilityHidden(true)
   }
 }
 
@@ -825,12 +821,28 @@ struct AIMPushButtonStyle: ButtonStyle {
   var square = false
   /// A fixed width, so a table row's Switch button matches the Default chip.
   var width: CGFloat? = nil
+
+  func makeBody(configuration: Configuration) -> some View {
+    AIMPushButtonFace(configuration: configuration, prominent: prominent, square: square, width: width)
+  }
+}
+
+/// The button's face. It owns the hover state, so the fill fades in and out and a press dims and
+/// shrinks it a little (the shrink is skipped with Reduce Motion).
+private struct AIMPushButtonFace: View {
+  let configuration: ButtonStyleConfiguration
+  let prominent: Bool
+  let square: Bool
+  let width: CGFloat?
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.isFocused) private var focused
   @Environment(\.aimControlHeight) private var height
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var hovering = false
 
-  func makeBody(configuration: Configuration) -> some View {
+  var body: some View {
     let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+    let pressed = configuration.isPressed
     configuration.label
       .labelStyle(AIMButtonLabelStyle())
       .aimFont(.body)
@@ -838,19 +850,56 @@ struct AIMPushButtonStyle: ButtonStyle {
       .lineLimit(1)
       .padding(.horizontal, square ? 0 : (height < AIMTheme.controlHeight ? 10 : 12))
       .frame(width: square ? height : width, height: height)
-      .background(shape.fill(fill(pressed: configuration.isPressed)))
+      .background(shape.fill(fill(pressed: pressed)))
       .overlay(shape.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
+      .overlay(shape.fill(hovering && isEnabled && !pressed ? hoverTint : Color.clear))
       // The rim is light-mode only; Dark Mode controls are flat fills. No drop shadow: a half-point
       // blur falls between pixels at 1x and smears the edge.
       .aimBorder(prominent ? AIMTheme.primaryBorder : AIMTheme.controlBorder, in: shape)
       .opacity(isEnabled ? 1 : 0.45)
       .contentShape(shape)
       .uiLint(.control)
+      .onHover { hovering = $0 }
+      .scaleEffect(AIMMotion.scale(pressed: pressed && isEnabled, reduceMotion: reduceMotion))
+      .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
+      .animation(AIMMotion.fade(AIMMotion.hover), value: pressed)
   }
+
+  private var hoverTint: Color { prominent ? Color.white.opacity(0.14) : AIMTheme.rowHover }
 
   private func fill(pressed: Bool) -> Color {
     if prominent { return Color.accentColor.opacity(pressed ? 0.8 : 1) }
     return pressed ? AIMTheme.controlPressed : AIMTheme.controlFill
+  }
+}
+
+/// A borderless icon-only button: a faint fill fades in on hover, and a press dims and shrinks it.
+struct AIMIconButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    AIMIconButtonFace(configuration: configuration)
+  }
+}
+
+private struct AIMIconButtonFace: View {
+  let configuration: ButtonStyleConfiguration
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var focused
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var hovering = false
+
+  var body: some View {
+    let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+    let pressed = configuration.isPressed
+    configuration.label
+      .padding(4)
+      .background(shape.fill(hovering && isEnabled ? AIMTheme.rowHover : (focused && isEnabled ? AIMTheme.focusTint : Color.clear)))
+      .padding(-4)
+      .opacity(pressed ? 0.7 : 1)
+      .contentShape(shape)
+      .onHover { hovering = $0 }
+      .scaleEffect(AIMMotion.scale(pressed: pressed && isEnabled, reduceMotion: reduceMotion))
+      .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
+      .animation(AIMMotion.fade(AIMMotion.hover), value: pressed)
   }
 }
 
@@ -1131,15 +1180,34 @@ struct AIMSidebar: View {
 /// A sidebar row: selection is an accent fill, keyboard focus a fainter fill, never an outline.
 private struct AIMSidebarRowStyle: ButtonStyle {
   let selected: Bool
-  @Environment(\.isFocused) private var focused
 
   func makeBody(configuration: Configuration) -> some View {
+    AIMSidebarRowFace(configuration: configuration, selected: selected)
+  }
+}
+
+private struct AIMSidebarRowFace: View {
+  let configuration: ButtonStyleConfiguration
+  let selected: Bool
+  @Environment(\.isFocused) private var focused
+  @State private var hovering = false
+
+  var body: some View {
     let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
     configuration.label
       .padding(.horizontal, 10)
       .frame(height: 32)
-      .background(selected ? AIMTheme.sidebarSelection : (focused ? AIMTheme.focusTint : Color.clear), in: shape)
+      .background {
+        ZStack {
+          shape.fill(AIMTheme.rowHover).opacity(hovering && !selected ? 1 : 0)
+          shape.fill(AIMTheme.focusTint).opacity(focused && !selected ? 1 : 0)
+          shape.fill(AIMTheme.sidebarSelection).opacity(selected ? 1 : 0)
+        }
+        .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
+        .animation(AIMMotion.fade(AIMMotion.hover), value: selected)
+      }
       .contentShape(Rectangle())
+      .onHover { hovering = $0 }
   }
 }
 
@@ -1151,16 +1219,19 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
   /// A fixed segment width, and a 14 pt icon before each title. Icons use the label color.
   var segmentWidth: CGFloat? = nil
   var icon: ((Option) -> AIMIcon.Name)? = nil
+  @Namespace private var indicator
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   /// A flat segmented control for compact mutually exclusive choices: a 28 pt track with a filled
-  /// selected segment (the system control draws a light rim in Dark Mode).
+  /// selected segment (the system control draws a light rim in Dark Mode). The selected fill slides
+  /// between segments; with Reduce Motion it just fades.
   var body: some View {
     let track = RoundedRectangle(cornerRadius: 7, style: .continuous)
     let segment = RoundedRectangle(cornerRadius: 5, style: .continuous)
     HStack(spacing: 2) {
       ForEach(options, id: \.self) { option in
         let selected = option == selection
-        Button { selection = option } label: {
+        Button { withAnimation(AIMMotion.move(reduceMotion: reduceMotion)) { selection = option } } label: {
           HStack(spacing: 6) {
             if let icon {
               AIMIcon(name: icon(option)).aimFont(.body).foregroundStyle(Color.primary)
@@ -1171,8 +1242,13 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
             .foregroundStyle(Color.primary)
             .padding(.horizontal, segmentWidth == nil ? 12 : 0)
             .frame(width: segmentWidth, height: AIMTheme.controlHeight - 4)
-            .background(selected ? AIMTheme.segmentSelected : Color.clear, in: segment)
-            .aimBorder(selected ? AIMTheme.controlBorder : Color.clear, in: segment)
+            .background {
+              if selected {
+                segment.fill(AIMTheme.segmentSelected)
+                  .aimBorder(AIMTheme.controlBorder, in: segment)
+                  .matchedGeometryEffect(id: "selected", in: indicator)
+              }
+            }
             .contentShape(segment)
         }
         .buttonStyle(AIMSegmentFocusStyle())
