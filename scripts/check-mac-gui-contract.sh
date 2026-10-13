@@ -54,6 +54,11 @@ if rg -n 'AIMStateChip' "$repo_root/packages/mac-gui/Sources"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL obsolete default state chip' >&2
   exit 1
 fi
+# The result of an action is a macOS notification, never a card: only the model and the Maintenance store touch `notice`.
+if rg -n 'model\.notice' "$repo_root/packages/mac-gui/Sources" --glob '!AccountViewModel.swift' --glob '!MaintenanceStore.swift'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL a view renders model.notice: post the message as a notification instead' >&2
+  exit 1
+fi
 if rg -n '(^|[^A-Za-z])(ScrollView\s*(\(|\{)|List\s*\(|Form\s*\{)|\.scrollIndicators\(\.hidden\)' \
     "$repo_root/packages/mac-gui/Sources" --glob '!AIManagerParts.swift'; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL every surface must use AIMScrollView or AIMSheetForm' >&2

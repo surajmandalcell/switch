@@ -47,6 +47,29 @@ final class QuotaNotificationPermission: ObservableObject {
   }
 }
 
+/// The result of an action as a macOS notification: the text in the body (macOS titles it "Switch"),
+/// no sound. The first post asks macOS for permission; when notifications are off the message is dropped.
+/// The app installs `post` as `AccountViewModel.messagePoster`; the model skips Preview and isolated runs.
+@MainActor
+enum ActionMessage {
+  static func post(_ text: String) {
+    guard QuotaNotificationPermission.isAvailable else { return }
+    Task {
+      let center = UNUserNotificationCenter.current()
+      var status = await center.notificationSettings().authorizationStatus
+      if status == .notDetermined {
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        status = await center.notificationSettings().authorizationStatus
+      }
+      guard status == .authorized || status == .provisional else { return }
+      let content = UNMutableNotificationContent()
+      content.body = text
+      content.threadIdentifier = "switch.message"
+      try? await center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+  }
+}
+
 @MainActor
 final class QuotaNotifier: NSObject, UNUserNotificationCenterDelegate {
   private static let thread = "switch.quota"
@@ -168,7 +191,8 @@ final class QuotaNotifier: NSObject, UNUserNotificationCenterDelegate {
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
-    [.banner, .sound]
+    // Shown also while Switch is in front. Only quota alerts carry a sound; action messages do not.
+    notification.request.content.sound == nil ? [.banner, .list] : [.banner, .list, .sound]
   }
 
   nonisolated func userNotificationCenter(

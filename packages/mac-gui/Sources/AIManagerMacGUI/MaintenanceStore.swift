@@ -37,7 +37,6 @@ final class MaintenanceStore: ObservableObject {
   @Published private(set) var progress: BackupProgress?
   @Published private(set) var isRestoring = false
   @Published private(set) var isLoaded = false
-  @Published var message: String?
   /// "Open Backup" on the Overview asks the Maintenance page for the Backup tab.
   @Published var wantsBackupTab = false
   @Published var destination: URL? {
@@ -135,7 +134,7 @@ final class MaintenanceStore: ObservableObject {
   }
 
   func loadSets() async {
-    do { sets = try await engine.sets() } catch { message = "Backup settings could not be read. \(error.localizedDescription)" }
+    do { sets = try await engine.sets() } catch { model.errorMessage = "Backup settings could not be read. \(error.localizedDescription)" }
     isLoaded = true
     await refreshAll()
   }
@@ -146,7 +145,7 @@ final class MaintenanceStore: ObservableObject {
 
   func refresh(_ set: BackupSet) async {
     do { statuses[set.id] = try await engine.status(for: set) }
-    catch { message = "The backups of \(set.name) could not be read. \(error.localizedDescription)" }
+    catch { model.errorMessage = "The backups of \(set.name) could not be read. \(error.localizedDescription)" }
   }
 
   /// A set for a source the owner has not backed up yet: needs a destination first.
@@ -178,7 +177,7 @@ final class MaintenanceStore: ObservableObject {
       sets = next
       for set in next where statuses[set.id] == nil { await refresh(set) }
       for set in next { await refresh(set) }
-    } catch { message = error.localizedDescription }
+    } catch { model.errorMessage = error.localizedDescription }
   }
 
   // MARK: Destination and items (folder panels)
@@ -200,7 +199,7 @@ final class MaintenanceStore: ObservableObject {
     let home = CoreSupportBridge.canonical(set.source.home).path
     let path = CoreSupportBridge.canonical(url).path
     guard path.hasPrefix(home + "/") else {
-      message = "Choose a file or folder inside \(set.source.home.lastPathComponent)."
+      model.errorMessage = "Choose a file or folder inside \(set.source.home.lastPathComponent)."
       return
     }
     let relative = String(path.dropFirst(home.count + 1))
@@ -238,11 +237,11 @@ final class MaintenanceStore: ObservableObject {
 
   var isBackingUp: Bool { runningSetID != nil }
 
-  func backUpNow(_ set: BackupSet) {
+  /// A scheduled run is silent on success: a message is only for an action the owner started.
+  func backUpNow(_ set: BackupSet, scheduled: Bool = false) {
     guard runningSetID == nil, !isRestoring else { return }
     runningSetID = set.id
     progress = nil
-    message = nil
     let box = ProgressBox()
     runTask = Task { [weak self] in
       guard let self else { return }
@@ -250,11 +249,13 @@ final class MaintenanceStore: ObservableObject {
         let snapshot = try await self.engine.snapshot(set) { [weak self] value in
           if box.shouldPublish() { Task { @MainActor in self?.progress = value } }
         }
-        self.message = "Backed up \(snapshot.files.formatted()) files. \(Self.size(snapshot.newBytes)) of new data."
+        if !scheduled {
+          self.model.notice = "Backed up \(snapshot.files.formatted()) files. \(Self.size(snapshot.newBytes)) of new data."
+        }
       } catch is CancellationError {
-        self.message = "Backup cancelled. Nothing was added."
+        if !scheduled { self.model.notice = "Backup cancelled." }
       } catch {
-        self.message = error.localizedDescription
+        self.model.errorMessage = error.localizedDescription
       }
       self.runningSetID = nil
       self.progress = nil
@@ -262,8 +263,8 @@ final class MaintenanceStore: ObservableObject {
     }
   }
 
-  func backUp(_ set: BackupSet) async {
-    backUpNow(set)
+  func backUp(_ set: BackupSet, scheduled: Bool = false) async {
+    backUpNow(set, scheduled: scheduled)
     await runTask?.value
   }
 
@@ -278,10 +279,8 @@ final class MaintenanceStore: ObservableObject {
       let result = try await engine.restore(snapshot, set: set, items: items, to: folder)
       var text = "Restored \(result.restored.formatted()) files"
       if let folder { text += " to \(folder.lastPathComponent)" }
-      if result.safetySnapshot != nil { text += ". A safety snapshot of the current files was kept" }
-      if !result.extraFiles.isEmpty { text += ". \(result.extraFiles.count.formatted()) newer files were left in place" }
-      message = text + "."
-    } catch { message = error.localizedDescription }
+      model.notice = text + "."
+    } catch { model.errorMessage = error.localizedDescription }
     await refresh(set)
   }
 
@@ -291,7 +290,7 @@ final class MaintenanceStore: ObservableObject {
       await refresh(set)
       guard let status = statuses[set.id], case .ready = status.state,
         let due = status.nextDue, due <= Date(), runningSetID == nil, !isRestoring else { continue }
-      await backUp(set)
+      await backUp(set, scheduled: true)
     }
   }
 

@@ -192,7 +192,6 @@ private struct AccountDetail: View {
   @ObservedObject var model: AccountViewModel
   let delete: () -> Void
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var issues: [LinkedSettingsDivergence] {
     model.status?.linkedSettingsDivergences.filter { $0.accountID == account.id } ?? []
   }
@@ -249,12 +248,7 @@ private struct AccountDetail: View {
           }
         }
       }
-      if let notice = model.notice {
-        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
-          .transition(reduceMotion ? .identity : .opacity)
-      }
     }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
 }
 

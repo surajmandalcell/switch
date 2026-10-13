@@ -63,11 +63,7 @@ struct BackupPage: View {
         AIMSection { Text("No supported tool was found on this Mac.").aimText(.secondary) }
       }
       if model.status?.pendingRecovery.isEmpty == false { recoveryCard }
-      if let text = store.message ?? model.notice {
-        AIMSection { Notice(text: text, tone: AIMTheme.blue) }.transition(.opacity)
-      }
     }
-    .animation(reduceMotion ? nil : AIMMotion.fade(AIMMotion.state), value: store.message)
     .task { store.start() }
     .task(id: set?.destination) {
       let destination = set?.destination

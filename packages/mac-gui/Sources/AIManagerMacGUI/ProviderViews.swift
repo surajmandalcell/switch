@@ -549,7 +549,6 @@ struct ProviderAccountDetail: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
   let delete: () -> Void
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
 
   var body: some View {
@@ -565,12 +564,7 @@ struct ProviderAccountDetail: View {
           value: account.lastUsedAt?.formatted(date: .abbreviated, time: .shortened)
             ?? "Not switched yet")
       }
-      if let notice = model.notice {
-        AIMSection { Notice(text: notice, tone: AIMTheme.blue) }
-          .transition(reduceMotion ? .identity : .opacity)
-      }
     }
-    .animation(reduceMotion ? nil : .easeOut(duration: AIMMotion.state), value: model.notice)
   }
 }
 

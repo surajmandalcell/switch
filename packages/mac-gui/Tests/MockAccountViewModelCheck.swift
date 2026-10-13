@@ -21,6 +21,9 @@ struct MockAccountViewModelCheck {
         let model = AccountViewModel(scenario: .allStates, demoPaths: paths)
         precondition(model.hasLoaded)
         precondition(model.isDemo)
+        // Preview never posts a notification, even when a poster is installed.
+        var posted: [String] = []
+        model.messagePoster = { posted.append($0) }
         precondition(!model.isUnavailable)
         precondition(model.selectedProviderID == .codex)
         let genericCount = DemoData.genericAccounts.count
@@ -144,6 +147,7 @@ struct MockAccountViewModelCheck {
         precondition(model.copyPath("/Demo/Shared"))
         model.copyWarnings(["First warning", "Second warning"])
         precondition(model.notice == "2 warnings ready to copy in the production app.")
+        precondition(posted.isEmpty, "Preview posted a notification")
         model.showDataLocation(model.paths.defaultHome, name: "Codex home")
         await model.openAccount()
         if let issue = model.status?.linkedSettingsDivergences.first {
