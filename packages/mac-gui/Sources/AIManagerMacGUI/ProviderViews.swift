@@ -35,9 +35,9 @@ extension AccountRecord {
   }
 }
 
-/// Provider icon tile used in lists: the official brand mark in its own colors on the brand's
-/// tile (single-color marks flip with the appearance), or the template glyph on a neutral tile
-/// for a provider with no official mark. All tiles share one corner radius and optical padding.
+/// Provider icon tile used in lists: the brand's full app icon edge to edge on its own background,
+/// or its transparent mark with optical padding on the brand's tile color, or the template glyph on
+/// a neutral tile for a provider with no official icon. All tiles share one corner radius.
 struct ProviderMark: View {
   @Environment(\.colorScheme) private var colorScheme
   let providerID: ProviderID
@@ -51,7 +51,7 @@ struct ProviderMark: View {
         let dark = colorScheme == .dark
         Image(nsImage: image).resizable().scaledToFit()
           .foregroundStyle(Color(hex: (dark ? brand.tint?.dark : brand.tint?.light) ?? 0))
-          .padding(size * 0.2)
+          .padding(brand.fillsTile ? 0 : size * 0.2)
           .frame(width: size, height: size)
           .background(Color(hex: dark ? brand.tile.dark : brand.tile.light))
       } else {

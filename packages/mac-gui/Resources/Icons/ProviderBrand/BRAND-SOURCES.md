@@ -1,92 +1,126 @@
-# Provider brand marks
+# Provider brand icons
 
-Official provider logos that `ProviderMark` draws on each brand's tile (`AIManagerBrand.providerBrands`
-holds the same table). The marks are 24-unit vectors: `<key>.pdf`, plus `<key>-mono.pdf` (the official
-single-color mark, used by the small glyph) when the main mark is multicolor. `antigravity.png` is a
-384-pixel PNG because its SVG uses mask and blur filters that PDF export drops.
+`ProviderMark` draws each provider's own icon (`AIManagerBrand.providerBrands` holds the same table).
+Three looks, the same in Light and Dark Mode:
 
-Sources, retrieved 2026-10-13:
+- Full icon (`full-<id>.png` or `.pdf`): the brand's own app, apple-touch, or site icon with its real
+  background. It fills the tile edge to edge, clipped to the tile corner radius (size x 0.22). Tile
+  color in the loader table = the icon's own edge color, so a rounded or circular icon has no gap.
+- Mark on a tile (`<name>.pdf`, `.png`): a transparent official mark with 0.2 padding on the brand's
+  tile color (white unless listed).
+- Template glyph (`<name>-mono.pdf`, or the mark itself): the single-color mark for dense rows and the
+  menu bar.
 
-- Lobe Icons, npm `@lobehub/icons-static-svg` 1.90.0, MIT (`../ProviderGlyphs/LICENSE-LobeHub.txt`).
-- Simple Icons, npm `simple-icons` 16.35.0, CC0-1.0.
-- Brand site icons, for providers that have neither: `https://kiro.dev/icon.svg`,
-  `https://devin.ai/favicon.svg`, `https://factory.ai/favicon.svg`, `https://augmentcode.com/favicon.svg`.
-  The tile rectangle was removed from Kiro and Factory so every tile shares one size and padding.
+Retrieved 2026-10-13. Every icon is a trademark of its owner and only identifies the provider. Icons
+from a brand's own site are used as the site publishes them (no license grant). Lobe Icons (npm
+`@lobehub/icons-static-svg` 1.90.0) is MIT (`../ProviderGlyphs/LICENSE-LobeHub.txt`). Simple Icons
+(npm `simple-icons` 16.35.0) is CC0-1.0. Rebuild a PDF with `rsvg-convert -f pdf`; PNG icons are the
+source resized to at most 256 pixels.
 
-Rebuild: copy the source SVG, set `width`/`height` to 24, then
-`rsvg-convert -f pdf -o <key>.pdf <svg>`. Tiles share one size scale, a corner radius of size x 0.22, and
-an inset of size x 0.2. All marks remain trademarks of their owners and only identify the provider.
+## Full icons
 
-| Provider id | Source | License | Tile look |
+| Provider id | File | Source |
+| --- | --- | --- |
+| codex, openai | full-openai.png | https://openai.com/apple-touch-icon.png |
+| claude-code | full-claude-code.png | https://claude.ai/apple-touch-icon.png |
+| grok-build | full-grok-build.png | https://grok.com/images/apple-touch-icon.png |
+| cursor | full-cursor.png | https://cursor.com/apple-touch-icon.png |
+| amp | full-amp.png | https://ampcode.com/app-icon.png |
+| opencodego | full-opencodego.png | https://opencode.ai/apple-touch-icon.png |
+| kilo | full-kilo.pdf | https://kilo.ai/favicon/favicon.svg |
+| ollama | full-ollama.png | https://ollama.com/public/apple-touch-icon.png |
+| perplexity | full-perplexity.png | https://www.perplexity.ai/apple-touch-icon.png |
+| groq | full-groq.png | https://groq.com/apple-touch-icon.png |
+| v0 | full-v0.png | https://v0.app/assets/apple-icon.png |
+| replicate | full-replicate.png | https://static.replicateassets.com/fe/4fa86b07de3ad4ea584bc1f339cff05cc96889c9/favicon-CKiqAkf2.png |
+| elevenlabs | full-elevenlabs.png | https://elevenlabs.io/apple-icon.png |
+| notion | full-notion.png | https://www.notion.com/front-static/logo-ios.png |
+| poe | full-poe.png | https://poe.com/apple-touch-icon.png |
+| raycast | full-raycast.png | https://www.raycast.com/favicon-production.png |
+| warp | full-warp.png | https://www.warp.dev/favicon-196x196.png |
+| deepgram | full-deepgram.png | https://console.deepgram.com/apple-touch-icon.png |
+| gitkraken | full-gitkraken.png | https://gitkraken.com/wp-content/uploads/2021/03/android-chrome-144x144-1.png |
+| jetbrains | full-jetbrains.png | https://www.jetbrains.com/apple-touch-icon.png |
+| openrouter | full-openrouter.png | https://openrouter.ai/favicon/glyph.png |
+| kimi, kimi-api, moonshot | full-kimi.png | https://www.kimi.com/pwa-192.png |
+| minimax | full-minimax.png | https://filecdn.minimax.chat/public/58eca777-e31f-448a-9823-e2220e49b426.png |
+| tavily | full-tavily.png | https://www.tavily.com/apple-icon.png |
+| venice | full-venice.png | https://venice.ai/apple-touch-icon.png |
+| doubao | full-doubao.png | https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/favicon/new-doubao/192x192.png |
+| exa | full-exa.png | https://exa.ai/favicon.ico (256 px frame) |
+| fireworks | full-fireworks.png | https://fireworks.ai/apple-icon.png |
+| qoder | full-qoder.png | https://img.alicdn.com/imgextra/i4/O1CN01QkSxiCocd3D0prc8_!!6000000008124-2-tps-412-412.png |
+| manus | full-manus.png | https://manus.im/icon.png |
+| nous | full-nous.png | https://nousresearch.com/apple-touch-icon.png |
+| mimo | full-mimo.png | https://platform.xiaomimimo.com/favicon.png |
+| devin | full-devin.png | https://devin.ai/apple-icon.png |
+| abacus | full-abacus.png | https://abacus.ai/apple-touch-icon.png |
+| aerostack | full-aerostack.png | https://aerostack.dev/apple-icon-180x180.png |
+| aiand | full-aiand.png | https://framerusercontent.com/images/CjnWM5i4l3rTtLs9FmP8NPB5uUY.png |
+| aixy | full-aixy.pdf | https://aixy-gateway.com/favicon.svg |
+| bifrost | full-bifrost.png | https://bifrost-website.getmaxim.workers.dev/marketing/k49dViw06yckDjJt5uERdfTSjU.png |
+| chutes | full-chutes.png | https://chutes.ai/favicon.png |
+| codebuff | full-codebuff.png | https://www.codebuff.com/favicon/apple-touch-icon.png |
+| commandcode | full-commandcode.png | https://commandcode.ai/apple-touch-icon.png |
+| helmcode | full-helmcode.png | https://helmcode.com/apple-touch-icon.png |
+| langdock | full-langdock.png | https://cdn.prod.website-files.com/69358127577725733df731fb/6a11853390eb949858f56e21_langdock-sticker-blau.png |
+| linkup | full-linkup.png | https://www.linkup.so/_next/static/immutable/media/favicon-dark.2yl18p4jwc-6u.png |
+| litellm | full-litellm.png | https://cdn.prod.website-files.com/69eb241da3f923869c226875/6abea4e104dd1bb48c09b81a_litellm_webclip_256_1.png |
+| sofya | full-sofya.pdf | https://sofya.co/static/favicon.svg |
+| synthetic | full-synthetic.png | https://synthetic.new/apple-touch-icon.png |
+| t3chat | full-t3chat.png | https://t3.chat/apple-touch-icon.png |
+| tinyapi | full-tinyapi.png | https://tinyapi.rest/android-chrome-512x512.png |
+| typesafe | full-typesafe.png | https://framerusercontent.com/images/kcuF2BEp5XaVfkmFB634IPRKQH0.png |
+| workbuddy | full-workbuddy.png | https://assets.workbuddy.cn/web/workbuddy/f4728a12fe9cfe5a34da6b2fa827614041c84386/assets/logo.svg (rendered at 256 px) |
+
+## Transparent marks on the brand's tile color
+
+| Provider id | File | Source | Tile |
 | --- | --- | --- | --- |
-| codex | Lobe Icons `openai` | MIT | black on white; white on black in Dark Mode |
-| openai | Lobe Icons `openai` | MIT | black on white; white on black in Dark Mode |
-| azureopenai | Lobe Icons `azure-color` | MIT | own colors on #FFFFFF |
-| claude-code | Lobe Icons `claude-color` | MIT | own colors on #FAF9F5 |
-| gemini-cli | Lobe Icons `gemini-color` | MIT | own colors on #FFFFFF |
-| antigravity-cli | Lobe Icons `antigravity-color` | MIT | own colors on #FFFFFF |
-| grok-build | Lobe Icons `grok` | MIT | black on white; white on black in Dark Mode |
-| xai | Lobe Icons `xai` | MIT | black on white; white on black in Dark Mode |
-| xapi | Simple Icons `x` | CC0-1.0 | black on white; white on black in Dark Mode |
-| cursor | Lobe Icons `cursor` | MIT | black on white; white on black in Dark Mode |
-| windsurf | Lobe Icons `windsurf` | MIT | black on white; white on black in Dark Mode |
-| copilot | Lobe Icons `githubcopilot` | MIT | black on white; white on black in Dark Mode |
-| clinepass | Lobe Icons `cline` | MIT | black on white; white on black in Dark Mode |
-| amp | Lobe Icons `amp-color` | MIT | own colors on #FFFFFF |
-| opencodego | Lobe Icons `opencode` | MIT | black on white; white on black in Dark Mode |
-| kilo | Lobe Icons `kilocode` | MIT | black on white; white on black in Dark Mode |
-| deepseek | Lobe Icons `deepseek-color` | MIT | own colors on #FFFFFF |
-| qwencloud | Lobe Icons `qwen-color` | MIT | own colors on #FFFFFF |
-| alibaba | Lobe Icons `alibabacloud-color` | MIT | own colors on #FFFFFF |
-| alibabatokenplan | Lobe Icons `bailian-color` | MIT | own colors on #FFFFFF |
-| mistral | Lobe Icons `mistral-color` | MIT | own colors on #FFFFFF |
-| ollama | Lobe Icons `ollama` | MIT | black on white; white on black in Dark Mode |
-| perplexity | Lobe Icons `perplexity-color` | MIT | own colors on #FFFFFF |
-| groq | Lobe Icons `groq` | MIT | #FFFFFF mark on #F55036 tile |
-| huggingface | Lobe Icons `huggingface-color` | MIT | own colors on #FFFFFF |
-| vercel | Lobe Icons `vercel` | MIT | black on white; white on black in Dark Mode |
-| v0 | Lobe Icons `v0` | MIT | black on white; white on black in Dark Mode |
-| replicate | Lobe Icons `replicate` | MIT | black on white; white on black in Dark Mode |
-| elevenlabs | Lobe Icons `elevenlabs` | MIT | black on white; white on black in Dark Mode |
-| notion | Lobe Icons `notion` | MIT | black on white; white on black in Dark Mode |
-| poe | Lobe Icons `poe-color` | MIT | own colors on #FFFFFF |
-| raycast | Simple Icons `raycast` | CC0-1.0 | #FFFFFF mark on #FF6363 tile |
-| warp | Simple Icons `warp` | CC0-1.0 | #FFFFFF mark on #01A4FF tile |
-| deepgram | Simple Icons `deepgram` (fill #13EF93) | CC0-1.0 | own colors on #0A0A0A |
-| gitkraken | Simple Icons `gitkraken` (fill #179287) | CC0-1.0 | own colors on #FFFFFF |
-| jetbrains | Simple Icons `jetbrains` | CC0-1.0 | black on white; white on black in Dark Mode |
-| zed | Simple Icons `zedindustries` (fill #084CCF) | CC0-1.0 | own colors on #FFFFFF |
-| openrouter | Simple Icons `openrouter` (fill #94A3B8) | CC0-1.0 | own colors on #FFFFFF |
-| kimi | Lobe Icons `kimi-color` (white fill recolored black) | MIT | own colors on #FFFFFF |
-| kimi-api | Lobe Icons `kimi-color` (white fill recolored black) | MIT | own colors on #FFFFFF |
-| moonshot | Lobe Icons `kimi-color` (white fill recolored black) | MIT | own colors on #FFFFFF |
-| minimax | Lobe Icons `minimax-color` | MIT | own colors on #FFFFFF |
-| stepfun | Lobe Icons `stepfun-color` | MIT | own colors on #FFFFFF |
-| tavily | Lobe Icons `tavily-color` | MIT | own colors on #FFFFFF |
-| venice | Lobe Icons `venice-color` | MIT | own colors on #FFFFFF |
-| vertexai | Lobe Icons `vertexai-color` | MIT | own colors on #FFFFFF |
-| bedrock | Lobe Icons `bedrock-color` | MIT | own colors on #FFFFFF |
-| doubao | Lobe Icons `doubao-color` | MIT | own colors on #FFFFFF |
-| exa | Lobe Icons `exa-color` | MIT | own colors on #FFFFFF |
-| fireworks | Lobe Icons `fireworks-color` | MIT | own colors on #FFFFFF |
-| deepinfra | Lobe Icons `deepinfra-color` | MIT | own colors on #FFFFFF |
-| longcat | Lobe Icons `longcat-color` | MIT | own colors on #FFFFFF |
-| qoder | Lobe Icons `qoder-color` | MIT | own colors on #FFFFFF |
-| atlascloud | Lobe Icons `atlascloud` | MIT | black on white; white on black in Dark Mode |
-| ibmbob | Lobe Icons `ibm` (fill #0F62FE) | MIT | own colors on #FFFFFF |
-| zai | Lobe Icons `zai` | MIT | black on white; white on black in Dark Mode |
-| manus | Lobe Icons `manus` | MIT | black on white; white on black in Dark Mode |
-| nous | Lobe Icons `nousresearch` | MIT | black on white; white on black in Dark Mode |
-| mimo | Lobe Icons `xiaomimimo` | MIT | black on white; white on black in Dark Mode |
-| zenmux | Lobe Icons `zenmux` | MIT | black on white; white on black in Dark Mode |
-| kiro | site icon kiro | Brand site icon | own colors on #9046FF |
-| devin | site icon devin | Brand site icon | black on white; white on black in Dark Mode |
-| augment | site icon augment | Brand site icon | black on white; white on black in Dark Mode |
-| factory | site icon factory | Brand site icon | #FAFAFA mark on #020202 tile |
+| ibmbob | ibmbob.png | https://bob.ibm.com/apple-touch-icon.png | white |
+| devpass | devpass.png | https://llmgateway.io/favicon/apple-touch-icon.png (white mark) | #09090B |
+| neuralwatt | neuralwatt.png | https://neuralwatt.com/static/images/Neuralwatt-Logomark-Black.png | white |
+| xkiro | xkiro.png | https://xkiro.com/images/logo/logo-xt-green.png | white |
+| cosmic | cosmic.pdf | https://www.cosmicjs.com/favicon.svg | white |
+| pi | pi.pdf | https://pi.dev/favicon.svg (light-scheme fill) | white |
+| muse | meta.pdf | Simple Icons `meta` (fill #0081FB), CC0-1.0 | white |
+| zoommate | zoom.pdf | Simple Icons `zoom` (white), CC0-1.0 | #0B5CFF |
+| azureopenai | azure.pdf | Lobe Icons `azure-color` | white |
+| gemini-cli | gemini.pdf | Lobe Icons `gemini-color` | white |
+| antigravity-cli | antigravity.png | Lobe Icons `antigravity-color` (384 px; its SVG uses blur filters) | white |
+| deepseek | deepseek.pdf | Lobe Icons `deepseek-color` | white |
+| qwencloud | qwen.pdf | Lobe Icons `qwen-color` | white |
+| alibaba | alibabacloud.pdf | Lobe Icons `alibabacloud-color` | white |
+| alibabatokenplan | bailian.pdf | Lobe Icons `bailian-color` | white |
+| mistral | mistral.pdf | Lobe Icons `mistral-color` | white |
+| huggingface | huggingface.pdf | Lobe Icons `huggingface-color` | white |
+| zed | zed.pdf | Simple Icons `zedindustries` (fill #084CCF) | white |
+| stepfun | stepfun.pdf | Lobe Icons `stepfun-color` | white |
+| vertexai | vertexai.pdf | Lobe Icons `vertexai-color` | white |
+| bedrock | bedrock.pdf | Lobe Icons `bedrock-color` | white |
+| deepinfra | deepinfra.pdf | Lobe Icons `deepinfra-color` | white |
+| longcat | longcat.pdf | Lobe Icons `longcat-color` | white |
+| kiro | kiro.pdf | https://kiro.dev/icon.svg (tile rectangle removed) | #9046FF |
+| vercel | vercel.pdf | Lobe Icons `vercel`, white mark | black |
+| xai | xai.pdf | Lobe Icons `xai`, black mark | white |
+| xapi | x.pdf | Simple Icons `x`, white mark | black |
+| zai | zai.pdf | Lobe Icons `zai`, white mark | #2D2D2D |
+| zenmux | zenmux.pdf | Lobe Icons `zenmux`, black mark | white |
+| windsurf | windsurf.pdf | Lobe Icons `windsurf`, black mark (windsurf.com now serves Devin's icon) | white |
+| copilot | githubcopilot.pdf | Lobe Icons `githubcopilot`, black mark | white |
+| clinepass | cline.pdf | Lobe Icons `cline`, black mark | white |
+| atlascloud | atlascloud.pdf | Lobe Icons `atlascloud`, black mark | white |
+| augment | augment.pdf | https://augmentcode.com/favicon.svg, black mark | white |
+| factory, droid | factory.pdf | https://factory.ai/favicon.svg (tile rectangle removed), #FAFAFA mark | #020202 |
 
-## No official mark found (keep the template glyph on a neutral tile)
+## Dense-row glyphs
 
-abacus, aerostack, aiand, aixy, bifrost, chutes, clawrouter, codebuff, commandcode, cosmic, devpass,
-helmcode, hyper, langdock, linkup, litellm, lithosai, llmman, llmproxy, muse, neuralwatt, pi,
-sailresearch, sakana, sofya, sub2api, synthetic, t3chat, tinyapi, typesafe, wayfinder, workbuddy,
-xkiro, zoommate. Lobe Icons, Simple Icons, and the brand's own site had no vector logo.
+The remaining `*.pdf` files (`<name>-mono.pdf`, `openai`, `grok`, `cursor`, `devin`, `v0`, `kilocode`,
+`manus`, `elevenlabs`, `notion`, `ollama`, `opencode`, `nousresearch`, `xiaomimimo`, `groq`, `raycast`,
+`warp`, `replicate`, `jetbrains`) are the official single-color marks from Lobe Icons or Simple Icons,
+used as template glyphs in lists and the menu bar. `ibm-mono.pdf` is the IBM mark for IBM Bob.
+
+## No full icon found (template glyph on a neutral tile)
+
+clawrouter (console host only), hyper (Charm Hyper: only a 1200x628 share image), lithosai (site down; 16 px favicon), llmman and llmproxy (sites down), sailresearch (32 px favicon),
+sakana (48 px favicon), sub2api and wayfinder (open-source projects with no own icon).

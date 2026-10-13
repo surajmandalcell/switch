@@ -39,9 +39,10 @@ enum AIManagerBrand {
 
   // MARK: Official provider brand marks
 
-  /// One provider's brand look. `file` is the official 24-unit vector mark in
-  /// `Icons/ProviderBrand/<file>.pdf`; `tile` is the brand's tile color; `tint` recolors a
-  /// single-color mark per appearance, and nil keeps the mark's own colors.
+  /// One provider's brand look. `file` is the brand's own artwork in `Icons/ProviderBrand/<file>.pdf`
+  /// (or `.png`); `tile` is the brand's own background color, the same in both appearances; `tint`
+  /// recolors a single-color mark, and nil keeps the artwork's own colors. `fillsTile` marks a full
+  /// app icon that fills the tile edge to edge; any other mark sits inside the tile padding.
   struct ProviderBrand: Equatable {
     struct Pair: Equatable {
       let light: UInt32
@@ -51,19 +52,22 @@ enum AIManagerBrand {
     let glyph: String?
     let tile: Pair
     let tint: Pair?
+    var fillsTile = false
 
-    /// Black mark on white; white on black in Dark Mode.
-    static func flip(_ file: String) -> Self {
+    /// The brand's full icon with its own background `bg`; `glyph` is the official single-color
+    /// mark for dense rows, when the source has one.
+    static func full(_ file: String, bg: UInt32, glyph: String? = nil) -> Self {
       .init(
-        file: file, glyph: file, tile: .init(light: 0xFFFFFF, dark: 0x000000),
-        tint: .init(light: 0x000000, dark: 0xFFFFFF))
+        file: file, glyph: glyph, tile: .init(light: bg, dark: bg), tint: nil, fillsTile: true)
     }
     /// Multicolor mark on a fixed tile; the dense-row glyph is the official `<file>-mono` mark
     /// when the source has one.
-    static func color(_ file: String, tile: UInt32 = 0xFFFFFF, mono: Bool = true) -> Self {
+    static func color(
+      _ file: String, tile: UInt32 = 0xFFFFFF, mono: Bool = true, glyph: String? = nil
+    ) -> Self {
       .init(
-        file: file, glyph: mono ? file + "-mono" : nil, tile: .init(light: tile, dark: tile),
-        tint: nil)
+        file: file, glyph: glyph ?? (mono ? file + "-mono" : nil),
+        tile: .init(light: tile, dark: tile), tint: nil)
     }
     /// Single-color mark on the brand's own tile color, the same in both appearances.
     static func tinted(_ file: String, mark: UInt32, tile: UInt32) -> Self {
@@ -71,36 +75,88 @@ enum AIManagerBrand {
         file: file, glyph: file, tile: .init(light: tile, dark: tile),
         tint: .init(light: mark, dark: mark))
     }
+    /// Black mark on white.
+    static func mono(_ file: String) -> Self { tinted(file, mark: 0x000000, tile: 0xFFFFFF) }
   }
 
   /// Provider id -> brand look. Marks and sources: `Resources/Icons/ProviderBrand/BRAND-SOURCES.md`.
-  /// A provider without an entry has no findable official mark and keeps its template glyph.
+  /// A provider without an entry has no findable official icon and keeps its template glyph.
   static let providerBrands: [String: ProviderBrand] = [
-    "codex": .flip("openai"), "openai": .flip("openai"), "azureopenai": .color("azure"),
-    "claude-code": .color("claude", tile: 0xFAF9F5),
-    "gemini-cli": .color("gemini"), "antigravity-cli": .color("antigravity"),
-    "grok-build": .flip("grok"), "xai": .flip("xai"), "xapi": .flip("x"),
-    "cursor": .flip("cursor"), "windsurf": .flip("windsurf"), "copilot": .flip("githubcopilot"),
-    "clinepass": .flip("cline"), "amp": .color("amp"), "opencodego": .flip("opencode"),
-    "kilo": .flip("kilocode"), "deepseek": .color("deepseek"), "qwencloud": .color("qwen"),
-    "alibaba": .color("alibabacloud"), "alibabatokenplan": .color("bailian"),
-    "mistral": .color("mistral"), "ollama": .flip("ollama"), "perplexity": .color("perplexity"),
-    "groq": .tinted("groq", mark: 0xFFFFFF, tile: 0xF55036),
-    "huggingface": .color("huggingface"), "vercel": .flip("vercel"), "v0": .flip("v0"),
-    "replicate": .flip("replicate"), "elevenlabs": .flip("elevenlabs"), "notion": .flip("notion"),
-    "poe": .color("poe"), "raycast": .tinted("raycast", mark: 0xFFFFFF, tile: 0xFF6363),
-    "warp": .tinted("warp", mark: 0xFFFFFF, tile: 0x01A4FF),
-    "deepgram": .color("deepgram", tile: 0x0A0A0A), "gitkraken": .color("gitkraken"),
-    "jetbrains": .flip("jetbrains"), "zed": .color("zed"), "openrouter": .color("openrouter"),
-    "kimi": .color("kimi"), "kimi-api": .color("kimi"), "moonshot": .color("kimi"),
-    "minimax": .color("minimax"), "stepfun": .color("stepfun"), "tavily": .color("tavily"),
-    "venice": .color("venice"), "vertexai": .color("vertexai"), "bedrock": .color("bedrock"),
-    "doubao": .color("doubao"), "exa": .color("exa"), "fireworks": .color("fireworks"),
-    "deepinfra": .color("deepinfra"), "longcat": .color("longcat"), "qoder": .color("qoder"),
-    "atlascloud": .flip("atlascloud"), "ibmbob": .color("ibm"), "zai": .flip("zai"),
-    "manus": .flip("manus"), "nous": .flip("nousresearch"), "mimo": .flip("xiaomimimo"),
-    "zenmux": .flip("zenmux"), "kiro": .color("kiro", tile: 0x9046FF, mono: false),
-    "devin": .flip("devin"), "augment": .flip("augment"),
+    // Full app icons on their own background.
+    "codex": .full("full-openai", bg: 0xFFFFFF, glyph: "openai"),
+    "openai": .full("full-openai", bg: 0xFFFFFF, glyph: "openai"),
+    "claude-code": .full("full-claude-code", bg: 0xD96F4C, glyph: "claude-mono"),
+    "grok-build": .full("full-grok-build", bg: 0x050505, glyph: "grok"),
+    "cursor": .full("full-cursor", bg: 0x000000, glyph: "cursor"),
+    "amp": .full("full-amp", bg: 0x2C3A2A, glyph: "amp-mono"),
+    "opencodego": .full("full-opencodego", bg: 0x131010, glyph: "opencode"),
+    "kilo": .full("full-kilo", bg: 0xFFDD00, glyph: "kilocode"),
+    "ollama": .full("full-ollama", bg: 0xFFFFFF, glyph: "ollama"),
+    "perplexity": .full("full-perplexity", bg: 0x000000, glyph: "perplexity-mono"),
+    "groq": .full("full-groq", bg: 0xF43E01, glyph: "groq"),
+    "vercel": .tinted("vercel", mark: 0xFFFFFF, tile: 0x000000),
+    "v0": .full("full-v0", bg: 0x000000, glyph: "v0"),
+    "replicate": .full("full-replicate", bg: 0xED5759, glyph: "replicate"),
+    "elevenlabs": .full("full-elevenlabs", bg: 0xFFFFFF, glyph: "elevenlabs"),
+    "notion": .full("full-notion", bg: 0xFFFFFF, glyph: "notion"),
+    "poe": .full("full-poe", bg: 0x000000, glyph: "poe-mono"),
+    "raycast": .full("full-raycast", bg: 0x151515, glyph: "raycast"),
+    "warp": .full("full-warp", bg: 0x000000, glyph: "warp"),
+    "deepgram": .full("full-deepgram", bg: 0x0C0C0D, glyph: "deepgram-mono"),
+    "gitkraken": .full("full-gitkraken", bg: 0x131322, glyph: "gitkraken-mono"),
+    "jetbrains": .full("full-jetbrains", bg: 0xFFFFFF, glyph: "jetbrains"),
+    "openrouter": .full("full-openrouter", bg: 0x03080A, glyph: "openrouter-mono"),
+    "kimi": .full("full-kimi", bg: 0x000000, glyph: "kimi-mono"),
+    "kimi-api": .full("full-kimi", bg: 0x000000, glyph: "kimi-mono"),
+    "moonshot": .full("full-kimi", bg: 0x000000, glyph: "kimi-mono"),
+    "minimax": .full("full-minimax", bg: 0xE3177F, glyph: "minimax-mono"),
+    "tavily": .full("full-tavily", bg: 0x1F1E1E, glyph: "tavily-mono"),
+    "venice": .full("full-venice", bg: 0xFFFFFF, glyph: "venice-mono"),
+    "doubao": .full("full-doubao", bg: 0xCAE4FF, glyph: "doubao-mono"),
+    "exa": .full("full-exa", bg: 0x1F40ED, glyph: "exa-mono"),
+    "fireworks": .full("full-fireworks", bg: 0xF2F2F2, glyph: "fireworks-mono"),
+    "qoder": .full("full-qoder", bg: 0xF3F3F3, glyph: "qoder-mono"),
+    "manus": .full("full-manus", bg: 0xFFFFFF, glyph: "manus"),
+    "nous": .full("full-nous", bg: 0xFFFFFF, glyph: "nousresearch"),
+    "mimo": .full("full-mimo", bg: 0x000000, glyph: "xiaomimimo"),
+    "devin": .full("full-devin", bg: 0x0E1015, glyph: "devin"),
+    "abacus": .full("full-abacus", bg: 0x0A0E1C),
+    "aerostack": .full("full-aerostack", bg: 0xF7F7F7),
+    "aiand": .full("full-aiand", bg: 0xFFFFFF),
+    "aixy": .full("full-aixy", bg: 0x123650),
+    "bifrost": .full("full-bifrost", bg: 0x40DBB6),
+    "chutes": .full("full-chutes", bg: 0x121212),
+    "codebuff": .full("full-codebuff", bg: 0x000000),
+    "commandcode": .full("full-commandcode", bg: 0x000000),
+    "helmcode": .full("full-helmcode", bg: 0x0A0A0A),
+    "langdock": .full("full-langdock", bg: 0x4469FC),
+    "linkup": .full("full-linkup", bg: 0xFFFFFF),
+    "litellm": .full("full-litellm", bg: 0x0117BE),
+    "sofya": .full("full-sofya", bg: 0x0A0806),
+    "synthetic": .full("full-synthetic", bg: 0xFFFFFF),
+    "t3chat": .full("full-t3chat", bg: 0xC21789),
+    "tinyapi": .full("full-tinyapi", bg: 0xCF7600),
+    "typesafe": .full("full-typesafe", bg: 0xE551BA),
+    "workbuddy": .full("full-workbuddy", bg: 0xFFFFFF),
+    // The brand's own mark on its tile color: the source ships no full icon, or only a transparent one.
+    "azureopenai": .color("azure"), "gemini-cli": .color("gemini"),
+    "antigravity-cli": .color("antigravity"), "deepseek": .color("deepseek"),
+    "qwencloud": .color("qwen"), "alibaba": .color("alibabacloud"),
+    "alibabatokenplan": .color("bailian"), "mistral": .color("mistral"),
+    "huggingface": .color("huggingface"), "zed": .color("zed"), "stepfun": .color("stepfun"),
+    "vertexai": .color("vertexai"), "bedrock": .color("bedrock"),
+    "deepinfra": .color("deepinfra"), "longcat": .color("longcat"),
+    "kiro": .color("kiro", tile: 0x9046FF, mono: false),
+    "ibmbob": .color("ibmbob", mono: false, glyph: "ibm-mono"),
+    "devpass": .color("devpass", tile: 0x09090B, mono: false),
+    "neuralwatt": .color("neuralwatt", mono: false), "xkiro": .color("xkiro", mono: false),
+    "cosmic": .color("cosmic", mono: false), "pi": .color("pi", mono: false),
+    "muse": .color("meta", mono: false),
+    "zoommate": .tinted("zoom", mark: 0xFFFFFF, tile: 0x0B5CFF),
+    "xai": .mono("xai"), "xapi": .tinted("x", mark: 0xFFFFFF, tile: 0x000000),
+    "zai": .tinted("zai", mark: 0xFFFFFF, tile: 0x2D2D2D), "zenmux": .mono("zenmux"),
+    "windsurf": .mono("windsurf"), "copilot": .mono("githubcopilot"), "clinepass": .mono("cline"),
+    "atlascloud": .mono("atlascloud"), "augment": .mono("augment"),
     "factory": .tinted("factory", mark: 0xFAFAFA, tile: 0x020202),
     "droid": .tinted("factory", mark: 0xFAFAFA, tile: 0x020202),
   ]
@@ -283,6 +339,9 @@ enum AIManagerBrand {
       else {
         failures.append("Provider brand mark \(id) did not load")
         continue
+      }
+      if brand.fillsTile, mark.size.width != mark.size.height {
+        failures.append("Provider brand icon \(id) is not square, so it cannot fill its tile")
       }
       if let glyph = brand.glyph, brandPDF(glyph, template: true, in: bundle) == nil {
         failures.append("Provider brand glyph \(glyph) for \(id) did not load")
