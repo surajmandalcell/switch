@@ -1086,7 +1086,7 @@ struct SignInButton: View {
   @ObservedObject var model: AccountViewModel
   /// False in a list row, where the view's one prominent action sits elsewhere.
   var prominent = true
-  /// A fixed width, so the button matches the Default chip in a table row.
+  /// A fixed width, so the button matches the disabled Default button in a table row.
   var width: CGFloat? = nil
   /// "Sign in again" on the focused card; a table row passes the short "Sign in".
   var title = "Sign in again"
@@ -1297,8 +1297,9 @@ struct FocusedAccountCard: View {
         if model.needsSignIn(account) {
           SignInButton(account: account, model: model)
         } else if isDefault {
-          Button {} label: { Label(AccountActionCopy.usingDefault, systemImage: AIMIcon.Name.check.symbol) }
-            .buttonStyle(AIMPushButtonStyle(prominent: true))
+          Button(AccountActionCopy.usingDefault) {}
+            .buttonStyle(AIMPushButtonStyle())
+            .disabled(true)
             .accessibilityLabel(AccountActionCopy.usingDefault)
             .accessibilityHint("This account is already the default.")
         } else {
@@ -1569,7 +1570,11 @@ private struct AccountsTableRow: View {
       HStack(spacing: AIMTheme.rowSpacing) {
         switch OverviewFormat.rowAction(for: account, model: model) {
         case .isDefault:
-          AIMStateChip(text: "Default")
+          Button("Default") {}
+            .buttonStyle(AIMPushButtonStyle(width: AIMTheme.rowButtonWidth))
+            .disabled(true)
+            .accessibilityLabel(AccountActionCopy.usingDefault)
+            .accessibilityHint("This account is already the default.")
         case .signIn:
           SignInButton(account: account, model: model, prominent: false, width: AIMTheme.rowButtonWidth, title: "Sign in")
         case .switchTo:

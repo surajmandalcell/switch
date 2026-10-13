@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 // The shared parts of the Sequoia-style window: Card, title row, column table, push buttons,
-// square icon buttons, menu button, chip, search field, tile, sidebar. Geometry is in points and
+// square icon buttons, menu button, search field, tile, sidebar. Geometry is in points and
 // comes from specs/product.md section 4. Every font comes from the five text roles.
 
 extension AIMTheme {
@@ -34,7 +34,7 @@ extension AIMTheme {
   /// Push button heights: in cards, and in table rows.
   static let controlHeight: CGFloat = 28
   static let rowControlHeight: CGFloat = 22
-  /// Width shared by the Default chip and the Switch button.
+  /// Width shared by the disabled Default button and the Switch button.
   static let rowButtonWidth: CGFloat = 64
 
   private static func dynamic(light: NSColor, dark: NSColor) -> Color {
@@ -864,7 +864,7 @@ struct AIMRowSeparator: View {
 struct AIMPushButtonStyle: ButtonStyle {
   var prominent = false
   var square = false
-  /// A fixed width, so a table row's Switch button matches the Default chip.
+  /// A fixed width, so a table row's Switch button matches the disabled Default button.
   var width: CGFloat? = nil
 
   func makeBody(configuration: Configuration) -> some View {
@@ -988,20 +988,6 @@ struct AIMIconMenu<Items: View>: View {
       .fixedSize()
       .help(label)
       .accessibilityLabel(label)
-  }
-}
-
-/// The green Default state chip: the Switch button's frame, Body text.
-struct AIMStateChip: View {
-  let text: String
-  var tint: Color = AIMTheme.green
-  @Environment(\.aimControlHeight) private var height
-
-  var body: some View {
-    Text(text).aimText(.body).foregroundStyle(AIMTheme.legible(tint)).lineLimit(1)
-      .frame(width: AIMTheme.rowButtonWidth, height: height)
-      .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-      .uiLint(.control)
   }
 }
 
