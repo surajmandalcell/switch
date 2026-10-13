@@ -32,7 +32,7 @@ final class ClaudeProbeTextTests: XCTestCase {
         XCTAssertTrue(ClaudeUsage.panelIsComplete(panel))
         let now = ISO8601DateFormatter().date(from: "2026-10-10T07:40:00Z")!
         let usage = try ClaudeUsage.parseUsageText(panel, now: now)
-        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Fable weekly"])
+        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Weekly Fable"])
         XCTAssertEqual(usage.windows.map(\.usedPercent), [46, 68, 0])
         XCTAssertEqual(usage.windows[0].resetsAt, ISO8601DateFormatter().date(from: "2026-10-10T12:00:00Z"))
         XCTAssertEqual(usage.windows[1].resetsAt, ISO8601DateFormatter().date(from: "2026-10-10T20:00:00Z"))
@@ -50,7 +50,7 @@ final class ClaudeProbeTextTests: XCTestCase {
         XCTAssertTrue(ClaudeUsage.isComplete(rendered: rendered))
         let usage = try ClaudeUsage.parse(rendered: rendered, now: now)
         XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly", "weekly-fable"])
-        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Fable weekly"])
+        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Weekly Fable"])
         XCTAssertEqual(usage.windows.map(\.usedPercent), [90, 73, 0])
         XCTAssertEqual(usage.windows.map(\.windowMinutes), [300, 10080, 10080])
         let iso = ISO8601DateFormatter()
