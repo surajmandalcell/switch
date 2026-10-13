@@ -144,13 +144,13 @@ final class GrokUsageRefreshTests: XCTestCase {
 
     // MARK: Manager
 
-    private func makeManager(_ spy: Spy) throws -> AccountManager {
+    private func makeManager(_ spy: Spy, plan: @escaping @Sendable (ProviderCredential) -> String? = { _ in "fake" }) throws -> AccountManager {
         let fake = ProviderSpec(
             id: "grok-build", name: "Grok Build", style: .files, files: ProviderCatalog.agentGrok.files,
             fetch: { credential in
                 spy.record(credential.isLive)
                 try spy.beforeReturn?()
-                return FetchResult(ProviderUsage(plan: "fake"),
+                return FetchResult(ProviderUsage(plan: plan(credential)),
                                    updated: spy.updated.map { ProviderCredential(files: [ProviderCatalog.agentGrok.files[0].id: $0]) })
             })
         let specs = ProviderCatalog.all.filter { $0.id != .grokBuild } + [fake]
@@ -283,5 +283,91 @@ final class GrokUsageRefreshTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: second.credentialFile), before)
         let after_second = try await registryDigest(manager, second.id)
         XCTAssertEqual(after_second, digest)
+    }
+
+    // MARK: Live token refresh through the official CLI
+
+    private var liveAuth: URL { paths.grokHome.appending(path: "auth.json") }
+
+    /// Stub `grok`: counts runs; unless `hang`, replaces the live login with the fresh one, as the real CLI would.
+    private func stubGrok(refreshes: Bool = true, hang: Bool = false) throws -> (count: URL, fresh: URL) {
+        let count = root.appending(path: "runs.txt")
+        let fresh = root.appending(path: "fresh.json")
+        try authFile(token: "fresh-access", expires: "2099-01-01T00:00:00Z", user: "first").write(to: fresh)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fresh.path)
+        let body = hang ? "exec sleep 30" : (refreshes ? "cp '\(fresh.path)' \"$GROK_HOME/auth.json\"" : "true")
+        let stub = root.appending(path: "grok-stub.sh")
+        try "#!/bin/bash\n[ \"$1\" = models ] || exit 9\necho run >> '\(count.path)'\n\(body)\n".write(to: stub, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        paths.grokExecutable = stub
+        return (count, fresh)
+    }
+
+    private func runs(_ count: URL) -> Int {
+        ((try? String(contentsOf: count, encoding: .utf8)) ?? "").split(separator: "\n").count
+    }
+
+    /// Default account `first` with an expired live login. `real` keeps the real Grok spec so an
+    /// unrefreshed token surfaces as the real error; otherwise the spec reports the token it was given.
+    private func expiredLive(real: Bool) async throws -> (AccountManager, AccountRecord) {
+        let spy = Spy()
+        let manager = real ? try AccountManager(paths: paths, writerCheck: { _ in .inactive },
+                                                loginRunner: .init(launch: { _, _ in }))
+            : try makeManager(spy, plan: { Self.token(in: $0) })
+        let first = try await addGrok(manager, user: "first")
+        try authFile(token: "stale-access", expires: "2020-01-01T00:00:00Z", user: "first").write(to: liveAuth)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: liveAuth.path)
+        return (manager, first)
+    }
+
+    private static func token(in credential: ProviderCredential) -> String? {
+        let object = credential.files[ProviderCatalog.agentGrok.files[0].id]
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: [String: Any]]
+        return object?.values.first?["key"] as? String
+    }
+
+    private func assertOldError(_ manager: AccountManager, _ account: AccountRecord) async {
+        do {
+            _ = try await manager.readProviderUsage(accountID: account.id)
+            XCTFail("expected unauthorized")
+        } catch let error as ProviderError {
+            XCTAssertEqual(error, .unauthorized(GrokBuildUsage.refreshMessage))
+        } catch { XCTFail("\(error)") }
+    }
+
+    func testExpiredLiveTokenIsRefreshedByTheOfficialCLIOnce() async throws {
+        let stub = try stubGrok()
+        let (manager, first) = try await expiredLive(real: false)
+        let usage = try await manager.readProviderUsage(accountID: first.id)
+        XCTAssertEqual(usage.plan, "fresh-access")
+        XCTAssertEqual(runs(stub.count), 1)
+        _ = try await manager.readProviderUsage(accountID: first.id)
+        XCTAssertEqual(runs(stub.count), 1)
+    }
+
+    func testRefreshIsThrottledToOneRunPerFiveMinutes() async throws {
+        let stub = try stubGrok(refreshes: false)
+        let (manager, first) = try await expiredLive(real: true)
+        await assertOldError(manager, first)
+        await assertOldError(manager, first)
+        XCTAssertEqual(runs(stub.count), 1)
+    }
+
+    func testMissingExecutableKeepsTheOldError() async throws {
+        let stub = try stubGrok()
+        let (manager, first) = try await expiredLive(real: true)
+        try fileManager.removeItem(at: root.appending(path: "grok-stub.sh"))
+        await assertOldError(manager, first)
+        XCTAssertEqual(runs(stub.count), 0)
+    }
+
+    func testHangingExecutableTimesOutAndKeepsTheOldError() async throws {
+        let stub = try stubGrok(hang: true)
+        let (manager, first) = try await expiredLive(real: true)
+        await manager.setGrokRefreshTimeout(1)
+        let started = Date()
+        await assertOldError(manager, first)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        XCTAssertEqual(runs(stub.count), 1)
     }
 }

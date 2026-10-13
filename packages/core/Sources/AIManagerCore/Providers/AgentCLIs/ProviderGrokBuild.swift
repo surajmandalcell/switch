@@ -287,6 +287,13 @@ enum GrokBuildUsage {
             ?? ordered.first { $0.key.contains("/sign-in") } ?? ordered.first)?.key
     }
 
+    /// True when the login's access token is past its expiry or within `margin` seconds of it.
+    static func expiresSoon(_ data: Data?, now: Date = Date(), margin: TimeInterval = 300) -> Bool {
+        guard let data, let file = try? JSON(data: data), let entry = entry(file), let token = entry["key"].string,
+              let expiry = expiry(entry, token: token) else { return false }
+        return expiry <= now.addingTimeInterval(margin)
+    }
+
     private static func entry(_ file: JSON?) -> JSON? {
         entryKey(file).flatMap { file?.object[$0] }
     }
