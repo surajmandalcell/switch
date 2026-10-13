@@ -16,6 +16,8 @@ public struct ManagerPaths: Sendable {
     public var droidHome: URL
     public var droidCredentialStore: URL
     public var droidExecutable: URL?
+    /// Factory.app's bundled droid. It created the live Keychain item, so it runs doctor on the live home.
+    public var droidBundledExecutable: URL?
     public var claudeExecutable: URL?
     public var isolationRoot: URL?
     /// Home that generic providers resolve CLI credential paths against.
@@ -36,6 +38,7 @@ public struct ManagerPaths: Sendable {
         droidHome: URL? = nil,
         droidCredentialStore: URL? = nil,
         droidExecutable: URL? = nil,
+        droidBundledExecutable: URL? = nil,
         claudeExecutable: URL? = nil,
         isolationRoot: URL? = nil
     ) {
@@ -54,6 +57,7 @@ public struct ManagerPaths: Sendable {
         self.droidHome = droidHome ?? defaultHome.deletingLastPathComponent().appending(path: ".factory")
         self.droidCredentialStore = droidCredentialStore ?? self.credentialStore.deletingLastPathComponent().appending(path: "droid")
         self.droidExecutable = droidExecutable
+        self.droidBundledExecutable = droidBundledExecutable
         self.claudeExecutable = claudeExecutable
         self.isolationRoot = isolationRoot
     }
@@ -72,7 +76,8 @@ public struct ManagerPaths: Sendable {
             grokHome: home.appending(path: ".grok", directoryHint: .isDirectory),
             grokCredentialStore: home.appending(path: ".switch/grok-build", directoryHint: .isDirectory),
             droidHome: factoryHome ?? home.appending(path: ".factory"),
-            droidCredentialStore: home.appending(path: ".switch/droid")
+            droidCredentialStore: home.appending(path: ".switch/droid"),
+            droidBundledExecutable: URL(fileURLWithPath: "/Applications/Factory.app/Contents/Resources/bin/droid")
         )
     }
 
@@ -83,6 +88,7 @@ public struct ManagerPaths: Sendable {
         }
         if let value = url("AI_MANAGER_ROOT") {
             paths.isolationRoot = value
+            paths.droidBundledExecutable = nil
             paths.applicationSupport = value.appending(path: "application-support", directoryHint: .isDirectory)
             paths.credentialStore = value.appending(path: ".switch/codex", directoryHint: .isDirectory)
             paths.defaultHome = value.appending(path: "default-home", directoryHint: .isDirectory)

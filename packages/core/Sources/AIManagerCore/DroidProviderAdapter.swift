@@ -59,9 +59,11 @@ struct DroidProviderAdapter {
         return hint.lowercased()
     }
 
-    func doctor(executable: URL, home: URL, keyring: Bool) -> String? {
-        let output = home.appending(path: "doctor-output.json")
+    /// Runs doctor on the login's own `.factory` folder, never a copy. Output goes to `scratch`, so the login folder gets no new file.
+    func doctor(executable: URL, factoryHome: URL, scratch: URL, keyring: Bool, home: URL? = nil) -> String? {
+        let output = scratch.appending(path: "doctor-output-\(UUID().uuidString).json")
         do {
+            try CoreSupport.privateDirectory(scratch, fileManager: fileManager)
             try CoreSupport.atomicWrite(Data(), to: output, fileManager: fileManager)
             let handle = try FileHandle(forWritingTo: output)
             defer { try? handle.close(); try? fileManager.removeItem(at: output) }
@@ -70,11 +72,11 @@ struct DroidProviderAdapter {
             process.arguments = ["doctor", "--auth", "--json"]
             var environment = ProcessInfo.processInfo.environment
             environment.removeValue(forKey: "FACTORY_API_KEY")
-            environment["HOME"] = home.path
-            environment["FACTORY_HOME_OVERRIDE"] = home.path
+            if let home { environment["HOME"] = home.path }
+            environment["FACTORY_HOME_OVERRIDE"] = factoryHome.deletingLastPathComponent().path
             environment["FACTORY_DISABLE_KEYRING"] = keyring ? "0" : "1"
             process.environment = environment
-            process.currentDirectoryURL = home
+            process.currentDirectoryURL = scratch
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = handle
             process.standardError = FileHandle.nullDevice

@@ -1566,8 +1566,9 @@ extension AccountManager {
             try ensureNoRecovery()
             // Import takes the same writer lock but never changes live authentication.
             try droidProvider.requireLogin(droidProvider.files(in: paths.droidHome))
+            let hint = droidIdentityHint(home: paths.droidHome)
             return try droidProvider.withWriteLock(home: paths.droidHome) {
-                let account = try saveDroidAccount(from: paths.droidHome, name: name, targetID: nil, adoptLive: true, allowDuplicate: allowDuplicate)
+                let account = try saveDroidAccount(from: paths.droidHome, hint: hint, name: name, targetID: nil, adoptLive: true, allowDuplicate: allowDuplicate)
                 if let apiKey, !apiKey.isEmpty { try saveDroidUsageKey(apiKey, accountID: account.id) }
                 return account
             }
@@ -1668,14 +1669,15 @@ extension AccountManager {
             if session.accountID != nil, target == nil { throw AIManagerError.accountNotFound }
             let refreshLive = target != nil && registry.defaultAccountID(for: .droid) == target?.id
             if refreshLive { try guardDroidProcesses(allowRunning: allowRunning) }
+            let hint = droidIdentityHint(home: home)
             return try droidProvider.withWriteLock(home: home) {
                 if refreshLive {
                     return try droidProvider.withWriteLock(home: paths.droidHome) {
-                        try saveDroidAccount(from: home, name: target?.identity.accountID ?? name,
+                        try saveDroidAccount(from: home, hint: hint, name: target?.identity.accountID ?? name,
                                              targetID: target?.id, adoptLive: false, refreshLive: true, allowDuplicate: allowDuplicate)
                     }
                 }
-                return try saveDroidAccount(from: home, name: target?.identity.accountID ?? name,
+                return try saveDroidAccount(from: home, hint: hint, name: target?.identity.accountID ?? name,
                                             targetID: target?.id, adoptLive: false, allowDuplicate: allowDuplicate)
             }
         } } catch let error as AIManagerError {
@@ -1693,7 +1695,21 @@ extension AccountManager {
                      message: "Droid account saved. Choose Switch to use this login for new requests. \(account.verification.detail)")
     }
 
-    private func saveDroidAccount(from source: URL, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false, allowDuplicate: Bool = false) throws -> AccountRecord {
+    /// Runs `droid doctor --auth --json` on the login's own home, never a copy. Doctor may refresh an expired token, and a
+    /// copy would spend a rotating refresh token that the live login still holds, which could sign Factory.app out.
+    /// Order: doctor first, then the write lock, then read the files. Droid takes `auth.v2.write.lock` itself to save a
+    /// refresh, so Switch must not hold it while doctor runs. The files read after the lock hold whatever doctor left.
+    private func droidIdentityHint(home: URL) -> String? {
+        let live = CoreSupport.sameLocation(home, paths.droidHome)
+        let bundled = live ? paths.droidBundledExecutable.flatMap(validatedExecutable) : nil
+        guard let executable = bundled ?? resolveDroidExecutable() else { return nil }
+        return droidProvider.doctor(executable: executable, factoryHome: home,
+                                    scratch: paths.applicationSupport.appending(path: "staging"),
+                                    keyring: CoreSupport.entryExists(home.appending(path: "auth.v2.loginkeychain")),
+                                    home: paths.isolationRoot)
+    }
+
+    private func saveDroidAccount(from source: URL, hint: String?, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false, allowDuplicate: Bool = false) throws -> AccountRecord {
         let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty, label.count <= 100, !label.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
             throw AIManagerError.invalidSource("Enter a Droid account name with 1 to 100 characters.")
@@ -1701,16 +1717,6 @@ extension AccountManager {
         let files = try droidProvider.files(in: source)
         try droidProvider.requireLogin(files)
         var registry = try loadRegistry()
-        // Doctor may refresh tokens; run it only on a disposable copy, never the live home.
-        let probe = paths.applicationSupport.appending(path: "staging/droid-identity-\(UUID().uuidString)")
-        try CoreSupport.privateDirectory(probe.appending(path: ".factory"), fileManager: fileManager)
-        defer { try? fileManager.removeItem(at: probe) }
-        for (name, bytes) in files {
-            try CoreSupport.atomicWrite(bytes, to: probe.appending(path: ".factory/\(name)"), fileManager: fileManager)
-        }
-        let hint = resolveDroidExecutable().flatMap {
-            droidProvider.doctor(executable: $0, home: probe, keyring: files["auth.v2.loginkeychain"] != nil)
-        }
         let detail = hint.map { "Droid doctor reported \($0). Equal masks can belong to different people." }
             ?? "Droid doctor could not confirm a masked email. Saved using the account name only."
         let previous = registry.accounts.first { $0.id == targetID }
