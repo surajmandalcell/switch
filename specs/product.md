@@ -109,7 +109,12 @@ credential styles:
   coding-plan API key that the Z Code app saved in ~/.zcode/v2/credentials.json as a z.ai
   account named after its plan ("Z Code individual plan"). Switch decrypts it the way Z Code
   does (AES-GCM, key from the user name and home folder), never through the Keychain, and
-  skips the file when it cannot decrypt it.
+  skips the file when it cannot decrypt it. OpenCode 2 keeps its logins in the `credential`
+  table of ~/.local/share/opencode/opencode.db instead of auth.json: Switch reads the active
+  `opencode-go` row as the live OpenCode Go login and imports a `zai-coding-plan` key as a
+  z.ai account (skipped when a saved account has the same key). Switch never writes that
+  database, so making another OpenCode Go account the default asks the user to run
+  `opencode auth login`.
 - **Secret**: API keys, access tokens, or a pasted Cookie header. Switching selects the
   default saved account.
 
