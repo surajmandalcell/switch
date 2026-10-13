@@ -4,7 +4,19 @@ import SwiftUI
 
 struct HistoryPage: View {
   @ObservedObject var model: AccountViewModel
-  @State private var threadQuery = ""
+  @State private var threadQuery: String
+
+  init(model: AccountViewModel) {
+    self.model = model
+    _threadQuery = State(initialValue: UserDefaults.standard.string(forKey: ChatPlace.threadQueryKey) ?? "")
+    ChatPlace.restoreThreadsScroll()
+    _shown = State(initialValue: max(Self.pageSize, Int((AIMPlace.scroll["threads"] ?? 0) / Self.rowHeight) + 60))
+  }
+
+  // The list builds a page of rows at a time; building all 1000 rows cost about 100 ms per page switch.
+  private static let pageSize = 100
+  private static let rowHeight: CGFloat = 44
+  @State private var shown: Int
 
   var body: some View {
     // Two cards: the thread list and the selected conversation.
@@ -26,6 +38,14 @@ struct HistoryPage: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .task { await model.refreshChatHistory(query: threadQuery) }
     .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
+    .onChange(of: threadQuery) { _, query in
+      shown = Self.pageSize
+      UserDefaults.standard.set(query, forKey: ChatPlace.threadQueryKey)
+    }
+    .onDisappear { ChatPlace.saveThreadsScroll() }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+      ChatPlace.saveThreadsScroll()
+    }
   }
 
   /// The title row's trailing side: a warning button, an error dot, and the count.
@@ -48,7 +68,7 @@ struct HistoryPage: View {
         Text(historyCountText)
           .aimText(.secondary)
           .monospacedDigit()
-          .contentTransition(.numericText())
+          .aimRolling(model.chatHistory.matchingThreadCount)
       }
     }
   }
@@ -81,10 +101,11 @@ struct HistoryPage: View {
         // the thin scroll bar sits in a fixed gutter at the trailing edge.
         AIMScrollView(name: "threads") {
           LazyVStack(spacing: 0) {
-            ForEach(model.chatHistory.threads) { thread in
+            ForEach(model.chatHistory.threads.prefix(shown)) { thread in
               ChatThreadButton(thread: thread, selected: thread.id == model.selectedChatID) {
                 Task { await model.selectChat(thread.id) }
               }
+              .onAppear { if thread.id == model.chatHistory.threads.prefix(shown).last?.id { shown += Self.pageSize } }
             }
           }
           // The highlight sits as far from the card edge on the left as the gutter makes it on the right.
@@ -117,6 +138,20 @@ struct HistoryPage: View {
   }
 }
 
+extension ChatPlace {
+  /// The thread list remembers its scroll offset in `AIMPlace.scroll`; this keeps it across launches.
+  @MainActor static func restoreThreadsScroll() {
+    guard AIMPlace.scroll["threads"] == nil,
+      let saved = UserDefaults.standard.object(forKey: threadsScrollKey) as? Double else { return }
+    AIMPlace.scroll["threads"] = CGFloat(saved)
+  }
+
+  @MainActor static func saveThreadsScroll() {
+    guard let offset = AIMPlace.scroll["threads"] else { return }
+    UserDefaults.standard.set(Double(offset), forKey: threadsScrollKey)
+  }
+}
+
 private struct HistorySearchField: View {
   @Binding var text: String
   let placeholder: String
@@ -142,6 +177,7 @@ private struct HistorySearchField: View {
 }
 
 /// A thread row of the list: a fill when selected or focused with the keyboard, never an outline.
+/// Hover and selection fade in and out.
 private struct ChatThreadButton: View {
   let thread: ChatThreadSummary
   let selected: Bool
@@ -161,6 +197,8 @@ private struct ChatThreadButton: View {
     }
     .buttonStyle(.plain)
     .onHover { hovered = $0 }
+    .animation(AIMMotion.fade(AIMMotion.hover), value: hovered)
+    .animation(AIMMotion.fade(AIMMotion.state), value: selected)
     .accessibilityAddTraits(selected ? .isSelected : [])
   }
 }
@@ -204,29 +242,78 @@ enum ChatFilterPersistence {
   }
 }
 
+/// Message dates as "Oct 13, 12:56 PM", with the year only when it is not this year.
+@MainActor private enum ChatDate {
+  private static let sameYear: DateFormatter = make("MMMdjmm")
+  private static let otherYear: DateFormatter = make("MMMdyjmm")
+
+  private static func make(_ template: String) -> DateFormatter {
+    let formatter = DateFormatter()
+    formatter.setLocalizedDateFormatFromTemplate(template)
+    return formatter
+  }
+
+  static func text(_ date: Date) -> String {
+    let current = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
+    return (current ? sameYear : otherYear).string(from: date)
+  }
+}
+
 private struct ChatDetailPane: View {
   @ObservedObject var model: AccountViewModel
-  @State private var messageQuery = ""
+  @State private var messageQuery: String
   @State private var messageFilter: ChatMessageFilter
   @State private var isSearching = false
-  @State private var presentations: [String: ChatMessagePresentation] = [:]
-  @State private var presentationRevision = 0
-  /// Long messages the reader opened with Show more.
-  @State private var expandedMessages: Set<String> = []
+  /// Where to scroll once the remembered message is loaded; cleared when the reader changes the search.
+  @State private var restoreTarget: ChatScrollAnchor?
+  /// Code blocks the reader opened, by message ID.
+  @State private var expandedBlocks: [String: Set<Int>] = [:]
+  /// Messages at this index and after were loaded by scrolling and fade in.
+  @State private var fadeFrom = Int.max
+  @State private var loadedCount = 0
 
   init(model: AccountViewModel) {
     self.model = model
+    _messageQuery = State(initialValue: ChatPlace.messageQuery(for: model.selectedChatID))
     _messageFilter = State(initialValue: ChatFilterPersistence.load())
+    _restoreTarget = State(initialValue: ChatPlace.anchor(for: model.selectedChatID))
   }
 
   var body: some View {
     VStack(spacing: 0) {
-      if let thread = selectedSummary {
-        HStack(alignment: .bottom, spacing: AIMTheme.sectionSpacing) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(thread.title).aimText(.section).lineLimit(1)
-            Text(threadContext(thread)).aimText(.secondary).lineLimit(1)
-          }
+      header
+      AIMHairline()
+      searchBar
+      AIMHairline()
+      messages
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .task(id: searchKey) { await updateMessageSearch() }
+    .task(id: model.selectedChat?.messages.count ?? 0) { await loadUntilRestoreTarget() }
+    .onChange(of: messageFilter.rawValue) { _, _ in
+      ChatFilterPersistence.save(messageFilter)
+      restoreTarget = nil
+    }
+    .onChange(of: messageQuery) { _, query in
+      ChatPlace.saveMessageQuery(query, for: model.selectedChatID)
+      restoreTarget = nil
+    }
+    .onChange(of: model.selectedChat?.messages.count ?? 0) { old, new in
+      // A page that arrives after the first fades in; a new search or chat does not.
+      if old > 0, new > old { fadeFrom = old } else { fadeFrom = .max }
+      loadedCount = new
+    }
+  }
+
+  // MARK: Header
+
+  /// The title has the whole row; the message count and token total sit on the subtitle line.
+  @ViewBuilder private var header: some View {
+    if let thread = selectedSummary {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(thread.title).aimText(.section).lineLimit(1)
+        HStack(spacing: AIMTheme.sectionSpacing) {
+          Text(threadContext(thread)).lineLimit(1)
           Spacer(minLength: AIMTheme.rowSpacing)
           HStack(spacing: 6) {
             Text("\(thread.messageCount.formatted()) messages")
@@ -236,82 +323,82 @@ private struct ChatDetailPane: View {
                 .help("\(tokens.formatted()) recorded tokens")
             }
           }
-          .aimText(.secondary)
           .monospacedDigit()
           .lineLimit(1)
+          .fixedSize()
         }
-        .padding(.horizontal, AIMTheme.sectionSpacing)
-        .padding(.vertical, AIMTheme.rowSpacing)
-        .frame(height: 58)
-      } else {
-        Color.clear.frame(height: 58)
+        .aimText(.secondary)
       }
-      AIMHairline()
-
-      VStack(spacing: AIMTheme.rowSpacing) {
-        HStack(spacing: AIMTheme.rowSpacing) {
-          HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
-          if isSearching {
-            ProgressView().controlSize(.small)
-          } else if let detail = model.selectedChat, messageFilter != .all || !messageQuery.isEmpty {
-            Text(messageCountText(detail))
-              .aimText(.secondary)
-              .monospacedDigit()
-              .contentTransition(.numericText())
-          }
-          if let detail = model.selectedChat {
-            ChatFilteredCopyButton(messages: displayedMessages(detail))
-          }
-        }
-
-        HStack(spacing: AIMTheme.rowSpacing) {
-          Text("Show").aimText(.secondary)
-          ForEach(ChatFilterChoice.allCases) { choice in
-            ChatFilterButton(
-              choice: choice,
-              selected: messageFilter.contains(choice.filter)) {
-                toggleFilter(choice.filter)
-              }
-          }
-          Spacer(minLength: 0)
-        }
-      }
+      .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, AIMTheme.sectionSpacing)
-      .padding(.vertical, AIMTheme.rowSpacing)
-      AIMHairline()
-
-      if model.isChatLoading {
-        VStack(spacing: AIMTheme.rowSpacing) {
-          ProgressView().controlSize(.small)
-          Text("Opening chat").aimText(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else if let detail = model.selectedChat {
-        AIMVirtualList(
-          items: detailItems(detail), rowSpacing: 0,
-          contentRevision: presentationRevision,
-          restoreKey: "messages-\(model.selectedChatID ?? "")",
-          onReachEnd: { Task { await model.loadMoreChatMessages() } }
-        ) { item in
-          AnyView(detailRow(item))
-        }
-      } else {
-        VStack(spacing: 4) {
-          AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
-          Text("Select a chat").aimText(.body)
-          Text("Messages open here without changing the transcript.")
-            .aimText(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .task(id: searchKey) { await updateMessageSearch() }
-    .task(id: presentationKey) { await updatePresentations() }
-    .onChange(of: messageFilter.rawValue) { _, _ in
-      ChatFilterPersistence.save(messageFilter)
+      .frame(height: 58)
+    } else {
+      Color.clear.frame(height: 58)
     }
   }
+
+  private var searchBar: some View {
+    VStack(spacing: AIMTheme.rowSpacing) {
+      HStack(spacing: AIMTheme.rowSpacing) {
+        HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
+        if isSearching {
+          ProgressView().controlSize(.small)
+        } else if let detail = model.selectedChat, messageFilter != .all || !messageQuery.isEmpty {
+          Text(messageCountText(detail))
+            .aimText(.secondary)
+            .monospacedDigit()
+            .aimRolling(detail.matchingMessageCount)
+        }
+        if let detail = model.selectedChat {
+          ChatFilteredCopyButton(messages: displayedMessages(detail))
+        }
+      }
+
+      HStack(spacing: AIMTheme.rowSpacing) {
+        Text("Show").aimText(.secondary)
+        ForEach(ChatFilterChoice.allCases) { choice in
+          ChatFilterButton(
+            choice: choice,
+            selected: messageFilter.contains(choice.filter)) {
+              toggleFilter(choice.filter)
+            }
+        }
+        Spacer(minLength: 0)
+      }
+    }
+    .padding(.horizontal, AIMTheme.sectionSpacing)
+    .padding(.vertical, AIMTheme.rowSpacing)
+  }
+
+  @ViewBuilder private var messages: some View {
+    if model.isChatLoading {
+      VStack(spacing: AIMTheme.rowSpacing) {
+        ProgressView().controlSize(.small)
+        Text("Opening chat").aimText(.secondary)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if let detail = model.selectedChat {
+      // A new search or filter starts at the top of a fresh list.
+      ChatMessageList(
+        items: detailItems(detail), restore: restoreTarget,
+        onReachEnd: { Task { await model.loadMoreChatMessages() } },
+        onAnchor: { ChatPlace.saveAnchor($0, for: model.selectedChatID) },
+        rowContent: { AnyView(detailRow($0)) }
+      )
+      .aimAppear()
+      .id(listKey)
+    } else {
+      VStack(spacing: 4) {
+        AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
+        Text("Select a chat").aimText(.body)
+        Text("Messages open here without changing the transcript.")
+          .aimText(.secondary)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  // MARK: Data
 
   private var selectedSummary: ChatThreadSummary? {
     model.selectedChat?.thread
@@ -326,19 +413,12 @@ private struct ChatDetailPane: View {
       fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0)
   }
 
-  private var presentationKey: ChatPresentationKey {
-    ChatPresentationKey(
-      threadID: model.selectedChatID,
-      fileByteCount: model.selectedChat?.thread.fileByteCount ?? 0,
-      messageIDs: model.selectedChat?.messages.map(\.id) ?? [])
+  private var listKey: String {
+    "\(model.selectedChatID ?? "")|\(messageFilter.rawValue)|\(messageQuery.trimmingCharacters(in: .whitespacesAndNewlines))"
   }
 
   private func displayedMessages(_ detail: ChatThreadDetail) -> [ChatMessage] {
-    filteredMessages(detail.messages)
-  }
-
-  private func filteredMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
-    messages.filter { messageFilter.includes($0.role) }
+    detail.messages.filter { messageFilter.includes($0.role) }
   }
 
   private func toggleFilter(_ filter: ChatMessageFilter) {
@@ -349,37 +429,41 @@ private struct ChatDetailPane: View {
     }
   }
 
-  private func detailItems(_ detail: ChatThreadDetail) -> [ChatDetailListItem] {
-    var items: [ChatDetailListItem] = []
-    let messages = displayedMessages(detail)
-    if messages.isEmpty && !isSearching {
+  private func detailItems(_ detail: ChatThreadDetail) -> [ChatRowItem] {
+    var items: [ChatRowItem] = []
+    let shown = displayedMessages(detail)
+    if shown.isEmpty && !isSearching {
       let hasQuery = !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      items.append(.empty(hasQuery ? "No matching messages" : "No messages in this filter"))
+      items.append(ChatRowItem(id: "empty", kind: .empty(hasQuery ? "No matching messages" : "No messages in this filter")))
     } else {
-      items.append(contentsOf: messages.enumerated().map { index, message in
-        .message(
-          message,
-          separated: index == 0 || messages[index - 1].role != message.role)
-      })
+      for (index, message) in shown.enumerated() {
+        let separated = index == 0 || shown[index - 1].role != message.role
+        items.append(ChatRowItem(
+          id: message.id,
+          kind: .message(
+            message, presentation: model.chatPresentations[message.id],
+            expanded: expandedBlocks[message.id] ?? [], separated: separated),
+          fadesIn: index >= fadeFrom))
+      }
     }
-    if detail.nextOffset != nil { items.append(.loadMore) }
-    items.append(.bottomSpace)
+    if detail.nextOffset != nil {
+      items.append(ChatRowItem(id: "load-more", kind: .loadMore(loading: model.isChatPageLoading)))
+    }
+    items.append(ChatRowItem(id: "bottom", kind: .bottomSpace))
     return items
   }
 
   @ViewBuilder
-  private func detailRow(_ item: ChatDetailListItem) -> some View {
-    switch item {
-    case let .message(message, separated):
+  private func detailRow(_ item: ChatRowItem) -> some View {
+    switch item.kind {
+    case let .message(message, presentation, expanded, separated):
       ChatMessageRow(
-        message: message,
-        presentation: presentations[message.id],
-        fallbackText: model.renderedChatMessages[message.id] ?? AttributedString(message.text),
-        separated: separated,
-        expanded: expandedMessages.contains(message.id),
-        toggleExpanded: {
-          if !expandedMessages.insert(message.id).inserted { expandedMessages.remove(message.id) }
-          presentationRevision &+= 1
+        message: message, presentation: presentation, separated: separated,
+        expanded: expanded, fadesIn: item.fadesIn,
+        toggleBlock: { block in
+          var next = expandedBlocks[message.id] ?? []
+          if !next.insert(block).inserted { next.remove(block) }
+          expandedBlocks[message.id] = next
         })
     case let .empty(text):
       VStack(spacing: 6) {
@@ -389,12 +473,12 @@ private struct ChatDetailPane: View {
       .frame(maxWidth: .infinity, minHeight: 120)
       .padding(.horizontal, 12)
     case .bottomSpace:
-      Color.clear.frame(height: 8)
-    case .loadMore:
+      Color.clear.frame(height: 12)
+    case let .loadMore(loading):
       HStack(spacing: 6) {
-        if model.isChatPageLoading { ProgressView().controlSize(.mini) }
-        AIMButton(title: model.isChatPageLoading ? "Loading messages" : "Load more messages",
-          disabled: model.isChatPageLoading) { Task { await model.loadMoreChatMessages() } }
+        if loading { ProgressView().controlSize(.mini) }
+        AIMButton(title: loading ? "Loading messages" : "Load more messages",
+          disabled: loading) { Task { await model.loadMoreChatMessages() } }
       }
       .frame(maxWidth: .infinity, minHeight: 32)
     }
@@ -421,27 +505,13 @@ private struct ChatDetailPane: View {
     return parts.joined(separator: "  ·  ")
   }
 
+  /// Loads pages until the remembered message is in the list, then the list scrolls to it.
   @MainActor
-  private func updatePresentations() async {
-    guard let detail = model.selectedChat else {
-      presentations = [:]
-      return
-    }
-    do {
-      let rendered = try await ChatMessagePresenter.render(messages: detail.messages.filter { presentations[$0.id] == nil })
-      guard !Task.isCancelled,
-        model.selectedChatID == detail.thread.id,
-        model.selectedChat?.thread.fileByteCount == detail.thread.fileByteCount
-      else { return }
-      let ids = Set(detail.messages.map(\.id))
-      presentations = presentations.filter { ids.contains($0.key) }
-      presentations.merge(rendered) { _, new in new }
-      presentationRevision &+= 1
-    } catch is CancellationError {
-      return
-    } catch {
-      presentations = [:]
-    }
+  private func loadUntilRestoreTarget() async {
+    guard let target = restoreTarget, let detail = model.selectedChat else { return }
+    if detail.messages.contains(where: { $0.id == target.messageID }) { return }
+    if detail.nextOffset == nil { restoreTarget = nil; return }
+    await model.loadMoreChatMessages()
   }
 
   @MainActor
@@ -464,33 +534,11 @@ private struct ChatDetailPane: View {
   }
 }
 
-private enum ChatDetailListItem: Identifiable, Equatable {
-  case message(ChatMessage, separated: Bool)
-  case empty(String)
-  case bottomSpace
-  case loadMore
-
-  var id: String {
-    switch self {
-    case let .message(message, _): "message:\(message.id)"
-    case let .empty(text): "empty:\(text)"
-    case .bottomSpace: "bottom-space"
-    case .loadMore: "load-more"
-    }
-  }
-}
-
 private struct ChatMessageSearchKey: Hashable {
   let threadID: String?
   let query: String
   let filterMask: Int
   let fileByteCount: Int64
-}
-
-private struct ChatPresentationKey: Hashable {
-  let threadID: String?
-  let fileByteCount: Int64
-  let messageIDs: [String]
 }
 
 private enum ChatFilterChoice: String, CaseIterable, Identifiable {
@@ -534,14 +582,15 @@ private struct ChatFilteredCopyButton: View {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(text, forType: .string)
       #endif
-      copied = true
+      withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = true }
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(1.2))
-        copied = false
+        withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = false }
       }
     } label: {
       Label(copied ? "Copied" : "Copy shown",
         systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
+        .contentTransition(.opacity)
     }
     // The shared 28 pt push button: even side padding and a 6 pt icon-to-label gap.
     .buttonStyle(AIMPushButtonStyle())
@@ -551,75 +600,79 @@ private struct ChatFilteredCopyButton: View {
   }
 }
 
+// MARK: - Messages
+
+/// One message: a filled surface with a header line (role, model, date, copy) above the content.
+/// Every role shares the leading edge. The row is as tall as its content, so nothing clips.
 private struct ChatMessageRow: View {
   let message: ChatMessage
   let presentation: ChatMessagePresentation?
-  let fallbackText: AttributedString
   let separated: Bool
-  /// A very long message shows a collapsed preview with Show more; the copy button always copies
-  /// the full original text.
-  let expanded: Bool
-  let toggleExpanded: () -> Void
+  let expanded: Set<Int>
+  let fadesIn: Bool
+  let toggleBlock: (Int) -> Void
   @State private var hovered = false
+  @State private var shown: Bool
 
-  static let collapsedHeight: CGFloat = 260
-
-  private var isLong: Bool {
-    message.text.utf8.count > 1_800 || message.text.utf8.reduce(0) { $1 == 10 ? $0 + 1 : $0 } > 16
+  init(
+    message: ChatMessage, presentation: ChatMessagePresentation?, separated: Bool, expanded: Set<Int>,
+    fadesIn: Bool, toggleBlock: @escaping (Int) -> Void
+  ) {
+    self.message = message
+    self.presentation = presentation
+    self.separated = separated
+    self.expanded = expanded
+    self.fadesIn = fadesIn
+    self.toggleBlock = toggleBlock
+    // A message loaded by scrolling fades in once; a recycled row never replays it.
+    _shown = State(initialValue: !(fadesIn && AIMMotion.isLive && !ChatFadeLedger.played(message.id)))
   }
 
   var body: some View {
-    VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
-      HStack(spacing: 5) {
-        Text(message.role.displayName)
-        if let timestamp = message.timestamp {
-          Text("·")
-          Text(timestamp, style: .time).monospacedDigit()
-        }
-        ChatCopyButton(text: message.text, label: "Copy message", emphasized: hovered)
-      }
-      .aimText(.secondary)
-
-      VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
-        if isLong && !expanded {
-          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(height: Self.collapsedHeight, alignment: .top)
-            .clipped()
-            // The preview fades out instead of cutting a line in half.
-            .mask(alignment: .top) {
-              VStack(spacing: 0) {
-                Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                  .frame(height: 40)
-              }
-            }
-        } else {
-          ChatMessageBlocks(presentation: presentation, fallbackText: fallbackText)
-        }
-        if isLong {
-          Button(action: toggleExpanded) {
-            Text(expanded ? "Show less" : "Show more")
-              .aimFont(.body).foregroundStyle(AIMTheme.linkColor)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel(expanded ? "Show less of this message" : "Show the whole message")
-        }
-      }
-      .padding(.horizontal, AIMTheme.sectionSpacing)
-      .padding(.vertical, AIMTheme.rowSpacing + 2)
-      .frame(maxWidth: message.role == .user ? 460 : 620, alignment: .leading)
-      .background(messageSurface)
-      .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+      header
+      ChatMessageBlocks(message: message, presentation: presentation, expanded: expanded, toggleBlock: toggleBlock)
     }
-    .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
-    // The right side gives the scroll bar gutter back, so a bubble ends on the card's 16 pt inset.
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(messageSurface, in: RoundedRectangle(cornerRadius: AIMTheme.radius, style: .continuous))
+    .frame(maxWidth: 820, alignment: .leading)
+    // The right side gives the scroll bar gutter back, so a surface ends on the card's 16 pt inset.
     .padding(.leading, AIMTheme.sectionSpacing)
     .padding(.trailing, AIMTheme.sectionSpacing - AIMScroller.gutter)
-    .padding(.top, separated ? 10 : 4)
-    .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+    .padding(.top, separated ? 12 : 4)
+    .padding(.bottom, 4)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .opacity(shown ? 1 : AIMMotion.appearOpacity)
     .onHover { hovered = $0 }
+    .animation(AIMMotion.fade(AIMMotion.hover), value: hovered)
+    .onAppear {
+      guard !shown else { return }
+      ChatFadeLedger.mark(message.id)
+      withAnimation(AIMMotion.fade(AIMMotion.appear)) { shown = true }
+    }
+  }
+
+  /// Role, model, and date on their own line. The model is the first to truncate on a narrow window.
+  private var header: some View {
+    HStack(spacing: 6) {
+      Text(message.role.displayName)
+        .aimText(.secondary, tint: .primary)
+        .fixedSize()
+      if message.role == .assistant, let model = message.model {
+        Text("·")
+        Text(model).lineLimit(1).truncationMode(.tail).layoutPriority(-1)
+      }
+      if let timestamp = message.timestamp {
+        Text("·")
+        Text(ChatDate.text(timestamp)).monospacedDigit().lineLimit(1).fixedSize()
+      }
+      Spacer(minLength: 6)
+      ChatCopyButton(text: message.text, label: "Copy message", emphasized: hovered)
+    }
+    .aimText(.secondary)
+    .frame(height: 20)
   }
 
   private var messageSurface: Color {
@@ -632,22 +685,34 @@ private struct ChatMessageRow: View {
   }
 }
 
+/// Messages that were already announced as new, so a recycled row does not fade in again.
+@MainActor private enum ChatFadeLedger {
+  private static var shown = Set<String>()
+
+  static func played(_ id: String) -> Bool { shown.contains(id) }
+  static func mark(_ id: String) { shown.insert(id) }
+}
+
 private struct ChatMessageBlocks: View {
+  let message: ChatMessage
   let presentation: ChatMessagePresentation?
-  let fallbackText: AttributedString
+  let expanded: Set<Int>
+  let toggleBlock: (Int) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       if let presentation {
         ForEach(presentation.blocks) { block in
-          ChatPresentationBlockView(block: block)
+          ChatPresentationBlockView(
+            block: block, bare: message.role == .tool,
+            expanded: expanded.contains(block.id), toggle: { toggleBlock(block.id) })
         }
         if presentation.sourceWasTruncated {
           Text("This long message is shortened in the reader.")
             .aimText(.secondary, tint: AIMTheme.amber)
         }
       } else {
-        Text(fallbackText)
+        Text(message.text)
           .aimText(.body)
           .lineSpacing(4)
           .textSelection(.enabled)
@@ -659,12 +724,15 @@ private struct ChatMessageBlocks: View {
 
 private struct ChatPresentationBlockView: View {
   let block: ChatPresentationBlock
+  let bare: Bool
+  let expanded: Bool
+  let toggle: () -> Void
 
   @ViewBuilder var body: some View {
     switch block {
     case let .paragraph(_, text):
       readable(text)
-    case let .heading(_, level, text):
+    case let .heading(_, _, text):
       // Markdown heading levels all read in the Section role.
       Text(text)
         .aimText(.section)
@@ -695,10 +763,10 @@ private struct ChatPresentationBlockView: View {
           }
         }
       }
-    case let .code(_, language, preview, expanded, sourceWasTruncated):
+    case let .code(_, language, preview, expandedText, sourceWasTruncated):
       ChatCodeBlock(
-        language: language, preview: preview, expandedText: expanded,
-        sourceWasTruncated: sourceWasTruncated)
+        language: language, preview: preview, expandedText: expandedText,
+        sourceWasTruncated: sourceWasTruncated, expanded: expanded, bare: bare, toggle: toggle)
     case .divider:
       AIMHairline().padding(.vertical, 2)
     }
@@ -709,52 +777,70 @@ private struct ChatPresentationBlockView: View {
       .aimText(.body)
       .lineSpacing(4)
       .textSelection(.enabled)
+      .fixedSize(horizontal: false, vertical: true)
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
+/// A code block wraps long lines, so the conversation scrolls vertically through it and no inner
+/// scroll view captures the wheel. It shows every line up to the presenter's bound; past it, an
+/// explicit button shows the rest. `bare` is tool output on the message's own surface.
 struct ChatCodeBlock: View {
   let language: String?
   let preview: String
   let expandedText: String?
   let sourceWasTruncated: Bool
-  @State private var expanded = false
+  var expanded = false
+  var bare = false
+  var toggle: (() -> Void)?
 
   private var visibleText: String { expanded ? (expandedText ?? preview) : preview }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: AIMTheme.rowSpacing) {
-        Text(language?.uppercased() ?? "CODE")
-          .aimText(.secondary, monospaced: true)
-        Spacer()
-        ChatCopyButton(text: expandedText ?? preview, label: "Copy code", emphasized: true)
+      if !bare {
+        HStack(spacing: AIMTheme.rowSpacing) {
+          Text(language?.uppercased() ?? "CODE")
+            .aimText(.secondary, monospaced: true)
+          Spacer()
+          ChatCopyButton(text: expandedText ?? preview, label: "Copy code", emphasized: true)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(AIMTheme.chatOtherSurface)
       }
-      .padding(.horizontal, 10)
-      .frame(height: 30)
-      .background(AIMTheme.chatOtherSurface)
 
       Text(visibleText)
         .aimText(.secondary, monospaced: true, tint: .primary)
         .lineSpacing(3)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(bare ? 0 : 12)
 
-      if expandedText != nil {
-        Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
-          .buttonStyle(.borderless)
-          .padding(.horizontal, 10)
-          .padding(.bottom, 9)
+      if let expandedText, let toggle {
+        Button(action: toggle) {
+          Text(expanded ? "Show fewer lines" : "Show all \(lineCount(expandedText).formatted()) lines")
+            .aimFont(.body).foregroundStyle(AIMTheme.linkColor)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, bare ? 0 : 12)
+        .padding(.bottom, bare ? 0 : 10)
+        .padding(.top, bare ? 6 : 0)
       } else if sourceWasTruncated {
         Text("Code shortened")
           .aimText(.secondary, tint: AIMTheme.amber)
-          .padding(.horizontal, 10)
-          .padding(.bottom, 9)
+          .padding(.horizontal, bare ? 0 : 12)
+          .padding(.bottom, bare ? 0 : 10)
       }
     }
-    .background(AIMTheme.chatCodeSurface)
-    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .background(bare ? Color.clear : AIMTheme.chatCodeSurface)
+    .clipShape(RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous))
+  }
+
+  private func lineCount(_ text: String) -> Int {
+    text.utf8.reduce(1) { $1 == 10 ? $0 + 1 : $0 }
   }
 }
 
@@ -770,21 +856,26 @@ private struct ChatCopyButton: View {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(text, forType: .string)
       #endif
-      copied = true
+      withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = true }
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(1.2))
-        copied = false
+        withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = false }
       }
     } label: {
-      AIMIcon(name: copied ? .check : .copy)
-        .aimFont(.secondary)
-        .contentShape(Rectangle())
+      // The check fades in over the copy glyph in place, so the button never changes size.
+      ZStack {
+        AIMIcon(name: .copy).opacity(copied ? 0 : 1)
+        AIMIcon(name: .check).opacity(copied ? 1 : 0)
+      }
+      .aimFont(.secondary)
+      .frame(width: 20, height: 20)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
     .foregroundStyle(copied ? AIMTheme.green : Color.secondary)
-    .opacity(emphasized || copied ? 1 : 0.48)
+    .opacity(emphasized || copied ? 1 : 0.4)
+    .animation(AIMMotion.fade(AIMMotion.hover), value: emphasized)
     .help(copied ? "Copied" : label)
     .accessibilityLabel(copied ? "Copied" : label)
   }
-
 }

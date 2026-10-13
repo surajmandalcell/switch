@@ -29,8 +29,10 @@ enum ChatPresentationBlock: Identifiable, Equatable, Sendable {
 enum ChatMessagePresenter {
   static let maximumSourceCharacters = 120_000
   static let maximumBlocks = 256
-  static let compactCodeLines = 24
-  static let compactCodeCharacters = 8_192
+  /// A code block shows in full up to these bounds. A longer one shows its first lines and an
+  /// explicit "Show all N lines" button; copying always takes the whole code.
+  static let compactCodeLines = 600
+  static let compactCodeCharacters = 60_000
 
   static func render(
     messages: [ChatMessage]
@@ -55,6 +57,16 @@ enum ChatMessagePresenter {
     let sourceWasTruncated = message.text.count > maximumSourceCharacters
     let source = String(message.text.prefix(maximumSourceCharacters))
       .replacingOccurrences(of: "\r\n", with: "\n")
+    // Tool output is preformatted text: its line breaks and spacing stay, and no Markdown applies.
+    if message.role == .tool {
+      let codeLines = source.split(separator: "\n", omittingEmptySubsequences: false)
+      let compact = String(codeLines.prefix(compactCodeLines).joined(separator: "\n").prefix(compactCodeCharacters))
+      return ChatMessagePresentation(
+        id: message.id,
+        blocks: [.code(0, language: nil, preview: compact, expanded: compact.count == source.count ? nil : source,
+          sourceWasTruncated: sourceWasTruncated)],
+        sourceWasTruncated: sourceWasTruncated)
+    }
     let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     var blocks: [ChatPresentationBlock] = []
     var index = 0
@@ -75,11 +87,14 @@ enum ChatMessagePresenter {
       }
 
       if trimmed.hasPrefix("```") {
-        let language = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        // The fence closes on a line of at least as many backticks and nothing else, so a longer
+        // fence can hold a shorter one ("````markdown" around "```swift").
+        let fenceLength = trimmed.prefix(while: { $0 == "`" }).count
+        let language = String(trimmed.dropFirst(fenceLength)).trimmingCharacters(in: .whitespaces)
         index += 1
         var codeLines: [String] = []
         while index < lines.count,
-          !lines[index].trimmingCharacters(in: .whitespaces).hasPrefix("```")
+          !isClosingFence(lines[index], length: fenceLength)
         {
           if index.isMultiple(of: 16) { try Task.checkCancellation() }
           codeLines.append(lines[index])
@@ -162,8 +177,17 @@ enum ChatMessagePresenter {
       sourceWasTruncated: sourceWasTruncated || blocks.count == maximumBlocks)
   }
 
+  private static func isClosingFence(_ line: String, length: Int) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return trimmed.count >= length && trimmed.allSatisfy { $0 == "`" }
+  }
+
   private static func inline(_ text: String) -> AttributedString {
-    (try? AttributedString(markdown: text)) ?? AttributedString(text)
+    // Line breaks the author typed stay line breaks.
+    (try? AttributedString(
+      markdown: text,
+      options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+      ?? AttributedString(text)
   }
 
   private static func heading(in line: String) -> (level: Int, text: String)? {
@@ -193,5 +217,58 @@ enum ChatMessagePresenter {
     line.hasPrefix("```") || line.hasPrefix(">") || heading(in: line) != nil
       || unorderedItem(in: line) != nil || orderedItem(in: line) != nil
       || line == "---" || line == "***" || line == "___"
+  }
+}
+
+/// The remembered reading place: the message at the top of the view and how far it is scrolled.
+struct ChatScrollAnchor: Equatable {
+  var messageID: String
+  var offset: Double
+}
+
+/// What Conversations remembers across launches (UserDefaults): the selected conversation, both
+/// searches, and the reading place of the selected conversation. Filters live in `ChatFilterPersistence`.
+enum ChatPlace {
+  static let selectedKey = "chat.selectedID"
+  static let threadQueryKey = "chat.threadQuery"
+  static let messageQueryKey = "chat.messageQuery"
+  static let anchorKey = "chat.anchor"
+  static let threadsScrollKey = "chat.threadsScroll"
+
+  static func selectedID(_ defaults: UserDefaults = .standard) -> String? {
+    defaults.string(forKey: selectedKey)
+  }
+
+  static func saveSelected(_ id: String?, _ defaults: UserDefaults = .standard) {
+    if let id { defaults.set(id, forKey: selectedKey) } else { defaults.removeObject(forKey: selectedKey) }
+  }
+
+  /// The message search is remembered for the conversation it was typed in.
+  static func messageQuery(for threadID: String?, _ defaults: UserDefaults = .standard) -> String {
+    guard let threadID, let saved = defaults.stringArray(forKey: messageQueryKey), saved.count == 2,
+      saved[0] == threadID else { return "" }
+    return saved[1]
+  }
+
+  static func saveMessageQuery(_ query: String, for threadID: String?, _ defaults: UserDefaults = .standard) {
+    guard let threadID else { return }
+    defaults.set([threadID, query], forKey: messageQueryKey)
+  }
+
+  /// The reading place of each recently read conversation: "messageID\noffset" by thread ID.
+  static func anchor(for threadID: String?, _ defaults: UserDefaults = .standard) -> ChatScrollAnchor? {
+    guard let threadID, let saved = (defaults.dictionary(forKey: anchorKey) as? [String: String])?[threadID] else { return nil }
+    let parts = saved.components(separatedBy: "\n")
+    guard parts.count == 2, let offset = Double(parts[1]) else { return nil }
+    return ChatScrollAnchor(messageID: parts[0], offset: offset)
+  }
+
+  static func saveAnchor(_ anchor: ChatScrollAnchor, for threadID: String?, _ defaults: UserDefaults = .standard) {
+    guard let threadID else { return }
+    var all = defaults.dictionary(forKey: anchorKey) as? [String: String] ?? [:]
+    // ponytail: arbitrary eviction past 60 conversations, a recency list if reopening an old one matters
+    if all.count >= 60, all[threadID] == nil, let drop = all.keys.first { all[drop] = nil }
+    all[threadID] = "\(anchor.messageID)\n\(anchor.offset)"
+    defaults.set(all, forKey: anchorKey)
   }
 }
