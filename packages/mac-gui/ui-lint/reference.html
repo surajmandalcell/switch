@@ -162,7 +162,7 @@ h2 { font: 700 13px/16px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro T
 
 /* card */
 .card { background: var(--card); border: 1px solid var(--card-edge); border-radius: 10px; box-shadow: var(--card-shadow); overflow: hidden; padding-bottom: 1px; }
-.card-body { border-radius: 9px; }
+.card-body { border-radius: 9px; display: flow-root; }
 .card.well { padding-bottom: 0; }
 .card.well .card-body { border-radius: 6px; }
 .card-title { height: 44px; margin: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -172,52 +172,6 @@ h2 { font: 700 13px/16px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro T
 .link .i { width: 12px; height: 12px; }
 .well .card-title { margin: 0 10px; }
 
-/* tables */
-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-th { height: 28px; padding: 0; text-align: left; font-weight: 400; font-size: 11px; line-height: 14px; color: var(--sec); }
-td { height: 36px; padding: 0; }
-th, td { white-space: nowrap; }
-th:first-child, td:first-child { padding-left: 16px; }
-th:last-child, td:last-child { padding-right: 16px; }
-/* every cell holds one wrapper; its bottom border is the row separator, so separators share the cell insets */
-th > *, td > * { display: flex; align-items: center; border-bottom: 1px solid var(--sep); }
-th > * { height: 28px; }
-td > * { height: 36px; }
-tbody tr:last-child td > *, tr.sel td > *, tr:has(+ tr.sel) td > * { border-bottom-color: transparent; }
-tr.sel td { background: var(--sel-row); }
-th.end > *, td.end > * { justify-content: flex-end; }
-td.num { text-align: right; }
-.acct { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 12px; }
-.acct .name { overflow: hidden; text-overflow: ellipsis; }
-.ptile { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; flex: none; background: var(--quat); }
-.ptile .i { width: 13px; height: 13px; }
-.ptile.claude, .tile44.claude { background: color-mix(in srgb, var(--orange) 16%, transparent); color: var(--orange); }
-.use { display: flex; align-items: center; gap: 8px; padding-right: 16px; }
-.use .pct { min-width: 36px; text-align: right; }
-.acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-
-/* quota bar: 6 pt capsule, color by share left */
-.bar { display: block; flex: none; width: 72px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
-.bar i { display: block; height: 100%; border-radius: 3px; background: var(--green); }
-.bar.y i { background: var(--yellow); }
-.bar.r i { background: var(--red); }
-.bar.wide { width: 100%; }
-
-/* focused account */
-.focus { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-.focus-top { display: flex; align-items: center; gap: 12px; }
-.tile44 { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--quat); }
-.tile44 .i { width: 24px; height: 24px; }
-.who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.who .id { display: flex; align-items: center; gap: 2px; }
-.who .id .ibtn { width: 24px; height: 24px; background: transparent; border-color: transparent; box-shadow: none; color: var(--sec); }
-.who .prov { display: flex; align-items: center; gap: 6px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
-.badge { display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange-text); }
-.vdiv { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--sep); flex: none; }
-.winblock { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
-.winblock .line, .tile .line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.focus-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 [data-ui-actions] { display: flex; align-items: center; gap: 8px; }
 
 /* tiles */
@@ -230,12 +184,42 @@ td.num { text-align: right; }
 .status { width: 28px; height: 28px; flex: none; }
 .status.ok { color: var(--green); }
 .status.warn { color: var(--yellow); }
-.cellicon { display: flex; align-items: center; gap: 12px; }
-.cellicon .i { color: var(--sec); width: 16px; height: 16px; }
 .form-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 36px; margin: 0 16px; }
 .form-row + .form-row { border-top: 1px solid var(--sep); height: 37px; }
 code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; font-size: 13px; line-height: 16px; }
 .empty { display: flex; align-items: center; height: 36px; margin: 0 16px; }
+
+/* overview dashboard: period and grouping controls, stat tiles, and the four charts */
+.title-actions { display: flex; align-items: center; gap: 8px; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; height: 28px; border-radius: 7px; background: var(--quat); flex: none; }
+.seg span { display: inline-flex; align-items: center; height: 24px; padding: 0 12px; border-radius: 5px; }
+.seg span[aria-checked="true"] { background: color-mix(in srgb, var(--label) 14%, var(--card)); box-shadow: var(--control-shadow), var(--control-hi); }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stat { font: 600 17px/22px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro Display", sans-serif; font-variant-numeric: tabular-nums; }
+.chart { height: 200px; margin: 14px 16px 4px; }
+.chart.heat { height: 106px; margin-bottom: 8px; }
+.chart svg { display: block; width: 100%; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 16px 14px; min-height: 14px; }
+.legend.end { justify-content: flex-end; align-items: center; gap: 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 8px; height: 8px; border-radius: 50%; }
+.legend .ramp { gap: 4px; }
+.legend .ramp i { width: 12px; height: 12px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 100%, transparent); }
+.legend .ramp i:nth-child(1) { background: var(--quin); }
+.legend .ramp i:nth-child(2) { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.legend .ramp i:nth-child(3) { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+.legend .ramp i:nth-child(4) { background: color-mix(in srgb, var(--accent) 76%, transparent); }
+.axis { display: flex; justify-content: space-between; height: 16px; margin: 0 16px 10px; }
+.axis.under { margin-bottom: 14px; padding-left: 132px; }
+.ridge { display: flex; height: 160px; margin: 14px 16px 4px; gap: 14px; }
+.ridge .names { width: 118px; display: flex; flex-direction: column; justify-content: space-around; text-align: right; }
+.ridge svg { flex: 1; min-width: 0; height: 100%; display: block; }
+.share { display: flex; align-items: flex-start; gap: 24px; margin: 14px 16px; }
+.share svg { flex: none; }
+.share .rows { flex: 1; min-width: 0; }
+.share .r { display: flex; align-items: center; gap: 8px; height: 24px; }
+.share .r span:first-of-type { flex: 1; }
+.share .r i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
 </style>
 </head>
@@ -289,100 +273,82 @@ code { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace; f
       <div class="cards-wrap" data-ui-align-item>
         <div class="cards" data-ui-stack data-ui-align="start">
 
-          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-label="Focused account">
+          <section class="card well" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-usage">
             <div class="card-body" data-ui-radius-inner>
-              <div class="focus">
-                <div class="focus-top">
-                  <div class="tile44 claude" aria-hidden="true"><svg class="i"><use href="#i-claude"/></svg></div>
-                  <div class="who">
-                    <div class="id"><h1>ada@example.test</h1><button type="button" class="ibtn has-tip" aria-label="Choose account" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-choose"><svg class="i" aria-hidden="true"><use href="#i-chev-down"/></svg><span class="tip" role="tooltip" id="tip-choose">Choose account</span></button></div>
-                    <div class="prov sec"><span>Claude Code</span><span class="dot" aria-hidden="true"></span><span>Active</span></div>
-                  </div>
-                  <div class="vdiv" aria-hidden="true"></div>
-                  <div class="winblock">
-                    <div class="line"><span>Weekly</span><span data-ui-number>100% left</span></div>
-                    <span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span>
-                    <span class="sec" data-ui-number>Resets in 6d 8h 56m</span>
-                  </div>
+              <div class="card-title"><span class="lead"><h2 id="h-usage">Usage</h2><span class="sec">(last 7 days)</span></span>
+                <div class="title-actions" data-ui-actions>
+                  <div class="seg" role="radiogroup" aria-label="Period"><span role="radio" aria-checked="true">Week</span><span role="radio" aria-checked="false">Month</span></div>
+                  <div class="seg" role="radiogroup" aria-label="Group by"><span role="radio" aria-checked="true">Accounts</span><span role="radio" aria-checked="false">Models</span><span role="radio" aria-checked="false">Projects</span></div>
                 </div>
-                <div class="focus-actions">
-                  <div data-ui-actions>
-                    <button type="button" class="btn prominent" aria-disabled="true"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Using as default</button>
-                    <button type="button" class="btn"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Open Claude Code</button>
-                  </div>
-                  <div data-ui-actions>
-                    <button type="button" class="btn"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button>
-                    <button type="button" class="ibtn has-tip" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-focus-more"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-focus-more">More</span></button>
-                  </div>
-                </div>
+              </div>
+              <div class="tiles four">
+                <div class="tile"><span class="sec">Tokens</span><span class="stat" data-ui-number>142M</span><span class="sec">In the last 7 days</span></div>
+                <div class="tile"><span class="sec">Estimated cost</span><span class="stat" data-ui-number>$318</span><span class="sec">API-rate estimate, not billed</span></div>
+                <div class="tile"><span class="sec">Active accounts</span><span class="stat" data-ui-number>3</span><span class="sec">Of 4 saved</span></div>
+                <div class="tile"><span class="sec">Busiest day</span><span class="stat" data-ui-number>Oct 3</span><span class="sec" data-ui-number>31M tokens</span></div>
               </div>
             </div>
           </section>
 
-          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-accounts">
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-stream">
             <div class="card-body" data-ui-radius-inner>
-              <div class="card-title"><h2 id="h-accounts">Accounts</h2><span class="sec" data-ui-number>4 accounts</span></div>
-              <table data-ui-align="start">
-                <colgroup><col><col style="width:88px"><col style="width:132px"><col style="width:72px"><col style="width:106px"></colgroup>
-                <thead><tr>
-                  <th scope="col"><span data-ui-align-item>Account</span></th><th scope="col"><span>Provider</span></th><th scope="col"><span>Usage</span></th><th scope="col"><span>Resets</span></th><th scope="col" class="end"><span>Actions</span></th>
-                </tr></thead>
-                <tbody>
-                  <tr class="sel">
-                    <td><div class="acct" data-ui-align-item><span class="ptile claude" aria-hidden="true"><svg class="i"><use href="#i-claude"/></svg></span><span class="name">ada@example.test</span></div></td>
-                    <td><span class="sec">Claude Code</span></td>
-                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="pct" data-ui-number>100%</span></div></td>
-                    <td><span class="sec" data-ui-number>in 6d 8h</span></td>
-                    <td><div class="acts" data-ui-actions><span class="chip">Default</span><button type="button" class="ibtn sm has-tip" aria-label="More for ada@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r1"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r1">More</span></button></div></td>
-                  </tr>
-                  <tr>
-                    <td><div class="acct" data-ui-align-item><span class="ptile" aria-hidden="true"><svg class="i"><use href="#i-codex"/></svg></span><span class="name">grace@example.test</span></div></td>
-                    <td><span class="sec">Codex CLI</span></td>
-                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="0% left"><i style="width:0%"></i></span><span class="pct" data-ui-number>0%</span></div></td>
-                    <td><span class="sec" data-ui-number>in 20d 13h</span></td>
-                    <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for grace@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r2"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r2">More</span></button></div></td>
-                  </tr>
-                  <tr>
-                    <td><div class="acct" data-ui-align-item><span class="ptile" aria-hidden="true"><svg class="i"><use href="#i-grok"/></svg></span><span class="name">alan@example.test</span></div></td>
-                    <td><span class="sec">Grok Build</span></td>
-                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="pct" data-ui-number>100%</span></div></td>
-                    <td><span class="sec" data-ui-number>in 1h 45m</span></td>
-                    <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for alan@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r3"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r3">More</span></button></div></td>
-                  </tr>
-                  <tr>
-                    <td><div class="acct" data-ui-align-item><span class="ptile claude" aria-hidden="true"><svg class="i"><use href="#i-claude"/></svg></span><span class="name">edsger@example.test</span></div></td>
-                    <td><span class="sec">Claude Code</span></td>
-                    <td class="num"><div class="use"><span class="bar" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="pct" data-ui-number>100%</span></div></td>
-                    <td><span class="sec" data-ui-number>in 6d 8h</span></td>
-                    <td><div class="acts" data-ui-actions><button type="button" class="btn sm">Switch</button><button type="button" class="ibtn sm has-tip" aria-label="More for edsger@example.test" aria-haspopup="menu" aria-expanded="false" aria-describedby="tip-r4"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg><span class="tip" role="tooltip" id="tip-r4">More</span></button></div></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="card well" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-limits">
-            <div class="card-body" data-ui-radius-inner>
-              <div class="card-title"><h2 id="h-limits">Current limits</h2><a class="link" href="#limits">View all limits<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a></div>
-              <div class="tiles">
-                <div class="tile"><div class="line"><span>Session</span><span data-ui-number>100% left</span></div><span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="sec" data-ui-number>Resets in 1h 45m</span></div>
-                <div class="tile"><div class="line"><span>Weekly</span><span data-ui-number>100% left</span></div><span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="sec" data-ui-number>Resets in 6d 8h 56m</span></div>
-                <div class="tile"><div class="line"><span>Fable weekly</span><span data-ui-number>100% left</span></div><span class="bar wide" role="img" aria-label="100% left"><i style="width:100%"></i></span><span class="sec" data-ui-number>Resets in 6d 8h 57m</span></div>
+              <div class="card-title rule"><span class="lead"><h2 id="h-stream">Tokens per day</h2><span class="sec">(by account)</span></span></div>
+              <div class="chart" role="img" aria-label="Last 7 days, 142M tokens by account, most on Oct 3">
+                <svg viewBox="0 0 700 200" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M0 98 C120 70 200 40 350 52 S580 70 700 82 L700 118 C580 130 480 150 350 142 S120 138 0 128Z" fill="#D97757" fill-opacity=".82"/>
+                  <path d="M0 128 C120 138 200 150 350 142 S580 130 700 118 L700 134 C580 142 480 160 350 156 S120 150 0 142Z" fill="#10A37F" fill-opacity=".82"/>
+                  <path d="M0 142 C120 150 200 158 350 156 S580 142 700 134 L700 142 C580 148 480 164 350 162 S120 156 0 148Z" fill="#7A6BE0" fill-opacity=".82"/>
+                </svg>
               </div>
+              <div class="axis sec"><span>Sep 14</span><span>Sep 21</span><span>Sep 28</span><span>Oct 5</span><span>Oct 12</span></div>
+              <div class="legend sec"><span><i style="background:#D97757"></i>ada@example.test</span><span><i style="background:#10A37F"></i>grace@example.test</span><span><i style="background:#7A6BE0"></i>alan@example.test</span></div>
             </div>
           </section>
 
-          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-activity">
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-heat">
             <div class="card-body" data-ui-radius-inner>
-              <div class="card-title rule"><span class="lead"><h2 id="h-activity">Recent activity</h2><span class="sec">(Claude Code)</span></span><a class="link" href="#history">View full history<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a></div>
-              <table>
-                <colgroup><col><col style="width:150px"><col style="width:130px"></colgroup>
-                <tbody>
-                  <tr><td><div class="cellicon"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><span>Today</span></div></td><td><span class="cell"><span data-ui-number>3.2M</span>&nbsp;<span class="sec">tokens</span></span></td><td class="num end"><span data-ui-number>≈ $7.01</span></td></tr>
-                  <tr><td><div class="cellicon"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span>Yesterday</span></div></td><td><span class="cell"><span data-ui-number>1.3B</span>&nbsp;<span class="sec">tokens</span></span></td><td class="num end"><span data-ui-number>≈ $337.58</span></td></tr>
-                  <tr><td><div class="cellicon"><svg class="i" aria-hidden="true"><use href="#i-cal"/></svg><span>Last 30 days</span></div></td><td><span class="cell"><span data-ui-number>6.2B</span>&nbsp;<span class="sec">tokens</span></span></td><td class="num end"><span data-ui-number>≈ $1,930.51</span></td></tr>
-                </tbody>
-              </table>
+              <div class="card-title rule"><span class="lead"><h2 id="h-heat">Activity</h2><span class="sec">(last 12 months, all accounts)</span></span></div>
+              <div class="chart heat" role="img" aria-label="Last 12 months, 4.1B tokens, most on Oct 3">
+                <svg viewBox="0 0 700 106" preserveAspectRatio="none" aria-hidden="true">
+                  <defs><pattern id="cells" width="13.2" height="14.4" patternUnits="userSpaceOnUse"><rect width="10.2" height="11.4" rx="3" fill="currentColor" fill-opacity=".065"/></pattern></defs>
+                  <rect y="18" width="700" height="88" fill="url(#cells)"/>
+                  <rect x="40" y="18" width="260" height="88" fill="url(#cells)" style="color:var(--accent)" opacity=".5"/>
+                  <rect x="300" y="18" width="360" height="88" fill="url(#cells)" style="color:var(--accent)" opacity=".8"/>
+                </svg>
+              </div>
+              <div class="legend sec end"><span>Less</span><span class="ramp"><i></i><i></i><i></i><i></i><i></i></span><span>More</span></div>
+            </div>
+          </section>
+
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-ridge">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="card-title rule"><span class="lead"><h2 id="h-ridge">Trends</h2><span class="sec">(by account)</span></span></div>
+              <div class="ridge" role="img" aria-label="Daily usage by account. ada@example.test, 80M tokens. grace@example.test, 42M tokens">
+                <div class="names sec"><span>ada@example.test</span><span>grace@example.test</span><span>alan@example.test</span></div>
+                <svg viewBox="0 0 560 160" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M0 50 C60 20 120 8 200 30 S340 44 560 26 L560 50Z" fill="#D97757" fill-opacity=".34" stroke="#D97757" stroke-width="1.5"/>
+                  <path d="M0 100 C80 70 160 92 260 66 S420 84 560 72 L560 100Z" fill="#10A37F" fill-opacity=".34" stroke="#10A37F" stroke-width="1.5"/>
+                  <path d="M0 150 C100 140 180 118 280 134 S440 122 560 128 L560 150Z" fill="#7A6BE0" fill-opacity=".34" stroke="#7A6BE0" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <div class="axis under sec"><span>Sep 14</span><span>Sep 21</span><span>Sep 28</span><span>Oct 5</span><span>Oct 12</span></div>
+            </div>
+          </section>
+
+          <section class="card" data-ui-radius data-ui-container data-ui-content data-ui-align-item aria-labelledby="h-share">
+            <div class="card-body" data-ui-radius-inner>
+              <div class="card-title rule"><span class="lead"><h2 id="h-share">Share of tokens</h2><span class="sec">(by account)</span></span></div>
+              <div class="share" role="img" aria-label="Share of tokens by account. ada@example.test, 56 percent. grace@example.test, 30 percent. alan@example.test, 14 percent">
+                <svg viewBox="0 0 168 168" width="168" height="168" aria-hidden="true">
+                  <defs><pattern id="wf" width="17.2" height="17.2" patternUnits="userSpaceOnUse"><rect width="14.2" height="14.2" rx="3.1" fill="#fff"/></pattern><mask id="wm"><rect width="168" height="168" fill="url(#wf)"/></mask></defs>
+                  <g mask="url(#wm)"><rect width="168" height="96" fill="#D97757"/><rect y="96" width="168" height="51" fill="#10A37F"/><rect y="147" width="168" height="21" fill="#7A6BE0"/></g>
+                </svg>
+                <div class="rows">
+                  <div class="r"><i style="background:#D97757"></i><span>ada@example.test</span><span data-ui-number>56%</span><span class="sec" data-ui-number>80M</span></div>
+                  <div class="r"><i style="background:#10A37F"></i><span>grace@example.test</span><span data-ui-number>30%</span><span class="sec" data-ui-number>42M</span></div>
+                  <div class="r"><i style="background:#7A6BE0"></i><span>alan@example.test</span><span data-ui-number>14%</span><span class="sec" data-ui-number>20M</span></div>
+                </div>
+              </div>
             </div>
           </section>
 

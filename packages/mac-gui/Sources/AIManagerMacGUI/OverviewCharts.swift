@@ -1,0 +1,863 @@
+import AIManagerCore
+import SwiftUI
+
+// The four Overview charts, after uiarc.dev: a streamgraph, an activity heatmap, a ridgeline, and
+// a waffle chart. Each is a Canvas inside an Animatable view. A 0...1 clock draws it in on first
+// appear and on every period or grouping change; hovering dims the other series. The data and the
+// colors come from OverviewDataset (OverviewPage.swift).
+
+// MARK: - Motion
+
+enum OverviewMotion {
+  /// Draw-in lengths, inside the 150-600 ms budget.
+  static let stream = 0.6, heatmap = 0.6, ridge = 0.6, waffle = 0.5
+  static let hover = Animation.easeOut(duration: 0.12)
+  static let follow = Animation.spring(duration: 0.26, bounce: 0.12)
+  /// How far the other series fade while one is hovered.
+  static let dimmed = 0.38
+
+  /// Ease-out cubic for the part of the clock a shape owns.
+  static func ease(_ t: Double) -> Double { 1 - pow(1 - min(max(t, 0), 1), 3) }
+  static func window(_ clock: Double, start: Double, length: Double) -> Double {
+    ease((clock - start) / length)
+  }
+
+  /// Preview screenshots: `--overview-hover=stream:0.5:0.4` puts the pointer at those fractions of that chart.
+  static func previewHover(_ chart: String, in size: CGSize) -> CGPoint? {
+    #if AI_MANAGER_PREVIEW
+    let parts = (PreviewArguments.value("overview-hover") ?? "").split(separator: ":")
+    guard parts.count == 3, parts[0] == chart, let x = Double(parts[1]), let y = Double(parts[2]) else { return nil }
+    return CGPoint(x: x * size.width, y: y * size.height)
+    #else
+    return nil
+    #endif
+  }
+
+  /// A frozen clock: `--overview-progress=0.3` renders a mid-animation frame; offscreen contract
+  /// renders show the final state. Nil means the clock runs.
+  static var fixedProgress: Double? {
+    #if AI_MANAGER_PREVIEW
+    if let value = PreviewArguments.value("overview-progress").flatMap(Double.init) { return value }
+    #endif
+    return AIMMotion.isLive ? nil : 1
+  }
+}
+
+/// Runs a 0...1 clock on appear and whenever `key` changes, and hands it to the chart. A new run
+/// restarts from 0, so a draw-in is interruptible. Reduce Motion skips the geometry and fades.
+struct OverviewDrawIn<Content: View>: View {
+  let key: Int
+  let duration: Double
+  let content: (Double) -> Content
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var runs = 0
+
+  var body: some View {
+    if let fixed = OverviewMotion.fixedProgress {
+      content(fixed)
+    } else {
+      Color.clear
+        .keyframeAnimator(initialValue: 0.0, trigger: key &* 31 &+ runs) { _, clock in
+          content(reduceMotion ? 1 : clock).opacity(reduceMotion ? clock : 1)
+        } keyframes: { _ in
+          LinearKeyframe(1.0, duration: reduceMotion ? 0.2 : duration)
+        }
+        .onAppear { runs += 1 }
+    }
+  }
+}
+
+// MARK: - Curves
+
+extension Path {
+  /// A monotone cubic curve through points that are sorted by x (either way). It is smooth and
+  /// never dips below a flat run, so a ridge with zero days stays on its baseline.
+  mutating func addMonotone(_ points: [CGPoint], connect: Bool) {
+    guard let first = points.first else { return }
+    if connect { addLine(to: first) } else { move(to: first) }
+    let count = points.count
+    guard count > 1 else { return }
+    let slopes = (0..<count - 1).map { index -> CGFloat in
+      let dx = points[index + 1].x - points[index].x
+      return (points[index + 1].y - points[index].y) / (dx == 0 ? 0.0001 : dx)
+    }
+    var tangents = [CGFloat](repeating: 0, count: count)
+    tangents[0] = slopes[0]
+    tangents[count - 1] = slopes[count - 2]
+    for index in 1..<max(count - 1, 1) {
+      let (a, b) = (slopes[index - 1], slopes[index])
+      tangents[index] = a * b > 0 ? 2 * a * b / (a + b) : 0
+    }
+    for index in 0..<count - 1 {
+      let (from, to) = (points[index], points[index + 1])
+      let third = (to.x - from.x) / 3
+      addCurve(
+        to: to,
+        control1: CGPoint(x: from.x + third, y: from.y + tangents[index] * third),
+        control2: CGPoint(x: to.x - third, y: to.y - tangents[index + 1] * third))
+    }
+  }
+}
+
+// MARK: - Hover and tooltip
+
+struct OverviewTip: Equatable {
+  struct Row: Equatable {
+    var color: Color?
+    var label: String
+    var value: String
+  }
+  var title: String
+  var rows: [Row]
+}
+
+struct OverviewHover: Equatable {
+  var point: CGPoint
+  var tip: OverviewTip
+  /// The series under the pointer, for dimming the others.
+  var key: String?
+  /// The day or cell index under the pointer.
+  var index: Int?
+}
+
+/// The tooltip follows the pointer on a soft spring and flips to the pointer's other side near an edge.
+struct OverviewTooltipLayer: View {
+  let hover: OverviewHover?
+  let size: CGSize
+  var flips = true
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    Color.clear.overlay(alignment: alignment) {
+      if let hover {
+        tip(hover.tip)
+          .padding(insets(for: hover.point))
+          .animation(reduceMotion ? nil : OverviewMotion.follow, value: hover.point)
+          .transition(.opacity)
+      }
+    }
+    .allowsHitTesting(false)
+    .animation(AIMMotion.fade(AIMMotion.hover), value: hover == nil)
+  }
+
+  private var alignment: Alignment {
+    guard let point = hover?.point else { return .topLeading }
+    return Alignment(horizontal: onRight(point) ? .leading : .trailing, vertical: below(point) ? .top : .bottom)
+  }
+
+  private func onRight(_ point: CGPoint) -> Bool { !flips || point.x < size.width * 0.6 }
+  private func below(_ point: CGPoint) -> Bool { point.y < size.height * 0.55 }
+
+  private func insets(for point: CGPoint) -> EdgeInsets {
+    let right = onRight(point), under = below(point)
+    return EdgeInsets(
+      top: under ? point.y + 14 : 0, leading: right ? point.x + 14 : 0,
+      bottom: under ? 0 : max(size.height - point.y + 14, 0), trailing: right ? 0 : max(size.width - point.x + 14, 0))
+  }
+
+  private func tip(_ tip: OverviewTip) -> some View {
+    let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
+    return VStack(alignment: .leading, spacing: 4) {
+      Text(tip.title).aimText(.body)
+      ForEach(Array(tip.rows.enumerated()), id: \.offset) { _, row in
+        HStack(spacing: 6) {
+          if let color = row.color { Circle().fill(color).frame(width: 8, height: 8) }
+          Text(row.label).aimText(.secondary).lineLimit(1)
+          Spacer(minLength: 12)
+          Text(row.value).aimText(.secondary).monospacedDigit()
+        }
+      }
+    }
+    .padding(8)
+    .frame(minWidth: 120, maxWidth: 260, alignment: .leading)
+    .fixedSize()
+    .background(AIMTheme.card, in: shape)
+    .aimBorder(AIMTheme.cardBorder, in: shape)
+    .shadow(color: .black.opacity(0.16), radius: 6, y: 2)
+  }
+}
+
+// MARK: - Legend
+
+/// Wraps its children onto new lines, like text.
+struct OverviewFlow: Layout {
+  var spacing: CGFloat = 14
+  var rowSpacing: CGFloat = 4
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    arrange(width: proposal.width ?? .infinity, subviews: subviews).size
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let layout = arrange(width: bounds.width, subviews: subviews)
+    for (subview, origin) in zip(subviews, layout.origins) {
+      subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+    }
+  }
+
+  private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
+    var origins: [CGPoint] = []
+    var (x, y, rowHeight, widest) = (CGFloat(0), CGFloat(0), CGFloat(0), CGFloat(0))
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x > 0, x + size.width > width { (x, y, rowHeight) = (0, y + rowHeight + rowSpacing, 0) }
+      origins.append(CGPoint(x: x, y: y))
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
+      widest = max(widest, x - spacing)
+    }
+    return (CGSize(width: widest, height: y + rowHeight), origins)
+  }
+}
+
+/// Color dots with names, the same colors as the chart. It is one line high so a grouping with
+/// more names never moves the card; a name that does not fit is clipped (the other charts name every series).
+struct OverviewLegend: View {
+  static let height: CGFloat = 18
+  let series: [OverviewSeries]
+
+  var body: some View {
+    OverviewFlow(rowSpacing: 40) {
+      ForEach(series) { item in
+        HStack(spacing: 6) {
+          Circle().fill(item.color).frame(width: 8, height: 8)
+          Text(item.label).aimText(.secondary).lineLimit(1)
+        }
+        .accessibilityHidden(true)
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
+    .clipped()
+  }
+}
+
+// MARK: - Date axis
+
+/// A faint row of 3 to 5 date labels under a time chart: weekdays for a week, month and day for longer.
+/// The first label starts at the left edge and the last ends at the right edge, like the chart's ends.
+struct OverviewDateAxis: View {
+  static let height: CGFloat = 16
+  let days: [String]
+
+  static func labels(_ days: [String]) -> [(fraction: Double, text: String)] {
+    guard days.count > 1 else { return [] }
+    let last = days.count - 1
+    let picks = days.count <= 7 ? Array(stride(from: 0, through: last, by: 2)) : (0...4).map { Int((Double($0) * Double(last) / 4).rounded()) }
+    return picks.map { (Double($0) / Double(last), days.count <= 7 ? OverviewDay.weekdayName(days[$0]) : OverviewDay.short(days[$0])) }
+  }
+
+  var body: some View {
+    Canvas { context, size in
+      let labels = Self.labels(days)
+      for (index, label) in labels.enumerated() {
+        let text = Text(label.text).font(AIMTextRole.caption.font).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+        let anchor: UnitPoint = index == 0 ? .topLeading : (index == labels.count - 1 ? .topTrailing : .top)
+        context.draw(text, at: CGPoint(x: size.width * label.fraction, y: 2), anchor: anchor)
+      }
+    }
+    .frame(height: Self.height)
+    .accessibilityHidden(true)
+  }
+}
+
+// MARK: - Streamgraph
+
+enum OverviewStreamLayout {
+  static let inset: CGFloat = 6
+
+  // ponytail: a centered (silhouette) baseline, not uiarc's wiggle; add wiggle if bands read as a mirrored blob.
+  /// Stacked bands around a centered axis, top to bottom in series order. `swell` scales the
+  /// bands about the axis, so the draw-in grows out of a hairline.
+  static func layers(
+    _ series: [OverviewSeries], size: CGSize, swell: Double = 1
+  ) -> [(top: [CGPoint], bottom: [CGPoint])] {
+    guard let count = series.first?.daily.count, count > 1 else { return [] }
+    let totals = (0..<count).map { index in series.reduce(0.0) { $0 + Double($1.daily[index]) } }
+    let scale = (size.height - 2 * inset) / max(totals.max() ?? 1, 1)
+    let mid = size.height / 2
+    var cursor = totals.map { mid - $0 * scale / 2 }
+    return series.map { item in
+      var top: [CGPoint] = [], bottom: [CGPoint] = []
+      for index in 0..<count {
+        let x = size.width * Double(index) / Double(count - 1)
+        let (from, to) = (cursor[index], cursor[index] + Double(item.daily[index]) * scale)
+        top.append(CGPoint(x: x, y: mid + (from - mid) * swell))
+        bottom.append(CGPoint(x: x, y: mid + (to - mid) * swell))
+        cursor[index] = to
+      }
+      return (top, bottom)
+    }
+  }
+}
+
+private struct OverviewStreamCanvas: View, Animatable {
+  let series: [OverviewSeries]
+  let clock: Double
+  var engaged: Double
+  let highlight: String?
+  let day: Int?
+  var animatableData: Double {
+    get { engaged }
+    set { engaged = newValue }
+  }
+
+  var body: some View {
+    Canvas { context, size in
+      let layers = OverviewStreamLayout.layers(series, size: size, swell: OverviewMotion.ease(clock))
+      for (index, layer) in layers.enumerated() {
+        var path = Path()
+        path.addMonotone(layer.top, connect: false)
+        path.addMonotone(layer.bottom.reversed(), connect: true)
+        path.closeSubpath()
+        let faded = highlight != nil && series[index].id != highlight
+        let opacity = 0.82 * (faded ? 1 - engaged * (1 - OverviewMotion.dimmed) : 1)
+        context.fill(path, with: .color(series[index].color.opacity(opacity)))
+        context.stroke(path, with: .color(AIMTheme.card), lineWidth: 2)
+      }
+      if let day, let count = series.first?.daily.count, count > 1 {
+        let x = size.width * Double(day) / Double(count - 1)
+        var line = Path()
+        line.move(to: CGPoint(x: x, y: 0))
+        line.addLine(to: CGPoint(x: x, y: size.height))
+        context.stroke(line, with: .color(Color.primary.opacity(0.35 * engaged)), lineWidth: 1)
+      }
+    }
+  }
+}
+
+struct OverviewStreamChart: View {
+  let dataset: OverviewDataset
+  @State private var hover: OverviewHover?
+  @State private var lastKey: String?
+
+  var body: some View {
+    VStack(spacing: 4) {
+      plot
+      OverviewDateAxis(days: dataset.days)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(dataset.streamSummary)
+    .accessibilityAddTraits(.isImage)
+  }
+
+  private var plot: some View {
+    GeometryReader { proxy in
+      OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.stream) { clock in
+        OverviewStreamCanvas(
+          series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
+          highlight: hover?.key ?? lastKey, day: hover?.index)
+          .animation(OverviewMotion.hover, value: hover == nil)
+      }
+      .contentShape(Rectangle())
+      .onContinuousHover { phase in
+        switch phase {
+        case .active(let point):
+          hover = info(at: point, size: proxy.size)
+          if let key = hover?.key { lastKey = key }
+        case .ended: hover = nil
+        }
+      }
+      .overlay { OverviewTooltipLayer(hover: hover, size: proxy.size) }
+      .onAppear {
+        if let point = OverviewMotion.previewHover("stream", in: proxy.size) {
+          hover = info(at: point, size: proxy.size)
+          lastKey = hover?.key
+        }
+      }
+    }
+  }
+
+  private func info(at point: CGPoint, size: CGSize) -> OverviewHover? {
+    let count = dataset.days.count
+    guard count > 1, size.width > 0 else { return nil }
+    let day = min(max(Int((point.x / size.width * Double(count - 1)).rounded()), 0), count - 1)
+    let layers = OverviewStreamLayout.layers(dataset.series, size: size)
+    guard !layers.isEmpty else { return nil }
+    // The band under the pointer, or the nearest band when the pointer is above or below them.
+    let distances = layers.map { layer -> CGFloat in
+      let (top, bottom) = (layer.top[day].y, layer.bottom[day].y)
+      return point.y < top ? top - point.y : (point.y > bottom ? point.y - bottom : 0)
+    }
+    guard let index = distances.indices.min(by: { distances[$0] < distances[$1] }) else { return nil }
+    let item = dataset.series[index]
+    let total = dataset.series.reduce(0) { $0 + $1.daily[day] }
+    let tip = OverviewTip(
+      title: OverviewDay.short(dataset.days[day]),
+      rows: [
+        .init(color: item.color, label: item.label, value: UsagePresentation.formatTokens(item.daily[day])),
+        .init(color: nil, label: "All", value: UsagePresentation.formatTokens(total)),
+      ])
+    return OverviewHover(point: point, tip: tip, key: item.id, index: day)
+  }
+}
+
+// MARK: - Activity heatmap
+
+/// 53 week columns by 7 weekday rows, Sunday first, with a month band on top and weekday names at left.
+struct OverviewHeatLayout {
+  static let gap: CGFloat = 3
+  static let left: CGFloat = 30
+  static let top: CGFloat = 18
+  let size: CGSize
+  let offset: Int
+  let count: Int
+
+  var columns: Int { (offset + count + 6) / 7 }
+  var cell: CGSize {
+    CGSize(
+      width: max((size.width - Self.left - Self.gap * CGFloat(columns - 1)) / CGFloat(columns), 1),
+      height: max((size.height - Self.top - Self.gap * 6) / 7, 1))
+  }
+
+  func rect(column: Int, row: Int) -> CGRect {
+    let cell = cell
+    return CGRect(
+      x: Self.left + CGFloat(column) * (cell.width + Self.gap),
+      y: Self.top + CGFloat(row) * (cell.height + Self.gap), width: cell.width, height: cell.height)
+  }
+
+  func rect(index: Int) -> CGRect { rect(column: (offset + index) / 7, row: (offset + index) % 7) }
+
+  /// The day under a point, or nil in a gap, the margins, or the empty cells of the first or last week.
+  func index(at point: CGPoint) -> Int? {
+    let cell = cell
+    let (x, y) = (point.x - Self.left, point.y - Self.top)
+    guard x >= 0, y >= 0 else { return nil }
+    let column = Int(x / (cell.width + Self.gap)), row = Int(y / (cell.height + Self.gap))
+    guard column < columns, row < 7,
+          x - CGFloat(column) * (cell.width + Self.gap) <= cell.width,
+          y - CGFloat(row) * (cell.height + Self.gap) <= cell.height else { return nil }
+    let index = column * 7 + row - offset
+    return (0..<count).contains(index) ? index : nil
+  }
+}
+
+private struct OverviewHeatCanvas: View, Animatable {
+  let dataset: OverviewDataset
+  let clock: Double
+  var engaged: Double
+  let cell: Int?
+  let level: Int?
+  var animatableData: Double {
+    get { engaged }
+    set { engaged = newValue }
+  }
+
+  var body: some View {
+    Canvas { context, size in
+      let layout = OverviewHeatLayout(size: size, offset: dataset.yearOffset, count: dataset.yearDays.count)
+      let columns = Double(layout.columns + 6)
+      for index in dataset.yearDays.indices {
+        let rect = layout.rect(index: index)
+        // A diagonal wave: the top-left cells land first.
+        let slot = (dataset.yearOffset + index) / 7 + (dataset.yearOffset + index) % 7
+        let arrive = OverviewMotion.window(clock, start: Double(slot) / columns * 0.62, length: 0.38)
+        let scale = 0.5 + 0.5 * arrive
+        let shape = rect.insetBy(dx: rect.width * (1 - scale) / 2, dy: rect.height * (1 - scale) / 2)
+        let value = dataset.heatLevel(dataset.yearTotals[index])
+        var opacity = arrive
+        if let level, level != value { opacity *= 1 - engaged * 0.8 }
+        let radius = min(shape.width, shape.height) * 0.28
+        context.fill(
+          Path(roundedRect: shape, cornerRadius: radius),
+          with: .color(OverviewDataset.heatColor(value).opacity(opacity)))
+      }
+      if let cell, dataset.yearDays.indices.contains(cell) {
+        let rect = layout.rect(index: cell).insetBy(dx: -0.5, dy: -0.5)
+        context.stroke(
+          Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) * 0.3),
+          with: .color(Color.primary.opacity(0.7)), lineWidth: 1.5)
+      }
+      drawLabels(context, layout)
+    }
+  }
+
+  private func drawLabels(_ context: GraphicsContext, _ layout: OverviewHeatLayout) {
+    var lastColumn = -4
+    for (index, day) in dataset.yearDays.enumerated() where OverviewDay.dayOfMonth(day) == 1 {
+      let column = (dataset.yearOffset + index) / 7
+      guard column >= lastColumn + 3 else { continue }
+      lastColumn = column
+      let text = Text(OverviewDay.month(day)).font(AIMTextRole.caption.font).foregroundStyle(.secondary)
+      context.draw(text, at: CGPoint(x: layout.rect(index: index).minX, y: 0), anchor: .topLeading)
+    }
+    for (row, name) in [(1, "Mon"), (3, "Wed"), (5, "Fri")] {
+      let text = Text(name).font(AIMTextRole.caption.font).foregroundStyle(.secondary)
+      context.draw(text, at: CGPoint(x: 0, y: layout.rect(column: 0, row: row).midY), anchor: .leading)
+    }
+  }
+}
+
+struct OverviewHeatmap: View {
+  let dataset: OverviewDataset
+  @State private var hover: OverviewHover?
+  @State private var level: Int?
+  @State private var lastLevel: Int?
+
+  /// Width over height of the grid with its labels; the cells stay close to square.
+  static let aspect: CGFloat = 6.6
+  static let legendHeight: CGFloat = 16
+  static let legendSpacing: CGFloat = 8
+
+  var body: some View {
+    VStack(alignment: .trailing, spacing: Self.legendSpacing) {
+      GeometryReader { proxy in
+        OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.heatmap) { clock in
+          OverviewHeatCanvas(
+            dataset: dataset, clock: clock, engaged: hover == nil && level == nil ? 0 : 1,
+            cell: hover?.index, level: level ?? lastLevel)
+            .animation(OverviewMotion.hover, value: hover == nil && level == nil)
+        }
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+          switch phase {
+          case .active(let point): hover = info(at: point, size: proxy.size)
+          case .ended: hover = nil
+          }
+        }
+        .overlay { OverviewTooltipLayer(hover: hover, size: proxy.size) }
+        .onAppear {
+          if let point = OverviewMotion.previewHover("heatmap", in: proxy.size) {
+            hover = info(at: point, size: proxy.size)
+          }
+        }
+      }
+      .aspectRatio(Self.aspect, contentMode: .fit)
+      legend
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(dataset.heatmapSummary)
+    .accessibilityAddTraits(.isImage)
+  }
+
+  private var legend: some View {
+    HStack(spacing: 4) {
+      Text("Less").aimText(.secondary)
+      ForEach(0..<5, id: \.self) { value in
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+          .fill(OverviewDataset.heatColor(value))
+          .frame(width: 12, height: 12)
+          .onHover { inside in
+            if inside { lastLevel = value }
+            level = inside ? value : nil
+          }
+      }
+      Text("More").aimText(.secondary)
+    }
+    .frame(height: Self.legendHeight)
+  }
+
+  private func info(at point: CGPoint, size: CGSize) -> OverviewHover? {
+    let layout = OverviewHeatLayout(size: size, offset: dataset.yearOffset, count: dataset.yearDays.count)
+    guard let index = layout.index(at: point) else { return nil }
+    let tokens = dataset.yearTotals[index]
+    let tip = OverviewTip(
+      title: OverviewDay.long(dataset.yearDays[index]),
+      rows: [.init(color: nil, label: "Tokens", value: tokens == 0 ? "None" : UsagePresentation.formatTokens(tokens))])
+    return OverviewHover(point: point, tip: tip, key: nil, index: index)
+  }
+}
+
+// MARK: - Ridgeline
+
+struct OverviewRidgeLayout {
+  static let label: CGFloat = 132
+  /// The band under the last ridge for the date axis.
+  static let axis = OverviewDateAxis.height + 4
+  /// How many pitches a peak stands: ridges overlap their neighbors by this much.
+  static let overlap: CGFloat = 1.9
+  static let margin: CGFloat = 4
+  let size: CGSize
+  let count: Int
+
+  /// The ridges fill the plot: the first peak touches the top margin and the last baseline sits on
+  /// the axis band. Fewer ridges get more spacing and taller peaks.
+  private var span: CGFloat { max(size.height - Self.axis - 2 * Self.margin, 1) }
+  var peak: CGFloat { count > 1 ? min(span / (CGFloat(count - 1) + Self.overlap) * Self.overlap, 150) : span }
+  var pitch: CGFloat { count > 1 ? (span - peak) / CGFloat(count - 1) : 0 }
+  var plot: CGRect { CGRect(x: Self.label, y: 0, width: max(size.width - Self.label, 1), height: size.height) }
+
+  func baseline(_ row: Int) -> CGFloat { Self.margin + peak + CGFloat(row) * pitch }
+
+  func x(_ day: Int, of days: Int) -> CGFloat {
+    plot.minX + plot.width * CGFloat(day) / CGFloat(max(days - 1, 1))
+  }
+
+  /// The ridge a pointer is nearest to; the front ridges cover the rows above them.
+  func row(at y: CGFloat) -> Int {
+    (0..<count).min { abs(baseline($0) - peak * 0.25 - y) < abs(baseline($1) - peak * 0.25 - y) } ?? 0
+  }
+}
+
+private struct OverviewRidgeCanvas: View, Animatable {
+  let series: [OverviewSeries]
+  let clock: Double
+  var engaged: Double
+  let highlight: String?
+  let day: Int?
+  var animatableData: Double {
+    get { engaged }
+    set { engaged = newValue }
+  }
+
+  var body: some View {
+    Canvas { context, size in
+      let layout = OverviewRidgeLayout(size: size, count: series.count)
+      let days = series.first?.daily.count ?? 0
+      guard days > 1 else { return }
+      let stagger = min(0.1, 0.4 / Double(max(series.count, 1)))
+      for (row, item) in series.enumerated() {
+        let base = layout.baseline(row)
+        let faded = highlight != nil && item.id != highlight
+        let on = highlight == item.id
+        let opacity = faded ? 1 - engaged * (1 - OverviewMotion.dimmed) : 1
+        let rise = OverviewMotion.window(clock, start: Double(row) * stagger, length: 0.5)
+        let lift = on ? 6 * engaged : 0
+        let top = Double(item.daily.max() ?? 1)
+        let points = item.daily.enumerated().map { index, value in
+          CGPoint(
+            x: layout.x(index, of: days),
+            y: base - lift - layout.peak * rise * Double(value) / max(top, 1))
+        }
+        var line = Path()
+        line.move(to: CGPoint(x: layout.plot.minX, y: base))
+        line.addLine(to: CGPoint(x: layout.plot.maxX, y: base))
+        context.stroke(line, with: .color(AIMTheme.hairline.opacity(0.6 * opacity)), lineWidth: 1)
+        var ridge = Path()
+        ridge.addMonotone(points, connect: false)
+        var fill = ridge
+        fill.addLine(to: CGPoint(x: layout.plot.maxX, y: base - lift))
+        fill.addLine(to: CGPoint(x: layout.plot.minX, y: base - lift))
+        fill.closeSubpath()
+        // The card color first, so a ridge in front hides the one behind it.
+        context.fill(fill, with: .color(AIMTheme.card))
+        context.fill(
+          fill,
+          with: .linearGradient(
+            Gradient(colors: [item.color.opacity(0.55 * opacity), item.color.opacity(0.05 * opacity)]),
+            startPoint: CGPoint(x: 0, y: base - layout.peak), endPoint: CGPoint(x: 0, y: base)))
+        context.stroke(ridge, with: .color(item.color.opacity(opacity)), lineWidth: 1.5)
+        if on, let day, series[row].daily.indices.contains(day) {
+          let point = points[day]
+          var guide = Path()
+          guide.move(to: CGPoint(x: point.x, y: base))
+          guide.addLine(to: point)
+          context.stroke(guide, with: .color(Color.primary.opacity(0.35 * engaged)), lineWidth: 1)
+          context.fill(
+            Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
+            with: .color(item.color.opacity(engaged)))
+        }
+      }
+    }
+  }
+}
+
+struct OverviewRidgeline: View {
+  let dataset: OverviewDataset
+  @State private var hover: OverviewHover?
+  @State private var lastKey: String?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    GeometryReader { proxy in
+      let layout = OverviewRidgeLayout(size: proxy.size, count: dataset.series.count)
+      ZStack(alignment: .topLeading) {
+        OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.ridge) { clock in
+          OverviewRidgeCanvas(
+            series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
+            highlight: hover?.key ?? lastKey, day: hover?.index)
+            .animation(OverviewMotion.hover, value: hover == nil)
+        }
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+          switch phase {
+          case .active(let point):
+            hover = info(at: point, layout: layout)
+            if let key = hover?.key { lastKey = key }
+          case .ended: hover = nil
+          }
+        }
+        ForEach(Array(dataset.series.enumerated()), id: \.element.id) { row, item in
+          Text(item.label).aimText(.secondary, tint: hover?.key == item.id ? Color.primary : nil)
+            .lineLimit(1).truncationMode(.middle)
+            .frame(width: OverviewRidgeLayout.label - 14, alignment: .trailing)
+            .position(x: (OverviewRidgeLayout.label - 14) / 2, y: layout.baseline(row) - 9)
+            .animation(AIMMotion.fade(AIMMotion.hover), value: hover?.key)
+            .allowsHitTesting(false)
+        }
+        OverviewDateAxis(days: dataset.days)
+          .frame(width: layout.plot.width)
+          .position(x: layout.plot.midX, y: proxy.size.height - OverviewDateAxis.height / 2)
+          .allowsHitTesting(false)
+        OverviewTooltipLayer(hover: hover, size: proxy.size)
+      }
+      .onAppear {
+        if let point = OverviewMotion.previewHover("ridge", in: proxy.size) {
+          hover = info(at: point, layout: layout)
+          lastKey = hover?.key
+        }
+      }
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(dataset.ridgeSummary)
+    .accessibilityAddTraits(.isImage)
+  }
+
+  private func info(at point: CGPoint, layout: OverviewRidgeLayout) -> OverviewHover? {
+    let days = dataset.days.count
+    guard days > 1, !dataset.series.isEmpty, layout.plot.contains(CGPoint(x: point.x, y: layout.plot.midY)) else {
+      return nil
+    }
+    let day = min(max(Int(((point.x - layout.plot.minX) / layout.plot.width * Double(days - 1)).rounded()), 0), days - 1)
+    let item = dataset.series[layout.row(at: point.y)]
+    let tip = OverviewTip(
+      title: OverviewDay.short(dataset.days[day]),
+      rows: [.init(color: item.color, label: item.label, value: UsagePresentation.formatTokens(item.daily[day]))])
+    return OverviewHover(point: point, tip: tip, key: item.id, index: day)
+  }
+}
+
+// MARK: - Waffle chart
+
+private struct OverviewWaffleCanvas: View, Animatable {
+  let owners: [Int]
+  let series: [OverviewSeries]
+  let clock: Double
+  var engaged: Double
+  let highlight: String?
+  var animatableData: Double {
+    get { engaged }
+    set { engaged = newValue }
+  }
+
+  var body: some View {
+    Canvas { context, size in
+      let side = OverviewWaffle.cellSide(size.width)
+      for (slot, owner) in owners.enumerated() {
+        let rect = OverviewWaffle.rect(slot, side: side)
+        // Cells fill in reading order.
+        let arrive = OverviewMotion.window(clock, start: Double(slot) / 100 * 0.5, length: 0.5)
+        let scale = 0.6 + 0.4 * arrive
+        let shape = rect.insetBy(dx: side * (1 - scale) / 2, dy: side * (1 - scale) / 2)
+        let faded = highlight != nil && series[owner].id != highlight
+        let opacity = arrive * (faded ? 1 - engaged * 0.75 : 1)
+        context.fill(
+          Path(roundedRect: shape, cornerRadius: side * 0.22),
+          with: .color(series[owner].color.opacity(opacity)))
+      }
+    }
+  }
+}
+
+enum OverviewWaffle {
+  static let gap: CGFloat = 3
+  static func cellSide(_ width: CGFloat) -> CGFloat { (width - gap * 9) / 10 }
+  static func rect(_ slot: Int, side: CGFloat) -> CGRect {
+    CGRect(
+      x: CGFloat(slot % 10) * (side + gap), y: CGFloat(slot / 10) * (side + gap), width: side, height: side)
+  }
+
+  /// Largest-remainder rounding: whole cells that always add up to 100.
+  static func cells(_ tokens: [Int64]) -> [Int] {
+    let total = tokens.reduce(0, +)
+    guard total > 0 else { return tokens.map { _ in 0 } }
+    let exact = tokens.map { Double($0) * 100 / Double(total) }
+    var cells = exact.map { Int($0) }
+    let spare = 100 - cells.reduce(0, +)
+    let order = exact.indices.sorted { (exact[$0] - Double(cells[$0]), $1) > (exact[$1] - Double(cells[$1]), $0) }
+    for index in order.prefix(spare) { cells[index] += 1 }
+    return cells
+  }
+
+  /// The series that owns each of the 100 cells, in reading order.
+  static func owners(_ cells: [Int]) -> [Int] {
+    cells.enumerated().flatMap { Array(repeating: $0.offset, count: $0.element) }
+  }
+
+  static func percent(_ cells: Int) -> String { cells == 0 ? "<1%" : "\(cells)%" }
+}
+
+struct OverviewWaffleChart: View {
+  static let side: CGFloat = 168
+  let dataset: OverviewDataset
+  @State private var hover: OverviewHover?
+  @State private var legendKey: String?
+  @State private var lastKey: String?
+
+  var body: some View {
+    let cells = OverviewWaffle.cells(dataset.series.map(\.tokens))
+    let owners = OverviewWaffle.owners(cells)
+    let active = hover?.key ?? legendKey
+    HStack(alignment: .top, spacing: 24) {
+      OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.waffle) { clock in
+        OverviewWaffleCanvas(
+          owners: owners, series: dataset.series, clock: clock, engaged: active == nil ? 0 : 1,
+          highlight: active ?? lastKey)
+          .animation(OverviewMotion.hover, value: active == nil)
+      }
+      .frame(width: Self.side, height: Self.side)
+      .contentShape(Rectangle())
+      .onContinuousHover { phase in
+        switch phase {
+        case .active(let point): hover = info(at: point, owners: owners, cells: cells)
+        case .ended: hover = nil
+        }
+        if let key = hover?.key { lastKey = key }
+      }
+      .overlay {
+        OverviewTooltipLayer(hover: hover, size: CGSize(width: Self.side, height: Self.side), flips: false)
+      }
+      .onAppear {
+        let size = CGSize(width: Self.side, height: Self.side)
+        if let point = OverviewMotion.previewHover("waffle", in: size) {
+          hover = info(at: point, owners: owners, cells: cells)
+          lastKey = hover?.key
+        }
+      }
+      VStack(spacing: 0) {
+        ForEach(Array(dataset.series.enumerated()), id: \.element.id) { index, item in
+          legendRow(item, cells: cells[index], active: active)
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(dataset.waffleSummary)
+    .accessibilityAddTraits(.isImage)
+  }
+
+  private func legendRow(_ item: OverviewSeries, cells: Int, active: String?) -> some View {
+    HStack(spacing: 8) {
+      Circle().fill(item.color).frame(width: 8, height: 8)
+      Text(item.label).aimText(.body).lineLimit(1).truncationMode(.middle)
+      Spacer(minLength: 12)
+      Text(OverviewWaffle.percent(cells)).aimText(.body).monospacedDigit().aimRolling(cells)
+        .uiLint(.number)
+      Text(UsagePresentation.formatTokens(item.tokens)).aimText(.secondary).monospacedDigit()
+        .frame(width: 56, alignment: .trailing)
+    }
+    .frame(height: Self.side / 7)
+    .opacity(active == nil || active == item.id ? 1 : OverviewMotion.dimmed)
+    .animation(AIMMotion.fade(AIMMotion.hover), value: active)
+    .contentShape(Rectangle())
+    .onHover { inside in legendKey = inside ? item.id : nil }
+  }
+
+  private func info(at point: CGPoint, owners: [Int], cells: [Int]) -> OverviewHover? {
+    let side = OverviewWaffle.cellSide(Self.side)
+    let column = Int(point.x / (side + OverviewWaffle.gap)), row = Int(point.y / (side + OverviewWaffle.gap))
+    guard (0..<10).contains(column), (0..<10).contains(row), owners.indices.contains(row * 10 + column) else {
+      return nil
+    }
+    let slot = row * 10 + column
+    let index = owners[slot]
+    let item = dataset.series[index]
+    let tip = OverviewTip(
+      title: item.label,
+      rows: [
+        .init(color: item.color, label: "Share", value: OverviewWaffle.percent(cells[index])),
+        .init(color: nil, label: "Tokens", value: UsagePresentation.formatTokens(item.tokens)),
+      ])
+    return OverviewHover(point: point, tip: tip, key: item.id, index: slot)
+  }
+}

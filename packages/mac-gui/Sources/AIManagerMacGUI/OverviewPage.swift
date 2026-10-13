@@ -1,202 +1,419 @@
 import AIManagerCore
 import SwiftUI
 
-// The Overview page: five cards (focused account, accounts table, current limits, recent
-// activity, maintenance) on the shared parts in AIManagerParts.swift.
+// The Overview page: a usage dashboard. A period control and a grouping control drive a totals
+// card and four charts (OverviewCharts.swift), then the Maintenance card. Account switching lives
+// on Accounts. The history loads off the main actor (AccountViewModel.loadUsageHistory).
 
-// MARK: - Recent activity data
+// MARK: - Days
 
-/// Today, Yesterday, and the last 30 days of local history for the focused account's tool.
-enum OverviewActivity {
-  struct Row: Identifiable, Equatable {
-    let label: String
-    let icon: AIMIcon.Name
-    let tokens: Int64
-    /// An estimated API-equivalent cost; nil when no price is known.
-    let cost: Double?
-    let detail: String
-    var id: String { label }
+/// Helpers for the `yyyy-MM-dd` UTC days of the history. Plain arithmetic, so no time zone applies.
+enum OverviewDay {
+  private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  private static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+  private static func parts(_ day: String) -> [Int] { day.split(separator: "-").compactMap { Int($0) } }
+
+  /// Days since 1970-01-01.
+  static func epoch(_ day: String) -> Int? {
+    let p = parts(day)
+    guard p.count == 3, (1...12).contains(p[1]) else { return nil }
+    let year = p[0] - (p[1] <= 2 ? 1 : 0)
+    let era = (year >= 0 ? year : year - 399) / 400
+    let yearOfEra = year - era * 400
+    let dayOfYear = (153 * (p[1] + (p[1] > 2 ? -3 : 9)) + 2) / 5 + p[2] - 1
+    return era * 146_097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719_468
   }
 
-  enum Source: Equatable {
-    case rows([Row])
-    /// One Secondary line: loading, or no local history for this tool.
-    case message(String)
+  /// 0 is Sunday.
+  static func weekday(_ day: String) -> Int { (((epoch(day) ?? 0) + 4) % 7 + 7) % 7 }
+  static func dayOfMonth(_ day: String) -> Int { parts(day).last ?? 0 }
+  static func month(_ day: String) -> String {
+    let p = parts(day)
+    return p.count == 3 && (1...12).contains(p[1]) ? months[p[1] - 1] : ""
+  }
+  /// "Sat"
+  static func weekdayName(_ day: String) -> String { weekdays[weekday(day)] }
+  /// "Oct 3"
+  static func short(_ day: String) -> String { "\(month(day)) \(dayOfMonth(day))" }
+  /// "Sat, Oct 3, 2026"
+  static func long(_ day: String) -> String {
+    "\(weekdays[weekday(day)]), \(short(day)), \(parts(day).first ?? 0)"
+  }
+}
+
+// MARK: - Colors
+
+/// A brand color for each service, and one stable palette for models and projects.
+enum OverviewPalette {
+  private static let ramp: [Color] = [
+    0x5B8DEF, 0xF0883E, 0x3FB68B, 0xB26BE0, 0xE5638B, 0xD9B43A,
+    0x2FB5C7, 0x7A6BE0, 0x9BCB4A, 0xE0705A, 0x5CA0D3, 0xC98A5E,
+  ].map { Color(hex: $0) }
+  static let other = Color(nsColor: .tertiaryLabelColor)
+
+  /// FNV-1a: the same key gets the same color on every launch (`hashValue` changes per launch).
+  static func hash(_ key: String) -> UInt32 {
+    key.utf8.reduce(2_166_136_261) { ($0 ^ UInt32($1)) &* 16_777_619 }
   }
 
-  private static let icons: [AIMIcon.Name] = [.chart, .clock, .calendar]
+  static func hashed(_ key: String) -> Color { ramp[Int(hash(key) % UInt32(ramp.count))] }
 
-  @MainActor static func source(
-    for account: AccountRecord, model: AccountViewModel, now: Date = Date()
-  ) -> Source {
-    let provider = account.identity.providerID
-    switch provider {
-    case .claudeCode:
-      if let summary = model.claudeActivity {
-        return .rows(summary.rows.enumerated().map { index, row in
-          Row(label: row.label, icon: icons[min(index, 2)], tokens: Int64(row.tokens),
-            cost: row.costUSD, detail: row.detail)
-        })
+  /// The key's hashed ramp slot, or the next free one when a larger series on screen already has it,
+  /// so no two series of one chart share a color. `taken` collects the slots in use.
+  static func color(_ key: String, taken: inout Set<Int>) -> Color {
+    var slot = Int(hash(key) % UInt32(ramp.count))
+    while taken.contains(slot), taken.count < ramp.count { slot = (slot + 1) % ramp.count }
+    taken.insert(slot)
+    return ramp[slot]
+  }
+
+  /// The service's brand color; its next accounts get lighter and darker steps of it.
+  static func account(service: String, rank: Int) -> Color {
+    guard let brand = UsageBarColor.color(usedPercent: 0, providerID: ProviderID(rawValue: service)),
+          brand != Color(nsColor: .labelColor) else { return hashed(service) }
+    guard rank > 0, let base = NSColor(brand).usingColorSpace(.sRGB) else { return brand }
+    let steps: [CGFloat] = [0, 0.38, -0.3, 0.62, -0.5]
+    let step = steps[rank % steps.count]
+    return Color(nsColor: base.blended(withFraction: abs(step), of: step > 0 ? .white : .black) ?? base)
+  }
+}
+
+// MARK: - Data
+
+struct OverviewSeries: Identifiable, Equatable {
+  let id: String
+  let label: String
+  let color: Color
+  let tokens: Int64
+  /// Tokens per day, aligned with `OverviewDataset.days`.
+  let daily: [Int64]
+}
+
+/// Everything the cards draw: the chosen period and grouping, and the year behind the heatmap.
+struct OverviewDataset: Equatable {
+  static let maxSeries = 6
+
+  let period: UsagePeriod
+  let grouping: UsageGrouping
+  let days: [String]
+  let series: [OverviewSeries]
+  let totals: UsageTotals
+  let yearDays: [String]
+  let yearTotals: [Int64]
+  /// Token cuts between the four non-empty heat levels.
+  let heatCuts: [Int64]
+
+  var yearTokens: Int64 { yearTotals.reduce(0, +) }
+  /// The weekday column of the first heatmap day.
+  var yearOffset: Int { yearDays.first.map(OverviewDay.weekday) ?? 0 }
+  /// A new run of every draw-in starts when this changes, not when numbers refresh.
+  var drawKey: Int {
+    var hasher = Hasher()
+    hasher.combine(period)
+    hasher.combine(grouping)
+    return hasher.finalize()
+  }
+
+  func heatLevel(_ tokens: Int64) -> Int {
+    tokens <= 0 ? 0 : 1 + heatCuts.filter { tokens > $0 }.count
+  }
+
+  static func heatColor(_ level: Int) -> Color {
+    level == 0 ? Color.primary.opacity(0.065) : AIMTheme.blue.opacity([0.26, 0.5, 0.76, 1][min(level, 4) - 1])
+  }
+
+  static func make(
+    summary: UsageSummary, year: UsageSummary, accounts: [AccountRecord], hideEmails: Bool
+  ) -> OverviewDataset {
+    let named = Dictionary(accounts.map { ($0.id.uuidString.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
+    let live = summary.groups.filter { $0.tokens > 0 }
+    var ranks: [String: Int] = [:]
+    var taken = Set<Int>()
+    var series: [OverviewSeries] = live.prefix(maxSeries).map { group in
+      let service = group.services.first ?? ""
+      let rank = ranks[service, default: 0]
+      ranks[service] = rank + 1
+      switch summary.grouping {
+      case .account:
+        let label = named[group.key]?.identity.accountLabel ?? "Removed account"
+        return OverviewSeries(
+          id: group.key, label: hideEmails ? EmailPrivacy.mask(label) : label,
+          color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: group.daily)
+      case .model, .project:
+        return OverviewSeries(
+          id: group.key, label: group.label, color: OverviewPalette.color(group.key, taken: &taken),
+          tokens: group.tokens, daily: group.daily)
       }
-      return .message(model.isClaudeActivityLoading
-        ? "Scanning local Claude Code logs…" : "Claude Code activity is not available yet.")
-    case .codex:
-      let days = model.dailyUsage(for: account.id)
-      guard !days.isEmpty else { return .message("No local history for Codex CLI yet.") }
-      let periods: [(String, CodexTokenPeriod)] = [
-        ("Today", .today), ("Yesterday", .yesterday), ("Last 30 days", .monthly),
-      ]
-      return .rows(periods.enumerated().map { index, item in
-        let tokens = item.1.tokens(in: days, endingAt: now)
-        return Row(
-          label: item.0, icon: icons[index], tokens: tokens,
-          cost: model.apiPrice?.inputEquivalent(for: tokens),
-          detail: "\(UsagePresentation.exactTokens(tokens)) tokens. The cost is an input-rate comparison, not billed spend.")
-      })
-    default:
-      return .message("\(provider.guiName) keeps no local history that Switch can read.")
+    }
+    let rest = live.dropFirst(maxSeries)
+    if !rest.isEmpty {
+      let daily = summary.days.indices.map { index in rest.reduce(Int64(0)) { $0 + $1.daily[index] } }
+      series.append(OverviewSeries(
+        id: "other", label: "Other", color: OverviewPalette.other,
+        tokens: rest.reduce(0) { $0 + $1.tokens }, daily: daily))
+    }
+    let active = year.dailyTotals.filter { $0 > 0 }.sorted()
+    let cuts = [0.25, 0.5, 0.75].map { active.isEmpty ? Int64(0) : active[min(Int(Double(active.count) * $0), active.count - 1)] }
+    return OverviewDataset(
+      period: summary.period, grouping: summary.grouping, days: summary.days, series: series,
+      totals: summary.totals, yearDays: year.days, yearTotals: year.dailyTotals, heatCuts: cuts)
+  }
+
+  // MARK: VoiceOver summaries
+
+  private var periodName: String { "Last \(days.count) days" }
+  private var noun: String {
+    switch grouping {
+    case .account: "account"
+    case .model: "model"
+    case .project: "project"
     }
   }
+
+  private func tokenText(_ tokens: Int64) -> String { "\(UsagePresentation.formatTokens(tokens)) tokens" }
+
+  var streamSummary: String {
+    let busiest = totals.busiestDay.map { ", most on \(OverviewDay.short($0))" } ?? ""
+    return "\(periodName), \(tokenText(totals.tokens)) by \(noun)\(busiest)"
+  }
+
+  var heatmapSummary: String {
+    let top = yearTotals.enumerated().max { ($0.element, $1.offset) < ($1.element, $0.offset) }
+    let busiest = top.flatMap { $0.element > 0 ? ", most on \(OverviewDay.short(yearDays[$0.offset]))" : nil } ?? ""
+    return "Last 12 months, \(tokenText(yearTokens))\(busiest)"
+  }
+
+  var ridgeSummary: String {
+    "Daily usage by \(noun). " + series.prefix(3).map { "\($0.label), \(tokenText($0.tokens))" }.joined(separator: ". ")
+  }
+
+  var waffleSummary: String {
+    let cells = OverviewWaffle.cells(series.map(\.tokens))
+    return "Share of tokens by \(noun). "
+      + zip(series, cells).map { "\($0.label), \($1) percent" }.joined(separator: ". ")
+  }
+
+  /// The explanation under an empty chart.
+  var emptyText: String {
+    if grouping == .account, series.isEmpty, totals.tokens > 0 {
+      return "By account needs history that belongs to one account. Claude Code profiles that share history show under Models and Projects."
+    }
+    return "No usage in the \(periodName.lowercased()). Use Codex, Claude Code, or Grok Build and it shows here."
+  }
+}
+
+/// The last dataset, so a page switch draws the charts in its first frame.
+@MainActor enum OverviewCache {
+  static var last: OverviewDataset?
 }
 
 // MARK: - Page
 
 struct OverviewPage: View {
+  private static let periodKey = "overviewPeriod"
+  private static let groupingKey = "overviewGrouping"
+
   @ObservedObject var model: AccountViewModel
-  let query: String
-  /// Goes to another page; the "View all limits", "View full history", and "Open Backup" links use it.
-  var navigate: (AIManagerPage) -> Void = { page in
-    NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
-  }
-  @State private var focusedID: UUID?
-  @State private var pendingDeletion: AccountRecord?
+  /// Goes to another page; the Maintenance card's "Open Backup" uses it.
+  let navigate: (AIManagerPage) -> Void
+  @State private var period: UsagePeriod
+  @State private var grouping: UsageGrouping
+  @State private var dataset: OverviewDataset?
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
-  @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
+
+  init(
+    model: AccountViewModel,
+    navigate: @escaping (AIManagerPage) -> Void = { page in
+      NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+    }
+  ) {
+    self.model = model
+    self.navigate = navigate
+    let defaults = UserDefaults.standard
+    var period = defaults.string(forKey: Self.periodKey).flatMap(UsagePeriod.init(rawValue:)) ?? .week
+    var grouping = defaults.string(forKey: Self.groupingKey).flatMap(UsageGrouping.init(rawValue:)) ?? .account
+    #if AI_MANAGER_PREVIEW
+    // Preview screenshots: `--overview-period=month --overview-group=model`.
+    period = PreviewArguments.value("overview-period").flatMap(UsagePeriod.init(rawValue:)) ?? period
+    grouping = PreviewArguments.value("overview-group").flatMap(UsageGrouping.init(rawValue:)) ?? grouping
+    #endif
+    _period = State(initialValue: period == .year ? .week : period)
+    _grouping = State(initialValue: grouping)
+    _dataset = State(initialValue: OverviewCache.last)
+  }
 
   private var accounts: [AccountRecord] { model.status?.accounts ?? [] }
-  private var visibleAccounts: [AccountRecord] {
-    AccountSearch.filter(accounts, query: query, hideEmails: hideEmails)
-  }
-  private var focused: AccountRecord? {
-    accounts.first { $0.id == focusedID }
-      ?? accounts.first { $0.id == OverviewFocus.defaultAccountID(in: model.status) }
+
+  private struct LoadKey: Equatable {
+    var period: UsagePeriod
+    var grouping: UsageGrouping
+    var snapshot: Int
+    var accounts: [UUID]
+    var hideEmails: Bool
   }
 
   var body: some View {
-    TimelineView(.periodic(from: .now, by: 60)) { context in
-      // Five cards at the full content width: 20-point margins, 12 points between them.
-      AIMScrollPage {
-          if let account = focused {
-            FocusedAccountCard(
-              account: account, accounts: accounts, model: model, now: context.date,
-              hideEmails: hideEmails, showsUsed: showsUsed,
-              focus: { focusedID = $0 },
-              delete: { model.requestDeletion(of: account, into: $pendingDeletion) })
-            AccountsTableCard(
-              accounts: visibleAccounts, total: accounts.count, query: query, model: model,
-              focusedID: account.id, now: context.date, hideEmails: hideEmails,
-              showsUsed: showsUsed,
-              focus: { focusedID = $0 },
-              delete: { model.requestDeletion(of: $0, into: $pendingDeletion) })
-            CurrentLimitsCard(
-              account: account, model: model, now: context.date, showsUsed: showsUsed
-            ) { navigate(.accounts) }
-            RecentActivityCard(account: account, model: model, now: context.date) {
-              navigate(.conversations)
-            }
-            MaintenanceStatusCard(model: model) { navigate(.maintenance) }
-          } else {
-            OverviewEmptyCard(model: model)
-          }
-          if let notice = model.notice {
-            AIMPanel { Notice(text: notice, tone: AIMTheme.blue).aimRow() }
-          }
+    AIMScrollPage {
+      if accounts.isEmpty {
+        OverviewEmptyCard(model: model)
+      } else {
+        totalsCard
+        chartCard("Tokens per day", height: 200 + OverviewDateAxis.height + 4, hasData: { !$0.series.isEmpty }, footer: true) {
+          OverviewStreamChart(dataset: $0)
+        }
+        chartCard("Activity", note: "(last 12 months, all accounts)", height: nil, hasData: { $0.yearTokens > 0 },
+          empty: "No activity in the last 12 months.") { OverviewHeatmap(dataset: $0) }
+        chartCard("Trends", height: 300, hasData: { !$0.series.isEmpty }) { OverviewRidgeline(dataset: $0) }
+        chartCard("Share of tokens", height: OverviewWaffleChart.side, hasData: { !$0.series.isEmpty }) {
+          OverviewWaffleChart(dataset: $0)
+        }
+        RecentBackupsCard(model: model) { navigate(.maintenance) }
+      }
+      if let notice = model.notice {
+        AIMPanel { Notice(text: notice, tone: AIMTheme.blue).aimRow() }
       }
     }
-    .accountDeletionAlert(model: model, pending: $pendingDeletion)
-    // The page remembers its focused account while the app runs.
-    .onChange(of: focusedID) { _, id in AIMPlace.overviewFocus = id }
-    #if AI_MANAGER_PREVIEW
-    .onChange(of: model.selectedAccountID) { _, id in
-      if PreviewArguments.value("select") != nil { focusedID = id }
-    }
-    #endif
-    .onAppear {
-      focusedID = focusedID ?? AIMPlace.overviewFocus ?? OverviewFocus.defaultAccountID(in: model.status)
-      #if AI_MANAGER_PREVIEW
-      // Preview screenshots: `--select=claude-code` also focuses that account here.
-      if PreviewArguments.value("select") != nil, let id = model.selectedAccountID { focusedID = id }
-      #endif
-    }
+    .task { await model.loadUsageHistory() }
+    .task(id: LoadKey(
+      period: period, grouping: grouping, snapshot: model.usageHistoryVersion,
+      accounts: accounts.map(\.id), hideEmails: hideEmails)
+    ) { await rebuild() }
+    .onChange(of: period) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.periodKey) }
+    .onChange(of: grouping) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.groupingKey) }
   }
-}
 
+  /// Summarizes the snapshot off the main actor. The old charts stay in place until it ends.
+  private func rebuild() async {
+    guard let snapshot = model.usageHistory else { return }
+    let (period, grouping, accounts, hideEmails) = (period, grouping, accounts, hideEmails)
+    let (summary, year) = await Task.detached(priority: .userInitiated) {
+      (snapshot.summary(period: period, grouping: grouping), snapshot.summary(period: .year, grouping: .model))
+    }.value
+    guard !Task.isCancelled else { return }
+    let built = OverviewDataset.make(summary: summary, year: year, accounts: accounts, hideEmails: hideEmails)
+    dataset = built
+    OverviewCache.last = built
+  }
 
-// MARK: - Card 4: recent activity
+  // MARK: Cards
 
-struct RecentActivityCard: View {
-  let account: AccountRecord
-  @ObservedObject var model: AccountViewModel
-  let now: Date
-  let viewHistory: () -> Void
+  private var periodNote: String { period == .week ? "(last 7 days)" : "(last 30 days)" }
 
-  static let group = "activity"
-
-  var body: some View {
-    let source = OverviewActivity.source(for: account, model: model, now: now)
+  private var totalsCard: some View {
     AIMCard(
-      title: "Recent activity", note: "(\(account.identity.providerID.guiName))", divider: true,
-      bottomInset: AIMTheme.textRowsEndInset,
-      accessory: { AIMCardLink(title: "View full history", action: viewHistory) }
-    ) {
-      switch source {
-      case .message(let text):
-        Text(text).aimText(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, AIMTheme.cardInset)
-          .frame(height: AIMTheme.rowHeight)
-      case .rows(let rows):
-        VStack(spacing: 0) {
-          ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-            if index > 0 { AIMRowSeparator() }
-            ActivityRow(row: row)
+      title: "Usage", note: periodNote, well: true, bottomInset: 0,
+      accessory: {
+        HStack(spacing: AIMTheme.rowSpacing) {
+          AIMSegmentedPicker(
+            options: [UsagePeriod.week, .month], selection: $period, accessibilityLabel: "Period"
+          ) { $0 == .week ? "Week" : "Month" }
+          AIMSegmentedPicker(
+            options: UsageGrouping.allCases, selection: $grouping, accessibilityLabel: "Group by"
+          ) {
+            switch $0 {
+            case .account: "Accounts"
+            case .model: "Models"
+            case .project: "Projects"
+            }
           }
         }
       }
+    ) {
+      let totals = dataset?.totals
+      HStack(alignment: .top, spacing: AIMTheme.tileGap) {
+        StatTile(label: "Tokens", value: totals.map { UsagePresentation.formatTokens($0.tokens) },
+          detail: "In the last \(period.days) days")
+        StatTile(label: "Estimated cost", value: totals?.costUSD.map(UsagePresentation.formatCurrency),
+          detail: "API-rate estimate, not billed")
+        StatTile(label: "Active accounts", value: totals.map { "\($0.activeAccounts)" },
+          detail: "Of \(accounts.count) saved")
+        StatTile(label: "Busiest day", value: totals?.busiestDay.map(OverviewDay.short),
+          detail: totals.map { $0.busiestDay == nil ? "No usage yet" : "\(UsagePresentation.formatTokens($0.busiestDayTokens)) tokens" })
+      }
+      .uiLint(.stack)
+    }
+  }
+
+  /// A chart card: a title row, a divider, then the chart in a slot of fixed height, so loading
+  /// and an empty group never move the cards.
+  private func chartCard<Chart: View>(
+    _ title: String, note: String? = nil, height: CGFloat?, hasData: @escaping (OverviewDataset) -> Bool,
+    empty: String? = nil, footer: Bool = false, @ViewBuilder chart: @escaping (OverviewDataset) -> Chart
+  ) -> some View {
+    let groupNote = "(by \(grouping == .account ? "account" : grouping == .model ? "model" : "project"))"
+    return AIMCard(title: title, note: note ?? groupNote, divider: true, bottomInset: 0) {
+      VStack(alignment: .leading, spacing: 10) {
+        OverviewSlot(dataset: dataset, height: height, hasData: hasData, empty: empty, chart: chart)
+        if footer { OverviewLegend(series: dataset?.series ?? []) }
+      }
+      // Canvas charts hold no text, so the block itself marks the card's content edge for the inset check.
+      .uiLint(.item)
+      .padding(.horizontal, AIMTheme.cardInset)
+      // The title text sits 14 pt below the top edge; the content ends 14 pt above the bottom.
+      .padding(.vertical, 14)
     }
   }
 }
 
-private struct ActivityRow: View {
-  let row: OverviewActivity.Row
+/// A chart's frame: the chart when it has data, a quiet block while loading, or the reason there
+/// is nothing to draw. All three keep the same size. A nil height sizes the chart itself.
+private struct OverviewSlot<Chart: View>: View {
+  let dataset: OverviewDataset?
+  let height: CGFloat?
+  let hasData: (OverviewDataset) -> Bool
+  let empty: String?
+  let chart: (OverviewDataset) -> Chart
 
   var body: some View {
-    let columns = AIMColumns.activity
-    let group = RecentActivityCard.group
-    AIMTableRow {
-      HStack(spacing: 10) {
-        AIMIcon(name: row.icon).aimFont(.body).foregroundStyle(.secondary).frame(width: 20)
-        Text(row.label).aimText(.body).lineLimit(1)
+    Group {
+      if let dataset, hasData(dataset) {
+        chart(dataset)
+      } else {
+        placeholder
       }
-      .aimColumn(columns[0], group: group)
-      HStack(spacing: 4) {
-        Text(UsagePresentation.formatTokens(row.tokens))
-          .aimText(.body).monospacedDigit().uiLint(.number)
-        Text("tokens").aimText(.secondary)
-      }
-      .aimColumn(columns[1], group: group)
-      Text(row.cost.map { "≈ \(Fmt.money($0))" } ?? "No price")
-        .aimText(.body).monospacedDigit().lineLimit(1).uiLint(.number)
-        .aimColumn(columns[2], group: group)
     }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(row.label)
-    .accessibilityValue("\(UsagePresentation.exactTokens(row.tokens)) tokens, "
-      + (row.cost.map { "\(Fmt.money($0)) API-equivalent estimate" } ?? "no price"))
-    .help(row.detail)
+    .frame(maxWidth: .infinity)
+    .frame(height: height)
+  }
+
+  @ViewBuilder private var placeholder: some View {
+    let block = ZStack {
+      RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous).fill(AIMTheme.tileFill)
+      if let dataset {
+        Text(empty ?? dataset.emptyText).aimText(.secondary).multilineTextAlignment(.center)
+          .padding(.horizontal, 24)
+      }
+    }
+    .accessibilityElement(children: .combine)
+    if height == nil {
+      // The heatmap sizes itself from its width: keep its grid shape and legend row while empty.
+      VStack(spacing: OverviewHeatmap.legendSpacing) {
+        block.aspectRatio(OverviewHeatmap.aspect, contentMode: .fit)
+        Color.clear.frame(height: OverviewHeatmap.legendHeight)
+      }
+    } else {
+      block
+    }
   }
 }
 
+private struct StatTile: View {
+  let label: String
+  let value: String?
+  let detail: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(label).aimText(.secondary).lineLimit(1)
+      Text(value ?? "–").aimText(.title).monospacedDigit().lineLimit(1)
+        .aimRolling(value).uiLint(.number)
+      Text(detail ?? " ").aimText(.secondary).lineLimit(1)
+    }
+    .accessibilityElement(children: .combine)
+    .aimTile()
+  }
+}
 
 // MARK: - Empty state
 
