@@ -578,6 +578,20 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         if AIManagerNativeContract.scrollPolicyFailures(in: broken).isEmpty {
             failures.append("Scroll contract accepted a system scroller")
         }
+        // The thin scroller is hidden at rest, shows after a reveal, and fades out again when idle.
+        let owned = AIMOwnedScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        owned.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 190, height: 400))
+        owned.layoutSubtreeIfNeeded()
+        if let thin = owned.verticalScroller as? AIMScroller {
+            if thin.knobAlpha != 0 { failures.append("A fresh thin scroller is visible at rest") }
+            thin.reveal()
+            try? await Task.sleep(for: .milliseconds(400))
+            if thin.knobAlpha <= 0 { failures.append("The thin scroller did not show after a reveal") }
+            try? await Task.sleep(for: .milliseconds(1400))
+            if thin.knobAlpha != 0 { failures.append("The thin scroller did not hide after 1 s idle") }
+        } else {
+            failures.append("The owned scroll view has no thin scroller")
+        }
         NotificationCenter.default.post(name: AIManagerNavigation.request,
             object: AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex])
         try? await Task.sleep(for: .milliseconds(250))
