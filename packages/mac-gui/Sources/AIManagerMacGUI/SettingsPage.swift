@@ -1,5 +1,6 @@
 import AIManagerCore
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 struct SettingsPage: View {
@@ -279,4 +280,104 @@ private struct DataLocationRow: View {
       AIMCopyablePath(path: path)
     }
   }
+}
+
+@MainActor
+final class LaunchAtLoginSettings: ObservableObject {
+  @Published private(set) var status: SMAppService.Status
+  @Published private(set) var errorMessage: String?
+  private let service: SMAppService
+
+  init(service: SMAppService = .mainApp) {
+    self.service = service
+    status = service.status
+  }
+
+  var isOn: Bool {
+    switch status {
+    case .enabled, .requiresApproval: true
+    default: false
+    }
+  }
+
+  var canChange: Bool {
+    switch status {
+    case .notFound: false
+    default: true
+    }
+  }
+
+  var requiresApproval: Bool {
+    if case .requiresApproval = status { true } else { false }
+  }
+
+  var detail: String {
+    if let errorMessage { return "Switch couldn’t update its login item: \(errorMessage)" }
+    return Self.detail(for: status)
+  }
+
+  static func detail(for status: SMAppService.Status) -> String {
+    switch status {
+    case .notRegistered: "Open Switch in the menu bar when you sign in."
+    case .enabled: "Switch opens in the menu bar when you sign in."
+    case .requiresApproval: "Approval is required in System Settings before Switch can open at login."
+    case .notFound: "This build cannot be registered as a login item."
+    @unknown default: "Login-item status is unavailable."
+    }
+  }
+
+  func setEnabled(_ enabled: Bool) {
+    errorMessage = nil
+    do {
+      if enabled {
+        try service.register()
+      } else {
+        try service.unregister()
+      }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    refresh(clearError: false)
+  }
+
+  func refresh(clearError: Bool = true) {
+    status = service.status
+    if clearError { errorMessage = nil }
+  }
+
+  func openLoginItems() {
+    SMAppService.openSystemSettingsLoginItems()
+  }
+}
+
+/// Titles and help text of the Settings rows that features add, shared with the GUI contract.
+enum SettingsCopy {
+  static let checkProviderStatus = "Check provider status"
+  static let checkProviderStatusHelp = "Show a dot beside a provider that reports an incident."
+  static let claudeShell = "Use the selected Claude account in terminals"
+  static let claudeShellHelp =
+    "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+  static let hideEmails = "Hide email addresses"
+  static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
+  static let resetTimes = "Reset times"
+  static let resetTimesHelp = "Show a countdown or the exact time. Click any reset text to switch."
+  static let timeFormat = "Time format"
+  static let timeFormatHelp = "Hour style for exact reset times."
+  static let menuShortcut = "Menu shortcut"
+  static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
+  static let refreshOnOpen = "Refresh when the menu opens"
+  static let refreshOnOpenHelp = "Check usage each time the popover opens."
+  static let resetSettings = "Reset settings"
+  static let resetSettingsHelp =
+    "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."
+  static let notificationsTitle = "Notifications"
+  /// Title, help text, and the UserDefaults key of each toggle. All off by default.
+  static let notificationRows: [(title: String, help: String, key: String)] = [
+    ("Almost Out", "Alert when a usage window drops below 10% left.", QuotaNotificationSettings.almostOutKey),
+    ("Pace alerts", "Alert when usage will finish close to the limit or run out before the reset.",
+     QuotaNotificationSettings.paceKey),
+    ("Available again", "Alert when a used-up window resets and the account can be used again.",
+     QuotaNotificationSettings.availableAgainKey),
+    ("Sign in again", "Alert once when an account needs a new sign-in.", QuotaNotificationSettings.signInAgainKey),
+  ]
 }
