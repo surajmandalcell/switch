@@ -8,6 +8,8 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     let used: Int?
     let resetsAt: Date?
     let minutes: Int?
+    var balance: String? = nil
+    var compactLabel: String? = nil
   }
   let usedPercentage: Int?
   let secondaryUsedPercentage: Int?
@@ -76,8 +78,19 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     }
     let windows = usage.windows
     let ordered = windows.filter(isSessionLike) + windows.filter { !isSessionLike($0) }
+    var reported = ordered.map {
+      Window(title: $0.title, used: $0.usedPercent.map { Int($0.rounded()) },
+        resetsAt: $0.resetsAt, minutes: $0.windowMinutes)
+    }
+    if let cost = usage.cost, let used = cost.used, let limit = cost.limit, limit > 0 {
+      reported.append(Window(title: "\(cost.period ?? "Monthly") credits",
+        used: Int((used / limit * 100).rounded()), resetsAt: cost.resetsAt, minutes: nil))
+    }
     let balance = usage.cost?.balance.map { Fmt.money($0, currency: usage.cost?.currency ?? "USD") }
-    guard !ordered.isEmpty || balance != nil else { return nil }
+    guard !reported.isEmpty || balance != nil else { return nil }
+    if let balance, !ordered.isEmpty {
+      reported.append(Window(title: "Balance", used: nil, resetsAt: nil, minutes: nil, balance: balance))
+    }
     let first = ordered.first, second = ordered.dropFirst().first
     self.init(
       usedPercentage: first?.usedPercent.map { Int($0.rounded()) },
@@ -92,35 +105,71 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
       primaryDetail: first?.detail,
       secondaryDetail: second?.detail,
       balanceText: ordered.isEmpty ? balance : nil,
-      providerWindows: ordered.map {
-        Window(title: $0.title, used: $0.usedPercent.map { Int($0.rounded()) },
-          resetsAt: $0.resetsAt, minutes: $0.windowMinutes)
-      })
+      providerWindows: reported)
   }
 
   init?(
     bucket: CodexRateLimitBucketSnapshot,
+    additionalBuckets: [String: CodexRateLimitBucketSnapshot] = [:],
+    extras: CodexWhamExtras? = nil,
     fetchedAt: Date,
     tokenPeriodLabel: String? = nil,
     tokens: Int64? = nil,
     apiPrice: CodexAPIPrice? = nil
   ) {
     // Shorter window first; a lone weekly window takes the primary slot.
-    let rows = bucket.windowRows()
-    guard let first = rows.first?.window else { return nil }
-    let second = rows.dropFirst().first?.window
+    let windows = [bucket.primary, bucket.secondary].compactMap { $0 }
+      .sorted { ($0.windowDurationMinutes ?? .max) < ($1.windowDurationMinutes ?? .max) }
+    let first = windows.first
+    let second = windows.dropFirst().first
+    var reported = windows.enumerated().map { index, window in
+      Window(title: CodexBucketNaming.windowTitle(minutes: window.windowDurationMinutes,
+        fallback: index == 0 ? "Session" : "Weekly"), used: window.usedPercent,
+        resetsAt: window.resetsAt, minutes: window.windowDurationMinutes.map(Int.init))
+    }
+    if let credits = UsagePresentation.credits(bucket.credits) {
+      reported.append(Window(title: "Credits", used: nil, resetsAt: nil, minutes: nil, balance: credits))
+    }
+    var allBuckets = additionalBuckets
+    var names = Set(additionalBuckets.map { CodexBucketNaming.title(id: $0.value.id ?? $0.key,
+      name: $0.value.name, model: $0.value.model, fallback: $0.key) })
+    for extra in extras?.additionalBuckets ?? [] {
+      let id = extra.id ?? extra.model ?? extra.name ?? "Usage"
+      let name = CodexBucketNaming.title(id: extra.id, name: extra.name, model: extra.model, fallback: id)
+      if allBuckets[id] == nil, names.insert(name).inserted { allBuckets[id] = extra }
+    }
+    for (id, scoped) in allBuckets.sorted(by: { $0.key < $1.key })
+      where scoped != bucket && (bucket.id == nil || (scoped.id ?? id) != bucket.id) {
+      let name = CodexBucketNaming.title(id: scoped.id ?? id, name: scoped.name, model: scoped.model, fallback: id)
+      for window in [scoped.primary, scoped.secondary].compactMap({ $0 }) {
+        let period = CodexBucketNaming.windowTitle(minutes: window.windowDurationMinutes, fallback: "Usage")
+        reported.append(Window(title: "\(name) \(period)", used: window.usedPercent,
+          resetsAt: window.resetsAt, minutes: window.windowDurationMinutes.map(Int.init),
+          compactLabel: MenuBarPresentation.windowLabel(minutes: nil, title: name)))
+      }
+      if let credits = UsagePresentation.credits(scoped.credits) {
+        reported.append(Window(title: "\(name) credits", used: nil, resetsAt: nil, minutes: nil,
+          balance: credits, compactLabel: MenuBarPresentation.windowLabel(minutes: nil, title: "\(name) credits")))
+      }
+    }
+    if let monthly = extras?.monthlyCredits {
+      let window = monthly.window
+      reported.append(Window(title: window.title, used: window.usedPercent.map { Int($0.rounded()) },
+        resetsAt: window.resetsAt, minutes: nil))
+    }
+    guard !reported.isEmpty else { return nil }
     self.init(
-      usedPercentage: first.usedPercent,
+      usedPercentage: first?.usedPercent,
       secondaryUsedPercentage: second?.usedPercent,
-      resetsAt: first.resetsAt,
+      resetsAt: first?.resetsAt,
       secondaryResetsAt: second?.resetsAt,
       fetchedAt: fetchedAt,
       tokenPeriodLabel: tokenPeriodLabel,
       tokens: tokens,
       apiPrice: apiPrice,
-      primaryLabel: second == nil && first.windowDurationMinutes == 10_080 ? "Weekly" : "Session",
-      primaryMinutes: first.windowDurationMinutes.map(Int.init),
-      secondaryMinutes: second?.windowDurationMinutes.map(Int.init))
+      primaryLabel: second == nil && first?.windowDurationMinutes == 10_080 ? "Weekly" : "Session",
+      primaryMinutes: first?.windowDurationMinutes.map(Int.init),
+      secondaryMinutes: second?.windowDurationMinutes.map(Int.init), providerWindows: reported)
   }
 
 }
@@ -134,6 +183,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let isActive: Bool
   let usage: MenuBarUsageSnapshot?
   let showsUsage: Bool
+  let reservedRowHeight: CGFloat?
 
   init(
     id: UUID,
@@ -144,7 +194,8 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     usage: MenuBarUsageSnapshot? = nil,
     showsUsage: Bool = true,
     providerID: ProviderID = .codex,
-    identityIsFormatted: Bool = false
+    identityIsFormatted: Bool = false,
+    reservedRowHeight: CGFloat? = nil
   ) {
     self.id = id
     self.providerID = providerID
@@ -154,6 +205,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     self.isActive = isActive
     self.usage = showsUsage ? usage : nil
     self.showsUsage = showsUsage
+    self.reservedRowHeight = reservedRowHeight
   }
 
   /// Codex and every provider with a usage spec can be refreshed from the popover.
@@ -256,11 +308,17 @@ final class MenuBarPopoverStore: ObservableObject {
   var didSwitch: (() -> Void)?
   var didRequestDismissal: (() -> Void)?
   var didChangeLayout: (() -> Void)?
+  private let defaults: UserDefaults
+  var animateLayout: ((() -> Void) -> Void)?
 
-  init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions, visibleScreenHeight: CGFloat = 900) {
+  init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions, visibleScreenHeight: CGFloat = 900,
+       defaults: UserDefaults = .standard) {
     self.snapshot = snapshot
     self.actions = actions
     self.visibleScreenHeight = visibleScreenHeight
+    self.defaults = defaults
+    expandedAccountID = defaults.string(forKey: MenuBarUsagePreferences.expandedAccountKey).flatMap(UUID.init(uuidString:))
+      .flatMap { id in snapshot.accounts.contains(where: { $0.id == id && $0.showsUsage }) ? id : nil }
   }
 
   func update(visibleScreenHeight: CGFloat) {
@@ -268,12 +326,21 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   func update(snapshot: MenuBarSnapshot) {
-    self.snapshot = snapshot
+    self.snapshot = MenuBarSnapshot(accounts: snapshot.accounts.map { account in
+      guard !account.isVerified, let old = self.snapshot.accounts.first(where: { $0.id == account.id }) else { return account }
+      return MenuBarAccountSnapshot(id: account.id, identity: account.identity, detail: account.detail,
+        isVerified: false, isActive: account.isActive, usage: account.usage, showsUsage: account.showsUsage,
+        providerID: account.providerID, identityIsFormatted: true,
+        reservedRowHeight: old.reservedRowHeight ?? MenuBarPresentation.rowHeight(old))
+    }, lastRefreshedAt: snapshot.lastRefreshedAt)
     rowErrors = rowErrors.filter { error in
       snapshot.accounts.contains { $0.id == error.key }
     }
     if !snapshot.accounts.contains(where: { $0.id == expandedAccountID && $0.showsUsage }) {
-      expandedAccountID = nil
+      expandedAccountID = defaults.string(forKey: MenuBarUsagePreferences.expandedAccountKey)
+        .flatMap(UUID.init(uuidString:)).flatMap { id in
+          snapshot.accounts.contains(where: { $0.id == id && $0.showsUsage }) ? id : nil
+        }
     }
   }
 
@@ -282,7 +349,9 @@ final class MenuBarPopoverStore: ObservableObject {
 
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
     expandedAccountID = expandedAccountID == account.id ? nil : account.id
-    didChangeLayout?()
+    defaults.set(expandedAccountID?.uuidString, forKey: MenuBarUsagePreferences.expandedAccountKey)
+    if let animateLayout { animateLayout { self.didChangeLayout?() } }
+    else { didChangeLayout?() }
   }
 
   func openMainWindow() {
@@ -374,6 +443,10 @@ struct MenuBarPopover: View {
   @FocusState private var focusedID: UUID?
   @State private var keyboardActive = false
   @State private var scrollOffset: CGFloat = 0
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.colorScheme) private var colorScheme
+  var previewHoveredID: UUID? = nil
 
   var body: some View {
     VStack(spacing: 0) {
@@ -383,6 +456,13 @@ struct MenuBarPopover: View {
     .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
       accounts: store.snapshot.accounts,
       visibleScreenHeight: store.visibleScreenHeight, expandedID: store.expandedAccountID).height)
+    .background {
+      Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency ? 1 : 0.82)
+      if colorScheme == .dark { Color.white.opacity(0.055) }
+    }
+    .background(MenuBarHeightAnimation(store: store, reduceMotion: reduceMotion))
+    .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.9),
+      value: store.expandedAccountID)
     .onKeyPress(phases: .down) { press in handle(press) }
     .simultaneousGesture(TapGesture().onEnded { keyboardActive = false })
   }
@@ -404,7 +484,7 @@ struct MenuBarPopover: View {
             VStack(spacing: 0) {
               ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.offset) { index, group in
                 if index > 0 {
-                  AIMHairline()
+                  MenuBarSeparator()
                     .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupGap)
                 }
                 HStack(spacing: MenuBarPresentation.tileSpacing) {
@@ -422,7 +502,7 @@ struct MenuBarPopover: View {
                   isSwitching: store.switchingAccountID == account.id,
                   isFocused: keyboardActive && focusedID == account.id,
                   error: store.rowErrors[account.id],
-                  store: store)
+                  store: store, previewHovered: previewHoveredID == account.id)
                 .id(account.id)
                 .focusable()
                 .focused($focusedID, equals: account.id)
@@ -479,4 +559,26 @@ struct MenuBarPopover: View {
 private struct MenuBarScrollOffset: PreferenceKey {
   static let defaultValue: CGFloat = 0
   static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct MenuBarHeightAnimation: NSViewRepresentable {
+  let store: MenuBarPopoverStore
+  let reduceMotion: Bool
+
+  func makeNSView(context: Context) -> NSView { NSView() }
+  func updateNSView(_ view: NSView, context: Context) {
+    let fadesOnly = reduceMotion
+    store.animateLayout = { [weak view] resize in
+      guard !fadesOnly, let window = view?.window, window.isVisible else { resize(); return }
+      let before = window.frame
+      resize()
+      let after = window.frame
+      guard before.size != after.size else { return }
+      window.setFrame(before, display: false)
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0.28
+        window.animator().setFrame(after, display: true)
+      }
+    }
+  }
 }

@@ -23,6 +23,10 @@ enum MenuBarPresentation {
   static let labelWidth: CGFloat = 56
   static let percentWidth: CGFloat = 36
   static let resetWidth: CGFloat = 64
+  static let separatorOpacity = 0.5
+  static let separatorFade: CGFloat = 0.12
+  static let hoverOverhang: CGFloat = 4
+  static let signInSubtitle = "Sign in again to see usage"
 
   static func groups(_ accounts: [MenuBarAccountSnapshot]) -> [[MenuBarAccountSnapshot]] {
     var groups: [[MenuBarAccountSnapshot]] = []
@@ -41,7 +45,13 @@ enum MenuBarPresentation {
       height + groupHeaderHeight + group.map(rowHeight).reduce(0, +)
         + CGFloat(group.count - 1) * accountGap
     } + CGFloat(groups.count - 1) * groupGap
-      + (groups.flatMap { $0 }.contains(where: { $0.id == expandedID }) ? expandedHeight : 0)
+      + groups.flatMap { $0 }.filter { $0.id == expandedID }.map(expansionHeight).reduce(0, +)
+  }
+
+  static func expansionHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
+    guard account.isVerified else { return expandedHeight }
+    let extra = max(0, lines(for: account, expanded: true).count - lines(for: account).count)
+    return expandedHeight + CGFloat(extra) * lineHeight
   }
 
   struct Line: Equatable {
@@ -53,11 +63,21 @@ enum MenuBarPresentation {
     let minutes: Int?
     /// Amount text for balance-only accounts, shown instead of a bar.
     let balance: String?
+    var helpTitle: String? = nil
   }
 
   /// A shared short name for service windows.
   static func windowLabel(minutes: Int?, title: String) -> String {
-    switch minutes {
+    if title.lowercased().hasSuffix(" credits") { return String(title.dropLast(8)) }
+    for period in ["Session", "Weekly", "Monthly"] {
+      if title.lowercased().hasPrefix(period.lowercased() + " "), !title.lowercased().contains("credits") {
+        return String(title.dropFirst(period.count + 1))
+      }
+      if title.lowercased().hasSuffix(" " + period.lowercased()) {
+        return String(title.dropLast(period.count + 1))
+      }
+    }
+    return switch minutes {
     case 300: "Session"
     case 10_080: "Weekly"
     default: title
@@ -66,15 +86,15 @@ enum MenuBarPresentation {
 
   enum Content: Equatable { case signIn, lines([Line]) }
 
-  static func content(for account: MenuBarAccountSnapshot) -> Content {
+  static func content(for account: MenuBarAccountSnapshot, expanded: Bool = true) -> Content {
     guard account.isVerified else { return .signIn }
     guard let usage = account.usage else {
       return .lines([Line(label: nil, used: nil, resetsAt: nil, minutes: nil, balance: nil)])
     }
     if let providerWindows = usage.providerWindows, !providerWindows.isEmpty {
-      return .lines(providerWindows.map {
-        Line(label: windowLabel(minutes: $0.minutes, title: $0.title), used: $0.used,
-          resetsAt: $0.resetsAt, minutes: $0.minutes, balance: nil)
+      return .lines((expanded ? providerWindows : Array(providerWindows.prefix(2))).map {
+        Line(label: $0.compactLabel ?? windowLabel(minutes: $0.minutes, title: $0.title), used: $0.used,
+          resetsAt: $0.resetsAt, minutes: $0.minutes, balance: $0.balance, helpTitle: $0.title)
       })
     }
     var windows: [(title: String, used: Int, reset: Date?, minutes: Int?)] = []
@@ -95,6 +115,20 @@ enum MenuBarPresentation {
     })
   }
 
+  static func lines(for account: MenuBarAccountSnapshot, expanded: Bool = false) -> [Line] {
+    if case .lines(let lines) = content(for: account, expanded: expanded) { return lines }
+    return []
+  }
+
+  static func labelColumnWidth(_ account: MenuBarAccountSnapshot, expanded: Bool) -> CGFloat {
+    let font = NSFont.preferredFont(forTextStyle: .subheadline)
+    return lines(for: account, expanded: expanded).compactMap(\.label).reduce(labelWidth) {
+      max($0, ceil(($1 as NSString).size(withAttributes: [.font: font]).width))
+    }
+  }
+
+  static func showsSwitch(_ account: MenuBarAccountSnapshot) -> Bool { !account.isActive }
+
   static func hasTokenCaption(_ account: MenuBarAccountSnapshot) -> Bool {
     guard account.isVerified, let usage = account.usage else { return false }
     return usage.tokens != nil && usage.tokenPeriodLabel != nil
@@ -102,7 +136,7 @@ enum MenuBarPresentation {
   }
 
   static func lineCount(_ account: MenuBarAccountSnapshot) -> Int {
-    switch content(for: account) {
+    switch content(for: account, expanded: false) {
     case .signIn: 1
     case .lines(let lines): lines.count
     }
@@ -111,6 +145,7 @@ enum MenuBarPresentation {
   /// Height of one account row, hairline included. Zero when the account is hidden.
   static func rowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     guard account.showsUsage else { return 0 }
+    if !account.isVerified, let height = account.reservedRowHeight { return height }
     let count = CGFloat(lineCount(account))
     var height = rowPaddingV * 2 + headerHeight + lineGap + count * lineHeight
       + (count - 1) * lineSpacing + dividerHeight
@@ -197,10 +232,13 @@ struct MenuBarRow: View {
   let isFocused: Bool
   let error: String?
   let store: MenuBarPopoverStore
+  var previewHovered = false
 
   @AppStorage(ResetDisplay.exactKey) private var exact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
   @State private var hovered = false
+  @State private var barsVisible = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private typealias P = MenuBarPresentation
 
@@ -220,7 +258,9 @@ struct MenuBarRow: View {
       .padding(.vertical, P.rowPaddingV)
       if store.expandedAccountID == account.id {
         HStack(spacing: 8) {
-          Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+          if P.showsSwitch(account) {
+            Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+          }
           if account.supportsLaunch, store.actions.openTool != nil {
             Button(P.openToolTitle(account)) { store.openTool(account) }
           }
@@ -230,23 +270,41 @@ struct MenuBarRow: View {
         .padding(.leading, P.rowPaddingH + P.tileSize + P.tileSpacing)
         .padding(.trailing, P.rowPaddingH)
         .frame(height: P.expandedHeight)
+        .transition(.opacity)
       }
     }
-    .frame(height: P.rowHeight(account) + (store.expandedAccountID == account.id ? P.expandedHeight : 0))
+    .frame(height: P.rowHeight(account) + (store.expandedAccountID == account.id ? P.expansionHeight(account) : 0), alignment: .top)
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
-        .fill(isFocused || store.expandedAccountID == account.id ? AIMTheme.rowHighlight : hovered ? Color.primary.opacity(0.07) : .clear)
-        .padding(5)
+        .fill(isFocused || store.expandedAccountID == account.id ? AIMTheme.rowHighlight : hovered || previewHovered ? Color.primary.opacity(0.07) : .clear)
+        .uiLint(.align("menuBarHoverFill", .start))
+        .padding(.leading, 4)
+        .padding(.trailing, 4 - AIMScroller.gutter)
+        .padding(.vertical, -P.hoverOverhang)
+        .allowsHitTesting(false)
+    }
+    .overlay(alignment: .trailing) {
+      if !account.isVerified {
+        Button("Sign in") { Task { await store.signIn(accountID: account.id) } }
+          .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
+          .uiLint(.align("menuBarSignInTrailing", .end))
+          .padding(.trailing, P.rowPaddingH)
+          .help("Open Switch to sign in")
+          .accessibilityLabel("Sign in to \(account.identity)")
+      }
     }
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovered)
+    .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.9), value: account.isActive)
+    .onAppear { withAnimation(reduceMotion ? .easeOut(duration: 0.18) : .easeOut(duration: 0.3)) { barsVisible = true } }
     .onTapGesture { store.toggleExpanded(account) }
     .contextMenu { menu }
     .accessibilityElement(children: store.expandedAccountID == account.id || !account.isVerified ? .contain : .ignore)
     .accessibilityLabel(P.accessibilityLabel(account, showsUsed: showsUsed, now: now, exact: exact))
     .accessibilityAddTraits(.isButton)
-    .accessibilityHint("Shows account actions")
+    .accessibilityHint("Shows every usage window and account actions")
     .accessibilityAction(named: "Show actions") { store.toggleExpanded(account) }
     .accessibilityAction(named: "Switch") { store.select(account) }
   }
@@ -258,6 +316,7 @@ struct MenuBarRow: View {
         .lineLimit(1).truncationMode(.tail)
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(account.identity)
+        .padding(.trailing, account.isVerified ? 0 : 54)
       trailing
         .frame(width: 18, height: P.headerHeight)
     }
@@ -280,22 +339,23 @@ struct MenuBarRow: View {
           .accessibilityLabel("Copy account error")
         } else if account.isActive {
           Image(systemName: "checkmark").aimFont(.secondary)
-            .foregroundStyle(AIMTheme.passiveIcon)
+            .foregroundStyle(Color(nsColor: .labelColor))
             .help("Default for \(P.providerLabel(account))")
+            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8)))
         }
       }
     }
   }
 
   @ViewBuilder private var content: some View {
-    switch P.content(for: account) {
+    switch P.content(for: account, expanded: store.expandedAccountID == account.id) {
     case .signIn:
-      Button("Sign in") { Task { await store.signIn(accountID: account.id) } }
-        .buttonStyle(MenuBarButtonStyle())
-        .focusEffectDisabled()
+      Text(P.signInSubtitle).aimText(.secondary).lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: P.signInHeight)
+        .uiLint(.align("menuBarSignInSubtitle", .start))
         .padding(.leading, P.tileSize + P.tileSpacing)
-        .help("Open Switch to sign in")
+        .padding(.trailing, 60)
     case .lines(let lines):
       VStack(spacing: P.lineSpacing) {
         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in lineView(line) }
@@ -307,19 +367,33 @@ struct MenuBarRow: View {
   private func lineView(_ line: P.Line) -> some View {
     HStack(spacing: 6) {
       if let label = line.label {
-        Text(label).aimText(.secondary).lineLimit(1).frame(width: P.labelWidth, alignment: .leading)
+        Text(label).aimText(.secondary).fixedSize(horizontal: true, vertical: false)
+          .uiLint(.align("menuBarUsageLabelInk", .start))
+          .frame(width: P.labelColumnWidth(account, expanded: store.expandedAccountID == account.id), alignment: .leading)
+          .uiLint(.align("menuBarUsageLabels", .start)).help(line.helpTitle ?? label)
       }
       if let balance = line.balance {
-        Text("Balance").aimText(.secondary)
+        if line.label == nil { Text("Balance").aimText(.secondary) }
         Spacer(minLength: 0)
         Text(balance).aimText(.secondary).monospacedDigit()
       } else {
-        UsageBar(usedPercent: line.used.map(Double.init), showsUsed: showsUsed,
-          providerID: account.providerID)
+        ZStack {
+          UsageBar(usedPercent: nil, providerID: account.providerID)
+          UsageBar(usedPercent: line.used.map(Double.init), showsUsed: showsUsed,
+            providerID: account.providerID)
+            .mask(Rectangle().scaleEffect(x: barsVisible || reduceMotion ? 1 : 0, anchor: .leading))
+            .opacity(reduceMotion && !barsVisible ? 0 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: line.used)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: showsUsed)
+        }
+        .frame(height: UsageBar.height)
         Text(line.used.map {
           "\(UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed))%"
         } ?? "—")
           .aimText(.secondary).monospacedDigit()
+          .contentTransition(reduceMotion ? .opacity : .numericText())
+          .animation(.easeOut(duration: 0.24), value: line.used)
+          .animation(.easeOut(duration: 0.24), value: showsUsed)
           .frame(width: P.percentWidth, alignment: .trailing)
         Text(line.resetsAt.map {
           P.resetText($0, now: now, exact: exact,
@@ -333,7 +407,9 @@ struct MenuBarRow: View {
   }
 
   @ViewBuilder private var menu: some View {
-    Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+    if P.showsSwitch(account) {
+      Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+    }
     if account.supportsLaunch, store.actions.openTool != nil {
       Button(P.openToolTitle(account)) { store.openTool(account) }
     }
@@ -349,19 +425,18 @@ struct MenuBarFooter: View {
   private typealias P = MenuBarPresentation
   /// The icon box of the square footer buttons; the large control height gives the rest.
   private static let iconSide: CGFloat = 18
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var refreshTurn = false
 
   var body: some View {
     HStack(spacing: 8) {
       Button {
         Task { await store.refreshUsage() }
       } label: {
-        Group {
-          if store.isRefreshingUsage {
-            ProgressView().controlSize(.small)
-          } else {
-            Image(systemName: "arrow.clockwise")
-          }
-        }
+        Image(systemName: "arrow.clockwise")
+        .rotationEffect(.degrees(refreshTurn && !reduceMotion ? 360 : 0))
+        .opacity(store.isRefreshingUsage && reduceMotion ? 0.5 : 1)
+        .animation(store.isRefreshingUsage && !reduceMotion ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .easeOut(duration: 0.12), value: refreshTurn)
         .frame(width: Self.iconSide, height: Self.iconSide)
       }
       .buttonStyle(MenuBarButtonStyle())
@@ -399,8 +474,10 @@ struct MenuBarFooter: View {
     }
     .padding(.horizontal, 12)
     .frame(height: MenuBarPopover.footerHeight)
+    .onChange(of: store.isRefreshingUsage) { _, refreshing in refreshTurn = refreshing }
+    .onChange(of: reduceMotion) { _, _ in refreshTurn = store.isRefreshingUsage }
     .overlay(alignment: .top) {
-      if store.rows.isEmpty { AIMHairline() }
+      if store.rows.isEmpty { MenuBarSeparator() }
     }
   }
 
@@ -415,6 +492,8 @@ private struct MenuBarButtonStyle: ButtonStyle {
   var height: CGFloat = 24
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.isFocused) private var isFocused
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var hovered = false
 
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
@@ -423,9 +502,26 @@ private struct MenuBarButtonStyle: ButtonStyle {
       .frame(height: height)
       .background(RoundedRectangle(cornerRadius: 5).fill(
         isFocused ? AIMTheme.focusTint
-          : Color.primary.opacity(configuration.isPressed ? 0.12 : 0.05)))
+          : Color.primary.opacity(configuration.isPressed ? 0.12 : hovered ? 0.08 : 0.05))
+        .padding(.horizontal, -4).padding(.vertical, -4))
       .contentShape(RoundedRectangle(cornerRadius: 5))
       .opacity(isEnabled ? 1 : 0.45)
+      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+      .onHover { hovered = $0 }
+      .animation(.easeOut(duration: 0.12), value: hovered)
+      .animation(.easeOut(duration: AIMMotion.state), value: configuration.isPressed)
       .uiLint(.control)
+  }
+}
+
+struct MenuBarSeparator: View {
+  var body: some View {
+    AIMHairline().opacity(MenuBarPresentation.separatorOpacity)
+      .mask(LinearGradient(stops: [
+        .init(color: .clear, location: 0),
+        .init(color: .black, location: MenuBarPresentation.separatorFade),
+        .init(color: .black, location: 1 - MenuBarPresentation.separatorFade),
+        .init(color: .clear, location: 1)
+      ], startPoint: .leading, endPoint: .trailing))
   }
 }

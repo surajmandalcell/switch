@@ -321,11 +321,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     ) -> MenuBarUsageSnapshot? {
         guard status.accounts.first(where: { $0.id == accountID })?.verification.state != .needsSignIn,
               let snapshot = usageSnapshots[accountID],
-              let bucket = snapshot.rateLimits?.defaultBucket else { return nil }
+              let limits = snapshot.rateLimits,
+              let bucket = limits.defaultBucket ?? limits.buckets.sorted(by: { $0.key < $1.key }).first?.value else { return nil }
         let rows = dailyUsage[accountID] ?? snapshot.dailyUsage
         let period = MenuBarTokenPeriod.selected()
         return MenuBarUsageSnapshot(
             bucket: bucket,
+            additionalBuckets: limits.buckets,
+            extras: snapshot.extras,
             fetchedAt: snapshot.fetchedAt,
             tokenPeriodLabel: rows.isEmpty ? nil : period.summaryLabel,
             tokens: rows.isEmpty ? nil : period.tokens(in: rows, usage: snapshot),

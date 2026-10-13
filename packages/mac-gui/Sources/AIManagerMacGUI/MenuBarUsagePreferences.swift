@@ -2,6 +2,7 @@ import Foundation
 import AIManagerCore
 
 enum MenuBarUsagePreferences {
+  static let expandedAccountKey = "menuBarExpandedAccount"
   static let defaultKey = "showAccountUsageInMenuBar"
   private static let overridePrefix = "showAccountUsageInMenuBar.account."
 

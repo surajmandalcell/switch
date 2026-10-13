@@ -4,6 +4,21 @@ import Foundation
 #if AI_MANAGER_PREVIEW
 @MainActor
 enum MenuBarPopoverPreviewData {
+  static var codexModelUsage: MenuBarUsageSnapshot {
+    let now = Date()
+    let base = CodexRateLimitBucketSnapshot(id: "codex", name: "Codex", plan: "Plus", model: nil,
+      primary: .init(usedPercent: 41, windowDurationMinutes: 300, resetsAt: now.addingTimeInterval(5_400)),
+      secondary: .init(usedPercent: 88, windowDurationMinutes: 10_080, resetsAt: now.addingTimeInterval(478_800)),
+      credits: nil, spendControlReached: nil)
+    let spark = CodexRateLimitBucketSnapshot(id: "spark", name: "GPT-5.3-Codex-Spark", plan: nil, model: "spark",
+      primary: .init(usedPercent: 63, windowDurationMinutes: 300, resetsAt: now.addingTimeInterval(3_600)),
+      secondary: nil, credits: nil, spendControlReached: nil)
+    let extras = CodexWhamExtras(resetCredits: nil,
+      monthlyCredits: .init(limit: 1_000, used: 120, remainingPercent: 88, resetsAt: now.addingTimeInterval(864_000)),
+      additionalBuckets: [spark], creditsBalance: nil)
+    return MenuBarUsageSnapshot(bucket: base, additionalBuckets: ["codex": base, "spark": spark],
+      extras: extras, fetchedAt: now)!
+  }
   static let snapshot = MenuBarSnapshot(
     accounts: [
       MenuBarAccountSnapshot(
@@ -52,18 +67,19 @@ enum MenuBarPopoverPreviewData {
           resetsAt: Date().addingTimeInterval(3 * 3_600 + 20 * 60),
           secondaryResetsAt: Date().addingTimeInterval(2 * 86_400 + 4 * 3_600),
           fetchedAt: Date().addingTimeInterval(-120),
-          primaryMinutes: 300, secondaryMinutes: 10_080),
+          primaryMinutes: 300, secondaryMinutes: 10_080,
+          providerWindows: [
+            .init(title: "Session", used: 24, resetsAt: Date().addingTimeInterval(12_000), minutes: 300),
+            .init(title: "Weekly", used: 59, resetsAt: Date().addingTimeInterval(187_200), minutes: 10_080),
+            .init(title: "Weekly Fable", used: 36, resetsAt: Date().addingTimeInterval(187_200), minutes: 10_080),
+            .init(title: "Monthly credits", used: 12, resetsAt: Date().addingTimeInterval(864_000), minutes: nil)
+          ]),
         providerID: .claudeCode),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "0E0A2002-7F3A-4C27-9D84-5B1E2A6C0002")!,
         identity: "grace.hopper@example.test", detail: "Codex CLI · Plus",
         isVerified: true, isActive: true,
-        usage: MenuBarUsageSnapshot(
-          usedPercentage: 41, secondaryUsedPercentage: 88,
-          resetsAt: Date().addingTimeInterval(90 * 60),
-          secondaryResetsAt: Date().addingTimeInterval(5 * 86_400 + 13 * 3_600),
-          fetchedAt: Date().addingTimeInterval(-300),
-          primaryMinutes: 300, secondaryMinutes: 10_080),
+        usage: codexModelUsage,
         providerID: .codex),
       MenuBarAccountSnapshot(
         id: UUID(uuidString: "0E0A2003-7F3A-4C27-9D84-5B1E2A6C0003")!,
