@@ -123,8 +123,10 @@ struct ProviderAccountStore {
 
     /// Saves the live login in `home` (default: the real user home). Importing from the real home
     /// makes the account the provider default, because it IS the live login.
+    /// `auto` marks the account as added by discovery. The live login always becomes the default,
+    /// because the live files belong to it.
     @discardableResult
-    func importLive(_ providerID: ProviderID, from home: URL? = nil) throws -> AccountRecord {
+    func importLive(_ providerID: ProviderID, from home: URL? = nil, auto: Bool = false) throws -> AccountRecord {
         guard let spec = spec(providerID), spec.style == .files else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) does not use CLI files.")
         }
@@ -135,8 +137,26 @@ struct ProviderAccountStore {
                     "\(spec.name) is not signed in: \(missing.path) was not found.")
             }
             return try saveCredential(spec, credential, source: home ?? paths.userHome,
-                                      rule: home == nil ? .always : .never)
+                                      rule: home == nil ? .always : .never, auto: auto)
         }
+    }
+
+    /// Key that the removed-logins list uses for one login.
+    static func removedKey(_ providerID: ProviderID, _ identity: String) -> String {
+        "\(providerID.rawValue):\(identity)"
+    }
+
+    /// Imports the live login once: nothing happens when a saved account has its identity, when
+    /// `removed` lists it, or when the provider cannot tell logins apart.
+    func autoImportLive(_ providerID: ProviderID, removed: Set<String>) throws -> AccountRecord? {
+        guard let spec = spec(providerID), spec.style == .files, spec.identify != nil,
+              spec.files.contains(where: { !$0.optional }),
+              let live = liveIdentity(providerID),
+              !removed.contains(Self.removedKey(providerID, live.key)),
+              try !accounts().contains(where: {
+                  $0.identity.providerID == providerID && $0.identity.userID == live.key
+              }) else { return nil }
+        return try importLive(providerID, auto: true)
     }
 
     // MARK: Credentials
@@ -446,7 +466,7 @@ struct ProviderAccountStore {
     }
 
     private func saveCredential(_ spec: ProviderSpec, _ credential: ProviderCredential, source: URL,
-                                rule: DefaultRule) throws -> AccountRecord {
+                                rule: DefaultRule, auto: Bool = false) throws -> AccountRecord {
         try lock.withLock {
             var index = try readIndex()
             let found = identity(spec, credential)
@@ -469,7 +489,8 @@ struct ProviderAccountStore {
                 verification: .init(state: .verifiedLocally, checkedAt: Date(),
                                     detail: "Saved locally. Usage has not been checked yet."),
                 lastUsedAt: old?.lastUsedAt,
-                credentialDigest: CoreSupport.digest(bytes))
+                credentialDigest: CoreSupport.digest(bytes),
+                autoImported: old?.autoImported ?? auto)
             if let existing { index.accounts[existing] = record } else { index.accounts.append(record) }
             let raw = spec.id.rawValue
             if rule == .always || (rule == .ifNone && index.defaults[raw] == nil) { index.defaults[raw] = id }

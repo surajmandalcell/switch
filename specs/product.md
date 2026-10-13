@@ -99,6 +99,17 @@ credential styles:
   writes only the selected account's bytes. Conversations, settings, and every other file,
   member, or row stay in place. Sign-in runs the official command in Terminal against a
   private temporary home, then imports it; "Import current sign-in" saves the live login.
+  On launch and on every refresh, Switch also imports, once, each live login of a provider that
+  supports "Import current sign-in" (for example Droid and OpenCode Go) when no saved account
+  has the same identity; when identity cannot be told apart (equal Droid masks), it skips the
+  import. The imported account becomes the provider's default, because the live files belong
+  to it. An account the user deleted is remembered and never imported again. An
+  auto-imported account shows a small "i" icon after its name whose tooltip says it was added
+  from the login on this Mac; there is no other label. The same pass imports each z.ai
+  coding-plan API key that the Z Code app saved in ~/.zcode/v2/credentials.json as a z.ai
+  account named after its plan ("Z Code individual plan"). Switch decrypts it the way Z Code
+  does (AES-GCM, key from the user name and home folder), never through the Keychain, and
+  skips the file when it cannot decrypt it.
 - **Secret**: API keys, access tokens, or a pasted Cookie header. Switching selects the
   default saved account.
 

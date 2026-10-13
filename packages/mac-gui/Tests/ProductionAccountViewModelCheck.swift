@@ -792,14 +792,15 @@ struct ProductionAccountViewModelCheck {
             credentialStore: droidRoot.appending(path: "user/.switch/codex"),
             defaultHome: droidRoot.appending(path: "user/.codex"), sharedRoot: droidRoot.appending(path: "user/.codex"),
             orcaAccountsRoot: droidRoot.appending(path: "orca"), droidExecutable: fake, isolationRoot: droidRoot)
-        try fm.createDirectory(at: paths.droidHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let live = paths.droidHome.appending(path: "auth.v2.loginkeychain")
-        try Data("synthetic-A".utf8).write(to: live)
-        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: live.path)
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, providerSpecs: [],
             droidProcessLister: { [.init(pid: 42, bundleID: "com.electron.factory", home: paths.droidHome)] })
         let model = AccountViewModel(paths: paths, manager: manager)
         await model.load()
+        // The login appears after launch: launch discovery would otherwise import it first.
+        try fm.createDirectory(at: paths.droidHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let live = paths.droidHome.appending(path: "auth.v2.loginkeychain")
+        try Data("synthetic-A".utf8).write(to: live)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: live.path)
         model.droidAccountName = "Droid personal"
         await model.importDroidAccount()
         let first = try expect(model.selectedAccount, "Droid import did not reach the GUI")
