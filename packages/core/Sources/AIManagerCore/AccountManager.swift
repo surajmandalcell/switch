@@ -104,6 +104,8 @@ public actor AccountManager {
     private let lock: OperationLock
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private var grokRefreshAttempts: [String: Date] = [:]
+    private var grokRefreshTimeout: TimeInterval = 20
 
     public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil) throws {
         self.paths = paths
@@ -984,7 +986,11 @@ public actor AccountManager {
             throw ProviderError.unsupported(
                 "Usage for \(account.identity.providerID.displayName) accounts is not available yet.")
         }
-        let credential = try registryCredential(account, fileID: file.id)
+        var credential = try registryCredential(account, fileID: file.id)
+        if credential.isLive, account.identity.providerID == .grokBuild,
+           GrokBuildUsage.expiresSoon(credential.files[file.id]), await refreshLiveGrokLogin() {
+            credential = try registryCredential(account, fileID: file.id)
+        }
         let result = try await spec.fetch(credential)
         if let refreshed = result.updated?.files[file.id], !credential.isLive,
            account.identity.providerID == .grokBuild {
@@ -992,6 +998,38 @@ public actor AccountManager {
         }
         return result.usage
     }
+
+    /// Grok access tokens last about 6 hours and only the official CLI may refresh the live login. When the
+    /// token is (nearly) expired, run `grok models` once per 5 minutes per home so the CLI refreshes its own
+    /// `auth.json` under its own lock. No arguments carry secrets; output is discarded. True when it exited 0.
+    private func refreshLiveGrokLogin() async -> Bool {
+        let key = paths.grokHome.path
+        if let last = grokRefreshAttempts[key], Date().timeIntervalSince(last) < 300 { return false }
+        guard let executable = resolveGrokExecutable() else { return false }
+        grokRefreshAttempts[key] = Date()
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["models"]
+        process.environment = ProcessInfo.processInfo.environment.merging(["GROK_HOME": key]) { $1 }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return false }
+        let timeout = grokRefreshTimeout
+        let watchdog = Task.detached {
+            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            process.terminate()
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        }
+        await withCheckedContinuation { done in
+            DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
+        }
+        watchdog.cancel()
+        return process.terminationReason == .exit && process.terminationStatus == 0
+    }
+
+    func setGrokRefreshTimeout(_ seconds: TimeInterval) { grokRefreshTimeout = seconds }
 
     /// Saves tokens that Switch refreshed for a non-default Grok account. The vault copy is the only
     /// holder of that refresh token. The write is dropped when anything changed since the fetch began.
