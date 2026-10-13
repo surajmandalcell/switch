@@ -1441,52 +1441,58 @@ struct AccountsTableCard: View {
     }
     .padding(.horizontal, AIMTheme.cardInset)
     .frame(height: AIMTheme.groupHeaderHeight)
+    // The first 4 pt of the guide line, under the brand tile; the rows draw the rest.
+    .overlay(alignment: .bottomLeading) {
+      Rectangle().fill(AIMTheme.guideLine).frame(width: 1, height: 4)
+        .padding(.leading, AIMTheme.cardInset + 7.5).allowsHitTesting(false).accessibilityHidden(true)
+    }
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(.isHeader)
   }
 
-  /// Groups sit 6 pt apart. Separators and the guide are overlays, so a group is exactly its header
-  /// plus 36 pt for each account. The last group also carries the card's bottom inset.
+  /// One flat lazy list (each group's header, then its accounts), so a page switch builds only the
+  /// rows in view, not every account. Groups sit 6 pt apart (top padding on a header); separators
+  /// and guide pieces are overlays, so a group is exactly its header plus 36 pt for each account.
+  /// The last row also carries the card's bottom inset.
   private var rows: some View {
     let groups = self.groups
-    return VStack(spacing: AIMTheme.groupGap) {
+    return LazyVStack(spacing: 0) {
       ForEach(Array(groups.enumerated()), id: \.element.provider) { groupIndex, group in
-        let isLast = groupIndex == groups.count - 1
-        VStack(spacing: 0) {
-          groupHeader(group.provider, count: group.accounts.count)
-          ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
-            AccountsTableRow(
-              account: account, model: model, selected: account.id == focusedID, now: now,
-              hideEmails: hideEmails, showsUsed: showsUsed,
-              focus: { focus(account.id) }, delete: { delete(account) },
-              onMove: onMove, contextMenu: contextMenu)
-              .overlay(alignment: .top) {
-                if index > 0 { AIMRowSeparator(indent: AIMTheme.groupIndent).allowsHitTesting(false) }
-              }
-          }
+        groupHeader(group.provider, count: group.accounts.count)
+          .padding(.top, groupIndex > 0 ? AIMTheme.groupGap : 0)
+        ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
+          let isLast = groupIndex == groups.count - 1 && index == group.accounts.count - 1
+          AccountsTableRow(
+            account: account, model: model, selected: account.id == focusedID, now: now,
+            hideEmails: hideEmails, showsUsed: showsUsed,
+            focus: { focus(account.id) }, delete: { delete(account) },
+            onMove: onMove, contextMenu: contextMenu)
+            .overlay(alignment: .top) {
+              if index > 0 { AIMRowSeparator(indent: AIMTheme.groupIndent).allowsHitTesting(false) }
+            }
+            .overlay(alignment: .topLeading) {
+              AccountsGuide(isLastInGroup: index == group.accounts.count - 1)
+            }
+            .padding(.bottom, isLast ? AIMTheme.tableEndInset : 0)
         }
-        .overlay(alignment: .topLeading) { AccountsGuide(rows: group.accounts.count) }
-        .padding(.bottom, isLast ? AIMTheme.tableEndInset : 0)
       }
     }
   }
 }
 
-/// The outline of one group: a 1 pt line from just under the brand tile to the middle of the last
-/// row, and a 10 pt elbow at each row's center that stops 6.5 pt short of the name.
+/// The outline piece of one account row: a 1 pt line from the row's top to its middle (to its
+/// bottom unless it is the group's last row), and a 10 pt elbow at the row's center that stops
+/// 6.5 pt short of the name. One path, so the crossing is not drawn twice. The header draws the
+/// first 4 pt, under the brand tile.
 private struct AccountsGuide: View {
-  let rows: Int
+  let isLastInGroup: Bool
 
   var body: some View {
     Canvas { context, _ in
       let x = AIMTheme.cardInset + 7.5
-      let header = AIMTheme.groupHeaderHeight, row = AIMTheme.rowHeight
-      let top = header - 4
-      let bottom = header + CGFloat(rows - 1) * row + row / 2
-      var guide = Path(CGRect(x: x, y: top, width: 1, height: bottom - top))
-      for index in 0..<rows {
-        guide.addRect(CGRect(x: x, y: header + CGFloat(index) * row + row / 2, width: 10, height: 1))
-      }
+      let row = AIMTheme.rowHeight
+      var guide = Path(CGRect(x: x, y: 0, width: 1, height: isLastInGroup ? row / 2 : row))
+      guide.addRect(CGRect(x: x, y: row / 2, width: 10, height: 1))
       context.fill(guide, with: .color(AIMTheme.guideLine))
     }
     .allowsHitTesting(false)
