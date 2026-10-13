@@ -82,11 +82,23 @@ enum RenderScale {
         let directory = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let baseline = CommandLine.arguments.contains("--popover-baseline")
+        try await popoverMotionCheck(directory: directory, baseline: baseline)
         var measurements: [[String: Any]] = []
         for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
             for (backdrop, color) in [("black", Color.black), ("white", Color.white)] {
-                for state in baseline ? ["collapsed"] : ["collapsed", "expanded", "expanded-codex", "hover", "signed-out"] {
-                    let snapshot = state == "signed-out" ? MenuBarPopoverPreviewData.snapshot : MenuBarPopoverPreviewData.sixAccountSnapshot
+                for state in baseline ? ["collapsed"] : ["collapsed", "expanded", "expanded-codex", "hover", "hover-grok", "signed-out", "mid-expansion", "amount-only"] {
+                    var snapshot = state == "signed-out" ? MenuBarPopoverPreviewData.snapshot : MenuBarPopoverPreviewData.sixAccountSnapshot
+                    if state == "amount-only" {
+                        snapshot = MenuBarSnapshot(accounts: snapshot.accounts.map { account in
+                            guard account.providerID == .grokBuild else { return account }
+                            return MenuBarAccountSnapshot(id: account.id, identity: account.identity, detail: account.detail,
+                                isVerified: true, isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: nil,
+                                    tokenPeriodLabel: "since reset", tokens: 0, providerWindows: [
+                                        .init(title: "Unknown", used: nil, resetsAt: nil, minutes: nil),
+                                        .init(title: "Credits", used: nil, resetsAt: nil, minutes: nil, balance: "12 credits")
+                                    ]), providerID: account.providerID, identityIsFormatted: true)
+                        })
+                    }
                     let suite = "switch-popover-shots-\(UUID().uuidString)"
                     let defaults = UserDefaults(suiteName: suite)!
                     defer { defaults.removePersistentDomain(forName: suite) }
@@ -98,10 +110,11 @@ enum RenderScale {
                     UILintStore.shared.items.removeAll()
                     UILintStore.shared.colors.removeAll()
                     UILintStore.shared.appearance = NSAppearance(named: appearance)!
-                    let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts,
+                    var size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts,
                         visibleScreenHeight: 2_000, expandedID: store.expandedAccountID)
                     let host = NSHostingView(rootView: MenuBarPopover(store: store,
-                        previewHoveredID: state == "hover" ? snapshot.accounts[0].id : nil)
+                        previewHoveredID: state == "hover" ? snapshot.accounts[0].id
+                          : state == "hover-grok" ? snapshot.accounts.first(where: { $0.providerID == .grokBuild })?.id : nil)
                         .background(.regularMaterial).background(color).renderScaled())
                     let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                         styleMask: .borderless, backing: .buffered, defer: false)
@@ -110,6 +123,16 @@ enum RenderScale {
                     host.frame = NSRect(origin: .zero, size: size)
                     host.layoutSubtreeIfNeeded()
                     try? await Task.sleep(for: .milliseconds(450))
+                    if state == "mid-expansion" {
+                        store.didChangeLayout = { [weak window, weak host] in
+                            size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+                            window?.setContentSize(size)
+                            host?.frame.size = size
+                            host?.layoutSubtreeIfNeeded()
+                        }
+                        store.toggleExpanded(snapshot.accounts[0])
+                        try await Task.sleep(for: .milliseconds(80))
+                    }
                     host.layoutSubtreeIfNeeded()
                     guard let png = png(of: host), let bitmap = NSBitmapImageRep(data: png) else {
                         throw CocoaError(.fileReadCorruptFile)
@@ -162,9 +185,24 @@ enum RenderScale {
                 }
                 let fills = try frames("after-hover-" + suffix, group: "menuBarHoverFill")
                 guard fills.count == rows.count, zip(rows, fills).allSatisfy({ row, fill in
-                    abs(fill.minY - row.minY + 4) < 0.5 && abs(fill.height - row.height - 8) < 0.5
+                    abs(fill.minY - row.minY - 4) < 0.5 && abs(fill.height - row.height) < 0.5
                       && abs(fill.minX - 4) < 0.5 && abs(fill.maxX - 356) < 0.5
                 }) else { throw NSError(domain: "Popover hover extent changed: \(suffix)", code: 1) }
+                for state in ["collapsed", "expanded", "expanded-codex", "hover", "hover-grok", "signed-out", "mid-expansion", "amount-only"] {
+                    let label = "after-\(state)-" + suffix
+                    let headers = try frames(label, group: "menuBarGroupHeaderInk")
+                    let highlights = try frames(label, group: "menuBarHoverFill")
+                    guard !headers.isEmpty, headers.allSatisfy({ header in
+                        highlights.first(where: { $0.minY >= header.maxY }).map { $0.minY - header.maxY >= 4 } ?? false
+                    }) else { throw NSError(domain: "Popover hover touches a group header: \(label)", code: 1) }
+                    let icons = try ["menuBarFooterSettings", "menuBarFooterRefresh", "menuBarFooterQuit"]
+                        .flatMap { try frames(label, group: $0) }.sorted { $0.minX < $1.minX }
+                    guard icons.count == 3, icons.allSatisfy({ $0.width == 24 && $0.height == 24 }),
+                          abs(icons[1].minX - icons[0].maxX - 6) < 0.5,
+                          abs(icons[2].minX - icons[1].maxX - 6) < 0.5 else {
+                        throw NSError(domain: "Popover footer buttons overlap: \(label)", code: 1)
+                    }
+                }
                 let signedOut = try frames("after-signed-out-" + suffix, group: "menuBarRows").last!
                 let button = try frames("after-signed-out-" + suffix, group: "menuBarSignInTrailing").last!
                 let subtitle = try frames("after-signed-out-" + suffix, group: "menuBarSignInSubtitle").last!
@@ -172,10 +210,82 @@ enum RenderScale {
                       abs(button.midY - signedOut.midY) < 0.5, subtitle.maxX <= button.minX else {
                     throw NSError(domain: "Signed-out button is not trailing and centered: \(suffix)", code: 1)
                 }
-                print("POPOVER_GEOMETRY_PASS \(suffix): six unchanged row frames, 4pt hover overhang, trailing sign-in")
+                print("POPOVER_GEOMETRY_PASS \(suffix): stable rows, 2pt reach above content, trailing sign-in")
             } }
         }
     }
+    @MainActor static func popoverMotionCheck(directory: URL, baseline: Bool) async throws {
+        func frames(_ group: String) -> [CGRect] {
+            UILintStore.shared.items.values.filter { item in
+                (item["tags"] as? [[String: Any]])?.contains { $0["group"] as? String == group } == true
+            }.compactMap { item in
+                guard let f = item["frame"] as? [String: CGFloat] else { return nil }
+                return CGRect(x: f["x"]!, y: f["y"]!, width: f["width"]!, height: f["height"]!)
+            }.sorted { $0.minY < $1.minY }
+        }
+        var maximum = 0.0, footerMaximum = 0.0
+        for (screen, reduce): (CGFloat, Bool) in [(2_000, false), (400, false), (2_000, true)] {
+            let snapshot = MenuBarPopoverPreviewData.sixAccountSnapshot
+            let suite = "switch-popover-motion-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let store = MenuBarPopoverStore(snapshot: snapshot,
+                actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }),
+                visibleScreenHeight: screen, defaults: defaults)
+            UILintStore.shared.items.removeAll()
+            let size = AIManagerStatusItemController.contentSize(accounts: snapshot.accounts, visibleScreenHeight: screen)
+            let host = NSHostingView(rootView: MenuBarPopover(store: store).renderScaled())
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = host
+            host.frame = NSRect(origin: .zero, size: size)
+            store.didChangeLayout = { [weak window, weak host] in
+                let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+                window?.setContentSize(size)
+                host?.frame.size = size
+                host?.layoutSubtreeIfNeeded()
+            }
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(350))
+            store.reduceMotion = reduce
+            // Expand, collapse, then transfer expansion to a different account.
+            for index in [1, 1, 0, 1] {
+                let before = frames("menuBarRows")
+                guard before.count == snapshot.accounts.count, !frames("menuBarFooter").isEmpty else {
+                    throw NSError(domain: "Popover motion frame probes missing", code: 1)
+                }
+                let bottom = frames("menuBarFooter").first.map { host.bounds.height - $0.maxY } ?? 0
+                var rowShift = 0.0, footerShift = 0.0
+                store.toggleExpanded(store.rows[index])
+                for sample in 0..<22 {
+                    try await Task.sleep(for: .milliseconds(16))
+                    host.layoutSubtreeIfNeeded()
+                    let current = frames("menuBarRows")
+                    if before.count == current.count && before.count > index {
+                        for row in 0..<index {
+                            maximum = max(maximum, abs(current[row].minY - before[row].minY))
+                            rowShift = max(rowShift, abs(current[row].minY - before[row].minY))
+                        }
+                    }
+                    if let footer = frames("menuBarFooter").first {
+                        footerMaximum = max(footerMaximum, abs(host.bounds.height - footer.maxY - bottom))
+                        footerShift = max(footerShift, abs(host.bounds.height - footer.maxY - bottom))
+                    }
+                    if sample == 6 && screen == 2_000, let image = png(of: host) {
+                        try image.write(to: directory.appendingPathComponent("\(baseline ? "before" : "after")-motion-\(index).png"))
+                    }
+                }
+                print("POPOVER_MOTION_CASE screen=\(screen) reduce=\(reduce) row=\(index) shift=\(rowShift) footer=\(footerShift)")
+            }
+        }
+        print("POPOVER_MOTION \(baseline ? "before" : "after") rows=\(maximum)pt footer=\(footerMaximum)pt")
+        try JSONSerialization.data(withJSONObject: ["maxRowDisplacement": maximum, "maxFooterGapChange": footerMaximum])
+            .write(to: directory.appendingPathComponent("\(baseline ? "before" : "after")-motion.json"))
+        if !baseline && (maximum >= 0.5 || footerMaximum >= 0.5) {
+            throw NSError(domain: "Popover expansion shifts rows or footer", code: 1)
+        }
+    }
+
     static var value: CGFloat? {
         ProcessInfo.processInfo.environment["AI_MANAGER_RENDER_SCALE"].flatMap(Double.init).map { CGFloat($0) }
     }

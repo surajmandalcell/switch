@@ -80,7 +80,7 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     let ordered = windows.filter(isSessionLike) + windows.filter { !isSessionLike($0) }
     var reported = ordered.map {
       Window(title: $0.title, used: $0.usedPercent.map { Int($0.rounded()) },
-        resetsAt: $0.resetsAt, minutes: $0.windowMinutes)
+        resetsAt: $0.resetsAt, minutes: $0.windowMinutes, balance: $0.usedPercent == nil ? $0.detail : nil)
     }
     if let cost = usage.cost, let used = cost.used, let limit = cost.limit, limit > 0 {
       reported.append(Window(title: "\(cost.period ?? "Monthly") credits",
@@ -219,11 +219,15 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   }
 
   var remainingPercentage: Int? {
-    (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map { max(0, 100 - $0) }
+    quotaUsedPercentage.map { max(0, 100 - $0) }
+  }
+
+  var quotaUsedPercentage: Int? {
+    usage?.usedPercentage ?? usage?.secondaryUsedPercentage ?? usage?.providerWindows?.compactMap(\.used).first
   }
 
   func displayedPercentage(showsUsed: Bool) -> Int? {
-    (usage?.usedPercentage ?? usage?.secondaryUsedPercentage).map {
+    quotaUsedPercentage.map {
       UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed)
     }
   }
@@ -239,7 +243,7 @@ struct MenuBarSnapshot: Equatable, Sendable {
 
   var statusAccountGroups: [[MenuBarAccountSnapshot]] {
     var groups: [[MenuBarAccountSnapshot]] = []
-    for account in accounts.filter(\.showsUsage).prefix(4) {
+    for account in accounts.filter({ $0.showsUsage && $0.isVerified && $0.remainingPercentage != nil }).prefix(4) {
       if let index = groups.firstIndex(where: { $0.first?.providerID == account.providerID }) {
         groups[index].append(account)
       } else {
@@ -268,6 +272,7 @@ struct MenuBarPopoverActions {
   let refreshUsage: () async -> Void
   let copyText: ((String) -> Void)?
   let openSettings: () -> Void
+  let quit: () -> Void
   /// Launches the account's tool (Open Codex). Nil hides the row menu item.
   let openTool: ((UUID) async -> Void)?
   /// Refreshes one account. Nil falls back to the all-accounts refresh.
@@ -280,11 +285,13 @@ struct MenuBarPopoverActions {
     refreshUsage: @escaping () async -> Void = {},
     copyText: ((String) -> Void)? = nil,
     openSettings: @escaping () -> Void = {},
+    quit: @escaping () -> Void = {},
     openTool: ((UUID) async -> Void)? = nil,
     refreshAccount: ((UUID) async -> Void)? = nil,
     signInAccount: ((UUID) async -> Void)? = nil
   ) {
     self.openSettings = openSettings
+    self.quit = quit
     self.openMainWindow = openMainWindow
     self.switchAccount = switchAccount
     self.refreshUsage = refreshUsage
@@ -303,13 +310,32 @@ final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var visibleScreenHeight: CGFloat
   @Published private(set) var rowErrors: [UUID: String] = [:]
   @Published private(set) var expandedAccountID: UUID?
+  @Published private(set) var expansionAmounts: [UUID: CGFloat] = [:]
 
   let actions: MenuBarPopoverActions
   var didSwitch: (() -> Void)?
   var didRequestDismissal: (() -> Void)?
   var didChangeLayout: (() -> Void)?
   private let defaults: UserDefaults
-  var animateLayout: ((() -> Void) -> Void)?
+  var animatesLayout = false
+  var reduceMotion = false
+  private var layoutTask: Task<Void, Never>?
+
+  func expansionAmount(_ id: UUID) -> CGFloat {
+    if reduceMotion { return expandedAccountID == id ? 1 : 0 }
+    return revealAmount(id)
+  }
+
+  func revealAmount(_ id: UUID) -> CGFloat {
+    expansionAmounts[id] ?? (expandedAccountID == id ? 1 : 0)
+  }
+
+  var contentHeight: CGFloat {
+    let collapsed = MenuBarPresentation.listHeight(snapshot.accounts)
+    let expanded = rows.reduce(CGFloat.zero) { $0 + MenuBarPresentation.expansionHeight($1) * expansionAmount($1.id) }
+    let ideal = rows.isEmpty ? MenuBarPopover.minimumHeight : collapsed + expanded + MenuBarPopover.footerHeight
+    return min(max(ideal.rounded(), MenuBarPopover.minimumHeight), max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.8)))
+  }
 
   init(snapshot: MenuBarSnapshot, actions: MenuBarPopoverActions, visibleScreenHeight: CGFloat = 900,
        defaults: UserDefaults = .standard) {
@@ -348,10 +374,41 @@ final class MenuBarPopoverStore: ObservableObject {
   var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.accounts).flatMap { $0 } }
 
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
+    layoutTask?.cancel()
+    let start = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, revealAmount($0.id)) })
     expandedAccountID = expandedAccountID == account.id ? nil : account.id
     defaults.set(expandedAccountID?.uuidString, forKey: MenuBarUsagePreferences.expandedAccountKey)
-    if let animateLayout { animateLayout { self.didChangeLayout?() } }
-    else { didChangeLayout?() }
+    guard animatesLayout else {
+      expansionAmounts = [:]
+      didChangeLayout?()
+      return
+    }
+    expansionAmounts = start
+    didChangeLayout?()
+    let target = expandedAccountID
+    layoutTask = Task { @MainActor [weak self] in
+      let began = ContinuousClock.now
+      while !Task.isCancelled {
+        guard let self else { return }
+        let elapsed = began.duration(to: .now)
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        let time = min(seconds / 0.25, 1)
+        // A critically damped spring, normalized to settle on the final frame.
+        let progress = CGFloat((1 - (1 + 8 * time) * exp(-8 * time)) / (1 - 9 * exp(-8.0)))
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+          var amounts = start
+          for (id, amount) in start {
+            amounts[id] = amount + ((id == target ? 1 : 0) - amount) * progress
+          }
+          self.expansionAmounts = time == 1 ? [:] : amounts
+          self.didChangeLayout?()
+        }
+        if time == 1 { return }
+        do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+      }
+    }
   }
 
   func openMainWindow() {
@@ -438,6 +495,7 @@ struct MenuBarPopover: View {
   static let width: CGFloat = 360
   static let minimumHeight: CGFloat = 94
   static let footerHeight: CGFloat = 44
+  static let darkSurface = Color(red: 0.15, green: 0.15, blue: 0.157)
   @ObservedObject var store: MenuBarPopoverStore
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showsUsed = false
   @FocusState private var focusedID: UUID?
@@ -451,18 +509,20 @@ struct MenuBarPopover: View {
   var body: some View {
     VStack(spacing: 0) {
       accountList
+        .frame(height: store.contentHeight - Self.footerHeight, alignment: .top)
       MenuBarFooter(store: store)
     }
-    .frame(width: Self.width, height: AIManagerStatusItemController.contentSize(
-      accounts: store.snapshot.accounts,
-      visibleScreenHeight: store.visibleScreenHeight, expandedID: store.expandedAccountID).height)
+    .frame(width: Self.width, height: store.contentHeight, alignment: .top)
     .background {
-      Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency ? 1 : 0.82)
-      if colorScheme == .dark { Color.white.opacity(0.055) }
+      if colorScheme == .dark { Self.darkSurface.opacity(reduceTransparency ? 1 : 0.96) }
+      else { Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency ? 1 : 0.82) }
     }
-    .background(MenuBarHeightAnimation(store: store, reduceMotion: reduceMotion))
-    .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.9),
-      value: store.expandedAccountID)
+    .onAppear {
+      store.animatesLayout = true
+      store.reduceMotion = reduceMotion
+    }
+    .onChange(of: reduceMotion) { _, value in store.reduceMotion = value }
+    .onDisappear { store.animatesLayout = false }
     .onKeyPress(phases: .down) { press in handle(press) }
     .simultaneousGesture(TapGesture().onEnded { keyboardActive = false })
   }
@@ -490,6 +550,7 @@ struct MenuBarPopover: View {
                 HStack(spacing: MenuBarPresentation.tileSpacing) {
                   ProviderMark(providerID: group[0].providerID, size: 16)
                   Text(group[0].providerID.guiName).aimText(.secondary).fontWeight(.semibold)
+                    .uiLint(.align("menuBarGroupHeaderInk", .start))
                   Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupHeaderHeight)
@@ -559,26 +620,4 @@ struct MenuBarPopover: View {
 private struct MenuBarScrollOffset: PreferenceKey {
   static let defaultValue: CGFloat = 0
   static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-private struct MenuBarHeightAnimation: NSViewRepresentable {
-  let store: MenuBarPopoverStore
-  let reduceMotion: Bool
-
-  func makeNSView(context: Context) -> NSView { NSView() }
-  func updateNSView(_ view: NSView, context: Context) {
-    let fadesOnly = reduceMotion
-    store.animateLayout = { [weak view] resize in
-      guard !fadesOnly, let window = view?.window, window.isVisible else { resize(); return }
-      let before = window.frame
-      resize()
-      let after = window.frame
-      guard before.size != after.size else { return }
-      window.setFrame(before, display: false)
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.28
-        window.animator().setFrame(after, display: true)
-      }
-    }
-  }
 }

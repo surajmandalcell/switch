@@ -88,15 +88,15 @@ enum AIManagerMenuBarContract {
         .init(title: "Monthly", used: 65, resetsAt: nil, minutes: 43_200)]),
       provider: .claudeCode)
     if case .lines(let lines) = P.content(for: providerWindows) {
-      expect(lines.map(\.label) == ["Session", "Weekly", "Monthly"]
-        && lines.map(\.used) == [20, nil, 65], "Provider windows or an unknown limit disappeared")
+      expect(lines.map(\.label) == ["Session", "Monthly"]
+        && lines.map(\.used) == [20, 65], "An empty usage window still draws a bar")
     } else { failures.append("Provider windows have no lines") }
     let weeklyOnly = account("h", usage: MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 96))
     if case .lines(let lines) = P.content(for: weeklyOnly) {
       expect(lines.count == 1 && lines[0].label == "Weekly" && lines[0].used == 96, "Weekly-only row is wrong")
     } else { failures.append("Weekly-only row has no lines") }
     if case .lines(let lines) = P.content(for: account("i")) {
-      expect(lines.count == 1 && lines[0].used == nil && lines[0].balance == nil, "Unknown row invents a value")
+      expect(lines.isEmpty, "Unknown row invents a usage line")
     } else { failures.append("Unknown row has no line") }
     expect(P.content(for: account("j", verified: false)) == .signIn, "A sign-in row shows bars")
     let balance = account("k", usage: MenuBarUsageSnapshot(usedPercentage: nil, balanceText: "$12.40"))
@@ -348,7 +348,8 @@ enum AIManagerMenuBarContract {
       actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
     expect(controller.isPresent && controller.usesPopover, "Status item is missing or uses a static menu")
     expect(controller.popoverContentSize.width == 360, "Hosted popover changed its fixed width")
-    expect(controller.statusTitle == "58% 82% –", "Status item does not show enabled remaining quotas")
+    expect(controller.statusTitle == "58% 82%", "Status item includes an account without a limit")
+    expect(controller.statusAccessibilityLabel.contains("needs sign-in"), "Tray does not name the signed-out account")
 
     let hiddenAccount = MenuBarAccountSnapshot(
       id: UUID(), identity: "hidden@example.test", detail: "", isVerified: true, isActive: false,

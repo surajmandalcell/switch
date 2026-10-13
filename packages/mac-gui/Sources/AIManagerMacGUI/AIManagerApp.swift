@@ -54,6 +54,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 },
                 refreshUsage: { [weak self] in await self?.refreshEnabledUsage() },
                 openSettings: { [weak self] in self?.menuController?.showSettings(nil) },
+                quit: { NSApp.terminate(nil) },
                 openTool: { [weak self] accountID in await self?.model.openAccount(accountID) },
                 refreshAccount: { [weak self] accountID in await self?.refreshUsage(of: accountID) },
                 signInAccount: { [weak self] accountID in await self?.model.beginSignIn(for: accountID) }
