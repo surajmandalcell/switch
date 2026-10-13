@@ -5,8 +5,20 @@ import SwiftUI
 /// Pure rules of the popover: labels, bar colors, countdown text, geometry, keyboard order.
 /// Kept apart from the views so the contract can test them without a window.
 enum MenuBarPresentation {
-  static let rowPaddingH: CGFloat = 8
+  /// The one inset from the popover edge: group headers, rows, separators, and the footer.
+  static let inset: CGFloat = 12
+  static let rowPaddingH: CGFloat = inset
+  /// The list's scroll bar gutter lies inside the 12 pt inset on the right, so the right inset
+  /// of the content is what remains of it.
+  static let trailingInset: CGFloat = inset - AIMScroller.gutter
   static let rowPaddingV: CGFloat = 6
+  /// How far the hover fill reaches above the first line of a row: midway between the earlier
+  /// 10 pt and 2 pt. The fill then starts at the row's own top edge, never in the group header.
+  static let hoverReach: CGFloat = 6
+  /// A token line longer than this many characters puts its second value at the right end.
+  static let tokenSplitLength = 32
+  /// Popover text that is not primary: the system secondary label color, never tertiary.
+  static let secondaryInk = Color(nsColor: .secondaryLabelColor)
   static let tileSize: CGFloat = 16
   static let tileSpacing: CGFloat = 8
   static let headerHeight: CGFloat = 18
@@ -27,6 +39,20 @@ enum MenuBarPresentation {
   static let separatorFade: CGFloat = 0.12
   static let hoverOverhang: CGFloat = 4
   static let signInSubtitle = "Sign in again to see usage"
+
+  enum FooterItem { case openSwitch, refresh, quit, settings }
+  /// The footer from left to right: Open Switch, then the icon buttons Refresh, Quit, Settings.
+  static let footerOrder: [FooterItem] = [.openSwitch, .refresh, .quit, .settings]
+
+  /// Where every account's text starts, after the leading check column (a tile wide).
+  static var textIndent: CGFloat { tileSize + tileSpacing }
+
+  /// Gap between the Sign in button and the row's bottom. Collapsed, the button sits on the
+  /// subtitle line (the row's bottom padding); expanded, it sits level with the action buttons
+  /// (24 pt buttons centered in a 40 pt band).
+  static func signInBottomInset(expansion: CGFloat) -> CGFloat {
+    rowPaddingV + ((expandedHeight - signInHeight) / 2 - rowPaddingV) * expansion
+  }
 
   static func groups(_ accounts: [MenuBarAccountSnapshot]) -> [[MenuBarAccountSnapshot]] {
     var groups: [[MenuBarAccountSnapshot]] = []
@@ -123,10 +149,19 @@ enum MenuBarPresentation {
   }
 
   static func labelColumnWidth(_ account: MenuBarAccountSnapshot, expanded: Bool) -> CGFloat {
-    let font = NSFont.preferredFont(forTextStyle: .subheadline)
-    return lines(for: account, expanded: expanded).compactMap(\.label).reduce(labelWidth) {
-      max($0, ceil(($1 as NSString).size(withAttributes: [.font: font]).width))
+    lines(for: account, expanded: expanded).compactMap(\.label).reduce(labelWidth) {
+      max($0, measuredLabelWidth($1))
     }
+  }
+
+  /// Text measuring costs about 0.1 ms; the expansion asks for every label on every frame.
+  private static var labelWidths: [String: CGFloat] = [:]
+  private static func measuredLabelWidth(_ label: String) -> CGFloat {
+    if let width = labelWidths[label] { return width }
+    let font = NSFont.preferredFont(forTextStyle: .subheadline)
+    let width = ceil((label as NSString).size(withAttributes: [.font: font]).width)
+    labelWidths[label] = width
+    return width
   }
 
   static func showsSwitch(_ account: MenuBarAccountSnapshot) -> Bool { !account.isActive }
@@ -191,13 +226,35 @@ enum MenuBarPresentation {
     "Open \(account.providerID == .codex ? "Codex" : account.providerID.displayName)"
   }
 
-  static func tokenCaption(_ usage: MenuBarUsageSnapshot) -> String? {
-    guard let tokens = usage.tokens, tokens > 0, let period = usage.tokenPeriodLabel else { return nil }
-    var text = "\(tokens.formatted(.number.notation(.compactName))) tokens \(period)"
-    if let price = usage.apiPrice {
-      text += " · ≈\(price.inputEquivalent(for: tokens).formatted(.currency(code: "USD").precision(.fractionLength(0)))) API"
+  /// "24.1M", "3.2K", "950": one decimal at most, so the line stays short.
+  static func compactTokens(_ tokens: Int64) -> String {
+    guard tokens >= 1_000 else { return String(tokens) }
+    for (size, suffix) in [(1e9, "B"), (1e6, "M"), (1e3, "K")] {
+      let value = (Double(tokens) / size * 10).rounded() / 10
+      if value >= 1 {
+        return (value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)) + suffix
+      }
     }
-    return text
+    return String(tokens)
+  }
+
+  /// The token count with its period, and the API price when the usage has one.
+  static func tokenParts(_ usage: MenuBarUsageSnapshot) -> (count: String, price: String?)? {
+    guard let tokens = usage.tokens, tokens > 0, let period = usage.tokenPeriodLabel else { return nil }
+    let price = usage.apiPrice.map {
+      "≈\($0.inputEquivalent(for: tokens).formatted(.currency(code: "USD").precision(.fractionLength(0)))) API"
+    }
+    return ("\(compactTokens(tokens)) tokens \(period)", price)
+  }
+
+  /// One line, "24.1M tokens since reset · ≈$96 API". It never wraps.
+  static func tokenCaption(_ usage: MenuBarUsageSnapshot) -> String? {
+    tokenParts(usage).map { [$0.count, $0.price].compactMap { $0 }.joined(separator: " · ") }
+  }
+
+  /// Past the length threshold the two values sit at the left and right ends of the line.
+  static func splitsTokenCaption(_ usage: MenuBarUsageSnapshot) -> Bool {
+    (tokenCaption(usage)?.count ?? 0) > tokenSplitLength && tokenParts(usage)?.price != nil
   }
 
   static func accessibilityLabel(
@@ -251,14 +308,12 @@ struct MenuBarRow: View {
       VStack(alignment: .leading, spacing: P.lineGap) {
         header
         content
-        if P.hasTokenCaption(account), let text = account.usage.flatMap(P.tokenCaption) {
-          Text(text)
-            .aimText(.secondary).monospacedDigit().lineLimit(1)
-            .frame(height: P.captionHeight)
-            .padding(.leading, P.tileSize + P.tileSpacing)
+        if P.hasTokenCaption(account), let usage = account.usage, let parts = P.tokenParts(usage) {
+          tokenLine(parts, split: P.splitsTokenCaption(usage))
         }
       }
-      .padding(.horizontal, P.rowPaddingH)
+      .padding(.leading, P.rowPaddingH)
+      .padding(.trailing, P.trailingInset)
       .padding(.vertical, P.rowPaddingV)
       if expansion > 0 || store.expandedAccountID == account.id {
         HStack(spacing: 8) {
@@ -272,7 +327,7 @@ struct MenuBarRow: View {
         }
         .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
         .padding(.leading, P.rowPaddingH + P.tileSize + P.tileSpacing)
-        .padding(.trailing, P.rowPaddingH)
+        .padding(.trailing, P.trailingInset)
         .frame(height: P.expandedHeight)
         .opacity(reveal)
         .offset(y: store.reduceMotion ? 0 : 4 * (1 - expansion))
@@ -286,18 +341,21 @@ struct MenuBarRow: View {
       RoundedRectangle(cornerRadius: 6)
         .fill(isFocused || store.expandedAccountID == account.id ? AIMTheme.rowHighlight : hovered || previewHovered ? Color.primary.opacity(0.07) : .clear)
         .uiLint(.align("menuBarHoverFill", .start))
-        .padding(.leading, 4)
-        .padding(.trailing, 4 - AIMScroller.gutter)
-        .padding(.top, P.rowPaddingV - 2)
+        .padding(.leading, P.rowPaddingH - 4)
+        .padding(.trailing, P.rowPaddingH - 4 - AIMScroller.gutter)
+        .padding(.top, P.rowPaddingV - P.hoverReach)
         .padding(.bottom, -P.hoverOverhang)
         .allowsHitTesting(false)
     }
-    .overlay(alignment: .trailing) {
+    .overlay(alignment: .bottomTrailing) {
       if !account.isVerified {
+        // Bottom-aligned: level with the subtitle, then with the action buttons once the row
+        // expands (their 40 pt band centers a 24 pt button, 8 pt above the row's bottom).
         Button("Sign in") { Task { await store.signIn(accountID: account.id) } }
           .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
           .uiLint(.align("menuBarSignInTrailing", .end))
-          .padding(.trailing, P.rowPaddingH)
+          .padding(.trailing, P.trailingInset)
+          .padding(.bottom, P.signInBottomInset(expansion: expansion))
           .help("Open Switch to sign in")
           .accessibilityLabel("Sign in to \(account.identity)")
       }
@@ -317,8 +375,34 @@ struct MenuBarRow: View {
     .accessibilityAction(named: "Switch") { store.select(account) }
   }
 
+  /// One line that never wraps. A long line puts the API price at the right end.
+  private func tokenLine(_ parts: (count: String, price: String?), split: Bool) -> some View {
+    HStack(spacing: 6) {
+      Text(parts.count).layoutPriority(1)
+      if let price = parts.price {
+        if split { Spacer(minLength: 0) } else { Text("·") }
+        Text(price)
+      }
+    }
+    .aimText(.secondary, tint: P.secondaryInk).monospacedDigit().lineLimit(1)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(height: P.captionHeight)
+    .padding(.leading, P.textIndent)
+  }
+
   private var header: some View {
     HStack(spacing: P.tileSpacing) {
+      // The check column: the default account's check sits left of the name; every name
+      // starts after this column, check or not.
+      ZStack {
+        if account.isActive && !isSwitching {
+          Image(systemName: "checkmark").aimFont(.secondary)
+            .foregroundStyle(Color(nsColor: .labelColor))
+            .help("Default for \(P.providerLabel(account))")
+            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8)))
+        }
+      }
+      .frame(width: P.tileSize, height: P.headerHeight)
       Text(account.identity)
         .aimText(.body)
         .lineLimit(1).truncationMode(.tail)
@@ -328,7 +412,6 @@ struct MenuBarRow: View {
       trailing
         .frame(width: 18, height: P.headerHeight)
     }
-    .padding(.leading, P.tileSize + P.tileSpacing)
     .frame(height: P.headerHeight)
   }
 
@@ -345,11 +428,6 @@ struct MenuBarRow: View {
           .focusEffectDisabled()
           .help("\(error) Click to copy.")
           .accessibilityLabel("Copy account error")
-        } else if account.isActive {
-          Image(systemName: "checkmark").aimFont(.secondary)
-            .foregroundStyle(Color(nsColor: .labelColor))
-            .help("Default for \(P.providerLabel(account))")
-            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8)))
         }
       }
     }
@@ -358,7 +436,7 @@ struct MenuBarRow: View {
   @ViewBuilder private var content: some View {
     switch P.content(for: account, expanded: true) {
     case .signIn:
-      Text(P.signInSubtitle).aimText(.secondary).lineLimit(1)
+      Text(P.signInSubtitle).aimText(.secondary, tint: P.secondaryInk).lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: P.signInHeight)
         .uiLint(.align("menuBarSignInSubtitle", .start))
@@ -382,16 +460,17 @@ struct MenuBarRow: View {
   private func lineView(_ line: P.Line) -> some View {
     HStack(spacing: 6) {
       if let label = line.label {
-        Text(label).aimText(.secondary, tint: Color(nsColor: .secondaryLabelColor))
+        Text(label).aimText(.secondary, tint: P.secondaryInk)
           .fixedSize(horizontal: true, vertical: false)
           .uiLint(.align("menuBarUsageLabelInk", .start))
           .frame(width: P.labelColumnWidth(account, expanded: store.expandedAccountID == account.id), alignment: .leading)
           .uiLint(.align("menuBarUsageLabels", .start)).help(line.helpTitle ?? label)
       }
       if let balance = line.balance {
-        if line.label == nil { Text("Balance").aimText(.secondary) }
-        Spacer(minLength: 0)
-        Text(balance).aimText(.secondary).monospacedDigit()
+        if line.label == nil { Text("Balance").aimText(.secondary, tint: P.secondaryInk) }
+        // The value starts where the bars start and ends at the line's right edge.
+        Text(balance).aimText(.secondary, tint: P.secondaryInk).monospacedDigit().lineLimit(1)
+          .frame(maxWidth: .infinity, alignment: .trailing)
       } else {
         ZStack {
           UsageBar(usedPercent: nil, providerID: account.providerID)
@@ -406,7 +485,7 @@ struct MenuBarRow: View {
         Text(line.used.map {
           "\(UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed))%"
         } ?? "—")
-          .aimText(.secondary).monospacedDigit()
+          .aimText(.secondary, tint: P.secondaryInk).monospacedDigit()
           .contentTransition(reduceMotion ? .opacity : .numericText())
           .animation(.easeOut(duration: 0.24), value: line.used)
           .animation(.easeOut(duration: 0.24), value: showsUsed)
@@ -415,7 +494,7 @@ struct MenuBarRow: View {
           P.resetText($0, now: now, exact: exact,
             hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: line.used)
         } ?? "")
-          .aimText(.secondary).monospacedDigit().lineLimit(1)
+          .aimText(.secondary, tint: P.secondaryInk).monospacedDigit().lineLimit(1)
           .frame(width: P.resetWidth, alignment: .trailing)
       }
     }
@@ -444,15 +523,22 @@ struct MenuBarFooter: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var refreshTurn = false
 
-  var body: some View {
-    HStack(spacing: 6) {
-      Button { store.openSettings() } label: {
-        Image(systemName: "gearshape").frame(width: Self.iconSide, height: Self.iconSide)
+  private var openSwitch: some View {
+      Button {
+        store.openMainWindow()
+      } label: {
+        HStack(spacing: 8) {
+          Text("Open Switch").aimText(.body)
+          Text("⌘O").aimText(.secondary, tint: P.secondaryInk)
+        }
       }
-      .buttonStyle(MenuBarButtonStyle(horizontalPadding: 0)).focusEffectDisabled()
-      .uiLint(.align("menuBarFooterSettings", .start))
-      .help("Settings").accessibilityLabel("Settings")
+      .buttonStyle(MenuBarButtonStyle())
+      .focusEffectDisabled()
+      .keyboardShortcut("o", modifiers: .command)
+      .help("Open Switch (⌘O)")
+  }
 
+  private var refresh: some View {
       Button {
         Task { await store.refreshUsage() }
       } label: {
@@ -469,7 +555,9 @@ struct MenuBarFooter: View {
       .disabled(!store.canRefreshUsage)
       .help("Refresh usage")
       .accessibilityLabel("Refresh usage")
+  }
 
+  private var quit: some View {
       Button {
         store.actions.quit()
       } label: {
@@ -481,23 +569,32 @@ struct MenuBarFooter: View {
       .focusEffectDisabled()
       .help("Quit Switch")
       .accessibilityLabel("Quit Switch")
+  }
 
-      Spacer(minLength: 8)
+  private var settings: some View {
+      Button { store.openSettings() } label: {
+        Image(systemName: "gearshape").frame(width: Self.iconSide, height: Self.iconSide)
+      }
+      .buttonStyle(MenuBarButtonStyle(horizontalPadding: 0)).focusEffectDisabled()
+      .uiLint(.align("menuBarFooterSettings", .start))
+      .help("Settings").accessibilityLabel("Settings")
+  }
 
-      Button {
-        store.openMainWindow()
-      } label: {
-        HStack(spacing: 8) {
-          Text("Open Switch").aimText(.body)
-          Text("⌘O").aimText(.secondary)
+  var body: some View {
+    // Visual, keyboard, and accessibility order agree: P.footerOrder, Open Switch at the left.
+    HStack(spacing: 6) {
+      ForEach(P.footerOrder, id: \.self) { item in
+        switch item {
+        case .openSwitch:
+          openSwitch
+          Spacer(minLength: 8)
+        case .refresh: refresh
+        case .quit: quit
+        case .settings: settings
         }
       }
-      .buttonStyle(MenuBarButtonStyle())
-      .focusEffectDisabled()
-      .keyboardShortcut("o", modifiers: .command)
-      .help("Open Switch (⌘O)")
     }
-    .padding(.horizontal, 12)
+    .padding(.horizontal, P.inset)
     .frame(height: MenuBarPopover.footerHeight)
     .uiLint(.align("menuBarFooter", .end))
     .onChange(of: store.isRefreshingUsage) { _, refreshing in refreshTurn = refreshing }
@@ -524,9 +621,11 @@ private struct MenuBarButtonStyle: ButtonStyle {
       .foregroundStyle(Color(nsColor: .labelColor))
       .padding(.horizontal, horizontalPadding)
       .frame(height: height)
+      // The system flat fill (Dark and Light), with a light veil for hover and press.
       .background(RoundedRectangle(cornerRadius: 5).fill(
-        isFocused ? AIMTheme.focusTint
-          : Color.primary.opacity(configuration.isPressed ? 0.12 : hovered ? 0.08 : 0.05)))
+        isFocused ? AIMTheme.focusTint : Color(nsColor: .secondarySystemFill)))
+      .overlay(RoundedRectangle(cornerRadius: 5).fill(
+        Color.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.06 : 0)))
       .contentShape(RoundedRectangle(cornerRadius: 5))
       .opacity(isEnabled ? 1 : 0.45)
       .onHover { hovered = $0 }

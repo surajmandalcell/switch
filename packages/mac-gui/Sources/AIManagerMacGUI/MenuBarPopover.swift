@@ -302,6 +302,29 @@ struct MenuBarPopoverActions {
   }
 }
 
+/// Calls `tick` once per frame of the display the view is on (else the main display) until it is
+/// released. Nil when no display is available.
+@MainActor
+private final class DisplayFrameClock: NSObject {
+  private var link: CADisplayLink?
+  private let tick: (CADisplayLink) -> Void
+
+  init?(view: NSView?, tick: @escaping (CADisplayLink) -> Void) {
+    self.tick = tick
+    super.init()
+    let selector = #selector(step(_:))
+    if let view, view.window != nil { link = view.displayLink(target: self, selector: selector) }
+    else { link = NSScreen.main?.displayLink(target: self, selector: selector) }
+    guard let link else { return nil }
+    link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+    link.add(to: .main, forMode: .common)
+  }
+
+  @objc private func step(_ link: CADisplayLink) { tick(link) }
+  /// The link retains this object, so the owner stops it explicitly.
+  func stop() { link?.invalidate() }
+}
+
 @MainActor
 final class MenuBarPopoverStore: ObservableObject {
   @Published private(set) var snapshot: MenuBarSnapshot
@@ -319,7 +342,9 @@ final class MenuBarPopoverStore: ObservableObject {
   private let defaults: UserDefaults
   var animatesLayout = false
   var reduceMotion = false
-  private var layoutTask: Task<Void, Never>?
+  /// The popover's hosting view; its display link paces the expansion.
+  weak var clockView: NSView?
+  private var frameClock: DisplayFrameClock? { didSet { oldValue?.stop() } }
 
   func expansionAmount(_ id: UUID) -> CGFloat {
     if reduceMotion { return expandedAccountID == id ? 1 : 0 }
@@ -374,7 +399,7 @@ final class MenuBarPopoverStore: ObservableObject {
   var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.accounts).flatMap { $0 } }
 
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
-    layoutTask?.cancel()
+    frameClock = nil
     let start = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, revealAmount($0.id)) })
     expandedAccountID = expandedAccountID == account.id ? nil : account.id
     defaults.set(expandedAccountID?.uuidString, forKey: MenuBarUsagePreferences.expandedAccountKey)
@@ -386,28 +411,29 @@ final class MenuBarPopoverStore: ObservableObject {
     expansionAmounts = start
     didChangeLayout?()
     let target = expandedAccountID
-    layoutTask = Task { @MainActor [weak self] in
-      let began = ContinuousClock.now
-      while !Task.isCancelled {
-        guard let self else { return }
-        let elapsed = began.duration(to: .now)
-        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-        let time = min(seconds / 0.25, 1)
-        // A critically damped spring, normalized to settle on the final frame.
-        let progress = CGFloat((1 - (1 + 8 * time) * exp(-8 * time)) / (1 - 9 * exp(-8.0)))
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-          var amounts = start
-          for (id, amount) in start {
-            amounts[id] = amount + ((id == target ? 1 : 0) - amount) * progress
-          }
-          self.expansionAmounts = time == 1 ? [:] : amounts
-          self.didChangeLayout?()
+    let began = CACurrentMediaTime()
+    // One step per display frame, timed by the frame's presentation time, so the motion keeps
+    // its 250 ms at 120 Hz, at 60 Hz, and at the lower rate of Low Power Mode.
+    frameClock = DisplayFrameClock(view: clockView) { [weak self] link in
+      guard let self else { return }
+      let time = min((link.targetTimestamp - began) / 0.25, 1)
+      // A critically damped spring, normalized to settle on the final frame.
+      let progress = CGFloat((1 - (1 + 8 * time) * exp(-8 * time)) / (1 - 9 * exp(-8.0)))
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        var amounts = start
+        for (id, amount) in start {
+          amounts[id] = amount + ((id == target ? 1 : 0) - amount) * progress
         }
-        if time == 1 { return }
-        do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+        self.expansionAmounts = time == 1 ? [:] : amounts
+        self.didChangeLayout?()
       }
+      if time == 1 { self.frameClock = nil }
+    }
+    if frameClock == nil {
+      expansionAmounts = [:]
+      didChangeLayout?()
     }
   }
 
@@ -533,7 +559,7 @@ struct MenuBarPopover: View {
     if rows.isEmpty {
       VStack(spacing: 4) {
         Text("No accounts yet").aimText(.section)
-        Text("Open Switch to add an account.").aimText(.secondary)
+        Text("Open Switch to add an account.").aimText(.secondary, tint: MenuBarPresentation.secondaryInk)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .accessibilityElement(children: .combine)
@@ -545,15 +571,20 @@ struct MenuBarPopover: View {
               ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.offset) { index, group in
                 if index > 0 {
                   MenuBarSeparator()
-                    .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupGap)
+                    .padding(.leading, MenuBarPresentation.inset)
+                    .padding(.trailing, MenuBarPresentation.trailingInset)
+                    .frame(height: MenuBarPresentation.groupGap)
                 }
                 HStack(spacing: MenuBarPresentation.tileSpacing) {
                   ProviderMark(providerID: group[0].providerID, size: 16)
-                  Text(group[0].providerID.guiName).aimText(.secondary).fontWeight(.semibold)
+                  Text(group[0].providerID.guiName)
+                    .aimText(.secondary, tint: MenuBarPresentation.secondaryInk).fontWeight(.semibold)
                     .uiLint(.align("menuBarGroupHeaderInk", .start))
                   Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 8).frame(height: MenuBarPresentation.groupHeaderHeight)
+                .padding(.leading, MenuBarPresentation.inset)
+                .padding(.trailing, MenuBarPresentation.trailingInset)
+                .frame(height: MenuBarPresentation.groupHeaderHeight)
                 VStack(spacing: MenuBarPresentation.accountGap) {
                 ForEach(group) { account in
                 MenuBarRow(
