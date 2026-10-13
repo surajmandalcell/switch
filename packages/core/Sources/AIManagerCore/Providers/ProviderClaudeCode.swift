@@ -23,6 +23,12 @@ extension ProviderCatalog {
         })
 }
 
+extension UsageWindow {
+    public static func modelScopedTitle(model: String, period: String = "Weekly") -> String {
+        "\(period) \(model.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+}
+
 enum ClaudeUsage {
     static let credentialsFile = LiveFile(".claude/.credentials.json", homeEnv: "CLAUDE_CONFIG_DIR", optional: true)
     private static let endpoint = "https://api.anthropic.com/api/oauth/usage"
@@ -110,13 +116,13 @@ enum ClaudeUsage {
             && (limit["group"].string ?? "weekly") == "weekly" {
             guard let name = limit.at("scope.model.display_name").string,
                   !name.lowercased().contains("all models"), seen.insert(name.lowercased()).inserted else { continue }
-            add("weekly-\(slug(name))", "\(name) weekly", used: limit["percent"].double,
+            add("weekly-\(slug(name))", UsageWindow.modelScopedTitle(model: name), used: limit["percent"].double,
                 reset: limit["resets_at"], minutes: 10080)
         }
         // Older top-level model limits, when no scoped limit already covers that model.
         for (key, name) in [("seven_day_sonnet", "Sonnet"), ("seven_day_opus", "Opus")]
         where seen.insert(name.lowercased()).inserted {
-            add("weekly-\(slug(name))", "\(name) weekly", used: json[key]["utilization"].double,
+            add("weekly-\(slug(name))", UsageWindow.modelScopedTitle(model: name), used: json[key]["utilization"].double,
                 reset: json[key]["resets_at"], minutes: 10080)
         }
 
@@ -221,7 +227,7 @@ enum ClaudeUsage {
                 return .init(key: "weekly", title: "Weekly", minutes: 10080, exact: squash(model) == "allmodels")
             }
             let name = model.replacingOccurrences(of: #"(?i)\s+only$"#, with: "", options: .regularExpression)
-            return .init(key: "weekly-\(slug(name))", title: "\(name) weekly", minutes: 10080)
+            return .init(key: "weekly-\(slug(name))", title: UsageWindow.modelScopedTitle(model: name), minutes: 10080)
         }
         return .init(key: "weekly", title: "Weekly", minutes: 10080)
     }

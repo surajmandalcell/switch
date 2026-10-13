@@ -275,7 +275,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
         let credentials = try JSON(data: Data(#"{"claudeAiOauth":{"subscriptionType":"max","rateLimitTier":"default_claude_max_20x"}}"#.utf8))
         let usage = ClaudeUsage.map(json, credentials: credentials, now: now)
 
-        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Fable weekly", "Sonnet weekly"])
+        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Weekly Fable", "Weekly Sonnet"])
         XCTAssertEqual(usage.windows.map(\.usedPercent), [10, 20, 7, 5])
         XCTAssertEqual(usage.windows[0].windowMinutes, 300)
         XCTAssertEqual(usage.windows[1].windowMinutes, 10080)
@@ -316,7 +316,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
 
         Account: user@example.com
         """, now: now)
-        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Sonnet weekly"])
+        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Weekly Sonnet"])
         XCTAssertEqual(usage.windows.map(\.usedPercent), [1, 1, 4])
         XCTAssertEqual(usage.windows.map(\.windowMinutes), [300, 10080, 10080])
         var calendar = Calendar(identifier: .gregorian)
@@ -347,7 +347,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
          ████████████████████████████████████              29% left
          Resets Jul 24 at 2pm (Asia/Seoul)
         """)
-        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Fable weekly"])
+        XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Weekly Fable"])
         XCTAssertEqual(usage.windows.map(\.usedPercent), [0, 66, 71])
     }
 
