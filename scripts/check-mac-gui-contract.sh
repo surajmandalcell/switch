@@ -49,6 +49,11 @@ if [[ "$settings_groups" != $'General\nAppearance\nAccounts\nMenu bar\nNotificat
   exit 1
 fi
 parts_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerParts.swift"
+# The default account is marked with a disabled button, never a colored chip.
+if rg -n 'AIMStateChip' "$repo_root/packages/mac-gui/Sources"; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL obsolete default state chip' >&2
+  exit 1
+fi
 if rg -n '(^|[^A-Za-z])(ScrollView\s*(\(|\{)|List\s*\(|Form\s*\{)|\.scrollIndicators\(\.hidden\)' \
     "$repo_root/packages/mac-gui/Sources" --glob '!AIManagerParts.swift'; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL every surface must use AIMScrollView or AIMSheetForm' >&2

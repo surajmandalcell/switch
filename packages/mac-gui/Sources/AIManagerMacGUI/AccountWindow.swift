@@ -576,7 +576,9 @@ struct DefaultAccountButton: View {
 
   var body: some View {
     if isDefault {
-      AIMStateChip(text: "Default")
+      Button("Default") {}
+        .buttonStyle(AIMPushButtonStyle(width: AIMTheme.rowButtonWidth))
+        .disabled(true)
         .accessibilityLabel(AccountActionCopy.usingDefault)
         .accessibilityHint("This account is already the default.")
     } else {

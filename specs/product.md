@@ -380,7 +380,7 @@ in light and dark before a UI change ships.
 
 - **Type and color:** five macOS roles, consistent across screens and popover: Title (Title 2,
   semibold, 17 pt, focused account name, once per page); Section (Headline, bold, 13 pt, card/form
-  titles); Body (regular, 13 pt, row labels, values, buttons, Default chip); Secondary (Subheadline,
+  titles); Body (regular, 13 pt, row labels, values, buttons, Default marker); Secondary (Subheadline,
   11 pt, secondary color, providers/descriptions/resets); Caption (10 pt, badges). No other sizes
   or weights. Numbers add monospaced digits; only paths and IDs use a monospaced font.
   Remaining-quota bars are 6 pt capsules: green above 50% left, yellow at 20-50%, red below 20%.
@@ -426,7 +426,11 @@ in light and dark before a UI change ships.
   are 6 pt apart with no zebra fill. Row separators start at the indent and stay lighter than
   card borders. The usage column holds the bar and "83% · 6d 19h" (percent, then reset time);
   there is no reset column. A row without usage says why in that column ("Sign in to see
-  usage"), so the reason replaces the empty bar and dashes.
+  usage"), so the reason replaces the empty bar and dashes. The default account is marked
+  with a disabled button, the macOS look of an action that is already done (like Safari's Set
+  Default once Safari is the default): "Default" in the table row and "Using as default" on
+  the focused card, in the normal button frame at the system's disabled fill and text. No
+  green, no accent color, no check.
 - **Conversations, Maintenance, Settings:** the same cards, rows, and buttons. Maintenance
   shows Cleanup, then Backup, in a 28 pt segmented control with 120 pt segments, left-aligned
   to the cards, label-colored icons, and a searchable source picker at the bar's right end.
