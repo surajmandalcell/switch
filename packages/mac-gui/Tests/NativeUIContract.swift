@@ -65,11 +65,37 @@ enum AIManagerNativeContract {
     ], cost: UsageCost(used: 2, limit: 10, currency: "USD", period: "Monthly")))
     let account = MenuBarAccountSnapshot(id: UUID(), identity: "popover@example.test", detail: "",
       isVerified: true, isActive: false, usage: usage, providerID: .claudeCode)
-    expect(P.lines(for: account).map(\.label) == ["Session", "Weekly"], "Collapsed popover does not keep two windows")
-    expect(P.lines(for: account, expanded: true).map(\.label) == ["Session", "Weekly", "Fable", "Monthly", "Monthly"],
+    expect(P.lines(for: account).map(\.label) == ["Session", "Fable"], "Collapsed popover does not keep two available windows")
+    expect(P.lines(for: account, expanded: true).map(\.label) == ["Session", "Fable", "Monthly", "Monthly"],
       "Expanded popover omits reported windows or credits")
-    expect(P.lines(for: account, expanded: true)[1].used == nil, "Unknown reported windows disappear")
-    expect(P.rowHeight(account) == 70 && P.expansionHeight(account) == 94, "Popover expansion moves existing content")
+    expect(P.lines(for: account, expanded: true).allSatisfy { $0.used != nil || $0.balance != nil },
+      "A window without a value draws an empty bar")
+    expect(P.rowHeight(account) == 70 && P.expansionHeight(account) == 76, "Popover expansion moves existing content")
+    let amountOnly = MenuBarAccountSnapshot(id: UUID(), identity: "credits@example.test", detail: "",
+      isVerified: true, isActive: false, usage: MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
+        .init(id: "credits", title: "Credits", usedPercent: nil, detail: "12 credits")
+      ])))
+    expect(P.lines(for: amountOnly).first?.balance == "12 credits", "Amount-only usage lost its value text")
+    expect(P.tokenCaption(MenuBarUsageSnapshot(usedPercentage: 20, tokenPeriodLabel: "since reset", tokens: 0)) == nil,
+      "Zero tokens produce a caption")
+    let noCache = MenuBarAccountSnapshot(id: UUID(), identity: "empty@example.test", detail: "",
+      isVerified: true, isActive: false)
+    let signedOutQuota = MenuBarAccountSnapshot(id: UUID(), identity: "out@example.test", detail: "",
+      isVerified: false, isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: 10))
+    let eligible = (0..<5).map { index in
+      MenuBarAccountSnapshot(id: UUID(), identity: "tray\(index)@example.test", detail: "",
+        isVerified: true, isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: index * 10))
+    }
+    let tray = MenuBarSnapshot(accounts: [signedOutQuota, noCache] + eligible)
+    expect(tray.statusAccounts.map(\.id) == eligible.prefix(4).map(\.id),
+      "Missing tray quotas consume the four-account limit")
+    let trayController = AIManagerStatusItemController(snapshot: tray,
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
+    expect(trayController.statusAccessibilityLabel.contains("\(noCache.identity), no usage yet")
+      && trayController.statusAccessibilityLabel.contains("\(signedOutQuota.identity), needs sign-in"),
+      "Tray does not name every account omitted for missing usage")
+    expect(MenuBarSnapshot(accounts: [noCache, signedOutQuota]).statusAccounts.isEmpty,
+      "An empty tray does not keep the Switch mark")
     let codex = MenuBarPopoverPreviewData.sixAccountSnapshot.accounts[1]
     expect(P.lines(for: codex, expanded: true).map(\.label) == ["Session", "Weekly", "Spark", "Monthly"],
       "Expanded Codex omits a model bucket, credits, or repeats the default bucket")

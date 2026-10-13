@@ -478,10 +478,8 @@ final class AIManagerStatusItemController: NSObject {
     let screen = (popover.isShown ? popover.contentViewController?.view.window?.screen : nil)
       ?? statusItem.button?.window?.screen ?? NSScreen.main
     store.update(visibleScreenHeight: screen?.visibleFrame.height ?? Self.fallbackScreenHeight)
+    popover.contentSize = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
     popover.contentViewController?.view.layoutSubtreeIfNeeded()
-    popover.contentSize = Self.contentSize(
-      accounts: store.snapshot.accounts,
-      visibleScreenHeight: store.visibleScreenHeight, expandedID: store.expandedAccountID)
   }
 
   private func configureButton() {
@@ -540,12 +538,12 @@ final class AIManagerStatusItemController: NSObject {
     button.imagePosition = .imageOnly
     button.image = AIManagerBrand.statusImage(
       groups: snapshot.statusAccountGroups, showsUsed: showsUsed, in: bundle)
-    let description = accounts.map { account in
-      let quota = account.usage.flatMap { usage in
-        (usage.usedPercentage ?? usage.secondaryUsedPercentage).map {
-          UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed)
-        }
-      } ?? "Limit not checked"
+    let omitted = snapshot.accounts.filter { $0.showsUsage && (!$0.isVerified || $0.remainingPercentage == nil) }
+    let description = (accounts + omitted).map { account in
+      let quota = account.quotaUsedPercentage.map {
+        UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed)
+      } ?? (account.isVerified ? "no usage yet" : "needs sign-in")
+      if !account.isVerified { return "\(account.providerID.guiName), \(account.identity), needs sign-in" }
       return "\(account.providerID.guiName), \(account.identity), \(quota)"
     }.joined(separator: "\n")
     button.toolTip = description.isEmpty ? applicationName : description

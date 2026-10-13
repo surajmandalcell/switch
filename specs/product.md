@@ -296,19 +296,15 @@ completed refresh. The cadence does not depend on cache age or opening the menu 
 refresh remains immediate, and a failed account waits five minutes before another automatic
 attempt.
 
-Settings includes a persistent “Show percentage used” toggle, off by default. When off,
-every quota percentage shows the amount left; when on, every quota percentage shows the
-amount used. The selected meaning applies to main-window meters, Menubar cards, status-item
-percentages, tooltips, and accessibility labels, and survives app restarts.
+Settings has a persistent “Show percentage used” toggle, off by default: off shows the amount
+left, on shows the amount used, in every meter, popover row, tray percentage, tooltip, and
+accessibility label.
 
-Daily activity uses a GitHub-style calendar instead of a date table. Its header uses a native
-segmented control: Today, Yesterday, Weekly, Monthly, and Yearly drive both the visible token
-total and the activity range, initially Yearly. Other compact, mutually exclusive period
-filters use segmented controls too. The selected range persists across app restarts.
-Selecting an account changes only the display: no credential activation and no waiting on file
-reads, queries, or calendar aggregation. Build each calendar's days, weeks, and maximum once per
-body update. The pane stays responsive with a year of activity (measure real layout and drawing)
-and never shows the previous account's data. Dense grids use one Canvas with exact-day pointer
+Daily activity is a GitHub-style calendar. A segmented control (Today, Yesterday, Weekly,
+Monthly, Yearly; initially Yearly, remembered) drives the token total and the range. Selecting
+an account changes only the display: no credential activation and no waiting on reads or
+aggregation; the pane stays responsive with a year of activity and never shows the previous
+account's data. Dense grids use one Canvas with exact-day pointer
 selection, arrow keys, and per-date accessibility actions on the markers' bounds; weekday labels
 follow a Sunday-first grid. Redraws never reload the Dock icon. Indexing runs at utility priority.
 Cell intensity follows the selected range; a selected day shows its date and exact tokens.
@@ -338,20 +334,20 @@ reset, the default, Today, Yesterday, Weekly, Monthly, Yearly). Since reset star
 window start when the service returns duration and reset time, else falls back to Weekly.
 
 Beside the token total, show an API-equivalent value when the shared Codex config's model has
-published pricing: LiteLLM's public catalog, cached 24 hours, stale cache offline. The feed has no
-input/output/cache split, so label it an input-rate equivalent, never billed cost, and put the
-model plus cached-input, input, and output equivalents in help text. Tokens stay without pricing.
+published pricing (LiteLLM's public catalog, cached 24 hours). Label it an input-rate equivalent,
+never billed cost; help text shows the model and the cached-input, input, and output values.
 
 Shared-home project totals serve history and cleanup, never the selected account's statistics.
-The popover body scrolls above a fixed refresh time and Refresh/Open actions. It has no token band,
-brand header, column header, session explanation, Add Account, or Quit.
+The popover body scrolls above a fixed footer (section 4). It has no token band, brand header,
+column header, session explanation, or Add Account. A "0 tokens since reset" line is hidden.
 
 Each account's More menu has a **Show in Menubar** checkmark (with Use Settings default) that
 controls its popover row and menu-bar entry. With any account enabled, the tray shows
 **remaining** percentages for the first four enabled accounts in saved order: one 12-point
 monochrome glyph per service, then that service's percentages, services ordered by their first
-account. Changing the default never reorders. No cached limit shows a dash, explained in the
-tooltip and accessible description. With none enabled, the Switch mark stays. Disabled usage has
+account. Changing the default never reorders. An account with no limit to show (signed out, or
+none cached) is left out and the next enabled account takes its place; the tooltip names it.
+With none to show, the Switch mark stays. Disabled usage has
 no refresh or placeholder; enabling never activates an account. Choices persist by account UUID
 and apply at once; main-window usage ignores them.
 Accounts support drag-and-drop reordering, plus Move up and Move down context-menu actions.
@@ -448,10 +444,13 @@ in light and dark before a UI change ships.
   spring. Reduce Motion keeps fades only. A page switch shows its first frame with no visible
   delay; heavy work runs off the main actor.
 - **Menu bar popover:** about 360 pt wide, compact, with no app name header. Its surface is
-  brighter and less see-through than the default popover material, like modern macOS menus, in
-  both appearances. Separators use half the hairline opacity and fade out at both ends. Hover
-  highlights reach a few points past the row above and below and further right, with no change
-  to row spacing. Accounts are grouped by service: one group header per service (its brand logo tile and
+  less see-through than the default popover material; in Dark Mode it stays dark (about
+  #262628), never a lifted gray. Separators use half the hairline opacity and fade at both ends.
+  Hover highlights reach a few points past the row below and further right, but only about 2 pt
+  above, so they never touch the group header; row spacing never changes. Buttons keep the
+  Sequoia size (24 pt painted, 5 pt radius, flat fill); hover and press never grow them.
+  Expanding or collapsing a row never moves the rows above it, and the popover height and its
+  content animate as one motion. Accounts are grouped by service: one group header per service (its brand logo tile and
   name), then that service's accounts, each as its own row (one-line truncated name, checkmark
   for the default) with its usage lines under it. Account rows carry no logo and no service
   name. Show in Menubar uses the Settings default or an account override. Each account shows
@@ -463,8 +462,8 @@ in light and dark before a UI change ships.
   Switch and Open <tool> actions. An account that needs sign-in shows "Sign in again to see
   usage" as its subtitle, with Sign in at the row's right. A model-specific weekly window is
   named by its model: "Weekly Fable" in the window and just "Fable" in the popover.
-  The context menu offers Switch, Open <tool>, Refresh, and Copy name. Hover highlights have even
-  insets. A compact footer holds Refresh and Settings icon buttons and Open Switch with Command-O.
+  The context menu offers Switch, Open <tool>, Refresh, and Copy name. The footer holds Settings,
+  Refresh, and Quit icon buttons at the left, 6 pt apart, and Open Switch (Command-O) at the right.
 - **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
   never touches the real clipboard); every icon action has an accessible name and keyboard
   focus; Reduce Motion and Reduce Transparency follow the system; Preview data is synthetic.

@@ -57,7 +57,7 @@ enum MenuBarPresentation {
   struct Line: Equatable {
     /// Window name in the fixed first column.
     let label: String?
-    /// Nil is an unknown value: an empty track and an em dash.
+    /// Nil uses the reported amount text, without a percentage bar.
     let used: Int?
     let resetsAt: Date?
     let minutes: Int?
@@ -89,29 +89,31 @@ enum MenuBarPresentation {
   static func content(for account: MenuBarAccountSnapshot, expanded: Bool = true) -> Content {
     guard account.isVerified else { return .signIn }
     guard let usage = account.usage else {
-      return .lines([Line(label: nil, used: nil, resetsAt: nil, minutes: nil, balance: nil)])
+      return .lines([])
     }
     if let providerWindows = usage.providerWindows, !providerWindows.isEmpty {
-      return .lines((expanded ? providerWindows : Array(providerWindows.prefix(2))).map {
+      let visible = providerWindows.filter { $0.used != nil || $0.balance?.isEmpty == false }
+      return .lines((expanded ? visible : Array(visible.prefix(2))).map {
         Line(label: $0.compactLabel ?? windowLabel(minutes: $0.minutes, title: $0.title), used: $0.used,
           resetsAt: $0.resetsAt, minutes: $0.minutes, balance: $0.balance, helpTitle: $0.title)
       })
     }
-    var windows: [(title: String, used: Int, reset: Date?, minutes: Int?)] = []
-    if let used = usage.usedPercentage {
-      windows.append((usage.primaryLabel, used, usage.resetsAt, usage.primaryMinutes))
+    var windows: [(title: String, used: Int?, reset: Date?, minutes: Int?, detail: String?)] = []
+    if usage.usedPercentage != nil || usage.primaryDetail?.isEmpty == false {
+      windows.append((usage.primaryLabel, usage.usedPercentage, usage.resetsAt, usage.primaryMinutes, usage.primaryDetail))
     }
-    if let used = usage.secondaryUsedPercentage {
-      windows.append((usage.secondaryLabel, used, usage.secondaryResetsAt, usage.secondaryMinutes))
+    if usage.secondaryUsedPercentage != nil || usage.secondaryDetail?.isEmpty == false {
+      windows.append((usage.secondaryLabel, usage.secondaryUsedPercentage, usage.secondaryResetsAt, usage.secondaryMinutes, usage.secondaryDetail))
     }
     if windows.isEmpty {
+      guard let balance = usage.balanceText, !balance.isEmpty else { return .lines([]) }
       return .lines([Line(
-        label: nil, used: nil, resetsAt: nil, minutes: nil, balance: usage.balanceText)])
+        label: nil, used: nil, resetsAt: nil, minutes: nil, balance: balance)])
     }
     return .lines(windows.map {
       Line(
         label: windowLabel(minutes: $0.minutes, title: $0.title),
-        used: $0.used, resetsAt: $0.reset, minutes: $0.minutes, balance: nil)
+        used: $0.used, resetsAt: $0.reset, minutes: $0.minutes, balance: $0.used == nil ? $0.detail : nil)
     })
   }
 
@@ -131,7 +133,7 @@ enum MenuBarPresentation {
 
   static func hasTokenCaption(_ account: MenuBarAccountSnapshot) -> Bool {
     guard account.isVerified, let usage = account.usage else { return false }
-    return usage.tokens != nil && usage.tokenPeriodLabel != nil
+    return (usage.tokens ?? 0) > 0 && usage.tokenPeriodLabel != nil
       && (usage.usedPercentage != nil || usage.secondaryUsedPercentage != nil)
   }
 
@@ -146,7 +148,7 @@ enum MenuBarPresentation {
   static func rowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     guard account.showsUsage else { return 0 }
     if !account.isVerified, let height = account.reservedRowHeight { return height }
-    let count = CGFloat(lineCount(account))
+    let count = CGFloat(max(1, lineCount(account)))
     var height = rowPaddingV * 2 + headerHeight + lineGap + count * lineHeight
       + (count - 1) * lineSpacing + dividerHeight
     if !account.isVerified { height += signInHeight - lineHeight }
@@ -190,7 +192,7 @@ enum MenuBarPresentation {
   }
 
   static func tokenCaption(_ usage: MenuBarUsageSnapshot) -> String? {
-    guard let tokens = usage.tokens, let period = usage.tokenPeriodLabel else { return nil }
+    guard let tokens = usage.tokens, tokens > 0, let period = usage.tokenPeriodLabel else { return nil }
     var text = "\(tokens.formatted(.number.notation(.compactName))) tokens \(period)"
     if let price = usage.apiPrice {
       text += " · ≈\(price.inputEquivalent(for: tokens).formatted(.currency(code: "USD").precision(.fractionLength(0)))) API"
@@ -241,6 +243,8 @@ struct MenuBarRow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private typealias P = MenuBarPresentation
+  private var expansion: CGFloat { store.expansionAmount(account.id) }
+  private var reveal: CGFloat { store.revealAmount(account.id) }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -256,7 +260,7 @@ struct MenuBarRow: View {
       }
       .padding(.horizontal, P.rowPaddingH)
       .padding(.vertical, P.rowPaddingV)
-      if store.expandedAccountID == account.id {
+      if expansion > 0 || store.expandedAccountID == account.id {
         HStack(spacing: 8) {
           if P.showsSwitch(account) {
             Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
@@ -270,10 +274,13 @@ struct MenuBarRow: View {
         .padding(.leading, P.rowPaddingH + P.tileSize + P.tileSpacing)
         .padding(.trailing, P.rowPaddingH)
         .frame(height: P.expandedHeight)
-        .transition(.opacity)
+        .opacity(reveal)
+        .offset(y: store.reduceMotion ? 0 : 4 * (1 - expansion))
+        .frame(height: P.expandedHeight * expansion, alignment: .top)
+        .clipped()
       }
     }
-    .frame(height: P.rowHeight(account) + (store.expandedAccountID == account.id ? P.expansionHeight(account) : 0), alignment: .top)
+    .frame(height: P.rowHeight(account) + P.expansionHeight(account) * expansion, alignment: .top)
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
@@ -281,7 +288,8 @@ struct MenuBarRow: View {
         .uiLint(.align("menuBarHoverFill", .start))
         .padding(.leading, 4)
         .padding(.trailing, 4 - AIMScroller.gutter)
-        .padding(.vertical, -P.hoverOverhang)
+        .padding(.top, P.rowPaddingV - 2)
+        .padding(.bottom, -P.hoverOverhang)
         .allowsHitTesting(false)
     }
     .overlay(alignment: .trailing) {
@@ -348,7 +356,7 @@ struct MenuBarRow: View {
   }
 
   @ViewBuilder private var content: some View {
-    switch P.content(for: account, expanded: store.expandedAccountID == account.id) {
+    switch P.content(for: account, expanded: true) {
     case .signIn:
       Text(P.signInSubtitle).aimText(.secondary).lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -358,8 +366,15 @@ struct MenuBarRow: View {
         .padding(.trailing, 60)
     case .lines(let lines):
       VStack(spacing: P.lineSpacing) {
-        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in lineView(line) }
+        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+          lineView(line)
+            .opacity(index < 2 ? 1 : reveal)
+            .offset(y: index < 2 || store.reduceMotion ? 0 : 4 * (1 - expansion))
+        }
       }
+      .frame(height: CGFloat(P.lines(for: account).count) * P.lineHeight
+        + CGFloat(max(0, lines.count - P.lines(for: account).count)) * P.lineHeight * expansion, alignment: .top)
+      .clipped()
       .padding(.leading, P.tileSize + P.tileSpacing)
     }
   }
@@ -367,7 +382,8 @@ struct MenuBarRow: View {
   private func lineView(_ line: P.Line) -> some View {
     HStack(spacing: 6) {
       if let label = line.label {
-        Text(label).aimText(.secondary).fixedSize(horizontal: true, vertical: false)
+        Text(label).aimText(.secondary, tint: Color(nsColor: .secondaryLabelColor))
+          .fixedSize(horizontal: true, vertical: false)
           .uiLint(.align("menuBarUsageLabelInk", .start))
           .frame(width: P.labelColumnWidth(account, expanded: store.expandedAccountID == account.id), alignment: .leading)
           .uiLint(.align("menuBarUsageLabels", .start)).help(line.helpTitle ?? label)
@@ -424,12 +440,19 @@ struct MenuBarFooter: View {
   @ObservedObject var store: MenuBarPopoverStore
   private typealias P = MenuBarPresentation
   /// The icon box of the square footer buttons; the large control height gives the rest.
-  private static let iconSide: CGFloat = 18
+  private static let iconSide: CGFloat = 24
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var refreshTurn = false
 
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 6) {
+      Button { store.openSettings() } label: {
+        Image(systemName: "gearshape").frame(width: Self.iconSide, height: Self.iconSide)
+      }
+      .buttonStyle(MenuBarButtonStyle(horizontalPadding: 0)).focusEffectDisabled()
+      .uiLint(.align("menuBarFooterSettings", .start))
+      .help("Settings").accessibilityLabel("Settings")
+
       Button {
         Task { await store.refreshUsage() }
       } label: {
@@ -439,23 +462,25 @@ struct MenuBarFooter: View {
         .animation(store.isRefreshingUsage && !reduceMotion ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .easeOut(duration: 0.12), value: refreshTurn)
         .frame(width: Self.iconSide, height: Self.iconSide)
       }
-      .buttonStyle(MenuBarButtonStyle())
+      .buttonStyle(MenuBarButtonStyle(horizontalPadding: 0))
+      .uiLint(.align("menuBarFooterRefresh", .start))
       .focusEffectDisabled()
       .keyboardShortcut("r", modifiers: .command)
       .disabled(!store.canRefreshUsage)
-      .help(refreshHelp)
+      .help("Refresh usage")
       .accessibilityLabel("Refresh usage")
 
       Button {
-        store.openSettings()
+        store.actions.quit()
       } label: {
-        Image(systemName: "gearshape")
+        Image(systemName: "power")
           .frame(width: Self.iconSide, height: Self.iconSide)
       }
-      .buttonStyle(MenuBarButtonStyle())
+      .buttonStyle(MenuBarButtonStyle(horizontalPadding: 0))
+      .uiLint(.align("menuBarFooterQuit", .start))
       .focusEffectDisabled()
-      .help("Settings")
-      .accessibilityLabel("Settings")
+      .help("Quit Switch")
+      .accessibilityLabel("Quit Switch")
 
       Spacer(minLength: 8)
 
@@ -474,6 +499,7 @@ struct MenuBarFooter: View {
     }
     .padding(.horizontal, 12)
     .frame(height: MenuBarPopover.footerHeight)
+    .uiLint(.align("menuBarFooter", .end))
     .onChange(of: store.isRefreshingUsage) { _, refreshing in refreshTurn = refreshing }
     .onChange(of: reduceMotion) { _, _ in refreshTurn = store.isRefreshingUsage }
     .overlay(alignment: .top) {
@@ -481,15 +507,12 @@ struct MenuBarFooter: View {
     }
   }
 
-  private var refreshHelp: String {
-    guard let at = store.snapshot.lastRefreshedAt else { return "Refresh usage (⌘R)" }
-    return "Refresh usage (⌘R). Refreshed \(at.formatted(.relative(presentation: .numeric)))."
-  }
 }
 
 /// Flat fills keep footer and sign-in controls quiet in both appearances.
 private struct MenuBarButtonStyle: ButtonStyle {
   var height: CGFloat = 24
+  var horizontalPadding: CGFloat = 6
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.isFocused) private var isFocused
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -498,15 +521,14 @@ private struct MenuBarButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .aimText(.body)
-      .padding(.horizontal, 6)
+      .foregroundStyle(Color(nsColor: .labelColor))
+      .padding(.horizontal, horizontalPadding)
       .frame(height: height)
       .background(RoundedRectangle(cornerRadius: 5).fill(
         isFocused ? AIMTheme.focusTint
-          : Color.primary.opacity(configuration.isPressed ? 0.12 : hovered ? 0.08 : 0.05))
-        .padding(.horizontal, -4).padding(.vertical, -4))
+          : Color.primary.opacity(configuration.isPressed ? 0.12 : hovered ? 0.08 : 0.05)))
       .contentShape(RoundedRectangle(cornerRadius: 5))
       .opacity(isEnabled ? 1 : 0.45)
-      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
       .onHover { hovered = $0 }
       .animation(.easeOut(duration: 0.12), value: hovered)
       .animation(.easeOut(duration: AIMMotion.state), value: configuration.isPressed)
