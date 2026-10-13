@@ -232,18 +232,27 @@ enum GrokBuildUsage {
         for case let url as URL in walker where url.lastPathComponent == "updates.jsonl" {
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             guard (values?.contentModificationDate ?? .distantPast) >= since,
-                  (values?.fileSize ?? 0) < 200_000_000,
-                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
-            let marker = Data("turn_completed".utf8)
-            for line in data.split(separator: UInt8(ascii: "\n")) where line.range(of: marker) != nil {
-                guard let object = (try? JSONSerialization.jsonObject(with: line)).map(JSON.init) else { continue }
-                entries += turnEntries(object, seen: &seen).filter { $0.date >= since }
-            }
+                  (values?.fileSize ?? 0) < 200_000_000 else { continue }
+            // A copied transcript repeats an event; count it once per model.
+            entries += turns(in: url).filter { $0.date >= since && ($0.key.map { seen.insert($0).inserted } ?? true) }
         }
         return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
     }
 
-    private static func turnEntries(_ object: JSON, seen: inout Set<String>) -> [MajorsSpend.Entry] {
+    /// Completed turns of one `updates.jsonl`, one entry per model, with the model and a key for
+    /// cross-file dedup. Reads the file once and keeps no message text.
+    static func turns(in url: URL) -> [MajorsSpend.Entry] {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return [] }
+        let marker = Data("turn_completed".utf8)
+        var entries: [MajorsSpend.Entry] = []
+        for line in data.split(separator: UInt8(ascii: "\n")) where line.range(of: marker) != nil {
+            guard let object = (try? JSONSerialization.jsonObject(with: line)).map(JSON.init) else { continue }
+            entries += turnEntries(object)
+        }
+        return entries
+    }
+
+    private static func turnEntries(_ object: JSON) -> [MajorsSpend.Entry] {
         let params = object["params"]
         let update = params["update"].exists ? params["update"] : object["update"]
         guard update["sessionUpdate"].string == "turn_completed", let models = update.at("usage.modelUsage").raw as? [String: Any]
@@ -255,13 +264,12 @@ enum GrokBuildUsage {
         let topTicks = update.at("usage.costUsdTicks").double
         return models.sorted { $0.key < $1.key }.compactMap { name, raw in
             let model = JSON(raw)
-            // A copied transcript repeats an event; count it once per model.
-            if let eventID, !seen.insert("\(eventID)\0\(name)").inserted { return nil }
             let ticks = model["costUsdTicks"].double ?? (models.count == 1 ? topTicks : nil)
             // inputTokens already includes cache reads and writes; reasoning is a subset of output.
             let tokens = max(0, model["inputTokens"].double ?? 0) + max(0, model["outputTokens"].double ?? 0)
             return MajorsSpend.Entry(date: date, cost: ticks.flatMap { $0 >= 0 ? $0 / 10_000_000_000 : nil },
-                                     tokens: Int(min(tokens, 1e15)))
+                                     tokens: Int(min(tokens, 1e15)), model: name,
+                                     key: eventID.map { "\($0)\0\(name)" })
         }
     }
 

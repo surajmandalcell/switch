@@ -96,6 +96,7 @@ struct AIManagerCLI {
         case "guard":
             let code = try await LimitsCommands.guardLimit(input, manager: manager)
             if code != 0 { exit(code) }
+        case "history": try await LimitsCommands.history(input, manager: manager)
         case "add", "start-login": try await startLogin(input, manager: manager)
         case "import-droid":
             guard let name = input.option("--name") else { throw CLIError.message("Enter the account name with --name.") }
@@ -1124,6 +1125,8 @@ struct AIManagerCLI {
       ai-manager start-login [provider] [--yes] [--json]    Alias for add
       ai-manager usage [provider|account-uuid] [--json] [--force]
                                                             Limits for saved accounts (schema switch.limits.v1)
+      ai-manager history [--json] [--period week|month|year] [--group account|model|project]
+                                                            Token and cost history behind the Overview
       ai-manager guard --provider <id> [--account <uuid>] --min-remaining <0-100> [--window <id>] [--json] [--fail-open]
                                                             Exit 0 allow, 1 block, 64 bad arguments, 69 unknown
       ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]

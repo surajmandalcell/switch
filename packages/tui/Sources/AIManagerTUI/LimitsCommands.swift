@@ -221,6 +221,52 @@ enum LimitsCommands {
         return !accounts.isEmpty && fetched.isEmpty ? 4 : 0
     }
 
+    // MARK: history
+
+    /// `ai-manager history [--json] [--period week|month|year] [--group account|model|project]`:
+    /// the Overview dashboard's data. Account groups come only from attributable sources.
+    static func history(_ input: CommandLineInput, manager: AccountManager) async throws {
+        try rejectUnknownFlags(input, allowed: ["--json", "--period", "--group"], code: 2)
+        func option(_ name: String) -> String? {
+            input.values.firstIndex(of: name).flatMap { input.values.dropFirst($0 + 1).first }
+        }
+        guard let period = UsagePeriod(rawValue: option("--period") ?? "week") else {
+            throw CLIError.exit(2, "Period must be week, month, or year.")
+        }
+        guard let grouping = UsageGrouping(rawValue: option("--group") ?? "account") else {
+            throw CLIError.exit(2, "Group must be account, model, or project.")
+        }
+        let accounts = try await manager.status().accounts
+        let support = input.paths.applicationSupport
+        let pricing = ClaudePricingSource(cacheURL: support.appending(path: "cache/model-pricing.json"))
+        let grok = accounts.filter { $0.identity.providerID == .grokBuild }
+        let sources = UsageHistorySources(
+            ledger: codexCache(input.paths),
+            claude: ClaudeCostScanner(cacheURL: support.appending(path: "cache/claude-history.json"),
+                                      pricing: pricing.loader()),
+            claudeHomes: UsageHistory.claudeProfileHomes(
+                applicationSupport: support,
+                accountIDs: accounts.filter { $0.identity.providerID == .claudeCode }.map(\.id)),
+            grokSessions: UsageHistory.grokSessionsFolder(),
+            grokAccountID: grok.count == 1 ? grok.first?.id.uuidString.lowercased() : nil,
+            pricing: pricing.loader())
+        let summary = await UsageHistory(sources: sources).snapshot().summary(period: period, grouping: grouping)
+        if input.json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            print(String(decoding: try encoder.encode(summary), as: UTF8.self))
+            return
+        }
+        let totals = summary.totals
+        print("\(period.rawValue): \(totals.tokens) tokens"
+            + (totals.costUSD.map { String(format: ", about $%.2f", $0) } ?? "")
+            + ", \(totals.activeAccounts) active accounts"
+            + (totals.busiestDay.map { ", busiest \($0)" } ?? ""))
+        for group in summary.groups {
+            print("  \(group.label)  \(group.tokens)" + (group.costUSD.map { String(format: "  $%.2f", $0) } ?? ""))
+        }
+    }
+
     /// One block per account, plain text.
     private static func plainBlock(_ account: AccountRecord, usage: ProviderUsage, isDefault: Bool) -> String {
         var lines: [String] = []

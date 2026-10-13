@@ -266,8 +266,15 @@ struct ClaudeUsageEvent: Codable, Equatable {
     var costUSD: Double?
     /// Raw model name, `<synthetic>` included.
     var model: String?
+    /// Index of the source file while one scan runs. Never stored.
+    var origin = 0
 
     var total: Int { input + output + cacheRead + cacheWrite5m + cacheWrite1h }
+
+    private enum CodingKeys: String, CodingKey {
+        case time, input, output, cacheRead, cacheWrite5m, cacheWrite1h, fast, hasSpeed
+        case messageID, requestID, sidechain, costUSD, model
+    }
 }
 
 /// Turns JSONL bytes into events. Owns its date formatters, so use one per scan.
@@ -280,6 +287,20 @@ struct ClaudeLogParser {
         return formatter
     }()
     private let plain = ISO8601DateFormatter()
+
+    /// The first working directory a log names. Reads only the bytes up to that value.
+    static func cwd(in data: Data) -> String? {
+        guard let found = data.range(of: Data(#""cwd":""#.utf8)) else { return nil }
+        var end = found.upperBound
+        var escaped = false
+        while end < data.endIndex, end - found.upperBound < 4_096 {
+            if escaped { escaped = false } else if data[end] == 0x5C { escaped = true } else if data[end] == 0x22 { break }
+            end += 1
+        }
+        guard end < data.endIndex, data[end] == 0x22 else { return nil }
+        let quoted = Data([0x22]) + data[found.upperBound..<end] + Data([0x22])
+        return (try? JSONSerialization.jsonObject(with: quoted, options: .fragmentsAllowed)) as? String
+    }
 
     func parse(_ data: Data) -> [ClaudeUsageEvent] {
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> [ClaudeUsageEvent] in
@@ -370,6 +391,17 @@ struct ClaudeLogParser {
     }
 }
 
+/// One UTC day of Claude Code usage for one model and project. `accountID` is set only when the
+/// log file lives in a single account's own home (see `ClaudeCostScanner.history`).
+public struct ClaudeHistoryRow: Equatable, Sendable {
+    public var day: String
+    public var model: String?
+    public var project: String
+    public var accountID: String?
+    public var tokens: Int64
+    public var costUSD: Double?
+}
+
 public actor ClaudeCostScanner {
     public typealias Pricing = @Sendable () async -> [String: ModelRate]
 
@@ -377,7 +409,20 @@ public actor ClaudeCostScanner {
         var size: Int
         var mtime: Double
         var events: [ClaudeUsageEvent]
+        /// First working directory the log names; nil in records saved before this field existed.
+        var project: String?
     }
+
+    private struct HistoryMemo {
+        var signature: [String]
+        var day: Int
+        var builtAt: Date
+        var unpriced: Bool
+        var rows: [ClaudeHistoryRow]
+    }
+
+    private var historyCache: CacheFile?
+    private var historyMemo: HistoryMemo?
 
     private struct CacheFile: Codable {
         var version: Int
@@ -461,6 +506,108 @@ public actor ClaudeCostScanner {
             table = ModelRateTable(await pricing())
         }
         return aggregate(kept, table: &table)
+    }
+
+    /// Usage per UTC day, model and project for the last `days` days (today included). Give this
+    /// scanner its own `cacheURL`: it keeps files up to a year old, which would trim the 30 day cache.
+    /// `account` maps a log file's real path to the account whose own home holds it, nil for shared
+    /// homes. Parsing stays incremental (unchanged files are served from the cache, and an unchanged
+    /// file set returns the previous rows), and no message text is kept.
+    /// ponytail: the cache holds every event of the window as JSON; store per-day sums instead if
+    /// it grows past tens of megabytes.
+    public func history(days: Int = 365, now: Date = Date(),
+                        account: (String) -> String? = { _ in nil }) async -> [ClaudeHistoryRow] {
+        let today = Int((now.timeIntervalSince1970 / 86_400).rounded(.down))
+        let first = today - (max(days, 1) - 1)
+        let since = Double(first) * 86_400
+        let files = discover().filter { $0.mtime >= since }
+        let signature = files.map { "\($0.path)\0\($0.size)\0\($0.mtime)" }
+        if let memo = historyMemo, memo.signature == signature, memo.day == today,
+           !memo.unpriced || now.timeIntervalSince(memo.builtAt) < 30 * 60 { return memo.rows }
+
+        var cache = historyCache ?? loadCache()
+        var next: [String: FileRecord] = [:]
+        let parser = ClaudeLogParser()
+        var parsedAny = false
+        for file in files {
+            if let record = cache.files[file.path], record.size == file.size, record.mtime == file.mtime,
+               record.project != nil {
+                next[file.path] = record
+            } else {
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: file.path), options: [.mappedIfSafe])
+                else { continue }
+                filesParsed += 1
+                parsedAny = true
+                next[file.path] = FileRecord(size: file.size, mtime: file.mtime, events: parser.parse(data),
+                                             project: ClaudeLogParser.cwd(in: data) ?? "")
+            }
+        }
+        if parsedAny || Set(next.keys) != Set(cache.files.keys) {
+            cache.files = next
+            saveCache(cache)
+        }
+        historyCache = cache
+
+        var origins: [(project: String, account: String?)] = []
+        var events: [ClaudeUsageEvent] = []
+        for file in files {
+            guard let record = next[file.path] else { continue }
+            let project = record.project.flatMap { $0.isEmpty ? nil : $0 }
+                ?? URL(fileURLWithPath: file.path).deletingLastPathComponent().lastPathComponent
+            origins.append((project, account(file.path)))
+            events += record.events.map { var event = $0; event.origin = origins.count - 1; return event }
+        }
+        let kept = Self.dedup(events).filter {
+            $0.time.timeIntervalSince1970 >= since && $0.model != "<synthetic>" && $0.total > 0
+        }
+        var table = ModelRateTable([:])
+        if kept.contains(where: { $0.costUSD == nil && $0.model != nil }) {
+            table = ModelRateTable(await pricing())
+        }
+        struct Key: Hashable { var day: Int; var model: String?; var origin: Int }
+        var sums: [Key: (tokens: Int64, cost: Double?)] = [:]
+        var unpriced = false
+        for event in kept {
+            let key = Key(day: Int((event.time.timeIntervalSince1970 / 86_400).rounded(.down)),
+                          model: event.model, origin: event.origin)
+            let cost = Self.cost(of: event, table: &table)
+            if cost == nil { unpriced = true }
+            var sum = sums[key] ?? (0, nil)
+            sum.tokens += Int64(event.total)
+            if let cost { sum.cost = (sum.cost ?? 0) + cost }
+            sums[key] = sum
+        }
+        var dayNames: [Int: String] = [:]
+        struct RowKey: Hashable { var day: Int; var model: String?; var project: String; var account: String? }
+        var merged: [RowKey: (tokens: Int64, cost: Double?)] = [:]
+        for (key, sum) in sums {
+            let origin = origins[key.origin]
+            let rowKey = RowKey(day: key.day, model: key.model, project: origin.project, account: origin.account)
+            var row = merged[rowKey] ?? (0, nil)
+            row.tokens += sum.tokens
+            if let cost = sum.cost { row.cost = (row.cost ?? 0) + cost }
+            merged[rowKey] = row
+        }
+        func dayName(_ day: Int) -> String {
+            if let known = dayNames[day] { return known }
+            let name = Self.utcDayName(day)
+            dayNames[day] = name
+            return name
+        }
+        let rows = merged.map { key, sum in
+            ClaudeHistoryRow(day: dayName(key.day), model: key.model, project: key.project,
+                             accountID: key.account, tokens: sum.tokens, costUSD: sum.cost)
+        }.sorted { ($0.day, $0.project, $0.model ?? "") < ($1.day, $1.project, $1.model ?? "") }
+        historyMemo = HistoryMemo(signature: signature, day: today, builtAt: now, unpriced: unpriced, rows: rows)
+        return rows
+    }
+
+    /// `yyyy-MM-dd` of a day count since 1970-01-01 (UTC).
+    static func utcDayName(_ epochDay: Int) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let parts = calendar.dateComponents([.year, .month, .day], from: Date(timeIntervalSince1970: Double(epochDay) * 86_400))
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
     // MARK: Discovery
