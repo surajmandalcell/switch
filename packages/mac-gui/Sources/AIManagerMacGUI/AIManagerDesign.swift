@@ -847,12 +847,60 @@ private final class AIMVirtualCell: NSTableCellView {
 }
 
 /// The thin scroll bar of every AppKit scroll view: a legacy-style scroller with a fixed 10 pt
-/// gutter that is always reserved, no slot or border, and a 6 pt rounded knob in the secondary label
-/// color. It draws only when the content can scroll, and a little stronger on hover and drag.
+/// gutter that is always reserved, no slot or border, and a rounded knob in the label color. The knob
+/// is hidden at rest: a user scroll (`reveal()`) fades it in at 6 pt, hover or drag widens it to 8 pt
+/// and strengthens it, and it fades out 1 s after the last scroll or when the pointer leaves.
 final class AIMScroller: NSScroller {
   static let gutter: CGFloat = 10
+  @objc dynamic var knobWidth: CGFloat = 4 { didSet { needsDisplay = true } }
+  @objc dynamic var knobAlpha: CGFloat = 0 { didSet { needsDisplay = true } }
+  private var shown = false
   private var hovering = false
   private var dragging = false
+  private var hideWork: DispatchWorkItem?
+
+  override class func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
+    key == "knobWidth" || key == "knobAlpha" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
+  }
+
+  /// Fades the knob in (when the content can scroll) and schedules the fade-out.
+  func reveal() {
+    guard isEnabled, knobProportion < 1 else { return }
+    shown = true
+    restyle()
+    scheduleHide()
+  }
+
+  private func scheduleHide() {
+    hideWork?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, !self.hovering, !self.dragging else { return }
+      self.shown = false
+      self.restyle()
+    }
+    hideWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+  }
+
+  private func restyle() {
+    let hot = hovering || dragging
+    let alpha: CGFloat = !shown && !hot ? 0 : hot ? 0.4 : 0.25
+    let width: CGFloat = !shown && !hot ? 4 : hot ? 8 : 6
+    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      knobWidth = hot ? 8 : 6
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = alpha > 0 ? 0.15 : 0.3
+        animator().knobAlpha = alpha
+      }
+      return
+    }
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = alpha > 0 ? 0.15 : 0.3
+      context.timingFunction = CAMediaTimingFunction(name: alpha > 0 ? .easeOut : .easeIn)
+      animator().knobAlpha = alpha
+      animator().knobWidth = width
+    }
+  }
 
   override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
     gutter
@@ -865,34 +913,36 @@ final class AIMScroller: NSScroller {
   override func draw(_ dirtyRect: NSRect) { drawKnob() }
 
   override func drawKnob() {
-    guard isEnabled, knobProportion < 1 else { return }
+    guard isEnabled, knobProportion < 1, knobAlpha > 0 else { return }
     let knob = rect(for: .knob)
     guard knob.height > 0 else { return }
-    let bar = NSRect(x: knob.midX - 3, y: knob.minY + 1, width: 6, height: max(0, knob.height - 2))
-    NSColor.labelColor.withAlphaComponent(hovering || dragging ? 0.25 : 0.15).setFill()
-    NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3).fill()
+    let bar = NSRect(x: knob.midX - knobWidth / 2, y: knob.minY + 1, width: knobWidth, height: max(0, knob.height - 2))
+    NSColor.labelColor.withAlphaComponent(knobAlpha).setFill()
+    NSBezierPath(roundedRect: bar, xRadius: knobWidth / 2, yRadius: knobWidth / 2).fill()
   }
 
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
     trackingAreas.forEach(removeTrackingArea)
     addTrackingArea(NSTrackingArea(
-      rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+      rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
   }
 
-  override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
-  override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+  override func mouseEntered(with event: NSEvent) { hovering = true; reveal() }
+  override func mouseExited(with event: NSEvent) { hovering = false; restyle(); scheduleHide() }
 
   override func mouseDown(with event: NSEvent) {
     dragging = true
-    needsDisplay = true
+    restyle()
     super.mouseDown(with: event)
     dragging = false
-    needsDisplay = true
+    restyle()
+    scheduleHide()
   }
 }
 
-/// The scroll view of the virtual lists, with the thin always-visible scroller in a fixed gutter.
+/// The scroll view of the virtual lists, with the thin hidden-at-rest scroller in a fixed gutter.
+/// A wheel or trackpad scroll fades the scroller in; programmatic pins and restores do not.
 /// `onReachEnd` fires near the bottom so long conversations page in.
 final class AIMOwnedScrollView: NSScrollView {
   var onReachEnd: (() -> Void)?
@@ -913,6 +963,11 @@ final class AIMOwnedScrollView: NSScrollView {
   }
 
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+  override func scrollWheel(with event: NSEvent) {
+    super.scrollWheel(with: event)
+    (verticalScroller as? AIMScroller)?.reveal()
+  }
 
   override func layout() {
     super.layout()

@@ -510,8 +510,12 @@ extension EnvironmentValues {
 // MARK: - Scroll bar
 
 /// Reads a SwiftUI ScrollView's AppKit scroll view: hides the system indicators, reports the
-/// offset and sizes, scrolls on request, and remembers the offset by name.
+/// offset and sizes, scrolls on request, and remembers the offset by name. `activity` counts user
+/// scrolls (offset moves outside the quiet window after attach or a restore), so the hidden-at-rest
+/// bar can fade in; content or viewport changes alone never bump it.
 @MainActor final class AIMScrollBarModel: ObservableObject {
+  @Published private(set) var activity = 0
+  private var quietUntil = Date.distantPast
   @Published private(set) var offset: CGFloat = 0
   @Published private(set) var content: CGFloat = 0
   @Published private(set) var viewport: CGFloat = 0
@@ -549,6 +553,7 @@ extension EnvironmentValues {
       pending = saved
       restoreDeadline = Date().addingTimeInterval(1.5)
     }
+    quietUntil = Date().addingTimeInterval(0.3)
     sync()
   }
 
@@ -559,10 +564,12 @@ extension EnvironmentValues {
       if Date() > restoreDeadline { pending = nil }
       else if document.frame.height - clip.bounds.height >= wanted - 0.5 {
         pending = nil
+        quietUntil = Date().addingTimeInterval(0.3)
         scroll(to: wanted)
       }
     }
     let next = (clip.bounds.minY, document.frame.height, clip.bounds.height)
+    if abs(next.0 - offset) > 0.5, Date() >= quietUntil { activity &+= 1 }
     if abs(next.0 - offset) > 0.1 { offset = next.0 }
     if abs(next.1 - content) > 0.1 { content = next.1 }
     if abs(next.2 - viewport) > 0.1 { viewport = next.2 }
@@ -604,12 +611,31 @@ private struct AIMScrollBinder: NSViewRepresentable {
   }
 }
 
-/// The thin bar: a transparent track in a fixed gutter and a 6 pt rounded thumb. It shows whenever
-/// the content can scroll, can be dragged, and a click on the track jumps there.
+/// The thin bar: a transparent track in a fixed gutter and a rounded thumb. It is hidden at rest,
+/// fades in (4 -> 6 pt) while the user scrolls and widens to 8 pt on hover or drag, and fades out
+/// 1 s after the last scroll or when the pointer leaves. It can be dragged, and a click on the
+/// track jumps there.
 private struct AIMScrollBar: View {
   @ObservedObject var model: AIMScrollBarModel
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var hovering = false
   @State private var dragStart: CGFloat?
+  @State private var shown = false
+  @State private var hideTask: Task<Void, Never>?
+
+  private func reveal() {
+    withAnimation(.easeOut(duration: 0.15)) { shown = true }
+    scheduleHide()
+  }
+
+  private func scheduleHide() {
+    hideTask?.cancel()
+    hideTask = Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1))
+      guard !Task.isCancelled, !hovering, dragStart == nil else { return }
+      withAnimation(.easeIn(duration: 0.3)) { shown = false }
+    }
+  }
 
   var body: some View {
     GeometryReader { geometry in
@@ -620,15 +646,24 @@ private struct AIMScrollBar: View {
       ZStack(alignment: .top) {
         Color.clear
         if model.canScroll {
+          let hot = hovering || dragStart != nil
+          let width: CGFloat = reduceMotion ? (hot ? 8 : 6) : (!shown ? 4 : hot ? 8 : 6)
           Capsule()
-            .fill(Color(nsColor: .labelColor).opacity(hovering || dragStart != nil ? 0.25 : 0.15))
-            .frame(width: 6, height: thumb)
+            .fill(Color(nsColor: .labelColor).opacity(hot ? 0.4 : 0.25))
+            .frame(width: width, height: thumb)
+            .opacity(shown ? 1 : 0)
+            // Before .offset so the thumb position never lags during a drag.
+            .animation(.easeOut(duration: 0.15), value: hot)
             .offset(y: top)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .contentShape(Rectangle())
-      .onHover { hovering = $0 && model.canScroll }
+      .onChange(of: model.activity) { reveal() }
+      .onHover { inside in
+        hovering = inside && model.canScroll
+        if hovering { reveal() } else { scheduleHide() }
+      }
       .gesture(DragGesture(minimumDistance: 0)
         .onChanged { value in
           guard model.canScroll else { return }
@@ -639,15 +674,15 @@ private struct AIMScrollBar: View {
           }
           model.scroll(to: (dragStart ?? 0) + (value.location.y - value.startLocation.y) / free * model.travel)
         }
-        .onEnded { _ in dragStart = nil })
+        .onEnded { _ in dragStart = nil; scheduleHide() })
     }
     .accessibilityHidden(true)
   }
 }
 
 /// A vertical scroll view without system indicators. The thin bar sits in a trailing gutter of
-/// `gutter` points that is always reserved: the caller's content already leaves that margin, so the
-/// content width never changes when the bar appears.
+/// `gutter` points that is always reserved (the bar itself is hidden at rest): the caller's content
+/// already leaves that margin, so the content width never changes when the bar shows or hides.
 struct AIMScrollView<Content: View>: View {
   var name = ""
   var gutter: CGFloat = AIMScroller.gutter

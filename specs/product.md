@@ -430,9 +430,11 @@ in light and dark before a UI change ships.
   to the cards, label-colored icons, and a searchable source picker at the bar's right end.
 - **Stability and focus:** nothing shifts when content loads, rows are hovered or selected, or
   pages change. Every scroll view (pages, sheets and dialogs such as Add Account, popovers,
-  pickers, and text views) hides the system indicators and draws a thin, always-present scroll
-  bar in a fixed gutter whose track matches the surface, with no border. At rest the knob is
-  faint (about 15% label contrast) and it brightens a little on hover or drag. Clicks and
+  pickers, and text views) hides the system indicators and draws a thin scroll bar in a fixed
+  gutter, with no track or border. The bar is hidden at rest. It fades in (150 ms) and grows
+  from 4 to 6 pt when the user scrolls with a mouse or trackpad, or when the pointer enters the
+  gutter; on hover or drag it widens to 8 pt and brightens. It fades out (300 ms) 1 s after the
+  last scroll or after the pointer leaves. Reduce Motion keeps the fade only. Clicks and
   selections never draw focus rings or outlines, including the sidebar and lists; keyboard
   focus is a subtle tint even with keyboard navigation (Full Keyboard Access) on. In Dark Mode,
   selection, focus, and focused fields use a neutral lighter gray, never a blue tint. System
