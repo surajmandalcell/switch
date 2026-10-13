@@ -988,8 +988,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
         expect(!NSApp.isActive && !window.isVisible, "Offscreen acceptance activated or showed the app")
     }
     expect(
-        window.contentRect(forFrameRect: window.frame).size.width >= AIManagerWindow.minimumSize.width,
-        "Acceptance window is smaller than its minimum size"
+        window.contentRect(forFrameRect: window.frame).size.width == AIManagerWindow.minimumSize.width
+            && window.contentRect(forFrameRect: window.frame).size.height >= AIManagerWindow.minimumSize.height,
+        "Acceptance window is not 1200 wide or is shorter than its minimum height"
     )
     failures.append(contentsOf: AIManagerNativeContract.windowPlacementFailures())
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {

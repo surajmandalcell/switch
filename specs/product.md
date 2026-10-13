@@ -406,7 +406,10 @@ in light and dark before a UI change ships.
   16 inset: the first tile starts at 16, the last ends 16 from the right edge, tiles sit 12
   apart with a 6 radius, and the card keeps 16 below the tiles.
 - **Window:** translucent 220 pt sidebar, 52 pt unified title bar, empty system toolbar.
-  Traffic lights use the system inset and share a vertical center with "Switch" and the top row.
+  The content is always 1200 pt wide; only the height resizes, from 800 pt up, and a new
+  window opens 900 pt tall (less when the screen is shorter). The green button zooms to the
+  screen's full height at the same width; there is no full screen. Traffic lights use the
+  system inset and share a vertical center with "Switch" and the top row.
   Sidebar filled SF Symbols follow section 2: Overview `house.fill`, Accounts `person.2.fill`,
   Settings `gearshape.fill`, Maintenance `wrench.and.screwdriver.fill`, Conversations
   `ellipsis.message.fill`. The top row reads Add, More, then "Search accounts…" at the right edge,

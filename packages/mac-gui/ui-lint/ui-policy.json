@@ -50,12 +50,8 @@
   ],
   "viewports": [
     {
-      "width": 1080,
-      "height": 760
-    },
-    {
-      "width": 860,
-      "height": 560
+      "width": 1200,
+      "height": 900
     }
   ],
   "colorSchemes": [
