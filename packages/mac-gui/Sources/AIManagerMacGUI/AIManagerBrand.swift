@@ -429,6 +429,7 @@ final class AIManagerStatusItemController: NSObject {
     popover.behavior = .transient
     popover.animates = false
     popover.contentViewController = NSHostingController(rootView: content)
+    store.clockView = popover.contentViewController?.view
     resizePopover()
 
     store.didSwitch = { [weak self] in self?.closePopover() }

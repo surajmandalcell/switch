@@ -532,6 +532,13 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             print(failures.isEmpty ? "CONVERSATIONS_PASS" : "CONVERSATIONS_FAILED \(failures.count)")
             exit(failures.isEmpty ? 0 : 1)
         }
+        if CommandLine.arguments.contains("--popover-motion-only") {
+            for (name, report) in await PopoverMotionCheck.measure().sorted(by: { $0.key < $1.key }) {
+                print("POPOVER_MOTION \(name) \(report.summary) refresh=\(report.refresh)Hz")
+            }
+            NSApp.terminate(nil)
+            return
+        }
         if CommandLine.arguments.contains("--popover-polish-only") {
             do { try await RenderScale.popoverPolishShots() }
             catch { print("POPOVER_POLISH_FAIL \(error)"); exit(1) }

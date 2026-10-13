@@ -451,13 +451,18 @@ in light and dark before a UI change ships.
 - **Menu bar popover:** about 360 pt wide, compact, with no app name header. Its surface is
   less see-through than the default popover material; in Dark Mode it stays dark (about
   #262628), never a lifted gray. Separators use half the hairline opacity and fade at both ends.
-  Hover highlights reach a few points past the row below and further right, but only about 2 pt
-  above, so they never touch the group header; row spacing never changes. Buttons keep the
+  The group headers, rows, and footer share the footer's 12 pt inset from the popover edge.
+  Hover highlights reach 4 pt past the content to the sides and below, and 6 pt above the
+  name, so they never touch the group header; row spacing never changes. Text and footer controls use native contrast (primary
+  label icons, not dimmed). Buttons keep the
   Sequoia size (24 pt painted, 5 pt radius, flat fill); hover and press never grow them.
   Expanding or collapsing a row never moves the rows above it, and the popover height and its
-  content animate as one motion. Accounts are grouped by service: one group header per service (its brand logo tile and
-  name), then that service's accounts, each as its own row (one-line truncated name, checkmark
-  for the default) with its usage lines under it. Account rows carry no logo and no service
+  content animate as one motion with no dropped frames, also in Low Power Mode. Accounts are
+  grouped by service: one group header per service (its brand logo tile and name), then that
+  service's accounts, each as its own row with its usage lines under it. The default account's
+  checkmark sits in a leading column left of the name; every row's text starts after that
+  column. Credit and amount values are right-aligned and start at the bar column. The tokens
+  line never wraps; a long value uses the free width instead. Account rows carry no logo and no service
   name. Show in Menubar uses the Settings default or an account override. Each account shows
   its service's reported windows, including unknown values; plan differences and an account's
   hidden-row override can reduce them. Each line aligns the window name, a 4 pt rounded bar,
@@ -465,10 +470,12 @@ in light and dark before a UI change ships.
   provider's brand color and turn red from 90% used.
   Clicking an account expands it to every reported window (model buckets and credits too) plus
   Switch and Open <tool> actions. An account that needs sign-in shows "Sign in again to see
-  usage" as its subtitle, with Sign in at the row's right. A model-specific weekly window is
+  usage" as its subtitle, with Sign in at the row's right, bottom-aligned so it lines up with
+  the buttons the row shows when it expands. A model-specific weekly window is
   named by its model: "Weekly Fable" in the window and just "Fable" in the popover.
-  The context menu offers Switch, Open <tool>, Refresh, and Copy name. The footer holds Settings,
-  Refresh, and Quit icon buttons at the left, 6 pt apart, and Open Switch (Command-O) at the right.
+  The context menu offers Switch, Open <tool>, Refresh, and Copy name. The footer holds Open
+  Switch (Command-O) at the left and the Refresh, Quit (power), and Settings icon buttons at the
+  right in that order, 6 pt apart.
 - **Behavior kept:** displayed paths copy on click with a brief Copied confirmation (Preview
   never touches the real clipboard); every icon action has an accessible name and keyboard
   focus; Reduce Motion and Reduce Transparency follow the system; Preview data is synthetic.

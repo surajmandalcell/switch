@@ -132,7 +132,9 @@ enum AIManagerMenuBarContract {
 
     failures.append(contentsOf: await storeFailures())
     failures.append(contentsOf: hostedLayoutFailures())
+    failures.append(contentsOf: polishFailures())
     failures.append(contentsOf: statusItemFailures())
+    failures.append(contentsOf: await PopoverMotionCheck.failures())
     if let path = ProcessInfo.processInfo.environment["AI_MANAGER_POPOVER_SHOTS"] {
       failures.append(contentsOf: renderSnapshots(to: URL(fileURLWithPath: path)))
     }
@@ -332,6 +334,49 @@ enum AIManagerMenuBarContract {
     return failures
   }
 
+  /// Shared inset, footer order, check column, Sign in alignment, hover reach, and the token line.
+  private static func polishFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    // One inset from the popover edge for the group headers, rows, separators, and footer; the
+    // right side gives up the scroll bar gutter that already lies inside it.
+    expect(P.inset == 12 && P.rowPaddingH == P.inset && P.trailingInset == P.inset - AIMScroller.gutter,
+      "Group headers, rows, and footer do not share the footer's 12 pt inset")
+    // The check column is a tile wide; every name starts after it, check or not.
+    expect(P.textIndent == P.tileSize + P.tileSpacing && P.textIndent == 24, "The check column indent changed")
+    // Sign in is bottom-aligned: on the subtitle line collapsed, level with the 24 pt action
+    // buttons (centered in their 40 pt band) expanded.
+    expect(P.signInBottomInset(expansion: 0) == P.rowPaddingV
+      && P.signInBottomInset(expansion: 1) == (P.expandedHeight - P.signInHeight) / 2
+      && P.signInHeight == 24, "Sign in is not bottom-aligned with the row content and action buttons")
+    // The hover reaches midway between the earlier 10 pt and 2 pt above the first line, which
+    // is the row's own top edge: never into the group header.
+    expect(P.hoverReach == (10 + 2) / 2 && P.rowPaddingV - P.hoverReach == 0, "Hover fill top reach changed")
+
+    // Token line: compact numbers, one line, two values split to the ends past the threshold.
+    expect(P.compactTokens(24_100_000) == "24.1M" && P.compactTokens(24_000_000) == "24M"
+      && P.compactTokens(950) == "950" && P.compactTokens(3_200) == "3.2K"
+      && P.compactTokens(999_950) == "1M" && P.compactTokens(1_250_000_000) == "1.3B",
+      "Token counts are not compact")
+    let price = CodexAPIPrice(model: "gpt-5.6-sol", inputPerMillion: 4, cachedInputPerMillion: 0.4, outputPerMillion: 20)
+    let long = MenuBarUsageSnapshot(usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 24_100_000, apiPrice: price)
+    let short = MenuBarUsageSnapshot(usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 24_100_000)
+    expect(P.tokenCaption(short) == "24.1M tokens since reset" && !P.splitsTokenCaption(short),
+      "A short token line is not one plain value")
+    expect(P.splitsTokenCaption(long) && P.tokenParts(long)?.count == "24.1M tokens since reset"
+      && P.tokenParts(long)?.price?.hasSuffix("API") == true && P.tokenCaption(long)?.contains("\n") == false,
+      "A long token line does not split into its left and right values")
+
+    // Footer order, left to right: Open Switch, Refresh, Quit, Settings (also the keyboard
+    // and accessibility order, which follow the view order).
+    // The footer view builds its buttons from P.footerOrder, so the data is the order.
+    expect(P.footerOrder == [.openSwitch, .refresh, .quit, .settings],
+      "Footer order is not Open Switch, Refresh, Quit, Settings: \(P.footerOrder)")
+    return failures
+  }
+
   private static func statusItemFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -387,6 +432,86 @@ enum AIManagerMenuBarContract {
 
     controller.update(snapshot: .empty)
     expect(controller.statusTitle.isEmpty, "Status item is not icon-only without accounts")
+    return failures
+  }
+}
+
+/// Expands and collapses a row in an offscreen window that follows the popover's resize hook, and
+/// records one sample per layout step: interval between steps, main-thread time, window resizes.
+@MainActor
+enum PopoverMotionCheck {
+  struct Report {
+    var frames = 0, hitches = 0, resizes = 0
+    var maxInterval = 0.0, maxWork = 0.0, totalWork = 0.0, refresh = 0.0, duration = 0.0
+    var summary: String {
+      String(format: "frames=%d expected=%d maxInterval=%.1fms hitches=%d(>1.5x %.1fms) resizes=%d maxWork=%.2fms avgWork=%.2fms lowPower=%@",
+        frames, Int((duration * refresh).rounded()), maxInterval * 1000, hitches, 1500 / refresh, resizes,
+        maxWork * 1000, totalWork / Double(max(frames, 1)) * 1000, ProcessInfo.processInfo.isLowPowerModeEnabled ? "on" : "off")
+    }
+  }
+
+  /// One expansion then one collapse of the first row.
+  static func measure() async -> [String: Report] {
+    let suite = "switch-popover-motion-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let snapshot = MenuBarPopoverPreviewData.sixAccountSnapshot
+    let store = MenuBarPopoverStore(snapshot: snapshot,
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), visibleScreenHeight: 2_000, defaults: defaults)
+    let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+    let host = NSHostingView(rootView: MenuBarPopover(store: store))
+    // A clear, click-through window on the main display: a display link only ticks for a window
+    // on a screen. It never becomes key, so it takes no focus.
+    let window = NSWindow(contentRect: NSRect(origin: NSScreen.main?.frame.origin ?? .zero, size: size),
+      styleMask: .borderless, backing: .buffered, defer: false)
+    window.alphaValue = 0
+    window.ignoresMouseEvents = true
+    window.contentView = host
+    window.orderFrontRegardless()
+    store.clockView = host
+    store.animatesLayout = true
+    let refresh = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
+    var report = Report(refresh: refresh, duration: 0.25)
+    var last: CFTimeInterval?
+    store.didChangeLayout = {
+      let start = CACurrentMediaTime()
+      let height = store.contentHeight
+      if window.contentLayoutRect.height != height { report.resizes += 1; window.setContentSize(NSSize(width: size.width, height: height)) }
+      host.layoutSubtreeIfNeeded()
+      host.displayIfNeeded()
+      let end = CACurrentMediaTime()
+      if let last { report.maxInterval = max(report.maxInterval, start - last); if start - last > 1.5 / refresh { report.hitches += 1 } }
+      last = start
+      report.frames += 1
+      report.maxWork = max(report.maxWork, end - start)
+      report.totalWork += end - start
+    }
+    func run() async -> Report {
+      report = Report(refresh: refresh, duration: 0.25)
+      last = nil
+      store.toggleExpanded(snapshot.accounts[0])
+      try? await Task.sleep(for: .milliseconds(600))
+      return report
+    }
+    try? await Task.sleep(for: .milliseconds(300))
+    let expand = await run()
+    let collapse = await run()
+    window.close()
+    return ["expand": expand, "collapse": collapse]
+  }
+
+  /// Regression check: the 250 ms motion follows the display (at least 80% of its frames, which a
+  /// 16 ms timer fails with about 45%), and no more than a third of the gaps pass 1.5 refresh
+  /// intervals. The window never resizes more than once per frame.
+  static func failures() async -> [String] {
+    guard NSScreen.main != nil else { return [] }
+    var failures: [String] = []
+    for (name, report) in await measure() {
+      let expected = Int((report.duration * report.refresh).rounded())
+      if report.frames * 5 < expected * 4 || report.hitches * 3 > report.frames || report.resizes > report.frames {
+        failures.append("Popover \(name) drops frames: \(report.summary)")
+      }
+    }
     return failures
   }
 }
