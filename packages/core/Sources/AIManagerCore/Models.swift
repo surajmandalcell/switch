@@ -227,8 +227,11 @@ public struct AccountRecord: Identifiable, Codable, Equatable, Sendable {
     public var verification: VerificationResult
     public var lastUsedAt: Date?
     public var credentialDigest: String
+    /// True when Switch added this account itself from the login already on this Mac.
+    public var autoImported: Bool
 
-    public init(id: UUID, identity: AccountIdentity, credentialFile: URL? = nil, home: URL, source: URL, importedAt: Date, verification: VerificationResult, lastUsedAt: Date? = nil, credentialDigest: String) {
+    public init(id: UUID, identity: AccountIdentity, credentialFile: URL? = nil, home: URL, source: URL, importedAt: Date, verification: VerificationResult, lastUsedAt: Date? = nil, credentialDigest: String, autoImported: Bool = false) {
+        self.autoImported = autoImported
         self.id = id
         self.identity = identity
         self.credentialFile = credentialFile ?? home.appending(path: "auth.json")
@@ -241,7 +244,7 @@ public struct AccountRecord: Identifiable, Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, identity, credentialFile, home, source, importedAt, verification, lastUsedAt, credentialDigest
+        case id, identity, credentialFile, home, source, importedAt, verification, lastUsedAt, credentialDigest, autoImported
     }
 
     public init(from decoder: Decoder) throws {
@@ -256,6 +259,7 @@ public struct AccountRecord: Identifiable, Codable, Equatable, Sendable {
         verification = try values.decode(VerificationResult.self, forKey: .verification)
         lastUsedAt = try values.decodeIfPresent(Date.self, forKey: .lastUsedAt)
         credentialDigest = try values.decode(String.self, forKey: .credentialDigest)
+        autoImported = try values.decodeIfPresent(Bool.self, forKey: .autoImported) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -269,6 +273,7 @@ public struct AccountRecord: Identifiable, Codable, Equatable, Sendable {
         try values.encode(verification, forKey: .verification)
         try values.encodeIfPresent(lastUsedAt, forKey: .lastUsedAt)
         try values.encode(credentialDigest, forKey: .credentialDigest)
+        if autoImported { try values.encode(true, forKey: .autoImported) }
     }
 }
 

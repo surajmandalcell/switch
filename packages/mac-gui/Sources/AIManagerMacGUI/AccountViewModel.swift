@@ -2509,7 +2509,8 @@ enum DemoData {
             verification: VerificationResult(
                 state: .verifiedLocally, checkedAt: now,
                 detail: "Saved locally. Usage has not been checked yet."),
-            lastUsedAt: nil, credentialDigest: "demo-\(providerID.rawValue)-credential")
+            lastUsedAt: nil, credentialDigest: "demo-\(providerID.rawValue)-credential",
+            autoImported: ["droid", "gemini-cli"].contains(providerID.rawValue))
     }
 
     /// Providers the Preview treats as already signed in on this Mac.

@@ -106,6 +106,8 @@ public actor AccountManager {
     private let decoder: JSONDecoder
     private var grokRefreshAttempts: [String: Date] = [:]
     private var grokRefreshTimeout: TimeInterval = 20
+    /// Digest of the live Droid login that discovery last examined, so doctor runs once per login.
+    private var droidProbe: String?
 
     public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil) throws {
         self.paths = paths
@@ -264,6 +266,7 @@ public actor AccountManager {
             _ = try await recover()
         }
         try await pruneRetiredLoginSessions()
+        if try pendingOperations().isEmpty { importLiveLogins() }
         var current = try status()
         if current.pendingRecovery.isEmpty, current.accounts.isEmpty {
             let live = provider.inspect(home: paths.defaultHome)
@@ -749,7 +752,19 @@ public actor AccountManager {
         }
     }
 
+    /// Deletes the account and remembers its identity so discovery never imports it again.
     public func deleteAccount(
+        accountID: UUID,
+        replacementDefaultAccountID: UUID? = nil
+    ) async throws -> AccountDeletionResult {
+        let keys = try removalKeys(of: accountID)
+        let result = try await removeAccount(accountID: accountID, replacementDefaultAccountID: replacementDefaultAccountID)
+        forgetLogins(keys)
+        droidProbe = nil
+        return result
+    }
+
+    private func removeAccount(
         accountID: UUID,
         replacementDefaultAccountID: UUID? = nil
     ) async throws -> AccountDeletionResult {
@@ -928,6 +943,79 @@ public actor AccountManager {
     public func importLiveProviderAccount(providerID: ProviderID) throws -> AccountRecord {
         if providerID == .droid { return try importDroidAccount(name: "Droid 1") }
         return try providerStore.importLive(providerID)
+    }
+
+    /// Copies each live CLI login that no saved or deleted account covers into Switch's own store.
+    /// Uses the "Import current sign-in" paths. The imported account becomes its provider's default
+    /// (the live files belong to it); no live file is written. Never throws: a failed import is retried on the next refresh.
+    @discardableResult
+    public func importLiveLogins() -> [AccountRecord] {
+        let removed = Set(removedLogins())
+        var added: [AccountRecord] = []
+        let skipped: Set<ProviderID> = [.codex, .grokBuild, .claudeCode, .droid]
+        for spec in providerSpecs where spec.style == .files && !skipped.contains(spec.id) {
+            if let record = try? providerStore.autoImportLive(spec.id, removed: removed) { added.append(record) }
+        }
+        if let record = try? importLiveDroidLogin(removed: removed) { added.append(record) }
+        return added
+    }
+
+    /// Droid hides its identity: import when no Droid account is saved, or when the doctor mask
+    /// differs from every saved one. Equal or unknown masks skip, because they prove nothing.
+    private func importLiveDroidLogin(removed: Set<String>) throws -> AccountRecord? {
+        let files = try droidProvider.files(in: paths.droidHome)
+        guard (try? droidProvider.requireLogin(files)) != nil else { return nil }
+        let live = Self.loginDigest(files)
+        guard live != droidProbe else { return nil }
+        let saved = try loadRegistry().accounts.filter { $0.identity.providerID == .droid }
+        guard !removed.contains(Self.droidKey(live)),
+              !saved.contains(where: { (try? droidProvider.files(in: $0.credentialFile)).map(Self.loginDigest) == live })
+        else { droidProbe = live; return nil }
+        let hint = droidIdentityHint(home: paths.droidHome)
+        if let hint, removed.contains(Self.droidKey(hint)) { droidProbe = live; return nil }
+        if !saved.isEmpty, hint == nil || saved.contains(where: { $0.identity.email?.lowercased() == hint }) {
+            droidProbe = live
+            return nil
+        }
+        let record = try importDroidAccount(name: "Droid \(saved.count + 1)", automatic: true)
+        droidProbe = live
+        return record
+    }
+
+    private static func loginDigest(_ files: [String: Data]) -> String {
+        CoreSupport.digest(Data(files.sorted { $0.key < $1.key }.flatMap { Array($0.key.utf8) + [0] + Array($0.value) + [0] }))
+    }
+
+    private static func droidKey(_ identity: String) -> String {
+        ProviderAccountStore.removedKey(.droid, identity.lowercased())
+    }
+
+    // MARK: Removed logins
+
+    private var removedLoginsURL: URL {
+        paths.applicationSupport.appending(path: "provider-accounts/removed-logins.json")
+    }
+
+    /// Identities of deleted accounts (provider plus identity key or Droid mask or login digest; no secrets).
+    private func removedLogins() -> [String] {
+        (try? decoder.decode([String].self, from: Data(contentsOf: removedLoginsURL))) ?? []
+    }
+
+    private func removalKeys(of accountID: UUID) throws -> [String] {
+        if let stored = try providerStore.accounts().first(where: { $0.id == accountID }) {
+            return stored.identity.userID.map { [ProviderAccountStore.removedKey(stored.identity.providerID, $0)] } ?? []
+        }
+        guard let droid = try loadRegistry().accounts.first(where: { $0.id == accountID && $0.identity.providerID == .droid })
+        else { return [] }
+        let digest = (try? droidProvider.files(in: droid.credentialFile)).map(Self.loginDigest)
+        return ([droid.identity.email] + [digest]).compactMap { $0 }.map(Self.droidKey)
+    }
+
+    private func forgetLogins(_ keys: [String]) {
+        guard !keys.isEmpty else { return }
+        let all = Array(Set(removedLogins() + keys)).sorted()
+        try? CoreSupport.privateDirectory(removedLoginsURL.deletingLastPathComponent(), fileManager: fileManager)
+        try? CoreSupport.atomicWrite(try encoder.encode(all), to: removedLoginsURL, fileManager: fileManager)
     }
 
     /// Read-only identity of the login currently in the provider's real home.
@@ -1614,14 +1702,14 @@ extension AccountManager {
 
     // MARK: Droid opaque file logins
 
-    public func importDroidAccount(name: String, apiKey: String? = nil, allowDuplicate: Bool = false) throws -> AccountRecord {
+    public func importDroidAccount(name: String, apiKey: String? = nil, allowDuplicate: Bool = false, automatic: Bool = false) throws -> AccountRecord {
         try lock.withLock {
             try ensureNoRecovery()
             // Import takes the same writer lock but never changes live authentication.
             try droidProvider.requireLogin(droidProvider.files(in: paths.droidHome))
             let hint = droidIdentityHint(home: paths.droidHome)
             return try droidProvider.withWriteLock(home: paths.droidHome) {
-                let account = try saveDroidAccount(from: paths.droidHome, hint: hint, name: name, targetID: nil, adoptLive: true, allowDuplicate: allowDuplicate)
+                let account = try saveDroidAccount(from: paths.droidHome, hint: hint, name: name, targetID: nil, adoptLive: true, allowDuplicate: allowDuplicate, automatic: automatic)
                 if let apiKey, !apiKey.isEmpty { try saveDroidUsageKey(apiKey, accountID: account.id) }
                 return account
             }
@@ -1762,7 +1850,7 @@ extension AccountManager {
                                     home: paths.isolationRoot)
     }
 
-    private func saveDroidAccount(from source: URL, hint: String?, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false, allowDuplicate: Bool = false) throws -> AccountRecord {
+    private func saveDroidAccount(from source: URL, hint: String?, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false, allowDuplicate: Bool = false, automatic: Bool = false) throws -> AccountRecord {
         let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty, label.count <= 100, !label.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
             throw AIManagerError.invalidSource("Enter a Droid account name with 1 to 100 characters.")
@@ -1811,7 +1899,8 @@ extension AccountManager {
         try CoreSupport.privateDirectory(home, fileManager: fileManager)
         let account = AccountRecord(id: id, identity: .init(providerID: .droid, email: hint ?? previous?.identity.email, accountID: label, authMode: .oauth),
             credentialFile: saved, home: home, source: source, importedAt: previous?.importedAt ?? Date(),
-            verification: .init(state: .imported, detail: detail), credentialDigest: digest)
+            verification: .init(state: .imported, detail: detail), credentialDigest: digest,
+            autoImported: previous?.autoImported ?? automatic)
         if let index = registry.accounts.firstIndex(where: { $0.id == id }) { registry.accounts[index] = account }
         else { registry.accounts.append(account) }
         if adoptLive { registry.setDefaultAccountID(id, for: .droid) }

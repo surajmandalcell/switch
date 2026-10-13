@@ -1544,6 +1544,13 @@ private struct AccountsTableRow: View {
       HStack(spacing: AIMTheme.rowSpacing) {
         Text(name).aimText(.body).lineLimit(1).truncationMode(.middle)
         ProviderStatusDot(entry: model.providerStatus[account.identity.providerID], size: 6)
+        if account.autoImported {
+          let note = "Added automatically from the \(account.identity.providerID.guiName) login on this Mac."
+          Image(systemName: "info.circle")
+            .aimText(.secondary)
+            .help(note)
+            .accessibilityLabel(note)
+        }
       }
       .aimColumn(columns[0], group: group)
       // The bar and "83% · 6d 19h"; with no window, the reason fills the cell instead.
