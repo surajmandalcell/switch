@@ -44,8 +44,24 @@ for pdf in "$brand"/*.pdf
 do
   [[ "$(head -c 4 "$pdf")" == "%PDF" ]]
 done
-[[ "$(sips -g pixelWidth "$brand/antigravity.png" | awk '/pixelWidth/ {print $2}')" == \
-  "$(sips -g pixelHeight "$brand/antigravity.png" | awk '/pixelHeight/ {print $2}')" ]]
+for png in "$brand"/*.png
+do
+  width="$(sips -g pixelWidth "$png" | awk '/pixelWidth/ {print $2}')"
+  height="$(sips -g pixelHeight "$png" | awk '/pixelHeight/ {print $2}')"
+  # Full brand icons fill a square tile: square, and sharp at 44 pt on a 2x display.
+  [[ "$width" == "$height" && "$width" -ge 128 ]] || {
+    printf 'Brand icon %s is not square or is under 128 pixels.\n' "$(basename "$png")" >&2
+    exit 1
+  }
+done
+# Every full icon names its source in BRAND-SOURCES.md.
+for icon in "$brand"/full-*.png "$brand"/full-*.pdf
+do
+  rg -q -F "$(basename "$icon")" "$brand/BRAND-SOURCES.md" || {
+    printf 'BRAND-SOURCES.md has no source for %s.\n' "$(basename "$icon")" >&2
+    exit 1
+  }
+done
 
 if rg -q 'SwitchMarkBalanced|balanced-mark|optical version' \
   "$icons" "$repo_root/scripts/build-icons.sh"

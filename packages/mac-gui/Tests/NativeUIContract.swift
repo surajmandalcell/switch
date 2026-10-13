@@ -420,9 +420,10 @@ enum AIManagerNativeContract {
     }
     if AIManagerBrand.providerBrand(for: .codex) != AIManagerBrand.providerBrand(for: ProviderID(rawValue: "openai"))
       || AIManagerBrand.providerBrand(for: .claudeCode)?.tint != nil
-      || AIManagerBrand.providerBrand(for: .grokBuild)?.tint?.dark != 0xFFFFFF
+      || AIManagerBrand.providerBrand(for: .grokBuild)?.fillsTile != true
+      || AIManagerBrand.providerBrands.values.contains(where: { $0.tile.light != $0.tile.dark })
     {
-      failures.append("A brand look is wrong: Codex is the OpenAI knot, Claude keeps its color, Grok flips in Dark Mode")
+      failures.append("A brand look is wrong: Codex is the OpenAI icon, Claude keeps its color, Grok is a full icon, and no tile changes with the appearance")
     }
     if AIMIcon.Name.trash.symbol != "trash" {
       failures.append("The account delete control does not use the native trash symbol")
