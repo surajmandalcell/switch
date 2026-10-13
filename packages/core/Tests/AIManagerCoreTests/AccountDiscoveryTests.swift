@@ -1,3 +1,4 @@
+import CSQLite
 import Foundation
 import XCTest
 @testable import AIManagerCore
@@ -175,5 +176,163 @@ final class AccountDiscoveryTests: XCTestCase {
         XCTAssertTrue(added.isEmpty)
         let accounts = try await saved(manager)
         XCTAssertTrue(accounts.isEmpty)
+    }
+}
+
+/// Builds the OpenCode 2 `credential` table in a temporary home. Synthetic rows only.
+enum OpenCodeDatabaseFixture {
+    static func write(home: URL, rows: [(integration: String, value: String)], active: Int = 1) throws {
+        let directory = home.appending(path: ".local/share/opencode")
+        try CoreSupport.privateDirectory(directory, fileManager: .default)
+        var db: OpaquePointer?
+        guard sqlite3_open(directory.appending(path: "opencode.db").path, &db) == SQLITE_OK else { throw CocoaError(.fileWriteUnknown) }
+        defer { sqlite3_close(db) }
+        var sql = """
+            CREATE TABLE credential (id TEXT, integration_id TEXT, label TEXT, value TEXT, connector_id TEXT, method_id TEXT,
+                                     active INTEGER, time_created INTEGER, time_updated INTEGER);
+            """
+        for (index, row) in rows.enumerated() {
+            sql += "INSERT INTO credential VALUES ('c\(index)', '\(row.integration)', NULL, '\(row.value)', NULL, NULL, \(active), 1, \(index + 1));"
+        }
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw CocoaError(.fileWriteUnknown) }
+    }
+}
+
+/// OpenCode 2 keeps its Go login in `opencode.db`, not in auth.json.
+final class OpenCodeDatabaseLoginTests: XCTestCase {
+    private var root: URL!
+    private var paths: ManagerPaths!
+    private let fm = FileManager.default
+    private let goID = ProviderID(rawValue: "opencodego")
+
+    override func setUpWithError() throws {
+        root = fm.temporaryDirectory.appending(path: "OpenCodeDatabaseLoginTests-\(UUID().uuidString)")
+        try CoreSupport.privateDirectory(root, fileManager: fm)
+        paths = .init(applicationSupport: root.appending(path: "support"),
+            credentialStore: root.appending(path: "user/.switch/codex"),
+            defaultHome: root.appending(path: "user/.codex"), sharedRoot: root.appending(path: "user/.codex"),
+            orcaAccountsRoot: root.appending(path: "orca"), isolationRoot: root)
+    }
+
+    override func tearDownWithError() throws {
+        if let root { try fm.removeItem(at: root) }
+    }
+
+    private func manager() throws -> AccountManager {
+        try AccountManager(paths: paths, writerCheck: { _ in .inactive },
+            providerSpecs: [ProviderCatalog.agentOpenCodeGo], droidProcessLister: { [] })
+    }
+
+    private func goRow(_ key: String) -> (integration: String, value: String) {
+        ("opencode-go", #"{"type":"key","key":"\#(key)"}"#)
+    }
+
+    private var authFile: URL { paths.userHome.appending(path: ".local/share/opencode/auth.json") }
+
+    private func writeAuth(_ key: String) throws {
+        try CoreSupport.privateDirectory(authFile.deletingLastPathComponent(), fileManager: fm)
+        try CoreSupport.atomicWrite(JSONSerialization.data(withJSONObject: ["opencode-go": ["type": "api", "key": key]]),
+                                    to: authFile, fileManager: fm)
+    }
+
+    func testKeyOnlyInTheDatabaseIsImportedAsTheDefaultWithoutWritingAuthJson() async throws {
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key"), ("github-copilot", #"{"type":"oauth"}"#)])
+        let manager = try manager()
+        let added = await manager.importLiveLogins()
+        let record = try XCTUnwrap(added.first)
+        XCTAssertEqual(added.count, 1)
+        XCTAssertEqual(record.identity.providerID, goID)
+        XCTAssertTrue(record.autoImported)
+        let status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountIDs["opencodego"], record.id)
+        XCTAssertTrue(try savedLogin(record).contains("synthetic-db-key"))
+        XCTAssertFalse(fm.fileExists(atPath: authFile.path))
+        let again = await manager.importLiveLogins()
+        XCTAssertTrue(again.isEmpty)
+    }
+
+    func testAuthJsonEntryStillWinsOverTheDatabase() async throws {
+        try writeAuth("synthetic-file-key")
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key")])
+        let manager = try manager()
+        let added = await manager.importLiveLogins()
+        let record = try XCTUnwrap(added.first)
+        let saved = try savedLogin(record)
+        XCTAssertTrue(saved.contains("synthetic-file-key"))
+        XCTAssertFalse(saved.contains("synthetic-db-key"))
+    }
+
+    /// The stored auth.json member of one saved account, as text.
+    private func savedLogin(_ record: AccountRecord) throws -> String {
+        let credential = try JSONDecoder().decode(ProviderCredential.self, from: Data(contentsOf: record.credentialFile))
+        return String(decoding: try XCTUnwrap(credential.files[".local/share/opencode/auth.json#opencode-go"]), as: UTF8.self)
+    }
+
+    func testRemovedLoginIsNotImportedAgain() async throws {
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key")])
+        let manager = try manager()
+        let first = await manager.importLiveLogins()
+        _ = try await manager.deleteAccount(accountID: try XCTUnwrap(first.first).id)
+        let again = await manager.importLiveLogins()
+        XCTAssertTrue(again.isEmpty)
+        let fresh = try self.manager()
+        let freshAgain = await fresh.importLiveLogins()
+        XCTAssertTrue(freshAgain.isEmpty)
+    }
+
+    func testMissingDatabaseMissingTableMalformedAndInactiveRowsImportNothing() async throws {
+        let manager = try manager()
+        var added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
+        let directory = paths.userHome.appending(path: ".local/share/opencode")
+        try CoreSupport.privateDirectory(directory, fileManager: fm)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(directory.appending(path: "opencode.db").path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE other (id TEXT);", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
+        try fm.removeItem(at: directory.appending(path: "opencode.db"))
+        for value in ["not json", #"{"type":"key"}"#, #"{"type":"key","key":"  "}"#] {
+            try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [("opencode-go", value)])
+            added = await manager.importLiveLogins()
+            XCTAssertTrue(added.isEmpty)
+            try fm.removeItem(at: directory.appending(path: "opencode.db"))
+        }
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key")], active: 0)
+        added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
+        let accounts = try await manager.status().accounts
+        XCTAssertTrue(accounts.isEmpty)
+    }
+
+    func testSwitchingAwayFromTheDatabaseLoginFailsAndLeavesEveryFileAlone() async throws {
+        try writeAuth("synthetic-key-1")
+        let manager = try manager()
+        let firstImport = await manager.importLiveLogins()
+        let first = try XCTUnwrap(firstImport.first)
+        try writeAuth("synthetic-key-2")
+        let secondImport = await manager.importLiveLogins()
+        let second = try XCTUnwrap(secondImport.first)
+        // OpenCode 1 style: auth.json is live, so a switch writes it.
+        _ = try await manager.switchDefault(to: first.id)
+        XCTAssertTrue(String(decoding: try Data(contentsOf: authFile), as: UTF8.self).contains("synthetic-key-1"))
+        _ = try await manager.switchDefault(to: second.id)
+        // OpenCode 2: only the database holds the login.
+        try fm.removeItem(at: authFile)
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-key-2")])
+        do {
+            _ = try await manager.switchDefault(to: first.id)
+            XCTFail("The switch must fail")
+        } catch {
+            XCTAssertEqual((error as? LocalizedError)?.errorDescription,
+                           "OpenCode 2 keeps its login in its database. Run opencode auth login to change it.")
+        }
+        XCTAssertFalse(fm.fileExists(atPath: authFile.path))
+        let status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountIDs["opencodego"], second.id)
+        // The account that is already live switches without a write.
+        _ = try await manager.switchDefault(to: second.id)
+        XCTAssertFalse(fm.fileExists(atPath: authFile.path))
     }
 }

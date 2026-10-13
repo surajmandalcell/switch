@@ -235,8 +235,17 @@ struct ProviderAccountStore {
             var backup = indexURL
             if spec.style == .files {
                 let targetCredential = try readVault(target)
-                // (a) Capture the outgoing live login so rotated tokens are never lost.
                 let outgoing = try readLive(spec, home: nil)
+                // ponytail: OpenCode 2 reads only its database, so auth.json would do nothing; write the credential row when the owner needs to switch between OpenCode Go accounts.
+                var databaseOwned = false
+                for file in spec.files where file.databaseRow != nil {
+                    databaseOwned = OpenCodeGoUsage.hasCredentialTable(directory: try liveURL(file, home: nil).deletingLastPathComponent())
+                }
+                if databaseOwned, !isComplete(spec, outgoing) || identity(spec, outgoing).key != target.identity.userID {
+                    throw AIManagerError.operationFailed(
+                        "OpenCode 2 keeps its login in its database. Run opencode auth login to change it.")
+                }
+                // (a) Capture the outgoing live login so rotated tokens are never lost.
                 if isComplete(spec, outgoing) {
                     let key = identity(spec, outgoing).key
                     if let saved = index.accounts.first(where: {
@@ -254,7 +263,7 @@ struct ProviderAccountStore {
                 backup = try writeBackup(spec.id, outgoing)
                 // (c) Write the target's files; restore the previous ones if a later file fails.
                 do {
-                    try writeLive(spec, targetCredential, home: nil)
+                    if !databaseOwned { try writeLive(spec, targetCredential, home: nil) }
                 } catch {
                     try? writeLive(spec, outgoing, home: nil)
                     throw error
@@ -587,12 +596,14 @@ struct ProviderAccountStore {
                 files[file.id] = try readRows(url, table: table, keys: file.sqliteKeys)
             } else if let data = try readBounded(url) {
                 if let key = file.key {
-                    guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                          let member = object[key] else { continue }
-                    files[file.id] = try Self.json(member)
+                    if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                       let member = object[key] { files[file.id] = try Self.json(member) }
                 } else {
                     files[file.id] = data
                 }
+            }
+            if files[file.id] == nil, let row = file.databaseRow {
+                files[file.id] = OpenCodeGoUsage.databaseLogin(row, directory: url.deletingLastPathComponent())?.value
             }
         }
         return ProviderCredential(files: files)
