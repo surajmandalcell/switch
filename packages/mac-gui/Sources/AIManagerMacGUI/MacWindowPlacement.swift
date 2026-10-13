@@ -75,16 +75,16 @@ enum AIManagerWindowPlacement {
     store(placement(for: window.frame, on: display), defaults: defaults)
   }
 
-  /// The saved size, kept between the window's minimum size and its display's visible frame.
+  /// The saved height, kept between the window's minimum height and its display's visible frame. The
+  /// width is always the fixed window width, so a frame saved by an older build is corrected.
   @MainActor
   private static func restoredSize(
     _ placement: AIManagerStoredWindowPlacement, for window: NSWindow,
     on display: AIManagerDisplayDescriptor
   ) -> NSSize {
-    guard let width = placement.width, let height = placement.height else { return window.frame.size }
-    return NSSize(
-      width: max(window.minSize.width, min(width, display.visibleFrame.width)),
-      height: max(window.minSize.height, min(height, display.visibleFrame.height)))
+    let minimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: AIManagerWindow.minimumSize)).size
+    guard let height = placement.height else { return NSSize(width: minimum.width, height: window.frame.height) }
+    return NSSize(width: minimum.width, height: max(minimum.height, min(height, display.visibleFrame.height)))
   }
 
   static func placement(

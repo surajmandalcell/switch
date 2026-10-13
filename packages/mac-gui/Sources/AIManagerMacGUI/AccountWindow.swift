@@ -16,8 +16,10 @@ enum AIManagerLaunchContext {
 /// The main window: a standard titled window with traffic lights over a full-size content view. It
 /// has no toolbar bar; the content draws its own top row.
 @MainActor final class AIManagerWindow: NSWindow {
-  static let defaultSize = NSSize(width: 1080, height: 760)
-  static let minimumSize = NSSize(width: 980, height: 620)
+  /// The width is fixed at 1200 pt; only the height resizes, from 800 pt up to the screen.
+  static let defaultSize = NSSize(width: 1200, height: 900)
+  static let minimumSize = NSSize(width: 1200, height: 800)
+  static let maximumSize = NSSize(width: 1200, height: CGFloat.greatestFiniteMagnitude)
   static let frameAutosaveName = "AIManagerMainWindow"
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
@@ -30,6 +32,12 @@ enum AIManagerLaunchContext {
         width: max(size.width, Self.minimumSize.width), height: max(size.height, Self.minimumSize.height))
     }
     set { super.contentMinSize = newValue }
+  }
+
+  /// The same for the maximum: the width never grows past 1200 pt.
+  override var contentMaxSize: NSSize {
+    get { NSSize(width: Self.maximumSize.width, height: super.contentMaxSize.height) }
+    set { super.contentMaxSize = newValue }
   }
 }
 
@@ -76,8 +84,13 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
     host.sizingOptions = []
     window.contentViewController = host
     window.contentMinSize = AIManagerWindow.minimumSize
+    window.contentMaxSize = AIManagerWindow.maximumSize
+    window.collectionBehavior.insert(.fullScreenNone)
     window.isReleasedWhenClosed = false
-    window.setContentSize(defaultSize)
+    // A new window opens 900 pt tall, or the screen's visible height when that is shorter, never below 800.
+    let visibleHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? defaultSize.height
+    window.setContentSize(
+      NSSize(width: defaultSize.width, height: max(AIManagerWindow.minimumSize.height, min(defaultSize.height, visibleHeight))))
     let restoreOutcome = AIManagerWindowPlacement.restore(
       window, autosaveName: AIManagerWindow.frameAutosaveName, defaults: placementDefaults)
     if restoreOutcome != .restored { window.center() }
@@ -98,7 +111,14 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
 
   func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
     let minimum = sender.frameRect(forContentRect: NSRect(origin: .zero, size: AIManagerWindow.minimumSize)).size
-    return NSSize(width: max(frameSize.width, minimum.width), height: max(frameSize.height, minimum.height))
+    return NSSize(width: minimum.width, height: max(frameSize.height, minimum.height))
+  }
+
+  /// The green button zooms to the screen's full visible height and keeps the width and x position.
+  func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+    let minimumHeight = window.frameRect(forContentRect: NSRect(origin: .zero, size: AIManagerWindow.minimumSize)).height
+    return NSRect(
+      x: window.frame.minX, y: newFrame.minY, width: window.frame.width, height: max(newFrame.height, minimumHeight))
   }
 
   func windowDidMove(_ notification: Notification) { windowFrameDidChange() }

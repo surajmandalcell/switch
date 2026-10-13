@@ -34,6 +34,10 @@ struct SyntheticChatProvider: ChatHistoryProviding {
       threads: matches, libraryRevision: 1, totalThreadCount: threads.count, matchingThreadCount: matches.count)
   }
 
+  /// Conversation 3 is the one the restart check scrolls a quarter of the way, so it must outgrow the
+  /// tallest window (900 pt) by a wide margin. The others stay short.
+  static func messageCount(of index: Int) -> Int { index == 3 ? 24 : 8 }
+
   static func thread(_ index: Int, title: String, messages: Int, tokens: Int64? = 48_200) -> ChatThreadSummary {
     ChatThreadSummary(
       id: "synthetic-\(index)", threadID: "synthetic-\(index)", title: title,
@@ -51,7 +55,8 @@ struct SyntheticChatProvider: ChatHistoryProviding {
         messages: 60)
     ]
     for index in 1..<max(threadCount, 2) {
-      threads.append(thread(index, title: "Synthetic conversation \(String(format: "%04d", index))", messages: 8))
+      threads.append(thread(
+        index, title: "Synthetic conversation \(String(format: "%04d", index))", messages: messageCount(of: index)))
     }
     let base = Date(timeIntervalSinceNow: -86_400)
     var long: [ChatMessage] = []
@@ -84,7 +89,7 @@ struct SyntheticChatProvider: ChatHistoryProviding {
     }
     var byID: [String: [ChatMessage]] = ["synthetic-0": long]
     for index in 1..<max(threadCount, 2) {
-      byID["synthetic-\(index)"] = (0..<8).map {
+      byID["synthetic-\(index)"] = (0..<messageCount(of: index)).map {
         ChatMessage(
           id: "synthetic-\(index)#\($0)", role: $0 % 2 == 0 ? .user : .assistant,
           text: sentence(4 + $0), timestamp: base.addingTimeInterval(Double($0) * 40))
@@ -265,7 +270,7 @@ struct RealChatProvider: ChatHistoryProviding {
     let model = AccountViewModel(scenario: .historyStress)
     model.installScaleFixture(accountCount: 60, activityDays: 365)
     let (window, hosting) = host(
-      AccountWindow(model: model, initialPageIndex: 0), size: NSSize(width: 1080, height: 760), dark: false)
+      AccountWindow(model: model, initialPageIndex: 0), size: NSSize(width: 1200, height: 900), dark: false)
     await pause(1_000)
     // `--profile-page=Settings` alternates that page with Overview for 40 switches, for `sample`.
     if let name = PreviewArguments.value("profile-page"), let target = AIManagerPage(rawValue: name) {
@@ -337,7 +342,7 @@ struct RealChatProvider: ChatHistoryProviding {
     func open(_ tag: String) async -> (NSWindow, NSHostingView<AnyView>, AccountViewModel) {
       let model = makeModel(provider: SyntheticChatProvider.stress(threadCount: 40), root: root.appending(path: "restore"))
       let (window, hosting) = host(
-        AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1080, height: 760), dark: false)
+        AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1200, height: 900), dark: false)
       _ = await waitUntil { model.selectedChat != nil && !model.isChatLoading }
       await pause(500)
       hosting.layoutSubtreeIfNeeded()
@@ -393,7 +398,7 @@ struct RealChatProvider: ChatHistoryProviding {
     } else { failures.append("restore end: no message table") }
     second.close()
     let (third, thirdView, _) = await open("end")
-    for size in [NSSize(width: 980, height: 620), NSSize(width: 1080, height: 760)] {
+    for size in [NSSize(width: 1200, height: 800), NSSize(width: 1200, height: 900)] {
       third.setContentSize(size)
       thirdView.layoutSubtreeIfNeeded()
       await pause(800)
@@ -424,7 +429,7 @@ struct RealChatProvider: ChatHistoryProviding {
     for dark in [false, true] {
       let model = AccountViewModel(scenario: .historyStress)
       let (window, hosting) = host(AccountWindow(model: model, initialPageIndex: 0),
-        size: NSSize(width: 1080, height: 760), dark: dark)
+        size: NSSize(width: 1200, height: 900), dark: dark)
       func select(_ page: AIManagerPage) async {
         NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
         _ = await waitUntil { AIMPlace.visiblePage == page }
@@ -467,19 +472,19 @@ struct RealChatProvider: ChatHistoryProviding {
     failures += await roundTripCheck()
     let real = ProcessInfo.processInfo.environment["AI_MANAGER_CONV_REAL_HOME"]
     for dark in [false, true] {
-      for width in [1080.0, 980.0] {
-        let tag = "\(dark ? "dark" : "light")-\(Int(width))"
+      for height in [900.0, 800.0] {
+        let tag = "\(dark ? "dark" : "light")-\(Int(height))"
         let model = makeModel(provider: SyntheticChatProvider.stress(threadCount: 40), root: root.appending(path: tag))
         let (window, hosting) = host(
-          AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: width, height: 760), dark: dark)
+          AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1200, height: height), dark: dark)
         let ready = await waitUntil { model.selectedChat != nil && !model.isChatLoading }
         if !ready { failures.append("\(tag): the conversation did not open") }
         await pause(500)
         hosting.layoutSubtreeIfNeeded()
         failures += await scrollAndAudit(window: window, root: hosting, label: tag, shot: "conv-\(tag)")
-        // The same page after a live width change, at the other width.
-        let other = width == 1080 ? 980.0 : 1080.0
-        window.setContentSize(NSSize(width: other, height: 760))
+        // The same page after a live height change, at the other height.
+        let other = height == 900 ? 800.0 : 900.0
+        window.setContentSize(NSSize(width: 1200, height: other))
         hosting.layoutSubtreeIfNeeded()
         await pause(300)
         failures += await scrollAndAudit(window: window, root: hosting, label: "\(tag)->\(Int(other))", shot: nil)
@@ -492,7 +497,7 @@ struct RealChatProvider: ChatHistoryProviding {
         home: URL(fileURLWithPath: real), cacheFile: root.appending(path: "real-cache.json"))
       let model = makeModel(provider: RealChatProvider(index: index), root: root.appending(path: tag))
       let (window, hosting) = host(
-        AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1080, height: 760), dark: false)
+        AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1200, height: 900), dark: false)
       _ = await waitUntil(timeout: 90) { model.chatHistory.totalThreadCount > 0 }
       // Walk the ten largest conversations.
       let largest = model.chatHistory.threads.sorted { $0.fileByteCount > $1.fileByteCount }.prefix(10)

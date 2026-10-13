@@ -382,7 +382,7 @@ enum AIManagerNativeContract {
     var failures = warm < 0.2 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
     // The Accounts page (index 1) is where an account selection redraws the account detail.
     let pane = NSHostingView(rootView: AccountWindow(model: model, initialPageIndex: 1))
-    pane.frame = NSRect(x: 0, y: 0, width: 1120, height: 740)
+    pane.frame = NSRect(x: 0, y: 0, width: 1200, height: 900)
     let window = NSWindow(contentRect: pane.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = pane
     pane.layoutSubtreeIfNeeded()
@@ -1337,9 +1337,13 @@ enum AIManagerNativeContract {
       "The window needs an empty unified toolbar and a transparent title bar; the content draws its own top row")
     expect(window.isOpaque && window.backgroundColor.alphaComponent == 1,
       "The window has a transparent exterior")
-    expect(window.contentMinSize.width >= AIManagerWindow.minimumSize.width
-      && window.contentMaxSize.width > AIManagerWindow.defaultSize.width,
-      "The window is not resizable above its minimum size \(window.contentMinSize) \(window.contentMaxSize)")
+    // Fixed 1200 pt width, height from 800 pt (900 pt when new), and no full screen.
+    expect(window.contentMinSize.width == 1200 && window.contentMaxSize.width == 1200
+      && window.contentMinSize.height == 800 && window.contentMaxSize.height > 800
+      && AIManagerWindow.minimumSize == NSSize(width: 1200, height: 800)
+      && AIManagerWindow.defaultSize == NSSize(width: 1200, height: 900)
+      && window.collectionBehavior.contains(.fullScreenNone),
+      "The window is not 1200 wide, 800 to 900 tall, and without full screen \(window.contentMinSize) \(window.contentMaxSize)")
     expect(window.contentView?.layer?.cornerRadius ?? 0 == 0, "The window content has a custom corner mask")
     expect(Bundle.main.url(forResource: "Fonts", withExtension: nil) == nil,
       "Bundled Inter or PT Mono fonts are still present")
@@ -1724,7 +1728,7 @@ enum AIManagerNativeContract {
 
   static func windowPlacementFailures() -> [String] {
     var failures: [String] = []
-    let size = NSSize(width: 1120, height: 740)
+    let size = NSSize(width: 1200, height: 900)
     let primary = AIManagerDisplayDescriptor(
       identifier: "primary", name: "Built-in Display",
       frame: NSRect(x: 0, y: 0, width: 1728, height: 1117),
@@ -1771,13 +1775,13 @@ enum AIManagerNativeContract {
       failures.append("Window placement falls back to the wrong display")
     }
 
-    let legacy = "-2200 620 1120 740 -2560 120 2560 1410"
+    let legacy = "-2200 620 1200 900 -2560 120 2560 1410"
     if AIManagerWindowPlacement.legacyPlacement(
       from: legacy, displays: [primary, external]) != placement
     {
       failures.append("Legacy AppKit placement does not tolerate usable-frame changes")
     }
-    let unrelatedLegacy = "7000 7000 1120 740 7000 7000 2560 1440"
+    let unrelatedLegacy = "7000 7000 1200 900 7000 7000 2560 1440"
     if AIManagerWindowPlacement.legacyPlacement(
       from: unrelatedLegacy, displays: [primary, external]) != nil
     {
