@@ -702,9 +702,72 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         } else {
             failures.append("The owned scroll view has no thin scroller")
         }
+        failures += await scrollRevealRouteFailures()
         NotificationCenter.default.post(name: AIManagerNavigation.request,
             object: AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex])
         try? await Task.sleep(for: .milliseconds(250))
+        return failures
+    }
+
+    /// The real routes that reveal the hidden scroll bars, driven in process (no system events):
+    /// a wheel event sent to the row under the pointer in an offscreen hosted-row list, a position restore that
+    /// must stay hidden, and the SwiftUI bar model's quiet window.
+    private func scrollRevealRouteFailures() async -> [String] {
+        struct Row: Identifiable, Equatable { let id: Int }
+        var failures: [String] = []
+        let list = AIMVirtualList(items: (0..<60).map(Row.init), fixedRowHeight: 28) { row in
+            AnyView(Text("Row \(row.id)").frame(maxWidth: .infinity, alignment: .leading))
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: list.frame(width: 240, height: 160))
+        window.contentView?.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(250))
+        func find<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+            view.subviews.lazy.compactMap { ($0 as? T) ?? find(type, in: $0) }.first
+        }
+        guard let root = window.contentView, let scroll = find(AIMOwnedScrollView.self, in: root),
+              let knob = scroll.verticalScroller as? AIMScroller else { return ["Wheel route: no hosted list scroller"] }
+        let wheel = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0)
+        let over = scroll.convert(NSPoint(x: 100, y: 60), to: nil)
+        // A CGEvent carries screen coordinates (top-left origin) and NSEvent(cgEvent:) has no window, so
+        // park the window at the screen origin: screen and window coordinates then agree.
+        window.setFrameOrigin(.zero)
+        wheel?.location = CGPoint(x: over.x, y: (NSScreen.screens.first?.frame.height ?? 0) - over.y)
+        guard let cg = wheel, let event = NSEvent(cgEvent: cg) else { return ["Wheel route: no scroll event"] }
+        if knob.knobAlpha != 0 { failures.append("Wheel route: the list scroller starts visible") }
+        // NSWindow.sendEvent drops this event (it has no window number), so do what the window does for a
+        // wheel: hit-test the point, then send it to the hosted row's view, which hands it up the responder chain.
+        guard let hit = root.superview?.hitTest(event.locationInWindow), hit !== root else { return failures + ["Wheel route: no row under the pointer"] }
+        hit.scrollWheel(with: event)
+        try? await Task.sleep(for: .milliseconds(400))
+        if scroll.contentView.bounds.minY == 0 { failures.append("Wheel route: the wheel event did not scroll the list") }
+        if knob.knobAlpha <= 0 { failures.append("Wheel route: a wheel scroll over a row did not reveal the scroller") }
+        try? await Task.sleep(for: .milliseconds(1400))
+        if knob.knobAlpha != 0 { failures.append("Wheel route: the scroller did not hide after the wheel scroll") }
+        window.close()
+
+        let restored = AIMOwnedScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        restored.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 190, height: 400))
+        restored.restoreKey = "acceptance-scroll-restore"
+        AIMPlace.scroll["acceptance-scroll-restore"] = 120
+        restored.layoutSubtreeIfNeeded()
+        restored.restorePosition()
+        try? await Task.sleep(for: .milliseconds(400))
+        if restored.contentView.bounds.minY != 120 { failures.append("Restore route: the position was not restored") }
+        if (restored.verticalScroller as? AIMScroller)?.knobAlpha != 0 { failures.append("Restore route: a restore revealed the scroller") }
+        AIMPlace.scroll["acceptance-scroll-restore"] = nil
+
+        let bar = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        bar.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
+        let model = AIMScrollBarModel()
+        model.attach(bar)
+        bar.contentView.scroll(to: NSPoint(x: 0, y: 40))
+        if model.activity != 0 { failures.append("Bar model: a scroll inside the quiet window counted as activity") }
+        try? await Task.sleep(for: .milliseconds(400))
+        bar.contentView.scroll(to: NSPoint(x: 0, y: 90))
+        if model.activity == 0 { failures.append("Bar model: a user scroll after the quiet window did not count as activity") }
         return failures
     }
 
