@@ -15,9 +15,10 @@ extension AIMTheme {
   /// The provider label row above a group of account rows.
   static let groupLabelHeight: CGFloat = 24
   static let headerHeight: CGFloat = 28
-  /// A tile sits 6 inside its card with a 4 radius; its text lines up with the 16 inset.
-  static let tileInset: CGFloat = 6
-  static let tileRadius: CGFloat = 4
+  /// Tiles share the card's inset, with a 12 pt gap and a 6 pt radius.
+  static let tileInset: CGFloat = 16
+  static let tileGap: CGFloat = 12
+  static let tileRadius: CGFloat = 6
   /// A row highlight sits this far inside its 36 pt row, above and below.
   static let highlightInset: CGFloat = 2
   /// A titled card puts its first content 14 pt below the top edge, so its last content sits 14 pt
@@ -68,8 +69,12 @@ extension AIMTheme {
   static let switchOff = dynamic(light: NSColor(white: 0, alpha: 0.12), dark: NSColor(white: 1, alpha: 0.18))
   static let segmentSelected = dynamic(light: .white, dark: NSColor(white: 1, alpha: 0.2))
   /// Keyboard focus: a faint fill in the control's own shape.
-  static let focusTint = Color.accentColor.opacity(0.16)
-  static let rowHighlight = Color.accentColor.opacity(0.12)
+  static let focusTint = dynamic(light: .controlAccentColor.withAlphaComponent(0.16), dark: NSColor(white: 1, alpha: 0.08))
+  static let rowHighlight = dynamic(light: .controlAccentColor.withAlphaComponent(0.12), dark: NSColor(white: 1, alpha: 0.12))
+  static let sidebarSelection = dynamic(light: .controlAccentColor.withAlphaComponent(0.18), dark: NSColor(white: 1, alpha: 0.12))
+  static let checkboxSelection = dynamic(light: .controlAccentColor.withAlphaComponent(0.22), dark: NSColor(white: 1, alpha: 0.12))
+  static let checkedControlFill = dynamic(light: .controlAccentColor, dark: NSColor(white: 1, alpha: 0.2))
+  static let passiveIcon = dynamic(light: .controlAccentColor, dark: .labelColor)
 }
 
 private struct AIMControlHeightKey: EnvironmentKey { static let defaultValue = AIMTheme.controlHeight }
@@ -128,7 +133,7 @@ struct AIMCard<Accessory: View, Content: View>: View {
   /// A hairline between the title row and the content.
   var divider = false
   var edges = AIMCardEdges.both
-  /// A well: the title and tiles sit in an inner body 6 in from every side, radius 4 (10 - 6).
+  /// A well: the title and tile row share the card's 16 pt inset.
   var well = false
   /// The content scrolls to the card's edges (a list), so the even-padding check skips it.
   var scrolls = false
@@ -162,7 +167,6 @@ struct AIMCard<Accessory: View, Content: View>: View {
 
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: AIMTheme.radius, style: .continuous)
-    let inset = well ? AIMTheme.tileInset : 0
     VStack(alignment: .leading, spacing: 0) {
       if let title {
         HStack(spacing: AIMTheme.rowSpacing) {
@@ -171,15 +175,15 @@ struct AIMCard<Accessory: View, Content: View>: View {
           Spacer(minLength: AIMTheme.rowSpacing)
           accessory.uiLint(.align("\(cardID)-end", .end))
         }
-        .padding(.horizontal, AIMTheme.cardInset - inset)
+        .padding(.horizontal, AIMTheme.cardInset)
         .frame(height: AIMTheme.titleRowHeight)
         .accessibilityElement(children: .contain)
         if divider { AIMHairline() }
       }
       content
+        .modifier(WellBody(well: well))
     }
     .environment(\.aimCardID, cardID)
-    .modifier(WellBody(well: well))
     .padding(.bottom, bottomInset)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(AIMTheme.card, in: shape)
@@ -209,8 +213,7 @@ private struct WellBody: ViewModifier {
   @ViewBuilder func body(content: Content) -> some View {
     if well {
       content.frame(maxWidth: .infinity, alignment: .leading)
-        .uiLint(.tile(radius: AIMTheme.tileRadius))
-        .padding(AIMTheme.tileInset)
+        .padding([.horizontal, .bottom], AIMTheme.tileInset)
     } else { content }
   }
 }
@@ -347,7 +350,7 @@ private struct AIMCheckboxButtonStyle: ButtonStyle {
     configuration.label
       .overlay(alignment: .leading) {
         ZStack {
-          box.fill(isOn ? Color.accentColor : AIMTheme.controlFill)
+          box.fill(isOn ? AIMTheme.checkedControlFill : AIMTheme.controlFill)
           box.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear)
           Color.clear.aimBorder(isOn ? Color.clear : AIMTheme.controlBorder, in: box)
           if isOn {
@@ -612,7 +615,7 @@ private struct AIMScrollBar: View {
         Color.clear
         if model.canScroll {
           Capsule()
-            .fill(Color(nsColor: .secondaryLabelColor).opacity(hovering || dragStart != nil ? 0.9 : 0.6))
+            .fill(Color(nsColor: .labelColor).opacity(hovering || dragStart != nil ? 0.25 : 0.15))
             .frame(width: 6, height: thumb)
             .offset(y: top)
         }
@@ -659,6 +662,28 @@ struct AIMScrollView<Content: View>: View {
   }
 }
 
+/// Sheet forms share the page scroll policy; the footer remains outside the scroll host.
+struct AIMSheetForm<Content: View>: View {
+  @ViewBuilder var content: Content
+  var body: some View {
+    AIMScrollView {
+      VStack(alignment: .leading, spacing: AIMTheme.sectionSpacing) { content }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(AIMTheme.pageMargin)
+    }
+    .textFieldStyle(AIMSheetTextFieldStyle())
+    .buttonStyle(AIMPushButtonStyle())
+    .focusEffectDisabled(!AIMFocus.showsSystemRings)
+  }
+}
+
+private struct AIMSheetTextFieldStyle: TextFieldStyle {
+  @FocusState private var focused: Bool
+  func _body(configuration: TextField<Self._Label>) -> some View {
+    configuration.textFieldStyle(.plain).focused($focused).aimFieldChrome(focused: focused)
+  }
+}
+
 /// The pinned header already paints the page color under the transparent title bar, so macOS 26's
 /// automatic scroll edge effect (a tinted blur at the top) must not draw over it.
 private struct PlainTopEdge: ViewModifier {
@@ -688,14 +713,14 @@ struct AIMFixedPage<Content: View>: View {
 // MARK: - Tile
 
 extension View {
-  /// A tile inside a card: 6 in from the card edge, 4 radius, text lined up with the 16 inset.
+  /// A tile inside a card, with its own readable content inset.
   func aimTile() -> some View {
     let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
-    return padding(AIMTheme.cardInset - AIMTheme.tileInset)
+    return padding(10)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(AIMTheme.tileFill, in: shape)
       .aimBorder(AIMTheme.cardBorder, in: shape)
-      .uiLint(.item)
+      .uiLint(.item, .tile(radius: AIMTheme.tileRadius))
   }
 }
 
@@ -776,7 +801,7 @@ struct AIMTableRow<Content: View>: View {
         if highlighted || focused {
           RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
             .fill(highlighted ? AIMTheme.rowHighlight : AIMTheme.focusTint)
-            .padding(.horizontal, AIMTheme.tileInset)
+            .padding(.horizontal, 6)
             .padding(.vertical, AIMTheme.highlightInset)
         }
       }
@@ -1027,7 +1052,7 @@ struct AIMChipToggleStyle: ToggleStyle {
         .aimFont(.body)
         .padding(.horizontal, 10)
         .frame(height: AIMTheme.rowControlHeight)
-        .background(shape.fill(configuration.isOn ? Color.accentColor.opacity(0.22) : AIMTheme.controlFill))
+        .background(shape.fill(configuration.isOn ? AIMTheme.checkboxSelection : AIMTheme.controlFill))
         .overlay(shape.fill(focused ? AIMTheme.focusTint : Color.clear))
         .aimBorder(AIMTheme.controlBorder, in: shape)
         .contentShape(shape)
@@ -1091,7 +1116,7 @@ struct AIMSidebar: View {
     return Button { select(page) } label: {
       HStack(spacing: 10) {
         Image(systemName: page.icon.symbol).aimFont(.body)
-          .foregroundStyle(Color.accentColor)
+          .foregroundStyle(AIMTheme.passiveIcon)
           .frame(width: 20)
         Text(page.rawValue).aimText(.body)
         Spacer(minLength: 0)
@@ -1113,7 +1138,7 @@ private struct AIMSidebarRowStyle: ButtonStyle {
     configuration.label
       .padding(.horizontal, 10)
       .frame(height: 32)
-      .background(selected ? Color.accentColor.opacity(0.18) : (focused ? AIMTheme.focusTint : Color.clear), in: shape)
+      .background(selected ? AIMTheme.sidebarSelection : (focused ? AIMTheme.focusTint : Color.clear), in: shape)
       .contentShape(Rectangle())
   }
 }

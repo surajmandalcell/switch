@@ -69,10 +69,14 @@ async function main() {
     const f = node.frame, p = node.parent.frame;
     const names = new Set(node.tags.map(tag => tag.name));
     const attrs = [];
-    for (const name of ['actions', 'stack', 'number']) if (names.has(name)) attrs.push(`data-ui-${name}`);
+    // A one-tile row shares its frame with the tile. Its inner 6 pt text gaps are not row gaps.
+    for (const name of ['actions', 'stack', 'number']) if (names.has(name) &&
+        !(name === 'stack' && names.has('tile'))) attrs.push(`data-ui-${name}`);
     if (names.has('card')) {
       attrs.push('data-ui-container', 'data-ui-content');
-      if (node.children.some(child => child.tags.some(tag => tag.name === 'tile'))) attrs.push('data-ui-radius');
+      // Card tiles use the explicit 16 inset / 6 radius contract below, rather than radius minus inset.
+      if (node.children.some(child => child.tags.some(tag => tag.name === 'tile') &&
+          !child.tags.some(tag => tag.name === 'stack'))) attrs.push('data-ui-radius');
     }
     if (names.has('tile')) attrs.push('data-ui-radius-inner');
     if (node.alignItem) attrs.push('data-ui-align-item');
@@ -127,6 +131,25 @@ async function main() {
     const findings = report.findings.filter(finding => measuredRules.has(finding.rule) &&
       !(finding.rule === 'font-size' && policy.fontSizes.some(size => finding.actual === `${size}px`)));
     // Our own post-check, next to lintapple: a card's inner padding is even. The gap from the card's
+    // Tile rows share the card inset, independent of the measured title and text bounds.
+    for (const row of nodes.filter(node => node.tags.some(tag => tag.name === 'stack'))) {
+      const tiles = (row.tags.some(tag => tag.name === 'tile') ? [row] :
+        row.children.filter(node => node.tags.some(tag => tag.name === 'tile')))
+        .sort((a, b) => a.frame.x - b.frame.x);
+      if (!tiles.length) continue;
+      let card = row.parent;
+      while (card && !card.tags?.some(tag => tag.name === 'card')) card = card.parent;
+      if (!card) continue;
+      const first = tiles[0].frame, last = tiles.at(-1).frame;
+      const insets = [first.x - card.frame.x,
+        card.frame.x + card.frame.width - last.x - last.width,
+        card.frame.y + card.frame.height - Math.max(...tiles.map(tile => tile.frame.y + tile.frame.height))];
+      const gaps = tiles.slice(1).map((tile, i) => tile.frame.x - tiles[i].frame.x - tiles[i].frame.width);
+      if (insets.some(value => Math.abs(value - 16) > 1) || gaps.some(value => Math.abs(value - 12) > 1) ||
+          tiles.some(tile => tile.radius !== 6)) {
+        findings.push({ rule: 'tile-geometry', selector: `tiles@${row.source}`, actual: `insets ${insets}, gaps ${gaps}, radius ${tiles.map(tile => tile.radius)}` });
+      }
+    }
     // top edge to its first content item (text, control, tile, or tagged item) must equal the gap
     // from its last content item to the bottom edge, within 1 pt. Scrolling cards are skipped.
     const isContent = node => node.kind === 'text' || node.kind === 'control' ||
@@ -135,6 +158,10 @@ async function main() {
     for (const card of nodes.filter(node => node.tags.some(tag => tag.name === 'card') &&
         !node.tags.some(tag => tag.name === 'scrolls'))) {
       const items = nodes.filter(node => node !== card && inside(node, card) && isContent(node));
+      // Tile rows have the explicit 16 pt bottom inset checked above; title text starts at 14.
+      if (nodes.some(node => inside(node, card) && node.tags.some(tag => tag.name === 'stack') &&
+          (node.tags.some(tag => tag.name === 'tile') ||
+           node.children.some(child => child.tags.some(tag => tag.name === 'tile'))))) continue;
       if (!items.length) continue;
       const top = Math.min(...items.map(node => node.frame.y)) - card.frame.y;
       const bottom = card.frame.y + card.frame.height - Math.max(...items.map(node => node.frame.y + node.frame.height));

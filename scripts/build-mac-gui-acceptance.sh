@@ -24,6 +24,10 @@ case "$preview" in
     ;;
   *) printf '%s\n' 'AI_MANAGER_MAC_GUI_PREVIEW must be 0 or 1.' >&2; exit 2 ;;
 esac
+# Concurrent workers must not share the acceptance app's preferences domain.
+if [[ "$preview" == 0 ]]; then
+  bundle_id="$bundle_id.$(printf '%s' "$build_path" | shasum -a 256 | cut -c1-12)"
+fi
 app_path="$output_path/$app_name.app"
 appearance="${AI_MANAGER_MAC_GUI_APPEARANCE:-system}"
 mac_gui_sources=()
@@ -33,10 +37,16 @@ case "$appearance" in
   *) printf 'Unsupported Mac GUI appearance: %s (expected system, light, or dark)\n' "$appearance" >&2; exit 2 ;;
 esac
 
+source_snapshot="$output_path/source-snapshot"
+mkdir -p "$source_snapshot"
 for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
   if [[ "$(basename "$source")" != "AIManagerApp.swift" ]]; then
-    mac_gui_sources+=("$source")
+    cp "$source" "$source_snapshot/$(basename "$source")"
+    mac_gui_sources+=("$source_snapshot/$(basename "$source")")
   fi
+done
+for check in NativeUIContract MenuBarContract AcceptanceApp; do
+  cp "$repo_root/packages/mac-gui/Tests/$check.swift" "$source_snapshot/$check.swift"
 done
 
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
@@ -64,9 +74,9 @@ swiftc \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "${mac_gui_sources[@]}" \
-  "$repo_root/packages/mac-gui/Tests/NativeUIContract.swift" \
-  "$repo_root/packages/mac-gui/Tests/MenuBarContract.swift" \
-  "$repo_root/packages/mac-gui/Tests/AcceptanceApp.swift" \
+  "$source_snapshot/NativeUIContract.swift" \
+  "$source_snapshot/MenuBarContract.swift" \
+  "$source_snapshot/AcceptanceApp.swift" \
   -o "$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 
 if ! LC_ALL=C rg -q '/Demo/Sources/' \

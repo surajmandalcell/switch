@@ -163,8 +163,8 @@ h2 { font: 700 13px/16px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro T
 /* card */
 .card { background: var(--card); border: 1px solid var(--card-edge); border-radius: 10px; box-shadow: var(--card-shadow); overflow: hidden; padding-bottom: 1px; }
 .card-body { border-radius: 9px; }
-.card.well { padding: 5px; }
-.card.well .card-body { border-radius: 4px; }
+.card.well { padding-bottom: 0; }
+.card.well .card-body { border-radius: 6px; }
 .card-title { height: 44px; margin: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .card-title.rule { border-bottom: 1px solid var(--sep); }
 .card-title .lead { display: flex; align-items: baseline; gap: 6px; }
@@ -221,8 +221,8 @@ td.num { text-align: right; }
 [data-ui-actions] { display: flex; align-items: center; gap: 8px; }
 
 /* tiles */
-.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.tile { border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--tile); border: .5px solid var(--sep); min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 15px 15px; }
+.tile { border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--tile); border: .5px solid var(--sep); min-width: 0; }
 
 /* rows */
 .row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 16px; }

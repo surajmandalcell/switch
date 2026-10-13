@@ -247,7 +247,12 @@ struct AccountWindow: View {
     // control's own shape; system rings come back only with Full Keyboard Access or Increase Contrast.
     .focusEffectDisabled(!AIMFocus.showsSystemRings)
     .sheet(isPresented: Binding(
-      get: { model.showImport },
+      get: {
+        #if AI_MANAGER_PREVIEW
+        if CommandLine.arguments.contains("--contract-only") { return false }
+        #endif
+        return model.showImport
+      },
       set: { if !$0 { model.closeAccountModal() } })
     ) {
       Group {
@@ -259,8 +264,10 @@ struct AccountWindow: View {
       .frame(width: 680, height: 600)
       .interactiveDismissDisabled(model.isBusy)
       .environment(\.aimCopyPath, model.copyPath)
+      .tint(AIMTheme.passiveIcon)
     }
     .environment(\.aimCopyPath, model.copyPath)
+    .tint(AIMTheme.passiveIcon)
     .preferredColorScheme(themeOverride)
     .background(
       WindowReader { window in
@@ -1421,7 +1428,7 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
             .aimBorder(selected ? AIMTheme.controlBorder : Color.clear, in: segment)
             .contentShape(segment)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AIMSegmentFocusStyle())
         .accessibilityAddTraits(selected ? .isSelected : [])
       }
     }
@@ -1432,6 +1439,16 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
     .fixedSize()
     .accessibilityElement(children: .contain)
     .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+private struct AIMSegmentFocusStyle: ButtonStyle {
+  @Environment(\.isFocused) private var focused
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label.overlay {
+      RoundedRectangle(cornerRadius: 5).fill(focused ? AIMTheme.focusTint : Color.clear)
+        .allowsHitTesting(false)
+    }
   }
 }
 
@@ -2111,7 +2128,7 @@ private struct ChatThreadButton: View {
     Button(action: action) {
       ChatThreadRow(thread: thread)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AIMTheme.tileInset)
+        .padding(.horizontal, 6)
         .frame(height: 44)
         .background(
           selected ? AIMTheme.rowHighlight : (hovered ? AIMTheme.tileFill : Color.clear),
@@ -2988,7 +3005,7 @@ private struct ErrorBar: View {
   }
 }
 
-private struct AddAccountFlow: View {
+struct AddAccountFlow: View {
   @ObservedObject var model: AccountViewModel
   @State private var grokAuthorizationCode = ""
   /// The generic provider whose credentials page is open, before any sign-in session exists.
@@ -3096,7 +3113,7 @@ private struct AddAccountFlow: View {
 
   private var signInPage: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section("\(selectedProviderName) sign-in") {
           if model.selectedProviderID == .droid {
             TextField("Account name", text: $model.droidAccountName)
@@ -3175,13 +3192,13 @@ private struct AddAccountFlow: View {
           }
         }
       }
-      .formStyle(.grouped)
 
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"], showsCancel: false) {
         EmptyView()
       } trailing: {
         // Cancel ends the sign-in session, not only the sheet.
         Button("Cancel") { Task { await model.cancelAccountLogin(); genericProviderID = nil } }
+          .buttonStyle(AIMPushButtonStyle())
           .keyboardShortcut(.cancelAction)
         if model.accountLoginState != .credentialChoiceRequired {
           AIMButton(title: "Check Now", icon: .refresh, tone: .primary, disabled: model.accountLoginSession == nil) {
@@ -3208,11 +3225,11 @@ private struct AddAccountFlow: View {
 
   private var completedPage: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section("Ready") {
           HStack(spacing: AIMTheme.rowSpacing) {
             AIMIcon(name: .success).aimFont(.section).foregroundStyle(AIMTheme.green)
-            Text(model.selectedAccount?.identity.heroName ?? "\(selectedProviderName) account")
+            Text(model.selectedAccount?.identity.accountLabel ?? "\(selectedProviderName) account")
               .aimText(.section)
           }
           Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
@@ -3241,7 +3258,6 @@ private struct AddAccountFlow: View {
           }
         }
       }
-      .formStyle(.grouped)
       ImportFooter(step: step, labels: ["Provider", "Sign in", "Done"], showsCancel: false) {
         if let accountID = model.selectedAccountID {
           AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
@@ -3258,7 +3274,7 @@ private struct AddAccountFlow: View {
   }
 }
 
-private struct ImportFlow: View {
+struct ImportFlow: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
     VStack(spacing: 0) {
@@ -3331,7 +3347,7 @@ struct ImportFooter<Leading: View, Trailing: View>: View {
         leading
         Spacer(minLength: 16)
         if showsCancel {
-          Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+          Button("Cancel", action: cancel).buttonStyle(AIMPushButtonStyle()).keyboardShortcut(.cancelAction)
         }
         trailing
       }
@@ -3360,13 +3376,11 @@ private struct SourcePage: View {
   @Environment(\.isEnabled) private var isEnabled
   var body: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section {
           Text("Choose a provider and one of its data folders.").aimText(.secondary)
-          Picker("Provider", selection: $model.selectedProviderID) {
-            Text("Codex").tag(ProviderID.codex)
-          }
-          .pickerStyle(.menu)
+          AIMPopUp(options: [ProviderID.codex], selection: $model.selectedProviderID,
+            accessibilityLabel: "Provider", label: { $0.guiName })
         }
         Section("Source") {
           if model.discoveries.isEmpty {
@@ -3381,7 +3395,7 @@ private struct SourcePage: View {
             } label: {
               HStack(alignment: .top, spacing: AIMTheme.sectionSpacing) {
                 AIMIcon(name: .check).aimFont(.body)
-                  .foregroundStyle(AIMTheme.blue)
+                  .foregroundStyle(AIMTheme.passiveIcon)
                   .opacity(selected ? 1 : 0)
                 VStack(alignment: .leading, spacing: 2) {
                   Text(source.identity?.displayName ?? source.support.label).aimText(.body)
@@ -3404,17 +3418,17 @@ private struct SourcePage: View {
               .opacity(isEnabled && supported ? 1 : 0.58)
             }
             .buttonStyle(.plain)
+            .padding(8)
+            .background(selected ? AIMTheme.rowHighlight : Color.clear, in: RoundedRectangle(cornerRadius: 6))
             .accessibilityAddTraits(selected ? .isSelected : [])
             .disabled(!supported)
             .help(source.inspectionError ?? source.path.path)
           }
         }
         Section("Import scope") {
-          Picker("Import scope", selection: $model.importMode) {
-            Text("Account access only").tag(ImportMode.authOnly)
-            Text("Account access, settings, and chats").tag(ImportMode.full)
-          }
-          .pickerStyle(.menu)
+          AIMPopUp(options: [ImportMode.authOnly, .full], selection: $model.importMode,
+            accessibilityLabel: "Import scope",
+            label: { $0 == .authOnly ? "Account access only" : "Account access, settings, and chats" })
           Text(
             model.importMode == .authOnly
               ? "Saves account access. Settings and chats stay in the current Codex home. The source stays unchanged."
@@ -3422,7 +3436,6 @@ private struct SourcePage: View {
           ).aimText(.secondary)
         }
       }
-      .formStyle(.grouped)
       ImportFooter(step: 1) {
         HStack(spacing: AIMTheme.rowSpacing) {
           AIMButton(title: "Choose Codex folder…", icon: .folder) {
@@ -3456,7 +3469,7 @@ private struct ImportReviewPage: View {
   }
   var body: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section("Plan") {
           DetailRow(label: "Account", value: plan.identity.displayName)
           DetailRow(label: "Saved auth", value: plan.credentialDestination.path)
@@ -3486,16 +3499,12 @@ private struct ImportReviewPage: View {
                     : "The saved credential differs from this source."
                 ).aimText(.secondary)
                 HStack(spacing: AIMTheme.rowSpacing) {
-                  Picker("Choice", selection: Binding(
+                  AIMSegmentedPicker(options: [Optional(ConflictChoice.keepShared), .useImported], selection: Binding(
                     get: { model.conflictChoices[conflict.relativePath] },
-                    set: { model.conflictChoices[conflict.relativePath] = $0 })
-                  ) {
-                    Text(conflict.affectsAllAccounts ? "Keep shared" : "Keep saved")
-                      .tag(Optional(ConflictChoice.keepShared))
-                    Text("Use imported").tag(Optional(ConflictChoice.useImported))
-                  }
-                  .pickerStyle(.segmented)
-                  .labelsHidden()
+                    set: { model.conflictChoices[conflict.relativePath] = $0 }
+                  ), accessibilityLabel: "Choice", label: {
+                    $0 == .useImported ? "Use imported" : (conflict.affectsAllAccounts ? "Keep shared" : "Keep saved")
+                  })
                   .fixedSize()
                   if conflict.externalTarget != nil
                     && model.conflictChoices[conflict.relativePath] == .useImported
@@ -3522,7 +3531,6 @@ private struct ImportReviewPage: View {
           }
         }
       }
-      .formStyle(.grouped)
       ImportFooter(step: 2) {
         AIMButton(title: "Back") { model.resetImport() }
       } trailing: {
@@ -3539,13 +3547,13 @@ private struct ImportResultPage: View {
   @ObservedObject var model: AccountViewModel
   var body: some View {
     VStack(spacing: 0) {
-      Form {
+      AIMSheetForm {
         Section(result.unresolved.isEmpty ? "Import complete" : "Review required") {
           HStack(spacing: AIMTheme.sectionSpacing) {
             AIMIcon(name: result.unresolved.isEmpty ? .check : .warning).aimFont(.section)
               .foregroundStyle(result.unresolved.isEmpty ? AIMTheme.green : AIMTheme.amber)
             VStack(alignment: .leading, spacing: 2) {
-              Text(result.account.identity.heroName).aimText(.section)
+              Text(result.account.identity.accountLabel).aimText(.section)
               Text(EmailPrivacy.display(result.verification.detail)).aimText(.secondary)
             }
             Spacer()
@@ -3570,7 +3578,6 @@ private struct ImportResultPage: View {
             tone: AIMTheme.blue, icon: .success)
         }
       }
-      .formStyle(.grouped)
       ImportFooter(step: 3) {
         AIMButton(title: "Refresh usage", icon: .refresh, disabled: model.isBusy) {
           Task { await model.refreshUsage(accountID: result.account.id) }

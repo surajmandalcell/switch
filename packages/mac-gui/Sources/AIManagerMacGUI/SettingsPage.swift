@@ -82,8 +82,8 @@ struct SettingsPage: View {
       }
       AIMSection("Accounts") {
         Toggle(isOn: $showEmailDomains) {
-          Text("Show email domains")
-          Text("Show the full address instead of the name before @.").aimText(.secondary).lineLimit(1)
+          Text("Show full email addresses")
+          Text("Show the full address, including the domain ending such as .com or .co.uk.").aimText(.secondary).lineLimit(1)
         }
         Toggle(isOn: $hideEmails) {
           Text(SettingsCopy.hideEmails)
