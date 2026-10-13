@@ -957,6 +957,12 @@ public actor AccountManager {
             if let record = try? providerStore.autoImportLive(spec.id, removed: removed) { added.append(record) }
         }
         if let record = try? importLiveDroidLogin(removed: removed) { added.append(record) }
+        for key in ZCodeCredentials.apiKeys(home: paths.userHome) {
+            if let record = try? providerStore.autoImportSecret(
+                ProviderID(rawValue: "zai"), fields: ["apiKey": key.apiKey], name: key.accountName, removed: removed) {
+                added.append(record)
+            }
+        }
         return added
     }
 
