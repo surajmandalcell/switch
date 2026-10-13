@@ -21,12 +21,15 @@ public struct ChatMessage: Identifiable, Sendable, Equatable {
     public let role: ChatMessageRole
     public let text: String
     public let timestamp: Date?
+    /// The model that was active for this message, when the transcript names one.
+    public let model: String?
 
-    public init(id: String, role: ChatMessageRole, text: String, timestamp: Date?) {
+    public init(id: String, role: ChatMessageRole, text: String, timestamp: Date?, model: String? = nil) {
         self.id = id
         self.role = role
         self.text = text
         self.timestamp = timestamp
+        self.model = model
     }
 }
 
@@ -1041,6 +1044,7 @@ private struct ChatMessageReference: Sendable {
     let byteCount: Int
     let role: ChatMessageRole
     let timestamp: Date?
+    let model: String?
 }
 
 private struct ParsedTranscript: Sendable {
@@ -1059,6 +1063,7 @@ private enum TranscriptParser {
         let role: ChatMessageRole
         let text: String
         let timestamp: Date?
+        var model: String? = nil
     }
 
     private struct MessageStats {
@@ -1097,7 +1102,7 @@ private enum TranscriptParser {
             }
             if indexed, message.role != .user || !ChatTitlePolicy.isBootstrapContext(message.text) {
                 references.append(ChatMessageReference(sequence: message.sequence, offset: offset,
-                    byteCount: byteCount, role: message.role, timestamp: message.timestamp))
+                    byteCount: byteCount, role: message.role, timestamp: message.timestamp, model: message.model))
             }
         }
 
@@ -1325,7 +1330,7 @@ private enum TranscriptParser {
                let text = nonempty(payload["message"] as? String)
             {
                 let message = RawMessage(
-                    sequence: sequence, role: .user, text: text, timestamp: timestamp)
+                    sequence: sequence, role: .user, text: text, timestamp: timestamp, model: currentModel)
                 eventUsers.record(message, offset: reader.lastRecordOffset,
                     byteCount: rawRecord.count, indexed: includeMessages)
                 continue
@@ -1348,7 +1353,7 @@ private enum TranscriptParser {
                       let text = messageText(messageObject), !text.isEmpty
                 else { continue }
                 let message = RawMessage(
-                    sequence: sequence, role: role, text: text, timestamp: timestamp)
+                    sequence: sequence, role: role, text: text, timestamp: timestamp, model: currentModel)
                 switch role {
                 case .user:
                     responseUsers.record(message, offset: reader.lastRecordOffset,
@@ -1363,14 +1368,14 @@ private enum TranscriptParser {
             }
             if let text = toolText(messageObject, type: itemType) {
                 let message = RawMessage(
-                    sequence: sequence, role: .tool, text: text, timestamp: timestamp)
+                    sequence: sequence, role: .tool, text: text, timestamp: timestamp, model: currentModel)
                 tools.record(message, offset: reader.lastRecordOffset,
                     byteCount: rawRecord.count, indexed: includeMessages)
                 continue
             }
             if itemType == "reasoning", let text = reasoningSummary(messageObject) {
                 let message = RawMessage(
-                    sequence: sequence, role: .other, text: text, timestamp: timestamp)
+                    sequence: sequence, role: .other, text: text, timestamp: timestamp, model: currentModel)
                 others.record(message, offset: reader.lastRecordOffset,
                     byteCount: rawRecord.count, indexed: includeMessages)
             }
@@ -1498,7 +1503,7 @@ private enum TranscriptParser {
         } else { text = nil }
         guard let text else { return nil }
         return ChatMessage(id: "\(path)#\(reference.sequence)", role: reference.role,
-            text: text, timestamp: reference.timestamp)
+            text: text, timestamp: reference.timestamp, model: reference.model)
     }
 
     private static func messageText(_ object: [String: Any]) -> String? {
