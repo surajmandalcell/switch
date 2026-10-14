@@ -329,6 +329,59 @@ struct RealChatProvider: ChatHistoryProviding {
       }
     }
     window.close()
+    return failures + (await sidebarSyncCheck())
+  }
+
+  /// After every sidebar selection, each rendered frame shows the new page with the new highlight, or
+  /// the old page with the old highlight, never a mix. The highlight row is read from pixels: the
+  /// row's open area against the sidebar padding beside it.
+  static func sidebarSyncCheck() async -> [String] {
+    var failures: [String] = []
+    let model = AccountViewModel(scenario: .historyStress)
+    let (window, hosting) = host(
+      AccountWindow(model: model, initialPageIndex: 0), size: NSSize(width: 1200, height: 900), dark: false)
+    await pause(1_000)
+    let pages = AIManagerPage.allCases
+    func shownPage() -> AIManagerPage? {
+      views(in: hosting).lazy.compactMap { ($0 as? AIMVisitedPageHost.Container)?.current }.first
+    }
+    func highlighted() -> [AIManagerPage] {
+      guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return [] }
+      hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+      let scale = CGFloat(bitmap.pixelsWide) / hosting.bounds.width
+      func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor {
+        bitmap.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.deviceRGB) ?? .clear
+      }
+      return pages.enumerated().filter { index, _ in
+        let y = AIMTheme.topBarHeight + 2 + CGFloat(index) * 34 + 16
+        let row = pixel(AIMTheme.sidebarWidth - 24, y), side = pixel(4, y)
+        let gap = abs(row.redComponent - side.redComponent) + abs(row.greenComponent - side.greenComponent)
+          + abs(row.blueComponent - side.blueComponent)
+        return gap > 0.02
+      }.map(\.element)
+    }
+    let route: [AIManagerPage] = [.settings, .conversations, .accounts, .maintenance, .overview, .conversations, .settings]
+    for target in route + route {
+      let before = shownPage()
+      NotificationCenter.default.post(name: AIManagerNavigation.request, object: target)
+      let start = CFAbsoluteTimeGetCurrent()
+      var frames = 0
+      var settled = false
+      while CFAbsoluteTimeGetCurrent() - start < 1 {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.004))
+        let page = shownPage(), marked = highlighted()
+        frames += 1
+        if page != nil, marked != [page!] {
+          failures.append("sidebar -> \(target.rawValue): frame \(frames) shows page \(page!.rawValue) with highlight \(marked.map(\.rawValue))")
+          break
+        }
+        if page == target, marked == [target], frames > 2 { settled = true; break }
+      }
+      if !settled && failures.isEmpty { failures.append("sidebar -> \(target.rawValue): never settled (from \(before?.rawValue ?? "none"))") }
+      if !failures.isEmpty { break }
+      await pause(200)
+    }
+    window.close()
     return failures
   }
 
