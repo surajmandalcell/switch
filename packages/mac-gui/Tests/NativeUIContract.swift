@@ -133,8 +133,8 @@ enum AIManagerNativeContract {
     let signedOut = MenuBarAccountSnapshot(id: account.id, identity: account.identity, detail: "",
       isVerified: false, isActive: false, providerID: .claudeCode)
     store.update(snapshot: MenuBarSnapshot(accounts: [signedOut]))
-    expect(P.signInSubtitle == "Sign in again to see usage" && P.rowHeight(store.rows[0]) == P.rowHeight(account),
-      "Signed-out popover changes row height or lacks the subtitle")
+    expect(P.signInSubtitle == "Sign in again to see usage" && P.rowHeight(store.rows[0]) == 58,
+      "Signed-out popover row is not the name and one sign-in line, or lacks the subtitle")
     return failures
   }
 

@@ -183,7 +183,6 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let isActive: Bool
   let usage: MenuBarUsageSnapshot?
   let showsUsage: Bool
-  let reservedRowHeight: CGFloat?
 
   init(
     id: UUID,
@@ -194,8 +193,7 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     usage: MenuBarUsageSnapshot? = nil,
     showsUsage: Bool = true,
     providerID: ProviderID = .codex,
-    identityIsFormatted: Bool = false,
-    reservedRowHeight: CGFloat? = nil
+    identityIsFormatted: Bool = false
   ) {
     self.id = id
     self.providerID = providerID
@@ -205,7 +203,6 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     self.isActive = isActive
     self.usage = showsUsage ? usage : nil
     self.showsUsage = showsUsage
-    self.reservedRowHeight = reservedRowHeight
   }
 
   /// Codex and every provider with a usage spec can be refreshed from the popover.
@@ -377,13 +374,7 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   func update(snapshot: MenuBarSnapshot) {
-    self.snapshot = MenuBarSnapshot(accounts: snapshot.accounts.map { account in
-      guard !account.isVerified, let old = self.snapshot.accounts.first(where: { $0.id == account.id }) else { return account }
-      return MenuBarAccountSnapshot(id: account.id, identity: account.identity, detail: account.detail,
-        isVerified: false, isActive: account.isActive, usage: account.usage, showsUsage: account.showsUsage,
-        providerID: account.providerID, identityIsFormatted: true,
-        reservedRowHeight: old.reservedRowHeight ?? MenuBarPresentation.rowHeight(old))
-    }, lastRefreshedAt: snapshot.lastRefreshedAt)
+    self.snapshot = snapshot
     rowErrors = rowErrors.filter { error in
       snapshot.accounts.contains { $0.id == error.key }
     }

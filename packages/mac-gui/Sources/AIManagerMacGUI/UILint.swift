@@ -49,10 +49,15 @@ extension View {
 #if AI_MANAGER_PREVIEW
 // Contract previews keep their normal layout cost; only lint exports attach geometry readers.
 #if UI_LINT_SELF_CHECK
-private let uiLintEnabled = true
+private var uiLintEnabled = true
 #else
-private let uiLintEnabled = CommandLine.arguments.contains("--ui-lint")
+private var uiLintEnabled = CommandLine.arguments.contains("--ui-lint")
 #endif
+/// A contract check turns recording on while it hosts a view, to measure frames, then off again.
+@discardableResult func uiLintRecording(_ on: Bool) -> Bool {
+    defer { uiLintEnabled = on }
+    return uiLintEnabled
+}
 
 @MainActor final class UILintStore {
     static let shared = UILintStore()
