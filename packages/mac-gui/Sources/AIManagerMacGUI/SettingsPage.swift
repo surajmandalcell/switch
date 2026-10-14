@@ -59,9 +59,13 @@ struct SettingsPage: View {
           Text("Appearance")
           Text("Choose the window and menu bar appearance.").aimText(.secondary).lineLimit(1)
         }
-        Toggle(isOn: $showUsageAsUsed) {
-          Text("Show percentage used")
-          Text("Turn off to show the percentage left in every usage view.").aimText(.secondary).lineLimit(1)
+        LabeledContent {
+          AIMSegmentedPicker(
+            options: [false, true], selection: $showUsageAsUsed,
+            accessibilityLabel: "Usage percentage", label: { $0 ? "Used" : "Left" })
+        } label: {
+          Text("Usage percentage")
+          Text("Show the share left or the share used in every usage view.").aimText(.secondary).lineLimit(1)
         }
         LabeledContent {
           AIMSegmentedPicker(

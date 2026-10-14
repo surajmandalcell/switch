@@ -171,7 +171,7 @@ scroll position, filters, chart period and grouping, cleanup source and range, b
 destination, the selected conversation, and expanded popover rows. "When Switch opens" (Last
 place, the default, or Overview) picks the page shown at launch. Settings groups, in order:
 General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut), Appearance
-(System, Light, or Dark; Show percentage used; Reset times; Time format), Accounts (Show full
+(System, Light, or Dark; Usage percentage; Reset times; Time format), Accounts (Show full
 email addresses, off by default, so "ada@gmail.com" reads "ada@gmail" with the top-level domain
 dropped, and "ada@mail.example.co.uk" reads "ada@mail.example"; Hide email addresses; Check provider
 status; the Claude terminal setting), Menu bar, Notifications, Data locations, and Reset. The
@@ -184,7 +184,7 @@ items are:
    24-hour) set how every reset text reads, such as "Resets in 2h 5m" or "Resets 5:30 PM"
    ("tomorrow", a weekday, or a date when it is not today). Clicking any reset text switches the
    same choice everywhere; hovering shows the other format. Clicking a usage percentage such as
-   "52% left" switches Show percentage used the same way. **Menu shortcut** records a global
+   "52% left" switches Usage percentage the same way. **Menu shortcut** records a global
    shortcut (Command, Option, or Control plus a key; Delete clears) that opens or closes the
    menu popover from anywhere; it is off by default.
    **Refresh when the menu opens** is off by default.
@@ -312,9 +312,9 @@ completed refresh. The cadence does not depend on cache age or opening the menu 
 refresh remains immediate, and a failed account waits five minutes before another automatic
 attempt.
 
-Settings has a persistent “Show percentage used” toggle, off by default: off shows the amount
-left, on shows the amount used, in every meter, popover row, tray percentage, tooltip, and
-accessibility label.
+Settings has a persistent “Usage percentage” choice, Left (default) or Used: Left shows the amount
+left ("90% left"), Used shows the amount used ("10% used"), in every meter, popover row, tray
+percentage, tooltip, and accessibility label.
 
 Daily activity is a GitHub-style calendar. A segmented control (Today, Yesterday, Weekly,
 Monthly, Yearly; initially Yearly, remembered) drives the token total and the range. Selecting
