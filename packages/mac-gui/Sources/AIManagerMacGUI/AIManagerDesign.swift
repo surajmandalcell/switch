@@ -194,6 +194,14 @@ enum AIMTheme {
   static let track = Color(nsColor: .quaternaryLabelColor)
 }
 
+extension NSColor {
+  convenience init(hex: UInt32) {
+    self.init(
+      srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
+      blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+  }
+}
+
 extension Color {
   init(hex: UInt32) {
     self.init(
@@ -289,20 +297,96 @@ enum UsageBarColor {
   static func color(usedPercent: Double?, providerID: ProviderID) -> Color? {
     guard let usedPercent else { return nil }
     if usedPercent >= 90 { return AIMTheme.red }
-    switch providerID.rawValue {
-    case "claude-code": return Color(hex: 0xD97757)
-    case "codex", "openai": return Color(hex: 0x10A37F)
-    case "gemini-cli", "vertexai": return Color(hex: 0x4285F4)
-    case "deepseek": return Color(hex: 0x4D6BFE)
-    case "qwencloud": return Color(hex: 0x615CED)
-    case "mistral": return Color(hex: 0xFF7000)
-    case "groq": return Color(hex: 0xF55036)
-    case "raycast": return Color(hex: 0xFF6363)
-    case "warp": return Color(hex: 0x01A4FF)
-    case "kiro": return Color(hex: 0x9046FF)
-    default: return Color(nsColor: .labelColor)
-    }
+    return colors[providerID.rawValue] ?? neutral
   }
+
+  /// A brand that is only black and white: a soft system grey, not the stark label color.
+  static let neutral = AIMTheme.dynamic(light: NSColor(hex: 0x8E8E93), dark: NSColor(hex: 0x98989D))
+
+  /// Built once, so equal calls give equal colors.
+  private static let colors = table.mapValues {
+    AIMTheme.dynamic(light: NSColor(hex: $0.first!), dark: NSColor(hex: $0.last!))
+  }
+
+  /// Provider id -> bar color on the light card (#F5F5F5) and the dark card (#2A2A2A), at least 3:1
+  /// on each. One value means both appearances use it. The brands left out are black and white.
+  static let table: [String: [UInt32]] = [
+    "codex": [0x0AA17D, 0x10A37F],
+    "abacus": [0x0092B0, 0x39C3E7],
+    "aerostack": [0xC97C00, 0xFCAB4A],
+    "aiand": [0xC70007, 0xDC2A22],
+    "aixy": [0x123650, 0x527794],
+    "alibaba": [0xEE6200, 0xFF6A00],
+    "alibabatokenplan": [0xEE6200, 0xFF6A00],
+    "antigravity-cli": [0x4285F4],
+    "atlascloud": [0x7036F0, 0x7D4EFF],
+    "augment": [0x1AA049],
+    "azureopenai": [0x0961AE, 0x2675C3],
+    "bedrock": [0x0066FF, 0x0568FF],
+    "bifrost": [0x00A082, 0x45D2AF],
+    "chutes": [0x2AA16A, 0x63D297],
+    "claude-code": [0xD57354, 0xD97757],
+    "commandcode": [0x2E1B9C, 0x6063E4],
+    "copilot": [0x8534F3, 0x8F43FF],
+    "cosmic": [0x0098CE, 0x29ABE2],
+    "cursor": [0xF54E00],
+    "deepgram": [0x00A266, 0x00F099],
+    "deepinfra": [0x2A3275, 0x606EB7],
+    "deepseek": [0x4D6BFE],
+    "doubao": [0x3C8CFF],
+    "elevenlabs": [0x2B7FFF],
+    "exa": [0x2142ED, 0x3764FF],
+    "factory": [0xEE6018],
+    "fireworks": [0x6726FE, 0x7453FF],
+    "gemini-cli": [0x4285F4],
+    "gitkraken": [0x149185],
+    "groq": [0xF55036],
+    "helmcode": [0x4632D7, 0x605BFE],
+    "huggingface": [0xAA8B00, 0xFFD21E],
+    "hyper": [0xD65DD7, 0xFF84FF],
+    "ibmbob": [0x001D6D, 0x4670C7],
+    "jetbrains": [0xF001A0],
+    "kilo": [0xA48D00, 0xFFDD00],
+    "kimi-api": [0x007CFF],
+    "kimi": [0x007CFF],
+    "kiro": [0x9046FF],
+    "langdock": [0x4469FC],
+    "linkup": [0xEA643E, 0xEB653F],
+    "litellm": [0x061BBF, 0x2F65FF],
+    "lithosai": [0x2F5D8A, 0x4776A5],
+    "llmman": [0x668CE0, 0x7AA2F7],
+    "longcat": [0x00A435, 0x29E154],
+    "minimax": [0xEA2F6F],
+    "mistral": [0xEA6600, 0xFF7000],
+    "moonshot": [0x007CFF],
+    "muse": [0x0866FF, 0x0A67FF],
+    "neuralwatt": [0xD55934],
+    "notion": [0x2383E2],
+    "openai": [0x0AA17D, 0x10A37F],
+    "perplexity": [0x01838C],
+    "pi": [0xD17467, 0xF09082],
+    "qoder": [0x8B5CF6],
+    "qwencloud": [0x615CED, 0x635FF0],
+    "raycast": [0xF4585A, 0xFF6363],
+    "replicate": [0xE63336],
+    "sailresearch": [0x2C4681, 0x5472B0],
+    "sakana": [0xE10600, 0xE51107],
+    "sofya": [0x8F9400, 0xA9B01F],
+    "synthetic": [0x6366F1],
+    "t3chat": [0xC31889, 0xCF2A93],
+    "tavily": [0x699782, 0x81B09A],
+    "tinyapi": [0xCF7703],
+    "typesafe": [0xDF4FB5],
+    "venice": [0x163048, 0x597691],
+    "vertexai": [0x4285F4],
+    "warp": [0x0094E8, 0x01A4FF],
+    "workbuddy": [0x00A081, 0x0EC9A2],
+    "xkiro": [0x00A449, 0x22C65E],
+    "zai": [0x0B7FFF],
+    "zed": [0x084CCF, 0x286AEF],
+    "zoommate": [0x0B5CFF, 0x1D66FF],
+    "droid": [0xEE6018],
+  ]
 }
 
 /// The one usage bar: a 4-point capsule in the Overview, Accounts, the account detail, and the
