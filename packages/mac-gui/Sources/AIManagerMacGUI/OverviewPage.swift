@@ -70,8 +70,8 @@ enum OverviewPalette {
 
   /// The service's brand color; its next accounts get lighter and darker steps of it.
   static func account(service: String, rank: Int) -> Color {
-    guard let brand = UsageBarColor.color(usedPercent: 0, providerID: ProviderID(rawValue: service)),
-          brand != Color(nsColor: .labelColor) else { return hashed(service) }
+    guard UsageBarColor.table[service] != nil,
+          let brand = UsageBarColor.color(usedPercent: 0, providerID: ProviderID(rawValue: service)) else { return hashed(service) }
     guard rank > 0, let base = NSColor(brand).usingColorSpace(.sRGB) else { return brand }
     let steps: [CGFloat] = [0, 0.38, -0.3, 0.62, -0.5]
     let step = steps[rank % steps.count]

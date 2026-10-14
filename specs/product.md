@@ -399,9 +399,8 @@ in light and dark before a UI change ships.
   titles); Body (regular, 13 pt, row labels, values, buttons, Default marker); Secondary (Subheadline,
   11 pt, secondary color, providers/descriptions/resets); Caption (10 pt, badges). No other sizes
   or weights. Numbers add monospaced digits; only paths and IDs use a monospaced font.
-  Remaining-quota bars are 6 pt capsules: green above 50% left, yellow at 20-50%, red below 20%.
-  Pace uses the same colors; unknown values show an empty grey track. Show percentage used flips
-  text and fill to the used share.
+  Usage bars are 4 pt capsules in the provider's brand color, red from 90% used; unknown values
+  show an empty grey track. Usage percentage Used flips text and fill to the used share.
 - **Geometry (points):** content margins 20, 12 between cards. A card has a 10 radius and a
   16 inset; its title row (Section title left, Secondary count or an accent "View … →" link
   right) is 44 tall. Every card spans the full content width, and its title, column headers,
@@ -498,7 +497,11 @@ in light and dark before a UI change ships.
   its service's reported windows, including unknown values; plan differences and an account's
   hidden-row override can reduce them. Each line aligns the window name, a 4 pt rounded bar,
   percentage, and reset in fixed columns. Bars everywhere (popover and window) fill with the
-  provider's brand color and turn red from 90% used.
+  provider's brand color and turn red from 90% used. Brand colors come from the official logo,
+  else the official site or product UI (75 providers); a color too faint
+  on one card changes only its lightness for that appearance (3:1 contrast on the card). Brands
+  that are only black and white (Grok, OpenCode Go, Vercel, and others) use a soft grey: #8E8E93
+  light, #98989D dark.
   Clicking an account expands it to every reported window (model buckets and credits too) plus
   Switch and Open <tool> actions. An account that needs sign-in shows "Sign in again to see
   usage" as its subtitle, with Sign in at the row's right, bottom-aligned so it lines up with

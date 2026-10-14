@@ -1381,10 +1381,48 @@ enum AIManagerNativeContract {
     // Toolbar search: at least 300 points wide; Command-K comes from the View menu.
     expect(AIManagerToolbar.searchWidth >= 300 && AIManagerToolbar.searchPrompt == "Search accounts…",
       "The toolbar search is narrower than 300 points or has the wrong prompt")
-    expect(UsageBarColor.color(usedPercent: 89, providerID: .codex) == Color(hex: 0x10A37F)
+    // Usage bars: brand colors per appearance, 3:1 on the card, black-and-white brands stay neutral.
+    func luminance(_ hex: UInt32) -> Double {
+      func channel(_ shift: UInt32) -> Double {
+        let c = Double((hex >> shift) & 0xff) / 255
+        return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+      }
+      return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+    func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+      let (x, y) = (luminance(a), luminance(b))
+      return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+    func resolved(_ color: Color?, dark: Bool) -> NSColor? {
+      var out: NSColor?
+      NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
+        out = color.flatMap { NSColor($0).usingColorSpace(.sRGB) }
+      }
+      return out
+    }
+    func hex(_ color: NSColor?) -> UInt32? {
+      guard let color else { return nil }
+      func byte(_ v: CGFloat) -> UInt32 { UInt32((v * 255).rounded()) }
+      return byte(color.redComponent) << 16 | byte(color.greenComponent) << 8 | byte(color.blueComponent)
+    }
+    expect(UsageBarColor.table.count == 75, "The usage bar color table is not 75 brands")
+    for (id, values) in UsageBarColor.table {
+      let bar = UsageBarColor.color(usedPercent: 10, providerID: ProviderID(rawValue: id))
+      let (light, dark) = (values.first!, values.last!)
+      expect(hex(resolved(bar, dark: false)) == light && hex(resolved(bar, dark: true)) == dark,
+        "Usage bar \(id) does not resolve to its light and dark brand colors")
+      expect(contrast(light, 0xF5F5F5) >= 3.0, "Usage bar \(id) is under 3:1 on the light card")
+      expect(contrast(dark, 0x2A2A2A) >= 3.0, "Usage bar \(id) is under 3:1 on the dark card")
+    }
+    expect(hex(resolved(UsageBarColor.color(usedPercent: 89, providerID: .codex), dark: true)) == 0x10A37F
+      && hex(resolved(UsageBarColor.color(usedPercent: 89, providerID: .codex), dark: false)) == 0x0AA17D
       && UsageBarColor.color(usedPercent: 90, providerID: .codex) == AIMTheme.red
-      && UsageBarColor.color(usedPercent: nil, providerID: .codex) == nil,
-      "Usage bars lost their provider color or 90 percent warning")
+      && UsageBarColor.color(usedPercent: 90, providerID: ProviderID(rawValue: "kiro")) == AIMTheme.red
+      && UsageBarColor.color(usedPercent: nil, providerID: .codex) == nil
+      && UsageBarColor.color(usedPercent: 10, providerID: ProviderID(rawValue: "grok-build")) == UsageBarColor.neutral
+      && hex(resolved(UsageBarColor.neutral, dark: true)) == 0x98989D
+      && hex(resolved(UsageBarColor.neutral, dark: false)) == 0x8E8E93,
+      "Usage bars lost their provider color, 90 percent warning, or neutral fallback")
     // Removed settings leave no stored preference behind.
     expect(!SettingsReset.keys.contains("keyboardFocusIndicators")
       && !SettingsReset.keys.contains("bodyTranslucency"),
@@ -1656,7 +1694,7 @@ enum AIManagerNativeContract {
     expect(OverviewPalette.hash("a") == 0xE40C292C && OverviewPalette.hash("") == 2_166_136_261,
       "The model and project palette hash is not stable")
     let shades = (0..<3).map { OverviewPalette.account(service: "codex", rank: $0) }
-    expect(Set(shades).count == 3 && shades[0] == Color(hex: 0x10A37F),
+    expect(Set(shades).count == 3 && shades[0] == UsageBarColor.color(usedPercent: 0, providerID: .codex),
       "Accounts of one service do not keep the brand color and distinct shades")
     // Waffle cells always add up to 100 and tiny shares keep a "<1%" label.
     expect(OverviewWaffle.cells([1, 1, 1]) == [34, 33, 33] && OverviewWaffle.cells([1_000_000, 1]).reduce(0, +) == 100

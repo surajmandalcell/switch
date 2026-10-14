@@ -37,7 +37,7 @@ extension AIMTheme {
   /// Width shared by the disabled Default button and the Switch button.
   static let rowButtonWidth: CGFloat = 64
 
-  private static func dynamic(light: NSColor, dark: NSColor) -> Color {
+  static func dynamic(light: NSColor, dark: NSColor) -> Color {
     Color(nsColor: NSColor(name: nil) { appearance in
       appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
     })
