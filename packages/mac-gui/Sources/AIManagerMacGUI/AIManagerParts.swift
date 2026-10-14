@@ -1236,8 +1236,9 @@ private struct AIMSidebarRowFace: View {
           shape.fill(AIMTheme.focusTint).opacity(focused && !selected ? 1 : 0)
           shape.fill(AIMTheme.sidebarSelection).opacity(selected ? 1 : 0)
         }
+        // Only hover fades. The page swaps in one frame, so the selection fill must too; a fade
+        // keeps the old row lit for the first frame of the new page.
         .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
-        .animation(AIMMotion.fade(AIMMotion.hover), value: selected)
       }
       .contentShape(Rectangle())
       .onHover { hovering = $0 }

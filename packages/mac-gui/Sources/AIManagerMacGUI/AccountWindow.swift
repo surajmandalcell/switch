@@ -399,7 +399,7 @@ struct AccountWindow: View {
 }
 
 /// Detached hosts keep their SwiftUI state without participating in layout, input, or accessibility.
-private struct AIMVisitedPageHost: NSViewRepresentable {
+struct AIMVisitedPageHost: NSViewRepresentable {
   let page: AIManagerPage
   let query: String
   let maintenance: MaintenanceSection
