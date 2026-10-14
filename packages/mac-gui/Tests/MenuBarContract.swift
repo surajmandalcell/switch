@@ -35,8 +35,8 @@ enum AIManagerMenuBarContract {
     expect(P.tileSize == 16 && P.groupHeaderHeight == 26, "Service header geometry changed")
     let two = account("a", usage: twoWindows), one = account("b", usage: oneWindow)
     expect(P.rowHeight(two) == 70 && P.rowHeight(one) == 52, "Row heights changed: \(P.rowHeight(two)) \(P.rowHeight(one))")
-    expect(P.rowHeight(account("c")) == 52 && P.rowHeight(account("d", verified: false)) == 58,
-      "Unknown and sign-in rows are not one line tall")
+    expect(P.rowHeight(account("c")) == 30 && P.rowHeight(account("d", verified: false)) == 58,
+      "A row with no usage is not the name alone, or a sign-in row is not one line below the name")
     expect(P.rowHeight(account("e", usage: twoWindows, shows: false)) == 0, "A hidden account still takes space")
     let withTokens = MenuBarUsageSnapshot(
       usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 1_000_000)
@@ -131,6 +131,8 @@ enum AIManagerMenuBarContract {
       "Open-tool titles are wrong")
 
     failures.append(contentsOf: await storeFailures())
+    // First among the hosted checks: it records frames, so it runs before other popover hosts exist.
+    failures.append(contentsOf: layoutAgreementFailures())
     failures.append(contentsOf: hostedLayoutFailures())
     failures.append(contentsOf: polishFailures())
     failures.append(contentsOf: statusItemFailures())
@@ -265,6 +267,118 @@ enum AIManagerMenuBarContract {
     expect(refreshed == [other.id] && allRefreshes == 0, "Row refresh does not refresh one account")
     return failures
   }
+
+  /// The signed-out card, a row with no usage lines, and usage rows with credits and tokens: the
+  /// computed popover height must equal the laid-out content height (no empty band above the
+  /// footer), each row must be as tall as the estimate, and the expanded signed-out card keeps
+  /// Switch, Open Codex, and Sign in on one row. Writes light and dark PNGs when
+  /// AI_MANAGER_POPOVER_SHOTS is set.
+  private static func layoutAgreementFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    let now = Date()
+    let windows = MenuBarUsageSnapshot(
+      usedPercentage: 24, secondaryUsedPercentage: 59, resetsAt: now.addingTimeInterval(3_600),
+      secondaryResetsAt: now.addingTimeInterval(86_400), tokenPeriodLabel: "since reset", tokens: 1_000_000,
+      primaryMinutes: 300, secondaryMinutes: 10_080)
+    let credits = MenuBarUsageSnapshot(usedPercentage: nil, providerWindows: [
+      .init(title: "Session", used: 20, resetsAt: now.addingTimeInterval(3_600), minutes: 300),
+      .init(title: "Weekly", used: 40, resetsAt: now.addingTimeInterval(86_400), minutes: 10_080),
+      .init(title: "Monthly credits", used: 12, resetsAt: nil, minutes: nil)])
+    func account(_ name: String, verified: Bool = true, usage: MenuBarUsageSnapshot?, provider: ProviderID,
+                 id: UUID = UUID()) -> MenuBarAccountSnapshot {
+      MenuBarAccountSnapshot(id: id, identity: name, detail: "", isVerified: verified, isActive: false,
+        usage: usage, providerID: provider, identityIsFormatted: true)
+    }
+    let outID = UUID()
+    let signedIn = [
+      account("me@mandalsuraj", usage: windows, provider: .codex, id: outID),
+      account("grace@example.test", usage: windows, provider: .codex),
+      account("ada@example.test", usage: credits, provider: .claudeCode),
+      account("go@example.test", usage: nil, provider: ProviderID(rawValue: "opencodego")),
+    ]
+    // The real path: the card was signed in with usage, then the next refresh signs it out.
+    let suite = "switch-popover-agreement-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let store = MenuBarPopoverStore(snapshot: MenuBarSnapshot(accounts: signedIn),
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }),
+      visibleScreenHeight: 2_000, defaults: defaults)
+    store.reduceMotion = true
+    var next = signedIn
+    next[0] = account("me@mandalsuraj", verified: false, usage: nil, provider: .codex, id: outID)
+    store.update(snapshot: MenuBarSnapshot(accounts: next))
+    store.toggleExpanded(store.rows[0])
+    expect(store.rows[0].id == outID && !store.rows[0].isVerified, "Layout fixture lost the signed-out card")
+
+    var directory: URL?
+    if let path = ProcessInfo.processInfo.environment["AI_MANAGER_POPOVER_SHOTS"] {
+      directory = URL(fileURLWithPath: path)
+      try? FileManager.default.createDirectory(at: directory!, withIntermediateDirectories: true)
+    }
+    for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+      let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+      let wasRecording = uiLintRecording(true)
+      defer { uiLintRecording(wasRecording) }
+      UILintStore.shared.items.removeAll()
+      let host = NSHostingView(rootView: MenuBarPopover(store: store)
+        .background(Color(nsColor: .windowBackgroundColor)).renderScaled())
+      let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless,
+        backing: .buffered, defer: false)
+      window.appearance = NSAppearance(named: appearance)
+      window.contentView = host
+      host.frame = NSRect(origin: .zero, size: size)
+      host.layoutSubtreeIfNeeded()
+      window.displayIfNeeded()
+      RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+      host.layoutSubtreeIfNeeded()
+      if let directory, let png = RenderScale.png(of: host) {
+        try? png.write(to: directory.appendingPathComponent("popover-fixture-\(label).png"))
+      }
+      guard label == "light" else { continue }
+
+      // (a) Switch, Open Codex, and Sign in share one row.
+      let items = Array(UILintStore.shared.items.values)
+      UILintStore.shared.items.removeAll()
+      func frame(_ item: [String: Any]) -> CGRect {
+        let f = item["frame"] as? [String: Any] ?? [:]
+        func number(_ key: String) -> CGFloat { (f[key] as? NSNumber).map { CGFloat(truncating: $0) } ?? .nan }
+        return CGRect(x: number("x"), y: number("y"), width: number("width"), height: number("height"))
+      }
+      func inGroup(_ item: [String: Any], _ group: String) -> Bool {
+        (item["tags"] as? [[String: Any]] ?? []).contains { $0["group"] as? String == group }
+      }
+      let rows = items.filter { inGroup($0, "menuBarRows") }.map(frame).sorted { $0.minY < $1.minY }
+      expect(rows.count == store.rows.count, "Layout fixture drew \(rows.count) rows, expected \(store.rows.count)")
+
+      // (a) Switch, Open Codex, and Sign in share one row: the same midY and height, left to right.
+      let buttons = items.filter { $0["kind"] as? String == "control" }.map(frame)
+        .filter { rows.first.map($0.intersects) ?? false }.sorted { $0.minX < $1.minX }
+      if buttons.count == 3 {
+        expect(buttons.allSatisfy { abs($0.midY - buttons[0].midY) < 0.5 && abs($0.height - buttons[0].height) < 0.5 }
+          && buttons[0].maxX <= buttons[1].minX && buttons[1].maxX <= buttons[2].minX,
+          "Switch, Open Codex, and Sign in are not one row: \(buttons)")
+      } else { failures.append("The signed-out card has \(buttons.count) buttons, expected 3: \(buttons)") }
+
+      // (b) Each row is as tall as its estimate, so the computed popover height equals the
+      // laid-out content (the list's padding, the rows, and the footer): no empty band.
+      let estimates = store.rows.map { P.rowHeight($0) + ($0.id == outID ? P.expansionHeight($0) : 0) }
+      for (row, (laidOut, estimate)) in zip(store.rows, zip(rows, estimates)) {
+        expect(abs(laidOut.height - estimate) <= 1,
+          "Row \(row.identity) is laid out \(laidOut.height) pt tall, estimated \(estimate)")
+      }
+      if let last = rows.last {
+        let laidOutHeight = last.maxY + 12 + MenuBarPopover.footerHeight
+        expect(abs(laidOutHeight - store.contentHeight) <= 1,
+          "Popover height \(store.contentHeight) differs from the laid-out content \(laidOutHeight): empty band above the footer")
+      }
+    }
+    return failures
+  }
+
+  private static func views(in root: NSView) -> [NSView] { [root] + root.subviews.flatMap { views(in: $0) } }
 
   private static func hostedLayoutFailures() -> [String] {
     var failures: [String] = []

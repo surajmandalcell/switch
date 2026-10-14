@@ -179,14 +179,19 @@ enum MenuBarPresentation {
     }
   }
 
-  /// Height of one account row, hairline included. Zero when the account is hidden.
+  /// Height of one account row, hairline included. Zero when the account is hidden. It is what
+  /// the row lays out: padding, the name, then the sign-in line or the usage lines (a row with
+  /// no usage is the name alone), then the token caption. The popover height sums these, so
+  /// the row view must add nothing else.
   static func rowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     guard account.showsUsage else { return 0 }
-    if !account.isVerified, let height = account.reservedRowHeight { return height }
-    let count = CGFloat(max(1, lineCount(account)))
-    var height = rowPaddingV * 2 + headerHeight + lineGap + count * lineHeight
-      + (count - 1) * lineSpacing + dividerHeight
-    if !account.isVerified { height += signInHeight - lineHeight }
+    var height = rowPaddingV * 2 + headerHeight + dividerHeight
+    if !account.isVerified {
+      height += lineGap + signInHeight
+    } else if lineCount(account) > 0 {
+      let count = CGFloat(lineCount(account))
+      height += lineGap + count * lineHeight + (count - 1) * lineSpacing
+    }
     if hasTokenCaption(account) { height += lineGap + captionHeight }
     return height
   }
@@ -307,7 +312,7 @@ struct MenuBarRow: View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: P.lineGap) {
         header
-        content
+        if P.lineCount(account) > 0 { content }
         if P.hasTokenCaption(account), let usage = account.usage, let parts = P.tokenParts(usage) {
           tokenLine(parts, split: P.splitsTokenCaption(usage))
         }
@@ -335,7 +340,6 @@ struct MenuBarRow: View {
         .clipped()
       }
     }
-    .frame(height: P.rowHeight(account) + P.expansionHeight(account) * expansion, alignment: .top)
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
