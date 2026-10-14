@@ -1564,6 +1564,8 @@ private struct AccountsTableRow: View {
           .frame(width: 104, alignment: .trailing)
         } else {
           Text(usageReason).aimText(.secondary).lineLimit(1)
+            .help(account.identity.providerID == .codex
+              ? model.usageError(for: account.id) ?? "" : model.providerUsage[account.id]?.error ?? "")
         }
       }
       .accessibilityElement(children: .combine)

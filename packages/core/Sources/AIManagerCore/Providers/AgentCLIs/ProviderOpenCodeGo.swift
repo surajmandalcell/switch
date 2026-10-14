@@ -18,7 +18,8 @@ extension ProviderCatalog {
             }
             let response = try await HTTP.send("https://opencode.ai/zen/go/v1/usage", headers: HTTP.bearer(key))
             if response.status == 403, response.text.contains("EntitlementError") {
-                throw ProviderError.unauthorized("This OpenCode account has no Go subscription.")
+                // The key is valid (a new sign-in would not help), so this is not `.unauthorized`.
+                throw ProviderError.unavailable("This OpenCode account has no Go subscription.")
             }
             try HTTP.check(response)
             var usage = try OpenCodeGoUsage.map(response.json(), serverDate: OpenCodeGoUsage.httpDate(response.headers["date"]))
