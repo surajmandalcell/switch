@@ -251,6 +251,21 @@ final class OpenCodeDatabaseLoginTests: XCTestCase {
         XCTAssertTrue(again.isEmpty)
     }
 
+    /// The saved and the live credential give `["key"]` through the accessor that identify and usage use.
+    func testSavedAndLiveDatabaseCredentialsYieldTheKeyForUsage() async throws {
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key")])
+        let manager = try manager()
+        let added = await manager.importLiveLogins()
+        let record = try XCTUnwrap(added.first)
+        let saved = try JSONDecoder().decode(ProviderCredential.self, from: Data(contentsOf: record.credentialFile))
+        let id = ".local/share/opencode/auth.json#opencode-go"
+        XCTAssertEqual(saved.json(id)?["key"].string, "synthetic-db-key")
+        let identify = try XCTUnwrap(ProviderCatalog.agentOpenCodeGo.identify)
+        XCTAssertEqual(identify(saved)?.key, AgentCLIsKit.fingerprint("synthetic-db-key"))
+        let live = await manager.liveProviderIdentity(providerID: goID)
+        XCTAssertEqual(live?.key, identify(saved)?.key)
+    }
+
     func testAuthJsonEntryStillWinsOverTheDatabase() async throws {
         try writeAuth("synthetic-file-key")
         try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key")])
