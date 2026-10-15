@@ -34,7 +34,7 @@ extension AIMTheme {
   /// Push button heights: in cards, and in table rows.
   static let controlHeight: CGFloat = 28
   static let rowControlHeight: CGFloat = 22
-  /// Width shared by the disabled Default button and the Switch button.
+  /// Width shared by the disabled Default, Switch, Sign in, and Allow buttons.
   static let rowButtonWidth: CGFloat = 64
 
   static func dynamic(light: NSColor, dark: NSColor) -> Color {

@@ -317,8 +317,9 @@ final class UsageHistoryTests: XCTestCase {
         let snap = await history.snapshot(now: now)
 
         let byAccount = snap.summary(period: .week, grouping: .account)
-        XCTAssertEqual(byAccount.groups.map(\.key), [accountA])
-        XCTAssertEqual(byAccount.groups.first?.tokens, 1_500, "the replayed line counts once")
+        XCTAssertEqual(byAccount.groups.map(\.key), ["shared:claude-code", accountA], "shared logs are kept, not dropped")
+        XCTAssertEqual(byAccount.groups.last?.tokens, 1_500, "the replayed line counts once")
+        XCTAssertEqual(byAccount.totals.activeAccounts, 1, "a shared group is not an account")
         let byProject = snap.summary(period: .week, grouping: .project)
         XCTAssertEqual(Set(byProject.groups.map(\.label)), ["web", "api", "-Projects-nocwd"])
         let byModel = snap.summary(period: .week, grouping: .model)
@@ -355,7 +356,7 @@ final class UsageHistoryTests: XCTestCase {
                        to: sessions.appending(path: "\(folder)/s1/updates.jsonl"))
         try writeLines([turn("e1", at: dayMs, ticks: 20_000_000_000)],
                        to: sessions.appending(path: "\(folder)/copy/updates.jsonl"))
-        let history = UsageHistory(sources: .init(grokSessions: sessions, grokAccountID: accountB))
+        let history = UsageHistory(sources: .init(grokSessions: sessions, accounts: ["grok-build": [accountB]]))
         let snap = await history.snapshot(now: now)
 
         let byAccount = snap.summary(period: .week, grouping: .account)
@@ -365,9 +366,10 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertEqual(snap.summary(period: .week, grouping: .project).groups.first?.label, "grokapp")
         XCTAssertEqual(snap.summary(period: .week, grouping: .model).groups.first?.key, "grok-4")
 
-        let shared = UsageHistory(sources: .init(grokSessions: sessions, grokAccountID: nil))
-        let none = await shared.snapshot(now: now).summary(period: .week, grouping: .account)
-        XCTAssertTrue(none.groups.isEmpty, "a home with several accounts is not attributed")
+        let shared = UsageHistory(sources: .init(grokSessions: sessions, accounts: ["grok-build": [accountA, accountB]]))
+        let several = await shared.snapshot(now: now).summary(period: .week, grouping: .account)
+        XCTAssertEqual(several.groups.map(\.key), ["shared:grok-build"], "a home with several accounts is shared, not dropped")
+        XCTAssertEqual(several.groups.first?.tokens, 800)
     }
 
     func testProviderChartsFeedAccountsAndSkipScannedServices() async throws {

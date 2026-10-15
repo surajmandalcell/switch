@@ -211,16 +211,21 @@ struct HiddenUsageRowsNote: View {
 
 // MARK: - Claude Code activity
 
-/// Today, Yesterday, and the last 30 days of local Claude Code usage across every profile.
-/// Never attributed to the selected account.
+/// Today, Yesterday, and the last 30 days of local Claude Code usage across every profile, or of
+/// Droid's local sessions (`providerID == .droid`). Never attributed to the selected account.
 struct ClaudeActivityPanel: View {
   static let title = "Claude Code activity (all profiles)"
+  static let droidTitle = "Droid activity (all accounts)"
   static let estimateLabel = "API-equivalent estimate"
   @ObservedObject var model: AccountViewModel
+  var providerID: ProviderID = .claudeCode
+
+  private var isDroid: Bool { providerID == .droid }
+  private var name: String { isDroid ? "Droid" : "Claude Code" }
 
   var body: some View {
-    AIMSection(Self.title) {
-      if let summary = model.claudeActivity {
+    AIMSection(isDroid ? Self.droidTitle : Self.title) {
+      if let summary = isDroid ? model.droidActivity : model.claudeActivity {
         ForEach(Array(summary.rows.enumerated()), id: \.offset) { _, row in
           LabeledContent(row.label) {
             HStack(spacing: AIMTheme.sectionSpacing) {
@@ -238,7 +243,10 @@ struct ClaudeActivityPanel: View {
           UsageChartView(chart: chart)
         }
         VStack(alignment: .leading, spacing: 3) {
-          Text("\(Self.estimateLabel). Covers every Claude Code profile on this Mac, not only this account.")
+          Text(
+            isDroid
+              ? "\(Self.estimateLabel). Covers every Droid session on this Mac, not only this account. A session counts on the day it was last active."
+              : "\(Self.estimateLabel). Covers every Claude Code profile on this Mac, not only this account.")
           if !summary.unpricedModels.isEmpty {
             Text("No price for \(summary.unpricedModels.joined(separator: ", ")). Their cost is not included.")
           }
@@ -246,8 +254,8 @@ struct ClaudeActivityPanel: View {
         .aimText(.secondary)
       } else {
         UsageUnavailableRow(
-          text: model.isClaudeActivityLoading
-            ? "Scanning local Claude Code logs…" : "Claude Code activity is not available yet.")
+          text: (isDroid ? model.isDroidActivityLoading : model.isClaudeActivityLoading)
+            ? "Scanning local \(name) \(isDroid ? "sessions" : "logs")…" : "\(name) activity is not available yet.")
       }
     }
   }

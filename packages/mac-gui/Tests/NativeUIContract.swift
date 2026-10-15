@@ -156,6 +156,14 @@ enum AIManagerNativeContract {
     store.update(snapshot: MenuBarSnapshot(accounts: [signedOut]))
     expect(P.signInSubtitle == "Sign in again to see usage" && P.rowHeight(store.rows[0]) == 58,
       "Signed-out popover row is not the name and one sign-in line, or lacks the subtitle")
+    // A Droid that waits for access shows the Allow access subtitle and button on the same one-line row.
+    let droidAccess = MenuBarAccountSnapshot(id: UUID(), identity: "Droid personal", detail: "", isVerified: true,
+      isActive: false, providerID: .droid, needsDroidAccess: true)
+    store.update(snapshot: MenuBarSnapshot(accounts: [droidAccess]))
+    expect(droidAccess.showsPrompt && P.content(for: droidAccess) == .signIn
+      && P.allowAccessSubtitle == "Allow access to see usage" && P.rowHeight(store.rows[0]) == 58
+      && P.canExpand(droidAccess),
+      "A Droid that needs access has no Allow access row in the popover")
     return failures
   }
 
@@ -741,6 +749,10 @@ enum AIManagerNativeContract {
       "The OpenRouter demo account has no 30-day chart")
     expect(model.addDemoProviderAccount(.claudeCode).identity.providerID == .claudeCode
       && model.claudeActivity?.chart?.points.count == 30, "The Claude Code demo has no 30-day activity chart")
+    expect(model.addDemoProviderAccount(.droid).identity.providerID == .droid
+      && model.droidActivity?.chart?.points.count == 30
+      && model.droidActivity?.rows.map(\.label) == ["Today", "Yesterday", "Last 30 days"],
+      "The Droid demo has no 30-day activity")
     let keyAccount = DemoData.genericAccount(ProviderID(rawValue: "openrouter"))
     expect(keyAccount.identity.accountLabel.hasPrefix("OpenRouter ···"),
       "Key-only account label does not use the provider and a key tail")
@@ -750,6 +762,7 @@ enum AIManagerNativeContract {
       AnyView(ProviderUsagePanel(account: gemini, model: model)),
       AnyView(ProviderAccountDetail(account: chartAccount, model: model) {}),
       AnyView(ClaudeActivityPanel(model: model)),
+      AnyView(ClaudeActivityPanel(model: model, providerID: .droid)),
       AnyView(ProviderChooserPage(model: model, step: 1) {}),
       AnyView(SecretCredentialsPage(spec: ProviderCatalog.spec(ProviderID(rawValue: "zai"))!, model: model) {}),
       AnyView(FilesCredentialsPage(spec: ProviderCatalog.spec(.geminiCLI)!, model: model) {}),
@@ -1877,6 +1890,17 @@ enum AIManagerNativeContract {
       let signIn = NSHostingView(rootView: SignInButton(account: stale, model: model))
       expect(signIn.fittingSize.width > 0, "The Sign in button collapsed")
     } else { failures.append("The Overview fixture has no account that needs sign-in") }
+
+    // A Droid that waits for access gets an Allow access action and usage text, as Sign in does.
+    if let droid = model.status?.accounts.first(where: { $0.identity.providerID == .droid }) {
+      expect(model.needsDroidAccess(droid)
+        && OverviewFormat.rowAction(for: droid, model: model) == .allowAccess
+        && AccountUsageSummary.reason(for: droid, model: model).short == "Allow access to see usage",
+        "The Accounts table shows no Allow access action for a Droid that needs access")
+      let allow = NSHostingView(rootView: AllowAccessButton(account: droid, model: model, title: "Allow"))
+      expect(allow.fittingSize.width > 0 && allow.fittingSize.width <= AIMTheme.rowButtonWidth,
+        "The Allow label does not fit a table row button (\(allow.fittingSize.width) pt)")
+    } else { failures.append("The Overview fixture has no Droid account") }
     return failures
   }
 
@@ -1993,6 +2017,18 @@ enum AIManagerNativeContract {
         expect(data.heatLevel(0) == 0 && data.heatLevel(Int64.max) == 4, "The heatmap levels are wrong")
       }
     }
+    let demoServices = Set(snapshot.summary(period: .month, grouping: .account).groups.flatMap(\.services))
+    expect(["codex", "claude-code", "droid"].allSatisfy(demoServices.contains),
+      "The Overview demo by account lacks Codex, Claude Code, or Droid")
+    // A shared group (two accounts, one shared home) is named after its tool, never "Removed account".
+    let sharedGroup = UsageHistorySnapshot(
+      points: [UsageHistoryPoint(day: "2026-10-03", service: "droid", accountID: "shared:droid", model: "m", project: "p", tokens: 5)],
+      today: "2026-10-03")
+    let sharedSeries = OverviewDataset.make(
+      summary: sharedGroup.summary(period: .week, grouping: .account), year: sharedGroup.summary(period: .year, grouping: .model),
+      accounts: [], hideEmails: true)
+    expect(sharedSeries.series.map(\.label) == ["Droid (shared)"] && sharedSeries.totals.activeAccounts == 0,
+      "A shared group is not named after its tool or counts as an account")
     // More than six groups fold into one gray "Other" series that keeps the total.
     let many = (0..<9).map { UsageHistoryPoint(day: "2026-10-03", service: "codex", model: "m\($0)", project: "p", tokens: Int64(10 - $0)) }
     let crowded = UsageHistorySnapshot(points: many, today: "2026-10-03")

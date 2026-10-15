@@ -38,7 +38,7 @@ enum ClaudeActivity {
   }
 
   static func summarize(
-    _ daily: [ClaudeDailyCost], now: Date, calendar: Calendar = .current
+    _ daily: [ClaudeDailyCost], now: Date, calendar: Calendar = .current, chartID: String = "claude-daily"
   ) -> ClaudeActivitySummary {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -68,7 +68,7 @@ enum ClaudeActivity {
       byDay[entry.date] = priced ? (entry.costUSD ?? 0) : Double(tokens(entry))
     }
     let chart = UsageChart.daily(
-      id: "claude-daily", title: priced ? "Daily cost (API-equivalent estimate)" : "Daily tokens",
+      id: chartID, title: priced ? "Daily cost (API-equivalent estimate)" : "Daily tokens",
       unit: priced ? "USD" : "tokens", values: byDay)
     return ClaudeActivitySummary(
       rows: [
@@ -87,5 +87,16 @@ enum ClaudeActivity {
   ) async throws -> ClaudeActivitySummary {
     let scanner = ClaudeCostScanner(roots: roots, cacheURL: cacheURL, pricing: pricing.loader())
     return summarize(try await scanner.daily(days: days, now: now), now: now)
+  }
+
+  /// The same summary from Droid's session files (local days, last 30). Call it off the main actor.
+  static func computeDroid(
+    sessions: URL, pricing: ClaudePricingSource, now: Date = Date(), calendar: Calendar = .current
+  ) async -> ClaudeActivitySummary {
+    let start = calendar.date(byAdding: .day, value: -(days - 1), to: calendar.startOfDay(for: now)) ?? now
+    let found = DroidUsage.sessions(in: sessions, from: start)
+    let rates = found.contains { $0.model != nil } ? await pricing.loader()() : [:]
+    return summarize(DroidUsage.daily(found, rates: rates, calendar: calendar), now: now, calendar: calendar,
+                     chartID: "droid-daily")
   }
 }
