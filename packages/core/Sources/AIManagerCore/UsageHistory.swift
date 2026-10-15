@@ -3,10 +3,12 @@ import Foundation
 // Usage history for the Overview dashboard: one year of daily points from the activity ledger,
 // Claude Code logs, Grok Build sessions and provider charts, grouped by account, model or project.
 //
-// Attribution: a point carries an account only when its source belongs to one account (Codex
-// authoritative account/day totals, a Claude profile with its own history folder, a Grok Build
-// home with one account, a provider chart). Shared-home transcripts never carry one, so "by
-// account" never includes them; "by model" and "by project" use every transcript.
+// Attribution: a point carries an account when its source belongs to one account (Codex
+// authoritative account/day totals, a Claude profile with its own history folder, a provider chart).
+// A Claude Code, Grok Build, or Droid point with none goes to that tool's only saved account, or
+// with several accounts to the group `shared:<service>` (shown as "<Tool> (shared)"), so it is
+// never dropped (`UsageHistory.owner`). Codex transcripts stay without one: the ledger's account
+// totals already cover them.
 
 public struct UsageHistoryPoint: Codable, Equatable, Sendable {
     /// UTC day, `yyyy-MM-dd`.
@@ -42,7 +44,7 @@ public struct UsageDaySession: Identifiable, Sendable, Equatable {
     public let id: String
     /// Provider id, such as `codex`, `claude-code`, `grok-build`.
     public let service: String
-    public let accountID: String?
+    public var accountID: String?
     /// The Codex thread id Conversations knows the transcript by; nil for other tools.
     public let threadID: String?
     public let project: String
@@ -157,7 +159,7 @@ public struct UsageHistorySnapshot: Sendable {
                 transcriptViews[point.service, default: zeros][slot] += point.tokens
             }
             if let value = point.costUSD { cost = (cost ?? 0) + value }
-            if let account = point.accountID, point.tokens > 0 || (point.costUSD ?? 0) > 0 {
+            if let account = point.accountID, !UsageHistory.isShared(account), point.tokens > 0 || (point.costUSD ?? 0) > 0 {
                 accounts.insert(account)
             }
 
@@ -216,8 +218,8 @@ public struct UsageHistorySnapshot: Sendable {
 }
 
 /// A provider's own daily chart for one account, such as 30 days of tokens or spend. Only
-/// providers without a transcript scanner belong here (Codex, Claude Code and Grok Build are read
-/// from their logs and ledger); their charts are ignored.
+/// providers without a transcript scanner belong here (Codex, Claude Code, Grok Build and Droid are
+/// read from their logs and ledger); their charts are ignored.
 public struct ProviderChartSource: Sendable {
     public var service: String
     public var accountID: String
@@ -238,22 +240,26 @@ public struct UsageHistorySources: Sendable {
     /// Claude profile id -> its config folder. A log is attributed to a profile only when its real
     /// path lies inside that folder, which is not the case for profiles that link to shared history.
     public var claudeHomes: [String: URL]
-    /// Grok Build `sessions` folder, and the account that owns the home (nil with several accounts).
+    /// Grok Build `sessions` folder.
     public var grokSessions: URL?
-    public var grokAccountID: String?
+    /// Droid `sessions` folder (`DroidUsage.sessionsFolder`).
+    public var droidSessions: URL?
+    /// Provider id -> lowercase ids of its saved accounts, for `UsageHistory.owner`.
+    public var accounts: [String: [String]]
     public var charts: [ProviderChartSource]
-    /// LiteLLM rates, used for Codex cost.
+    /// LiteLLM rates, used for Codex and Droid cost.
     public var pricing: (@Sendable () async -> [String: ModelRate])?
 
     public init(ledger: CodexUsageStatisticsCache? = nil, claude: ClaudeCostScanner? = nil,
-                claudeHomes: [String: URL] = [:], grokSessions: URL? = nil, grokAccountID: String? = nil,
-                charts: [ProviderChartSource] = [],
+                claudeHomes: [String: URL] = [:], grokSessions: URL? = nil, droidSessions: URL? = nil,
+                accounts: [String: [String]] = [:], charts: [ProviderChartSource] = [],
                 pricing: (@Sendable () async -> [String: ModelRate])? = nil) {
         self.ledger = ledger
         self.claude = claude
         self.claudeHomes = claudeHomes
         self.grokSessions = grokSessions
-        self.grokAccountID = grokAccountID
+        self.droidSessions = droidSessions
+        self.accounts = accounts
         self.charts = charts
         self.pricing = pricing
     }
@@ -303,8 +309,38 @@ public actor UsageHistory {
         if let sessions = sources.grokSessions {
             points += grokPoints(sessions, start: start, today: today, now: now)
         }
+        if let sessions = sources.droidSessions {
+            points += await droidPoints(sessions, start: start, now: now)
+        }
         points += chartPoints(start: start, through: today)
+        for index in points.indices {
+            points[index].accountID = Self.owner(service: points[index].service, accountID: points[index].accountID,
+                                                 accounts: sources.accounts)
+        }
         return UsageHistorySnapshot(points: points, today: today, unavailableSources: unavailable)
+    }
+
+    // MARK: Attribution
+
+    /// Tools whose logs sit in one shared home, so a point may have no account of its own.
+    private static let sharedHomeServices: Set<String> = [
+        ProviderID.claudeCode.rawValue, ProviderID.grokBuild.rawValue, ProviderID.droid.rawValue]
+    private static let sharedPrefix = "shared:"
+
+    /// The account group for a point: its own account; else, for a shared-home tool, the only saved
+    /// account of that tool, or `shared:<service>` when there are none or several. Nil for the rest.
+    public static func owner(service: String, accountID: String?, accounts: [String: [String]]) -> String? {
+        if let accountID { return accountID }
+        guard sharedHomeServices.contains(service) else { return nil }
+        let own = accounts[service] ?? []
+        return own.count == 1 ? own[0] : sharedPrefix + service
+    }
+
+    public static func isShared(_ accountID: String) -> Bool { accountID.hasPrefix(sharedPrefix) }
+
+    /// The tool of a `shared:<service>` group.
+    public static func sharedService(_ accountID: String) -> String? {
+        isShared(accountID) ? String(accountID.dropFirst(sharedPrefix.count)) : nil
     }
 
     // MARK: Sources
@@ -394,13 +430,52 @@ public actor UsageHistory {
                 }
                 guard sum.tokens > 0 else { continue }
                 sessions.append(UsageDaySession(
-                    id: "grok-build:" + path, service: ProviderID.grokBuild.rawValue, accountID: sources.grokAccountID,
+                    id: "grok-build:" + path, service: ProviderID.grokBuild.rawValue,
                     project: Self.grokProject(path: path, root: root),
                     model: sum.models.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key, start: sum.start,
                     tokens: sum.tokens, costUSD: sum.cost))
             }
         }
-        return sessions.sorted { ($1.tokens, $0.id) < ($0.tokens, $1.id) }
+        if let root = sources.droidSessions, let first = Self.epochDay(day) {
+            let from = Date(timeIntervalSince1970: Double(first) * 86_400)
+            let found = DroidUsage.sessions(in: root, from: from, to: from.addingTimeInterval(86_400))
+            var table = await droidRates(for: found)
+            sessions += found.map {
+                UsageDaySession(id: "droid:" + $0.id, service: ProviderID.droid.rawValue, project: $0.project,
+                                model: $0.model, start: $0.modified, tokens: $0.tokens,
+                                costUSD: DroidUsage.cost($0, table: &table))
+            }
+        }
+        return sessions.map { session in
+            var session = session
+            session.accountID = Self.owner(service: session.service, accountID: session.accountID, accounts: sources.accounts)
+            return session
+        }.sorted { ($1.tokens, $0.id) < ($0.tokens, $1.id) }
+    }
+
+    private func droidRates(for sessions: [DroidSession]) async -> ModelRateTable {
+        guard let pricing = sources.pricing, sessions.contains(where: { $0.model != nil }) else { return ModelRateTable([:]) }
+        return ModelRateTable(await pricing())
+    }
+
+    /// ponytail: a session's tokens all land on its last-active day (Droid stores per-session totals
+    /// only); split by message timestamps if multi-day sessions skew the chart. Files are re-read on
+    /// every load (about 550 small ones); cache by size and date like Grok if that gets slow.
+    private func droidPoints(_ root: URL, start: String, now: Date) async -> [UsageHistoryPoint] {
+        guard let first = Self.epochDay(start) else { return [] }
+        let found = DroidUsage.sessions(in: root, from: Date(timeIntervalSince1970: Double(first) * 86_400))
+        var table = await droidRates(for: found)
+        var sums: [String: UsageHistoryPoint] = [:]
+        for session in found {
+            let day = ClaudeCostScanner.utcDayName(Int((session.modified.timeIntervalSince1970 / 86_400).rounded(.down)))
+            let id = "\(day)\0\(session.model ?? "")\0\(session.project)"
+            var point = sums[id] ?? UsageHistoryPoint(
+                day: day, service: ProviderID.droid.rawValue, model: session.model, project: session.project, tokens: 0)
+            point.tokens += session.tokens
+            if let cost = DroidUsage.cost(session, table: &table) { point.costUSD = (point.costUSD ?? 0) + cost }
+            sums[id] = point
+        }
+        return sums.values.sorted { ($0.day, $0.project ?? "", $0.model ?? "") < ($1.day, $1.project ?? "", $1.model ?? "") }
     }
 
     /// `<ISO timestamp>:<total>`: the date before the last colon.
@@ -443,7 +518,7 @@ public actor UsageHistory {
                 let day = ClaudeCostScanner.utcDayName(Int((turn.date.timeIntervalSince1970 / 86_400).rounded(.down)))
                 let id = "\(day)\0\(turn.model ?? "")\0\(project)"
                 var point = sums[id] ?? UsageHistoryPoint(
-                    day: day, service: ProviderID.grokBuild.rawValue, accountID: sources.grokAccountID,
+                    day: day, service: ProviderID.grokBuild.rawValue,
                     model: turn.model, project: project, tokens: 0)
                 point.tokens += Int64(turn.tokens)
                 if let cost = turn.cost { point.costUSD = (point.costUSD ?? 0) + cost }
@@ -462,7 +537,8 @@ public actor UsageHistory {
     }
 
     private func chartPoints(start: String, through end: String) -> [UsageHistoryPoint] {
-        let handled: Set<String> = [ProviderID.codex.rawValue, ProviderID.claudeCode.rawValue, ProviderID.grokBuild.rawValue]
+        let handled: Set<String> = [
+            ProviderID.codex.rawValue, ProviderID.claudeCode.rawValue, ProviderID.grokBuild.rawValue, ProviderID.droid.rawValue]
         var points: [UsageHistoryPoint] = []
         for source in sources.charts where !handled.contains(source.service) {
             let unit = source.chart.unit.lowercased()

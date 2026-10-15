@@ -317,7 +317,8 @@ and sort after the built-ins. A usage row's context menu offers Hide, Show all, 
 hidden rows are per account and leave the detail page and menu card. Command-R refreshes. The
 status item's context menu offers Open, Refresh Usage, Settings, and Quit. The Claude
 account page also shows Claude Code activity for all profiles from the local transcripts,
-priced as an API-equivalent estimate.
+priced as an API-equivalent estimate. The Droid account page shows the same panel for Droid
+sessions, above the Factory usage key.
 
 A provider with a daily series (30 days or its native span) returns a chart: id, title, unit (USD,
 tokens, requests, credits, or a currency), and dated points. The detail page draws a 72-point bar
@@ -482,7 +483,7 @@ in light and dark before a UI change ships.
   legend rows split by Account or Model (brand and palette colors), and one row for each
   session (title, tool, start time, tokens, cost). A Codex session whose transcript still
   exists opens it on Conversations; one whose transcript was removed shows dimmed with
-  "Transcript removed" and stays inert; Claude Code and Grok Build sessions list without a
+  "Transcript removed" and stays inert; Claude Code, Droid, and Grok Build sessions list without a
   link, since Conversations holds Codex chats only. A day with no per-session data shows only the totals
   and split, and "No sessions on this Mac for this day. The totals come from the account's
   usage report." centered in the sessions area; Done or Escape closes;
@@ -494,8 +495,12 @@ in light and dark before a UI change ships.
   card is as tall as the grid; (6) Maintenance: recent backups (time, source, size, state) and
   Open Backup, or a prompt to set up a backup. Charts follow uiarc.dev's ridgeline, activity
   heatmap, waffle chart, and streamgraph, with their draw-in animations, hover values, a faint
-  date axis, and one stable palette. Groups past six fold into "Other"; account grouping leaves
-  out history no account owns. Data comes from local history and the activity ledger, computed
+  date axis, and one stable palette. Groups past six fold into "Other". Overview counts every
+  tool the owner uses: Codex, Claude Code, Droid, and Grok Build. Local history with no known
+  account (Claude Code's shared ~/.claude, Droid, Grok Build) goes to that tool's only saved
+  account; with zero or two or more accounts it shows as "<Tool> (shared)", never dropped. Droid
+  history comes from each session's `~/.factory/sessions/*/<id>.settings.json` totals, on the
+  day the file last changed. Data comes from local history and the activity ledger, computed
   off the main actor; a group without data shows an explained empty state in the same space.
 - **Accounts:** the account table, then the focused account card for the selected row (44 pt
   icon tile, name with no picker, provider with an Active dot or badge, primary window, actions:
@@ -503,7 +508,9 @@ in light and dark before a UI change ships.
   space: an account without usage keeps its meters in place as dotted tracks with a dash, and
   one grey line gives the reason ("No Go plan", "Couldn't check usage: <reason>"), in the card
   and in the Usage section header, with no orange text and no empty band (owner pick E4). A
-  signed-out account's primary button reads "Sign in again". The table has no column header and no Provider column. Each
+  signed-out account's primary button reads "Sign in again". A Droid account whose login
+  Switch may not read yet shows "Allow access to see usage" in its usage column and an Allow
+  button in place of the default marker; the card shows Allow access. The table has no column header and no Provider column. Each
   provider group starts with a 32 pt header row: a 16 pt brand tile, the provider name in
   semibold, and the count as plain secondary text ("×2"). The card header shows no account
   total. Its accounts sit 24 pt in, under the provider name, and a thin
@@ -568,7 +575,8 @@ in light and dark before a UI change ships.
   Clicking an account expands it to every reported window (model buckets and credits too) plus
   Switch and Open <tool> actions. An account that needs sign-in shows "Sign in again to see
   usage" as its subtitle, with Sign in at the row's right, bottom-aligned so it lines up with
-  the buttons the row shows when it expands. A model-specific weekly window is
+  the buttons the row shows when it expands. A Droid account that waits for access shows
+  "Allow access to see usage" with Allow access the same way. A model-specific weekly window is
   named by its model: "Weekly Fable" in the window and just "Fable" in the popover.
   The context menu offers Switch, Open <tool>, Refresh, and Copy name. The footer holds Open
   Switch (Command-O) at the left and the Refresh, Quit (power), and Settings icon buttons at the

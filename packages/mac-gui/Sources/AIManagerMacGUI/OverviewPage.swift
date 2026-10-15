@@ -99,9 +99,10 @@ struct OverviewDataset: Equatable {
       ranks[service] = rank + 1
       switch summary.grouping {
       case .account:
-        let label = named[group.key]?.identity.accountLabel ?? "Removed account"
+        let shared = OverviewDayDetail.sharedName(group.key)
+        let label = shared ?? named[group.key]?.identity.accountLabel ?? "Removed account"
         return OverviewSeries(
-          id: group.key, label: hideEmails ? EmailPrivacy.mask(label) : label,
+          id: group.key, label: hideEmails && shared == nil ? EmailPrivacy.mask(label) : label,
           color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: group.daily)
       case .model, .project:
         return OverviewSeries(

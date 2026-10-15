@@ -239,7 +239,8 @@ enum LimitsCommands {
         let accounts = try await manager.status().accounts
         let support = input.paths.applicationSupport
         let pricing = ClaudePricingSource(cacheURL: support.appending(path: "cache/model-pricing.json"))
-        let grok = accounts.filter { $0.identity.providerID == .grokBuild }
+        let owners: [String: [String]] = Dictionary(grouping: accounts, by: { $0.identity.providerID.rawValue })
+            .mapValues { $0.map { $0.id.uuidString.lowercased() } }
         let sources = UsageHistorySources(
             ledger: codexCache(input.paths),
             claude: ClaudeCostScanner(cacheURL: support.appending(path: "cache/claude-history.json"),
@@ -248,7 +249,8 @@ enum LimitsCommands {
                 applicationSupport: support,
                 accountIDs: accounts.filter { $0.identity.providerID == .claudeCode }.map(\.id)),
             grokSessions: UsageHistory.grokSessionsFolder(),
-            grokAccountID: grok.count == 1 ? grok.first?.id.uuidString.lowercased() : nil,
+            droidSessions: DroidUsage.sessionsFolder(droidHome: input.paths.droidHome),
+            accounts: owners,
             pricing: pricing.loader())
         let summary = await UsageHistory(sources: sources).snapshot().summary(period: period, grouping: grouping)
         if input.json {

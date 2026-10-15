@@ -183,6 +183,8 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let isActive: Bool
   let usage: MenuBarUsageSnapshot?
   let showsUsage: Bool
+  /// A Droid account whose usage waits for the owner to allow access to Droid's login.
+  let needsDroidAccess: Bool
 
   init(
     id: UUID,
@@ -193,8 +195,10 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     usage: MenuBarUsageSnapshot? = nil,
     showsUsage: Bool = true,
     providerID: ProviderID = .codex,
-    identityIsFormatted: Bool = false
+    identityIsFormatted: Bool = false,
+    needsDroidAccess: Bool = false
   ) {
+    self.needsDroidAccess = needsDroidAccess
     self.id = id
     self.providerID = providerID
     self.identity = identityIsFormatted ? identity : EmailPrivacy.display(identity)
@@ -204,6 +208,9 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     self.usage = showsUsage ? usage : nil
     self.showsUsage = showsUsage
   }
+
+  /// The row shows one prompt line and one button instead of usage: Sign in or Allow access.
+  var showsPrompt: Bool { !isVerified || needsDroidAccess }
 
   /// Codex and every provider with a usage spec can be refreshed from the popover.
   var supportsUsageRefresh: Bool {
@@ -275,6 +282,7 @@ struct MenuBarPopoverActions {
   /// Refreshes one account. Nil falls back to the all-accounts refresh.
   let refreshAccount: ((UUID) async -> Void)?
   let signInAccount: ((UUID) async -> Void)?
+  let allowAccessAccount: ((UUID) async -> Void)?
 
   init(
     openMainWindow: @escaping () -> Void,
@@ -285,8 +293,10 @@ struct MenuBarPopoverActions {
     quit: @escaping () -> Void = {},
     openTool: ((UUID) async -> Void)? = nil,
     refreshAccount: ((UUID) async -> Void)? = nil,
-    signInAccount: ((UUID) async -> Void)? = nil
+    signInAccount: ((UUID) async -> Void)? = nil,
+    allowAccessAccount: ((UUID) async -> Void)? = nil
   ) {
+    self.allowAccessAccount = allowAccessAccount
     self.openSettings = openSettings
     self.quit = quit
     self.openMainWindow = openMainWindow
@@ -445,6 +455,11 @@ final class MenuBarPopoverStore: ObservableObject {
   func signIn(accountID: UUID) async {
     openMainWindow()
     await actions.signInAccount?(accountID)
+  }
+
+  func allowAccess(accountID: UUID) async {
+    openMainWindow()
+    await actions.allowAccessAccount?(accountID)
   }
 
   func openSettings() {

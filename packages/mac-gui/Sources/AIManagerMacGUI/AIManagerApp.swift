@@ -61,7 +61,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 quit: { NSApp.terminate(nil) },
                 openTool: { [weak self] accountID in await self?.model.openAccount(accountID) },
                 refreshAccount: { [weak self] accountID in await self?.refreshUsage(of: accountID) },
-                signInAccount: { [weak self] accountID in await self?.model.beginSignIn(for: accountID) }
+                signInAccount: { [weak self] accountID in await self?.model.beginSignIn(for: accountID) },
+                allowAccessAccount: { [weak self] accountID in await self?.model.allowDroidUsageAccess(accountID: accountID) }
             ))
         self.statusItemController = statusItemController
         GlobalShortcut.shared.onTrigger = { [weak statusItemController] in
@@ -311,7 +312,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     isActive: status.isDefault(account),
                     usage: usage,
                     showsUsage: showsUsage,
-                    providerID: providerID, identityIsFormatted: true)
+                    providerID: providerID, identityIsFormatted: true,
+                    needsDroidAccess: providerID == .droid && state?.needsKeychainAccess == true)
             },
             lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
                 + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max())

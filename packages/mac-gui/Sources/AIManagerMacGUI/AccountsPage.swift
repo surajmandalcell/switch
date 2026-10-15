@@ -206,6 +206,7 @@ private struct AccountDetail: View {
         ClaudeActivityPanel(model: model)
       }
       if account.identity.providerID == .droid {
+        ClaudeActivityPanel(model: model, providerID: .droid)
         DroidUsageKeyPanel(account: account, model: model)
       }
       AIMSection("Account details") {
@@ -1089,10 +1090,13 @@ enum OverviewFormat {
     return "in \(rest)m"
   }
 
-  enum RowAction { case isDefault, signIn, switchTo }
+  enum RowAction { case isDefault, signIn, allowAccess, switchTo }
 
-  /// The last table column: the default marker, "Sign in" for a dead login, else "Switch".
+  /// The last table column: "Allow access" for a Droid that waits for it (even the default one,
+  /// whose usage stays blank until the owner allows it), the default marker, "Sign in" for a dead
+  /// login, else "Switch".
   @MainActor static func rowAction(for account: AccountRecord, model: AccountViewModel) -> RowAction {
+    if model.needsDroidAccess(account) { return .allowAccess }
     if model.status?.isDefault(account) == true { return .isDefault }
     return model.needsSignIn(account) ? .signIn : .switchTo
   }
@@ -1122,6 +1126,23 @@ struct SignInButton: View {
   }
 }
 
+/// Lets Switch read a Droid login so its usage can load. The Accounts table row and the focused card share it.
+struct AllowAccessButton: View {
+  let account: AccountRecord
+  @ObservedObject var model: AccountViewModel
+  /// A fixed width in a table row, so the button matches the Default and Switch buttons.
+  var width: CGFloat? = nil
+  /// "Allow" in a table row, where the usage column already says "Allow access to see usage".
+  var title = "Allow access"
+
+  var body: some View {
+    Button(title) { Task { await model.allowDroidUsageAccess(accountID: account.id) } }
+      .buttonStyle(AIMPushButtonStyle(width: width))
+      .disabled(model.isBusy || model.providerUsage[account.id]?.isRefreshing == true)
+      .help("Allow Switch to read Droid's login for usage")
+  }
+}
+
 extension AccountRecord {
   /// A verified account can become the default.
   var canSwitchDefault: Bool {
@@ -1142,6 +1163,9 @@ enum AccountUsageSummary {
     let state = model.providerUsage[account.id]
     if model.needsSignIn(account) {
       return EmptyReason(short: "Sign in to see usage", full: "Sign in to see usage")
+    }
+    if model.needsDroidAccess(account) {
+      return EmptyReason(short: "Allow access to see usage", full: "Allow access to see usage")
     }
     let failure = account.identity.providerID == .codex
       ? model.usageError(for: account.id) ?? model.cachedUsage(for: account.id)?.failureMessage : state?.error
@@ -1402,11 +1426,8 @@ struct FocusedAccountCard: View {
       .uiLint(.actions)
       Spacer(minLength: AIMTheme.rowSpacing)
       HStack(spacing: AIMTheme.rowSpacing) {
-        if providerID == .droid, model.providerUsage[account.id]?.needsKeychainAccess == true {
-          Button("Allow access") { Task { await model.allowDroidUsageAccess(accountID: account.id) } }
-            .buttonStyle(AIMPushButtonStyle())
-            .disabled(model.isBusy || model.providerUsage[account.id]?.isRefreshing == true)
-            .help("Allow Switch to read Droid's login for usage")
+        if model.needsDroidAccess(account) {
+          AllowAccessButton(account: account, model: model)
         }
         Button { _ = copyPath(account.identity.accountLabel) } label: {
           Label("Copy", systemImage: AIMIcon.Name.copy.symbol)
@@ -1652,6 +1673,8 @@ private struct AccountsTableRow: View {
             .accessibilityHint("This account is already the default.")
         case .signIn:
           SignInButton(account: account, model: model, prominent: false, width: AIMTheme.rowButtonWidth, title: "Sign in")
+        case .allowAccess:
+          AllowAccessButton(account: account, model: model, width: AIMTheme.rowButtonWidth, title: "Allow")
         case .switchTo:
           Button("Switch") { Task { await model.switchDefault(to: account.id) } }
             .buttonStyle(AIMPushButtonStyle(width: AIMTheme.rowButtonWidth))

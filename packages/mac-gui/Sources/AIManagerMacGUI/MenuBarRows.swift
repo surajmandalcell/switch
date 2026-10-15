@@ -41,6 +41,7 @@ enum MenuBarPresentation {
   static let separatorFade: CGFloat = 0.12
   static let hoverOverhang: CGFloat = 4
   static let signInSubtitle = "Sign in again to see usage"
+  static let allowAccessSubtitle = "Allow access to see usage"
 
   enum FooterItem { case openSwitch, refresh, quit, settings }
   /// The footer from left to right: Open Switch, then the icon buttons Refresh, Quit, Settings.
@@ -126,7 +127,7 @@ enum MenuBarPresentation {
   enum Content: Equatable { case signIn, lines([Line]) }
 
   static func content(for account: MenuBarAccountSnapshot, expanded: Bool = true) -> Content {
-    guard account.isVerified else { return .signIn }
+    guard !account.showsPrompt else { return .signIn }
     guard let usage = account.usage else {
       return .lines([])
     }
@@ -199,7 +200,7 @@ enum MenuBarPresentation {
   static func rowHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
     guard account.showsUsage else { return 0 }
     var height = rowPaddingV * 2 + headerHeight + dividerHeight
-    if !account.isVerified {
+    if account.showsPrompt {
       height += lineGap + signInHeight
     } else if lineCount(account) > 0 {
       let count = CGFloat(lineCount(account))
@@ -368,16 +369,21 @@ struct MenuBarRow: View {
         .allowsHitTesting(false)
     }
     .overlay(alignment: .bottomTrailing) {
-      if !account.isVerified {
+      if account.showsPrompt {
         // Bottom-aligned: level with the subtitle, then with the action buttons once the row
         // expands (their 40 pt band centers a 24 pt button, 8 pt above the row's bottom).
-        Button("Sign in") { Task { await store.signIn(accountID: account.id) } }
+        let allow = account.isVerified
+        Button(allow ? "Allow access" : "Sign in") {
+          Task {
+            if allow { await store.allowAccess(accountID: account.id) } else { await store.signIn(accountID: account.id) }
+          }
+        }
           .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
           .uiLint(.align("menuBarSignInTrailing", .end))
           .padding(.trailing, P.trailingInset)
           .padding(.bottom, P.signInBottomInset(expansion: expansion))
-          .help("Open Switch to sign in")
-          .accessibilityLabel("Sign in to \(account.identity)")
+          .help(allow ? "Open Switch to allow access to Droid's login" : "Open Switch to sign in")
+          .accessibilityLabel(allow ? "Allow access to \(account.identity)" : "Sign in to \(account.identity)")
       }
     }
     .contentShape(Rectangle())
@@ -387,7 +393,7 @@ struct MenuBarRow: View {
     .onAppear { withAnimation(reduceMotion ? .easeOut(duration: 0.18) : .easeOut(duration: 0.3)) { barsVisible = true } }
     .onTapGesture { store.toggleExpanded(account) }
     .contextMenu { menu }
-    .accessibilityElement(children: isExpanded || !account.isVerified ? .contain : .ignore)
+    .accessibilityElement(children: isExpanded || account.showsPrompt ? .contain : .ignore)
     .accessibilityLabel(P.accessibilityLabel(account, showsUsed: showsUsed, now: now, exact: exact))
     .accessibilityAddTraits(canExpand ? .isButton : [])
     .accessibilityRemoveTraits(canExpand ? [] : .isButton)
@@ -435,7 +441,7 @@ struct MenuBarRow: View {
         .lineLimit(1).truncationMode(.tail)
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(account.identity)
-        .padding(.trailing, account.isVerified ? 0 : 54)
+        .padding(.trailing, account.showsPrompt ? 54 : 0)
       trailing
         .frame(width: 18, height: P.headerHeight)
     }
@@ -463,12 +469,13 @@ struct MenuBarRow: View {
   @ViewBuilder private var content: some View {
     switch P.content(for: account, expanded: true) {
     case .signIn:
-      Text(P.signInSubtitle).aimText(.secondary, tint: P.secondaryInk).lineLimit(1)
+      Text(account.isVerified ? P.allowAccessSubtitle : P.signInSubtitle)
+        .aimText(.secondary, tint: P.secondaryInk).lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: P.signInHeight)
         .uiLint(.align("menuBarSignInSubtitle", .start))
         .padding(.leading, P.tileSize + P.tileSpacing)
-        .padding(.trailing, 60)
+        .padding(.trailing, account.isVerified ? 90 : 60)
     case .lines(let lines):
       VStack(spacing: P.lineSpacing) {
         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in

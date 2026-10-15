@@ -96,6 +96,8 @@ struct OverviewDayDetail: Equatable {
         label = hideEmails ? EmailPrivacy.mask(text) : text
       } else if key.hasPrefix("service:") {
         label = providerName(sum.service)
+      } else if let shared = sharedName(key) {
+        label = shared
       } else {
         label = "Removed account"
       }
@@ -135,6 +137,11 @@ struct OverviewDayDetail: Equatable {
 
   static func providerName(_ service: String) -> String {
     ProviderID(rawValue: service).guiName
+  }
+
+  /// "Claude Code (shared)" for a `shared:<service>` group of history points, else nil.
+  static func sharedName(_ key: String) -> String? {
+    UsageHistory.sharedService(key).map { providerName($0) + " (shared)" }
   }
 
   static func toolName(_ service: String) -> String {

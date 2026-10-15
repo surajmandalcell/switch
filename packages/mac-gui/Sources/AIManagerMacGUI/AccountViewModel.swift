@@ -156,6 +156,8 @@ final class AccountViewModel: ObservableObject {
     /// Local Claude Code usage across all profiles, from the log scan.
     @Published private(set) var claudeActivity: ClaudeActivitySummary?
     @Published private(set) var isClaudeActivityLoading = false
+    @Published private(set) var droidActivity: ClaudeActivitySummary?
+    @Published private(set) var isDroidActivityLoading = false
     /// A year of daily usage for the Overview charts. Nil until the first load ends.
     @Published private(set) var usageHistory: UsageHistorySnapshot?
     /// Counts loads, so a page can tell a new snapshot from the one it drew.
@@ -448,6 +450,7 @@ final class AccountViewModel: ObservableObject {
         providerUsage = scenario == .empty ? [:] : DemoData.providerUsageStates
         providerStatus = scenario == .empty || !ProviderStatusPoller.isEnabled() ? [:] : DemoData.providerStatus
         claudeActivity = scenario == .empty ? nil : DemoData.claudeActivity
+        droidActivity = scenario == .empty ? nil : DemoData.droidActivity
         // `--overview-loading` and `--overview-empty` render the two states a screenshot cannot reach otherwise.
         let arguments = CommandLine.arguments
         usageHistory = arguments.contains("--overview-loading") ? nil
@@ -530,6 +533,11 @@ final class AccountViewModel: ObservableObject {
     /// An account whose saved sign-in no longer works: verification says so, or its usage request did.
     func needsSignIn(_ account: AccountRecord) -> Bool {
         account.verification.state == .needsSignIn || providerUsage[account.id]?.needsSignIn == true
+    }
+
+    /// A Droid account whose usage check waits for the owner to allow Switch to read Droid's login.
+    func needsDroidAccess(_ account: AccountRecord) -> Bool {
+        account.identity.providerID == .droid && providerUsage[account.id]?.needsKeychainAccess == true
     }
 
     /// Provider-scoped sign-in is reserved for adding an account.
@@ -1571,6 +1579,7 @@ final class AccountViewModel: ObservableObject {
         providerUsage[record.id] = ProviderUsageState(
             usage: DemoData.providerUsage(for: providerID, offset: 0), checkedAt: DemoData.now)
         if providerID == .claudeCode { claudeActivity = DemoData.claudeActivity }
+        if providerID == .droid { droidActivity = DemoData.droidActivity }
         return record
     }
 
@@ -1720,7 +1729,8 @@ final class AccountViewModel: ObservableObject {
     private func refreshSideChecks(forceClaudeActivity: Bool = false) async {
         async let status: Void = refreshProviderStatus()
         async let activity: Void = refreshClaudeActivity(force: forceClaudeActivity)
-        _ = await (status, activity)
+        async let droid: Void = refreshDroidActivity(force: forceClaudeActivity)
+        _ = await (status, activity, droid)
     }
 
     // MARK: Provider status
@@ -1772,6 +1782,23 @@ final class AccountViewModel: ObservableObject {
         if let summary { claudeActivity = summary }  // a failed scan keeps the last good numbers
     }
 
+    /// Reads Droid's local session files off the main actor, at most every 15 minutes unless `force`.
+    func refreshDroidActivity(force: Bool = false) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return }
+        #endif
+        guard paths.isolationRoot == nil, manager != nil, !isDroidActivityLoading, let pricing = claudePricing,
+              status?.accounts.contains(where: { $0.identity.providerID == .droid }) == true,
+              ClaudeActivity.isDue(computedAt: droidActivity?.computedAt, force: force)
+        else { return }
+        isDroidActivityLoading = true
+        defer { isDroidActivityLoading = false }
+        let sessions = DroidUsage.sessionsFolder(droidHome: paths.droidHome)
+        droidActivity = await Task.detached(priority: .utility) {
+            await ClaudeActivity.computeDroid(sessions: sessions, pricing: pricing)
+        }.value
+    }
+
     /// Reads the Overview history off the main actor. A snapshot younger than `maxAge` stays, so a
     /// page switch shows the last charts at once. The scanners keep their own disk caches.
     func loadUsageHistory(maxAge: TimeInterval = 60) async {
@@ -1786,19 +1813,20 @@ final class AccountViewModel: ObservableObject {
         let accounts = status?.accounts ?? []
         let support = paths.applicationSupport
         var sources = UsageHistorySources(ledger: usageCache, pricing: claudePricing?.loader())
-        // A test home never reads the real Claude or Grok folders.
+        sources.accounts = Dictionary(grouping: accounts, by: { $0.identity.providerID.rawValue })
+            .mapValues { $0.map { $0.id.uuidString.lowercased() } }
+        // A test home never reads the real Claude, Grok, or Droid folders.
         if paths.isolationRoot == nil, let pricing = claudePricing {
-            let grok = accounts.filter { $0.identity.providerID == .grokBuild }
             sources.claude = ClaudeCostScanner(
                 cacheURL: support.appending(path: "cache/claude-history.json"), pricing: pricing.loader())
             sources.claudeHomes = UsageHistory.claudeProfileHomes(
                 applicationSupport: support,
                 accountIDs: accounts.filter { $0.identity.providerID == .claudeCode }.map(\.id))
             sources.grokSessions = UsageHistory.grokSessionsFolder()
-            sources.grokAccountID = grok.count == 1 ? grok.first?.id.uuidString.lowercased() : nil
+            sources.droidSessions = DroidUsage.sessionsFolder(droidHome: paths.droidHome)
         }
         // Providers with a transcript scanner above must not be counted twice from their charts.
-        let scanned: Set<ProviderID> = [.codex, .claudeCode, .grokBuild]
+        let scanned: Set<ProviderID> = [.codex, .claudeCode, .grokBuild, .droid]
         sources.charts = accounts.filter { !scanned.contains($0.identity.providerID) }.flatMap { account in
             (providerUsage[account.id]?.usage?.charts ?? []).map {
                 ProviderChartSource(
@@ -1901,7 +1929,7 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    /// This entry point is used only by the focused Droid card's Allow access button.
+    /// Used by the Allow access buttons: the focused Droid card, the Accounts table row, and the menu bar row.
     func allowDroidUsageAccess(accountID: UUID) async {
         guard status?.accounts.contains(where: { $0.id == accountID && $0.identity.providerID == .droid }) == true,
               providerUsage[accountID]?.needsKeychainAccess == true,
@@ -2630,6 +2658,8 @@ enum DemoData {
             if providerID.rawValue == "zai" {
                 state.error = "The provider is rate limiting usage checks. Switch will retry later."
             }
+            // Droid keeps its last usage but waits for the owner to allow access to its login.
+            if providerID == .droid { state.needsKeychainAccess = true }
             result[account.id] = state
         }
         return result
@@ -2690,6 +2720,24 @@ enum DemoData {
             ],
             unpricedModels: ["claude-preview-synthetic"], computedAt: Date(),
             chart: demoChart(id: "claude-daily", title: "Daily cost (API-equivalent estimate)", unit: "USD", scale: 24))
+    }
+
+    /// Synthetic Droid activity.
+    static var droidActivity: ClaudeActivitySummary {
+        ClaudeActivitySummary(
+            rows: [
+                ClaudeActivityRow(
+                    label: "Today", tokens: 6_200_000, costUSD: 4.1,
+                    detail: "Input 150,000, output 80,000, cache read 5,600,000, cache write 370,000 tokens."),
+                ClaudeActivityRow(
+                    label: "Yesterday", tokens: 11_800_000, costUSD: 7.65,
+                    detail: "Input 260,000, output 140,000, cache read 10,700,000, cache write 700,000 tokens."),
+                ClaudeActivityRow(
+                    label: "Last 30 days", tokens: 214_000_000, costUSD: 139.2,
+                    detail: "Input 5,000,000, output 2,300,000, cache read 195,000,000, cache write 11,700,000 tokens."),
+            ],
+            unpricedModels: ["kimi-k3"], computedAt: Date(),
+            chart: demoChart(id: "droid-daily", title: "Daily cost (API-equivalent estimate)", unit: "USD", scale: 9))
     }
 
     static func providerUsage(for providerID: ProviderID, offset: Int) -> ProviderUsage {
@@ -2838,8 +2886,9 @@ enum DemoData {
         return formatter.string(from: date)
     }
 
-    /// A year of synthetic daily usage for the Overview: an account total for each Codex, Gemini,
-    /// and Cursor demo account, plus shared transcripts by model and project.
+    /// A year of synthetic daily usage for the Overview: an account total for each Codex and Gemini
+    /// demo account, plus transcripts by model and project (Claude Code, Droid, and Grok Build ones
+    /// go to their only account).
     static func usageHistory(accounts: [AccountRecord]) -> UsageHistorySnapshot {
         let today = Int(now.timeIntervalSince1970 / 86_400)
         func noise(_ day: Int, _ salt: Int) -> Double {
@@ -2853,7 +2902,8 @@ enum DemoData {
             if noise(day, salt + 90) < 0.07 { return 0 }
             return Int64(base * (0.55 + 0.45 * age) * rhythm * spike * (0.4 + 1.2 * noise(day, salt)))
         }
-        let owned = accounts.filter { ["codex", "gemini-cli", "cursor"].contains($0.identity.providerID.rawValue) }
+        // Six groups at most by account: the one-line legend holds no seventh.
+        let owned = accounts.filter { ["codex", "gemini-cli"].contains($0.identity.providerID.rawValue) }
         let transcripts: [(service: String, model: String, project: String, base: Double)] = [
             ("codex", "gpt-5.6-sol", "/Users/demo/dev/switch", 2_500_000),
             ("codex", "gpt-5.6-sol", "/Users/demo/dev/site", 1_200_000),
@@ -2862,7 +2912,11 @@ enum DemoData {
             ("claude-code", "claude-opus-5", "/Users/demo/dev/recap", 1_100_000),
             ("claude-code", "claude-haiku-5", "/Users/demo/dev/dotfiles", 400_000),
             ("grok-build", "grok-build-2", "/Users/demo/dev/switch", 500_000),
+            ("droid", "claude-sonnet-5-5", "/Users/demo/dev/switch", 1_500_000),
+            ("droid", "kimi-k3", "/Users/demo/dev/site", 700_000),
         ]
+        let owners = Dictionary(grouping: accounts, by: { $0.identity.providerID.rawValue })
+            .mapValues { $0.map { $0.id.uuidString.lowercased() } }
         var points: [UsageHistoryPoint] = []
         for day in (today - 364)...today {
             let name = utcDay(Date(timeIntervalSince1970: Double(day) * 86_400))
@@ -2875,8 +2929,9 @@ enum DemoData {
             for (index, row) in transcripts.enumerated() {
                 let count = tokens(day, index + 20, row.base)
                 points.append(UsageHistoryPoint(
-                    day: name, service: row.service, model: row.model, project: row.project,
-                    tokens: count, costUSD: Double(count) * 4.2e-6))
+                    day: name, service: row.service,
+                    accountID: UsageHistory.owner(service: row.service, accountID: nil, accounts: owners),
+                    model: row.model, project: row.project, tokens: count, costUSD: Double(count) * 4.2e-6))
             }
         }
         return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)))
