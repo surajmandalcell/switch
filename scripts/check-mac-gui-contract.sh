@@ -49,6 +49,12 @@ if [[ "$settings_groups" != $'General\nAppearance\nAccounts\nAuto switch\nMenu b
   exit 1
 fi
 parts_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerParts.swift"
+# A card only fades in when it appears: an offset would shift it against neighbors already on screen
+# (Cleanup's files card appears after the scan, so its gap to the filter card jumped by the offset).
+if awk '/^private struct AIMAppear/{f=1} f{print} f&&/^}/{exit}' "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AIManagerDesign.swift" | rg -q '\.offset\('; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL AIMAppear moves the card: appear with opacity only' >&2
+  exit 1
+fi
 # The default account is marked with a disabled button, never a colored chip.
 if rg -n 'AIMStateChip' "$repo_root/packages/mac-gui/Sources"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL obsolete default state chip' >&2

@@ -535,7 +535,7 @@ in light and dark before a UI change ships.
   with no light rim. Every container has equal top and bottom inner padding; hover and
   selection highlights have even insets.
 - **Motion:** micro-interactions everywhere: hover and press fades, bars filling on appear and
-  on change, rolling numbers, cards fading in on page change, sliding segment indicators,
+  on change, rolling numbers, cards fading in (never moving) on page change, sliding segment indicators,
   springy popover row expansion, and chart draw-ins, at 150-350 ms with ease-out or a soft
   spring. Reduce Motion keeps fades only. A page switch shows its first frame with no visible
   delay; heavy work runs off the main actor.
