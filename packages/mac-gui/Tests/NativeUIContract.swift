@@ -247,9 +247,9 @@ enum AIManagerNativeContract {
     expect(UsagePresentation.hasContent(creditsOnly) && !UsagePresentation.hasRateLimits(creditsOnly),
       "Credits-only data hides the missing-rate-limits notice")
     expect(UsagePresentation.emptyUsageTitle(failure: "Timed out", needsSignIn: false)
-      == "Usage could not be refreshed", "An initial usage failure is shown as never checked")
+      == "Couldn't check usage: Timed out", "An initial usage failure lost its reason")
     expect(UsagePresentation.emptyUsageTitle(failure: nil, needsSignIn: true)
-      == "Sign in to refresh usage", "Missing sign-in state is shown as never checked")
+      == "Sign in to see usage", "Missing sign-in state is shown as never checked")
 
     let zeroSummary = CodexUsageSummarySnapshot(
       lifetimeTokens: 0, peakDailyTokens: nil, currentStreakDays: 0,
@@ -1534,7 +1534,7 @@ enum AIManagerNativeContract {
   }
 
   /// The Accounts page: no table header, an indented outline of provider groups, a fixed-frame focused card with
-  /// "Unavailable" and "Sign in again", no name picker, remembered choices, and motion tokens.
+  /// dotted usage tracks and "Sign in again", no name picker, remembered choices, and motion tokens.
   @MainActor static func accountsPageFailures() -> [String] {
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -1609,8 +1609,8 @@ enum AIManagerNativeContract {
         "The focused card changes size between a signed-in and a signed-out account")
       expect(Set(accounts.map { cardSize($0).height }).count == 1,
         "The focused card height depends on the account")
-      expect(SignInButton(account: signedOut, model: model).title == "Sign in again"
-        && UsageWindowBlock.unavailable == "Unavailable", "The signed-out card does not say Sign in again / Unavailable")
+      expect(SignInButton(account: signedOut, model: model).title == "Sign in again",
+        "The signed-out card does not say Sign in again")
       let card = NSHostingView(rootView: FocusedAccountCard(
         account: signedOut, model: model, now: Date(), hideEmails: false, showsUsed: false,
         delete: {}).frame(width: 760, height: 160))
@@ -1627,6 +1627,109 @@ enum AIManagerNativeContract {
       walk(card)
       expect(controls == 4, "The signed-out focused card has \(controls) controls, not 4: a name picker is back")
     } else { failures.append("The Preview lacks a signed-in and a signed-out Codex account") }
+
+    // E4: compare each provider with its own empty meters, including cached window names.
+    for account in accounts where [ProviderID.claudeCode, .droid, .grokBuild, .geminiCLI].contains(account.identity.providerID) {
+      guard let usage = model.providerUsage[account.id]?.usage,
+            !usage.windows.isEmpty, usage.cost == nil, usage.sections.isEmpty, usage.charts.isEmpty else { continue }
+      var signedOut = account
+      signedOut.verification.state = .needsSignIn
+      expect(cardSize(account) == cardSize(signedOut),
+        "\(account.identity.providerID): empty usage changes the focused card height")
+      func sectionHeight(_ account: AccountRecord) -> CGFloat {
+        NSHostingView(rootView: ProviderUsagePanel(account: account, model: model).frame(width: 760)).fittingSize.height
+      }
+      expect(abs(sectionHeight(account) - sectionHeight(signedOut)) < 0.5,
+        "\(account.identity.providerID): empty usage changes the Usage section height")
+      expect(AccountUsageSummary.emptyWindows(for: signedOut, model: model).map(\.title) == usage.windows.map(\.title),
+        "\(account.identity.providerID): empty usage lost the provider's window names")
+    }
+
+    let go = ProviderID(rawValue: "opencodego")
+    let emptyWindows = AccountUsageSummary.knownEmptyWindows(providerID: go)
+    expect(emptyWindows.map(\.title) == ["5 hours", "Weekly", "Monthly"], "OpenCode Go lost its empty usage windows")
+    let now = Date()
+    if var account = accounts.first {
+      account.id = UUID()
+      account.identity.providerID = go
+      account.verification.state = .verifiedLocally
+      let emptyHeight = NSHostingView(rootView: ProviderUsagePanel(account: account, model: model)
+        .frame(width: 760)).fittingSize.height
+      let populatedHeight = NSHostingView(rootView: AIMSection("Usage", accessory: {
+        AIMIconButton(icon: .refresh, label: "Refresh usage", action: {})
+      }) {
+        ForEach(emptyWindows) { window in
+          ProviderWindowMeter(window: UsageWindow(id: window.id, title: window.title, usedPercent: 20,
+            resetsAt: now.addingTimeInterval(3600)), providerID: go, now: now)
+        }
+      }.frame(width: 760)).fittingSize.height
+      expect(abs(emptyHeight - populatedHeight) < 0.5,
+        "OpenCode Go: empty Usage section height differs from the same provider with usage")
+      // Review renders (AI_MANAGER_PAGE_SHOTS): the empty-usage table and focused card, and Settings.
+      if let path = ProcessInfo.processInfo.environment["AI_MANAGER_PAGE_SHOTS"] {
+        let directory = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let shotAccounts = accounts + [account]
+        let views: [(String, AnyView, NSSize)] = [
+          ("accounts-empty", AnyView(VStack(spacing: AIMTheme.sectionSpacing) {
+            AccountsTableCard(accounts: shotAccounts, query: "", model: model, focusedID: account.id, now: now,
+              hideEmails: false, showsUsed: false, focus: { _ in }, delete: { _ in })
+            FocusedAccountCard(account: account, model: model, now: now, hideEmails: false, showsUsed: false, delete: {})
+            ProviderUsagePanel(account: account, model: model)
+          }.padding(AIMTheme.pageMargin)), NSSize(width: 900, height: 1400)),
+          ("settings", AnyView(SettingsPage(model: model)), NSSize(width: 900, height: 1900)),
+        ]
+        for (label, view, size) in views {
+          let shot = NSHostingView(rootView: view.frame(width: size.width, height: size.height).background(AIMTheme.page))
+          let shotWindow = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+          shotWindow.appearance = NSAppearance(named: .darkAqua)
+          shotWindow.contentView = shot
+          shot.frame = NSRect(origin: .zero, size: size)
+          shot.layoutSubtreeIfNeeded()
+          if let png = RenderScale.png(of: shot) { try? png.write(to: directory.appendingPathComponent("\(label).png")) }
+        }
+      }
+    }
+    for reason in ["No Go plan", "Couldn't check", "Not checked yet", "Sign in to see usage"] {
+      let empty = UsageWindowBlock(window: nil, providerID: go, showsUsed: false, now: now, note: reason)
+      let populated = UsageWindowBlock(window: UsageWindow(id: "session", title: "5 hours", usedPercent: 20,
+        resetsAt: now.addingTimeInterval(3600)), providerID: go, showsUsed: false, now: now)
+      expect(NSHostingView(rootView: empty.frame(width: 300)).fittingSize.height
+        == NSHostingView(rootView: populated.frame(width: 300)).fittingSize.height,
+        "\(reason): empty card meters change height")
+    }
+
+    // Render the reason and its controls in both appearances; orange or warning tint fails.
+    for dark in [false, true] {
+      for reason in ["No Go subscription on this key", "Couldn't check usage: Server failed", "Not checked yet", "Sign in to see usage"] {
+        let host = NSHostingView(rootView: VStack {
+          EmptyUsageHeader(reason: reason, isRefreshing: false, disabled: false, refresh: {}, copy: {})
+          UsageWindowBlock(window: nil, providerID: go, showsUsed: false, now: now, note: reason)
+        }.padding(16).frame(width: 760).background(AIMTheme.card)
+          .environment(\.colorScheme, dark ? .dark : .light))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+          failures.append("Cannot render the empty usage reason"); continue
+        }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        var hasWarningTint = false
+        for y in 0..<bitmap.pixelsHigh {
+          for x in 0..<bitmap.pixelsWide {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+            color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+            if hue > 0.04 && hue < 0.18 && saturation > 0.35 && brightness > 0.4 && alpha > 0.5 {
+              hasWarningTint = true
+            }
+          }
+        }
+        expect(!hasWarningTint, "\(reason): an empty usage reason or control uses orange or warning tint")
+      }
+    }
 
     // Choices survive a restart: scroll offsets, the selected account, and the usage period.
     let suite = "switch-accounts-restart-\(UUID().uuidString)"

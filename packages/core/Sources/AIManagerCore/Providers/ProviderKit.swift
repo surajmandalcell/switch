@@ -151,24 +151,30 @@ public struct UsageChart: Codable, Equatable, Sendable {
     }
 }
 
+public enum ProviderUsageAvailability: String, Codable, Equatable, Sendable {
+    case noPlan
+}
+
 public struct ProviderUsage: Codable, Equatable, Sendable {
     public var windows: [UsageWindow]
     public var cost: UsageCost?
     public var sections: [UsageSection]
     public var charts: [UsageChart]
     public var plan: String?
+    public var availability: ProviderUsageAvailability?
     public var email: String?
     public var organization: String?
     public var fetchedAt: Date
 
     public init(windows: [UsageWindow] = [], cost: UsageCost? = nil, sections: [UsageSection] = [],
                 plan: String? = nil, email: String? = nil, organization: String? = nil,
-                fetchedAt: Date = Date(), charts: [UsageChart] = []) {
+                fetchedAt: Date = Date(), charts: [UsageChart] = [], availability: ProviderUsageAvailability? = nil) {
         self.windows = windows
         self.cost = cost
         self.sections = sections.filter { !$0.rows.isEmpty }
         self.charts = charts.filter { !$0.points.isEmpty }
         self.plan = plan
+        self.availability = availability
         self.email = email
         self.organization = organization
         self.fetchedAt = fetchedAt
@@ -179,7 +185,7 @@ public struct ProviderUsage: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case windows, cost, sections, charts, plan, email, organization, fetchedAt
+        case windows, cost, sections, charts, plan, availability, email, organization, fetchedAt
     }
 
     /// Old cached JSON has no `charts` key.
@@ -190,6 +196,7 @@ public struct ProviderUsage: Codable, Equatable, Sendable {
         sections = try values.decode([UsageSection].self, forKey: .sections)
         charts = try values.decodeIfPresent([UsageChart].self, forKey: .charts) ?? []
         plan = try values.decodeIfPresent(String.self, forKey: .plan)
+        availability = try values.decodeIfPresent(ProviderUsageAvailability.self, forKey: .availability)
         email = try values.decodeIfPresent(String.self, forKey: .email)
         organization = try values.decodeIfPresent(String.self, forKey: .organization)
         fetchedAt = try values.decode(Date.self, forKey: .fetchedAt)

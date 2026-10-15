@@ -346,8 +346,8 @@ enum UsagePresentation {
   }
 
   static func emptyUsageTitle(failure: String?, needsSignIn: Bool) -> String {
-    if needsSignIn { return "Sign in to refresh usage" }
-    return failure == nil ? "Usage has not been checked" : "Usage could not be refreshed"
+    if needsSignIn { return "Sign in to see usage" }
+    return failure.map { "Couldn't check usage: \($0)" } ?? "Not checked yet"
   }
 
   static func activityDays(
@@ -703,7 +703,9 @@ private struct AccountUsagePanel: View {
   let account: AccountRecord
   @ObservedObject var model: AccountViewModel
 
-  private var snapshot: CodexAccountUsageSnapshot? { model.usage(for: account.id) }
+  private var snapshot: CodexAccountUsageSnapshot? {
+    model.needsSignIn(account) ? nil : model.usage(for: account.id)
+  }
   private var cached: CachedCodexAccountUsage? { model.cachedUsage(for: account.id) }
   private var isRefreshing: Bool { model.usageRefreshAccountID == account.id }
   private var usageFailure: String? {
@@ -742,14 +744,22 @@ private struct AccountUsagePanel: View {
   }
 
   private var monthlyCredits: CodexMonthlyCredits? { snapshot?.extras?.monthlyCredits }
+  private var hasLimits: Bool {
+    monthlyCredits != nil || !limitBuckets.isEmpty
+  }
 
   var body: some View {
-    AIMSection("Usage") {
-      if let snapshot {
-        LabeledContent(CodexPlanNames.display(snapshot.account?.plan) ?? "Codex usage") {
-          usageStatus
-        }
-
+    AIMSection("Usage", accessory: {
+      if !hasLimits {
+        EmptyUsageHeader(reason: AccountUsageSummary.reason(for: account, model: model).full,
+          isRefreshing: isRefreshing, disabled: model.isBusy,
+          refresh: { Task { await model.refreshUsage(accountID: account.id) } },
+          copy: { model.copyWarnings([AccountUsageSummary.reason(for: account, model: model).full]) })
+      } else {
+        usageStatus
+      }
+    }) {
+      if snapshot != nil, hasLimits {
         ForEach(limitBuckets, id: \.key) { item in
           UsageBucket(
             bucket: item.value,
@@ -775,26 +785,14 @@ private struct AccountUsagePanel: View {
           UsageUnavailableRow(text: "Rate limits unavailable")
         }
       } else {
-        UsageWindowBlock(window: nil, providerID: account.identity.providerID, showsUsed: false,
-          now: Date(), spacing: AIMTheme.rowSpacing)
-        HStack(spacing: AIMTheme.sectionSpacing) {
-          AIMIcon(name: .info).aimText(.body).foregroundStyle(.secondary)
-          VStack(alignment: .leading, spacing: 2) {
-            Text(UsagePresentation.emptyUsageTitle(
-              failure: usageFailure, needsSignIn: account.verification.state == .needsSignIn))
-              .aimText(.body)
-            if let failure = usageFailure {
-              Text(failure).aimText(.secondary, tint: AIMTheme.amber)
-            } else {
-              Text("Refresh this saved account without changing the default account.")
-                .aimText(.secondary)
-            }
+        VStack(alignment: .leading, spacing: AIMTheme.sectionSpacing) {
+          HStack {
+            Text("Codex").aimText(.section)
+            Spacer()
           }
-          Spacer()
-          if let failure = usageFailure {
-            WarningCopyButton(label: "Copy usage error") { model.copyWarnings([failure]) }
+          ForEach(AccountUsageSummary.emptyWindows(for: account, model: model)) { window in
+            ProviderWindowMeter(window: window, providerID: account.identity.providerID, now: Date())
           }
-          refreshButton
         }
       }
     }
@@ -903,11 +901,42 @@ private struct UsageBucket: View {
 struct UsageUnavailableRow: View {
   let text: String
   var body: some View {
+    ProviderWindowMeter(window: UsageWindow(id: "usage", title: "Usage", usedPercent: nil),
+      providerID: .codex, now: Date()).help(text)
+  }
+}
+
+struct EmptyUsageHeader: View {
+  let reason: String
+  let isRefreshing: Bool
+  let disabled: Bool
+  let refresh: () -> Void
+  let copy: () -> Void
+
+  var body: some View {
     HStack(spacing: AIMTheme.rowSpacing) {
-      AIMIcon(name: .info).aimText(.secondary)
-      Text(text).aimText(.secondary)
-      Spacer()
+      Text(reason).aimText(.secondary).lineLimit(1).truncationMode(.middle)
+        .frame(maxWidth: .infinity, alignment: .trailing).help(reason)
+      AIMIconButton(icon: .refresh, label: "Check again", disabled: disabled || isRefreshing, action: refresh)
+      AIMIconButton(icon: .copy, label: "Copy reason", action: copy)
     }
+    .foregroundStyle(.secondary)
+  }
+}
+
+/// A missing value keeps the real bar's four-point frame.
+struct DottedUsageTrack: View {
+  var body: some View {
+    Canvas { context, size in
+      var path = Path()
+      path.move(to: CGPoint(x: 0, y: size.height / 2))
+      path.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+      context.stroke(path, with: .color(AIMTheme.track),
+        style: StrokeStyle(lineWidth: 4, lineCap: .butt, dash: [4, 3]))
+    }
+    .frame(height: 4)
+    .clipShape(Capsule())
+    .accessibilityHidden(true)
   }
 }
 
@@ -1104,10 +1133,60 @@ extension AccountRecord {
 }
 
 enum AccountUsageSummary {
+  struct EmptyReason {
+    let short: String
+    let full: String
+  }
+
+  @MainActor static func reason(for account: AccountRecord, model: AccountViewModel) -> EmptyReason {
+    let state = model.providerUsage[account.id]
+    if model.needsSignIn(account) {
+      return EmptyReason(short: "Sign in to see usage", full: "Sign in to see usage")
+    }
+    let failure = account.identity.providerID == .codex
+      ? model.usageError(for: account.id) ?? model.cachedUsage(for: account.id)?.failureMessage : state?.error
+    if let failure {
+      return EmptyReason(short: "Couldn't check", full: "Couldn't check usage: \(failure)")
+    }
+    if state?.usage?.availability == .noPlan {
+      return EmptyReason(short: "No Go plan", full: "No Go subscription on this key")
+    }
+    if state?.checkedAt != nil {
+      return EmptyReason(short: "No usage available", full: "\(account.identity.providerID.guiName) reports no usage")
+    }
+    return EmptyReason(short: "Not checked yet", full: "Not checked yet")
+  }
+
+  @MainActor static func emptyWindows(for account: AccountRecord, model: AccountViewModel) -> [UsageWindow] {
+    let cached = model.providerUsage[account.id]?.usage?.windows ?? []
+    if !cached.isEmpty {
+      return cached.map { UsageWindow(id: $0.id, title: $0.title, usedPercent: nil) }
+    }
+    if let windows = model.status?.accounts.lazy
+      .filter({ $0.identity.providerID == account.identity.providerID })
+      .compactMap({ model.providerUsage[$0.id]?.usage?.windows })
+      .first(where: { !$0.isEmpty }) {
+      return windows.map { UsageWindow(id: $0.id, title: $0.title, usedPercent: nil) }
+    }
+    return knownEmptyWindows(providerID: account.identity.providerID)
+  }
+
+  static func knownEmptyWindows(providerID: ProviderID) -> [UsageWindow] {
+    let names: [String]
+    switch providerID.rawValue {
+    case "opencodego": names = ["5 hours", "Weekly", "Monthly"]
+    case "codex", "claude-code": names = ["Session", "Weekly"]
+    case "grok-build": names = ["Session", "Weekly"]
+    case "droid": names = ["Standard tokens"]
+    case "gemini-cli": names = ["Pro models", "Flash models"]
+    default: names = ["Usage"]
+    }
+    return names.map { UsageWindow(id: $0, title: $0, usedPercent: nil) }
+  }
   /// The visible usage windows of an account, primary first. Empty when usage is unknown or the
   /// account needs a new sign-in (stale values never sit beside that state).
   @MainActor static func windows(for account: AccountRecord, model: AccountViewModel) -> [UsageWindow] {
-    model.accountWindows[account.id] ?? []
+    model.needsSignIn(account) ? [] : model.accountWindows[account.id] ?? []
   }
 
 }
@@ -1251,7 +1330,7 @@ struct FocusedAccountCard: View {
   static let usageWidth: CGFloat = 300
 
   var body: some View {
-    let window = AccountUsageSummary.windows(for: account, model: model).first
+    let window = AccountUsageSummary.windows(for: account, model: model).first { $0.usedPercent != nil }
     AIMCard {
       VStack(alignment: .leading, spacing: AIMTheme.cardInset) {
         HStack(alignment: .center, spacing: AIMTheme.cardInset) {
@@ -1272,9 +1351,7 @@ struct FocusedAccountCard: View {
           AIMHairline(vertical: true).frame(height: 44)
           UsageWindowBlock(
             window: window, providerID: providerID, showsUsed: showsUsed, now: now,
-            note: window == nil && !model.needsSignIn(account) ? UsagePresentation.emptyUsageTitle(
-              failure: model.usageError(for: account.id) ?? model.providerUsage[account.id]?.error,
-              needsSignIn: false) : nil)
+            note: AccountUsageSummary.reason(for: account, model: model).short)
             .frame(width: Self.usageWidth)
         }
         .accessibilityElement(children: .contain)
@@ -1506,24 +1583,14 @@ private struct AccountsTableRow: View {
 
   /// Why the usage cell has no bar, from the state the model already keeps.
   private var usageReason: String {
-    let provider = account.identity.providerID
-    let state = model.providerUsage[account.id]
-    let isCodex = provider == .codex
-    if model.needsSignIn(account) { return "Sign in to see usage" }
-    if isCodex ? model.usageRefreshAccountID == account.id : state?.isRefreshing == true {
-      return "Checking usage…"
-    }
-    if isCodex ? model.usageError(for: account.id) != nil : state?.error != nil {
-      return "Couldn’t check usage"
-    }
-    if !isCodex, state?.checkedAt != nil { return "\(provider.guiName) reports no usage" }
-    return "No usage yet"
+    let reason = AccountUsageSummary.reason(for: account, model: model).short
+    return reason == "Couldn't check" ? "Couldn't check usage" : reason
   }
 
   var body: some View {
     let columns = AIMColumns.accounts
     let group = AccountsTableCard.group
-    let window = AccountUsageSummary.windows(for: account, model: model).first
+    let window = AccountUsageSummary.windows(for: account, model: model).first { $0.usedPercent != nil }
     let isDefault = model.status?.isDefault(account) == true
     let percent = OverviewFormat.percent(window, showsUsed: showsUsed)
     #if AI_MANAGER_PREVIEW
@@ -1564,8 +1631,7 @@ private struct AccountsTableRow: View {
           .frame(width: 104, alignment: .trailing)
         } else {
           Text(usageReason).aimText(.secondary).lineLimit(1)
-            .help(account.identity.providerID == .codex
-              ? model.usageError(for: account.id) ?? "" : model.providerUsage[account.id]?.error ?? "")
+            .help(AccountUsageSummary.reason(for: account, model: model).full)
         }
       }
       .accessibilityElement(children: .combine)
@@ -1653,9 +1719,7 @@ struct AccountCell: View {
   }
 }
 
-/// One usage window: label and value, the bar, and the reset line. With no window (needs sign-in,
-/// not checked, error) the same block stays in place, disabled: an empty bar and "Unavailable"
-/// where the value was, so nothing around it moves. `note` fills the reset line with the reason.
+/// One usage window with a fixed reset-line slot. Missing usage has a grey reason capsule.
 struct UsageWindowBlock: View {
   let window: UsageWindow?
   let providerID: ProviderID
@@ -1665,10 +1729,9 @@ struct UsageWindowBlock: View {
   var spacing: CGFloat = 6
   /// The label of a block with no window.
   static let emptyTitle = "Usage"
-  static let unavailable = "Unavailable"
 
   private var value: String {
-    guard let window else { return Self.unavailable }
+    guard let window else { return "–" }
     return window.usedPercent.map {
       UsagePercentagePreferences.label(forUsed: Int($0.rounded()), showsUsed: showsUsed)
     } ?? "–"
@@ -1683,18 +1746,24 @@ struct UsageWindowBlock: View {
           Text(value).aimText(.body).monospacedDigit().lineLimit(1).aimRolling(value)
             .flipsUsedAndLeft(showsUsed).uiLint(.number)
         } else {
-          Text(value).aimText(.body).lineLimit(1)
+          Text(note ?? "Not checked yet").aimText(.secondary)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.08), in: Capsule()).lineLimit(1)
         }
       }
-      UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed, providerID: providerID)
+      .frame(height: 18)
+      if window == nil {
+        DottedUsageTrack()
+      } else {
+        UsageBar(usedPercent: window?.usedPercent, showsUsed: showsUsed, providerID: providerID)
+      }
       if let reset = window?.resetsAt {
         ResetTimeText(reset: reset, now: now, usedPercent: window?.usedPercent).lineLimit(1)
       } else {
         // An empty line keeps the reset line's height.
-        Text(window == nil ? (note ?? " ") : " ").aimText(.secondary).lineLimit(1)
+        Text(" ").aimText(.secondary).lineLimit(1)
       }
     }
-    .opacity(window == nil ? 0.45 : 1)
     .accessibilityElement(children: .combine)
   }
 }

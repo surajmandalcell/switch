@@ -114,7 +114,9 @@ credential styles:
   `opencode-go` row as the live OpenCode Go login and imports a `zai-coding-plan` key as a
   z.ai account (skipped when a saved account has the same key). Switch never writes that
   database, so making another OpenCode Go account the default asks the user to run
-  `opencode auth login`.
+  `opencode auth login`. OpenCode Go usage that answers 403 EntitlementError means the key has
+  no Go subscription (OpenCode has no Free plan; without Go it is pay-as-you-go Zen): the plan
+  reads "No Go plan" and the usage reason says so. It is not an error or a sign-in.
 - **Secret**: API keys, access tokens, or a pasted Cookie header. Switching selects the
   default saved account.
 
@@ -470,8 +472,10 @@ in light and dark before a UI change ships.
 - **Accounts:** the account table, then the focused account card for the selected row (44 pt
   icon tile, name with no picker, provider with an Active dot or badge, primary window, actions:
   "Using as default" or Make Default, Open <tool>, Copy, More). The card's right side keeps its
-  space: an account without usage shows its bars disabled with "Unavailable", and its primary
-  button reads "Sign in again". The table has no column header and no Provider column. Each
+  space: an account without usage keeps its meters in place as dotted tracks with a dash, and
+  one grey line gives the reason ("No Go plan", "Couldn't check usage: <reason>"), in the card
+  and in the Usage section header, with no orange text and no empty band (owner pick E4). A
+  signed-out account's primary button reads "Sign in again". The table has no column header and no Provider column. Each
   provider group starts with a 32 pt header row: a 16 pt brand tile, the provider name in
   semibold, and the count as plain secondary text ("×2"). The card header shows no account
   total. Its accounts sit 24 pt in, under the provider name, and a thin

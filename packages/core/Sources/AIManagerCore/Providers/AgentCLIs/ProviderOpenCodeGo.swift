@@ -10,19 +10,15 @@ extension ProviderCatalog {
         files: [openCodeAuth],
         dashboard: "https://opencode.ai/auth",
         identify: { credential in
-            credential.json(openCodeAuth.id)?["key"].string.map { CredentialIdentity(key: AgentCLIsKit.fingerprint($0), plan: "Go") }
+            credential.json(openCodeAuth.id)?["key"].string.map { CredentialIdentity(key: AgentCLIsKit.fingerprint($0)) }
         },
         usage: { credential in
             guard let key = credential.json(openCodeAuth.id)?["key"].string else {
                 throw ProviderError.missingCredential("Sign in with opencode auth login, then import the sign-in.")
             }
             let response = try await HTTP.send("https://opencode.ai/zen/go/v1/usage", headers: HTTP.bearer(key))
-            if response.status == 403, response.text.contains("EntitlementError") {
-                // The key is valid (a new sign-in would not help), so this is not `.unauthorized`.
-                throw ProviderError.unavailable("This OpenCode account has no Go subscription.")
-            }
-            try HTTP.check(response)
-            var usage = try OpenCodeGoUsage.map(response.json(), serverDate: OpenCodeGoUsage.httpDate(response.headers["date"]))
+            var usage = try OpenCodeGoUsage.map(response)
+            guard usage.availability != .noPlan else { return usage }
             // The local logs belong to the signed-in OpenCode, so only a live credential may read them.
             if credential.isLive, let spend = OpenCodeGoUsage.localSpend(directory: OpenCodeGoUsage.dataDirectory()) {
                 usage.sections += [spend.section].compactMap { $0 }
@@ -33,6 +29,14 @@ extension ProviderCatalog {
 }
 
 enum OpenCodeGoUsage {
+    static func map(_ response: HTTPResponse) throws -> ProviderUsage {
+        if response.status == 403, response.text.contains("EntitlementError") {
+            return ProviderUsage(plan: "No Go plan", availability: .noPlan)
+        }
+        try HTTP.check(response)
+        return try map(response.json(), serverDate: httpDate(response.headers["date"]))
+    }
+
     /// Mirrors OpenCode: OPENCODE_DATA_DIR, then $XDG_DATA_HOME/opencode, then ~/.local/share/opencode.
     static func dataDirectory(env: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         func text(_ name: String) -> String? {
@@ -147,7 +151,7 @@ enum OpenCodeGoUsage {
     static func map(_ json: JSON, serverDate: Date? = nil) throws -> ProviderUsage {
         let usage = json["usage"]
         var windows: [UsageWindow] = []
-        for (id, source, title, minutes) in [("session", "rolling", "Session", 300), ("weekly", "weekly", "Weekly", 10080),
+        for (id, source, title, minutes) in [("session", "rolling", "5 hours", 300), ("weekly", "weekly", "Weekly", 10080),
                                               ("monthly", "monthly", "Monthly", 43200)] {
             let entry = usage[source]
             guard let percent = entry["percent"].double else { continue }
