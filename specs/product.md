@@ -214,14 +214,27 @@ Settings never lists files as "Linked entries," implies per-account chat librari
 managed-home topology. A legacy repair appears on its account only when action is required.
 
 Maintenance's source picker (searchable, built like the account picker) lists one entry per
-tool home that accounts share, such as "Codex CLI · 3 accounts", and one per account where each
-account has its own home, such as a Claude Code profile. Cleanup and Backup act on that source.
+tool home that accounts share, such as "Codex CLI · 3 accounts". Backup also lists one entry per
+account that has its own home, such as a Claude Code profile; Cleanup lists Claude Code once, and
+that entry also scans each profile's own files (never its links). Cleanup and Backup act on that source.
 Cleanup is a disclosure tree of the source's known clutter by category, with real sizes: active and
-archived conversations by project, logs, caches, debug and temp files, file history, shell
-snapshots, usage samples, and the conversation index. Categories follow established cleanup
-tools for each AI tool. Conversations are shared data and are never attributed to the selected account.
-Provide date ranges, older-than shortcuts, all time, and a custom interval. Conversation dates mean
-last updated; a selected conversation is removed as a whole. Untimestamped indexes support all time.
+archived conversations by project, pasted images, generated images, logs, caches, debug and temp
+files, file history, old app versions, shell snapshots, usage samples, and the conversation index.
+Categories follow established cleanup tools for each AI tool. Conversations are shared data and are
+never attributed to the selected account.
+Provide date ranges, older-than shortcuts, all time, and a custom interval. Dates mean last
+activity (the file's last write); a selected conversation is removed as a whole. Old app versions
+and the Claude app VM are not dated: every range shows them. The card header reads "N items ·
+<in range> of <total the tool uses>"; when the range hides everything the card says so and names
+the total ("Nothing older than 30 days. Codex CLI uses 11.7 GB; choose a shorter range to see it.").
+Old app versions (checked by default) are every build of Codex (standalone and app server), Claude
+Code, and the Claude app except the current one, the newest Claude app copy, and any build a
+running process uses. "Pasted images in old conversations" (unchecked) rewrites a Codex or Claude
+Code transcript so each inline base64 image becomes a 1x1 PNG; the chat keeps its text and still
+opens. It skips chats open in a running app or written in the last hour, shows the bytes saved,
+and the original goes to the trash like any removal (Restore puts it back). Codex "Generated
+images" are checked by default. "Claude app VM" is unchecked and protected while the Claude app runs.
+The untouched line names its reasons with counts ("701 items stay untouched: linked by another app.").
 Preview exact selected items and bytes before one explicit confirmation. Conversation removal uses
 recoverable private trash with a journal, restart recovery, Restore, and separately confirmed
 permanent removal. Moving to trash does not claim freed disk space. Preserve compact activity totals

@@ -332,6 +332,12 @@ enum AIManagerNativeContract {
     expect(CleanupDateRange.custom.contains(dayStart, now: cleanupNow, from: dayStart, through: dayStart)
       && !CleanupDateRange.custom.contains(nextDay, now: cleanupNow, from: dayStart, through: dayStart),
       "Cleanup custom dates exclude the first day or include the next day")
+    expect(
+      CleanupDateRange.olderMonth.nothingText(tool: "Codex CLI", total: 11_700_000_000)
+        == "Nothing older than 30 days. Codex CLI uses 11.7 GB; choose a shorter range to see it."
+        && CleanupDateRange.day.nothingText(tool: "Codex CLI", total: 11_700_000_000).hasPrefix("Nothing in the last 24 hours. ")
+        && CleanupDateRange.all.nothingText(tool: "Codex CLI", total: 0).hasPrefix("Nothing to clear."),
+      "Cleanup does not say how much the tool uses when the range hides everything")
     let weeklyOnly = MenuBarUsageSnapshot(usedPercentage: nil, secondaryUsedPercentage: 1)
     expect(
       weeklyOnly.usedPercentage == nil && weeklyOnly.secondaryUsedPercentage == 1

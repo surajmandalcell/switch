@@ -106,6 +106,18 @@ final class MaintenanceStore: ObservableObject {
 
   var source: CleanupSource? { sources.first { $0.id == sourceID } ?? sources.first }
 
+  /// Cleanup lists Claude Code once: an account's own profile folds into the shared entry (Backup keeps both).
+  var cleanupSources: [CleanupSource] {
+    sources.filter { !$0.isClaudeProfile }.map { $0.tool == .claude ? $0.withDetail($0.detail.replacingOccurrences(of: "Shared history · ", with: "")) : $0 }
+  }
+
+  /// The source Cleanup acts on. A chosen Claude profile (picked on the Backup tab) maps to the merged entry.
+  var cleanupSource: CleanupSource? {
+    let choices = cleanupSources
+    guard let chosen = source else { return choices.first }
+    return choices.first { $0.id == chosen.id } ?? choices.first { $0.tool == chosen.tool } ?? choices.first
+  }
+
   func refreshSources() {
     #if AI_MANAGER_PREVIEW
     if let demo { sources = demo.sources(accounts: model.status?.accounts ?? []); return }
@@ -318,6 +330,14 @@ final class MaintenanceStore: ObservableObject {
     while !FileManager.default.fileExists(atPath: existing.path), existing.path != "/" { existing.deleteLastPathComponent() }
     return (try? existing.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
       .volumeAvailableCapacityForImportantUsage
+  }
+}
+
+private extension CleanupSource {
+  func withDetail(_ detail: String) -> CleanupSource {
+    CleanupSource(
+      id: id, tool: tool, title: title, detail: detail, providerID: providerID, accountID: accountID,
+      accountEmail: accountEmail, home: home, userHome: userHome, extraHomes: extraHomes)
   }
 }
 

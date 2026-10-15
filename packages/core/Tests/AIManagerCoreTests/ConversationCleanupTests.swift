@@ -124,6 +124,7 @@ final class ConversationCleanupTests: XCTestCase {
         func stems(_ items: [CleanupItem]) -> [String] { items.map { (($0.path as NSString).lastPathComponent as NSString).deletingPathExtension } }
         XCTAssertEqual(stems(chats.selectable), ["chat"])
         XCTAssertEqual(stems(chats.protectedItems), ["shared"])
+        XCTAssertEqual(result.untouchedText, "1 item stays untouched: linked by another app.")
         XCTAssertEqual(Set(stems(agents.items)), ["review", "spawned"])
         XCTAssertEqual(chats.items.first?.title, "Synthetic conversation")
         XCTAssertEqual(chats.items.first?.project, "/Projects/Synthetic")
@@ -250,7 +251,24 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(category(try scan(.copilot, home: copilot), "conversations")?.items.map(\.title), ["Port the settings page"])
     }
 
-    func testOldVersionsKeepTheRunningBuildAndTheNewestOther() throws {
+    /// Grok keeps the older rule: the launcher's build and the newest other build stay.
+    func testGrokOldVersionsKeepTheLauncherBuildAndTheNewestOther() throws {
+        let grok = root.appending(path: "grok")
+        let releases = grok.appending(path: "downloads")
+        for (index, name) in ["0.1", "0.2", "0.3", "0.4"].enumerated() {
+            let folder = releases.appending(path: name)
+            try CoreSupport.atomicWrite(Data(name.utf8), to: folder.appending(path: "bin"), fileManager: files)
+            for url in [folder, folder.appending(path: "bin")] {
+                try files.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000 + Double(index) * 1_000)], ofItemAtPath: url.path)
+            }
+        }
+        try files.createDirectory(at: grok.appending(path: "bin"), withIntermediateDirectories: true)
+        try files.createSymbolicLink(at: grok.appending(path: "bin/grok"), withDestinationURL: releases.appending(path: "0.3"))
+        let old = try scan(.grok, home: grok).categories.first { $0.id == "versions" }?.items.map(\.title).sorted()
+        XCTAssertEqual(old, ["0.1", "0.2"], "0.3 runs and 0.4 is the newest other build")
+    }
+
+    func testCodexOldVersionsListEveryReleaseButTheCurrentOne() throws {
         let releases = home.appending(path: "packages/standalone/releases")
         for (index, name) in ["0.1", "0.2", "0.3", "0.4"].enumerated() {
             let folder = releases.appending(path: name)
@@ -260,8 +278,9 @@ final class ConversationCleanupTests: XCTestCase {
                                     ofItemAtPath: folder.appending(path: "bin").path)
         }
         try files.createSymbolicLink(at: home.appending(path: "packages/standalone/current"), withDestinationURL: releases.appending(path: "0.3"))
-        let old = try scan().categories.first { $0.id == "versions" }?.items.map(\.title).sorted()
-        XCTAssertEqual(old, ["0.1", "0.2"], "0.3 runs and 0.4 is the newest other build")
+        let old = try CleanupScanner(source: source(), now: later, processes: []).scan()
+            .categories.first { $0.id == "versions" }?.items.map(\.title).sorted()
+        XCTAssertEqual(old, ["Standalone 0.1", "Standalone 0.2", "Standalone 0.4"], "Only the current release stays")
     }
 
     func testFoldersOutsideTheHomeMoveWithCompanionsAndRestore() throws {
@@ -301,6 +320,8 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(sources.map(\.id).prefix(2), ["codex", "claude"])
         XCTAssertEqual(sources.map(\.id).prefix(3).map { $0.hasPrefix("claude") }, [false, true, true], "Both Claude Code entries sit together")
         XCTAssertEqual(sources.first?.detail, "2 accounts")
+        XCTAssertEqual(sources.first { $0.id == "claude" }?.extraHomes.map { CoreSupport.canonical($0) }, [CoreSupport.canonical(profileHome)])
+        XCTAssertEqual(sources.filter { !$0.isClaudeProfile && $0.tool == .claude }.count, 1)
         XCTAssertTrue(sources.contains { $0.accountEmail == "c@x.test" && $0.home == profileHome && $0.tool == .claude })
         XCTAssertEqual(sources.suffix(2).map(\.id), ["gemini", "copilot"])
         XCTAssertNil(sources.last?.backupService)

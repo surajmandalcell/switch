@@ -8,21 +8,32 @@ import Glibc
 /// One removable thing: a transcript with its companions, a log, a cache folder, an old version.
 /// `root` 0 is the source home; 1 is the user home (for example `~/Library/Caches`).
 public struct CleanupItem: Identifiable, Codable, Sendable, Hashable {
-    public var id: String { "\(root):\(path)" }
+    /// A rewrite shares its path with the transcript's own row, so it gets its own id.
+    public var id: String { "\(root):\(path)" + (isRewrite ? "#images" : "") }
     public let root: Int
     public let path: String
     public let companions: [String]
     public let title: String
     public let project: String?
     public let updatedAt: Date
+    /// Bytes the move frees; for a rewrite, the bytes the rewrite saves.
     public let bytes: Int64
     public let isDirectory: Bool
     public let protectedReason: String?
     let inode: UInt64
     let device: UInt64
     let modifiedAt: Double
+    /// True for a transcript whose pasted pictures shrink in place. The original goes to the trash.
+    let rewrite: Bool?
 
     var allPaths: [String] { [path] + companions }
+    public var isRewrite: Bool { rewrite == true }
+
+    func protecting(_ reason: String) -> CleanupItem {
+        CleanupItem(root: root, path: path, companions: companions, title: title, project: project, updatedAt: updatedAt,
+            bytes: bytes, isDirectory: isDirectory, protectedReason: protectedReason ?? reason, inode: inode, device: device,
+            modifiedAt: modifiedAt, rewrite: rewrite)
+    }
 }
 
 public struct ConversationCleanupPlan: Sendable {
@@ -51,6 +62,8 @@ public struct ConversationCleanup {
     public let home: URL
     public let userHome: URL
     private let files = FileManager.default
+    /// A chat written this recently may still be in use, so its images stay.
+    static let rewriteQuietPeriod: TimeInterval = 3_600
     private var trash: URL { home.appending(path: ".switch-trash") }
 
     public init(home: URL, userHome: URL? = nil) {
@@ -60,6 +73,10 @@ public struct ConversationCleanup {
 
     public func review(_ selected: [CleanupItem]) throws -> ConversationCleanupPlan {
         guard Set(selected.map(\.id)).count == selected.count else { throw AIManagerError.sourceChanged }
+        let removed = selected.filter { !$0.isRewrite }.flatMap(\.allPaths)
+        guard !selected.contains(where: { item in
+            item.isRewrite && removed.contains { item.path == $0 || item.path.hasPrefix($0 + "/") }
+        }) else { throw AIManagerError.operationFailed("A chat cannot be removed and have its pasted images removed in one cleanup.") }
         var digests: [String: String] = [:]
         for item in selected {
             try Task.checkCancellation()
@@ -91,22 +108,57 @@ public struct ConversationCleanup {
             try Task.checkCancellation()
             try validate(item, in: .live)
             guard try fingerprint(item, in: .live) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            if item.isRewrite {
+                try rewrite(item, in: folder, batch: &batch)
+                continue
+            }
             // Companions move first and the item last, so an item in the trash is always complete.
             for path in item.allPaths.reversed() {
-                let source = try url(item.root, path)
-                guard CoreSupport.entryExists(source) else { continue }
-                let target = folder.appending(path: "\(item.root)/\(path)")
-                try prepareDirectory(target.deletingLastPathComponent())
-                var info = stat()
-                guard lstat(target.deletingLastPathComponent().path, &info) == 0, UInt64(info.st_dev) == item.device else {
-                    throw AIManagerError.operationFailed("Cleanup trash must be on the same disk as the items.")
-                }
-                try files.moveItem(at: source, to: target)
+                guard CoreSupport.entryExists(try url(item.root, path)) else { continue }
+                try moveAside(item, path, into: folder)
             }
         }
         batch.phase = "trashed"
         try save(batch)
         return batch
+    }
+
+    private func moveAside(_ item: CleanupItem, _ path: String, into folder: URL) throws {
+        let source = try url(item.root, path)
+        let target = folder.appending(path: "\(item.root)/\(path)")
+        try prepareDirectory(target.deletingLastPathComponent())
+        var info = stat()
+        guard lstat(target.deletingLastPathComponent().path, &info) == 0, UInt64(info.st_dev) == item.device else {
+            throw AIManagerError.operationFailed("Cleanup trash must be on the same disk as the items.")
+        }
+        try files.moveItem(at: source, to: target)
+    }
+
+    /// Writes the shrunk transcript beside the original, moves the original to the trash, then renames the
+    /// copy into place. Restore puts the original back over the copy.
+    private func rewrite(_ item: CleanupItem, in folder: URL, batch: inout ConversationCleanupBatch) throws {
+        let source = try url(item.root, item.path)
+        let temporary = source.deletingLastPathComponent().appending(path: ".\(source.lastPathComponent).switch-tmp")
+        if CoreSupport.entryExists(temporary) { try files.removeItem(at: temporary) }
+        let saved = try ImageStripper.rewrite(source, to: temporary)
+        do {
+            guard saved > 0 else { throw CancellationError() }
+            // The chat must not change while the copy is written.
+            guard try fingerprint(item, in: .live) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            try moveAside(item, item.path, into: folder)
+        } catch {
+            try? files.removeItem(at: temporary)
+            if error is CancellationError { return }
+            throw error
+        }
+        guard rename(temporary.path, source.path) == 0 else {
+            let code = errno
+            try? files.moveItem(at: folder.appending(path: "\(item.root)/\(item.path)"), to: source)
+            try? files.removeItem(at: temporary)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+        }
+        batch.digests[item.id + "@after"] = try fingerprint(item, in: .live)
+        try save(batch)
     }
 
     // Existence on each side reconciles an interrupted move without replaying deletion.
@@ -137,7 +189,11 @@ public struct ConversationCleanup {
             guard try batch.phase == "restoring" || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
             for path in item.allPaths where CoreSupport.entryExists(folder.appending(path: "\(item.root)/\(path)")) {
                 let destination = try url(item.root, path)
-                guard !CoreSupport.entryExists(destination) else { throw AIManagerError.sourceChanged }
+                if CoreSupport.entryExists(destination) {
+                    // A shrunk chat gives way to its original, but only while it is still the copy Switch made.
+                    guard item.isRewrite, path == item.path, let after = batch.digests[item.id + "@after"],
+                          try fingerprint(item, in: .live) == after else { throw AIManagerError.sourceChanged }
+                }
                 try validateAncestors(destination.deletingLastPathComponent(), within: root(item.root))
             }
         }
@@ -149,7 +205,11 @@ public struct ConversationCleanup {
                 guard CoreSupport.entryExists(source) else { continue }
                 let destination = try url(item.root, path)
                 try prepareDirectory(destination.deletingLastPathComponent(), within: root(item.root))
-                try files.moveItem(at: source, to: destination)
+                if item.isRewrite, CoreSupport.entryExists(destination) {
+                    guard rename(source.path, destination.path) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+                } else {
+                    try files.moveItem(at: source, to: destination)
+                }
             }
         }
         try finish(&batch)
@@ -224,6 +284,12 @@ public struct ConversationCleanup {
             }
             if path == item.path {
                 guard UInt64(info.st_ino) == item.inode, UInt64(info.st_dev) == item.device else { throw AIManagerError.sourceChanged }
+                if case .live = where_, item.isRewrite {
+                    guard kind == S_IFREG else { throw AIManagerError.unsafePath("Cleanup found a linked or unsafe item: \(target.lastPathComponent)") }
+                    guard Date().timeIntervalSince1970 - CleanupScanner.modified(info) >= ConversationCleanup.rewriteQuietPeriod else {
+                        throw AIManagerError.operationFailed("A chat changed in the last hour, so its images stay. Try again later.")
+                    }
+                }
             }
         }
     }
