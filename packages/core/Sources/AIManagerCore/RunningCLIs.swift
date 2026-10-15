@@ -18,6 +18,9 @@ public struct RunningCLI: Equatable, Sendable {
     public var transcript: URL
     /// Claude Code only: the profile folder (`CLAUDE_CONFIG_DIR`, else the default ~/.claude).
     public var configDir: String?
+    /// The original options (`--yolo`, `--permission-mode=plan`) to carry over to the reopened run.
+    /// Nil when they cannot be carried over safely (an option with a separate value, or a prompt).
+    public var flags: [String]?
 }
 
 public enum CLITurnState: Equatable, Sendable {
@@ -31,21 +34,25 @@ public struct CLIResume: Equatable, Sendable {
     public var tool: CLITool
     public var sessionID: String
     public var cwd: String
+    /// The original run's options, carried over so a restrictive run never comes back weaker.
+    public var flags: [String]
     /// Set only when a limit cut the last turn short.
     public var prompt: String?
 
-    public init(tool: CLITool, sessionID: String, cwd: String, prompt: String? = nil) {
+    public init(tool: CLITool, sessionID: String, cwd: String, flags: [String] = [], prompt: String? = nil) {
         self.tool = tool
         self.sessionID = sessionID
         self.cwd = cwd
+        self.flags = flags
         self.prompt = prompt
     }
 
     /// Arguments after the executable. One element each, so nothing needs quoting here; the
-    /// launch script quotes every element.
+    /// launch script quotes every element. The prompt loses leading dashes, so it never parses as a flag.
     public var arguments: [String] {
-        let head = tool == .codex ? ["resume", sessionID] : ["--resume", sessionID]
-        return head + (prompt.map { [$0] } ?? [])
+        let head = flags + (tool == .codex ? ["resume", sessionID] : ["--resume", sessionID])
+        let text = prompt.map { String($0.drop { $0 == "-" || $0.isWhitespace }) } ?? ""
+        return head + (text.isEmpty ? [] : [text])
     }
 }
 
@@ -58,6 +65,8 @@ public enum CLIRestartOutcome: Equatable, Sendable {
     case exited
     /// The deadline passed or the task was cancelled; the process still runs on the old account.
     case leftRunning
+    /// The original options cannot be carried over safely; nothing was signaled.
+    case unsupportedOptions
 }
 
 public struct CLIRestartOptions: Sendable {
@@ -224,13 +233,17 @@ public enum RunningCLIs {
             if requireTTY, parts[1] == "??" { continue }
             let command = String(parts[2]).trimmingCharacters(in: .whitespaces)
             guard let tool = interactiveTool(of: command) else { continue }
+            let args = procArgs(pid: pid)
             switch tool {
             case .codex:
-                if let cli = codexSession(pid: pid, command: command) { found.append(cli) }
+                guard var cli = codexSession(pid: pid, command: command) else { continue }
+                cli.flags = args.flatMap { flags(tool: .codex, argv: $0.argv, sessionID: cli.sessionID) }
+                found.append(cli)
             case .claude:
-                let dir = claudeConfigDir(pid: pid) ?? claudeDefaultConfig.path
-                guard claudeConfigFilter(dir), let cli = claudeSession(pid: pid, command: command, configDir: dir)
+                let dir = args.flatMap { claudeConfigDir(env: $0.env) } ?? claudeDefaultConfig.path
+                guard claudeConfigFilter(dir), var cli = claudeSession(pid: pid, command: command, configDir: dir)
                 else { continue }
+                cli.flags = args.flatMap { flags(tool: .claude, argv: $0.argv, sessionID: cli.sessionID) }
                 found.append(cli)
             }
         }
@@ -254,7 +267,8 @@ public enum RunningCLIs {
               let meta = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
               meta["type"] as? String == "session_meta",
               let payload = meta["payload"] as? [String: Any],
-              let id = payload["id"] as? String, let cwd = payload["cwd"] as? String,
+              let id = payload["id"] as? String, UUID(uuidString: id) != nil,
+              let cwd = payload["cwd"] as? String, cwd.hasPrefix("/"),
               payload["originator"] as? String != "codex_exec" else { return nil }
         return RunningCLI(pid: pid, tool: .codex, command: command, sessionID: id, cwd: cwd,
                           transcript: url, configDir: nil)
@@ -266,7 +280,8 @@ public enum RunningCLIs {
         guard let data = try? Data(contentsOf: config.appending(path: "sessions/\(pid).json")),
               let info = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               info["kind"] as? String == "interactive",
-              let id = info["sessionId"] as? String, let cwd = info["cwd"] as? String else { return nil }
+              let id = info["sessionId"] as? String, UUID(uuidString: id) != nil,
+              let cwd = info["cwd"] as? String, cwd.hasPrefix("/") else { return nil }
         let projects = config.appending(path: "projects", directoryHint: .isDirectory)
         var transcript = projects.appending(path: encodedProjectName(cwd)).appending(path: "\(id).jsonl")
         if !FileManager.default.fileExists(atPath: transcript.path) {
@@ -287,13 +302,72 @@ public enum RunningCLIs {
         })
     }
 
-    /// `CLAUDE_CONFIG_DIR` from the process environment (`ps -E`), which can hold spaces; nil when unset.
-    private static func claudeConfigDir(pid: Int32) -> String? {
-        let text = run("/bin/ps", ["-E", "-ww", "-p", String(pid), "-o", "command="])
-        guard let regex = try? NSRegularExpression(pattern: #"CLAUDE_CONFIG_DIR=(.+?)(?= [A-Za-z_][A-Za-z0-9_]*=|\s*$)"#),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[range])
+    /// `CLAUDE_CONFIG_DIR` from the process environment entries only (never argv); nil when unset.
+    /// No other environment value is kept.
+    static func claudeConfigDir(env: [String]) -> String? {
+        let prefix = "CLAUDE_CONFIG_DIR="
+        guard let entry = env.first(where: { $0.hasPrefix(prefix) }) else { return nil }
+        let value = String(entry.dropFirst(prefix.count))
+        return value.isEmpty ? nil : value
+    }
+
+    // MARK: Exact argv and environment
+
+    /// The options to carry over to the reopened run, or nil when they cannot be carried over safely.
+    /// `argv` starts with the program (`node <script>` counts as the program). The resume pieces are
+    /// removed; every other element must be a flag (start with "-"), so a value or a prompt fails closed.
+    static func flags(tool: CLITool, argv: [String], sessionID: String) -> [String]? {
+        guard let first = argv.first else { return nil }
+        let skip = URL(fileURLWithPath: first).lastPathComponent == "node" ? 2 : 1
+        let resumeWords: Set<String> = tool == .codex
+            ? ["resume", "--last", "--all", "--include-non-interactive"]
+            : ["--resume", "-r", "--continue", "-c", "--fork-session"]
+        let idAfter: Set<String> = tool == .codex ? ["resume"] : ["--resume", "-r"]
+        let rest = Array(argv.dropFirst(skip))
+        var kept: [String] = []
+        for (index, arg) in rest.enumerated() {
+            if resumeWords.contains(arg) { continue }
+            if arg == sessionID, index > 0, idAfter.contains(rest[index - 1]) { continue }
+            kept.append(arg)
+        }
+        return kept.allSatisfy { $0.hasPrefix("-") && $0 != "--" } ? kept : nil
+    }
+
+    /// Splits a `KERN_PROCARGS2` buffer: Int32 argc, exec path, NUL padding, argc argv strings, then
+    /// environment strings up to an empty one. Nil when the buffer is cut short.
+    static func parseProcArgs(_ bytes: [UInt8]) -> (argv: [String], env: [String])? {
+        guard bytes.count >= 4 else { return nil }
+        let argc = bytes.prefix(4).enumerated().reduce(Int32(0)) { $0 | Int32($1.element) << (8 * Int32($1.offset)) }
+        guard argc >= 0 else { return nil }
+        var index = 4
+        func string() -> String? {
+            guard let end = bytes[index...].firstIndex(of: 0) else { return nil }
+            defer { index = end + 1 }
+            return String(decoding: bytes[index..<end], as: UTF8.self)
+        }
+        guard string() != nil else { return nil }
+        while index < bytes.count, bytes[index] == 0 { index += 1 }
+        var argv: [String] = []
+        for _ in 0..<argc {
+            guard let arg = string() else { return nil }
+            argv.append(arg)
+        }
+        var env: [String] = []
+        while index < bytes.count, let entry = string(), !entry.isEmpty { env.append(entry) }
+        return (argv, env)
+    }
+
+    /// The exact argv and environment of a process of this user; nil when unreadable.
+    static func procArgs(pid: Int32) -> (argv: [String], env: [String])? {
+        var limit: Int32 = 0
+        var limitSize = MemoryLayout<Int32>.size
+        var maxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+        guard sysctl(&maxMib, 2, &limit, &limitSize, nil, 0) == 0, limit > 0 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: Int(limit))
+        var size = buffer.count
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        return parseProcArgs(Array(buffer[..<size]))
     }
 
     // MARK: Waiting, stopping, reopening
@@ -304,6 +378,7 @@ public enum RunningCLIs {
         _ cli: RunningCLI, options: CLIRestartOptions = CLIRestartOptions(),
         launch: (CLIResume) async -> Bool
     ) async -> CLIRestartOutcome {
+        guard let flags = cli.flags else { return .unsupportedOptions }
         let end = Date().addingTimeInterval(options.deadline)
         var idleReads = 0
         while Date() < end, !Task.isCancelled {
@@ -313,7 +388,7 @@ public enum RunningCLIs {
                 guard stop(cli, grace: options.killGrace) else { return .leftRunning }
                 let message = options.resumeMessage.trimmingCharacters(in: .whitespacesAndNewlines)
                 let prompt = cut && !message.isEmpty ? message : nil
-                let resume = CLIResume(tool: cli.tool, sessionID: cli.sessionID, cwd: cli.cwd, prompt: prompt)
+                let resume = CLIResume(tool: cli.tool, sessionID: cli.sessionID, cwd: cli.cwd, flags: flags, prompt: prompt)
                 return await launch(resume) ? .relaunched : .launchFailed
             }
             try? await Task.sleep(for: .seconds(options.pollInterval))

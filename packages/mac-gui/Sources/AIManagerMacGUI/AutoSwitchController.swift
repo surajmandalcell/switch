@@ -125,8 +125,9 @@ final class AutoSwitchController {
     failed[key] = nil
     let left = percentLeft.map { " has \(Int($0.rounded()))% left" } ?? " is nearly out"
     var text = "\(provider.guiName) account \(from.identity.notificationLabel)\(left). Switched to \(to.identity.notificationLabel)."
-    if !sessions.isEmpty {
-      text += " \(sessions.count) running \(sessions.count == 1 ? "session reopens" : "sessions reopen") in Terminal when \(sessions.count == 1 ? "it is" : "they are") idle."
+    let reopening = sessions.filter { $0.flags != nil }.count
+    if reopening > 0 {
+      text += " \(reopening) running \(reopening == 1 ? "session reopens" : "sessions reopen") in Terminal when \(reopening == 1 ? "it is" : "they are") idle."
     }
     ActionMessage.post(text)
     let options = CLIRestartOptions(resumeMessage: AutoSwitchPreferences.resumeMessage())
@@ -139,9 +140,12 @@ final class AutoSwitchController {
           ActionMessage.post(
             "A \(provider.guiName) session in \(cli.cwd) did not finish its turn in 2 hours. Switch left it running on \(from.identity.notificationLabel).")
         case .launchFailed:
-          let line = CLIResume(tool: cli.tool, sessionID: cli.sessionID, cwd: cli.cwd, prompt: nil).arguments
+          let line = CLIResume(tool: cli.tool, sessionID: cli.sessionID, cwd: cli.cwd, flags: cli.flags ?? [], prompt: nil).arguments
           ActionMessage.post(
             "Switch stopped a \(provider.guiName) session but Terminal could not reopen it. Run: \(cli.tool.rawValue) \(line.joined(separator: " ")) in \(cli.cwd).")
+        case .unsupportedOptions:
+          ActionMessage.post(
+            "A \(provider.guiName) session in \(cli.cwd) was started with options Switch can't carry over. It still runs on \(from.identity.notificationLabel); restart it yourself.")
         case .relaunched, .exited:
           break
         }
