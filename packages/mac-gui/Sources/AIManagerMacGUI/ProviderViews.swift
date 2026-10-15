@@ -270,7 +270,7 @@ struct ProviderUsagePanel: View {
     switch account.identity.providerID {
     case .codex: false
     case .grokBuild: true
-    case .claudeCode: model.providerUsage[account.id]?.usage != nil
+    case .claudeCode: true
     default: true
     }
   }
@@ -282,10 +282,24 @@ struct ProviderUsagePanel: View {
   /// Stale values never sit beside a sign-in request.
   private var usage: ProviderUsage? { needsSignIn ? nil : state?.usage }
   private var isRefreshing: Bool { state?.isRefreshing == true }
+  private var hasUsage: Bool {
+    guard let usage, usage.availability != .noPlan else { return false }
+    return usage.windows.contains { $0.usedPercent != nil } || usage.cost.map(ProviderCostRow.hasContent) == true
+      || !usage.sections.isEmpty || !usage.charts.isEmpty
+  }
 
   var body: some View {
-    AIMSection("Usage") {
-      if let usage {
+    AIMSection("Usage", accessory: {
+      if hasUsage, let usage {
+        status(usage)
+      } else {
+        EmptyUsageHeader(reason: AccountUsageSummary.reason(for: account, model: model).full,
+          isRefreshing: isRefreshing, disabled: model.isBusy,
+          refresh: { Task { await model.refreshProviderUsage(accountID: account.id) } },
+          copy: { model.copyWarnings([AccountUsageSummary.reason(for: account, model: model).full]) })
+      }
+    }) {
+      if hasUsage, let usage {
         populated(usage)
       } else {
         emptyState
@@ -296,10 +310,6 @@ struct ProviderUsagePanel: View {
   // MARK: Populated
 
   @ViewBuilder private func populated(_ usage: ProviderUsage) -> some View {
-    LabeledContent(usage.plan.map { $0.capitalized } ?? "\(account.identity.providerID.guiName) usage") {
-      status(usage)
-    }
-
     let windows = HiddenUsageRows.visible(
       usage.windows, hidden: HiddenUsageRows.parse(hiddenRaw), id: \.id)
     ForEach(windows) { window in
@@ -351,35 +361,9 @@ struct ProviderUsagePanel: View {
   // MARK: Empty, error, and sign-in states
 
   @ViewBuilder private var emptyState: some View {
-    // The same meter as a populated row, disabled, so the panel keeps its shape.
-    UsageWindowBlock(window: nil, providerID: account.identity.providerID, showsUsed: false,
-      now: Date(), spacing: AIMTheme.rowSpacing)
-    HStack(spacing: AIMTheme.sectionSpacing) {
-      AIMIcon(name: .info).aimText(.body).foregroundStyle(.secondary)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).aimText(.body)
-        if let failure = state?.error, !needsSignIn {
-          Text(failure).aimText(.secondary, tint: AIMTheme.amber)
-        } else if needsSignIn {
-          Text(state?.error ?? "Sign in again to check this account.")
-            .aimText(.secondary, tint: AIMTheme.amber)
-        } else {
-          Text("Refresh this saved account without changing the default account.")
-            .aimText(.secondary)
-        }
-      }
-      Spacer()
-      if let failure = state?.error {
-        WarningCopyButton(label: "Copy usage error") { model.copyWarnings([failure]) }
-      }
-      refreshButton
+    ForEach(AccountUsageSummary.emptyWindows(for: account, model: model)) { window in
+      ProviderWindowMeter(window: window, providerID: account.identity.providerID, now: Date())
     }
-  }
-
-  private var title: String {
-    if needsSignIn { return "Sign in to refresh usage" }
-    if isRefreshing { return "Checking usage…" }
-    return state?.error == nil ? "Usage has not been checked" : "Usage could not be refreshed"
   }
 
   @ViewBuilder private var refreshButton: some View {
@@ -430,17 +414,26 @@ struct ProviderWindowMeter: View {
         Text(window.title).aimText(.body).lineLimit(1)
         if let label = UsagePace.label(state) {
           Badge(text: label, tint: color)
+        } else {
+          // The title row keeps the badge's height, so a row without a verdict (empty usage) is as tall as one with it.
+          Badge(text: " ", tint: color).hidden().accessibilityHidden(true)
         }
         Spacer(minLength: 4)
         Text(used.map { UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed) } ?? "–")
           .aimText(.body).monospacedDigit().aimRolling(displayed)
           .flipsUsedAndLeft(showsUsed)
       }
-      UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID, tick: tick)
-        .help(UsagePace.tooltip(state) ?? "")
+      if window.usedPercent == nil {
+        DottedUsageTrack()
+      } else {
+        UsageBar(usedPercent: window.usedPercent, showsUsed: showsUsed, providerID: providerID, tick: tick)
+          .help(UsagePace.tooltip(state) ?? "")
+      }
       HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
         if let reset = window.resetsAt {
           ResetTimeText(reset: reset, now: now, usedPercent: window.usedPercent)
+        } else {
+          Text(" ").aimText(.secondary)
         }
         Spacer(minLength: 4)
         if let detail = window.detail {

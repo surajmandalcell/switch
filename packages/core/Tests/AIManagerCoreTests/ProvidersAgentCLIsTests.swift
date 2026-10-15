@@ -298,8 +298,22 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         XCTAssertEqual(OpenCodeGoUsage.httpDate("Sat, 11 Jul 2026 10:00:00 GMT"), iso("2026-07-11T10:00:00Z"))
         let spec = ProviderCatalog.agentOpenCodeGo
         XCTAssertEqual(spec.identify?(credential(spec, #"{"type":"api","key":"sk-1"}"#)),
-                       CredentialIdentity(key: AgentCLIsKit.fingerprint("sk-1"), plan: "Go"))
+                       CredentialIdentity(key: AgentCLIsKit.fingerprint("sk-1")))
         XCTAssertEqual(spec.id.rawValue, "opencodego")
+    }
+
+    func testOpenCodeGoNoSubscriptionIsNotAnError() throws {
+        let response = HTTPResponse(status: 403, data: Data(#"{"name":"EntitlementError","message":"No subscription"}"#.utf8), headers: [:])
+        let usage = try OpenCodeGoUsage.map(response)
+        XCTAssertEqual(usage.availability, .noPlan)
+        XCTAssertEqual(usage.plan, "No Go plan")
+        XCTAssertTrue(usage.windows.isEmpty)
+        let cached = try JSONDecoder().decode(ProviderUsage.self, from: JSONEncoder().encode(usage))
+        XCTAssertEqual(cached.availability, .noPlan)
+        XCTAssertThrowsError(try OpenCodeGoUsage.map(HTTPResponse(status: 403,
+            data: Data(#"{"message":"Forbidden"}"#.utf8), headers: [:])))
+        XCTAssertThrowsError(try OpenCodeGoUsage.map(HTTPResponse(status: 500,
+            data: response.data, headers: [:])))
     }
 
     // MARK: Pi
