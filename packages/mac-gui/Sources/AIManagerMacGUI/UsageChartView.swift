@@ -28,9 +28,13 @@ enum UsageChartPresentation {
   }
 
   /// Minimal x axis: first, middle, and last day.
-  static func axisLabels(_ chart: UsageChart) -> [String] {
-    guard chart.points.count > 3 else { return chart.points.map(\.label) }
-    return [chart.points[0].label, chart.points[chart.points.count / 2].label, chart.points[chart.points.count - 1].label]
+  static func axisLabels(_ chart: UsageChart) -> [String] { axisTicks(chart).map(\.label) }
+
+  /// The labelled days, with their bar index.
+  static func axisTicks(_ chart: UsageChart) -> [(index: Int, label: String)] {
+    let last = chart.points.count - 1
+    let picks = chart.points.count > 3 ? [0, chart.points.count / 2, last] : Array(chart.points.indices)
+    return picks.map { ($0, chart.points[$0].label) }
   }
 
   /// Index after a left (-1) or right (+1) arrow, starting from the newest day.
@@ -52,6 +56,25 @@ struct UsageChartView: View {
     return nil
   }
 
+  static let axisHeight: CGFloat = 14
+
+  /// The first, middle, and last day under the bars. Charts gives an axis label only its own bar's
+  /// width (about 10 pt in 30 bars), which cut "Sep 16" to "Sep…". These labels keep their natural
+  /// width; the first starts at the left edge and the last ends at the right edge, and the middle
+  /// one centers under its bar.
+  private var axis: some View {
+    GeometryReader { proxy in
+      let count = CGFloat(max(chart.points.count, 1))
+      ForEach(UsageChartPresentation.axisTicks(chart), id: \.index) { tick in
+        let edge = tick.index == 0 ? Alignment.leading : tick.index == chart.points.count - 1 ? .trailing : .center
+        Text(tick.label).aimText(.secondary).lineLimit(1).fixedSize()
+          .frame(width: proxy.size.width, alignment: edge)
+          .offset(x: edge == .center ? (CGFloat(tick.index) + 0.5) / count * proxy.size.width - proxy.size.width / 2 : 0)
+      }
+    }
+    .accessibilityHidden(true)
+  }
+
   var body: some View {
     let chosen = selected
     VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
@@ -70,14 +93,9 @@ struct UsageChartView: View {
       .chartXSelection(value: $hoveredLabel)
       .chartLegend(.hidden)
       .chartYAxis(.hidden)
-      .chartXAxis {
-        AxisMarks { value in
-          if let label = value.as(String.self), UsageChartPresentation.axisLabels(chart).contains(label) {
-            AxisValueLabel(anchor: .top).font(AIMTextRole.secondary.font).foregroundStyle(Color.secondary)
-          }
-        }
-      }
-      .frame(height: height)
+      .chartXAxis(.hidden)
+      .frame(height: height - Self.axisHeight - 4)
+      axis.frame(height: Self.axisHeight)
     }
     .frame(maxWidth: .infinity)
     .focusable()

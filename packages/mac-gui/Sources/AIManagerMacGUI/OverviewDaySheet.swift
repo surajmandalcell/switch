@@ -19,6 +19,8 @@ struct OverviewDayDetail: Equatable {
     let color: Color
     /// USD when `byCost`, else tokens.
     let value: Double
+    /// The tool of an account slice (nil for models and Other); drawn as its brand tile.
+    var service: String?
   }
 
   struct Session: Identifiable, Equatable {
@@ -101,7 +103,9 @@ struct OverviewDayDetail: Equatable {
       } else {
         label = "Removed account"
       }
-      return Slice(id: key, label: label, color: OverviewPalette.account(service: sum.service, rank: rank), value: value)
+      return Slice(
+        id: key, label: label, color: OverviewPalette.account(service: sum.service, rank: rank), value: value,
+        service: sum.service.isEmpty ? nil : sum.service)
     })
 
     var taken = Set<Int>()
@@ -252,6 +256,7 @@ struct OverviewDaySheet: View {
           ForEach(slices) { slice in
             HStack(spacing: 8) {
               Circle().fill(slice.color).frame(width: 8, height: 8)
+              OverviewServiceTile(service: slice.service, reserve: slices.contains { $0.service != nil })
               Text(slice.label).aimText(.body).lineLimit(1).truncationMode(.middle)
               Spacer(minLength: 12)
               Text(Self.percent(slice.value, of: sum)).aimText(.body).monospacedDigit()
