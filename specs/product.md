@@ -228,7 +228,9 @@ Reset. The items are:
    idle, each interactive Codex CLI or Claude Code session on the old account keeps working until
    its turn ends or the limit stops it. Then Switch stops it (SIGTERM, SIGKILL after 5 s) and
    opens it again in a new Terminal window (behind the front app) with `codex resume <id>` or
-   `claude --resume <id>`, in its folder, on the new account. A Claude Code session with no
+   `claude --resume <id>`, in its folder, on the new account. The reopened run keeps the original
+   options; a run whose options Switch can't carry over (an option with a separate value, or a
+   prompt) is left running and the owner gets a notification. A Claude Code session with no
    profile folder counts as the default `~/.claude` login. The resume message is sent only when a
    limit cut the last turn short. Switch never stops a CLI in the middle of a turn, never touches
    `codex exec` or `claude -p` runs, and after 2 hours without an idle turn leaves the session

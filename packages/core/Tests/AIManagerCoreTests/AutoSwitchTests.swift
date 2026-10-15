@@ -144,10 +144,61 @@ final class CLIResumeCommandTests: XCTestCase {
         let id = "01a0b8fc-33d4-7ba2-95a5-d1a0cbabd226"
         XCTAssertEqual(CLIResume(tool: .codex, sessionID: id, cwd: "/w", prompt: nil).arguments, ["resume", id])
         XCTAssertEqual(CLIResume(tool: .claude, sessionID: id, cwd: "/w", prompt: nil).arguments, ["--resume", id])
-        // A prompt with quotes, a dollar sign, a newline, and a flag-like start stays one argument.
-        let prompt = "--force it's $(rm -rf /) \"x\"\nline two"
+        // A prompt with quotes, a dollar sign, and a newline stays one argument.
+        let prompt = "it's $(rm -rf /) \"x\"\nline two"
         XCTAssertEqual(CLIResume(tool: .codex, sessionID: id, cwd: "/w", prompt: prompt).arguments, ["resume", id, prompt])
         XCTAssertEqual(CLIResume(tool: .claude, sessionID: id, cwd: "/w", prompt: prompt).arguments, ["--resume", id, prompt])
+    }
+
+    func testResumeArgumentsCarryFlagsAndNeverStartThePromptWithADash() {
+        let id = "01a0b8fc-33d4-7ba2-95a5-d1a0cbabd226"
+        XCTAssertEqual(CLIResume(tool: .codex, sessionID: id, cwd: "/w", flags: ["--no-daemon", "--yolo"]).arguments,
+                       ["--no-daemon", "--yolo", "resume", id])
+        XCTAssertEqual(CLIResume(tool: .claude, sessionID: id, cwd: "/w", flags: ["--dangerously-skip-permissions"],
+                                 prompt: "--yolo do it").arguments,
+                       ["--dangerously-skip-permissions", "--resume", id, "yolo do it"])
+        XCTAssertEqual(CLIResume(tool: .claude, sessionID: id, cwd: "/w", prompt: " - -- ").arguments, ["--resume", id])
+    }
+
+    func testFlagsKeepOriginalOptionsAndFailClosed() {
+        let id = "01a0b8fc-33d4-7ba2-95a5-d1a0cbabd226"
+        func flags(_ tool: CLITool, _ argv: [String]) -> [String]? {
+            RunningCLIs.flags(tool: tool, argv: argv, sessionID: id)
+        }
+        XCTAssertEqual(flags(.claude, ["claude", "--dangerously-skip-permissions", "--resume", id]), ["--dangerously-skip-permissions"])
+        XCTAssertEqual(flags(.codex, ["codex", "--no-daemon", "--yolo", "resume", id]), ["--no-daemon", "--yolo"])
+        XCTAssertNil(flags(.codex, ["codex", "-s", "read-only"]))
+        XCTAssertNil(flags(.claude, ["claude", "fix the bug"]))
+        XCTAssertEqual(flags(.codex, ["codex", "--sandbox=read-only"]), ["--sandbox=read-only"])
+        XCTAssertEqual(flags(.claude, ["claude", "-c"]), [])
+        XCTAssertEqual(flags(.claude, ["node", "/x/cli.js", "--permission-mode=plan"]), ["--permission-mode=plan"])
+        XCTAssertNil(flags(.claude, ["claude", "--", "--resume"]))
+        XCTAssertNil(flags(.codex, ["codex", "resume", "another-id"]))
+    }
+
+    func testParseProcArgsReadsArgvAndEnvironmentApart() throws {
+        func buffer(argv: [String], env: [String], cut: Int = 0) -> [UInt8] {
+            var bytes: [UInt8] = withUnsafeBytes(of: Int32(argv.count).littleEndian) { Array($0) }
+            bytes += Array("/usr/bin/claude".utf8) + [0, 0, 0]
+            for item in argv + env + [""] { bytes += Array(item.utf8) + [0] }
+            return Array(bytes.dropLast(cut))
+        }
+        let parsed = try XCTUnwrap(RunningCLIs.parseProcArgs(
+            buffer(argv: ["claude", "CLAUDE_CONFIG_DIR=/evil"], env: ["HOME=/h", "CLAUDE_CONFIG_DIR=/good dir"])))
+        XCTAssertEqual(parsed.argv, ["claude", "CLAUDE_CONFIG_DIR=/evil"])
+        XCTAssertEqual(RunningCLIs.claudeConfigDir(env: parsed.env), "/good dir")
+        let plain = try XCTUnwrap(RunningCLIs.parseProcArgs(buffer(argv: ["claude", "CLAUDE_CONFIG_DIR=/evil"], env: ["HOME=/h"])))
+        XCTAssertNil(RunningCLIs.claudeConfigDir(env: plain.env))
+        // Cut inside the argv strings: nil. An empty or tiny buffer: nil.
+        XCTAssertNil(RunningCLIs.parseProcArgs(Array(buffer(argv: ["claude", "-p"], env: []).prefix(22))))
+        XCTAssertNil(RunningCLIs.parseProcArgs([]))
+        XCTAssertNil(RunningCLIs.parseProcArgs([2, 0, 0]))
+    }
+
+    func testProcArgsOfThisProcessMatchItsOwnArgv() throws {
+        let args = try XCTUnwrap(RunningCLIs.procArgs(pid: getpid()))
+        XCTAssertEqual(args.argv.count, CommandLine.arguments.count)
+        XCTAssertFalse(args.env.isEmpty)
     }
 
     func testOnlyInteractiveRunsAreCandidates() {
@@ -179,17 +230,24 @@ final class CLIResumeCommandTests: XCTestCase {
         let project = root.appending(path: "projects/\(RunningCLIs.encodedProjectName(cwd))")
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appending(path: "sessions"), withIntermediateDirectories: true)
-        try "{}\n".write(to: project.appending(path: "abc.jsonl"), atomically: true, encoding: .utf8)
-        try #"{"pid":4242,"sessionId":"abc","cwd":"\#(cwd)","kind":"interactive"}"#
+        let id = "8bd5d842-1b2c-4d3e-9f40-aabbccddeeff"
+        try "{}\n".write(to: project.appending(path: "\(id).jsonl"), atomically: true, encoding: .utf8)
+        try #"{"pid":4242,"sessionId":"\#(id)","cwd":"\#(cwd)","kind":"interactive"}"#
             .write(to: root.appending(path: "sessions/4242.json"), atomically: true, encoding: .utf8)
-        try #"{"pid":4243,"sessionId":"abc","cwd":"\#(cwd)","kind":"headless"}"#
+        try #"{"pid":4243,"sessionId":"\#(id)","cwd":"\#(cwd)","kind":"headless"}"#
             .write(to: root.appending(path: "sessions/4243.json"), atomically: true, encoding: .utf8)
+        try #"{"pid":4244,"sessionId":"--dangerously-skip-permissions","cwd":"\#(cwd)","kind":"interactive"}"#
+            .write(to: root.appending(path: "sessions/4244.json"), atomically: true, encoding: .utf8)
+        try #"{"pid":4245,"sessionId":"\#(id)","cwd":"relative/dir","kind":"interactive"}"#
+            .write(to: root.appending(path: "sessions/4245.json"), atomically: true, encoding: .utf8)
         let cli = try XCTUnwrap(RunningCLIs.claudeSession(pid: 4242, command: "claude", configDir: root.path))
-        XCTAssertEqual(cli.sessionID, "abc")
+        XCTAssertEqual(cli.sessionID, id)
         XCTAssertEqual(cli.cwd, cwd)
-        XCTAssertEqual(cli.transcript.lastPathComponent, "abc.jsonl")
+        XCTAssertEqual(cli.transcript.lastPathComponent, "\(id).jsonl")
         XCTAssertNil(RunningCLIs.claudeSession(pid: 4243, command: "claude", configDir: root.path))
         XCTAssertNil(RunningCLIs.claudeSession(pid: 1, command: "claude", configDir: root.path))
+        XCTAssertNil(RunningCLIs.claudeSession(pid: 4244, command: "claude", configDir: root.path), "a flag-shaped session id")
+        XCTAssertNil(RunningCLIs.claudeSession(pid: 4245, command: "claude", configDir: root.path), "a relative cwd")
     }
 }
 
@@ -242,7 +300,11 @@ final class RunningCLIProcessTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.05)
         }
         let found = RunningCLIs.find(claudeDefaultConfig: root, requireTTY: false).filter { $0.pid == pid }
-        return (try XCTUnwrap(found.first), rollout)
+        var cli = try XCTUnwrap(found.first)
+        // The child's argv is `codex 600`: a bare value cannot be carried over.
+        XCTAssertNil(cli.flags)
+        cli.flags = []
+        return (cli, rollout)
     }
 
     private func append(_ lines: [String], to url: URL) throws {
@@ -312,6 +374,19 @@ final class RunningCLIProcessTests: XCTestCase {
         XCTAssertTrue(RunningCLIs.find(claudeDefaultConfig: root, requireTTY: false).filter { $0.pid == pid }.isEmpty)
         // A real run always has a terminal; the fake one has none, so the default filter skips it too.
         XCTAssertTrue(RunningCLIs.find(claudeDefaultConfig: root).filter { $0.pid == pid }.isEmpty)
+    }
+
+    func testOptionsThatCannotBeCarriedOverLeaveTheChildRunning() async throws {
+        var (cli, _) = try startFakeCodex()
+        cli.flags = nil
+        var launched = false
+        let outcome = await RunningCLIs.restart(cli, options: CLIRestartOptions(pollInterval: 0.1, deadline: 5, killGrace: 1)) { _ in
+            launched = true
+            return true
+        }
+        XCTAssertEqual(outcome, .unsupportedOptions)
+        XCTAssertFalse(launched)
+        XCTAssertNotNil(RunningCLIs.commandLine(pid: cli.pid))
     }
 
     func testDeadlineLeavesTheChildRunning() async throws {
