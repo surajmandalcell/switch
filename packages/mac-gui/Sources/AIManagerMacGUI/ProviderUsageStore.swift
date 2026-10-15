@@ -168,6 +168,7 @@ struct ProviderUsageState: Equatable, Sendable {
   var usage: ProviderUsage?
   var error: String?
   var needsSignIn = false
+  var needsKeychainAccess = false
   /// End of the latest attempt, successful or not.
   var checkedAt: Date?
   var isRefreshing = false

@@ -92,6 +92,7 @@ public actor AccountManager {
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
     private let droidProvider: DroidProviderAdapter
+    private let droidLoginReader: DroidLoginReader
     private let droidProcessLister: @Sendable () throws -> [DroidProcess]
     private let claudeProfiles: ClaudeCodeProfiles
     private let providerStore: ProviderAccountStore
@@ -109,12 +110,13 @@ public actor AccountManager {
     /// Digest of the live Droid login that discovery last examined, so doctor runs once per login.
     private var droidProbe: String?
 
-    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil) throws {
+    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init()) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
         self.grokProvider = GrokProviderAdapter(fileManager: fileManager)
         self.droidProvider = DroidProviderAdapter(fileManager: fileManager)
+        self.droidLoginReader = droidLoginReader
         self.droidProcessLister = droidProcessLister ?? { try DroidProviderAdapter.processes() }
         self.claudeProfiles = try ClaudeCodeProfiles(paths: paths, fileManager: fileManager,
                                                       loginRunner: loginRunner)
@@ -1052,11 +1054,11 @@ public actor AccountManager {
 
     /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
     /// accounts only; Codex and Grok registry accounts are never rewritten from here.
-    public func readProviderUsage(accountID: UUID) async throws -> ProviderUsage {
-        try await fetchProviderUsage(accountID: accountID).sanitized()
+    public func readProviderUsage(accountID: UUID, interactive: Bool = false) async throws -> ProviderUsage {
+        try await fetchProviderUsage(accountID: accountID, interactive: interactive).sanitized()
     }
 
-    private func fetchProviderUsage(accountID: UUID) async throws -> ProviderUsage {
+    private func fetchProviderUsage(accountID: UUID, interactive: Bool) async throws -> ProviderUsage {
         if try providerStore.contains(accountID) {
             let spec = try providerStore.spec(forAccount: accountID)
             let stored = try providerStore.credential(for: accountID)
@@ -1074,11 +1076,16 @@ public actor AccountManager {
         }
         if account.identity.providerID == .droid {
             let file = droidUsageKey(accountID)
-            guard CoreSupport.entryExists(file) else {
-                throw ProviderError.unsupported("Add a Factory API key to this Droid account to show usage. Droid login files stay encrypted.")
+            let credential: ProviderCredential
+            if CoreSupport.entryExists(file) {
+                try provider.validatePrivateCredentialFile(file)
+                credential = try decoder.decode(ProviderCredential.self, from: Data(contentsOf: file))
+            } else {
+                let active = try loadRegistry().defaultAccountID(for: .droid) == accountID
+                let home = active ? paths.droidHome : account.credentialFile
+                let login = try droidLoginReader.read(files: droidProvider.files(in: home), interactive: interactive)
+                credential = ProviderCredential(fields: ["apiKey": login.accessToken])
             }
-            try provider.validatePrivateCredentialFile(file)
-            let credential = try decoder.decode(ProviderCredential.self, from: Data(contentsOf: file))
             let factory = providerSpecs.first { $0.id.rawValue == "factory" } ?? ProviderCatalog.agentFactory
             return try await factory.fetch(credential).usage
         }

@@ -43,8 +43,11 @@ the variable is unset, the same rule droid and Factory.app use. Both read one lo
 encrypted with one fixed Keychain key that every Factory login reuses. Switching atomically
 replaces only those auth files from an owner-private copy at
 `~/.switch/droid/<account-uuid>/`. Switch first captures the outgoing files into the outgoing
-account and honors droid's `auth.v2.write.lock`. Switch never reads the key or decrypts the
-files. Sessions, settings, and history stay in the live home. droid reads the store on demand,
+account and honors droid's `auth.v2.write.lock`. For usage only, Switch reads that shared key
+from the Keychain after the owner allows it in the one macOS prompt, which only a click starts
+(background refreshes never prompt). It decrypts a login in memory to read its access token and
+never writes the key, a decrypted login, or a refreshed token. Sessions, settings, and history
+stay in the live home. droid reads the store on demand,
 so new requests use the new account. When Factory.app or a droid process is running on the live
 home, a switch first asks, and Cancel is the default. The existing login is imported as the
 first account without a new sign-in. Add Account runs droid's interactive `/login` in Terminal
@@ -64,8 +67,10 @@ Equal masks can belong to different people, so the name confirmation remains req
 Add Account warns before adding a mask that matches an existing Droid account.
 Failed or unknown doctor output falls back to named accounts and reports that limit.
 Only the active default refreshes live files through the guarded switch path. Other accounts refresh
-only their saved copy. Droid has no verified non-interactive limits command. An optional
-Factory API key belongs to each Droid account and reuses the existing Factory usage provider.
+only their saved copy. Droid usage calls Factory's usage API (`/api/billing/limits`,
+`/api/organization/subscription/usage`) with that access token. An expired token shows
+usage again after droid refreshes the login; Switch never refreshes it. An optional Factory API
+key per Droid account remains the fallback and reuses the existing Factory usage provider.
 The generic Factory API-key provider remains separate and keeps its own default.
 The write lock is a nonempty directory published by rename, with a 0600 `owner.json`
 containing a random token and process ID. Switch honors the `.reclaim` guard and never removes
