@@ -1781,7 +1781,6 @@ enum AIManagerNativeContract {
     expect(AIMMotion.all.allSatisfy { $0 >= 0.1 && $0 <= 0.35 }, "A motion token is outside 100-350 ms")
     expect(AIMMotion.scale(pressed: true, reduceMotion: false) == 0.97
       && AIMMotion.scale(pressed: true, reduceMotion: true) == 1
-      && AIMMotion.rise(reduceMotion: true) == 0 && AIMMotion.rise(reduceMotion: false) > 0
       && AIMMotion.move(reduceMotion: true) == nil && AIMMotion.move(reduceMotion: false) != nil,
       "Motion tokens do not respect Reduce Motion")
     return failures

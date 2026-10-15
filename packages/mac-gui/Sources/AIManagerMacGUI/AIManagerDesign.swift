@@ -215,7 +215,7 @@ extension Color {
 }
 
 /// Motion tokens (150-350 ms except the short state fades). Fades keep running with Reduce Motion;
-/// anything that moves or scales does not: `scale`, `rise`, and `move` collapse to nothing.
+/// anything that moves or scales does not: `scale` and `move` collapse to nothing.
 enum AIMMotion {
   /// A short state change such as a switch knob or a notice.
   static let state = 0.10
@@ -226,7 +226,6 @@ enum AIMMotion {
   static let slide = 0.25
   static let appear = 0.25
   static let pressedScale: CGFloat = 0.97
-  static let riseDistance: CGFloat = 6
   /// A card starts this opaque, so its first frame is already readable.
   static let appearOpacity = 0.4
   /// Every token, for the contract check (hover, state, and press fades are under 150 ms by design).
@@ -243,7 +242,6 @@ enum AIMMotion {
   static func scale(pressed: Bool, reduceMotion: Bool) -> CGFloat {
     pressed && !reduceMotion ? pressedScale : 1
   }
-  static func rise(reduceMotion: Bool) -> CGFloat { reduceMotion ? 0 : riseDistance }
 }
 
 private struct AIMRolling<Value: Equatable>: ViewModifier {
@@ -257,15 +255,14 @@ private struct AIMRolling<Value: Equatable>: ViewModifier {
   }
 }
 
-/// A card or block fades in and rises a few points when it first shows.
+/// A card or block fades in when it first shows. It never moves: a card that appears after its
+/// neighbors (the Cleanup files card after the scan) would otherwise change the gap to them.
 private struct AIMAppear: ViewModifier {
   @State private var shown = !AIMMotion.isLive
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   func body(content: Content) -> some View {
     content
       .opacity(shown ? 1 : AIMMotion.appearOpacity)
-      .offset(y: shown ? 0 : AIMMotion.rise(reduceMotion: reduceMotion))
       .onAppear { withAnimation(AIMMotion.fade(AIMMotion.appear)) { shown = true } }
   }
 }
