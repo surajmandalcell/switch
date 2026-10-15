@@ -282,8 +282,10 @@ struct OverviewDaySheet: View {
         }
         .frame(maxHeight: .infinity)
       } else {
-        Text("Session list is not available for this day.").aimText(.secondary)
-        Spacer(minLength: 0)
+        // No transcripts on this Mac for the day (removed, or used on another computer).
+        Text("No sessions on this Mac for this day. The totals come from the account's usage report.")
+          .aimText(.secondary).multilineTextAlignment(.center)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
     .frame(maxHeight: .infinity, alignment: .topLeading)

@@ -484,7 +484,8 @@ in light and dark before a UI change ships.
   exists opens it on Conversations; one whose transcript was removed shows dimmed with
   "Transcript removed" and stays inert; Claude Code and Grok Build sessions list without a
   link, since Conversations holds Codex chats only. A day with no per-session data shows only the totals
-  and split, and "Session list is not available for this day."; Done or Escape closes;
+  and split, and "No sessions on this Mac for this day. The totals come from the account's
+  usage report." centered in the sessions area; Done or Escape closes;
   (4) Trends, a ridgeline of daily
   usage per group, each ridge scaled to its own peak, filling a fixed-height card; (5) Share of
   tokens, a waffle chart of each group's share: a 20 by 10 grid (200 cells, half a percent each,
