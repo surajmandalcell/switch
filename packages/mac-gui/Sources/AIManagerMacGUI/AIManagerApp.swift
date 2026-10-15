@@ -12,6 +12,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var appearanceObserver: NSObjectProtocol?
     private var modelObservers = Set<AnyCancellable>()
     private var quotaNotifier: QuotaNotifier?
+    private var autoSwitch: AutoSwitchController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AIMNativeFocusPolicy.install()
@@ -22,10 +23,12 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             rootView: AccountWindow(model: model)
         )
         windowController = controller
-        quotaNotifier = QuotaNotifier(model: model) {
+        let notifier = QuotaNotifier(model: model) {
             controller.present()
             NSApp.activate(ignoringOtherApps: true)
         }
+        quotaNotifier = notifier
+        autoSwitch = AutoSwitchController(model: model) { notifier.inputs() }
         model.messagePoster = ActionMessage.post
         instanceActivationObserver = DistributedNotificationCenter.default().addObserver(
             forName: AIManagerSingleInstance.activationNotification(

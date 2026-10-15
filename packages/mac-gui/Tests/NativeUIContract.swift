@@ -810,6 +810,33 @@ enum AIManagerNativeContract {
     expect(SettingsReset.keys.contains(AppearanceOverride.key)
       && SettingsReset.keys.contains(EmailPrivacy.domainsKey)
       && SettingsReset.keys.contains("launchPlace"), "Reset omits a new Settings choice")
+    // Auto switch (item 7a): off by default, 1% threshold, restart when idle, the default message.
+    let autoSuite = "switch-contract-auto-\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: autoSuite) {
+      expect(!AutoSwitchPreferences.isEnabled(defaults)
+        && AutoSwitchPreferences.threshold(defaults) == 1
+        && AutoSwitchPreferences.runningCLIs(defaults) == .restart
+        && AutoSwitchPreferences.resumeMessage(defaults) == AutoSwitch.defaultResumeMessage,
+        "Auto switch defaults changed")
+      defaults.set(7, forKey: AutoSwitchPreferences.thresholdKey)
+      expect(AutoSwitchPreferences.threshold(defaults) == 1, "An unknown Auto switch threshold was accepted")
+      defaults.set(true, forKey: AutoSwitchPreferences.enabledKey)
+      defaults.set(20, forKey: AutoSwitchPreferences.thresholdKey)
+      defaults.set("leave", forKey: AutoSwitchPreferences.runningCLIsKey)
+      defaults.set("Go on.", forKey: AutoSwitchPreferences.resumeMessageKey)
+      SettingsReset.reset(defaults: defaults)
+      expect(!AutoSwitchPreferences.isEnabled(defaults) && AutoSwitchPreferences.threshold(defaults) == 1
+        && AutoSwitchPreferences.runningCLIs(defaults) == .restart
+        && AutoSwitchPreferences.resumeMessage(defaults) == AutoSwitch.defaultResumeMessage,
+        "Reset settings leaves an Auto switch choice")
+      defaults.removePersistentDomain(forName: autoSuite)
+    }
+    expect(AutoSwitch.thresholds == [1, 2, 5, 10, 20]
+      && AutoSwitchPreferences.RunningCLIs.allCases.map(\.label) == ["Restart when idle", "Leave running"]
+      && SettingsCopy.autoSwitch == "Switch accounts automatically"
+      && SettingsCopy.autoSwitchThreshold == "Switch when an account has"
+      && SettingsCopy.autoSwitchRunningCLIs == "Running CLIs" && SettingsCopy.autoSwitchResume == "Resume message",
+      "An Auto switch Settings row changed")
     if let account = demo.status?.accounts.first, let email = account.identity.email {
       expect(AccountSearch.matches(account, query: email), "Search does not match the full email address")
     }

@@ -66,7 +66,7 @@ enum SettingsReset {
     QuotaNotificationSettings.availableAgainKey, QuotaNotificationSettings.signInAgainKey,
     ResetDisplay.exactKey, ResetDisplay.hourFormatKey, PopoverRefreshPreference.key,
     GlobalShortcutPreferences.key,
-  ]
+  ] + AutoSwitchPreferences.keys
   /// Per-account keys share a prefix.
   static let prefixes = ["showAccountUsageInMenuBar.account.", "hiddenUsageRows."]
 

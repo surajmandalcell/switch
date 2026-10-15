@@ -23,8 +23,18 @@ struct SettingsPage: View {
   @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto
   @AppStorage(PopoverRefreshPreference.key) private var refreshOnOpen = false
+  @AppStorage(AutoSwitchPreferences.enabledKey) private var autoSwitch = false
+  @AppStorage(AutoSwitchPreferences.thresholdKey) private var autoSwitchThreshold = AutoSwitch.thresholds[0]
+  @AppStorage(AutoSwitchPreferences.runningCLIsKey) private var autoSwitchCLIs = AutoSwitchPreferences.RunningCLIs.restart.rawValue
+  @AppStorage(AutoSwitchPreferences.resumeMessageKey) private var autoSwitchResume = AutoSwitch.defaultResumeMessage
+  @FocusState private var resumeFocused: Bool
   @State private var confirmsReset = false
   @State private var resetCount = 0
+  private var runningCLIs: Binding<AutoSwitchPreferences.RunningCLIs> {
+    Binding(
+      get: { AutoSwitchPreferences.RunningCLIs(rawValue: autoSwitchCLIs) ?? .restart },
+      set: { autoSwitchCLIs = $0.rawValue })
+  }
   var body: some View {
     // Every card shares the top bar's left and right edges.
     AIMScrollPage {
@@ -107,6 +117,40 @@ struct SettingsPage: View {
             Text(error).aimText(.secondary, tint: AIMTheme.red)
           }
         }
+      }
+      AIMSection("Auto switch") {
+        Toggle(isOn: $autoSwitch) {
+          Text(SettingsCopy.autoSwitch)
+          Text(SettingsCopy.autoSwitchHelp).aimText(.secondary).lineLimit(1)
+        }
+        LabeledContent {
+          AIMPopUp(
+            options: AutoSwitch.thresholds, selection: $autoSwitchThreshold,
+            accessibilityLabel: SettingsCopy.autoSwitchThreshold, label: { "\($0)% left" })
+        } label: {
+          Text(SettingsCopy.autoSwitchThreshold)
+          Text(SettingsCopy.autoSwitchThresholdHelp).aimText(.secondary).lineLimit(1)
+        }
+        .disabled(!autoSwitch)
+        LabeledContent {
+          AIMPopUp(
+            options: AutoSwitchPreferences.RunningCLIs.allCases, selection: runningCLIs,
+            accessibilityLabel: SettingsCopy.autoSwitchRunningCLIs, label: \.label)
+        } label: {
+          Text(SettingsCopy.autoSwitchRunningCLIs)
+          Text(SettingsCopy.autoSwitchRunningCLIsHelp).aimText(.secondary).lineLimit(1)
+        }
+        .disabled(!autoSwitch)
+        LabeledContent {
+          TextField(SettingsCopy.autoSwitchResume, text: $autoSwitchResume, prompt: Text("No message"))
+            .textFieldStyle(.plain)
+            .aimFieldChrome(focused: resumeFocused, width: 320)
+            .focused($resumeFocused)
+        } label: {
+          Text(SettingsCopy.autoSwitchResume)
+          Text(SettingsCopy.autoSwitchResumeHelp).aimText(.secondary).lineLimit(1)
+        }
+        .disabled(!autoSwitch)
       }
       AIMSection("Menu bar") {
         Toggle(isOn: $defaultShowUsage) {
@@ -360,6 +404,15 @@ enum SettingsCopy {
   static let claudeShell = "Use the selected Claude account in terminals"
   static let claudeShellHelp =
     "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+  static let autoSwitch = "Switch accounts automatically"
+  static let autoSwitchHelp = "Make the next account in your Accounts order the default when one runs out."
+  static let autoSwitchThreshold = "Switch when an account has"
+  static let autoSwitchThresholdHelp = "Compares the lower of the session and weekly share left."
+  static let autoSwitchRunningCLIs = "Running CLIs"
+  static let autoSwitchRunningCLIsHelp =
+    "Reopen Codex and Claude Code in Terminal on the new account once their turn ends."
+  static let autoSwitchResume = "Resume message"
+  static let autoSwitchResumeHelp = "Sent when a usage limit cut the last turn short."
   static let hideEmails = "Hide email addresses"
   static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
   static let resetTimes = "Reset times"

@@ -181,8 +181,8 @@ General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut),
 (System, Light, or Dark; Usage percentage; Reset times; Time format), Accounts (Show full
 email addresses, off by default, so "ada@gmail.com" reads "ada@gmail" with the top-level domain
 dropped, and "ada@mail.example.co.uk" reads "ada@mail.example"; Hide email addresses; Check provider
-status; the Claude terminal setting), Menu bar, Notifications, Data locations, and Reset. The
-items are:
+status; the Claude terminal setting), Auto switch, Menu bar, Notifications, Data locations, and
+Reset. The items are:
 
 1. **App behavior** — Open at Login (off by default, backed by the macOS login-item service;
    a login launch starts quietly in the menu bar, and needed approval links to Login Items) and
@@ -213,6 +213,26 @@ items are:
    It adds one marked line to `~/.zshrc` (backup kept) that sources Switch's `claude`
    shell function.
 7. **Privacy** — Hide email addresses masks them everywhere as `a••••@example.com`.
+7a. **Auto switch** (owner picks A1 and R1) — Switch accounts automatically (off by default);
+   Switch when an account has (1%, the default, 2%, 5%, 10%, or 20% left of its session or
+   weekly limit, whichever is lower); Running CLIs (Restart when idle, the default, or Leave
+   running); and Resume message (default "Continue. A usage limit cut your last turn short; redo
+   the last step if it did not finish."). The order is the account order on the Accounts page:
+   a row shows a grip on hover (left of the guide line); drag it within its provider, with a blue
+   line marking the landing spot, and the top account goes first. Move up and Move down stay.
+   Percent left is the lower of the session and weekly windows (a window past its reset counts as
+   full). When the default account reaches the threshold, Switch makes the first other account in
+   that order that is above the threshold (signed in, with usage) the default and sends one
+   notification. A switched-away account is skipped until it recovers, so nothing flips back and
+   forth. With none left it changes nothing and says so once for each episode. With Restart when
+   idle, each interactive Codex CLI or Claude Code session on the old account keeps working until
+   its turn ends or the limit stops it. Then Switch stops it (SIGTERM, SIGKILL after 5 s) and
+   opens it again in a new Terminal window (behind the front app) with `codex resume <id>` or
+   `claude --resume <id>`, in its folder, on the new account. A Claude Code session with no
+   profile folder counts as the default `~/.claude` login. The resume message is sent only when a
+   limit cut the last turn short. Switch never stops a CLI in the middle of a turn, never touches
+   `codex exec` or `claude -p` runs, and after 2 hours without an idle turn leaves the session
+   running and says so. Other providers only change the default.
 8. Demo controls only in locally launched Preview builds; Preview data covers every service the
    owner uses, Droid included. Production and installed builds
    must not compile or render them.

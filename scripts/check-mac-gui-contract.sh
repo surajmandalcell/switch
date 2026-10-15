@@ -44,7 +44,7 @@ if ! printf '%s\n' "$settings_body" | rg -q 'AIMScrollPage \{' || printf '%s\n' 
   exit 1
 fi
 settings_groups="$(printf '%s\n' "$settings_body" | awk '/AIMSection\("/{split($0, parts, "\""); print parts[2]} /AIMSection\(SettingsCopy.notificationsTitle\)/{print "Notifications"}')"
-if [[ "$settings_groups" != $'General\nAppearance\nAccounts\nMenu bar\nNotifications\nData locations\nReset\nDemo states' ]]; then
+if [[ "$settings_groups" != $'General\nAppearance\nAccounts\nAuto switch\nMenu bar\nNotifications\nData locations\nReset\nDemo states' ]]; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL Settings groups do not match the product contract' >&2
   exit 1
 fi

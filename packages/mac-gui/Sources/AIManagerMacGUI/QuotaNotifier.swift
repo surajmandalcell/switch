@@ -156,7 +156,8 @@ final class QuotaNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
-  private func inputs() -> [QuotaAccountInput] {
+  /// Every account's usage windows and sign-in state; Auto switch reads the same numbers.
+  func inputs() -> [QuotaAccountInput] {
     (model.status?.accounts ?? []).map { account in
       let providerID = account.identity.providerID
       let needsSignIn = account.verification.state == .needsSignIn
