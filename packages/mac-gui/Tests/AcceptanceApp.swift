@@ -608,6 +608,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.menuBarRefreshFailures())
             menuNavigationFailures.append(contentsOf: await AIManagerMenuBarContract.failures())
             menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.appFeatureFailures())
+            menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.overviewColdLoadFailures())
             // The menu check ends on the last page; show the requested one again before the snapshot.
             NotificationCenter.default.post(
                 name: AIManagerNavigation.request, object: AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex])

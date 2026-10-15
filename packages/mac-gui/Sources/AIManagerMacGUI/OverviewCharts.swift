@@ -179,48 +179,19 @@ struct OverviewTooltipLayer: View {
 
 // MARK: - Legend
 
-/// Wraps its children onto new lines, like text.
-struct OverviewFlow: Layout {
-  var spacing: CGFloat = 14
-  var rowSpacing: CGFloat = 4
-
-  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-    arrange(width: proposal.width ?? .infinity, subviews: subviews).size
-  }
-
-  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-    let layout = arrange(width: bounds.width, subviews: subviews)
-    for (subview, origin) in zip(subviews, layout.origins) {
-      subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
-    }
-  }
-
-  private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
-    var origins: [CGPoint] = []
-    var (x, y, rowHeight, widest) = (CGFloat(0), CGFloat(0), CGFloat(0), CGFloat(0))
-    for subview in subviews {
-      let size = subview.sizeThatFits(.unspecified)
-      if x > 0, x + size.width > width { (x, y, rowHeight) = (0, y + rowHeight + rowSpacing, 0) }
-      origins.append(CGPoint(x: x, y: y))
-      x += size.width + spacing
-      rowHeight = max(rowHeight, size.height)
-      widest = max(widest, x - spacing)
-    }
-    return (CGSize(width: widest, height: y + rowHeight), origins)
-  }
-}
-
-/// Color dots with names, the same colors as the chart. It is one line high so a grouping with
-/// more names never moves the card; a name that does not fit is clipped (the other charts name every series).
+/// Color dots, tool tiles, and names, the same colors as the chart. It is one line high so a grouping
+/// with more names never moves the card; names that do not fit all shorten together with "…" (the
+/// other charts name every series).
 struct OverviewLegend: View {
   static let height: CGFloat = 18
   let series: [OverviewSeries]
 
   var body: some View {
-    OverviewFlow(rowSpacing: 40) {
+    HStack(spacing: 14) {
       ForEach(series) { item in
         HStack(spacing: 6) {
           Circle().fill(item.color).frame(width: 8, height: 8)
+          OverviewServiceTile(service: item.service)
           Text(item.label).aimText(.secondary).lineLimit(1)
         }
         .accessibilityHidden(true)
@@ -690,8 +661,11 @@ struct OverviewRidgeline: View {
           }
         }
         ForEach(Array(dataset.series.enumerated()), id: \.element.id) { row, item in
-          Text(item.label).aimText(.secondary, tint: hover?.key == item.id ? Color.primary : nil)
-            .lineLimit(1).truncationMode(.middle)
+          HStack(spacing: 5) {
+            OverviewServiceTile(service: item.service)
+            Text(item.label).aimText(.secondary, tint: hover?.key == item.id ? Color.primary : nil)
+              .lineLimit(1).truncationMode(.middle)
+          }
             .frame(width: OverviewRidgeLayout.label - 14, alignment: .trailing)
             .position(x: (OverviewRidgeLayout.label - 14) / 2, y: layout.baseline(row) - 9)
             .animation(AIMMotion.fade(AIMMotion.hover), value: hover?.key)
@@ -879,6 +853,7 @@ struct OverviewWaffleChart: View {
   private func legendRow(_ item: OverviewSeries, cells: Int, active: String?) -> some View {
     HStack(spacing: 8) {
       Circle().fill(item.color).frame(width: 8, height: 8)
+      OverviewServiceTile(service: item.service, reserve: dataset.series.contains { $0.service != nil })
       Text(item.label).aimText(.body).lineLimit(1).truncationMode(.middle)
       Spacer(minLength: 12)
       Text(OverviewWaffle.percent(cells)).aimText(.body).monospacedDigit().aimRolling(cells)

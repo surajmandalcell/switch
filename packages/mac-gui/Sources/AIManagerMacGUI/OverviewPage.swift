@@ -51,6 +51,25 @@ struct OverviewSeries: Identifiable, Equatable {
   let tokens: Int64
   /// Tokens per day, aligned with `OverviewDataset.days`.
   let daily: [Int64]
+  /// The tool behind an account group (nil for models, projects, and Other); its brand tile
+  /// tells two accounts with one label apart.
+  var service: String?
+}
+
+/// The brand tile of an account group's tool, small enough to sit on the text line.
+struct OverviewServiceTile: View {
+  static let size: CGFloat = 13
+  let service: String?
+  /// Keep the tile's space on a row without one ("Other"), so the labels of a list stay aligned.
+  var reserve = false
+
+  var body: some View {
+    if let service {
+      ProviderMark(providerID: ProviderID(rawValue: service), size: Self.size)
+    } else if reserve {
+      Color.clear.frame(width: Self.size, height: Self.size)
+    }
+  }
 }
 
 /// Everything the cards draw: the chosen period and grouping, and the year behind the heatmap.
@@ -103,7 +122,8 @@ struct OverviewDataset: Equatable {
         let label = shared ?? named[group.key]?.identity.accountLabel ?? "Removed account"
         return OverviewSeries(
           id: group.key, label: hideEmails && shared == nil ? EmailPrivacy.mask(label) : label,
-          color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: group.daily)
+          color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: group.daily,
+          service: service.isEmpty ? nil : service)
       case .model, .project:
         return OverviewSeries(
           id: group.key, label: group.label, color: OverviewPalette.color(group.key, taken: &taken),
@@ -236,7 +256,9 @@ struct OverviewPage: View {
         RecentBackupsCard(model: model) { navigate(.maintenance) }
       }
     }
-    .task { await model.loadUsageHistory() }
+    // Keyed on hasLoaded: a cold launch shows this page before the accounts load, and the load
+    // guard refuses until then; an unkeyed task would not run again until a page change.
+    .task(id: model.hasLoaded) { await model.loadUsageHistory() }
     .task(id: LoadKey(
       period: period, grouping: grouping, snapshot: model.usageHistoryVersion,
       accounts: accounts.map(\.id), hideEmails: hideEmails)

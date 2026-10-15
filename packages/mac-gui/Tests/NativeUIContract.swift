@@ -1857,6 +1857,12 @@ enum AIManagerNativeContract {
       for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
         let views: [(String, AnyView, NSSize)] = [
           ("overview", AnyView(OverviewPage(model: model)), NSSize(width: 900, height: 1700)),
+          ("usage-chart", AnyView(UsageChartView(
+            chart: UsageChart.daily(
+              id: "d", title: "Tokens per day", unit: "tokens",
+              values: ["2026-09-20": 4_000_000, "2026-10-02": 9_000_000, "2026-10-10": 2_500_000],
+              fill: (days: 30, endingAt: Date(timeIntervalSince1970: 1_791_000_000))) ?? .init(id: "d", title: "", unit: "tokens", points: []))
+            .padding(16).background(Color(nsColor: .windowBackgroundColor))), NSSize(width: 520, height: 150)),
           ("overview-day", AnyView(OverviewDaySheet(
             pick: OverviewDayPick(day: data.yearDays[day], tokens: data.yearTotals[day]), load: { _ in input },
             accounts: accounts, hideEmails: false, openChat: { _ in }, close: {}, detail: detail)
@@ -1901,6 +1907,42 @@ enum AIManagerNativeContract {
       expect(allow.fittingSize.width > 0 && allow.fittingSize.width <= AIMTheme.rowButtonWidth,
         "The Allow label does not fit a table row button (\(allow.fittingSize.width) pt)")
     } else { failures.append("The Overview fixture has no Droid account") }
+    return failures
+  }
+
+  /// Cold launch: the Overview is already on screen while the accounts still load. The history
+  /// must arrive and rebuild the page with no page change (the load task is keyed on `hasLoaded`).
+  @MainActor static func overviewColdLoadFailures() async -> [String] {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "switch-overview-cold-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let home = root.appending(path: "home", directoryHint: .isDirectory)
+    let paths = ManagerPaths(
+      applicationSupport: root.appending(path: "support", directoryHint: .isDirectory),
+      defaultHome: home, sharedRoot: home, orcaAccountsRoot: root.appending(path: "orca", directoryHint: .isDirectory),
+      codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: root)
+    guard (try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)) != nil,
+      let manager = try? AccountManager(paths: paths) else { return ["The Overview cold-load fixture failed"] }
+    let model = AccountViewModel(paths: paths, manager: manager)
+    OverviewCache.last = nil
+    defer { OverviewCache.last = nil }
+    let host = NSHostingView(rootView: OverviewPage(model: model).frame(width: 900, height: 900))
+    host.frame = NSRect(x: 0, y: 0, width: 900, height: 900)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    // The page's first load task runs now, while hasLoaded is false, and must not give up for good.
+    try? await Task.sleep(for: .milliseconds(300))
+    var failures: [String] = []
+    if model.usageHistory != nil { failures.append("The Overview cold-load fixture loaded history before the accounts") }
+    await model.load()
+    for _ in 0..<200 where OverviewCache.last == nil { try? await Task.sleep(for: .milliseconds(50)) }
+    if model.usageHistory == nil {
+      failures.append("The Overview never loaded its history after the accounts loaded (no page change)")
+    } else if OverviewCache.last == nil {
+      failures.append("The visible Overview did not rebuild its dataset when the history arrived")
+    }
+    withExtendedLifetime(window) {}
     return failures
   }
 
