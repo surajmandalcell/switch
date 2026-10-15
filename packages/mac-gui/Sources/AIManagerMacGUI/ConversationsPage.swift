@@ -101,11 +101,22 @@ struct HistoryPage: View {
         // the thin scroll bar sits in a fixed gutter at the trailing edge.
         AIMScrollView(name: "threads") {
           LazyVStack(spacing: 0) {
-            ForEach(model.chatHistory.threads.prefix(shown)) { thread in
-              ChatThreadButton(thread: thread, selected: thread.id == model.selectedChatID) {
-                Task { await model.selectChat(thread.id) }
+            ForEach(ChatThreadDayGroup.groups(Array(model.chatHistory.threads.prefix(shown)))) { group in
+              Section {
+                ForEach(group.threads) { thread in
+                  ChatThreadButton(thread: thread, selected: thread.id == model.selectedChatID) {
+                    Task { await model.selectChat(thread.id) }
+                  }
+                  .onAppear { if thread.id == model.chatHistory.threads.prefix(shown).last?.id { shown += Self.pageSize } }
+                }
+              } header: {
+                Text(group.title)
+                  .aimText(.secondary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .padding(.horizontal, 6)
+                  .padding(.vertical, 6)
+                  .accessibilityAddTraits(.isHeader)
               }
-              .onAppear { if thread.id == model.chatHistory.threads.prefix(shown).last?.id { shown += Self.pageSize } }
             }
           }
           // The highlight sits as far from the card edge on the left as the gutter makes it on the right.
@@ -203,7 +214,7 @@ private struct ChatThreadButton: View {
   }
 }
 
-private struct ChatThreadRow: View {
+struct ChatThreadRow: View {
   let thread: ChatThreadSummary
 
   var body: some View {
@@ -211,17 +222,30 @@ private struct ChatThreadRow: View {
       Text(thread.title)
         .aimText(.body)
         .lineLimit(1)
-      Text(projectLabel)
-        .aimText(.secondary)
-        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      HStack(spacing: 0) {
+        Text(thread.appSource.displayLabel)
+          .aimText(.secondary)
+          .padding(.horizontal, 4)
+          .frame(height: 16)
+          .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+          .fixedSize(horizontal: true, vertical: false)
+        Text(" · " + subtitle)
+          .aimText(.secondary)
+          .truncationMode(.tail)
+      }
+      .foregroundStyle(.secondary)
+      .lineLimit(1)
     }
-    .accessibilityLabel("\(thread.title), \(projectLabel)")
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(thread.title), \(thread.appSource.displayLabel), \(subtitle)")
   }
 
-  private var projectLabel: String {
-    guard let directory = thread.workingDirectory else { return "Codex" }
-    let name = URL(fileURLWithPath: directory).lastPathComponent
-    return name.isEmpty ? "Codex" : name
+  private var subtitle: String {
+    [thread.model, thread.updatedAt.formatted(date: .omitted, time: .shortened)]
+      .compactMap { $0 }.joined(separator: " · ")
   }
 }
 
@@ -495,14 +519,15 @@ private struct ChatDetailPane: View {
   }
 
   private func threadContext(_ thread: ChatThreadSummary) -> String {
-    var parts: [String] = []
+    var parts: [String] = [thread.appSource.displayLabel]
     if let directory = thread.workingDirectory {
       let project = URL(fileURLWithPath: directory).lastPathComponent
       if !project.isEmpty { parts.append(project) }
     }
-    parts.append(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
+    if let model = thread.model { parts.append(model) }
+    parts.append(thread.updatedAt.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
     if thread.archived { parts.append("Archived") }
-    return parts.joined(separator: "  ·  ")
+    return parts.joined(separator: " · ")
   }
 
   /// Loads pages until the remembered message is in the list, then the list scrolls to it.

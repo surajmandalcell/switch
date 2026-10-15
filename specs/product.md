@@ -267,7 +267,10 @@ page loads, and counts include the word conversations. Each message role has a f
 shared leading alignment, not left border markers; prompt, response, tool, and other roles stay
 distinct. Code blocks wrap long lines so vertical scrolling continues through the conversation.
 Nothing clips or overlaps: each message header (role, model, date) keeps its own line, and
-responses and code blocks always show their full height.
+responses and code blocks always show their full height. The conversation list groups threads
+under Today, Yesterday, and dates. Each row has a one-line title across the full row and a
+subtitle with a small badge naming the app that made the thread (Codex CLI, Codex exec, Codex
+app, Codex Chrome, or Subagent), then the model and the time.
 
 ## 3. Usage presentation
 

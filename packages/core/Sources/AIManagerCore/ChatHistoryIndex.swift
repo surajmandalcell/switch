@@ -67,6 +67,34 @@ public enum ChatTranscriptExport {
     }
 }
 
+public enum ChatThreadSource: String, Codable, Sendable, CaseIterable {
+    case codex, cli, exec, app, chrome, subagent, vscode
+
+    public var displayLabel: String {
+        switch self {
+        case .codex: "Codex"
+        case .cli: "Codex CLI"
+        case .exec: "Codex exec"
+        case .app: "Codex app"
+        case .chrome: "Codex Chrome"
+        case .subagent: "Subagent"
+        case .vscode: "VS Code"
+        }
+    }
+
+    fileprivate static func resolve(_ payload: [String: Any]) -> Self {
+        if let source = payload["source"] as? [String: Any], source["subagent"] != nil { return .subagent }
+        switch (payload["originator"] as? String, payload["source"] as? String) {
+        case ("codex-tui", "cli"): return .cli
+        case ("codex_exec", "exec"): return .exec
+        case ("Codex Desktop", "vscode"): return .app
+        case ("codex-chrome-extension-sidepanel", _): return .chrome
+        case ("codex-tui", "vscode"): return .vscode
+        default: return .codex
+        }
+    }
+}
+
 public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
     public let id: String
     public let threadID: String
@@ -80,6 +108,8 @@ public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
     public let source: URL
     public let unreadableRecordCount: Int
     public let totalTokens: Int64?
+    public let appSource: ChatThreadSource
+    public let model: String?
 
     public init(
         id: String,
@@ -93,7 +123,9 @@ public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
         fileByteCount: Int64,
         source: URL,
         unreadableRecordCount: Int,
-        totalTokens: Int64? = nil
+        totalTokens: Int64? = nil,
+        appSource: ChatThreadSource = .codex,
+        model: String? = nil
     ) {
         self.id = id
         self.threadID = threadID
@@ -107,6 +139,41 @@ public struct ChatThreadSummary: Identifiable, Sendable, Equatable {
         self.source = source
         self.unreadableRecordCount = unreadableRecordCount
         self.totalTokens = totalTokens
+        self.appSource = appSource
+        self.model = model
+    }
+}
+
+public struct ChatThreadDayGroup: Identifiable, Sendable {
+    public let id: Date
+    public let title: String
+    public let threads: [ChatThreadSummary]
+
+    public static func groups(
+        _ threads: [ChatThreadSummary], now: Date = Date(),
+        calendar: Calendar = .current, locale: Locale = .current
+    ) -> [Self] {
+        let today = calendar.startOfDay(for: now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = locale
+        return Dictionary(grouping: threads) { calendar.startOfDay(for: $0.updatedAt) }
+            .sorted { $0.key > $1.key }
+            .map { day, threads in
+                let title: String
+                if day == today { title = "Today" }
+                else if day == yesterday { title = "Yesterday" }
+                else {
+                    formatter.setLocalizedDateFormatFromTemplate(
+                        calendar.isDate(day, equalTo: now, toGranularity: .year) ? "EEEMMMd" : "MMMdyyyy")
+                    title = formatter.string(from: day)
+                }
+                return Self(id: day, title: title, threads: threads.sorted {
+                    $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
+                })
+            }
     }
 }
 
@@ -259,6 +326,7 @@ private struct TranscriptParseState: Codable, Sendable {
     /// cannot resume, so one full parse fills it.
     var activityModels: [String: CodexModelUsage]? = nil
     var currentModel: String? = nil
+    var appSource: ChatThreadSource = .codex
     var previousSplit: CodexModelUsage? = nil
 }
 
@@ -339,6 +407,8 @@ public actor ChatHistoryIndex {
         let fileByteCount: Int64
         let unreadableRecordCount: Int
         let totalTokens: Int64?
+        let appSource: ChatThreadSource
+        let model: String?
         let searchText: String
         let activityRecorded: Bool?
         let parseState: TranscriptParseState?
@@ -701,7 +771,7 @@ public actor ChatHistoryIndex {
               permissions.intValue & 0o077 == 0,
               let data = try? Data(contentsOf: persistentCacheFile),
               let document = try? JSONDecoder().decode(PersistentDocument.self, from: data),
-              document.version == 4,
+              document.version == 5,
               document.homePath == home.path,
               document.threads.count + document.failures.count <= 500_000
         else { return }
@@ -714,6 +784,7 @@ public actor ChatHistoryIndex {
                   item.title.count <= 1_024,
                   item.preview.count <= 4_096,
                   (item.workingDirectory?.count ?? 0) <= 4_096,
+                  (item.model?.count ?? 0) <= 256,
                   item.searchText.count <= 16_384,
                   item.byteCount >= 0,
                   item.fileByteCount >= 0,
@@ -733,7 +804,8 @@ public actor ChatHistoryIndex {
                 fileByteCount: item.fileByteCount,
                 source: URL(fileURLWithPath: item.path),
                 unreadableRecordCount: item.unreadableRecordCount,
-                totalTokens: item.totalTokens)
+                totalTokens: item.totalTokens,
+                appSource: item.appSource, model: item.model)
             let parseState = item.parseState.flatMap {
                 validParseState($0, signature: signature) ? $0 : nil
             }
@@ -783,6 +855,8 @@ public actor ChatHistoryIndex {
                 fileByteCount: summary.fileByteCount,
                 unreadableRecordCount: summary.unreadableRecordCount,
                 totalTokens: summary.totalTokens,
+                appSource: summary.appSource,
+                model: summary.model,
                 searchText: cached.searchText,
                 activityRecorded: cached.activityRecorded,
                 parseState: cached.parseState)
@@ -795,7 +869,7 @@ public actor ChatHistoryIndex {
                 modifiedAt: signature.modifiedAt)
         }
         let document = PersistentDocument(
-            version: 4, homePath: home.path, threads: threads, failures: failures)
+            version: 5, homePath: home.path, threads: threads, failures: failures)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(document) else { return }
@@ -839,7 +913,8 @@ public actor ChatHistoryIndex {
                 fileByteCount: transcript.fileByteCount,
                 source: transcript.source,
                 unreadableRecordCount: transcript.unreadableRecordCount,
-                totalTokens: transcript.totalTokens)
+                totalTokens: transcript.totalTokens,
+                appSource: transcript.appSource, model: transcript.model)
             let searchText = Self.searchText(for: summary)
             guard summary != current || searchText != cached.searchText else { continue }
             cache[path] = CachedThread(
@@ -1178,7 +1253,8 @@ private enum TranscriptParser {
             totalTokens: state.activityEventCount > 0
                 && state.activityComplete
                 && !state.inheritedHistory
-                ? state.previousTokens : nil)
+                ? state.previousTokens : nil,
+            appSource: state.appSource, model: state.currentModel)
     }
 
     static func parse(
@@ -1204,6 +1280,7 @@ private enum TranscriptParser {
         var activityDays = state?.activityDays ?? [:]
         var activityModels = state?.activityModels ?? [:]
         var currentModel = state?.currentModel
+        var appSource = state?.appSource ?? .codex
         var previousSplit = state?.previousSplit ?? CodexModelUsage()
         var previousTokens = state?.previousTokens ?? 0
         var activityEventCount = state?.activityEventCount ?? 0
@@ -1259,6 +1336,7 @@ private enum TranscriptParser {
             if type == "session_meta", let payload = object["payload"] as? [String: Any] {
                 guard !hasSessionMetadata else { continue }
                 hasSessionMetadata = true
+                appSource = ChatThreadSource.resolve(payload)
                 threadID = nonempty(payload["id"] as? String)
                     ?? nonempty(payload["session_id"] as? String)
                     ?? threadID
@@ -1407,7 +1485,8 @@ private enum TranscriptParser {
             fileByteCount: candidate.signature.byteCount,
             source: candidate.url,
             unreadableRecordCount: unreadableRecords,
-            totalTokens: activityEventCount > 0 && activityComplete && !inheritedHistory ? previousTokens : nil)
+            totalTokens: activityEventCount > 0 && activityComplete && !inheritedHistory ? previousTokens : nil,
+            appSource: appSource, model: currentModel)
         let references = (users.references + assistants.references + tools.references + others.references)
             .sorted { $0.sequence < $1.sequence }
         let searchText = [title, preview, workingDirectory, resolvedThreadID]
@@ -1448,6 +1527,7 @@ private enum TranscriptParser {
                 hasSessionMetadata: hasSessionMetadata,
                 activityModels: activityModels,
                 currentModel: currentModel,
+                appSource: appSource,
                 previousSplit: previousSplit)
         } else {
             parseState = nil

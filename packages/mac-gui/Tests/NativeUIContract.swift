@@ -1080,6 +1080,22 @@ enum AIManagerNativeContract {
 
   static func chatPresentationFailures() -> [String] {
     var failures: [String] = []
+    for source in ChatThreadSource.allCases {
+      for model in [nil, "gpt-6.1-sol", String(repeating: "long-model", count: 20)] as [String?] {
+        let thread = ChatThreadSummary(
+          id: "row-contract", threadID: "row-contract", title: String(repeating: "Long title ", count: 40),
+          preview: "", workingDirectory: nil, updatedAt: Date(timeIntervalSince1970: 0),
+          archived: false, messageCount: 0, fileByteCount: 0,
+          source: URL(fileURLWithPath: "/synthetic/session.jsonl"), unreadableRecordCount: 0,
+          appSource: source, model: model)
+        let host = NSHostingView(rootView: ChatThreadRow(thread: thread).frame(width: 264))
+        host.frame = NSRect(x: 0, y: 0, width: 264, height: 44)
+        host.layoutSubtreeIfNeeded()
+        if host.fittingSize.width > 264 || host.fittingSize.height > 44 {
+          failures.append("Conversation row wraps or exceeds its fixed size for \(source.displayLabel)")
+        }
+      }
+    }
     let markdown = """
       # Heading
 

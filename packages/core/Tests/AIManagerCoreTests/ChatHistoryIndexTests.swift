@@ -17,6 +17,82 @@ final class ChatHistoryIndexTests: XCTestCase {
         if let root { try? fileManager.removeItem(at: root) }
     }
 
+    func testSessionSourceAndLatestModelSurviveCacheAndAppend() async throws {
+        let cases: [(String, Any, ChatThreadSource, String)] = [
+            ("codex-tui", "cli", .cli, "Codex CLI"),
+            ("codex_exec", "exec", .exec, "Codex exec"),
+            ("Codex Desktop", "vscode", .app, "Codex app"),
+            ("codex-chrome-extension-sidepanel", "other", .chrome, "Codex Chrome"),
+            ("codex-tui", ["subagent": ["thread_spawn": [:]]], .subagent, "Subagent"),
+            ("codex-tui", "vscode", .vscode, "VS Code"),
+            ("unknown", "unknown", .codex, "Codex"),
+            ("codex-tui", "unknown", .codex, "Codex"),
+        ]
+        var paths: [URL] = []
+        for (number, item) in cases.enumerated() {
+            paths.append(try transcript(directory: "sessions", filename: "source-\(number).jsonl", records: [
+                ["type": "session_meta", "payload": [
+                    "id": "source-\(number)", "originator": item.0, "source": item.1]],
+                ["type": "turn_context", "payload": ["model": "old-model"]],
+                ["type": "turn_context", "payload": ["model": "gpt-6.1-sol"]],
+            ]))
+        }
+        _ = try transcript(directory: "sessions", filename: "no-model.jsonl", records: [
+            ["type": "session_meta", "payload": ["id": "no-model"]],
+        ])
+        let cache = root.appending(path: "cache/index.json")
+        let first = try await ChatHistoryIndex(home: root, cacheFile: cache).refresh()
+        let reopened = ChatHistoryIndex(home: root, cacheFile: cache)
+        let cached = try await reopened.refresh()
+        XCTAssertEqual(cached.reparsedFileCount, 0)
+        XCTAssertEqual(first.threads, cached.threads)
+        for (number, item) in cases.enumerated() {
+            let thread = try XCTUnwrap(cached.threads.first { $0.threadID == "source-\(number)" })
+            XCTAssertEqual(thread.appSource, item.2)
+            XCTAssertEqual(thread.appSource.displayLabel, item.3)
+            XCTAssertEqual(thread.model, "gpt-6.1-sol")
+        }
+        XCTAssertNil(cached.threads.first { $0.threadID == "no-model" }?.model)
+        let handle = try FileHandle(forWritingTo: paths[0])
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("{\"type\":\"turn_context\",\"payload\":{\"model\":\"new-model\"}}\n".utf8))
+        try handle.close()
+        let appended = try await reopened.refresh()
+        let thread = try XCTUnwrap(appended.threads.first { $0.threadID == "source-0" })
+        XCTAssertEqual(thread.appSource, .cli)
+        XCTAssertEqual(thread.model, "new-model")
+        let metrics = await reopened.refreshMetrics()
+        XCTAssertLessThan(metrics.parsedByteCount, thread.fileByteCount)
+    }
+
+    func testDayGroupsUseLocalCalendarAcrossYearBoundary() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 5 * 3_600 + 1_800))
+        let parser = ISO8601DateFormatter()
+        func date(_ text: String) -> Date { parser.date(from: text)! }
+        func thread(_ id: String, _ timestamp: String) -> ChatThreadSummary {
+            ChatThreadSummary(id: id, threadID: id, title: id, preview: "", workingDirectory: nil,
+                updatedAt: date(timestamp), archived: false, messageCount: 0, fileByteCount: 0,
+                source: root, unreadableRecordCount: 0)
+        }
+        let threads = [
+            thread("older", "2024-12-30T12:00:00Z"),
+            thread("yesterday", "2025-12-31T18:29:59Z"),
+            thread("today-first", "2025-12-31T18:30:00Z"),
+            thread("today-last", "2026-01-01T12:00:00Z"),
+            thread("last-year", "2025-12-30T12:00:00Z"),
+        ]
+        let groups = ChatThreadDayGroup.groups(threads, now: date("2026-01-01T15:00:00Z"),
+            calendar: calendar, locale: Locale(identifier: "en_US"))
+        XCTAssertEqual(groups.map(\.title), ["Today", "Yesterday", "Dec 30, 2025", "Dec 30, 2024"])
+        XCTAssertEqual(groups.map { $0.threads.map(\.id) },
+            [["today-last", "today-first"], ["yesterday"], ["last-year"], ["older"]])
+        let sameYear = ChatThreadDayGroup.groups([thread("monday", "2026-10-12T12:00:00Z")],
+            now: date("2026-10-15T12:00:00Z"), calendar: calendar, locale: Locale(identifier: "en_US"))
+        XCTAssertEqual(sameYear.first?.title, "Mon, Oct 12")
+        XCTAssertTrue(ChatThreadDayGroup.groups([], calendar: calendar).isEmpty)
+    }
+
     func testMessageSearchIsSeparateAndMatchesEveryTerm() async throws {
         let messages = [
             ChatMessage(id: "1", role: .user, text: "Fix the slow chat list", timestamp: nil),
@@ -481,16 +557,19 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(detail?.messages.map(\.text), ["Use the actual conversation title"])
     }
 
-    func testOlderCacheReparsesForMessageCategoriesAndAppliesDatabaseName() async throws {
+    func testVersionFourCacheRebuildsSourceAndModelAndAppliesDatabaseName() async throws {
+        var records = standardRecords(id: "cache-migration", prompt: "Original transcript title")
+        records[0]["payload"] = ["id": "cache-migration", "originator": "codex_exec", "source": "exec"]
+        records.append(["type": "turn_context", "payload": ["model": "gpt-6.1-sol"]])
         let transcriptURL = try transcript(
             directory: "sessions/2026/09/14",
             filename: "migration.jsonl",
-            records: standardRecords(id: "cache-migration", prompt: "Original transcript title"))
+            records: records)
         let cacheFile = root.appending(path: "manager/cache/chat-history-v1.json")
         _ = try await ChatHistoryIndex(home: root, cacheFile: cacheFile).refresh()
         var cacheObject = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: cacheFile)) as? [String: Any])
-        cacheObject["version"] = 1
+        cacheObject["version"] = 4
         let legacyData = try JSONSerialization.data(withJSONObject: cacheObject, options: [.sortedKeys])
         try legacyData.write(to: cacheFile, options: .atomic)
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cacheFile.path)
@@ -508,7 +587,9 @@ final class ChatHistoryIndexTests: XCTestCase {
 
         XCTAssertEqual(reopened.reparsedFileCount, 1)
         XCTAssertEqual(reopened.threads.first?.title, "Migrated canonical name")
-        XCTAssertEqual(migratedObject["version"] as? Int, 4)
+        XCTAssertEqual(reopened.threads.first?.appSource, .exec)
+        XCTAssertEqual(reopened.threads.first?.model, "gpt-6.1-sol")
+        XCTAssertEqual(migratedObject["version"] as? Int, 5)
     }
 
     func testRefreshReparsesOnlyChangedFilesAndSkipsMalformedRecords() async throws {
