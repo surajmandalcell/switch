@@ -29,7 +29,7 @@ struct MaintenancePage: View {
           icon: { $0 == .cleanup ? .cleanup : .backup })
           .uiLint(.align("cards-start", .start))
         Spacer(minLength: 0)
-        MaintenanceSourcePicker(store: store)
+        MaintenanceSourcePicker(store: store, cleanup: section == .cleanup)
           .uiLint(.align("cards-end", .end))
       }
       switch section {
@@ -56,12 +56,14 @@ struct MaintenancePage: View {
 /// The button at the right end of the tab bar: the chosen source, and a searchable list of the others.
 struct MaintenanceSourcePicker: View {
   @ObservedObject var store: MaintenanceStore
+  /// Cleanup lists Claude Code once; Backup also lists each account's own profile.
+  var cleanup = false
   @State private var open = false
 
   var body: some View {
     Button { open.toggle() } label: {
       HStack(spacing: 8) {
-        if let source = store.source {
+        if let source = cleanup ? store.cleanupSource : store.source {
           ProviderMark(providerID: source.providerID, size: 18)
           Text(source.title).lineLimit(1)
           if source.accountID != nil { Text("profile").aimText(.secondary) }
@@ -74,9 +76,9 @@ struct MaintenanceSourcePicker: View {
     .buttonStyle(AIMPushButtonStyle())
     .disabled(store.sources.isEmpty)
     .accessibilityLabel("Source")
-    .accessibilityValue(store.source?.title ?? "None")
+    .accessibilityValue((cleanup ? store.cleanupSource : store.source)?.title ?? "None")
     .popover(isPresented: $open, arrowEdge: .bottom) {
-      MaintenanceSourcePanel(store: store) { source in
+      MaintenanceSourcePanel(store: store, cleanup: cleanup) { source in
         store.sourceID = source.id
         open = false
       }
@@ -87,6 +89,7 @@ struct MaintenanceSourcePicker: View {
 /// The list in the picker: a search field on top, then one row for each source.
 struct MaintenanceSourcePanel: View {
   @ObservedObject var store: MaintenanceStore
+  var cleanup = false
   let pick: (CleanupSource) -> Void
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
   @State private var query = ""
@@ -95,10 +98,13 @@ struct MaintenanceSourcePanel: View {
   static let width: CGFloat = 380
   static let rowHeight: CGFloat = 48
 
+  private var choices: [CleanupSource] { cleanup ? store.cleanupSources : store.sources }
+  private var chosen: CleanupSource? { cleanup ? store.cleanupSource : store.source }
+
   private var shown: [CleanupSource] {
     let text = query.trimmingCharacters(in: .whitespaces).lowercased()
-    guard !text.isEmpty else { return store.sources }
-    return store.sources.filter { source in
+    guard !text.isEmpty else { return choices }
+    return choices.filter { source in
       [source.title, source.detail, source.accountEmail ?? ""].contains { $0.lowercased().contains(text) }
     }
   }
@@ -132,14 +138,14 @@ struct MaintenanceSourcePanel: View {
   }
 
   private func row(_ source: CleanupSource) -> some View {
-    PickerRow(selected: source.id == store.source?.id) { pick(source) } content: {
+    PickerRow(selected: source.id == chosen?.id) { pick(source) } content: {
       ProviderMark(providerID: source.providerID, size: 28)
       VStack(alignment: .leading, spacing: 2) {
         Text(source.title).aimText(.body).lineLimit(1)
         Text(detail(source)).aimText(.secondary).lineLimit(1).truncationMode(.middle)
       }
       Spacer(minLength: 0)
-      if source.id == store.source?.id { AIMIcon(name: .check).aimFont(.body).foregroundStyle(AIMTheme.passiveIcon) }
+      if source.id == chosen?.id { AIMIcon(name: .check).aimFont(.body).foregroundStyle(AIMTheme.passiveIcon) }
     }
   }
 
@@ -212,6 +218,21 @@ enum CleanupDateRange: String, CaseIterable, Identifiable {
     }
     let cutoff = now.addingTimeInterval(-seconds)
     return [.olderWeek, .olderMonth, .olderYear].contains(self) ? date < cutoff : cutoff <= date && date <= now
+  }
+
+  /// What the card says when the range hides everything, with what the tool uses in total.
+  /// Example: "Nothing older than 30 days. Codex CLI uses 11.7 GB; choose a shorter range to see it."
+  func nothingText(tool: String, total: Int64) -> String {
+    let size = MaintenanceStore.size(total)
+    if total == 0 { return "Nothing to clear. \(tool) has no files that Cleanup lists." }
+    switch self {
+    case .all: return "Nothing to clear. \(tool) uses \(size), but every item is in use or owned by another app."
+    case .olderWeek, .olderMonth, .olderYear:
+      return "Nothing \(rawValue.lowercased()). \(tool) uses \(size); choose a shorter range to see it."
+    case .custom: return "Nothing in these dates. \(tool) uses \(size); choose other dates to see it."
+    case .hour, .day, .week, .month:
+      return "Nothing in the \(rawValue.lowercased()). \(tool) uses \(size); choose a longer range to see it."
+    }
   }
 }
 

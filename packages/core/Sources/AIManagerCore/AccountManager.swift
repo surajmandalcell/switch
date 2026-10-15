@@ -204,7 +204,7 @@ public actor AccountManager {
             try cleanup.validate(plan)
             // Only Codex keeps a daily activity ledger; its transcripts are recorded before they move.
             if source.tool == .codex {
-                let transcripts = plan.items.filter { $0.root == 0 && $0.path.hasSuffix(".jsonl") }
+                let transcripts = plan.items.filter { $0.root == 0 && $0.path.hasSuffix(".jsonl") && !$0.isRewrite }
                 try await preserveActivity(transcripts.map { plan.home.appending(path: $0.path) })
             }
             try await ensureCleanupWritersInactive(source)

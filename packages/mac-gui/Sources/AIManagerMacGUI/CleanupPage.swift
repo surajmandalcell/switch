@@ -36,6 +36,9 @@ struct CleanupCheck: View {
   }
 }
 
+/// How far a row's hover fill sits from the card's edges and the hairline under the title: the same on every side.
+private let cleanupHoverInset: CGFloat = 6
+
 /// One row of the cleanup list: a hover fill, then the content on the card's inset.
 struct CleanupRowBox<Content: View>: View {
   var indent: CGFloat = 0
@@ -52,7 +55,7 @@ struct CleanupRowBox<Content: View>: View {
       .background {
         RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
           .fill(AIMTheme.rowHover).opacity(hovering ? 1 : 0)
-          .padding(.horizontal, 6).padding(.vertical, AIMTheme.highlightInset)
+          .padding(.horizontal, cleanupHoverInset).padding(.vertical, AIMTheme.highlightInset)
           .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
           .allowsHitTesting(false)
       }
@@ -97,7 +100,7 @@ struct CleanupPage: View {
   @State private var confirming = false
   @State private var removingBatch: ConversationCleanupBatch?
 
-  private var source: CleanupSource? { store.source }
+  private var source: CleanupSource? { store.cleanupSource }
   private var busy: Bool { loading || model.isBusy }
   private var range: CleanupDateRange {
     get { CleanupDateRange(rawValue: rangeRaw) ?? .olderMonth }
@@ -119,15 +122,18 @@ struct CleanupPage: View {
   // MARK: Derived data
 
   private func matches(_ date: Date) -> Bool { range.contains(date, now: anchor, from: from, through: through) }
+  /// Old app versions and the like are not dated by use, so every range shows them.
   private func visible(_ category: CleanupCategory) -> [CleanupItem] {
-    category.selectable.filter { matches($0.updatedAt) }
+    category.ageBased ? category.selectable.filter { matches($0.updatedAt) } : category.selectable
   }
   private var visibleSamples: [CleanupUsageSample] { samples.filter { matches($0.fetchedAt) } }
   private var shownCategories: [CleanupCategory] { (scan?.categories ?? []).filter { !visible($0).isEmpty } }
+  /// A chat picked for removal drops its own pasted-images row, so one file is never handled twice.
   private var selectedItems: [CleanupItem] {
-    (scan?.categories ?? []).flatMap { visible($0) }.filter { selection.contains($0.id) }
+    let picked = (scan?.categories ?? []).flatMap { visible($0) }.filter { selection.contains($0.id) }
+    let removed = Set(picked.filter { !$0.isRewrite }.map(\.path))
+    return picked.filter { !$0.isRewrite || !removed.contains($0.path) }
   }
-  private var protectedCount: Int { (scan?.categories ?? []).reduce(0) { $0 + $1.protectedItems.count } }
   private var selectedBytes: Int64 { selectedItems.reduce(0) { $0 + $1.bytes } }
   private var hasSelection: Bool { !selection.isEmpty || (useSamples && !visibleSamples.isEmpty) || clearIndex }
 
@@ -200,15 +206,17 @@ struct CleanupPage: View {
 
   private var categoriesCard: some View {
     let categories = shownCategories
-    let items = categories.flatMap { visible($0) }
+    // A pasted-images row shrinks a chat that its Conversations row already counts, so the totals skip it.
+    let items = categories.filter { $0.id != "images" }.flatMap { visible($0) }
+    let total = scan?.totalBytes ?? 0
     // The last row's text sits 9.5 pt above its bottom edge; 4.5 more makes the card's 14 pt end.
     return AIMCard(title: "Files you can clear", divider: true, bottomInset: 4.5, accessory: {
-      Text("\(items.count.formatted()) items · \(MaintenanceStore.size(items.reduce(0) { $0 + $1.bytes }))")
+      Text("\(items.count.formatted()) items · \(MaintenanceStore.size(items.reduce(0) { $0 + $1.bytes })) of \(MaintenanceStore.size(total))")
         .aimText(.secondary).monospacedDigit().aimRolling(items.count)
     }) {
       if categories.isEmpty {
         HStack {
-          Text("Nothing in this time range.").aimText(.secondary)
+          Text(range.nothingText(tool: source?.title ?? "This tool", total: total)).aimText(.secondary)
           Spacer()
           if range != .all { AIMButton(title: "Show all time") { range = .all } }
         }
@@ -220,6 +228,8 @@ struct CleanupPage: View {
             categoryBlock(category)
           }
         }
+        // The first row's fill sits as far below the hairline as it does from the card's sides.
+        .padding(.top, cleanupHoverInset - AIMTheme.highlightInset)
       }
     }
     .disabled(busy)
@@ -352,10 +362,10 @@ struct CleanupPage: View {
 
   private var selectionCard: some View {
     AIMSection {
-      if protectedCount > 0 {
+      if let untouched = scan?.untouchedText {
         HStack(spacing: 6) {
           AIMIcon(name: .info)
-          Text("\(protectedCount.formatted()) \(protectedCount == 1 ? "item stays" : "items stay") untouched: running now, linked by another app, or owned by someone else.")
+          Text(untouched)
         }
         .aimText(.secondary)
       }
@@ -433,6 +443,9 @@ struct CleanupPage: View {
 
   private func reviewNote(_ review: CleanupReview) -> String {
     var note = "Items move to Switch's recoverable trash inside the tool folder. Moving does not free disk space until you remove them for good."
+    if review.groups.contains(where: { $0.id == "images" }) {
+      note += " A chat that loses its pasted images keeps a copy without them; the original waits in the trash."
+    }
     if source?.tool != .codex, review.groups.contains(where: { ["conversations", "archived"].contains($0.id) }) {
       note += " Usage totals for \(source?.title ?? "this tool") are read from its saved chats, so removed chats lower them."
     }

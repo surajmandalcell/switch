@@ -21,12 +21,18 @@ public struct CleanupSource: Identifiable, Hashable, Sendable {
     public let accountEmail: String?
     public let home: URL
     public let userHome: URL
+    /// Account profile folders whose own files (not links to the shared home) join this source's scan.
+    public let extraHomes: [URL]
 
     public init(id: String, tool: CleanupTool, title: String, detail: String, providerID: ProviderID,
-                accountID: UUID? = nil, accountEmail: String? = nil, home: URL, userHome: URL) {
+                accountID: UUID? = nil, accountEmail: String? = nil, home: URL, userHome: URL, extraHomes: [URL] = []) {
         self.id = id; self.tool = tool; self.title = title; self.detail = detail; self.providerID = providerID
         self.accountID = accountID; self.accountEmail = accountEmail; self.home = home; self.userHome = userHome
+        self.extraHomes = extraHomes
     }
+
+    /// An account's own Claude Code profile. Backup lists it; Cleanup folds it into the shared Claude Code source.
+    public var isClaudeProfile: Bool { tool == .claude && accountID != nil }
 
     public var backupService: BackupSource.Service? {
         switch tool {
@@ -70,9 +76,10 @@ public enum CleanupSources {
         let claude = count(.claudeCode)
         let claudeHome = user.appending(path: ".claude", directoryHint: .isDirectory)
         if !claude.isEmpty || exists(claudeHome) {
-            add("claude", .claude, "Claude Code", "Shared history · \(plural(claude.count))", .claudeCode, home: claudeHome)
+            result.append(CleanupSource(id: "claude", tool: .claude, title: "Claude Code", detail: "Shared history · \(plural(claude.count))",
+                providerID: .claudeCode, home: claudeHome, userHome: user, extraHomes: claude.map(\.home).filter(exists)))
         }
-        // Each profile sits right after the shared entry, so both Claude Code entries stay together.
+        // Each profile sits right after the shared entry. Cleanup shows one Claude Code entry (`isClaudeProfile`).
         for account in claude where exists(account.home) {
             add("claude:\(account.id.uuidString)", .claude, "Claude Code", "Own profile", .claudeCode, home: account.home, account: account)
         }
@@ -105,6 +112,8 @@ public struct CleanupCategory: Identifiable, Sendable {
     /// Selected when the page opens: only regenerable files, never anything that loses work.
     public let preselected: Bool
     public let byProject: Bool
+    /// False for old app versions and the like: they show in every time range.
+    public let ageBased: Bool
     public let items: [CleanupItem]
     public var selectable: [CleanupItem] { items.filter { $0.protectedReason == nil } }
     public var protectedItems: [CleanupItem] { items.filter { $0.protectedReason != nil } }
@@ -113,6 +122,29 @@ public struct CleanupCategory: Identifiable, Sendable {
 public struct CleanupScan: Sendable {
     public let sourceID: String
     public let categories: [CleanupCategory]
+    /// Everything the page lists, protected items included. Rewrites are not counted: they shrink files already counted.
+    public let totalBytes: Int64
+
+    /// "701 items stay untouched: 650 linked by another app, 51 running now." The reasons come largest first.
+    /// Pasted-image rows are left out: they only skip a rewrite, never a chat.
+    public var untouchedText: String? {
+        let reasons = categories.filter { $0.id != "images" }.flatMap(\.protectedItems).compactMap(\.protectedReason)
+        guard !reasons.isEmpty else { return nil }
+        let counts = Dictionary(grouping: reasons, by: { $0 }).map { (reason: $0.key, count: $0.value.count) }
+            .sorted { ($0.count, $1.reason) > ($1.count, $0.reason) }
+        let named = counts.map { Self.label($0.reason) }
+        let parts = counts.count == 1 ? named[0] : zip(counts, named).map { "\($0.count.formatted()) \($1)" }.joined(separator: ", ")
+        return "\(reasons.count.formatted()) \(reasons.count == 1 ? "item stays" : "items stay") untouched: \(parts)."
+    }
+
+    private static func label(_ reason: String) -> String {
+        switch reason {
+        case "Another app links this file, so it stays.": "linked by another app"
+        case "This item belongs to another user.": "owned by someone else"
+        case "In use now.": "running now"
+        default: reason.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        }
+    }
 }
 
 /// Names that are never listed or removed: sign-in files, settings, keys, registries, live databases.
@@ -150,12 +182,36 @@ struct CleanupScanner {
     /// A file written this recently belongs to a running session.
     static let activeWindow: TimeInterval = 300
 
-    init(source: CleanupSource, summaries: [ChatThreadSummary] = [], now: Date = Date()) {
+    /// Command lines and resolved program paths of running processes, read the first time a check needs them.
+    private let processes: LazyList
+    /// Paths a running tool holds open, read the first time a check needs them.
+    private let openFiles: LazyList
+
+    private final class LazyList {
+        private let load: () -> [String]
+        private(set) lazy var values: [String] = load()
+        init(_ load: @escaping () -> [String]) { self.load = load }
+    }
+
+    /// `processes` and `openFiles` stand in for the live process list in tests.
+    init(source: CleanupSource, summaries: [ChatThreadSummary] = [], now: Date = Date(),
+         processes: [String]? = nil, openFiles: [String]? = nil) {
         self.source = CleanupSource(id: source.id, tool: source.tool, title: source.title, detail: source.detail,
             providerID: source.providerID, accountID: source.accountID, accountEmail: source.accountEmail,
-            home: CoreSupport.canonical(source.home), userHome: CoreSupport.canonical(source.userHome))
+            home: CoreSupport.canonical(source.home), userHome: CoreSupport.canonical(source.userHome),
+            extraHomes: source.extraHomes.map(CoreSupport.canonical))
         self.summaries = Dictionary(summaries.map { (CoreSupport.canonical($0.source).path, $0) }, uniquingKeysWith: { first, _ in first })
         self.now = now
+        let tool = source.tool
+        self.processes = LazyList { processes ?? RunningProcesses.snapshot() }
+        self.openFiles = LazyList { openFiles ?? ToolWriterProbe.openFiles(tool: tool) }
+    }
+
+    /// A running process starts from, or has an argument inside, this path.
+    private func inUse(_ path: String) -> Bool {
+        processes.values.contains { line in
+            line == path || line.hasPrefix(path + "/") || line.contains(path + "/") || line.contains(path + " ") || line.hasSuffix(path)
+        }
     }
 
     static func modified(_ info: stat) -> Double {
@@ -169,46 +225,60 @@ struct CleanupScanner {
     func scan() throws -> CleanupScan {
         var result: [CleanupCategory] = []
         func add(_ id: String, _ title: String, _ detail: String, risk: CleanupCategory.Risk = .safe,
-                 preselected: Bool = false, byProject: Bool = false, _ items: [CleanupItem]) {
+                 preselected: Bool = false, byProject: Bool = false, ageBased: Bool = true, _ items: [CleanupItem]) {
             guard !items.isEmpty else { return }
             result.append(CleanupCategory(id: id, title: title, detail: detail, risk: risk, preselected: preselected,
-                byProject: byProject, items: items.sorted { $0.updatedAt > $1.updatedAt }))
+                byProject: byProject, ageBased: ageBased, items: items.sorted { $0.updatedAt > $1.updatedAt }))
         }
         let logs = "Run logs the tool rewrites. Nothing user-facing is lost."
         let caches = "Downloads and scratch files the tool fetches again."
+        let oldVersions = "Older copies of the tool. The current version stays."
+        let imagesTitle = "Pasted images in old conversations"
+        let imagesDetail = "Removes pasted screenshots from old chats. The text stays and chats still open."
         switch source.tool {
         case .codex:
             let sessions = try codexSessions()
-            add("conversations", "Conversations", "Saved chats you can resume, by project. Dates are the last update.",
+            add("conversations", "Conversations", "Saved chats you can resume, by project. Dates are the last activity.",
                 risk: .caution, byProject: true, sessions.filter { !$0.agent && !$0.item.isArchivedPath }.map(\.item))
             add("archived", "Archived conversations", "Chats you archived in Codex.", risk: .caution, byProject: true,
                 sessions.filter { !$0.agent && $0.item.isArchivedPath }.map(\.item))
             add("agents", "Review and agent sessions",
                 "Short sessions Codex starts for auto-reviews and sub-agents. They are not chats you can open.",
                 risk: .caution, byProject: true, sessions.filter(\.agent).map(\.item))
+            add("images", imagesTitle, imagesDetail, risk: .caution, byProject: true, imageRewrites(sessions.map(\.item)))
+            add("generated-images", "Generated images", "Pictures Codex made for you, by age. Removing them deletes the saved copies.",
+                risk: .caution, preselected: true, try children(["generated_images"]))
             add("logs", "Logs and temp files", logs, preselected: true, try children(["log", ".tmp"]))
             add("caches", "Caches", caches, preselected: true,
                 try children(["cache", "shell_snapshots"]) + whole(["Library/Caches/com.openai.codex", "Library/Caches/Codex"], root: 1))
-            add("versions", "Old app versions", "Older Codex builds. The current build and the one before it stay.",
-                risk: .caution, try versions("packages/standalone/releases", launcher: "packages/standalone/current"))
+            add("versions", "Old app versions", oldVersions, preselected: true, ageBased: false,
+                try oldReleases("packages/standalone/releases", current: "packages/standalone/current", label: "Standalone")
+                + oldReleases("packages/app-server-daemon/releases", current: "packages/app-server-daemon/current", label: "App server"))
             add("worktrees", "Git worktrees", "Working copies made by the Codex app. They may hold changes you have not merged.",
                 risk: .caution, try children(["worktrees"]))
             add("history", "Prompt history", "The prompts you typed. Removing it clears the up-arrow history.",
                 risk: .caution, whole(["history.jsonl"]))
         case .claude:
-            add("conversations", "Conversations", "Saved chats you can resume, by project. Dates are the last update.",
-                risk: .caution, byProject: true, try claudeProjects())
+            let chats = try claudeProjects()
+            add("conversations", "Conversations", "Saved chats you can resume, by project. Dates are the last activity.",
+                risk: .caution, byProject: true, chats)
+            add("images", imagesTitle, imagesDetail, risk: .caution, byProject: true, imageRewrites(chats))
             add("logs", "Logs and debug files", logs, preselected: true,
-                try children(["debug", "telemetry", "logs", "statsig", "todos"]))
+                try children(["debug", "telemetry", "logs", "statsig", "todos"])
+                + children(profileDirectories(["debug", "telemetry", "logs", "statsig", "todos"]), root: 1))
             add("caches", "Caches", caches, preselected: true,
                 try children(["cache", "paste-cache", "image-cache", "session-env", "shell-snapshots"])
+                + children(profileDirectories(["cache", "paste-cache", "image-cache", "session-env", "shell-snapshots"]), root: 1)
                 + whole(["Library/Caches/claude-cli-nodejs", "Library/Caches/com.anthropic.claudefordesktop"], root: 1))
             add("backups", "Old config backups", "Copies of the settings file. The five newest stay.", preselected: true,
-                try children(["backups"], keepNewest: 5))
+                try children(["backups"], keepNewest: 5) + children(profileDirectories(["backups"]), root: 1, keepNewest: 5))
             add("file-history", "File history", "Copies of files from before each edit. Removing them turns off rewind for old chats.",
                 risk: .caution, try children(["file-history"]))
-            add("versions", "Old app versions", "Older Claude Code builds. The one you run and the one before it stay.",
-                risk: .caution, try versions(".local/share/claude/versions", launcher: ".local/bin/claude", root: 1))
+            add("versions", "Old app versions", oldVersions, preselected: true, ageBased: false,
+                try oldReleases(".local/share/claude/versions", current: ".local/bin/claude", label: "Claude Code", root: 1)
+                + oldReleases("Library/Application Support/Claude/claude-code", current: nil, label: "Claude app", root: 1))
+            add("claude-vm", "Claude app VM", "Runs Claude Code inside the Claude app. The app downloads it again when needed.",
+                ageBased: false, try claudeVM())
             add("history", "Prompt history", "The prompts you typed. Removing it clears the up-arrow history.",
                 risk: .caution, whole(["history.jsonl"]))
         case .grok:
@@ -241,7 +311,8 @@ struct CleanupScanner {
             add("snapshots", "Undo snapshots", "Copies used to undo edits. Removing them loses undo for old sessions.",
                 risk: .caution, try children(["snapshot"]))
         }
-        return CleanupScan(sourceID: source.id, categories: result)
+        let total = result.filter { $0.id != "images" }.flatMap(\.items).reduce(Int64(0)) { $0 + $1.bytes }
+        return CleanupScan(sourceID: source.id, categories: result, totalBytes: total)
     }
 
     // MARK: Item building
@@ -294,7 +365,71 @@ struct CleanupScanner {
         return CleanupItem(root: rootIndex, path: path, companions: kept,
             title: title ?? (path as NSString).lastPathComponent, project: project, updatedAt: date ?? newest,
             bytes: total.bytes, isDirectory: kind == S_IFDIR, protectedReason: reason,
-            inode: UInt64(info.st_ino), device: UInt64(info.st_dev), modifiedAt: Self.modified(info))
+            inode: UInt64(info.st_ino), device: UInt64(info.st_dev), modifiedAt: Self.modified(info), rewrite: nil)
+    }
+
+    // MARK: Old versions, the Claude app VM, and pasted images
+
+    /// A running process uses this item, or nil. The item stays listed, protected, so the page can count it.
+    private func guardRunning(_ built: CleanupItem?, at url: URL) -> CleanupItem? {
+        guard let built else { return nil }
+        return inUse(CoreSupport.canonical(url).path) ? built.protecting("A running app uses this version.") : built
+    }
+
+    /// Every build in `directory` except the one `current` resolves to (or, with no `current`, the highest version number).
+    /// A build a running process uses is listed as protected. With no build to keep found, nothing is listed.
+    func oldReleases(_ directory: String, current: String?, label: String, root rootIndex: Int = 0) throws -> [CleanupItem] {
+        let base = root(rootIndex).appending(path: directory)
+        let builds = try names(directory, root: rootIndex)
+        var keep: String?
+        if let current {
+            if let target = realpath(root(rootIndex).appending(path: current).path, nil) {
+                keep = CoreSupport.canonical(URL(fileURLWithPath: String(cString: target))).path; free(target)
+            }
+        } else {
+            keep = builds.max { $0.compare($1, options: .numeric) == .orderedAscending }
+                .map { CoreSupport.canonical(base.appending(path: $0)).path }
+        }
+        guard let keep, builds.contains(where: { CoreSupport.canonical(base.appending(path: $0)).path == keep }) else { return [] }
+        return try builds.compactMap { name -> CleanupItem? in
+            let url = base.appending(path: name)
+            guard CoreSupport.canonical(url).path != keep else { return nil }
+            return guardRunning(try item(rootIndex, directory + "/" + name, title: "\(label) \(name)"), at: url)
+        }
+    }
+
+    /// Claude's virtual machine for running Claude Code inside the desktop app. Protected while the app runs.
+    private func claudeVM() throws -> [CleanupItem] {
+        let path = "Library/Application Support/Claude/claude-code-vm"
+        guard let built = try item(1, path, title: "Claude app VM") else { return [] }
+        let running = processes.values.contains { $0.contains("/Claude.app/Contents/MacOS/") }
+        return [running ? built.protecting("The Claude app is running.") : built]
+    }
+
+    /// Folders of the account profiles inside the user home, as paths the scan can list (`root` 1).
+    private func profileDirectories(_ names: [String]) -> [String] {
+        source.extraHomes.flatMap { home -> [String] in
+            let prefix = source.userHome.path + "/"
+            guard home.path.hasPrefix(prefix) else { return [] }
+            let relative = String(home.path.dropFirst(prefix.count))
+            return names.map { relative + "/" + $0 }
+        }
+    }
+
+    /// One row for each transcript that holds pasted pictures; its size is what the rewrite saves.
+    /// Open or recently written transcripts are listed as protected.
+    private func imageRewrites(_ transcripts: [CleanupItem]) -> [CleanupItem] {
+        transcripts.compactMap { chat in
+            guard chat.protectedReason == nil, !chat.isDirectory, chat.path.hasSuffix(".jsonl") else { return nil }
+            let url = root(chat.root).appending(path: chat.path)
+            let saved = ImageStripper.savings(of: url)
+            guard saved > 0 else { return nil }
+            let reason: String? = openFiles.values.contains(CoreSupport.canonical(url).path) ? "A running app has this chat open."
+                : now.timeIntervalSince1970 - chat.modifiedAt < ConversationCleanup.rewriteQuietPeriod ? "Changed in the last hour." : nil
+            return CleanupItem(root: chat.root, path: chat.path, companions: [], title: chat.title, project: chat.project,
+                updatedAt: chat.updatedAt, bytes: saved, isDirectory: false, protectedReason: reason, inode: chat.inode,
+                device: chat.device, modifiedAt: chat.modifiedAt, rewrite: true)
+        }
     }
 
     private func names(_ directory: String, root rootIndex: Int) throws -> [String] {
@@ -382,8 +517,9 @@ struct CleanupScanner {
                 let known = summaries[CoreSupport.canonical(url).path]
                 let project = known?.workingDirectory ?? (meta["cwd"] as? String) ?? "Unknown project"
                 let agent = (meta["source"] as? [String: Any])?["subagent"] != nil
+                // The date is the file's last write, the chat's last activity; the index may date a chat by when it was refreshed.
                 guard let built = try item(0, path, title: known?.title ?? Self.firstPrompt(in: url) ?? url.deletingPathExtension().lastPathComponent,
-                    project: project, date: known?.updatedAt) else { continue }
+                    project: project) else { continue }
                 result.append(Session(item: built, agent: agent))
             }
         }
@@ -548,28 +684,38 @@ enum ToolWriterProbe {
     }
 
     static func check(tool: CleanupTool, home: URL) -> WriterState {
+        let (open, unknown) = openPaths(tool: tool)
+        if open.contains(where: { CoreSupport.isContained($0, by: home) }) { return .active }
+        return unknown ? .unknown : .inactive
+    }
+
+    /// Real paths every running process of the tool holds open. Empty when none runs or the list cannot be read.
+    static func openFiles(tool: CleanupTool) -> [String] { openPaths(tool: tool).paths.map(\.path) }
+
+    /// The files the tool's processes hold open; `unknown` when a process list or a process could not be read.
+    private static func openPaths(tool: CleanupTool) -> (paths: [URL], unknown: Bool) {
         var unknown = false
+        var paths: [URL] = []
         for name in processNames(tool) {
-            guard let (status, data) = run("/usr/bin/pgrep", ["-x", name]) else { return .unknown }
+            guard let (status, data) = run("/usr/bin/pgrep", ["-x", name]) else { unknown = true; continue }
             if status == 1 { continue }
-            guard status == 0, let text = String(data: data, encoding: .utf8) else { return .unknown }
+            guard status == 0, let text = String(data: data, encoding: .utf8) else { unknown = true; continue }
             for pid in text.split(whereSeparator: \.isWhitespace).compactMap({ Int32($0) }) {
                 guard let (code, listing) = run("/usr/sbin/lsof", ["-n", "-P", "-a", "-p", String(pid), "-F0n"]), code == 0 else {
                     // The process ended between the two calls, or lsof cannot read it.
                     if kill(pid, 0) == 0 || errno != ESRCH { unknown = true }
                     continue
                 }
-                let open = listing.split(separator: 0).compactMap { field -> URL? in
+                paths += listing.split(separator: 0).compactMap { field -> URL? in
                     guard field.first == 110, let path = String(data: field.dropFirst(), encoding: .utf8), path.hasPrefix("/") else { return nil }
                     return URL(fileURLWithPath: path)
                 }
-                if open.contains(where: { CoreSupport.isContained($0, by: home) }) { return .active }
             }
         }
-        return unknown ? .unknown : .inactive
+        return (paths, unknown)
     }
 
-    private static func run(_ executable: String, _ arguments: [String]) -> (Int32, Data)? {
+    fileprivate static func run(_ executable: String, _ arguments: [String]) -> (Int32, Data)? {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -580,5 +726,23 @@ enum ToolWriterProbe {
         let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
         return (process.terminationStatus, data)
+    }
+}
+
+/// What is running now: each program's real path (links resolved) and each full command line.
+enum RunningProcesses {
+    static func snapshot() -> [String] {
+        var lines: [String] = []
+        if let (status, data) = ToolWriterProbe.run("/bin/ps", ["-axww", "-o", "comm="]), status == 0 {
+            for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+                let path = String(line)
+                lines.append(path)
+                if let real = realpath(path, nil) { lines.append(String(cString: real)); free(real) }
+            }
+        }
+        if let (status, data) = ToolWriterProbe.run("/bin/ps", ["-axww", "-o", "args="]), status == 0 {
+            lines += String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+        }
+        return lines
     }
 }
