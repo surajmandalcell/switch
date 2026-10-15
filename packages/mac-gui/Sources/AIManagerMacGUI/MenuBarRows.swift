@@ -26,6 +26,8 @@ enum MenuBarPresentation {
   static let accountGap: CGFloat = 8
   static let groupGap: CGFloat = 12
   static let expandedHeight: CGFloat = 40
+  static let rowHighlight = Color.primary.opacity(0.06)
+  static let rowHover = Color.primary.opacity(0.04)
   static let lineGap: CGFloat = 4
   static let lineHeight: CGFloat = 18
   static let signInHeight: CGFloat = 24
@@ -64,20 +66,31 @@ enum MenuBarPresentation {
     return groups
   }
 
-  static func listHeight(_ accounts: [MenuBarAccountSnapshot], expandedID: UUID? = nil) -> CGFloat {
+  static func listHeight(_ accounts: [MenuBarAccountSnapshot], expandedID: UUID? = nil,
+                        hasOpenTool: Bool = true) -> CGFloat {
     let groups = groups(accounts)
     guard !groups.isEmpty else { return 0 }
     return 24 + groups.reduce(CGFloat.zero) { height, group in
       height + groupHeaderHeight + group.map(rowHeight).reduce(0, +)
         + CGFloat(group.count - 1) * accountGap
     } + CGFloat(groups.count - 1) * groupGap
-      + groups.flatMap { $0 }.filter { $0.id == expandedID }.map(expansionHeight).reduce(0, +)
+      + groups.flatMap { $0 }.filter { $0.id == expandedID }
+        .map { expansionHeight($0, hasOpenTool: hasOpenTool) }.reduce(0, +)
   }
 
-  static func expansionHeight(_ account: MenuBarAccountSnapshot) -> CGFloat {
-    guard account.isVerified else { return expandedHeight }
+  static func actionHeight(_ account: MenuBarAccountSnapshot, hasOpenTool: Bool = true) -> CGFloat {
+    !account.isVerified || showsSwitch(account) || (account.supportsLaunch && hasOpenTool) ? expandedHeight : 0
+  }
+
+  static func canExpand(_ account: MenuBarAccountSnapshot, hasOpenTool: Bool = true) -> Bool {
+    account.showsUsage && (actionHeight(account, hasOpenTool: hasOpenTool) > 0
+      || lines(for: account, expanded: true).count > lines(for: account).count)
+  }
+
+  static func expansionHeight(_ account: MenuBarAccountSnapshot, hasOpenTool: Bool = true) -> CGFloat {
+    guard canExpand(account, hasOpenTool: hasOpenTool) else { return 0 }
     let extra = max(0, lines(for: account, expanded: true).count - lines(for: account).count)
-    return expandedHeight + CGFloat(extra) * lineHeight
+    return actionHeight(account, hasOpenTool: hasOpenTool) + CGFloat(extra) * lineHeight
   }
 
   struct Line: Equatable {
@@ -305,8 +318,11 @@ struct MenuBarRow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private typealias P = MenuBarPresentation
-  private var expansion: CGFloat { store.expansionAmount(account.id) }
-  private var reveal: CGFloat { store.revealAmount(account.id) }
+  private var canExpand: Bool { P.canExpand(account, hasOpenTool: store.actions.openTool != nil) }
+  private var isExpanded: Bool { canExpand && store.expandedAccountID == account.id }
+  private var expansion: CGFloat { canExpand ? store.expansionAmount(account.id) : 0 }
+  private var reveal: CGFloat { canExpand ? store.revealAmount(account.id) : 0 }
+  private var actionHeight: CGFloat { P.actionHeight(account, hasOpenTool: store.actions.openTool != nil) }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -320,7 +336,7 @@ struct MenuBarRow: View {
       .padding(.leading, P.rowPaddingH)
       .padding(.trailing, P.trailingInset)
       .padding(.vertical, P.rowPaddingV)
-      if expansion > 0 || store.expandedAccountID == account.id {
+      if actionHeight > 0 && (expansion > 0 || isExpanded) {
         HStack(spacing: 8) {
           if P.showsSwitch(account) {
             Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
@@ -343,7 +359,7 @@ struct MenuBarRow: View {
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
-        .fill(isFocused || store.expandedAccountID == account.id ? AIMTheme.rowHighlight : hovered || previewHovered ? Color.primary.opacity(0.07) : .clear)
+        .fill(!canExpand ? .clear : isFocused || isExpanded ? P.rowHighlight : hovered || previewHovered ? P.rowHover : .clear)
         .uiLint(.align("menuBarHoverFill", .start))
         .padding(.leading, P.rowPaddingH - 4)
         .padding(.trailing, P.rowPaddingH - 4 - AIMScroller.gutter)
@@ -365,18 +381,25 @@ struct MenuBarRow: View {
       }
     }
     .contentShape(Rectangle())
-    .onHover { hovered = $0 }
+    .onHover { hovered = canExpand && $0 }
     .animation(.easeOut(duration: 0.12), value: hovered)
     .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.9), value: account.isActive)
     .onAppear { withAnimation(reduceMotion ? .easeOut(duration: 0.18) : .easeOut(duration: 0.3)) { barsVisible = true } }
     .onTapGesture { store.toggleExpanded(account) }
     .contextMenu { menu }
-    .accessibilityElement(children: store.expandedAccountID == account.id || !account.isVerified ? .contain : .ignore)
+    .accessibilityElement(children: isExpanded || !account.isVerified ? .contain : .ignore)
     .accessibilityLabel(P.accessibilityLabel(account, showsUsed: showsUsed, now: now, exact: exact))
-    .accessibilityAddTraits(.isButton)
-    .accessibilityHint("Shows every usage window and account actions")
-    .accessibilityAction(named: "Show actions") { store.toggleExpanded(account) }
-    .accessibilityAction(named: "Switch") { store.select(account) }
+    .accessibilityAddTraits(canExpand ? .isButton : [])
+    .accessibilityRemoveTraits(canExpand ? [] : .isButton)
+    .accessibilityHint(canExpand ? "Shows every usage window and account actions" : "")
+    .accessibilityActions {
+      if canExpand {
+        Button("Show actions") { store.toggleExpanded(account) }
+      }
+      if store.canSwitch(account) {
+        Button("Switch") { store.select(account) }
+      }
+    }
   }
 
   /// One line that never wraps. A long line puts the API price at the right end.
@@ -467,7 +490,7 @@ struct MenuBarRow: View {
         Text(label).aimText(.secondary, tint: P.secondaryInk)
           .fixedSize(horizontal: true, vertical: false)
           .uiLint(.align("menuBarUsageLabelInk", .start))
-          .frame(width: P.labelColumnWidth(account, expanded: store.expandedAccountID == account.id), alignment: .leading)
+          .frame(width: P.labelColumnWidth(account, expanded: isExpanded), alignment: .leading)
           .uiLint(.align("menuBarUsageLabels", .start)).help(line.helpTitle ?? label)
       }
       if let balance = line.balance {

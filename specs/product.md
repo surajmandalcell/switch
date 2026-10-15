@@ -482,6 +482,8 @@ in light and dark before a UI change ships.
   less see-through than the default popover material; in Dark Mode it stays dark (about
   #262628), never a lifted gray. Separators use half the hairline opacity and fade at both ends.
   The group headers, rows, and footer share the footer's 12 pt inset from the popover edge.
+  A row expands only when it has something to show (a button or hidden lines); a row with nothing to show has no hover or press fill.
+  Popover expanded and focused fills use primary color at 0.06 opacity; hover uses 0.04 in both appearances.
   Hover highlights reach 4 pt past the content to the sides and below, and 6 pt above the
   name, so they never touch the group header; row spacing never changes. Text and footer controls use native contrast (primary
   label icons, not dimmed). Buttons keep the
