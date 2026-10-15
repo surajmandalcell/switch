@@ -650,6 +650,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
             try? await Task.sleep(for: .milliseconds(250))
             inspect(page.rawValue)
+            if let window = windowController?.window { failures += await ConversationsCheck.wheelFailures(window: window, label: page.rawValue) }
         }
         for importing in [false, true] {
             if importing { await model.beginAdvancedImport() } else { await model.beginAddAccount() }

@@ -910,7 +910,7 @@ final class AIMVirtualTableView: NSTableView {
 }
 
 private final class AIMVirtualCell: NSTableCellView {
-  let host = NSHostingView(rootView: AnyView(EmptyView()))
+  let host = AIMHostingView(rootView: AnyView(EmptyView()))
 
   init(identifier: NSUserInterfaceItemIdentifier) {
     super.init(frame: .zero)
@@ -1022,6 +1022,31 @@ final class AIMScroller: NSScroller {
     dragging = false
     restyle()
     scheduleHide()
+  }
+}
+
+/// An NSHostingView swallows a wheel event it receives itself, which happens wherever SwiftUI claims
+/// the point (a gesture or hover area: the scroll bar gutter, a chat message). This one hands the event
+/// to the smallest scroll view under the pointer, else the enclosing one, else up the responder chain,
+/// so a mouse wheel scrolls from every point of a page, list row, or message.
+final class AIMHostingView: NSHostingView<AnyView> {
+  private var forwarding = false
+
+  override func scrollWheel(with event: NSEvent) {
+    guard !forwarding else { nextResponder?.scrollWheel(with: event); return }
+    forwarding = true
+    defer { forwarding = false }
+    func smallest(in view: NSView) -> NSScrollView? {
+      var best = (view as? NSScrollView).flatMap { $0.bounds.contains($0.convert(event.locationInWindow, from: nil)) ? $0 : nil }
+      for sub in view.subviews where !sub.isHidden {
+        if let found = smallest(in: sub), found.frame.width * found.frame.height < (best.map { $0.frame.width * $0.frame.height } ?? .infinity) {
+          best = found
+        }
+      }
+      return best
+    }
+    if let scroll = smallest(in: self) ?? enclosingScrollView { scroll.scrollWheel(with: event) }
+    else { nextResponder?.scrollWheel(with: event) }
   }
 }
 
