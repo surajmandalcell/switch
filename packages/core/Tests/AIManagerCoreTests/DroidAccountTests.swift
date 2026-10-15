@@ -366,7 +366,7 @@ final class DroidAccountTests: XCTestCase {
         do { _ = try await manager.importDroidAccount(name: "Unsafe"); XCTFail("missing key accepted") } catch AIManagerError.credentialConflict {}
     }
 
-    func testUsageRequiresAccountAPIKeyAndReusesFactoryProvider() async throws {
+    func testUsageAPIKeyWinsOverUnreadableLoginAndReusesFactoryProvider() async throws {
         let factory = ProviderSpec(id: "factory", name: "Factory", usage: { credential in
             XCTAssertEqual(try credential.require("apiKey"), "synthetic-usage-key")
             XCTAssertTrue(credential.files.isEmpty)
@@ -376,7 +376,7 @@ final class DroidAccountTests: XCTestCase {
                                          providerSpecs: [factory], droidProcessLister: { [] })
         let account = try await manager.importDroidAccount(name: "Usage test")
         do { _ = try await manager.readProviderUsage(accountID: account.id); XCTFail("usage without key") }
-        catch ProviderError.unsupported {}
+        catch DroidLoginError.invalidLogin {}
         try await manager.setDroidUsageAPIKey(accountID: account.id, apiKey: "synthetic-usage-key")
         let usage = try await manager.readProviderUsage(accountID: account.id)
         XCTAssertEqual(usage.windows.first?.usedPercent, 25)

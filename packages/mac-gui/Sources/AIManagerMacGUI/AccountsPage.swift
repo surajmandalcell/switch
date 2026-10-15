@@ -1402,6 +1402,12 @@ struct FocusedAccountCard: View {
       .uiLint(.actions)
       Spacer(minLength: AIMTheme.rowSpacing)
       HStack(spacing: AIMTheme.rowSpacing) {
+        if providerID == .droid, model.providerUsage[account.id]?.needsKeychainAccess == true {
+          Button("Allow access") { Task { await model.allowDroidUsageAccess(accountID: account.id) } }
+            .buttonStyle(AIMPushButtonStyle())
+            .disabled(model.isBusy || model.providerUsage[account.id]?.isRefreshing == true)
+            .help("Allow Switch to read Droid's login for usage")
+        }
         Button { _ = copyPath(account.identity.accountLabel) } label: {
           Label("Copy", systemImage: AIMIcon.Name.copy.symbol)
         }

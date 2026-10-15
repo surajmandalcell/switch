@@ -1865,7 +1865,15 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    private func runProviderUsage(_ requested: [UUID]) async {
+    /// This entry point is used only by the focused Droid card's Allow access button.
+    func allowDroidUsageAccess(accountID: UUID) async {
+        guard status?.accounts.contains(where: { $0.id == accountID && $0.identity.providerID == .droid }) == true,
+              providerUsage[accountID]?.needsKeychainAccess == true,
+              providerUsage[accountID]?.isRefreshing != true else { return }
+        await runProviderUsage([accountID], interactive: true)
+    }
+
+    private func runProviderUsage(_ requested: [UUID], interactive: Bool = false) async {
         let known = Set(providerUsageAccountIDs)
         let ids = requested.filter(known.contains)
         guard !ids.isEmpty, paths.isolationRoot == nil, let manager else { return }
@@ -1877,7 +1885,7 @@ final class AccountViewModel: ObservableObject {
         await withTaskGroup(of: (UUID, Result<ProviderUsage, Error>).self) { group in
             var pending = ids[...]
             func launch(_ id: UUID) {
-                group.addTask { await Self.fetchProviderUsage(manager, id) }
+                group.addTask { await Self.fetchProviderUsage(manager, id, interactive: interactive) }
             }
             for _ in 0..<min(ProviderUsagePolicy.maxConcurrent, ids.count) {
                 if let id = pending.popFirst() { launch(id) }
@@ -1891,11 +1899,11 @@ final class AccountViewModel: ObservableObject {
     }
 
     nonisolated private static func fetchProviderUsage(
-        _ manager: AccountManager, _ id: UUID
+        _ manager: AccountManager, _ id: UUID, interactive: Bool = false
     ) async -> (UUID, Result<ProviderUsage, Error>) {
         do {
             let usage = try await ProviderUsageCache.withTimeout(ProviderUsagePolicy.fetchTimeout) {
-                try await manager.readProviderUsage(accountID: id)
+                try await manager.readProviderUsage(accountID: id, interactive: interactive)
             }
             return (id, .success(usage))
         } catch {
@@ -1916,10 +1924,12 @@ final class AccountViewModel: ObservableObject {
             state.usage = usage
             state.error = nil
             state.needsSignIn = false
+            state.needsKeychainAccess = false
         case .failure(let error):
             let failure = ProviderUsagePolicy.failure(error)
             state.error = failure.message
             state.needsSignIn = failure.needsSignIn
+            state.needsKeychainAccess = error as? DroidLoginError == .needsKeychainAccess
             // Stale numbers never sit beside a sign-in request.
             if failure.needsSignIn { state.usage = nil }
         }
