@@ -1106,7 +1106,9 @@ final class AccountViewModel: ObservableObject {
         #endif
     }
 
-    func switchDefault(to requestedID: UUID? = nil) async {
+    /// `announce: false` skips the "New sessions will use this account" notification; Auto switch
+    /// sends its own.
+    func switchDefault(to requestedID: UUID? = nil, announce: Bool = true) async {
         if let manager {
             guard let id = requestedID ?? selectedAccountID,
                   let providerID = status?.accounts.first(where: { $0.id == id })?
@@ -1119,7 +1121,7 @@ final class AccountViewModel: ObservableObject {
                 guard try await switchWithDroidConfirmation(manager, to: id) != nil else { return }
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
-                notice = "New \(providerName) sessions will use this account."
+                if announce { notice = "New \(providerName) sessions will use this account." }
             }
             if status?.defaultAccountID(for: providerID) == id {
                 await loadCachedUsage()
@@ -1232,6 +1234,28 @@ final class AccountViewModel: ObservableObject {
         #else
         reportUnavailable()
         #endif
+    }
+
+    /// Auto switch: opens a stopped Codex or Claude Code session again in a new Terminal window on
+    /// the current default account. Terminal opens behind the front app. False when it could not.
+    func openResume(_ resume: CLIResume) async -> Bool {
+        guard let manager, paths.isolationRoot == nil else { return false }
+        let providerID: ProviderID = resume.tool == .codex ? .codex : .claudeCode
+        guard let id = status?.defaultAccountID(for: providerID) else { return false }
+        do {
+            let spec = try await manager.launchSpec(
+                accountID: id, arguments: resume.arguments,
+                workingDirectory: URL(fileURLWithPath: resume.cwd, isDirectory: true))
+            let script = try makeLaunchArtifact(
+                spec, name: "Resume \(resume.tool.rawValue) \(resume.sessionID.prefix(8)).command")
+            guard let terminal = NSWorkspace.shared.urlForApplication(toOpen: script) else { return false }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = false
+            _ = try await NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: configuration)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func moveAccount(_ accountID: UUID, to targetID: UUID) async {

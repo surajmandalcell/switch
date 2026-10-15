@@ -1674,7 +1674,7 @@ private struct AccountsTableRow: View {
           AccountMenuItems(account: account, model: model, delete: delete)
         }
       }
-      .modifier(AccountRowReorder(account: account, onMove: onMove))
+      .modifier(AccountRowReorder(account: account, model: model, onMove: onMove))
       .accessibilityElement(children: .contain)
       .accessibilityLabel(name)
       .accessibilityValue(isDefault ? "Default account" : "Not the default account")
@@ -1683,23 +1683,87 @@ private struct AccountsTableRow: View {
   }
 }
 
-/// Drag a row onto another row to move it there (the Accounts page).
+/// The account the pointer is carrying, set when a drag from a row handle starts.
+@MainActor private enum AccountReorderDrag {
+  static var source: UUID?
+}
+
+/// Reorder by dragging a row's grip handle within its provider group. The grip sits in the
+/// card padding left of the guide line and fades in on row hover (its space is always reserved).
+/// A blue line shows where the account lands; the row accepts only accounts of its own provider.
 private struct AccountRowReorder: ViewModifier {
   let account: AccountRecord
+  let model: AccountViewModel
   let onMove: ((UUID, UUID) -> Void)?
+  @State private var rowHover = false
+  @State private var handleHover = false
+  @State private var targeted = false
+
+  private func providerID(of id: UUID) -> ProviderID? {
+    model.status?.accounts.first { $0.id == id }?.identity.providerID
+  }
+
+  /// Where the insertion line shows: the top edge when the carried account moves up to this
+  /// row, the bottom edge when it moves down. Nil unless the carried account may land here.
+  private var insertionEdge: Alignment? {
+    guard targeted, let source = AccountReorderDrag.source, source != account.id,
+          providerID(of: source) == account.identity.providerID,
+          let accounts = model.status?.accounts,
+          let from = accounts.firstIndex(where: { $0.id == source }),
+          let to = accounts.firstIndex(where: { $0.id == account.id }) else { return nil }
+    return from > to ? .top : .bottom
+  }
 
   func body(content: Content) -> some View {
     if let onMove {
       content
-        .draggable(account.id.uuidString)
+        .onHover { rowHover = $0 }
+        .overlay(alignment: .leading) { handle }
+        .overlay(alignment: insertionEdge ?? .top) {
+          let wash = AIMTheme.cardInset - 8
+          Capsule().fill(AIMTheme.blue).frame(height: 2)
+            .padding(.leading, wash + AIMTheme.groupIndent).padding(.trailing, wash)
+            .offset(y: insertionEdge == .bottom ? 1 : -1)
+            .opacity(insertionEdge == nil ? 0 : 1)
+            .animation(AIMMotion.fade(AIMMotion.hover), value: insertionEdge == nil)
+            .allowsHitTesting(false).accessibilityHidden(true)
+        }
         .dropDestination(for: String.self) { items, _ in
-          guard let id = items.first.flatMap(UUID.init(uuidString:)), id != account.id else { return false }
+          AccountReorderDrag.source = nil
+          guard let id = items.first.flatMap(UUID.init(uuidString:)), id != account.id,
+                providerID(of: id) == account.identity.providerID else { return false }
           onMove(id, account.id)
           return true
-        }
+        } isTargeted: { targeted = $0 }
     } else {
       content
     }
+  }
+
+  private var handle: some View {
+    Image(systemName: "line.3.horizontal")
+      .aimText(.secondary)
+      .foregroundStyle(handleHover ? .secondary : .tertiary)
+      .frame(width: 18, height: AIMTheme.rowHeight)
+      .contentShape(Rectangle())
+      .padding(.leading, 4)
+      .opacity(rowHover || handleHover ? 1 : 0)
+      .animation(AIMMotion.fade(AIMMotion.hover), value: rowHover || handleHover)
+      .onHover { inside in
+        handleHover = inside
+        if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
+      }
+      .onDrag {
+        AccountReorderDrag.source = account.id
+        NSCursor.closedHand.set()
+        return NSItemProvider(object: account.id.uuidString as NSString)
+      } preview: {
+        Text(account.identity.accountLabel).aimText(.body).lineLimit(1)
+          .padding(.horizontal, 10).frame(height: AIMTheme.controlHeight)
+          .background(AIMTheme.controlFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+      }
+      .help("Drag to reorder")
+      .accessibilityHidden(true)  // Move up and Move down in the account menu do the same.
   }
 }
 
