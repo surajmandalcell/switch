@@ -765,6 +765,7 @@ final class AccountViewModel: ObservableObject {
 
     @Published var droidAccountName = "Droid 1"
     @Published var droidAPIKey = ""
+    @Published private(set) var droidUsageKeySaved: Set<UUID> = []
     var droidConfirmation: ((String, String) -> Bool)?
 
     func importDroidAccount() async {
@@ -792,7 +793,18 @@ final class AccountViewModel: ObservableObject {
         await perform {
             try await manager.setDroidUsageAPIKey(accountID: accountID, apiKey: key)
         }
+        await loadDroidUsageKeyState(accountID: accountID)
         await refreshProviderUsage(accountID: accountID)
+    }
+
+    /// Reads whether a usage key file exists for the account; the key itself is never loaded.
+    func loadDroidUsageKeyState(accountID: UUID) async {
+        guard let manager else { return }
+        if await manager.hasDroidUsageAPIKey(accountID: accountID) {
+            droidUsageKeySaved.insert(accountID)
+        } else {
+            droidUsageKeySaved.remove(accountID)
+        }
     }
 
     private func confirmDroidAction(_ message: String, action: String) -> Bool {
