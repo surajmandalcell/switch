@@ -1754,6 +1754,11 @@ extension AccountManager {
         }
     }
 
+    /// Whether a usage key is saved for the account. Never returns the key.
+    public func hasDroidUsageAPIKey(accountID: UUID) -> Bool {
+        CoreSupport.entryExists(droidUsageKey(accountID))
+    }
+
     private func droidUsageKey(_ id: UUID) -> URL {
         paths.applicationSupport.appending(path: "droid-usage/\(id.uuidString).json")
     }

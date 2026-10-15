@@ -9,6 +9,7 @@ struct DroidUsageKeyPanel: View {
   var body: some View {
     AIMSection("Factory usage key") {
       SecureField("Factory API key", text: $key)
+        .textFieldStyle(AIMSheetTextFieldStyle())
         .accessibilityLabel("Factory API key for this Droid account")
       Text("An API key shows usage without opening or decrypting the Droid login.").aimText(.secondary)
       HStack(spacing: AIMTheme.rowSpacing) {
@@ -17,11 +18,12 @@ struct DroidUsageKeyPanel: View {
           key = ""
           Task { await model.saveDroidUsageKey(accountID: account.id, key: value) }
         }
-        AIMButton(title: "Remove key", disabled: model.isBusy) {
+        AIMButton(title: "Remove key", disabled: model.isBusy || !model.droidUsageKeySaved.contains(account.id)) {
           Task { await model.saveDroidUsageKey(accountID: account.id, key: "") }
         }
       }
     }
+    .task(id: account.id) { await model.loadDroidUsageKeyState(accountID: account.id) }
   }
 }
 

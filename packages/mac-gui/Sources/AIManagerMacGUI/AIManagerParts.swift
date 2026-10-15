@@ -721,7 +721,7 @@ struct AIMSheetForm<Content: View>: View {
   }
 }
 
-private struct AIMSheetTextFieldStyle: TextFieldStyle {
+struct AIMSheetTextFieldStyle: TextFieldStyle {
   @FocusState private var focused: Bool
   func _body(configuration: TextField<Self._Label>) -> some View {
     configuration.textFieldStyle(.plain).focused($focused).aimFieldChrome(focused: focused)

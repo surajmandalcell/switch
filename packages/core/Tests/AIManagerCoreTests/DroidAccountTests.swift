@@ -384,6 +384,19 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertFalse(CoreSupport.entryExists(paths.applicationSupport.appending(path: "droid-usage/\(account.id.uuidString).json")))
     }
 
+    func testHasDroidUsageAPIKeyTracksSavedKey() async throws {
+        let manager = try manager()
+        let account = try await manager.importDroidAccount(name: "Key state")
+        var saved = await manager.hasDroidUsageAPIKey(accountID: account.id)
+        XCTAssertFalse(saved)
+        try await manager.setDroidUsageAPIKey(accountID: account.id, apiKey: "synthetic-usage-key")
+        saved = await manager.hasDroidUsageAPIKey(accountID: account.id)
+        XCTAssertTrue(saved)
+        try await manager.setDroidUsageAPIKey(accountID: account.id, apiKey: "")
+        saved = await manager.hasDroidUsageAPIKey(accountID: account.id)
+        XCTAssertFalse(saved)
+    }
+
     func testEnvironmentAppendsFactoryDirectoryAndKeepsIsolation() {
         let home = root.appending(path: "isolated")
         let isolated = ManagerPaths.environment(["AI_MANAGER_ROOT": home.path, "FACTORY_HOME_OVERRIDE": home.path])
