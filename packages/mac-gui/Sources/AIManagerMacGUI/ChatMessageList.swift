@@ -415,7 +415,7 @@ struct ChatMessageList: NSViewRepresentable {
 }
 
 final class ChatRowCell: NSTableCellView {
-  let host = NSHostingView(rootView: AnyView(EmptyView()))
+  let host = AIMHostingView(rootView: AnyView(EmptyView()))
 
   init(identifier: NSUserInterfaceItemIdentifier) {
     super.init(frame: .zero)

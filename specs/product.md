@@ -525,7 +525,8 @@ in light and dark before a UI change ships.
   gutter, with no track or border. The bar is hidden at rest. It fades in (150 ms) and grows
   from 4 to 6 pt when the user scrolls with a mouse or trackpad, or when the pointer enters the
   gutter; on hover or drag it widens to 8 pt and brightens. It fades out (300 ms) 1 s after the
-  last scroll or after the pointer leaves. Reduce Motion keeps the fade only. Clicks and
+  last scroll or after the pointer leaves. Reduce Motion keeps the fade only. A mouse wheel or
+  trackpad scrolls from every point of a page, list, or message, the gutter included. Clicks and
   selections never draw focus rings or outlines, including the sidebar and lists; keyboard
   focus is a subtle tint even with keyboard navigation (Full Keyboard Access) on. In Dark Mode,
   selection, focus, and focused fields use a neutral lighter gray, never a blue tint. System

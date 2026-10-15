@@ -262,6 +262,47 @@ struct RealChatProvider: ChatHistoryProviding {
     return failures
   }
 
+  /// A classic mouse wheel (line units) and a pixel wheel, over the middle and over the trailing gutter
+  /// of every scrollable area in the window, must move that area. The event is routed as the window
+  /// does: hit-test the point, then send it to that view (NSWindow.sendEvent drops a windowless event).
+  /// The window is parked at the screen origin so the CGEvent's screen point and window point agree.
+  static func wheelFailures(window: NSWindow, label: String) async -> [String] {
+    guard let root = window.contentView, let frame = root.superview else { return ["\(label) wheel: no window"] }
+    let scrolls = views(in: root).compactMap { $0 as? NSScrollView }.filter {
+      ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height + 1 && $0.frame.height > 60
+    }
+    if scrolls.isEmpty { return [] }
+    let saved = window.frame.origin
+    window.setFrameOrigin(.zero)
+    defer { window.setFrameOrigin(saved) }
+    let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+    var failures: [String] = []
+    for scroll in scrolls {
+      for (spot, x) in [("middle", scroll.bounds.midX), ("gutter", scroll.bounds.maxX - 8)] {
+        // Wheel down (negative), or up when the area already rests at its end (a chat opens at the latest message).
+        let travel = (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height
+        let sign: Int32 = scroll.contentView.bounds.minY > travel - 60 ? 1 : -1
+        for (unit, amount) in [(CGScrollEventUnit.line, 3 * sign), (.pixel, 40 * sign)] {
+          let top = scroll.contentView.bounds.minY
+          let point = scroll.convert(NSPoint(x: x, y: scroll.bounds.midY), to: nil)
+          guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: unit, wheelCount: 1, wheel1: amount, wheel2: 0, wheel3: 0)
+          else { continue }
+          cg.location = CGPoint(x: point.x, y: screenHeight - point.y)
+          guard let event = NSEvent(cgEvent: cg), let hit = frame.hitTest(event.locationInWindow) else { continue }
+          hit.scrollWheel(with: event)
+          _ = await waitUntil(timeout: 2) { scroll.contentView.bounds.minY != top }
+          if scroll.contentView.bounds.minY == top {
+            failures.append("\(label) wheel: a \(unit == .line ? "line" : "pixel") wheel over the \(spot) of the "
+              + "\(Int(scroll.frame.width))x\(Int(scroll.frame.height)) area (\(type(of: hit))) did not scroll it")
+          }
+          scroll.contentView.scroll(to: NSPoint(x: 0, y: top))
+          scroll.reflectScrolledClipView(scroll.contentView)
+        }
+      }
+    }
+    return failures
+  }
+
   /// Time from a page selection to its first rendered frame, for every page, against many
   /// accounts, a year of daily activity, and thousands of conversations. Returns failures for
   /// first visits above 150 ms, warm medians above 50 ms, or warm frames above 80 ms.
@@ -535,6 +576,7 @@ struct RealChatProvider: ChatHistoryProviding {
         await pause(500)
         hosting.layoutSubtreeIfNeeded()
         failures += await scrollAndAudit(window: window, root: hosting, label: tag, shot: "conv-\(tag)")
+        failures += await wheelFailures(window: window, label: "Conversations \(tag)")
         // The same page after a live height change, at the other height.
         let other = height == 900 ? 800.0 : 900.0
         window.setContentSize(NSSize(width: 1200, height: other))

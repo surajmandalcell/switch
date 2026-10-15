@@ -450,7 +450,7 @@ struct AIMVisitedPageHost: NSViewRepresentable {
   }
 
   final class Container: NSView {
-    private var hosts: [AIManagerPage: NSHostingView<AnyView>] = [:]
+    private var hosts: [AIManagerPage: AIMHostingView] = [:]
     private var inputs: [AIManagerPage: Inputs] = [:]
     private(set) var current: AIManagerPage?
     private var makePage: ((AIManagerPage, Bool) -> AnyView)?
@@ -461,13 +461,13 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     func show(_ page: AIManagerPage, inputs next: Inputs, root: @escaping (AIManagerPage, Bool) -> AnyView) {
       makePage = root
       latestInputs = next
-      let host: NSHostingView<AnyView>
+      let host: AIMHostingView
       if let existing = hosts[page] {
         host = existing
         let wasPrewarmed = prewarmed.remove(page) != nil
         if inputs[page] != next || wasPrewarmed { host.rootView = root(page, true) }
       } else {
-        host = NSHostingView(rootView: root(page, true))
+        host = AIMHostingView(rootView: root(page, true))
         host.sizingOptions = []
         host.focusRingType = .none
         host.autoresizingMask = [.width, .height]
@@ -506,7 +506,7 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     private func warmPage() {
       guard let makePage, let latestInputs,
         let page = AIManagerPage.allCases.first(where: { hosts[$0] == nil }) else { return }
-      let host = NSHostingView(rootView: makePage(page, false))
+      let host = AIMHostingView(rootView: makePage(page, false))
       host.sizingOptions = []
       host.focusRingType = .none
       host.autoresizingMask = [.width, .height]
