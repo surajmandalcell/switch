@@ -37,6 +37,35 @@ public struct UsageHistoryPoint: Codable, Equatable, Sendable {
     var isAccountTotal: Bool { model == nil && project == nil }
 }
 
+/// One thread, log, or session with usage on one UTC day.
+public struct UsageDaySession: Identifiable, Sendable, Equatable {
+    public let id: String
+    /// Provider id, such as `codex`, `claude-code`, `grok-build`.
+    public let service: String
+    public let accountID: String?
+    /// The Codex thread id Conversations knows the transcript by; nil for other tools.
+    public let threadID: String?
+    public let project: String
+    /// The model with the most tokens that day.
+    public let model: String?
+    public let start: Date?
+    public let tokens: Int64
+    public let costUSD: Double?
+
+    public init(id: String, service: String, accountID: String? = nil, threadID: String? = nil,
+                project: String, model: String? = nil, start: Date? = nil, tokens: Int64, costUSD: Double? = nil) {
+        self.id = id
+        self.service = service
+        self.accountID = accountID
+        self.threadID = threadID
+        self.project = project
+        self.model = model
+        self.start = start
+        self.tokens = tokens
+        self.costUSD = costUSD
+    }
+}
+
 public enum UsagePeriod: String, Codable, CaseIterable, Sendable {
     case week, month, year
 
@@ -293,17 +322,94 @@ public actor UsageHistory {
         }
         var table = ModelRateTable(rates)
         for row in threads {
-            var cost: Double?
-            if let model = row.model, row.input + row.output > 0, let rate = table.resolve(model) {
-                // Cached input is part of input; reasoning is part of output.
-                cost = (Double(max(row.input - row.cached, 0)) * rate.inputPerMillion
-                    + Double(row.cached) * rate.cacheReadPerMillion
-                    + Double(row.output) * rate.outputPerMillion) / 1_000_000
-            }
+            let cost = Self.codexCost(model: row.model, input: row.input, cached: row.cached, output: row.output, table: &table)
             points.append(UsageHistoryPoint(day: row.day, service: service, model: row.model,
                                             project: row.project, tokens: row.tokens, costUSD: cost))
         }
         return points
+    }
+
+    /// Cached input is part of input; reasoning is part of output.
+    private static func codexCost(model: String?, input: Int64, cached: Int64, output: Int64,
+                                  table: inout ModelRateTable) -> Double? {
+        guard let model, input + output > 0, let rate = table.resolve(model) else { return nil }
+        return (Double(max(input - cached, 0)) * rate.inputPerMillion
+            + Double(cached) * rate.cacheReadPerMillion
+            + Double(output) * rate.outputPerMillion) / 1_000_000
+    }
+
+    // MARK: Sessions of one day
+
+    /// The sessions with usage on one UTC day, most tokens first, from the same files as `snapshot`:
+    /// Codex threads from the ledger, Claude Code logs, Grok Build sessions. Sources that keep no
+    /// per-session data (provider charts, account totals) add none. Run it off the main actor.
+    public func daySessions(day: String) async -> [UsageDaySession] {
+        var sessions: [UsageDaySession] = []
+        if let ledger = sources.ledger, let rows = try? await ledger.threadSessions(day: day) {
+            var rates: [String: ModelRate] = [:]
+            if let pricing = sources.pricing, rows.contains(where: { $0.model != nil && $0.input + $0.output > 0 }) {
+                rates = await pricing()
+            }
+            var table = ModelRateTable(rates)
+            struct Sum { var project = ""; var first = ""; var tokens: Int64 = 0; var cost: Double?; var models: [String: Int64] = [:] }
+            var threads: [String: Sum] = [:]
+            for row in rows {
+                var sum = threads[row.threadID] ?? Sum()
+                (sum.project, sum.first) = (row.project, row.firstEvent)
+                sum.tokens += row.tokens
+                if let cost = Self.codexCost(model: row.model, input: row.input, cached: row.cached, output: row.output, table: &table) {
+                    sum.cost = (sum.cost ?? 0) + cost
+                }
+                if let model = row.model { sum.models[model, default: 0] += row.tokens }
+                threads[row.threadID] = sum
+            }
+            let service = ProviderID.codex.rawValue
+            sessions += threads.map { id, sum in
+                UsageDaySession(
+                    id: id, service: service, threadID: id.hasPrefix("codex:") ? String(id.dropFirst(6)) : id,
+                    project: sum.project, model: sum.models.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key,
+                    start: Self.firstEventDate(sum.first), tokens: sum.tokens, costUSD: sum.cost)
+            }
+        }
+        if let claude = sources.claude {
+            let homes = sources.claudeHomes.map { ($0.key, $0.value.resolvingSymlinksInPath().path + "/") }
+            sessions += await claude.daySessions(day: day) { path in homes.first { path.hasPrefix($0.1) }?.0 }.map {
+                UsageDaySession(id: "claude-code:" + $0.sessionID, service: ProviderID.claudeCode.rawValue,
+                                accountID: $0.accountID, project: $0.project, model: $0.model, start: $0.start,
+                                tokens: $0.tokens, costUSD: $0.costUSD)
+            }
+        }
+        if let root = sources.grokSessions?.resolvingSymlinksInPath().path {
+            var seen = Set<String>()
+            struct Sum { var tokens: Int64 = 0; var cost: Double?; var start = Date.distantFuture; var models: [String: Int64] = [:] }
+            for path in grokFiles.keys.sorted() {
+                var sum = Sum()
+                for turn in grokFiles[path]?.turns ?? [] {
+                    if let key = turn.key, !seen.insert(key).inserted { continue }
+                    guard ClaudeCostScanner.utcDayName(Int((turn.date.timeIntervalSince1970 / 86_400).rounded(.down))) == day else { continue }
+                    sum.tokens += Int64(turn.tokens)
+                    if let cost = turn.cost { sum.cost = (sum.cost ?? 0) + cost }
+                    sum.start = min(sum.start, turn.date)
+                    if let model = turn.model { sum.models[model, default: 0] += Int64(turn.tokens) }
+                }
+                guard sum.tokens > 0 else { continue }
+                sessions.append(UsageDaySession(
+                    id: "grok-build:" + path, service: ProviderID.grokBuild.rawValue, accountID: sources.grokAccountID,
+                    project: Self.grokProject(path: path, root: root),
+                    model: sum.models.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key, start: sum.start,
+                    tokens: sum.tokens, costUSD: sum.cost))
+            }
+        }
+        return sessions.sorted { ($1.tokens, $0.id) < ($0.tokens, $1.id) }
+    }
+
+    /// `<ISO timestamp>:<total>`: the date before the last colon.
+    static func firstEventDate(_ event: String) -> Date? {
+        guard let colon = event.lastIndex(of: ":") else { return nil }
+        let text = String(event[..<colon])
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
     }
 
     /// ponytail: the Grok turn cache lives in memory, so a restart re-reads the logs of the last

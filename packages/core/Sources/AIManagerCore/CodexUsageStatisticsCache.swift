@@ -147,6 +147,19 @@ public struct CodexLedgerThreadDay: Sendable, Equatable {
     public let output: Int64
 }
 
+/// A thread's tokens with one model on one day. `threadID` carries the ledger's `codex:` prefix and
+/// `firstEvent` is `<ISO timestamp>:<token total>` of the thread's first counted event.
+public struct CodexLedgerSessionRow: Sendable, Equatable {
+    public let threadID: String
+    public let project: String
+    public let firstEvent: String
+    public let model: String?
+    public let tokens: Int64
+    public let input: Int64
+    public let cached: Int64
+    public let output: Int64
+}
+
 public struct CodexLedgerAccountDay: Sendable, Equatable {
     public let accountID: String
     public let day: String
@@ -613,6 +626,48 @@ public actor CodexUsageStatisticsCache {
             }
             guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
                 throw Self.databaseError(database, "Could not read thread activity")
+            }
+            return rows
+        }
+    }
+
+    /// One thread's tokens with one model on `day`: the per-session view of the same rows as `threadDays`.
+    public func threadSessions(day: String) throws -> [CodexLedgerSessionRow] {
+        guard Self.validDay(day), let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            var rows: [CodexLedgerSessionRow] = []
+            let models = try Self.prepare(database, """
+                SELECT t.thread_id, t.project, t.first_event, m.model, m.tokens, m.input, m.cached, m.output
+                FROM model_days m JOIN activity_threads t USING(thread_id) WHERE m.day = ?1
+                """)
+            defer { sqlite3_finalize(models) }
+            Self.bind(day, to: models, at: 1)
+            while sqlite3_step(models) == SQLITE_ROW {
+                guard let id = Self.text(models, column: 0), let project = Self.text(models, column: 1) else { continue }
+                let model = Self.text(models, column: 3)
+                rows.append(.init(
+                    threadID: id, project: project, firstEvent: Self.text(models, column: 2) ?? "",
+                    model: model == "unknown" ? nil : model, tokens: sqlite3_column_int64(models, 4),
+                    input: sqlite3_column_int64(models, 5), cached: sqlite3_column_int64(models, 6),
+                    output: sqlite3_column_int64(models, 7)))
+            }
+            let rest = try Self.prepare(database, """
+                SELECT t.thread_id, t.project, t.first_event,
+                       d.tokens - COALESCE((SELECT SUM(m.tokens) FROM model_days m
+                           WHERE m.thread_id = d.thread_id AND m.day = d.day), 0) AS rest
+                FROM project_days d JOIN activity_threads t USING(thread_id)
+                WHERE d.day = ?1 AND rest > 0
+                """)
+            defer { sqlite3_finalize(rest) }
+            Self.bind(day, to: rest, at: 1)
+            while sqlite3_step(rest) == SQLITE_ROW {
+                guard let id = Self.text(rest, column: 0), let project = Self.text(rest, column: 1) else { continue }
+                rows.append(.init(
+                    threadID: id, project: project, firstEvent: Self.text(rest, column: 2) ?? "", model: nil,
+                    tokens: sqlite3_column_int64(rest, 3), input: 0, cached: 0, output: 0))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read thread sessions")
             }
             return rows
         }

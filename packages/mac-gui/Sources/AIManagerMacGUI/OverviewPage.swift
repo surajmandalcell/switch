@@ -5,43 +5,6 @@ import SwiftUI
 // card and four charts (OverviewCharts.swift), then the Maintenance card. Account switching lives
 // on Accounts. The history loads off the main actor (AccountViewModel.loadUsageHistory).
 
-// MARK: - Days
-
-/// Helpers for the `yyyy-MM-dd` UTC days of the history. Plain arithmetic, so no time zone applies.
-enum OverviewDay {
-  private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-  private static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-
-  private static func parts(_ day: String) -> [Int] { day.split(separator: "-").compactMap { Int($0) } }
-
-  /// Days since 1970-01-01.
-  static func epoch(_ day: String) -> Int? {
-    let p = parts(day)
-    guard p.count == 3, (1...12).contains(p[1]) else { return nil }
-    let year = p[0] - (p[1] <= 2 ? 1 : 0)
-    let era = (year >= 0 ? year : year - 399) / 400
-    let yearOfEra = year - era * 400
-    let dayOfYear = (153 * (p[1] + (p[1] > 2 ? -3 : 9)) + 2) / 5 + p[2] - 1
-    return era * 146_097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719_468
-  }
-
-  /// 0 is Sunday.
-  static func weekday(_ day: String) -> Int { (((epoch(day) ?? 0) + 4) % 7 + 7) % 7 }
-  static func dayOfMonth(_ day: String) -> Int { parts(day).last ?? 0 }
-  static func month(_ day: String) -> String {
-    let p = parts(day)
-    return p.count == 3 && (1...12).contains(p[1]) ? months[p[1] - 1] : ""
-  }
-  /// "Sat"
-  static func weekdayName(_ day: String) -> String { weekdays[weekday(day)] }
-  /// "Oct 3"
-  static func short(_ day: String) -> String { "\(month(day)) \(dayOfMonth(day))" }
-  /// "Sat, Oct 3, 2026"
-  static func long(_ day: String) -> String {
-    "\(weekdays[weekday(day)]), \(short(day)), \(parts(day).first ?? 0)"
-  }
-}
-
 // MARK: - Colors
 
 /// A brand color for each service, and one stable palette for models and projects.
@@ -191,7 +154,7 @@ struct OverviewDataset: Equatable {
   var waffleSummary: String {
     let cells = OverviewWaffle.cells(series.map(\.tokens))
     return "Share of tokens by \(noun). "
-      + zip(series, cells).map { "\($0.label), \($1) percent" }.joined(separator: ". ")
+      + zip(series, cells).map { "\($0.label), \(OverviewWaffle.percent($1).dropLast()) percent" }.joined(separator: ". ")
   }
 
   /// The explanation under an empty chart.
@@ -220,6 +183,7 @@ struct OverviewPage: View {
   @State private var period: UsagePeriod
   @State private var grouping: UsageGrouping
   @State private var dataset: OverviewDataset?
+  @State private var daySheet: OverviewDayPick?
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
 
   init(
@@ -263,9 +227,9 @@ struct OverviewPage: View {
           OverviewStreamChart(dataset: $0)
         }
         chartCard("Activity", note: "(last 12 months, all accounts)", height: nil, hasData: { $0.yearTokens > 0 },
-          empty: "No activity in the last 12 months.") { OverviewHeatmap(dataset: $0) }
+          empty: "No activity in the last 12 months.") { OverviewHeatmap(dataset: $0, onSelect: openDay) }
         chartCard("Trends", height: 300, hasData: { !$0.series.isEmpty }) { OverviewRidgeline(dataset: $0) }
-        chartCard("Share of tokens", height: OverviewWaffleChart.side, hasData: { !$0.series.isEmpty }) {
+        chartCard("Share of tokens", height: nil, waffle: true, hasData: { !$0.series.isEmpty }) {
           OverviewWaffleChart(dataset: $0)
         }
         RecentBackupsCard(model: model) { navigate(.maintenance) }
@@ -278,6 +242,25 @@ struct OverviewPage: View {
     ) { await rebuild() }
     .onChange(of: period) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.periodKey) }
     .onChange(of: grouping) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.groupingKey) }
+    .sheet(item: $daySheet) { pick in
+      OverviewDaySheet(
+        pick: pick, load: { await model.loadUsageDay($0) }, accounts: accounts, hideEmails: hideEmails,
+        openChat: { id in
+          daySheet = nil
+          Task {
+            await model.selectChat(id)
+            navigate(.conversations)
+          }
+        },
+        close: { daySheet = nil })
+        .tint(AIMTheme.passiveIcon)
+    }
+  }
+
+  /// A click on a heatmap day with usage opens its sheet; a day without tokens opens nothing.
+  private func openDay(_ day: String) {
+    guard let dataset, let index = dataset.yearDays.firstIndex(of: day), dataset.yearTotals[index] > 0 else { return }
+    daySheet = OverviewDayPick(day: day, tokens: dataset.yearTotals[index])
   }
 
   /// Summarizes the snapshot off the main actor. The old charts stay in place until it ends.
@@ -335,13 +318,14 @@ struct OverviewPage: View {
   /// A chart card: a title row, a divider, then the chart in a slot of fixed height, so loading
   /// and an empty group never move the cards.
   private func chartCard<Chart: View>(
-    _ title: String, note: String? = nil, height: CGFloat?, hasData: @escaping (OverviewDataset) -> Bool,
+    _ title: String, note: String? = nil, height: CGFloat?, waffle: Bool = false,
+    hasData: @escaping (OverviewDataset) -> Bool,
     empty: String? = nil, footer: Bool = false, @ViewBuilder chart: @escaping (OverviewDataset) -> Chart
   ) -> some View {
     let groupNote = "(by \(grouping == .account ? "account" : grouping == .model ? "model" : "project"))"
     return AIMCard(title: title, note: note ?? groupNote, divider: true, bottomInset: 0) {
       VStack(alignment: .leading, spacing: 10) {
-        OverviewSlot(dataset: dataset, height: height, hasData: hasData, empty: empty, chart: chart)
+        OverviewSlot(dataset: dataset, height: height, waffle: waffle, hasData: hasData, empty: empty, chart: chart)
         if footer { OverviewLegend(series: dataset?.series ?? []) }
       }
       // Canvas charts hold no text, so the block itself marks the card's content edge for the inset check.
@@ -358,6 +342,7 @@ struct OverviewPage: View {
 private struct OverviewSlot<Chart: View>: View {
   let dataset: OverviewDataset?
   let height: CGFloat?
+  var waffle = false
   let hasData: (OverviewDataset) -> Bool
   let empty: String?
   let chart: (OverviewDataset) -> Chart
@@ -383,7 +368,10 @@ private struct OverviewSlot<Chart: View>: View {
       }
     }
     .accessibilityElement(children: .combine)
-    if height == nil {
+    if waffle {
+      // The waffle sizes itself from its width: the same split, with nothing in it, keeps the height.
+      OverviewWaffleSplit { Color.clear; Color.clear }.background(block)
+    } else if height == nil {
       // The heatmap sizes itself from its width: keep its grid shape and legend row while empty.
       VStack(spacing: OverviewHeatmap.legendSpacing) {
         block.aspectRatio(OverviewHeatmap.aspect, contentMode: .fit)
