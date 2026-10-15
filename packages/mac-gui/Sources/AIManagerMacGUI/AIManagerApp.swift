@@ -283,7 +283,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 let isCodex = providerID == .codex
                 let state = providerUsage[account.id]
                 // Claude profiles join once their usage arrives; other providers always have a spec.
-                let supportsUsage = isCodex || ProviderCatalog.spec(providerID) != nil
+                let supportsUsage = isCodex || providerID == .droid || ProviderCatalog.spec(providerID) != nil
                     || state?.usage != nil
                 let showsUsage = supportsUsage && MenuBarUsagePreferences.showsUsage(for: account.id)
                 let usage: MenuBarUsageSnapshot?
