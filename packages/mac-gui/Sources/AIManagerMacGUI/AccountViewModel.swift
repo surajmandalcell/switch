@@ -3,6 +3,15 @@ import Combine
 import Foundation
 import AIManagerCore
 
+/// What one day needs, read off the main actor (AccountViewModel.loadUsageDay).
+struct OverviewDayInput: Sendable {
+    var points: [UsageHistoryPoint]
+    /// Nil when no engine could list sessions.
+    var sessions: [UsageDaySession]?
+    /// Transcripts Conversations still holds, by Codex thread id.
+    var threads: [String: ChatThreadSummary]
+}
+
 protocol ChatHistoryProviding: Sendable {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async
     func refresh(query: String) async throws -> ChatHistorySnapshot
@@ -186,6 +195,8 @@ final class AccountViewModel: ObservableObject {
     private var usageErrorAccountID: UUID?
     private var usageHistoryLoadedAt: Date?
     private var isUsageHistoryLoading = false
+    /// The engine behind `usageHistory`; the day sheet asks it for the sessions of one day.
+    private var usageEngine: UsageHistory?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
     private let chatHistoryMonitor: (any ChatHistoryMonitoring)?
     #if AI_MANAGER_PREVIEW
@@ -1761,11 +1772,40 @@ final class AccountViewModel: ObservableObject {
         }
         let loaded = sources
         // ponytail: a new engine per load re-parses Grok sessions; keep one engine if that shows in Overview.
-        usageHistory = await Task.detached(priority: .utility) {
-            await UsageHistory(sources: loaded).snapshot()
-        }.value
+        let engine = UsageHistory(sources: loaded)
+        usageHistory = await Task.detached(priority: .utility) { await engine.snapshot() }.value
+        usageEngine = engine
         usageHistoryVersion += 1
         usageHistoryLoadedAt = Date()
+    }
+
+    /// What the Overview day sheet needs for one UTC day, read off the main actor: the day's history
+    /// points, its sessions (nil when no engine ran), and the transcripts Conversations still holds
+    /// for the Codex sessions, by thread id.
+    func loadUsageDay(_ day: String) async -> OverviewDayInput {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return DemoData.usageDay(day, points: usageHistory?.points ?? []) }
+        #endif
+        let points = usageHistory?.points
+        let engine = usageEngine
+        let provider = chatHistoryProvider
+        return await Task.detached(priority: .userInitiated) {
+            let dayPoints = (points ?? []).filter { $0.day == day }
+            guard let engine else { return OverviewDayInput(points: dayPoints, sessions: nil, threads: [:]) }
+            let sessions = await engine.daySessions(day: day)
+            var threads: [String: ChatThreadSummary] = [:]
+            let wanted = sessions.compactMap(\.threadID)
+            if !wanted.isEmpty, let provider {
+                for thread in (try? await provider.refresh(query: ""))?.threads ?? [] { threads[thread.threadID] = thread }
+                // Older than the newest threads the list holds: ask for the id itself.
+                for id in wanted where threads[id] == nil {
+                    if let thread = await provider.search(query: id).threads.first(where: { $0.threadID == id }) {
+                        threads[id] = thread
+                    }
+                }
+            }
+            return OverviewDayInput(points: dayPoints, sessions: sessions, threads: threads)
+        }.value
     }
 
     func loadClaudeShellIntegration() async {
@@ -2794,6 +2834,29 @@ enum DemoData {
             }
         }
         return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)))
+    }
+
+    /// Synthetic sessions for one demo day: each transcript point becomes a session; the first two
+    /// Codex ones have transcripts in the demo library, the rest were "removed".
+    static func usageDay(_ day: String, points: [UsageHistoryPoint]) -> OverviewDayInput {
+        let dayPoints = points.filter { $0.day == day }
+        let library = ["019f4b6d-accounts", "019f4b6d-linux"]
+        let base = Double((OverviewDay.epoch(day) ?? 0) * 86_400)
+        var codex = 0
+        let sessions: [UsageDaySession] = dayPoints.filter { $0.project != nil && $0.tokens > 0 }.enumerated().map { index, point in
+            var threadID: String?
+            if point.service == "codex" {
+                threadID = codex < library.count ? library[codex] : "removed-\(codex)"
+                codex += 1
+            }
+            return UsageDaySession(
+                id: "\(point.service):\(index)", service: point.service, threadID: threadID,
+                project: point.project ?? "", model: point.model, start: Date(timeIntervalSince1970: base + 8 * 3_600 + Double(index) * 5_400),
+                tokens: point.tokens, costUSD: point.costUSD)
+        }.sorted { $0.tokens > $1.tokens }
+        return OverviewDayInput(
+            points: dayPoints, sessions: sessions,
+            threads: Dictionary(chatThreads.map { ($0.threadID, $0) }, uniquingKeysWith: { first, _ in first }))
     }
 
     static func usage(account: AccountRecord, offset: Int) -> CodexAccountUsageSnapshot {

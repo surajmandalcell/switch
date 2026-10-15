@@ -402,6 +402,17 @@ public struct ClaudeHistoryRow: Equatable, Sendable {
     public var costUSD: Double?
 }
 
+/// One Claude Code session (log file) on one UTC day.
+public struct ClaudeDaySession: Equatable, Sendable {
+    public var sessionID: String
+    public var project: String
+    public var accountID: String?
+    public var model: String?
+    public var start: Date
+    public var tokens: Int64
+    public var costUSD: Double?
+}
+
 public actor ClaudeCostScanner {
     public typealias Pricing = @Sendable () async -> [String: ModelRate]
 
@@ -600,6 +611,52 @@ public actor ClaudeCostScanner {
         }.sorted { ($0.day, $0.project, $0.model ?? "") < ($1.day, $1.project, $1.model ?? "") }
         historyMemo = HistoryMemo(signature: signature, day: today, builtAt: now, unpriced: unpriced, rows: rows)
         return rows
+    }
+
+    /// The sessions (one log file each) with usage on one UTC day, from the same cache and dedup as
+    /// `history`. Nothing is saved; a log the cache lacks is parsed once for this call.
+    public func daySessions(day: String, account: (String) -> String? = { _ in nil }) async -> [ClaudeDaySession] {
+        guard let epoch = UsageHistory.epochDay(day) else { return [] }
+        let (from, until) = (Double(epoch) * 86_400, Double(epoch + 1) * 86_400)
+        let cache = historyCache ?? loadCache()
+        let parser = ClaudeLogParser()
+        var origins: [(id: String, project: String, account: String?)] = []
+        var events: [ClaudeUsageEvent] = []
+        for file in discover() where file.mtime >= from {
+            var record = cache.files[file.path]
+            if record == nil || record?.size != file.size || record?.mtime != file.mtime || record?.project == nil {
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: file.path), options: [.mappedIfSafe])
+                else { continue }
+                record = FileRecord(size: file.size, mtime: file.mtime, events: parser.parse(data),
+                                    project: ClaudeLogParser.cwd(in: data) ?? "")
+            }
+            guard let record else { continue }
+            let url = URL(fileURLWithPath: file.path)
+            let project = record.project.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingLastPathComponent().lastPathComponent
+            origins.append((url.deletingPathExtension().lastPathComponent, project, account(file.path)))
+            events += record.events.map { var event = $0; event.origin = origins.count - 1; return event }
+        }
+        let kept = Self.dedup(events).filter {
+            (from..<until).contains($0.time.timeIntervalSince1970) && $0.model != "<synthetic>" && $0.total > 0
+        }
+        var table = ModelRateTable([:])
+        if kept.contains(where: { $0.costUSD == nil && $0.model != nil }) { table = ModelRateTable(await pricing()) }
+        struct Sum { var tokens: Int64 = 0; var cost: Double?; var start = Date.distantFuture; var models: [String: Int64] = [:] }
+        var sums: [Int: Sum] = [:]
+        for event in kept {
+            var sum = sums[event.origin] ?? Sum()
+            sum.tokens += Int64(event.total)
+            if let cost = Self.cost(of: event, table: &table) { sum.cost = (sum.cost ?? 0) + cost }
+            sum.start = min(sum.start, event.time)
+            if let model = event.model { sum.models[model, default: 0] += Int64(event.total) }
+            sums[event.origin] = sum
+        }
+        return sums.map { origin, sum in
+            ClaudeDaySession(
+                sessionID: origins[origin].id, project: origins[origin].project, accountID: origins[origin].account,
+                model: sum.models.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key, start: sum.start,
+                tokens: sum.tokens, costUSD: sum.cost)
+        }
     }
 
     /// `yyyy-MM-dd` of a day count since 1970-01-01 (UTC).

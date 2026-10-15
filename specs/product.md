@@ -431,9 +431,21 @@ in light and dark before a UI change ships.
   focused-account card and no account table. A Week/Month period control and an Accounts/Models/
   Projects grouping control (both remembered) drive the cards: (1) totals (tokens, estimated
   cost, active accounts, busiest day) with rolling digits; (2) a streamgraph of daily tokens per
-  group; (3) a one-year activity heatmap across all accounts; (4) Trends, a ridgeline of daily
-  usage per group, each ridge scaled to its own peak, filling a fixed-height card; (5) a waffle
-  chart of each group's share; (6) Maintenance: recent backups (time, source, size, state) and
+  group; (3) Activity, a one-year heatmap across all accounts; a click on a day with usage (not
+  a drag, not an empty day; the pointer is a hand only there) opens a sheet titled with the day
+  ("Saturday, October 3"): totals (tokens, estimated cost, sessions), one stacked cost bar with
+  legend rows split by Account or Model (brand and palette colors), and one row for each
+  session (title, tool, start time, tokens, cost). A Codex session whose transcript still
+  exists opens it on Conversations; one whose transcript was removed shows dimmed with
+  "Transcript removed" and stays inert; Claude Code and Grok Build sessions list without a
+  link, since Conversations holds Codex chats only. A day with no per-session data shows only the totals
+  and split, and "Session list is not available for this day."; Done or Escape closes;
+  (4) Trends, a ridgeline of daily
+  usage per group, each ridge scaled to its own peak, filling a fixed-height card; (5) Share of
+  tokens, a waffle chart of each group's share: a 20 by 10 grid (200 cells, half a percent each,
+  whole-percent labels, "<1%" for one cell) over 40% of the card width, and the legend rows over
+  the other 60% (after a 24 pt gap), spread over the grid height (20 to 28 pt a row); the
+  card is as tall as the grid; (6) Maintenance: recent backups (time, source, size, state) and
   Open Backup, or a prompt to set up a backup. Charts follow uiarc.dev's ridgeline, activity
   heatmap, waffle chart, and streamgraph, with their draw-in animations, hover values, a faint
   date axis, and one stable palette. Groups past six fold into "Other"; account grouping leaves

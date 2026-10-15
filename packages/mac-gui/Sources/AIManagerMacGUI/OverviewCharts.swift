@@ -490,6 +490,8 @@ private struct OverviewHeatCanvas: View, Animatable {
 
 struct OverviewHeatmap: View {
   let dataset: OverviewDataset
+  /// A click on a day with usage; a zero-token day and a drag open nothing.
+  var onSelect: (String) -> Void = { _ in }
   @State private var hover: OverviewHover?
   @State private var level: Int?
   @State private var lastLevel: Int?
@@ -511,10 +513,20 @@ struct OverviewHeatmap: View {
         .contentShape(Rectangle())
         .onContinuousHover { phase in
           switch phase {
-          case .active(let point): hover = info(at: point, size: proxy.size)
-          case .ended: hover = nil
+          case .active(let point):
+            hover = info(at: point, size: proxy.size)
+            // The hand shows over a day that has a sheet, the arrow elsewhere.
+            if let index = hover?.index, dataset.yearTotals[index] > 0 { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+          case .ended:
+            hover = nil
+            NSCursor.arrow.set()
           }
         }
+        // A spatial tap ends only on a click, never on a drag.
+        .gesture(SpatialTapGesture().onEnded { tap in
+          let layout = OverviewHeatLayout(size: proxy.size, offset: dataset.yearOffset, count: dataset.yearDays.count)
+          if let index = layout.index(at: tap.location), dataset.yearTotals[index] > 0 { onSelect(dataset.yearDays[index]) }
+        })
         .overlay { OverviewTooltipLayer(hover: hover, size: proxy.size) }
         .onAppear {
           if let point = OverviewMotion.previewHover("heatmap", in: proxy.size) {
@@ -736,7 +748,7 @@ private struct OverviewWaffleCanvas: View, Animatable {
       for (slot, owner) in owners.enumerated() {
         let rect = OverviewWaffle.rect(slot, side: side)
         // Cells fill in reading order.
-        let arrive = OverviewMotion.window(clock, start: Double(slot) / 100 * 0.5, length: 0.5)
+        let arrive = OverviewMotion.window(clock, start: Double(slot) / Double(OverviewWaffle.total) * 0.5, length: 0.5)
         let scale = 0.6 + 0.4 * arrive
         let shape = rect.insetBy(dx: side * (1 - scale) / 2, dy: side * (1 - scale) / 2)
         let faded = highlight != nil && series[owner].id != highlight
@@ -751,34 +763,74 @@ private struct OverviewWaffleCanvas: View, Animatable {
 
 enum OverviewWaffle {
   static let gap: CGFloat = 3
-  static func cellSide(_ width: CGFloat) -> CGFloat { (width - gap * 9) / 10 }
+  static let columns = 20, rows = 10
+  /// Every cell is half a percent.
+  static let total = columns * rows
+  /// The waffle's share of the card's content width; the legend gets the rest.
+  static let share: CGFloat = 0.4
+  static let legendGap: CGFloat = 24
+  /// Legend rows spread over the waffle height between these heights.
+  static let minRow: CGFloat = 20, maxRow: CGFloat = 28
+
+  static func cellSide(_ width: CGFloat) -> CGFloat { max((width - gap * CGFloat(columns - 1)) / CGFloat(columns), 1) }
+  /// The grid is as tall as its cells: ten rows of the side the width gives.
+  static func height(width: CGFloat) -> CGFloat { cellSide(width) * CGFloat(rows) + gap * CGFloat(rows - 1) }
   static func rect(_ slot: Int, side: CGFloat) -> CGRect {
     CGRect(
-      x: CGFloat(slot % 10) * (side + gap), y: CGFloat(slot / 10) * (side + gap), width: side, height: side)
+      x: CGFloat(slot % columns) * (side + gap), y: CGFloat(slot / columns) * (side + gap), width: side, height: side)
   }
 
-  /// Largest-remainder rounding: whole cells that always add up to 100.
+  /// The waffle and legend widths for a card content width.
+  static func widths(_ width: CGFloat) -> (waffle: CGFloat, legend: CGFloat) {
+    let free = max(width - legendGap, 0)
+    return (free * share, free * (1 - share))
+  }
+
+  /// Largest-remainder rounding: whole cells that always add up to 200.
   static func cells(_ tokens: [Int64]) -> [Int] {
-    let total = tokens.reduce(0, +)
-    guard total > 0 else { return tokens.map { _ in 0 } }
-    let exact = tokens.map { Double($0) * 100 / Double(total) }
+    let sum = tokens.reduce(0, +)
+    guard sum > 0 else { return tokens.map { _ in 0 } }
+    let exact = tokens.map { Double($0) * Double(total) / Double(sum) }
     var cells = exact.map { Int($0) }
-    let spare = 100 - cells.reduce(0, +)
+    let spare = total - cells.reduce(0, +)
     let order = exact.indices.sorted { (exact[$0] - Double(cells[$0]), $1) > (exact[$1] - Double(cells[$1]), $0) }
     for index in order.prefix(spare) { cells[index] += 1 }
     return cells
   }
 
-  /// The series that owns each of the 100 cells, in reading order.
+  /// The series that owns each of the 200 cells, in reading order.
   static func owners(_ cells: [Int]) -> [Int] {
     cells.enumerated().flatMap { Array(repeating: $0.offset, count: $0.element) }
   }
 
-  static func percent(_ cells: Int) -> String { cells == 0 ? "<1%" : "\(cells)%" }
+  /// Whole percents (two cells each); one cell, under 1%, reads "<1%".
+  static func percent(_ cells: Int) -> String { cells < 2 ? "<1%" : "\(cells / 2)%" }
+}
+
+/// The waffle on the left (40% of the width) and the legend on the right (60%, after the gap). The
+/// height follows the waffle, or the legend at its minimum row height when that is taller.
+struct OverviewWaffleSplit: Layout {
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let width = proposal.width ?? 600
+    let (left, right) = OverviewWaffle.widths(width)
+    let legend = subviews.count > 1 ? subviews[1].sizeThatFits(ProposedViewSize(width: right, height: nil)).height : 0
+    return CGSize(width: width, height: max(OverviewWaffle.height(width: left), legend))
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let (left, right) = OverviewWaffle.widths(bounds.width)
+    subviews[0].place(
+      at: bounds.origin, anchor: .topLeading,
+      proposal: ProposedViewSize(width: left, height: OverviewWaffle.height(width: left)))
+    if subviews.count > 1 {
+      subviews[1].place(
+        at: CGPoint(x: bounds.maxX - right, y: bounds.minY), anchor: .topLeading,
+        proposal: ProposedViewSize(width: right, height: bounds.height))
+    }
+  }
 }
 
 struct OverviewWaffleChart: View {
-  static let side: CGFloat = 168
   let dataset: OverviewDataset
   @State private var hover: OverviewHover?
   @State private var legendKey: String?
@@ -788,30 +840,28 @@ struct OverviewWaffleChart: View {
     let cells = OverviewWaffle.cells(dataset.series.map(\.tokens))
     let owners = OverviewWaffle.owners(cells)
     let active = hover?.key ?? legendKey
-    HStack(alignment: .top, spacing: 24) {
-      OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.waffle) { clock in
-        OverviewWaffleCanvas(
-          owners: owners, series: dataset.series, clock: clock, engaged: active == nil ? 0 : 1,
-          highlight: active ?? lastKey)
-          .animation(OverviewMotion.hover, value: active == nil)
-      }
-      .frame(width: Self.side, height: Self.side)
-      .contentShape(Rectangle())
-      .onContinuousHover { phase in
-        switch phase {
-        case .active(let point): hover = info(at: point, owners: owners, cells: cells)
-        case .ended: hover = nil
+    OverviewWaffleSplit {
+      GeometryReader { proxy in
+        OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.waffle) { clock in
+          OverviewWaffleCanvas(
+            owners: owners, series: dataset.series, clock: clock, engaged: active == nil ? 0 : 1,
+            highlight: active ?? lastKey)
+            .animation(OverviewMotion.hover, value: active == nil)
         }
-        if let key = hover?.key { lastKey = key }
-      }
-      .overlay {
-        OverviewTooltipLayer(hover: hover, size: CGSize(width: Self.side, height: Self.side), flips: false)
-      }
-      .onAppear {
-        let size = CGSize(width: Self.side, height: Self.side)
-        if let point = OverviewMotion.previewHover("waffle", in: size) {
-          hover = info(at: point, owners: owners, cells: cells)
-          lastKey = hover?.key
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+          switch phase {
+          case .active(let point): hover = info(at: point, width: proxy.size.width, owners: owners, cells: cells)
+          case .ended: hover = nil
+          }
+          if let key = hover?.key { lastKey = key }
+        }
+        .overlay { OverviewTooltipLayer(hover: hover, size: proxy.size, flips: false) }
+        .onAppear {
+          if let point = OverviewMotion.previewHover("waffle", in: proxy.size) {
+            hover = info(at: point, width: proxy.size.width, owners: owners, cells: cells)
+            lastKey = hover?.key
+          }
         }
       }
       VStack(spacing: 0) {
@@ -836,20 +886,22 @@ struct OverviewWaffleChart: View {
       Text(UsagePresentation.formatTokens(item.tokens)).aimText(.secondary).monospacedDigit()
         .frame(width: 56, alignment: .trailing)
     }
-    .frame(height: Self.side / 7)
+    .frame(minHeight: OverviewWaffle.minRow, maxHeight: OverviewWaffle.maxRow)
     .opacity(active == nil || active == item.id ? 1 : OverviewMotion.dimmed)
     .animation(AIMMotion.fade(AIMMotion.hover), value: active)
     .contentShape(Rectangle())
     .onHover { inside in legendKey = inside ? item.id : nil }
   }
 
-  private func info(at point: CGPoint, owners: [Int], cells: [Int]) -> OverviewHover? {
-    let side = OverviewWaffle.cellSide(Self.side)
+  private func info(at point: CGPoint, width: CGFloat, owners: [Int], cells: [Int]) -> OverviewHover? {
+    let side = OverviewWaffle.cellSide(width)
+    let (columns, rows) = (OverviewWaffle.columns, OverviewWaffle.rows)
+    guard point.x >= 0, point.y >= 0 else { return nil }
     let column = Int(point.x / (side + OverviewWaffle.gap)), row = Int(point.y / (side + OverviewWaffle.gap))
-    guard (0..<10).contains(column), (0..<10).contains(row), owners.indices.contains(row * 10 + column) else {
+    guard (0..<columns).contains(column), (0..<rows).contains(row), owners.indices.contains(row * columns + column) else {
       return nil
     }
-    let slot = row * 10 + column
+    let slot = row * columns + column
     let index = owners[slot]
     let item = dataset.series[index]
     let tip = OverviewTip(

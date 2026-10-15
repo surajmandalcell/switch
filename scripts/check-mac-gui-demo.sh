@@ -30,6 +30,7 @@ swiftc \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ClaudeActivity.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MaintenanceStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MaintenanceDemo.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/OverviewDay.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \
   "$repo_root/packages/mac-gui/Tests/MockAccountViewModelCheck.swift" \
   -o "$output_path"

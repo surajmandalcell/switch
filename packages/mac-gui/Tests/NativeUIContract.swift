@@ -1677,6 +1677,42 @@ enum AIManagerNativeContract {
     host.layoutSubtreeIfNeeded()
     expect(host.fittingSize.height > 0, "The Overview collapsed")
     failures.append(contentsOf: overviewChartFailures(model: model))
+    if let path = ProcessInfo.processInfo.environment["AI_MANAGER_OVERVIEW_SHOTS"], let snapshot = model.usageHistory {
+      // Review renders: the Overview page and the day sheet, light and dark.
+      let accounts = model.status?.accounts ?? []
+      let year = snapshot.summary(period: .year, grouping: .model)
+      let data = OverviewDataset.make(
+        summary: snapshot.summary(period: .week, grouping: .account), year: year, accounts: accounts, hideEmails: false)
+      OverviewCache.last = data
+      let day = data.yearDays.indices.last { data.yearTotals[$0] > 0 } ?? 0
+      let input = DemoData.usageDay(data.yearDays[day], points: snapshot.points)
+      let detail = OverviewDayDetail.make(
+        day: data.yearDays[day], tokens: data.yearTotals[day], input: input, accounts: accounts, hideEmails: false)
+      let directory = URL(fileURLWithPath: path)
+      try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+        let views: [(String, AnyView, NSSize)] = [
+          ("overview", AnyView(OverviewPage(model: model)), NSSize(width: 900, height: 1700)),
+          ("overview-day", AnyView(OverviewDaySheet(
+            pick: OverviewDayPick(day: data.yearDays[day], tokens: data.yearTotals[day]), load: { _ in input },
+            accounts: accounts, hideEmails: false, openChat: { _ in }, close: {}, detail: detail)
+            .background(Color(nsColor: .windowBackgroundColor))), OverviewDaySheet.size),
+        ]
+        for (label, view, size) in views {
+          let shot = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
+          let shotWindow = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+          shotWindow.appearance = NSAppearance(named: appearance)
+          shotWindow.contentView = shot
+          shot.frame = NSRect(origin: .zero, size: size)
+          shot.layoutSubtreeIfNeeded()
+          if let png = RenderScale.png(of: shot) { try? png.write(to: directory.appendingPathComponent("\(label)-\(name).png")) }
+        }
+      }
+      let sheet = NSHostingView(rootView: OverviewDaySheet(
+        pick: OverviewDayPick(day: "2026-10-03", tokens: 1), load: { _ in input }, accounts: accounts, hideEmails: false,
+        openChat: { _ in }, close: {}, detail: detail))
+      expect(sheet.fittingSize.width > 0, "The Overview day sheet collapsed")
+    }
 
     // An account that needs sign-in gets a Sign in button instead of a disabled Switch.
     if let stale = model.status?.accounts.first(where: { $0.verification.state == .needsSignIn }),
@@ -1717,11 +1753,57 @@ enum AIManagerNativeContract {
     let shades = (0..<3).map { OverviewPalette.account(service: "codex", rank: $0) }
     expect(Set(shades).count == 3 && shades[0] == UsageBarColor.color(usedPercent: 0, providerID: .codex),
       "Accounts of one service do not keep the brand color and distinct shades")
-    // Waffle cells always add up to 100 and tiny shares keep a "<1%" label.
-    expect(OverviewWaffle.cells([1, 1, 1]) == [34, 33, 33] && OverviewWaffle.cells([1_000_000, 1]).reduce(0, +) == 100
+    // Waffle cells (20 by 10, half a percent each) always add up to 200; one cell reads "<1%", two read "1%".
+    expect(OverviewWaffle.total == 200 && OverviewWaffle.cells([1, 1, 1]) == [67, 67, 66]
+      && OverviewWaffle.cells([1_000_000, 1]).reduce(0, +) == 200 && OverviewWaffle.cells([5, 3, 2, 1, 1, 1, 1]).reduce(0, +) == 200
       && OverviewWaffle.cells([0, 0]) == [0, 0] && OverviewWaffle.cells([]).isEmpty
-      && OverviewWaffle.owners([2, 1]) == [0, 0, 1] && OverviewWaffle.percent(0) == "<1%",
-      "Waffle cells do not add up to 100")
+      && OverviewWaffle.owners([2, 1]) == [0, 0, 1],
+      "Waffle cells do not add up to 200")
+    expect(OverviewWaffle.percent(0) == "<1%" && OverviewWaffle.percent(1) == "<1%" && OverviewWaffle.percent(2) == "1%"
+      && OverviewWaffle.percent(3) == "1%" && OverviewWaffle.percent(200) == "100%",
+      "Waffle percent labels are not whole percents with <1% for one cell")
+    // The waffle takes 40% of the content width and the legend 60% after the 24 pt gap; the grid is 10 cell rows tall.
+    let split = OverviewWaffle.widths(660)
+    let waffleHeight = OverviewWaffle.height(width: split.waffle)
+    expect(abs(split.waffle + split.legend + OverviewWaffle.legendGap - 660) < 0.001
+      && abs(split.waffle / (split.waffle + split.legend) - 0.4) < 0.001
+      && abs(waffleHeight - (OverviewWaffle.cellSide(split.waffle) * 10 + OverviewWaffle.gap * 9)) < 0.001
+      && OverviewWaffle.rect(199, side: 10).origin == CGPoint(x: 19 * (10 + OverviewWaffle.gap), y: 9 * (10 + OverviewWaffle.gap)),
+      "The waffle is not 40% of the width, 20 by 10 cells")
+    // The Overview day sheet: totals, sessions with removed transcripts marked, and no sheet for a zero day.
+    let dayInput = OverviewDayInput(
+      points: [
+        UsageHistoryPoint(day: "2026-10-03", service: "codex", accountID: "a1", tokens: 1_000),
+        UsageHistoryPoint(day: "2026-10-03", service: "codex", model: "gpt-5", project: "/work/app", tokens: 800, costUSD: 1.5),
+        UsageHistoryPoint(day: "2026-10-03", service: "claude-code", model: "sonnet", project: "/work/web", tokens: 400, costUSD: 0.5),
+        UsageHistoryPoint(day: "2026-10-02", service: "codex", model: "gpt-5", project: "/work/app", tokens: 9, costUSD: 9),
+      ],
+      sessions: [
+        UsageDaySession(id: "codex:t1", service: "codex", threadID: "t1", project: "/work/app", tokens: 500, costUSD: 1),
+        UsageDaySession(id: "codex:t2", service: "codex", threadID: "t2", project: "/work/app", tokens: 300, costUSD: 0.5),
+        UsageDaySession(id: "claude-code:c1", service: "claude-code", project: "/work/web", tokens: 400, costUSD: 0.5),
+      ],
+      threads: ["t1": ChatThreadSummary(
+        id: "/codex/t1.jsonl", threadID: "t1", title: "Fix the parser", preview: "", workingDirectory: "/work/app",
+        updatedAt: Date(), archived: false, messageCount: 2, fileByteCount: 10,
+        source: URL(fileURLWithPath: "/codex/t1.jsonl"), unreadableRecordCount: 0)])
+    let sheet = OverviewDayDetail.make(day: "2026-10-03", tokens: 1_200, input: dayInput, accounts: [], hideEmails: false)
+    expect(OverviewDay.title("2026-10-03") == "Saturday, October 3" && sheet?.cost == 2 && sheet?.byCost == true
+      && sheet?.sessions?.count == 3 && sheet?.byModel.map(\.id) == ["gpt-5", "sonnet"] && sheet?.byAccount.count == 2,
+      "The day sheet totals or cost split are wrong")
+    let rows = Dictionary(uniqueKeysWithValues: (sheet?.sessions ?? []).map { ($0.id, $0) })
+    expect(rows["codex:t1"]?.chatID == "/codex/t1.jsonl" && rows["codex:t1"]?.removed == false
+      && rows["codex:t1"]?.title == "Fix the parser" && rows["codex:t1"]?.tool == "Codex CLI"
+      && rows["codex:t2"]?.chatID == nil && rows["codex:t2"]?.removed == true && rows["codex:t2"]?.title == "app"
+      && rows["claude-code:c1"]?.chatID == nil && rows["claude-code:c1"]?.removed == false
+      && rows["claude-code:c1"]?.tool == "Claude Code",
+      "The day sheet does not mark a missing transcript as removed or open an existing one")
+    expect(OverviewDayDetail.make(day: "2026-10-03", tokens: 0, input: dayInput, accounts: [], hideEmails: false) == nil
+      && OverviewDayDetail.make(day: "2026-10-03", tokens: 5,
+        input: OverviewDayInput(points: dayInput.points, sessions: nil, threads: [:]), accounts: [], hideEmails: false)?.sessions == nil
+      && OverviewDayDetail.make(day: "2026-10-03", tokens: 5,
+        input: OverviewDayInput(points: dayInput.points, sessions: [], threads: [:]), accounts: [], hideEmails: false)?.sessions == nil,
+      "A zero day opens a sheet, or a day with no session data lists sessions")
     // A zero day between two busy days stays on its baseline: the curve never dips below it.
     var curve = Path()
     curve.addMonotone([CGPoint(x: 0, y: 10), CGPoint(x: 1, y: 10), CGPoint(x: 2, y: 0), CGPoint(x: 3, y: 10),
