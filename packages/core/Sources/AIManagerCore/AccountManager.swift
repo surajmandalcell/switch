@@ -1115,18 +1115,26 @@ public actor AccountManager {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return false }
         let timeout = grokRefreshTimeout
-        let watchdog = Task.detached {
-            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            process.terminate()
-            try await Task.sleep(nanoseconds: 2_000_000_000)
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        var watchdog: Task<Void, Error>?
+        // The termination handler, set before run(), fires even when the child exits at once.
+        // waitUntilExit on a worker thread can miss that exit and block forever.
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            process.terminationHandler = { _ in done.resume() }
+            do { try process.run() } catch {
+                process.terminationHandler = nil
+                done.resume()
+                return
+            }
+            watchdog = Task.detached {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                process.terminate()
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
         }
-        await withCheckedContinuation { done in
-            DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
-        }
-        watchdog.cancel()
+        watchdog?.cancel()
+        guard watchdog != nil else { return false }
         return process.terminationReason == .exit && process.terminationStatus == 0
     }
 
