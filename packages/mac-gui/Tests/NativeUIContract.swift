@@ -100,6 +100,27 @@ enum AIManagerNativeContract {
     expect(P.lines(for: codex, expanded: true).map(\.label) == ["Session", "Weekly", "Spark", "Monthly"],
       "Expanded Codex omits a model bucket, credits, or repeats the default bucket")
     expect(!P.showsSwitch(codex) && P.showsSwitch(account), "Default accounts show a ghost Switch action")
+    let defaultWithoutActions = MenuBarAccountSnapshot(id: UUID(), identity: "default@example.test", detail: "",
+      isVerified: true, isActive: true, usage: usage, providerID: ProviderID(rawValue: "openrouter"))
+    expect(P.canExpand(defaultWithoutActions) && P.expansionHeight(defaultWithoutActions) == 36,
+      "Hidden provider windows cannot expand without an action, or leave an empty action band")
+    let defaultTokens = MenuBarAccountSnapshot(id: UUID(), identity: "tokens@example.test", detail: "",
+      isVerified: true, isActive: true,
+      usage: MenuBarUsageSnapshot(usedPercentage: 20, tokenPeriodLabel: "since reset", tokens: 1_000))
+    expect(!P.canExpand(defaultTokens, hasOpenTool: false)
+      && P.listHeight([defaultTokens], expandedID: defaultTokens.id, hasOpenTool: false) == P.listHeight([defaultTokens]),
+      "Visible token text or an unavailable Open action enables an empty expansion")
+    expect(P.canExpand(defaultTokens) && P.canExpand(noCache) && P.canExpand(signedOutQuota),
+      "Open, Switch, or Sign in rows cannot expand")
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+      NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
+        // Color.primary carries its own alpha (0.85 in Dark), so the fills land at or under their opacity.
+        let highlight = NSColor(P.rowHighlight).usingColorSpace(.sRGB)?.alphaComponent ?? 1
+        let hover = NSColor(P.rowHover).usingColorSpace(.sRGB)?.alphaComponent ?? 1
+        expect(highlight > 0.03 && highlight <= 0.0601 && hover > 0.02 && hover < highlight,
+          "Popover focus, expansion, or hover fill is too strong")
+      }
+    }
     for sample in [account, codex] {
       expect(P.labelColumnWidth(sample, expanded: false) == 56, "Collapsed labels moved their columns")
       for line in P.lines(for: sample, expanded: true) {

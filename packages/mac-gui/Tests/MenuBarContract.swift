@@ -227,6 +227,14 @@ enum AIManagerMenuBarContract {
 
     expect(store.rows.map(\.id) == [active.id, other.id, signIn.id, generic.id],
       "Rows are not the Show in Menubar accounts in saved order")
+    expect(!P.canExpand(generic) && P.expansionHeight(generic) == 0
+      && P.listHeight(store.rows, expandedID: generic.id) == P.listHeight(store.rows),
+      "A signed-in default account without actions adds an empty expansion")
+    let heightBeforeClick = store.contentHeight
+    let expansionBeforeClick = store.expandedAccountID
+    store.toggleExpanded(generic)
+    expect(store.expandedAccountID == expansionBeforeClick && store.contentHeight == heightBeforeClick,
+      "Clicking a row without anything to reveal changes expansion or height")
     var layoutChanges = 0
     store.didChangeLayout = { layoutChanges += 1 }
     store.toggleExpanded(other)

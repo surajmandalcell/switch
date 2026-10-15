@@ -354,7 +354,9 @@ final class MenuBarPopoverStore: ObservableObject {
 
   var contentHeight: CGFloat {
     let collapsed = MenuBarPresentation.listHeight(snapshot.accounts)
-    let expanded = rows.reduce(CGFloat.zero) { $0 + MenuBarPresentation.expansionHeight($1) * expansionAmount($1.id) }
+    let expanded = rows.reduce(CGFloat.zero) {
+      $0 + MenuBarPresentation.expansionHeight($1, hasOpenTool: actions.openTool != nil) * expansionAmount($1.id)
+    }
     let ideal = rows.isEmpty ? MenuBarPopover.minimumHeight : collapsed + expanded + MenuBarPopover.footerHeight
     return min(max(ideal.rounded(), MenuBarPopover.minimumHeight), max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.8)))
   }
@@ -366,7 +368,9 @@ final class MenuBarPopoverStore: ObservableObject {
     self.visibleScreenHeight = visibleScreenHeight
     self.defaults = defaults
     expandedAccountID = defaults.string(forKey: MenuBarUsagePreferences.expandedAccountKey).flatMap(UUID.init(uuidString:))
-      .flatMap { id in snapshot.accounts.contains(where: { $0.id == id && $0.showsUsage }) ? id : nil }
+      .flatMap { id in snapshot.accounts.contains(where: {
+        $0.id == id && MenuBarPresentation.canExpand($0, hasOpenTool: actions.openTool != nil)
+      }) ? id : nil }
   }
 
   func update(visibleScreenHeight: CGFloat) {
@@ -378,10 +382,14 @@ final class MenuBarPopoverStore: ObservableObject {
     rowErrors = rowErrors.filter { error in
       snapshot.accounts.contains { $0.id == error.key }
     }
-    if !snapshot.accounts.contains(where: { $0.id == expandedAccountID && $0.showsUsage }) {
+    if !snapshot.accounts.contains(where: {
+      $0.id == expandedAccountID && MenuBarPresentation.canExpand($0, hasOpenTool: actions.openTool != nil)
+    }) {
       expandedAccountID = defaults.string(forKey: MenuBarUsagePreferences.expandedAccountKey)
         .flatMap(UUID.init(uuidString:)).flatMap { id in
-          snapshot.accounts.contains(where: { $0.id == id && $0.showsUsage }) ? id : nil
+          snapshot.accounts.contains(where: {
+            $0.id == id && MenuBarPresentation.canExpand($0, hasOpenTool: actions.openTool != nil)
+          }) ? id : nil
         }
     }
   }
@@ -390,6 +398,7 @@ final class MenuBarPopoverStore: ObservableObject {
   var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.accounts).flatMap { $0 } }
 
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
+    guard MenuBarPresentation.canExpand(account, hasOpenTool: actions.openTool != nil) else { return }
     frameClock = nil
     let start = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, revealAmount($0.id)) })
     expandedAccountID = expandedAccountID == account.id ? nil : account.id
@@ -587,7 +596,7 @@ struct MenuBarPopover: View {
                   error: store.rowErrors[account.id],
                   store: store, previewHovered: previewHoveredID == account.id)
                 .id(account.id)
-                .focusable()
+                .focusable(MenuBarPresentation.canExpand(account, hasOpenTool: store.actions.openTool != nil))
                 .focused($focusedID, equals: account.id)
                 .focusEffectDisabled()
                 }
@@ -611,13 +620,15 @@ struct MenuBarPopover: View {
       }
       .onAppear {
         // Start on the default account so Return never switches by surprise.
-        focusedID = rows.first(where: \.isActive)?.id
+        focusedID = rows.first(where: {
+          $0.isActive && MenuBarPresentation.canExpand($0, hasOpenTool: store.actions.openTool != nil)
+        })?.id
       }
     }
   }
 
   private func handle(_ press: KeyPress) -> KeyPress.Result {
-    let rows = store.rows
+    let rows = store.rows.filter { MenuBarPresentation.canExpand($0, hasOpenTool: store.actions.openTool != nil) }
     switch press.key {
     case .tab:
       keyboardActive = true
