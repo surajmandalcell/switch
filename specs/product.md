@@ -431,6 +431,7 @@ in light and dark HTML references (Overview and shared-part states) and measured
   150 ms on scroll or gutter entry, and grows from 4 to 6 pt. Hover or drag widens it to 8 pt and
   brightens it. It fades out over 300 ms, 1 s after scroll or pointer exit. Mouse and trackpad
   scroll anywhere on pages, lists, messages, and gutters. Restore a saved offset once, on entry.
+  Pages are eager stacks under a fixed header; chart hovers pause while a page scrolls.
 - **Motion:** Fade hover and press; fill bars on appearance and change; roll numbers; fade cards
   without moving on page change; slide segment indicators; spring popover rows open; draw charts
   in. Use 150-350 ms with ease-out or a soft spring. Reduce Motion keeps fades only. Show the
