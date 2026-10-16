@@ -386,8 +386,8 @@ in light and dark HTML references (Overview and shared-part states) and measured
   the split, and centered "No sessions on this Mac for this day. The totals come from the account's
   usage report."
   Done or Escape closes the sheet. Trends (4) shows daily group ridgelines scaled to each peak in
-  a fixed-height card, names in a one-line legend below. Series charts (Tokens per day, Trends,
-  30-day usage) run edge to edge in the card; titles, legends, and axis labels keep the inset.
+  a fixed-height card, names in a one-line legend below. Continuous charts (Tokens per day,
+  Trends) run edge to edge; bar charts, titles, legends, and axis labels keep the inset.
   Tooltips are opaque, draw above legends, and read "Claude Code · account". Share of tokens (5)
   uses a 20 by 10 waffle grid (200 half-percent cells),
   whole-percent labels, and "<1%" for one cell. The grid takes 40% width; after a 24 pt gap,

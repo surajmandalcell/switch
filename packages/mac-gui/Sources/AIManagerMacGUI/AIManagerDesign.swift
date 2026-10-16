@@ -1072,6 +1072,14 @@ final class AIMHostingView: NSHostingView<AnyView> {
     return best
   }
 
+  static func pageScrollView(in view: NSView) -> NSScrollView? {
+    if let scroll = view as? NSScrollView, scroll.identifier == AIMScrollBarModel.pageScrollID { return scroll }
+    for sub in view.subviews where !sub.isHidden {
+      if let found = pageScrollView(in: sub) { return found }
+    }
+    return nil
+  }
+
   override func scrollWheel(with event: NSEvent) {
     guard !forwarding else { nextResponder?.scrollWheel(with: event); return }
     forwarding = true
@@ -1081,7 +1089,9 @@ final class AIMHostingView: NSHostingView<AnyView> {
 
   func routeWheel(_ event: NSEvent, at windowPoint: NSPoint) {
     if Self.startsWheelGesture(phase: event.phase, momentumPhase: event.momentumPhase) || wheelTarget?.window == nil {
-      wheelTarget = Self.smallestScrollView(in: self, at: windowPoint) ?? enclosingScrollView
+      // Off every scroll view (the page's fixed header), a page scrolls its own scroll view.
+      wheelTarget = Self.smallestScrollView(in: self, at: windowPoint) ?? Self.pageScrollView(in: self)
+        ?? enclosingScrollView
     }
     if let scroll = wheelTarget { scroll.scrollWheel(with: event) }
     else { nextResponder?.scrollWheel(with: event) }

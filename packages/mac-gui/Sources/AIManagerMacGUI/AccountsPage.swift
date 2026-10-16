@@ -1570,6 +1570,11 @@ struct AccountsTableCard: View {
         }
       }
     }
+    // The height is exact (fixed rows and headers), so the lazy stack's estimate never changes the
+    // page's content height or offset as rows realize.
+    .frame(height: groups.reduce(CGFloat(groups.isEmpty ? 0 : AIMTheme.tableEndInset - AIMTheme.groupGap)) {
+      $0 + AIMTheme.groupGap + AIMTheme.groupHeaderHeight + AIMTheme.rowHeight * CGFloat($1.accounts.count)
+    }, alignment: .top)
   }
 }
 

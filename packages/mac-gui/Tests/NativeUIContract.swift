@@ -175,6 +175,7 @@ enum AIManagerNativeContract {
 
     failures.append(contentsOf: nativeDesignFailures())
     failures.append(contentsOf: pageInputAndScrollFailures())
+    failures.append(contentsOf: pageScrollStabilityFailures())
     // Seeded sequences; AI_MANAGER_FREEZE_RUNS=N explores N seeds.
     let freezeRuns = Int(ProcessInfo.processInfo.environment["AI_MANAGER_FREEZE_RUNS"] ?? "") ?? 1
     for run in 0..<freezeRuns { failures.append(contentsOf: pageFreezeSequenceFailures(seed: 0x5EED_F00D &+ UInt64(run))) }
@@ -732,6 +733,32 @@ enum AIManagerNativeContract {
         host.layoutSubtreeIfNeeded()
         expect(host.fittingSize.height >= 72 && host.fittingSize.height < 140, "Chart view does not lay out about 72 points tall")
       }
+      // Bar charts keep the card inset: no bar draws in the 20 pt margin around the view, and bars draw inside.
+      let inset = NSHostingView(rootView: UsageChartView(chart: spend).padding(.horizontal, 20).frame(width: 520, height: 100)
+        .background(Color.white).environment(\.colorScheme, .light))
+      let insetWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 100), styleMask: .borderless, backing: .buffered, defer: false)
+      insetWindow.isReleasedWhenClosed = false
+      insetWindow.appearance = NSAppearance(named: .aqua)
+      insetWindow.contentView = inset
+      inset.frame = NSRect(x: 0, y: 0, width: 520, height: 100)
+      inset.layoutSubtreeIfNeeded()
+      RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+      if let bitmap = inset.bitmapImageRepForCachingDisplay(in: inset.bounds) {
+        inset.cacheDisplay(in: inset.bounds, to: bitmap)
+        func isBar(_ x: Int, _ y: Int) -> Bool {
+          guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
+          return c.blueComponent - c.redComponent > 0.3
+        }
+        let w = bitmap.pixelsWide, h = bitmap.pixelsHigh, scale = w / 520
+        var margin = false, inside = false
+        for y in 0..<h {
+          for x in 0..<(19 * scale) where isBar(x, y) || isBar(w - 1 - x, y) { margin = true }
+          for x in (20 * scale)..<(w - 20 * scale) where isBar(x, y) { inside = true }
+        }
+        expect(!margin, "A bar chart draws into the card inset: bar charts keep the inset")
+        expect(inside, "The bar chart drew no bars in the render check")
+      }
+      insetWindow.close()
     } else {
       failures.append("Daily chart builder returned nothing")
     }
@@ -1557,6 +1584,91 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// The page jumped by itself when a sheet opened or the window changed key: a lazy page stack
+  /// re-estimates its height whenever its environment changes. A page of uneven cards is restored to
+  /// a saved offset, then given environment, header, and key-window changes; the clip view must
+  /// stay put, the header must keep its place, and a wheel scroll away must not be undone.
+  static func pageScrollStabilityFailures() -> [String] {
+    var failures: [String] = []
+    let name = "contract-scroll-stability"
+    let previous = AIMPlace.scroll[name]
+    defer { AIMPlace.scroll[name] = previous }
+    AIMPlace.scroll[name] = 600
+    struct Probe: View {
+      var dark = false
+      var enabled = true
+      var tallHeader = false
+      var body: some View {
+        AIMScrollPage {
+          ForEach(0..<30, id: \.self) { index in
+            Color.gray.opacity(0.3).frame(height: CGFloat(100 + (index % 3) * 60))
+              .overlay(Text("Card \(index)").aimText(.body))
+          }
+        }
+        .environment(\.aimPageName, "contract-scroll-stability")
+        .environment(\.aimPageHeader, AnyView(
+          Color.red.opacity(0.2).frame(height: AIMTheme.topBarHeight + (tallHeader ? 60 : 0))))
+        .environment(\.colorScheme, dark ? .dark : .light)
+        .disabled(!enabled)
+        .frame(width: 1000, height: 700)
+      }
+    }
+    let host = AIMHostingView(rootView: AnyView(Probe()))
+    host.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    func flush(_ seconds: TimeInterval = 0.15) {
+      RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+      host.layoutSubtreeIfNeeded()
+      if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+      }
+    }
+    func scroll() -> NSScrollView? {
+      views(in: host).compactMap { $0 as? NSScrollView }.first { $0.identifier == AIMScrollBarModel.pageScrollID }
+    }
+    flush(0.4)
+    guard let scrollView = scroll() else {
+      let found = views(in: host).compactMap { $0 as? NSScrollView }.map { "\(type(of: $0)) \($0.identifier?.rawValue ?? "-")" }
+        + views(in: host).filter { String(describing: type(of: $0)).contains("Probe") }.map { "probe win=\($0.window != nil) scroll=\($0.enclosingScrollView != nil)" }
+      return ["Page scroll: the page scroll view was not found among \(found)"]
+    }
+    func offset() -> CGFloat { scrollView.contentView.bounds.minY }
+    if abs(offset() - 600) > 0.5 { failures.append("Page scroll: the saved offset 600 was restored as \(offset())") }
+    let changes: [(String, () -> Void)] = [
+      ("dark mode", { host.rootView = AnyView(Probe(dark: true)) }),
+      ("disabled", { host.rootView = AnyView(Probe(dark: true, enabled: false)) }),
+      ("enabled again", { host.rootView = AnyView(Probe(dark: false)) }),
+      ("taller header", { host.rootView = AnyView(Probe(tallHeader: true)) }),
+      ("window resigns key", { NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window) }),
+      ("window becomes key", { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window) }),
+      ("sheet opens (an overview hover ends)", { NotificationCenter.default.post(name: OverviewHover.endAll, object: nil) }),
+    ]
+    for (label, change) in changes {
+      change()
+      flush()
+      if abs(offset() - 600) > 0.5 { failures.append("Page scroll: \(label) moved the page from 600 to \(offset())") }
+    }
+    // A user scroll stays: nothing restores the saved offset again.
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: 250))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    AIMPlace.scroll[name] = 900
+    for change in [changes[0], changes[4], changes[5]] {
+      change.1()
+      flush()
+      if abs(offset() - 250) > 0.5 { failures.append("Page scroll: \(change.0) restored a saved offset over the user's scroll (\(offset()))") }
+    }
+    // The fixed header: it does not move with the content, and the scroll view starts below it.
+    let frame = host.convert(scrollView.bounds, from: scrollView)
+    let top = host.isFlipped ? frame.minY : host.bounds.height - frame.maxY
+    if abs(top - AIMTheme.topBarHeight) > 0.5 {
+      failures.append("Page scroll: the scroll view starts \(top) pt down, not under the \(AIMTheme.topBarHeight) pt header")
+    }
+    return failures
+  }
+
   private struct SeededRandom {
     var state: UInt64
     mutating func below(_ count: Int) -> Int {
@@ -2344,7 +2456,7 @@ enum AIManagerNativeContract {
         let views: [(String, AnyView, NSSize)] = [
           ("overview", AnyView(OverviewPage(model: model)), NSSize(width: 900, height: 1700)),
           ("usage-chart", AnyView(AIMSection("Usage") {
-            // Every day has tokens, so the first and last bars show the chart reaching both card edges.
+            // Every day has tokens, so the first and last bars show the bars keeping the card inset.
             UsageChartView(chart: UsageChart(id: "d", title: "Tokens per day", unit: "tokens", points: (0..<30).map {
               UsagePoint(label: "Sep \($0 + 1)", value: Double(($0 * 7) % 11 + 1) * 1_000_000)
             }))

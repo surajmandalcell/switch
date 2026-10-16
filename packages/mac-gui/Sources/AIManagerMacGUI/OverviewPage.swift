@@ -113,7 +113,7 @@ struct OverviewDataset: Equatable {
   }
 
   func heatLevel(_ tokens: Int64) -> Int {
-    tokens <= 0 ? 0 : 1 + heatCuts.filter { tokens > $0 }.count
+    tokens <= 0 ? 0 : 1 + heatCuts.reduce(0) { tokens > $1 ? $0 + 1 : $0 }
   }
 
   static func heatColor(_ level: Int) -> Color {
@@ -305,6 +305,7 @@ struct OverviewPage: View {
   /// A click on a heatmap day with usage opens its sheet; a day without tokens opens nothing.
   private func openDay(_ day: String) {
     guard let dataset, let index = dataset.yearDays.firstIndex(of: day), dataset.yearTotals[index] > 0 else { return }
+    NotificationCenter.default.post(name: OverviewHover.endAll, object: nil)
     daySheet = OverviewDayPick(day: day, tokens: dataset.yearTotals[index])
   }
 
