@@ -259,11 +259,25 @@ private struct AIMRolling<Value: Equatable>: ViewModifier {
 /// neighbors (the Cleanup files card after the scan) would otherwise change the gap to them.
 private struct AIMAppear: ViewModifier {
   @State private var shown = !AIMMotion.isLive
+  @Environment(\.aimAnimatesAppearance) private var animatesAppearance
 
   func body(content: Content) -> some View {
     content
-      .opacity(shown ? 1 : AIMMotion.appearOpacity)
-      .onAppear { withAnimation(AIMMotion.fade(AIMMotion.appear)) { shown = true } }
+      .opacity(shown || !animatesAppearance ? 1 : AIMMotion.appearOpacity)
+      .onAppear {
+        guard animatesAppearance, !shown else { return }
+        withAnimation(AIMMotion.fade(AIMMotion.appear)) { shown = true }
+      }
+  }
+}
+
+private struct AIMAnimatesAppearanceKey: EnvironmentKey { static let defaultValue = true }
+
+extension EnvironmentValues {
+  /// Scroll content can appear at any offset; only its shared container fades in.
+  var aimAnimatesAppearance: Bool {
+    get { self[AIMAnimatesAppearanceKey.self] }
+    set { self[AIMAnimatesAppearanceKey.self] = newValue }
   }
 }
 
@@ -401,17 +415,20 @@ struct UsageBar: View {
   /// The share drawn now: nil until the bar first shows, then it eases to each new value.
   @State private var drawn: Double?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.aimAnimatesAppearance) private var animatesAppearance
 
   var body: some View {
     let used = usedPercent.map { min(max($0, 0), 100) }
     let color = UsageBarColor.color(usedPercent: used, providerID: providerID)
     let fill = used.map { (showsUsed ? $0 : 100 - $0) / 100 } ?? 0
-    let shown = drawn ?? (AIMMotion.isLive ? 0 : fill)
+    let shown = drawn ?? (AIMMotion.isLive && animatesAppearance ? 0 : fill)
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
-        Capsule().fill(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
+        // Each capsule is exactly `height` tall: the ZStack grows to the pace tick's 8 pt, and an
+        // unframed capsule would stretch to it (a bar with a tick drew twice as thick).
+        Capsule().fill(Color(nsColor: .quaternaryLabelColor).opacity(0.5)).frame(height: Self.height)
         if let color, fill > 0 {
-          Capsule().fill(color).frame(width: max(Self.height, geometry.size.width * shown))
+          Capsule().fill(color).frame(width: max(Self.height, geometry.size.width * shown), height: Self.height)
         }
         if let tick {
           Rectangle().fill(Color.primary.opacity(0.7)).frame(width: 1.5, height: Self.height + 4)
@@ -423,7 +440,9 @@ struct UsageBar: View {
     .frame(height: Self.height)
     .uiLint(.item)
     .accessibilityHidden(true)
-    .onAppear { settle(to: fill) }
+    .onAppear {
+      if animatesAppearance { settle(to: fill) } else { drawn = fill }
+    }
     .onChange(of: fill) { _, next in settle(to: next) }
   }
 
@@ -435,19 +454,22 @@ struct UsageBar: View {
 
 // MARK: - Badge
 
-/// The one badge: Caption text on a capsule with a tinted fill. Used for Default, Signed in on
-/// this Mac, and every attention state.
+/// The one badge (owner pick B3): a grey chip with label-color text and a 6 pt dot in the state
+/// color. The text is never tinted, so it keeps 4.5:1 in both appearances. Used for Signed in on
+/// this Mac and every attention state.
 struct Badge: View {
+  /// The grey chip: primary at 10% in dark and 6% in light.
+  static let fill = AIMTheme.dynamic(light: NSColor(white: 0, alpha: 0.06), dark: NSColor(white: 1, alpha: 0.10))
   let text: String
   var tint: Color = AIMTheme.green
 
   var body: some View {
-    Text(text)
-      .aimText(.caption)
-      .foregroundStyle(AIMTheme.legible(tint))
-      .lineLimit(1)
-      .padding(.horizontal, 8).padding(.vertical, 2)
-      .background(tint.opacity(0.16), in: Capsule())
+    HStack(spacing: 5) {
+      Circle().fill(tint).frame(width: 6, height: 6)
+      Text(text).aimText(.caption).foregroundStyle(.primary).lineLimit(1)
+    }
+    .padding(.horizontal, 8).padding(.vertical, 2)
+    .background(Self.fill, in: Capsule())
   }
 }
 
@@ -777,7 +799,7 @@ where Item.ID: Hashable {
       rowSpacing: rowSpacing,
       fixedRowHeight: fixedRowHeight,
       contentRevision: contentRevision,
-      rowContent: rowContent,
+      rowContent: { AnyView(rowContent($0).environment(\.aimAnimatesAppearance, false)) },
       copyPath: copyPath)
   }
 
@@ -1026,23 +1048,42 @@ final class AIMScroller: NSScroller {
 /// the point (a gesture or hover area: the scroll bar gutter, a chat message). This one hands the event
 /// to the smallest scroll view under the pointer, else the enclosing one, else up the responder chain,
 /// so a mouse wheel scrolls from every point of a page, list row, or message.
+/// The target is chosen once when a gesture begins and kept through its momentum: content moves under
+/// a still pointer while it scrolls, and a nested scroll view must not take the gesture over.
 final class AIMHostingView: NSHostingView<AnyView> {
   private var forwarding = false
+  private weak var wheelTarget: NSScrollView?
+
+  /// A gesture starts at a legacy wheel click (no phase) or at `began`; `changed` and every momentum
+  /// event continue the current one.
+  static func startsWheelGesture(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) -> Bool {
+    momentumPhase.isEmpty && (phase.isEmpty || !phase.isDisjoint(with: [.began, .mayBegin]))
+  }
+
+  /// The smallest scroll view under a window point.
+  static func smallestScrollView(in view: NSView, at windowPoint: NSPoint) -> NSScrollView? {
+    var best = (view as? NSScrollView).flatMap { $0.bounds.contains($0.convert(windowPoint, from: nil)) ? $0 : nil }
+    for sub in view.subviews where !sub.isHidden {
+      if let found = smallestScrollView(in: sub, at: windowPoint),
+         found.frame.width * found.frame.height < (best.map { $0.frame.width * $0.frame.height } ?? .infinity) {
+        best = found
+      }
+    }
+    return best
+  }
 
   override func scrollWheel(with event: NSEvent) {
     guard !forwarding else { nextResponder?.scrollWheel(with: event); return }
     forwarding = true
     defer { forwarding = false }
-    func smallest(in view: NSView) -> NSScrollView? {
-      var best = (view as? NSScrollView).flatMap { $0.bounds.contains($0.convert(event.locationInWindow, from: nil)) ? $0 : nil }
-      for sub in view.subviews where !sub.isHidden {
-        if let found = smallest(in: sub), found.frame.width * found.frame.height < (best.map { $0.frame.width * $0.frame.height } ?? .infinity) {
-          best = found
-        }
-      }
-      return best
+    routeWheel(event, at: event.locationInWindow)
+  }
+
+  func routeWheel(_ event: NSEvent, at windowPoint: NSPoint) {
+    if Self.startsWheelGesture(phase: event.phase, momentumPhase: event.momentumPhase) || wheelTarget?.window == nil {
+      wheelTarget = Self.smallestScrollView(in: self, at: windowPoint) ?? enclosingScrollView
     }
-    if let scroll = smallest(in: self) ?? enclosingScrollView { scroll.scrollWheel(with: event) }
+    if let scroll = wheelTarget { scroll.scrollWheel(with: event) }
     else { nextResponder?.scrollWheel(with: event) }
   }
 }

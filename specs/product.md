@@ -2,9 +2,8 @@
 
 This spec owns current behavior; ignored `goals.md` tracks work, `goals.archive.md` evidence.
 
-The owner's red emergency-stop switch on ivory marks the standalone Dock, Spotlight, and
-MacPowerToys Switch launcher, window, and Dock. Its original vector mark is the small menu-bar
-template.
+The owner's red emergency-stop switch on ivory marks Switch in the Dock, Spotlight, MacPowerToys,
+and the window. Its original vector mark is the small menu-bar template.
 
 ## 1. Product model
 
@@ -190,9 +189,8 @@ Notifications, Data locations, and Reset. Show full email addresses defaults off
 Settings omits "Linked entries," per-account chat libraries, and managed-home topology.
 Show account legacy repair only when needed.
 
-Maintenance's searchable account-style picker lists shared homes ("Codex CLI · 3 accounts") and
-Backup's per-account homes, such as Claude Code profiles. Cleanup lists Claude Code once and
-scans profile files, never links. Both use the selected source. The disclosure tree shows real
+Cleanup's searchable account-style picker lists shared homes ("Codex CLI · 3 accounts"), Claude
+Code once (it scans profile files, never links). Backup has no picker. The disclosure tree shows real
 sizes for AI-tool categories:
 active and archived chats by project, pasted and generated images, logs, caches, debug and temp
 files, file history, old app versions, shell snapshots, usage samples, and conversation index.
@@ -217,12 +215,13 @@ protected; exclude them from removal review without blocking safe files.
 Use a native time-range pop-up. Align expanded rows to their nesting level's leading edge.
 Give groups clear headings, aligned counts, and brief descriptions; keep totals beside Review.
 
-Backup stores versioned source files and folders (presets and custom items) in an owner-picked
-folder. The first snapshot copies all; later ones copy changes and hard-link unchanged files, so
+Backup is one checklist of every tool (size, last backup); Claude Code is one row that includes
+each account's profile folder. Checked tools share one owner-picked folder, schedule (off, daily,
+weekly), and snapshots to keep; "Back up N tools now" runs them, each in its own subfolder and
+history. The first snapshot copies all; later ones copy changes and hard-link unchanged files, so
 each stays complete. Build a temporary folder and manifest (path, size, modified time, SHA-256),
-then rename. Offer Back Up Now, a schedule (off, daily, weekly), snapshots to keep, and Restore
-of all or chosen items in place after a safety snapshot or to another folder. Exclude login files
-unless the owner includes them per backup set. Never delete source data; prune only Switch
+then rename. Offer Restore of all or chosen items in place after a safety snapshot or to another
+folder. Exclude login files unless the owner includes them. Never delete source data; prune only Switch
 snapshots. If the destination is missing, such as an unplugged drive, wait and explain.
 
 Chat History pages messages by time while scrolling, with no older cutoff. Saved filters and
@@ -256,8 +255,7 @@ Daily charts (30 days or native span) return id, title, unit (USD, tokens, reque
 currency), and dated points. Draw 72-point bars per series below windows. The header shows the
 title and total or hovered or focused day; VoiceOver says "30 days, total $12.40, peak $2.10 on
 Oct 3". Claude Code's 30-day cost uses this chart. On 30-day axes, name the first, middle, and
-last dates in full. The first label starts at the chart's left edge, the last ends at its right
-edge, and the middle centers under its bar. Menu cards omit charts.
+last dates in full; end labels clamp inside the card inset. Menu cards omit charts.
 `switch usage --json` adds `charts` (`switch.limits.v1`); CLI and TUI each draw one ▁▂▃▄▅▆▇█ line.
 Show real overage ("130% used",
 "0% left"), clamping fills. Sub-cent money uses up to four decimals ("$0.0042").
@@ -315,7 +313,7 @@ explicit zeroes. The TUI uses the same periods and data.
 
 Codex popover rows may add one token summary for the Settings period: Since reset (default), Today,
 Yesterday, Weekly, Monthly, or Yearly. Since reset uses the weekly start when the service returns
-duration and reset time; otherwise it uses Weekly. Hide "0 tokens since reset".
+duration and reset time; otherwise it uses Weekly. Hide a zero token row.
 
 Beside tokens, show an API-equivalent value if the shared Codex config's model has published prices
 (LiteLLM public catalog, cached 24 hours). Label it an input-rate equivalent, never billed cost.
@@ -388,14 +386,17 @@ in light and dark HTML references (Overview and shared-part states) and measured
   the split, and centered "No sessions on this Mac for this day. The totals come from the account's
   usage report."
   Done or Escape closes the sheet. Trends (4) shows daily group ridgelines scaled to each peak in
-  a fixed-height card. Share of tokens (5) uses a 20 by 10 waffle grid (200 half-percent cells),
+  a fixed-height card, names in a one-line legend below. Series charts (Tokens per day, Trends,
+  30-day usage) run edge to edge in the card; titles, legends, and axis labels keep the inset.
+  Tooltips are opaque, draw above legends, and read "Claude Code · account". Share of tokens (5)
+  uses a 20 by 10 waffle grid (200 half-percent cells),
   whole-percent labels, and "<1%" for one cell. The grid takes 40% width; after a 24 pt gap,
   legend rows take 60%, span grid and card height, and measure 20 to 28 pt each.
   Maintenance (6) shows recent backups (time, source, size, state) and Open Backup or setup.
   Follow uiarc.dev ridgeline, activity heatmap, waffle, and streamgraph. Use hover values, a
   faint date axis, and one palette. Fold groups past six into "Other". With account
-  grouping, a 13 pt tool brand tile precedes each label in the Tokens per day legend, Trends,
-  Share of tokens, and day-sheet cost split. Tiles distinguish matching emails. Model and project
+  grouping, a 13 pt tool brand tile precedes each label in legends, tooltips, and the day-sheet
+  cost split. Tiles distinguish matching emails. Model and project
   groups have no tile. The Tokens per day legend stays on one line;
   shorten all names with "…" together if needed. Fill when accounts load at launch, without a
   page change. Count Codex, Claude Code, Droid, and Grok Build. Unknown account history (Claude
@@ -421,23 +422,20 @@ in light and dark HTML references (Overview and shared-part states) and measured
   accent color, or check.
 - **Conversations, Maintenance, Settings:** They share cards, rows, and buttons.
   Maintenance shows Cleanup then Backup in a 28 pt segmented control with 120 pt segments.
-  It aligns left with the cards, uses label-colored icons, and puts the source picker at the bar's
-  right end.
-- **Stability and focus:** Content never shifts on load, hover, selection, or page change. Every
+  It aligns left with the cards, uses label-colored icons, and puts Cleanup's source picker at the
+  bar's right end.
+- **Stability and focus:** The global ui-quality "Owner taste" rules apply: no shift, rings, or
+  rims; neutral dark selection; original brand tiles; even insets; still scrolling. Every
   scroll view (pages, sheets, Add Account dialogs, popovers, pickers, text views) hides system
   indicators and draws a thin gutter bar without track or border. It hides at rest, fades in over
   150 ms on scroll or gutter entry, and grows from 4 to 6 pt. Hover or drag widens it to 8 pt and
-  brightens it. It fades out over 300 ms, 1 s after scroll or pointer exit. Mouse
-  and trackpad scroll anywhere on pages, lists, messages, and gutters. Clicks and selections draw
-  no rings or outlines, including sidebar and lists. With Full Keyboard Access, keyboard focus
-  stays subtly tinted. In Dark Mode, selection, focus, and fields use neutral lighter gray, never
-  blue. System rings appear only with Increase Contrast. Brand tiles use full original icons and
-  backgrounds, never generic dark tiles. Dark controls have flat fills without light rims.
-  Containers have even top and bottom padding and highlight insets.
+  brightens it. It fades out over 300 ms, 1 s after scroll or pointer exit. Mouse and trackpad
+  scroll anywhere on pages, lists, messages, and gutters. Restore a saved offset once, on entry.
 - **Motion:** Fade hover and press; fill bars on appearance and change; roll numbers; fade cards
   without moving on page change; slide segment indicators; spring popover rows open; draw charts
   in. Use 150-350 ms with ease-out or a soft spring. Reduce Motion keeps fades only. Show the
-  first page-switch frame without delay; run heavy work off the main actor.
+  first page-switch frame without delay; run heavy work off the main actor. Motion runs once per
+  page load; content scrolling into view stays still.
 - **Menu bar popover:** About 360 pt wide, it omits app name, brand headers, token band, column
   header, session explanation, and Add Account. It fits all rows up to 80% of visible screen
   height; beyond that, its body scrolls above a fixed footer. One or two accounts never clip.
@@ -452,13 +450,14 @@ in light and dark HTML references (Overview and shared-part states) and measured
   height and content animate together without dropped frames, even in Low Power Mode. Each
   service header shows a brand tile and name; account usage rows omit both.
   A leading default-checkmark column precedes row text.
-  Right-align credits and amounts from the bar column. Token lines never wrap; long values use
-  free width. Show all reported windows, even unknown values; plans and hidden rows may reduce
+  Values without a bar (credits, balance, "Tokens 34M since reset · ≈US$68 API") start at the bar
+  column on one line. Windows use full words (Session, Weekly, Monthly); each extra pool (Droid
+  Core, a model such as Fable) gets a small heading over its own rows ("Weekly Fable" in the
+  window). Show all reported windows, even unknown values; plans and hidden rows may reduce
   them. Align window name, bar, percentage, and reset in fixed columns. Clicking expands all
   windows, model buckets, credits, Switch, and Open <tool>. Accounts needing sign-in show "Sign in
   again to see usage" as a subtitle and Sign in at right, aligned with expanded buttons' bottoms.
-  Droid reuses the Accounts access text and action there. Name
-  model-specific weekly windows "Weekly Fable" in the window and "Fable" in the popover. Context
+  Droid reuses the Accounts access text and action there. Context
   menus offer Switch, Open <tool>, Refresh, and Copy name. The footer puts Open Switch (Command-O)
   left and Refresh, Quit (power), Settings icons right, in order, 6 pt apart. Refresh
   checks enabled accounts in saved order without activating an account or closing the popover.
@@ -473,7 +472,8 @@ keeps the account. Without a fallback, Delete account stays disabled with its no
 Conversations and settings stay.
 
 Background reconciliation never disables UI or republishes unchanged values. Secondary text
-names provider (Codex CLI); badges mean action needed.
+names provider (Codex CLI); badges mean action needed. A badge is a grey chip with label-color
+text and a 6 pt state-color dot (owner pick B3); its text reaches 4.5:1 in both appearances.
 
 Add Account and Advanced Import use native sheets. Provider search and a single-choice list
 (double-click continues) lead to the form or sign-in page. Keep standard Cancel and Continue

@@ -9,7 +9,6 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
     let resetsAt: Date?
     let minutes: Int?
     var balance: String? = nil
-    var compactLabel: String? = nil
   }
   let usedPercentage: Int?
   let secondaryUsedPercentage: Int?
@@ -144,12 +143,10 @@ struct MenuBarUsageSnapshot: Equatable, Sendable {
       for window in [scoped.primary, scoped.secondary].compactMap({ $0 }) {
         let period = CodexBucketNaming.windowTitle(minutes: window.windowDurationMinutes, fallback: "Usage")
         reported.append(Window(title: "\(name) \(period)", used: window.usedPercent,
-          resetsAt: window.resetsAt, minutes: window.windowDurationMinutes.map(Int.init),
-          compactLabel: MenuBarPresentation.windowLabel(minutes: nil, title: name)))
+          resetsAt: window.resetsAt, minutes: window.windowDurationMinutes.map(Int.init)))
       }
       if let credits = UsagePresentation.credits(scoped.credits) {
-        reported.append(Window(title: "\(name) credits", used: nil, resetsAt: nil, minutes: nil,
-          balance: credits, compactLabel: MenuBarPresentation.windowLabel(minutes: nil, title: "\(name) credits")))
+        reported.append(Window(title: "\(name) credits", used: nil, resetsAt: nil, minutes: nil, balance: credits))
       }
     }
     if let monthly = extras?.monthlyCredits {

@@ -2,7 +2,7 @@ import AIManagerCore
 import AppKit
 import SwiftUI
 
-/// Maintenance: Cleanup and Backup, both acting on one chosen source.
+/// Maintenance: Cleanup acts on one chosen source; Backup is one checklist of every tool.
 enum MaintenanceSection: String, CaseIterable {
   case cleanup = "Cleanup"
   case backup = "Backup"
@@ -29,8 +29,11 @@ struct MaintenancePage: View {
           icon: { $0 == .cleanup ? .cleanup : .backup })
           .uiLint(.align("cards-start", .start))
         Spacer(minLength: 0)
-        MaintenanceSourcePicker(store: store, cleanup: section == .cleanup)
-          .uiLint(.align("cards-end", .end))
+        // Backup lists every tool on its own checklist, so only Cleanup picks a source.
+        if Self.showsSourcePicker(section) {
+          MaintenanceSourcePicker(store: store)
+            .uiLint(.align("cards-end", .end))
+        }
       }
       switch section {
       case .backup: BackupPage(model: model, store: store)
@@ -44,6 +47,8 @@ struct MaintenancePage: View {
     .onChange(of: store.wantsBackupTab) { _, _ in consumeRequest() }
   }
 
+  static func showsSourcePicker(_ section: MaintenanceSection) -> Bool { section == .cleanup }
+
   private func consumeRequest() {
     guard store.wantsBackupTab else { return }
     store.wantsBackupTab = false
@@ -56,17 +61,14 @@ struct MaintenancePage: View {
 /// The button at the right end of the tab bar: the chosen source, and a searchable list of the others.
 struct MaintenanceSourcePicker: View {
   @ObservedObject var store: MaintenanceStore
-  /// Cleanup lists Claude Code once; Backup also lists each account's own profile.
-  var cleanup = false
   @State private var open = false
 
   var body: some View {
     Button { open.toggle() } label: {
       HStack(spacing: 8) {
-        if let source = cleanup ? store.cleanupSource : store.source {
+        if let source = store.cleanupSource {
           ProviderMark(providerID: source.providerID, size: 18)
           Text(source.title).lineLimit(1)
-          if source.accountID != nil { Text("profile").aimText(.secondary) }
         } else {
           Text("No source found")
         }
@@ -76,9 +78,9 @@ struct MaintenanceSourcePicker: View {
     .buttonStyle(AIMPushButtonStyle())
     .disabled(store.sources.isEmpty)
     .accessibilityLabel("Source")
-    .accessibilityValue((cleanup ? store.cleanupSource : store.source)?.title ?? "None")
+    .accessibilityValue(store.cleanupSource?.title ?? "None")
     .popover(isPresented: $open, arrowEdge: .bottom) {
-      MaintenanceSourcePanel(store: store, cleanup: cleanup) { source in
+      MaintenanceSourcePanel(store: store) { source in
         store.sourceID = source.id
         open = false
       }
@@ -89,7 +91,6 @@ struct MaintenanceSourcePicker: View {
 /// The list in the picker: a search field on top, then one row for each source.
 struct MaintenanceSourcePanel: View {
   @ObservedObject var store: MaintenanceStore
-  var cleanup = false
   let pick: (CleanupSource) -> Void
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
   @State private var query = ""
@@ -98,8 +99,8 @@ struct MaintenanceSourcePanel: View {
   static let width: CGFloat = 380
   static let rowHeight: CGFloat = 48
 
-  private var choices: [CleanupSource] { cleanup ? store.cleanupSources : store.sources }
-  private var chosen: CleanupSource? { cleanup ? store.cleanupSource : store.source }
+  private var choices: [CleanupSource] { store.cleanupSources }
+  private var chosen: CleanupSource? { store.cleanupSource }
 
   private var shown: [CleanupSource] {
     let text = query.trimmingCharacters(in: .whitespaces).lowercased()

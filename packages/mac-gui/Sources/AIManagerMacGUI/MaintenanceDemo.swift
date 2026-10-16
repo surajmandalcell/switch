@@ -153,6 +153,12 @@ struct MaintenanceDemo {
     write("settings.json", in: gemini, kb: 1, daysAgo: 9, text: "{}")
     let copilot = user.appending(path: ".copilot")
     for index in 0..<3 { write("logs/\(index).log", in: copilot, kb: 300, daysAgo: Double(index * 25 + 8)) }
+    let droid = user.appending(path: ".factory")
+    for index in 0..<3 { write("sessions/session-\(index).jsonl", in: droid, kb: 1_200, daysAgo: Double(index * 11 + 2)) }
+    write("settings.json", in: droid, kb: 1, daysAgo: 7, text: "{}")
+    let opencode = user.appending(path: ".local/share/opencode")
+    for index in 0..<2 { write("storage/session-\(index).json", in: opencode, kb: 900, daysAgo: Double(index * 9 + 3)) }
+    for index in 0..<3 { write("sessions/session-\(index).jsonl", in: profileHome, kb: 700, daysAgo: Double(index * 6 + 1)) }
     settleDirectories()
   }
 
@@ -177,10 +183,11 @@ struct MaintenanceDemo {
     for source in sources where ["codex", "claude"].contains(source.id) {
       guard let service = source.backupService else { continue }
       // The same items a new set starts with, so conversations are on, as they are for the owner.
-      let items = source.backupItems
+      // Claude Code also covers its account's own profile folder.
+      let contents = BackupChecklist.contents(for: source)
       sets.append(BackupSet(
-        name: source.title, source: BackupSource(id: source.id, service: service, home: source.home), items: items,
-        destination: demo.drive, schedule: source.id == "codex" ? .daily : .off, keep: 10))
+        name: source.title, source: BackupSource(id: source.id, service: service, home: source.home), items: contents.items,
+        destination: demo.drive, schedule: .daily, keep: 10, profiles: contents.profiles))
     }
     guard (try? await engine.saveSets(sets)) != nil else { return [] }
     for set in sets {

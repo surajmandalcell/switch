@@ -54,6 +54,19 @@ struct OverviewSeries: Identifiable, Equatable {
   /// The tool behind an account group (nil for models, projects, and Other); its brand tile
   /// tells two accounts with one label apart.
   var service: String?
+
+  /// What a tooltip names: "Claude Code · surajmandalcell@gmail" (the tool, then the account), or the
+  /// bare label for a model, a project, "Other", and a shared group that already carries the tool name.
+  var tipLabel: String {
+    guard let service, !label.hasSuffix(" (shared)") else { return label }
+    return "\(OverviewDayDetail.toolName(service)) · \(label)"
+  }
+}
+
+/// One tool's tokens per day over the heatmap's year.
+struct OverviewYearTool: Equatable {
+  let service: String
+  let daily: [Int64]
 }
 
 /// The brand tile of an account group's tool, small enough to sit on the text line.
@@ -83,6 +96,8 @@ struct OverviewDataset: Equatable {
   let totals: UsageTotals
   let yearDays: [String]
   let yearTotals: [Int64]
+  /// Each tool's share of those days, most tokens first (a model counts for its first tool).
+  let yearTools: [OverviewYearTool]
   /// Token cuts between the four non-empty heat levels.
   let heatCuts: [Int64]
 
@@ -139,9 +154,16 @@ struct OverviewDataset: Equatable {
     }
     let active = year.dailyTotals.filter { $0 > 0 }.sorted()
     let cuts = [0.25, 0.5, 0.75].map { active.isEmpty ? Int64(0) : active[min(Int(Double(active.count) * $0), active.count - 1)] }
+    var tools: [String: [Int64]] = [:]
+    for group in year.groups {
+      guard let service = group.services.first, !service.isEmpty else { continue }
+      tools[service] = zip(tools[service] ?? group.daily.map { _ in 0 }, group.daily).map { $0 + $1 }
+    }
+    let yearTools = tools.map { OverviewYearTool(service: $0.key, daily: $0.value) }
+      .sorted { ($1.daily.reduce(0, +), $0.service) < ($0.daily.reduce(0, +), $1.service) }
     return OverviewDataset(
       period: summary.period, grouping: summary.grouping, days: summary.days, series: series,
-      totals: summary.totals, yearDays: year.days, yearTotals: year.dailyTotals, heatCuts: cuts)
+      totals: summary.totals, yearDays: year.days, yearTotals: year.dailyTotals, yearTools: yearTools, heatCuts: cuts)
   }
 
   // MARK: VoiceOver summaries
@@ -244,12 +266,12 @@ struct OverviewPage: View {
         OverviewEmptyCard(model: model)
       } else {
         totalsCard
-        chartCard("Tokens per day", height: 200 + OverviewDateAxis.height + 4, hasData: { !$0.series.isEmpty }, footer: true) {
+        chartCard("Tokens per day", height: 200 + OverviewDateAxis.height + 4, bleed: true, hasData: { !$0.series.isEmpty }, footer: true) {
           OverviewStreamChart(dataset: $0)
         }
         chartCard("Activity", note: "(last 12 months, all accounts)", height: nil, hasData: { $0.yearTokens > 0 },
           empty: "No activity in the last 12 months.") { OverviewHeatmap(dataset: $0, onSelect: openDay) }
-        chartCard("Trends", height: 300, hasData: { !$0.series.isEmpty }) { OverviewRidgeline(dataset: $0) }
+        chartCard("Trends", height: 300, bleed: true, hasData: { !$0.series.isEmpty }) { OverviewRidgeline(dataset: $0) }
         chartCard("Share of tokens", height: nil, waffle: true, hasData: { !$0.series.isEmpty }) {
           OverviewWaffleChart(dataset: $0)
         }
@@ -339,21 +361,24 @@ struct OverviewPage: View {
   }
 
   /// A chart card: a title row, a divider, then the chart in a slot of fixed height, so loading
-  /// and an empty group never move the cards.
+  /// and an empty group never move the cards. A `bleed` chart is a series that spans the card: its
+  /// marks run from the card's left edge to its right edge (the card clips the corners), while the
+  /// legend and axis labels keep the card inset.
   private func chartCard<Chart: View>(
-    _ title: String, note: String? = nil, height: CGFloat?, waffle: Bool = false,
+    _ title: String, note: String? = nil, height: CGFloat?, waffle: Bool = false, bleed: Bool = false,
     hasData: @escaping (OverviewDataset) -> Bool,
     empty: String? = nil, footer: Bool = false, @ViewBuilder chart: @escaping (OverviewDataset) -> Chart
   ) -> some View {
     let groupNote = "(by \(grouping == .account ? "account" : grouping == .model ? "model" : "project"))"
     return AIMCard(title: title, note: note ?? groupNote, divider: true, bottomInset: 0) {
       VStack(alignment: .leading, spacing: 10) {
-        OverviewSlot(dataset: dataset, height: height, waffle: waffle, hasData: hasData, empty: empty, chart: chart)
-        if footer { OverviewLegend(series: dataset?.series ?? []) }
+        // Above the legend, so a tooltip near the chart's bottom edge is not drawn under it.
+        OverviewSlot(dataset: dataset, height: height, waffle: waffle, bleed: bleed, hasData: hasData, empty: empty, chart: chart)
+          .zIndex(1)
+        if footer { OverviewLegend(series: dataset?.series ?? []).padding(.horizontal, AIMTheme.cardInset) }
       }
       // Canvas charts hold no text, so the block itself marks the card's content edge for the inset check.
       .uiLint(.item)
-      .padding(.horizontal, AIMTheme.cardInset)
       // The title text sits 14 pt below the top edge; the content ends 14 pt above the bottom.
       .padding(.vertical, 14)
     }
@@ -366,6 +391,8 @@ private struct OverviewSlot<Chart: View>: View {
   let dataset: OverviewDataset?
   let height: CGFloat?
   var waffle = false
+  /// The chart runs edge to edge; everything else (the empty block, a grid chart) keeps the card inset.
+  var bleed = false
   let hasData: (OverviewDataset) -> Bool
   let empty: String?
   let chart: (OverviewDataset) -> Chart
@@ -373,9 +400,9 @@ private struct OverviewSlot<Chart: View>: View {
   var body: some View {
     Group {
       if let dataset, hasData(dataset) {
-        chart(dataset)
+        chart(dataset).padding(.horizontal, bleed ? 0 : AIMTheme.cardInset)
       } else {
-        placeholder
+        placeholder.padding(.horizontal, AIMTheme.cardInset)
       }
     }
     .frame(maxWidth: .infinity)

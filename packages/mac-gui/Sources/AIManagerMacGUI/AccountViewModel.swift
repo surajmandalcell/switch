@@ -514,6 +514,12 @@ final class AccountViewModel: ObservableObject {
             accountHistory[account.id] = HistorySummary(activeTranscripts: 475, archivedTranscripts: 92, hasIndexes: true)
         }
     }
+
+    /// Preview only: lets the page-freeze check toggle the loading state the Add button follows.
+    func setLoadedForCheck(_ loaded: Bool) {
+        guard isDemo else { return }
+        hasLoaded = loaded
+    }
     #endif
 
     func beginAddAccount() async {

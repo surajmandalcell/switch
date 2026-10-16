@@ -23,6 +23,22 @@ struct RecentBackup: Identifiable, Equatable {
   let isSafety: Bool
 }
 
+/// One snapshot in History: the set it restores through and the tool it belongs to.
+struct BackupHistoryRow: Identifiable {
+  let snapshot: BackupSnapshot
+  let set: BackupSet
+  let source: CleanupSource?
+  var id: String { self.set.id.uuidString + snapshot.id }
+}
+
+/// The schedule, snapshot count, and login choice that every checked tool shares.
+struct SharedBackupSettings: Codable, Equatable {
+  var schedule: BackupSchedule = .off
+  var keep = 10
+  var includeLogins = false
+  static let key = "backupShared"
+}
+
 /// Maintenance's state: the sources, the chosen source, backup sets, snapshots, the schedule, and
 /// the running backup. File work runs in `BackupEngine` off the main actor.
 @MainActor
@@ -34,7 +50,17 @@ final class MaintenanceStore: ObservableObject {
   @Published private(set) var sets: [BackupSet] = []
   @Published private(set) var statuses: [UUID: BackupStatus] = [:]
   @Published private(set) var runningSetID: UUID?
+  /// Which tool of a multi-tool run is going now (0-based) and how many the run has.
+  @Published private(set) var runPosition: (index: Int, count: Int) = (0, 0)
   @Published private(set) var progress: BackupProgress?
+  /// Bytes in each checklist row, by source id. Filled off the main actor; nil while it is being read.
+  @Published private(set) var sizes: [String: Int64] = [:]
+  /// Tools checked before a backup folder exists. The folder pick creates their sets.
+  @Published private(set) var pendingChecked: Set<String> = []
+  @Published private(set) var shared: SharedBackupSettings = {
+    UserDefaults.standard.data(forKey: SharedBackupSettings.key)
+      .flatMap { try? JSONDecoder().decode(SharedBackupSettings.self, from: $0) } ?? SharedBackupSettings()
+  }()
   @Published private(set) var isRestoring = false
   @Published private(set) var isLoaded = false
   /// "Open Backup" on the Overview asks the Maintenance page for the Backup tab.
@@ -79,12 +105,17 @@ final class MaintenanceStore: ObservableObject {
         let seeded = MaintenanceDemo.seedSync(engine: engine, demo: demo, sources: sources)
         sets = seeded.0
         statuses = seeded.1
+        destination = demo.drive
+        shared = SharedBackupSettings(schedule: .daily, keep: 10, includeLogins: false)
       }
       isLoaded = true
       if sourceID == nil || !sources.contains(where: { $0.id == sourceID }) { sourceID = sources.first?.id }
     }
     #endif
-    observer = model.$status.receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshSources() }
+    observer = model.$status.receive(on: RunLoop.main).sink { [weak self] _ in
+      self?.refreshSources()
+      Task { await self?.syncProfiles() }
+    }
   }
 
   #if AI_MANAGER_PREVIEW
@@ -106,12 +137,12 @@ final class MaintenanceStore: ObservableObject {
 
   var source: CleanupSource? { sources.first { $0.id == sourceID } ?? sources.first }
 
-  /// Cleanup lists Claude Code once: an account's own profile folds into the shared entry (Backup keeps both).
+  /// Cleanup lists Claude Code once: an account's own profile folds into the shared entry (so does Backup's checklist).
   var cleanupSources: [CleanupSource] {
     sources.filter { !$0.isClaudeProfile }.map { $0.tool == .claude ? $0.withDetail($0.detail.replacingOccurrences(of: "Shared history · ", with: "")) : $0 }
   }
 
-  /// The source Cleanup acts on. A chosen Claude profile (picked on the Backup tab) maps to the merged entry.
+  /// The source Cleanup acts on. A remembered Claude profile id maps to the merged entry.
   var cleanupSource: CleanupSource? {
     let choices = cleanupSources
     guard let chosen = source else { return choices.first }
@@ -127,9 +158,49 @@ final class MaintenanceStore: ObservableObject {
 
   // MARK: Backup sets
 
-  func set(for source: CleanupSource) -> BackupSet? { sets.first { $0.source.id == source.id } }
+  /// The tools on the Backup checklist: each once. An account's own Claude Code profile is part of the Claude Code row.
+  var checklistSources: [CleanupSource] { sources.filter { !$0.isClaudeProfile } }
+
+  /// The tool's checked set. A retired set (unchecked, or left behind by a folder change) is history only.
+  func set(for source: CleanupSource) -> BackupSet? { sets.first { $0.source.id == source.id && !$0.retired } }
+
+  func isChecked(_ source: CleanupSource) -> Bool { set(for: source) != nil || pendingChecked.contains(source.id) }
+
+  var checkedSets: [BackupSet] { checklistSources.compactMap { set(for: $0) } }
+
+  /// The newest backup of a tool across all its sets (older folders and profile sets included).
+  func lastBackup(of source: CleanupSource) -> Date? {
+    sets.filter { $0.toolKey == source.id }
+      .flatMap { statuses[$0.id]?.snapshots ?? [] }.filter { !$0.manifest.safety }.map(\.date).max()
+  }
 
   func status(for set: BackupSet) -> BackupStatus? { statuses[set.id] }
+
+  /// The backup folder the checked tools share: the remembered pick, else the folder of a checked set.
+  var folder: URL? { destination ?? checkedSets.first?.destination }
+
+  /// What History lists: snapshots of every set, newest first, each with the set it restores through.
+  var history: [BackupHistoryRow] {
+    sets.flatMap { set in
+      (statuses[set.id]?.snapshots ?? []).map { snapshot in
+        BackupHistoryRow(snapshot: snapshot, set: set, source: checklistSources.first { $0.id == set.toolKey })
+      }
+    }.sorted { $0.snapshot.date > $1.snapshot.date }
+  }
+
+  #if AI_MANAGER_PREVIEW
+  /// For a render check that cannot wait: reads the sizes on the calling thread.
+  func loadSizesNow() {
+    for source in checklistSources where source.backupService != nil { sizes[source.id] = BackupChecklist.size(of: source) }
+  }
+  #endif
+
+  func loadSizes() async {
+    for source in checklistSources where source.backupService != nil && sizes[source.id] == nil {
+      let bytes = await Task.detached(priority: .utility) { BackupChecklist.size(of: source) }.value
+      sizes[source.id] = bytes
+    }
+  }
 
   /// Loads the saved sets and their snapshots, then starts the schedule. Safe to call again.
   func start() {
@@ -149,6 +220,29 @@ final class MaintenanceStore: ObservableObject {
     do { sets = try await engine.sets() } catch { model.errorMessage = "Backup settings could not be read. \(error.localizedDescription)" }
     isLoaded = true
     await refreshAll()
+    await migrate()
+    await syncProfiles()
+  }
+
+  /// Older installs saved one set for each source, maybe in different folders. This folds them into the checklist once.
+  private func migrate() async {
+    let lastUsed = sets.reduce(into: [UUID: Date]()) { result, set in
+      result[set.id] = statuses[set.id]?.snapshots.filter { !$0.manifest.safety }.map(\.date).max()
+    }
+    let result = BackupChecklist.migrate(sets, lastUsed: lastUsed)
+    if result.sets != sets { await save(result.sets) }
+    if let folder = result.folder { destination = folder }
+    if let first = checkedSets.first {
+      shared = SharedBackupSettings(schedule: first.schedule, keep: first.keep, includeLogins: first.includeLogins)
+    }
+  }
+
+  /// Claude Code's set follows its accounts: a new Claude Code profile joins it, a removed one leaves it.
+  func syncProfiles() async {
+    guard model.status != nil, let source = sources.first(where: { $0.id == "claude" }),
+      let set = set(for: source) else { return }
+    let next = BackupChecklist.withProfiles(set, homes: source.extraHomes)
+    if next != set { await update(next) }
   }
 
   func refreshAll() async {
@@ -160,16 +254,33 @@ final class MaintenanceStore: ObservableObject {
     catch { model.errorMessage = "The backups of \(set.name) could not be read. \(error.localizedDescription)" }
   }
 
-  /// A set for a source the owner has not backed up yet: needs a destination first.
+  /// A set for a tool the owner has not backed up yet, with the shared schedule, count, and login choice.
+  /// A set that was unchecked in the same folder comes back instead, so its snapshots stay in one history.
   @discardableResult
   func createSet(for source: CleanupSource, destination: URL) async -> BackupSet? {
     guard let service = source.backupService else { return nil }
-    let name = Self.setName(source)
-    let set = BackupSet(
-      name: name, source: BackupSource(id: source.id, service: service, home: source.home),
-      items: source.backupItems, destination: destination)
-    await save(sets + [set])
-    return self.set(for: source)
+    let contents = BackupChecklist.contents(for: source)
+    var next = sets
+    if let back = next.firstIndex(where: {
+      $0.retired && $0.source.id == source.id && BackupChecklist.sameFolder($0.destination, destination)
+    }) {
+      next[back].retired = false
+      next[back].items = contents.items
+      next[back].profiles = contents.profiles
+      next[back].source.home = source.home
+    } else {
+      next.append(BackupSet(
+        name: Self.setName(source), source: BackupSource(id: source.id, service: service, home: source.home),
+        items: contents.items, destination: destination, includeLogins: shared.includeLogins,
+        schedule: shared.schedule, keep: shared.keep, profiles: contents.profiles))
+    }
+    if let index = next.firstIndex(where: { $0.source.id == source.id && !$0.retired }) {
+      next[index].schedule = shared.schedule
+      next[index].keep = shared.keep
+      next[index].includeLogins = shared.includeLogins
+    }
+    await save(next)
+    return set(for: source)
   }
 
   static func setName(_ source: CleanupSource) -> String {
@@ -194,31 +305,47 @@ final class MaintenanceStore: ObservableObject {
 
   // MARK: Destination and items (folder panels)
 
-  func chooseDestination(for source: CleanupSource) async {
+  /// One folder for every checked tool. Tools backed up elsewhere before keep their snapshots there (History)
+  /// and continue in the new folder; tools checked before any folder existed get their sets now.
+  func chooseDestination() async {
     guard let url = Self.pickFolder(title: "Choose a backup folder", prompt: "Choose",
-      start: destination ?? FileManager.default.homeDirectoryForCurrentUser) else { return }
+      start: folder ?? FileManager.default.homeDirectoryForCurrentUser) else { return }
+    await useFolder(url)
+  }
+
+  func useFolder(_ url: URL) async {
     destination = url
-    if var existing = set(for: source) {
-      existing.destination = url
-      await update(existing)
-    } else {
+    await save(BackupChecklist.move(sets, to: url))
+    for source in checklistSources where pendingChecked.contains(source.id) {
+      pendingChecked.remove(source.id)
       await createSet(for: source, destination: url)
     }
   }
 
-  func addItem(to set: BackupSet) async {
-    guard let url = Self.pickItem(start: set.source.home) else { return }
-    let home = CoreSupportBridge.canonical(set.source.home).path
-    let path = CoreSupportBridge.canonical(url).path
-    guard path.hasPrefix(home + "/") else {
-      model.errorMessage = "Choose a file or folder inside \(set.source.home.lastPathComponent)."
-      return
+  /// Check or uncheck a tool. Unchecking stops its schedule; snapshots and source files are never touched.
+  func setChecked(_ source: CleanupSource, on: Bool) async {
+    guard source.backupService != nil else { return }
+    if on {
+      guard set(for: source) == nil else { return }
+      if let url = folder { await createSet(for: source, destination: url) } else { pendingChecked.insert(source.id) }
+    } else {
+      pendingChecked.remove(source.id)
+      await save(BackupChecklist.retire(sets, tool: source.id))
     }
-    let relative = String(path.dropFirst(home.count + 1))
-    guard !set.items.contains(where: { $0.path == relative }) else { return }
-    var next = set
-    next.items.append(BackupItem(relative, isLogin: BackupPresets.isLogin(relative)))
-    await update(next)
+  }
+
+  /// A shared setting changes for every checked tool at once.
+  func changeShared(_ change: (inout SharedBackupSettings) -> Void) async {
+    var next = shared
+    change(&next)
+    shared = next
+    UserDefaults.standard.set(try? JSONEncoder().encode(next), forKey: SharedBackupSettings.key)
+    await save(sets.map { set in
+      guard !set.retired else { return set }
+      var copy = set
+      copy.schedule = next.schedule; copy.keep = next.keep; copy.includeLogins = next.includeLogins
+      return copy
+    })
   }
 
   static func pickFolder(title: String, prompt: String, start: URL?) -> URL? {
@@ -233,45 +360,53 @@ final class MaintenanceStore: ObservableObject {
     return panel.runModal() == .OK ? panel.url : nil
   }
 
-  static func pickItem(start: URL) -> URL? {
-    let panel = NSOpenPanel()
-    panel.title = "Add a file or folder"
-    panel.prompt = "Add"
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = true
-    panel.allowsMultipleSelection = false
-    panel.showsHiddenFiles = true
-    panel.directoryURL = start
-    return panel.runModal() == .OK ? panel.url : nil
-  }
-
   // MARK: Running
 
   var isBackingUp: Bool { runningSetID != nil }
 
   /// A scheduled run is silent on success: a message is only for an action the owner started.
-  func backUpNow(_ set: BackupSet, scheduled: Bool = false) {
-    guard runningSetID == nil, !isRestoring else { return }
-    runningSetID = set.id
+  func backUpNow(_ set: BackupSet, scheduled: Bool = false) { backUpNow([set], scheduled: scheduled) }
+
+  /// Backs up the sets one after another. The first run of a set copies everything; later runs copy what changed.
+  func backUpNow(_ list: [BackupSet], scheduled: Bool = false) {
+    guard runningSetID == nil, !isRestoring, let first = list.first else { return }
+    runningSetID = first.id
+    runPosition = (0, list.count)
     progress = nil
     let box = ProgressBox()
     runTask = Task { [weak self] in
       guard let self else { return }
-      do {
-        let snapshot = try await self.engine.snapshot(set) { [weak self] value in
-          if box.shouldPublish() { Task { @MainActor in self?.progress = value } }
+      await self.syncProfiles()
+      var files = 0, tools = 0
+      var fresh: Int64 = 0
+      var cancelled = false
+      for (index, queued) in list.enumerated() {
+        let set = self.sets.first { $0.id == queued.id } ?? queued
+        self.runningSetID = set.id
+        self.runPosition = (index, list.count)
+        do {
+          let snapshot = try await self.engine.snapshot(set) { [weak self] value in
+            if box.shouldPublish() { Task { @MainActor in self?.progress = value } }
+          }
+          files += snapshot.files; fresh += snapshot.newBytes; tools += 1
+        } catch is CancellationError {
+          cancelled = true
+        } catch {
+          self.model.errorMessage = list.count > 1 ? "\(set.name): \(error.localizedDescription)" : error.localizedDescription
         }
-        if !scheduled {
-          self.model.notice = "Backed up \(snapshot.files.formatted()) files. \(Self.size(snapshot.newBytes)) of new data."
+        self.progress = nil
+        await self.refresh(set)
+        if cancelled { break }
+      }
+      if !scheduled {
+        if cancelled { self.model.notice = "Backup cancelled." }
+        else if tools > 0 {
+          let each = tools > 1 ? "\(tools) tools: " : ""
+          self.model.notice = "Backed up \(each)\(files.formatted()) files. \(Self.size(fresh)) of new data."
         }
-      } catch is CancellationError {
-        if !scheduled { self.model.notice = "Backup cancelled." }
-      } catch {
-        self.model.errorMessage = error.localizedDescription
       }
       self.runningSetID = nil
-      self.progress = nil
-      await self.refresh(set)
+      self.runPosition = (0, 0)
     }
   }
 
@@ -298,7 +433,7 @@ final class MaintenanceStore: ObservableObject {
 
   /// Runs every set whose schedule is due, one at a time.
   func runDueBackups() async {
-    for set in sets where set.schedule != .off {
+    for set in sets where set.schedule != .off && !set.retired {
       await refresh(set)
       guard let status = statuses[set.id], case .ready = status.state,
         let due = status.nextDue, due <= Date(), runningSetID == nil, !isRestoring else { continue }

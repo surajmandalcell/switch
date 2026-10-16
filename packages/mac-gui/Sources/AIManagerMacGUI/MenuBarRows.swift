@@ -15,8 +15,6 @@ enum MenuBarPresentation {
   /// How far the hover fill reaches above the first line of a row: midway between the earlier
   /// 10 pt and 2 pt. The fill then starts at the row's own top edge, never in the group header.
   static let hoverReach: CGFloat = 6
-  /// A token line longer than this many characters puts its second value at the right end.
-  static let tokenSplitLength = 32
   /// Popover text that is not primary: the system secondary label color, never tertiary.
   static let secondaryInk = Color(nsColor: .secondaryLabelColor)
   static let tileSize: CGFloat = 16
@@ -104,24 +102,84 @@ enum MenuBarPresentation {
     /// Amount text for balance-only accounts, shown instead of a bar.
     let balance: String?
     var helpTitle: String? = nil
+    /// The extra pool the window belongs to (Droid "Core", a model-only limit), from its title.
+    var pool: String? = nil
+    /// A heading row: the pool name, in the label column's start, over that pool's rows.
+    var isHeading = false
   }
 
-  /// A shared short name for service windows.
-  static func windowLabel(minutes: Int?, title: String) -> String {
-    if title.lowercased().hasSuffix(" credits") { return String(title.dropLast(8)) }
-    for period in ["Session", "Weekly", "Monthly"] {
-      if title.lowercased().hasPrefix(period.lowercased() + " "), !title.lowercased().contains("credits") {
-        return String(title.dropFirst(period.count + 1))
-      }
-      if title.lowercased().hasSuffix(" " + period.lowercased()) {
-        return String(title.dropLast(period.count + 1))
-      }
+  /// A window title split into its extra pool and its full period word.
+  struct WindowName: Equatable {
+    let pool: String?
+    let label: String
+  }
+
+  /// Words that describe the kind of amount, never a pool: "Monthly credits", "Weekly quota".
+  private static let amountWords: Set<String> = [
+    "credits", "credit", "quota", "limit", "usage", "budget", "allowance", "tokens", "requests", "window"]
+
+  /// Full period word and the number of title words it spans, when the word at `index` names a period.
+  private static func period(in words: [String], at index: Int) -> (name: String, length: Int)? {
+    let word = words[index].lowercased()
+    switch word {
+    case "session", "5-hour", "5-hours", "5h", "5hour": return ("Session", 1)
+    case "weekly", "7-day": return ("Weekly", 1)
+    case "monthly": return ("Monthly", 1)
+    case "daily": return ("Daily", 1)
+    default: break
     }
-    return switch minutes {
-    case 300: "Session"
-    case 10_080: "Weekly"
-    default: title
+    guard index + 1 < words.count else { return nil }
+    let next = words[index + 1].lowercased()
+    if word == "5", next.hasPrefix("hour") { return ("Session", 2) }
+    if word.range(of: #"^\d+-(day|hour|minute)s?$"#, options: .regularExpression) != nil, next == "window" {
+      return ("\(words[index]) window", 2)
     }
+    return nil
+  }
+
+  /// Splits a window title into its pool and its period word, for every provider alike: the
+  /// period word is the label, any other words (besides amount words) are the pool. "Core 5-hour"
+  /// is pool Core, label Session; "Weekly Fable" is pool Fable, label Weekly; "Spark credits" is
+  /// pool Spark, label Credits. A title with no period word keeps its own text.
+  static func windowName(minutes: Int?, title: String) -> WindowName {
+    let words = title.split(separator: " ").map(String.init)
+    for index in words.indices {
+      guard let period = period(in: words, at: index) else { continue }
+      var rest = words
+      rest.removeSubrange(index..<(index + period.length))
+      let pool = rest.filter { !amountWords.contains($0.lowercased()) }.joined(separator: " ")
+      return WindowName(pool: pool.isEmpty ? nil : pool, label: period.name)
+    }
+    if words.count > 1, words.last?.lowercased() == "credits" {
+      return WindowName(pool: words.dropLast().joined(separator: " "), label: "Credits")
+    }
+    if title.isEmpty, let minutes { return WindowName(pool: nil, label: minutes == 300 ? "Session" : "Weekly") }
+    return WindowName(pool: nil, label: title)
+  }
+
+  /// The main pool's rows first (no heading), then each extra pool under its heading, in the
+  /// reported order. An account whose rows all share one pool needs no heading.
+  static func grouped(_ rows: [Line]) -> [Line] {
+    var pools: [String?] = []
+    for row in rows where !pools.contains(where: { $0 == row.pool }) { pools.append(row.pool) }
+    guard pools.count > 1 else { return rows }
+    pools = pools.filter { $0 == nil } + pools.filter { $0 != nil }  // the main pool first
+    return pools.flatMap { pool -> [Line] in
+      let own = rows.filter { $0.pool == pool }
+      guard let pool else { return own }
+      return [Line(label: pool, used: nil, resetsAt: nil, minutes: nil, balance: nil, isHeading: true)] + own
+    }
+  }
+
+  /// The collapsed row shows the first two usage rows, with the heading of a pool above its rows.
+  static func collapsed(_ lines: [Line]) -> [Line] {
+    var result: [Line] = [], rows = 0
+    for line in lines {
+      if rows >= 2 { break }
+      if !line.isHeading { rows += 1 }
+      result.append(line)
+    }
+    return result
   }
 
   enum Content: Equatable { case signIn, lines([Line]) }
@@ -133,10 +191,12 @@ enum MenuBarPresentation {
     }
     if let providerWindows = usage.providerWindows, !providerWindows.isEmpty {
       let visible = providerWindows.filter { $0.used != nil || $0.balance?.isEmpty == false }
-      return .lines((expanded ? visible : Array(visible.prefix(2))).map {
-        Line(label: $0.compactLabel ?? windowLabel(minutes: $0.minutes, title: $0.title), used: $0.used,
-          resetsAt: $0.resetsAt, minutes: $0.minutes, balance: $0.balance, helpTitle: $0.title)
+      let rows = grouped(visible.map {
+        let name = windowName(minutes: $0.minutes, title: $0.title)
+        return Line(label: name.label, used: $0.used, resetsAt: $0.resetsAt, minutes: $0.minutes,
+          balance: $0.balance, helpTitle: $0.title, pool: name.pool)
       })
+      return .lines(expanded ? rows : collapsed(rows))
     }
     var windows: [(title: String, used: Int?, reset: Date?, minutes: Int?, detail: String?)] = []
     if usage.usedPercentage != nil || usage.primaryDetail?.isEmpty == false {
@@ -150,11 +210,12 @@ enum MenuBarPresentation {
       return .lines([Line(
         label: nil, used: nil, resetsAt: nil, minutes: nil, balance: balance)])
     }
-    return .lines(windows.map {
-      Line(
-        label: windowLabel(minutes: $0.minutes, title: $0.title),
-        used: $0.used, resetsAt: $0.reset, minutes: $0.minutes, balance: $0.used == nil ? $0.detail : nil)
+    let rows = grouped(windows.map {
+      let name = windowName(minutes: $0.minutes, title: $0.title)
+      return Line(label: name.label, used: $0.used, resetsAt: $0.reset, minutes: $0.minutes,
+        balance: $0.used == nil ? $0.detail : nil, pool: name.pool)
     })
+    return .lines(expanded ? rows : collapsed(rows))
   }
 
   static func lines(for account: MenuBarAccountSnapshot, expanded: Bool = false) -> [Line] {
@@ -163,7 +224,7 @@ enum MenuBarPresentation {
   }
 
   static func labelColumnWidth(_ account: MenuBarAccountSnapshot, expanded: Bool) -> CGFloat {
-    lines(for: account, expanded: expanded).compactMap(\.label).reduce(labelWidth) {
+    lines(for: account, expanded: expanded).filter { !$0.isHeading }.compactMap(displayLabel).reduce(labelWidth) {
       max($0, measuredLabelWidth($1))
     }
   }
@@ -257,24 +318,26 @@ enum MenuBarPresentation {
     return String(tokens)
   }
 
-  /// The token count with its period, and the API price when the usage has one.
-  static func tokenParts(_ usage: MenuBarUsageSnapshot) -> (count: String, price: String?)? {
+  /// The value of the Tokens row, "24.1M since reset · ≈$96 API" (the price only when the usage
+  /// has one). It starts at the bar column, stays on one line, and truncates at the tail.
+  static func tokenCaption(_ usage: MenuBarUsageSnapshot) -> String? {
     guard let tokens = usage.tokens, tokens > 0, let period = usage.tokenPeriodLabel else { return nil }
     let price = usage.apiPrice.map {
       "≈\($0.inputEquivalent(for: tokens).formatted(.currency(code: "USD").precision(.fractionLength(0)))) API"
     }
-    return ("\(compactTokens(tokens)) tokens \(period)", price)
+    return ["\(compactTokens(tokens)) \(period)", price].compactMap { $0 }.joined(separator: " · ")
   }
 
-  /// One line, "24.1M tokens since reset · ≈$96 API". It never wraps.
-  static func tokenCaption(_ usage: MenuBarUsageSnapshot) -> String? {
-    tokenParts(usage).map { [$0.count, $0.price].compactMap { $0 }.joined(separator: " · ") }
-  }
+  /// Lint groups of one account's bar column and its value-only rows (they share a left edge).
+  /// Per account, because the label column width differs between accounts.
+  static func barGroup(_ account: MenuBarAccountSnapshot) -> String { "menuBarBars-\(account.id)" }
+  static func valueGroup(_ account: MenuBarAccountSnapshot) -> String { "menuBarValues-\(account.id)" }
 
-  /// Past the length threshold the two values sit at the left and right ends of the line.
-  static func splitsTokenCaption(_ usage: MenuBarUsageSnapshot) -> Bool {
-    (tokenCaption(usage)?.count ?? 0) > tokenSplitLength && tokenParts(usage)?.price != nil
-  }
+  static let tokenLabel = "Tokens"
+  static let balanceLabel = "Balance"
+
+  /// The label column text of a line: its window name, or "Balance" for a value-only line with none.
+  static func displayLabel(_ line: Line) -> String? { line.label ?? (line.balance == nil ? nil : balanceLabel) }
 
   static func accessibilityLabel(
     _ account: MenuBarAccountSnapshot, showsUsed: Bool, now: Date, exact: Bool
@@ -285,13 +348,13 @@ enum MenuBarPresentation {
     case .signIn:
       parts.append("Needs sign in")
     case .lines(let lines):
-      for line in lines {
+      for line in lines where !line.isHeading {
         let value = line.balance.map { "Balance \($0)" }
           ?? line.used.map { UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed) }
           ?? "Usage unknown"
-        parts.append([line.label, value].compactMap { $0 }.joined(separator: " "))
+        parts.append([line.pool, line.label, value].compactMap { $0 }.joined(separator: " "))
       }
-      for line in lines {
+      for line in lines where !line.isHeading {
         if let reset = line.resetsAt {
           let text = resetText(reset, now: now, exact: exact, used: line.used)
           parts.append(reset > now ? "Resets " + text : text)
@@ -330,8 +393,8 @@ struct MenuBarRow: View {
       VStack(alignment: .leading, spacing: P.lineGap) {
         header
         if P.lineCount(account) > 0 { content }
-        if P.hasTokenCaption(account), let usage = account.usage, let parts = P.tokenParts(usage) {
-          tokenLine(parts, split: P.splitsTokenCaption(usage))
+        if P.hasTokenCaption(account), let value = account.usage.flatMap(P.tokenCaption) {
+          tokenLine(value)
         }
       }
       .padding(.leading, P.rowPaddingH)
@@ -408,19 +471,31 @@ struct MenuBarRow: View {
     }
   }
 
-  /// One line that never wraps. A long line puts the API price at the right end.
-  private func tokenLine(_ parts: (count: String, price: String?), split: Bool) -> some View {
+  /// A label + value row: "Tokens" in the label column, the value from the bar column. One line.
+  private func tokenLine(_ value: String) -> some View {
     HStack(spacing: 6) {
-      Text(parts.count).layoutPriority(1)
-      if let price = parts.price {
-        if split { Spacer(minLength: 0) } else { Text("·") }
-        Text(price)
-      }
+      labelText(P.tokenLabel)
+      valueText(value)
     }
-    .aimText(.secondary, tint: P.secondaryInk).monospacedDigit().lineLimit(1)
-    .frame(maxWidth: .infinity, alignment: .leading)
     .frame(height: P.captionHeight)
     .padding(.leading, P.textIndent)
+  }
+
+  private func labelText(_ label: String, help: String? = nil) -> some View {
+    Text(label).aimText(.secondary, tint: P.secondaryInk)
+      .fixedSize(horizontal: true, vertical: false)
+      .uiLint(.align("menuBarUsageLabelInk", .start))
+      .frame(width: P.labelColumnWidth(account, expanded: isExpanded), alignment: .leading)
+      .uiLint(.align("menuBarUsageLabels", .start)).help(help ?? label)
+  }
+
+  /// A value without a bar: it starts at the bar column's left edge, one line, tail-truncated.
+  private func valueText(_ value: String) -> some View {
+    Text(value).aimText(.secondary, tint: P.secondaryInk).monospacedDigit()
+      .lineLimit(1).truncationMode(.tail)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .uiLint(.align(P.valueGroup(account), .start))
+      .help(value)
   }
 
   private var header: some View {
@@ -477,15 +552,16 @@ struct MenuBarRow: View {
         .padding(.leading, P.tileSize + P.tileSpacing)
         .padding(.trailing, account.isVerified ? 90 : 60)
     case .lines(let lines):
+      let shown = P.lines(for: account).count
       VStack(spacing: P.lineSpacing) {
         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
           lineView(line)
-            .opacity(index < 2 ? 1 : reveal)
-            .offset(y: index < 2 || store.reduceMotion ? 0 : 4 * (1 - expansion))
+            .opacity(index < shown ? 1 : reveal)
+            .offset(y: index < shown || store.reduceMotion ? 0 : 4 * (1 - expansion))
         }
       }
-      .frame(height: CGFloat(P.lines(for: account).count) * P.lineHeight
-        + CGFloat(max(0, lines.count - P.lines(for: account).count)) * P.lineHeight * expansion, alignment: .top)
+      .frame(height: CGFloat(shown) * P.lineHeight
+        + CGFloat(max(0, lines.count - shown)) * P.lineHeight * expansion, alignment: .top)
       .clipped()
       .padding(.leading, P.tileSize + P.tileSpacing)
     }
@@ -493,18 +569,17 @@ struct MenuBarRow: View {
 
   private func lineView(_ line: P.Line) -> some View {
     HStack(spacing: 6) {
-      if let label = line.label {
-        Text(label).aimText(.secondary, tint: P.secondaryInk)
-          .fixedSize(horizontal: true, vertical: false)
-          .uiLint(.align("menuBarUsageLabelInk", .start))
-          .frame(width: P.labelColumnWidth(account, expanded: isExpanded), alignment: .leading)
-          .uiLint(.align("menuBarUsageLabels", .start)).help(line.helpTitle ?? label)
-      }
-      if let balance = line.balance {
-        if line.label == nil { Text("Balance").aimText(.secondary, tint: P.secondaryInk) }
-        // The value starts where the bars start and ends at the line's right edge.
-        Text(balance).aimText(.secondary, tint: P.secondaryInk).monospacedDigit().lineLimit(1)
-          .frame(maxWidth: .infinity, alignment: .trailing)
+      if line.isHeading, let pool = line.label {
+        // A pool heading spans the row; it never widens the label column.
+        Text(pool).aimText(.caption, tint: P.secondaryInk).lineLimit(1).truncationMode(.tail)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .uiLint(.align("menuBarUsageLabels", .start))
+          .accessibilityAddTraits(.isHeader)
+      } else if let label = P.displayLabel(line) { labelText(label, help: line.helpTitle) }
+      if line.isHeading {
+        EmptyView()
+      } else if let balance = line.balance {
+        valueText(balance)
       } else {
         ZStack {
           UsageBar(usedPercent: nil, providerID: account.providerID)
@@ -516,6 +591,7 @@ struct MenuBarRow: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: showsUsed)
         }
         .frame(height: UsageBar.height)
+        .uiLint(.align(P.barGroup(account), .start))
         Text(line.used.map {
           "\(UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed))%"
         } ?? "—")
