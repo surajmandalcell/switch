@@ -76,6 +76,12 @@ if awk '/^struct AIMScrollPage</{f=1} f{print} f&&/^}/{exit}' "$parts_source" | 
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL AIMScrollPage uses a lazy stack or a pinned header: use an eager VStack under a fixed header' >&2
   exit 1
 fi
+# A chart hover handler returns early while the page scrolls (browser-like): each handler has its guard.
+charts_source="$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/OverviewCharts.swift"
+if [[ "$(rg -c 'onContinuousHover|\.onHover' "$charts_source")" != "$(rg -c 'AIMScrollBarModel\.isScrolling' "$charts_source")" ]]; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL an Overview chart hover handler does not check AIMScrollBarModel.isScrolling' >&2
+  exit 1
+fi
 if ! rg -q 'AIMSidebar\(' "$window_source" || ! rg -q 'NSVisualEffectView' "$parts_source" \
   || rg -q '\.toolbar \{|NavigationSplitView' "$window_source"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the window must draw its own sidebar (AIMSidebar over a visual-effect material) with no toolbar bar' >&2

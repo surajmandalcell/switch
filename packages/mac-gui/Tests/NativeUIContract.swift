@@ -1635,7 +1635,12 @@ enum AIManagerNativeContract {
         + views(in: host).filter { String(describing: type(of: $0)).contains("Probe") }.map { "probe win=\($0.window != nil) scroll=\($0.enclosingScrollView != nil)" }
       return ["Page scroll: the page scroll view was not found among \(found)"]
     }
-    func offset() -> CGFloat { scrollView.contentView.bounds.minY }
+    // The header is a top inset of the scroll view, so the logical offset counts from the first card.
+    func offset() -> CGFloat { scrollView.contentView.bounds.minY + scrollView.contentInsets.top }
+    func scrollTo(_ y: CGFloat) {
+      scrollView.contentView.scroll(to: NSPoint(x: 0, y: y - scrollView.contentInsets.top))
+      scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
     if abs(offset() - 600) > 0.5 { failures.append("Page scroll: the saved offset 600 was restored as \(offset())") }
     let changes: [(String, () -> Void)] = [
       ("dark mode", { host.rootView = AnyView(Probe(dark: true)) }),
@@ -1652,8 +1657,7 @@ enum AIManagerNativeContract {
       if abs(offset() - 600) > 0.5 { failures.append("Page scroll: \(label) moved the page from 600 to \(offset())") }
     }
     // A user scroll stays: nothing restores the saved offset again.
-    scrollView.contentView.scroll(to: NSPoint(x: 0, y: 250))
-    scrollView.reflectScrolledClipView(scrollView.contentView)
+    scrollTo(250)
     AIMPlace.scroll[name] = 900
     for change in [changes[0], changes[4], changes[5]] {
       change.1()
@@ -1661,10 +1665,33 @@ enum AIManagerNativeContract {
       if abs(offset() - 250) > 0.5 { failures.append("Page scroll: \(change.0) restored a saved offset over the user's scroll (\(offset()))") }
     }
     // The fixed header: it does not move with the content, and the scroll view starts below it.
-    let frame = host.convert(scrollView.bounds, from: scrollView)
-    let top = host.isFlipped ? frame.minY : host.bounds.height - frame.maxY
-    if abs(top - AIMTheme.topBarHeight) > 0.5 {
-      failures.append("Page scroll: the scroll view starts \(top) pt down, not under the \(AIMTheme.topBarHeight) pt header")
+    // Scrolling must not re-run AIMScrollView's body (that re-measured its AppKit probe every tick): the
+    // scroll bar alone observes the offset. 30 steps, 15 ms apart so they are one gesture.
+    final class Count: @unchecked Sendable { var value = 0 }
+    let ended = Count()
+    let hoverObserver = NotificationCenter.default.addObserver(forName: OverviewHover.endAll, object: nil, queue: nil) { _ in
+      ended.value += 1
+    }
+    var endedHovers: Int { ended.value }
+    defer { NotificationCenter.default.removeObserver(hoverObserver) }
+    flush(0.4)
+    let runsBefore = AIMScrollBodyRuns.count
+    for step in 1...30 {
+      scrollTo(250 + CGFloat(step) * 10)
+      flush(0.015)
+    }
+    if AIMScrollBodyRuns.count - runsBefore > 2 {
+      failures.append("Page scroll: 30 scroll steps re-ran AIMScrollView's body \(AIMScrollBodyRuns.count - runsBefore) times; it must not observe the scroll model")
+    }
+    // A user scroll ends chart hovers once per gesture and blocks new hovers until 0.15 s after it stops.
+    if endedHovers != 1 { failures.append("Page scroll: a scroll gesture ended chart hovers \(endedHovers) times, not once") }
+    if !AIMScrollBarModel.isScrolling { failures.append("Page scroll: hovers are not blocked right after a scroll") }
+    flush(0.3)
+    if AIMScrollBarModel.isScrolling { failures.append("Page scroll: hovers stay blocked after the scroll stopped") }
+    // The header is the scroll view's top inset (a safe-area inset), so cards start below it.
+    flush()
+    if abs(scrollView.contentInsets.top - AIMTheme.topBarHeight) > 0.5 {
+      failures.append("Page scroll: the top inset is \(scrollView.contentInsets.top) pt, not the \(AIMTheme.topBarHeight) pt header")
     }
     return failures
   }

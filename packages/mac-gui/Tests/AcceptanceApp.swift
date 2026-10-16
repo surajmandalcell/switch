@@ -616,6 +616,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             window?.contentView?.layoutSubtreeIfNeeded()
             if let view = window?.contentView {
                 menuNavigationFailures.append(contentsOf: await scrollEdgeFailures(in: view))
+                menuNavigationFailures.append(contentsOf: await headerHitFailures(in: view))
             }
             menuNavigationFailures.append(contentsOf: await everySurfaceScrollFailures())
         }
@@ -623,14 +624,37 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         if let raw = PreviewArguments.value("scroll"), let fraction = Double(raw),
            let root = window?.contentView, let scroll = AIMHostingView.pageScrollView(in: root),
            let document = scroll.documentView {
-            let travel = max(0, document.frame.height - scroll.contentView.bounds.height)
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: travel * min(max(fraction, 0), 1)))
+            // A page's fixed header is a top inset: rest is minus that inset.
+            let top = scroll.contentInsets.top
+            let travel = max(0, document.frame.height - (scroll.contentView.bounds.height - top))
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: travel * min(max(fraction, 0), 1) - top))
             scroll.reflectScrolledClipView(scroll.contentView)
             try? await Task.sleep(for: .milliseconds(220))
             root.layoutSubtreeIfNeeded()
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
+    }
+
+    /// The page's top row (Add, More, search) must hit the hosting view, never an AppKit scroll view
+    /// that spans the header: a scroll view there swallows the click, so Add and More freeze.
+    private func headerHitFailures(in view: NSView) async -> [String] {
+        var failures: [String] = []
+        for page in AIManagerPage.allCases {
+            NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+            try? await Task.sleep(for: .milliseconds(300))
+            view.layoutSubtreeIfNeeded()
+            // The Add button's center: 28 pt buttons, 6 pt apart, left of the 300 pt search, 20 pt margin.
+            let x = view.bounds.width - AIMTheme.pageMargin - AIManagerToolbar.searchWidth - AIMTheme.rowSpacing * 2 - 28 - 14
+            let point = NSPoint(x: x, y: view.isFlipped ? AIMTheme.topBarHeight / 2 : view.bounds.height - AIMTheme.topBarHeight / 2)
+            var hit = view.hitTest(view.convert(point, to: view.superview))
+            let first = hit.map { String(describing: type(of: $0)) } ?? "nothing"
+            while let current = hit {
+                if current is NSScrollView { failures.append("\(page.rawValue): the top row's Add button hits \(first), under a scroll view"); break }
+                hit = current.superview
+            }
+        }
+        return failures
     }
 
     /// Open both sheet entry points with their parent ordered out. Also walk all pages and

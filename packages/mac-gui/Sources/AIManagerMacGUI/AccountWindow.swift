@@ -183,6 +183,9 @@ private struct WindowReader: NSViewRepresentable {
     view.resolve = resolve
     if let window = view.window { resolve(window) }
   }
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: WindowResolver, context: Context) -> CGSize? {
+    proposal.replacingUnspecifiedDimensions(by: .zero)
+  }
 }
 extension AIManagerPage {
   /// SF Symbol shown in the sidebar.

@@ -627,6 +627,11 @@ struct AIMCopyCursor: NSViewRepresentable {
     view.window?.invalidateCursorRects(for: view)
   }
 
+  // Used as a background or overlay that takes its host's size; never measured by Auto Layout.
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: CursorView, context: Context) -> CGSize? {
+    proposal.replacingUnspecifiedDimensions(by: .zero)
+  }
+
   final class CursorView: NSView {
     var enabled = true
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

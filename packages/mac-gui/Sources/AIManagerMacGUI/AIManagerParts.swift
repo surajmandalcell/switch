@@ -476,11 +476,12 @@ extension EnvironmentValues {
   }
 }
 
-/// A scrolling page: the header fixed on top, then full-width cards 12 apart in one scroll view
-/// below it, both inset by the same page margin so they share their left and right edges.
+/// A scrolling page: the header fixed on top, then full-width cards 12 apart in one scroll view,
+/// both inset by the same page margin so they share their left and right edges.
 /// The cards are an eager VStack: a lazy stack estimates heights and corrects the content size and
-/// offset as cards realize, which moved the page by itself. The header is a sibling of the scroll
-/// view, never inside it, so a relayout of the content cannot cover or move its buttons.
+/// offset as cards realize, which moved the page by itself. The header is a top safe-area inset,
+/// not a sibling above the scroll view: SwiftUI extends the AppKit scroll view under the header
+/// either way, and only an inset makes the header (not the scroll view) take the clicks.
 struct AIMScrollPage<Content: View>: View {
   @ViewBuilder var content: Content
   @Environment(\.aimPageHeader) private var header
@@ -488,20 +489,15 @@ struct AIMScrollPage<Content: View>: View {
   @Environment(\.aimPageName) private var pageName
 
   var body: some View {
-    VStack(spacing: 0) {
-      header.frame(maxWidth: .infinity).padding(.horizontal, AIMTheme.pageMargin)
-      // The 20 pt page margin is the scroll bar's gutter, so the cards keep one width whether or
-      // not the page scrolls.
-      AIMScrollView(name: pageName, gutter: AIMTheme.pageMargin, page: true) {
-        VStack(spacing: AIMTheme.cardGap) { content }
-          .padding([.horizontal, .bottom], AIMTheme.pageMargin)
-          .padding(.top, AIMTheme.cardGap)
-      }
-      .modifier(PlainTopEdge())
-      // The page ignores the safe area, so the scroll view would draw its content over the header.
-      .clipped()
+    AIMScrollView(name: pageName, gutter: AIMTheme.pageMargin, page: true) {
+      VStack(spacing: AIMTheme.cardGap) { content }
+        .padding([.horizontal, .bottom], AIMTheme.pageMargin)
+        .padding(.top, AIMTheme.cardGap)
     }
-    .background(AIMTheme.page)
+    .modifier(PlainTopEdge())
+    .safeAreaInset(edge: .top, spacing: 0) {
+      header.frame(maxWidth: .infinity).padding(.horizontal, AIMTheme.pageMargin).background(AIMTheme.page)
+    }
     // A page (or Maintenance tab) with another name gets its own scroll view and remembered offset.
     .id(pageName)
   }
@@ -532,6 +528,9 @@ extension EnvironmentValues {
   var name = ""
   static let pageScrollID = NSUserInterfaceItemIdentifier("aim-page-scroll")
   var isPage = false
+  /// Until this time a user scroll is under way: chart hover handlers ignore the pointer.
+  static var scrollingUntil = Date.distantPast
+  static var isScrolling: Bool { Date() < scrollingUntil }
   private var restored = false
   private weak var scrollView: NSScrollView?
   private var observers: [NSObjectProtocol] = []
@@ -575,8 +574,16 @@ extension EnvironmentValues {
   private func sync() {
     guard let scrollView, let document = scrollView.documentView else { return }
     let clip = scrollView.contentView
-    let next = (clip.bounds.minY, document.frame.height, clip.bounds.height)
-    if abs(next.0 - offset) > 0.5, Date() >= quietUntil { activity &+= 1 }
+    // A page's fixed header is a top inset: the clip's rest offset is minus that inset, so the
+    // offset (and the saved one) counts from the first content, and the viewport is what shows below it.
+    let top = scrollView.contentInsets.top
+    let next = (clip.bounds.minY + top, document.frame.height, clip.bounds.height - top)
+    if abs(next.0 - offset) > 0.5, Date() >= quietUntil {
+      activity &+= 1
+      // A user scroll ends chart hovers once per gesture and blocks new ones until it stops.
+      if !Self.isScrolling { NotificationCenter.default.post(name: OverviewHover.endAll, object: nil) }
+      Self.scrollingUntil = Date().addingTimeInterval(0.15)
+    }
     if abs(next.0 - offset) > 0.1 { offset = next.0 }
     if abs(next.1 - content) > 0.1 { content = next.1 }
     if abs(next.2 - viewport) > 0.1 { viewport = next.2 }
@@ -585,8 +592,9 @@ extension EnvironmentValues {
 
   func scroll(to y: CGFloat) {
     guard let scrollView, let document = scrollView.documentView else { return }
-    let measuredTravel = max(0, document.frame.height - scrollView.contentView.bounds.height)
-    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), measuredTravel)))
+    let top = scrollView.contentInsets.top
+    let measuredTravel = max(0, document.frame.height - (scrollView.contentView.bounds.height - top))
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), measuredTravel) - top))
     scrollView.reflectScrolledClipView(scrollView.contentView)
   }
 }
@@ -605,6 +613,11 @@ private struct AIMScrollBinder: NSViewRepresentable {
   }
 
   func updateNSView(_ view: Probe, context: Context) { view.model = model }
+
+  // A background takes its content's size; never ask Auto Layout to measure the probe.
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: Probe, context: Context) -> CGSize? {
+    proposal.replacingUnspecifiedDimensions(by: .zero)
+  }
 
   final class Probe: NSView {
     var model: AIMScrollBarModel?
@@ -701,6 +714,11 @@ private struct AIMScrollBar: View {
   }
 }
 
+#if AI_MANAGER_PREVIEW
+/// AIMScrollView body evaluations, for the contract check that scrolling does not re-run it.
+@MainActor enum AIMScrollBodyRuns { static var count = 0 }
+#endif
+
 /// A vertical scroll view without system indicators. The thin bar sits in a trailing gutter of
 /// `gutter` points that is always reserved (the bar itself is hidden at rest): the caller's content
 /// already leaves that margin, so the content width never changes when the bar shows or hides.
@@ -710,9 +728,13 @@ struct AIMScrollView<Content: View>: View {
   /// The scroll view of a whole page, which a wheel over the page's fixed header also scrolls.
   var page = false
   @ViewBuilder var content: Content
-  @StateObject private var model = AIMScrollBarModel()
-
+  // @State, not @StateObject: this view must not re-run its body on every scroll tick (that
+  // re-measured the binder with Auto Layout). Only the thin bar observes the model.
+  @State private var model = AIMScrollBarModel()
   var body: some View {
+    #if AI_MANAGER_PREVIEW
+    let _ = { AIMScrollBodyRuns.count += 1 }()
+    #endif
     ScrollView(.vertical) {
       content.environment(\.aimAnimatesAppearance, false)
         .background(AIMScrollBinder(model: model, name: name, page: page))
@@ -720,7 +742,11 @@ struct AIMScrollView<Content: View>: View {
     // `.hidden` still reserves a 17 pt legacy scroller strip beside the page; `.never` reserves none.
     .scrollIndicators(.never)
     .overlay(alignment: .trailing) {
-      AIMScrollBar(model: model).frame(width: gutter)
+      // The bar's track starts below a page's fixed header (a top safe-area inset).
+      GeometryReader { proxy in
+        AIMScrollBar(model: model).frame(width: gutter).padding(.top, proxy.safeAreaInsets.top)
+          .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
+      }
     }
     .aimAppear()
   }

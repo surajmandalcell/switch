@@ -538,8 +538,10 @@ struct RealChatProvider: ChatHistoryProviding {
         guard let scroll = views(in: hosting).compactMap({ $0 as? NSScrollView }).max(by: {
           ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
         }) else { failures.append("round trip \(page.rawValue): no scroll view"); continue }
-        let travel = max(0, (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height)
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(travel, 120)))
+        // A page's header is a top inset: its rest offset is minus the inset.
+        let inset = scroll.contentInsets.top
+        let travel = max(0, (scroll.documentView?.frame.height ?? 0) - (scroll.contentView.bounds.height - inset))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(travel, 120) - inset))
         scroll.reflectScrolledClipView(scroll.contentView)
         await pause(500)
         let saved = scroll.contentView.bounds.minY
@@ -547,7 +549,7 @@ struct RealChatProvider: ChatHistoryProviding {
         if scroll.window != nil { failures.append("round trip \(page.rawValue): hidden page remains attached") }
         await select(page)
         if scroll.window !== window || abs(scroll.contentView.bounds.minY - saved) > 1 {
-          failures.append("round trip \(page.rawValue): the scroll view or its place changed")
+          failures.append("round trip \(page.rawValue): the scroll view or its place changed (was \(saved), now \(scroll.contentView.bounds.minY), same window \(scroll.window === window), inset \(scroll.contentInsets.top))")
         }
         if let container = views(in: hosting).first(where: { $0.identifier?.rawValue == "visited-page-host" }),
           container.subviews.count != 1 { failures.append("round trip \(page.rawValue): more than one page is attached") }
