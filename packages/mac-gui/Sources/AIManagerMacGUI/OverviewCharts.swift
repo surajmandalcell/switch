@@ -326,7 +326,7 @@ enum OverviewStreamLayout {
   }
 }
 
-private struct OverviewStreamCanvas: View, Animatable {
+private struct OverviewStreamCanvas: View, Animatable, Equatable {
   let series: [OverviewSeries]
   let clock: Double
   var engaged: Double
@@ -384,12 +384,14 @@ struct OverviewStreamChart: View {
         OverviewStreamCanvas(
           series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
           highlight: hover?.key ?? lastKey, day: hover?.index)
+          .equatable()
           .animation(OverviewMotion.hover, value: hover == nil)
       }
       .contentShape(Rectangle())
       .onContinuousHover { phase in
         switch phase {
         case .active(let point):
+          if AIMScrollBarModel.isScrolling { return }
           hover = info(at: point, size: proxy.size)
           if let key = hover?.key { lastKey = key }
         case .ended: hover = nil
@@ -470,11 +472,13 @@ struct OverviewHeatLayout {
   }
 }
 
-private struct OverviewHeatCanvas: View, Animatable {
+/// Inputs are the data, the draw-in clock, and the legend level only: a pointer move over a cell
+/// never redraws the 365 cells (the outline is an overlay, see OverviewHeatmap), and `.equatable()`
+/// skips the redraw when the inputs match.
+private struct OverviewHeatCanvas: View, Animatable, Equatable {
   let dataset: OverviewDataset
   let clock: Double
   var engaged: Double
-  let cell: Int?
   let level: Int?
   var animatableData: Double {
     get { engaged }
@@ -501,12 +505,6 @@ private struct OverviewHeatCanvas: View, Animatable {
         context.fill(
           Path(roundedRect: shape, cornerRadius: radius),
           with: .color(OverviewDataset.heatColor(value).opacity(opacity)))
-      }
-      if let cell, dataset.yearDays.indices.contains(cell) {
-        let rect = layout.rect(index: cell).insetBy(dx: -0.5, dy: -0.5)
-        context.stroke(
-          Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) * 0.3),
-          with: .color(Color.primary.opacity(0.7)), lineWidth: 1.5)
       }
       drawLabels(context, layout)
     }
@@ -547,14 +545,16 @@ struct OverviewHeatmap: View {
       GeometryReader { proxy in
         OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.heatmap) { clock in
           OverviewHeatCanvas(
-            dataset: dataset, clock: clock, engaged: hover == nil && level == nil ? 0 : 1,
-            cell: hover?.index, level: level ?? lastLevel)
-            .animation(OverviewMotion.hover, value: hover == nil && level == nil)
+            dataset: dataset, clock: clock, engaged: level == nil ? 0 : 1, level: level ?? lastLevel)
+            .equatable()
+            .animation(OverviewMotion.hover, value: level == nil)
         }
         .contentShape(Rectangle())
+        .overlay { hoverOutline(proxy.size) }
         .onContinuousHover { phase in
           switch phase {
           case .active(let point):
+            if AIMScrollBarModel.isScrolling { return }
             hover = info(at: point, size: proxy.size)
             // The hand shows over a day that has a sheet, the arrow elsewhere.
             if let index = hover?.index, dataset.yearTotals[index] > 0 { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
@@ -590,6 +590,17 @@ struct OverviewHeatmap: View {
     .endsHover { hover = nil; level = nil }
   }
 
+  /// The hovered cell's ring: a small overlay in the canvas's coordinates, so a hover redraws nothing else.
+  @ViewBuilder private func hoverOutline(_ size: CGSize) -> some View {
+    if let index = hover?.index, dataset.yearDays.indices.contains(index) {
+      let layout = OverviewHeatLayout(size: size, offset: dataset.yearOffset, count: dataset.yearDays.count)
+      let rect = layout.rect(index: index).insetBy(dx: -0.5, dy: -0.5)
+      Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) * 0.3)
+        .stroke(Color.primary.opacity(0.7), lineWidth: 1.5)
+        .allowsHitTesting(false)
+    }
+  }
+
   private var legend: some View {
     HStack(spacing: 4) {
       Text("Less").aimText(.secondary)
@@ -598,6 +609,7 @@ struct OverviewHeatmap: View {
           .fill(OverviewDataset.heatColor(value))
           .frame(width: 12, height: 12)
           .onHover { inside in
+            if inside && AIMScrollBarModel.isScrolling { return }
             if inside { lastLevel = value }
             level = inside ? value : nil
           }
@@ -658,7 +670,7 @@ struct OverviewRidgeLayout {
   }
 }
 
-private struct OverviewRidgeCanvas: View, Animatable {
+private struct OverviewRidgeCanvas: View, Animatable, Equatable {
   let series: [OverviewSeries]
   let clock: Double
   var engaged: Double
@@ -739,12 +751,14 @@ struct OverviewRidgeline: View {
             OverviewRidgeCanvas(
               series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
               highlight: hover?.key ?? lastKey, day: hover?.index)
+              .equatable()
               .animation(OverviewMotion.hover, value: hover == nil)
           }
           .contentShape(Rectangle())
           .onContinuousHover { phase in
             switch phase {
             case .active(let point):
+              if AIMScrollBarModel.isScrolling { return }
               hover = info(at: point, layout: layout)
               if let key = hover?.key { lastKey = key }
             case .ended: hover = nil
@@ -789,7 +803,7 @@ struct OverviewRidgeline: View {
 
 // MARK: - Waffle chart
 
-private struct OverviewWaffleCanvas: View, Animatable {
+private struct OverviewWaffleCanvas: View, Animatable, Equatable {
   let owners: [Int]
   let series: [OverviewSeries]
   let clock: Double
@@ -904,12 +918,15 @@ struct OverviewWaffleChart: View {
           OverviewWaffleCanvas(
             owners: owners, series: dataset.series, clock: clock, engaged: active == nil ? 0 : 1,
             highlight: active ?? lastKey)
+            .equatable()
             .animation(OverviewMotion.hover, value: active == nil)
         }
         .contentShape(Rectangle())
         .onContinuousHover { phase in
           switch phase {
-          case .active(let point): hover = info(at: point, width: proxy.size.width, owners: owners, cells: cells)
+          case .active(let point):
+            if AIMScrollBarModel.isScrolling { return }
+            hover = info(at: point, width: proxy.size.width, owners: owners, cells: cells)
           case .ended: hover = nil
           }
           if let key = hover?.key { lastKey = key }
@@ -955,7 +972,10 @@ struct OverviewWaffleChart: View {
     .opacity(active == nil || active == item.id ? 1 : OverviewMotion.dimmed)
     .animation(AIMMotion.fade(AIMMotion.hover), value: active)
     .contentShape(Rectangle())
-    .onHover { inside in legendKey = inside ? item.id : nil }
+    .onHover { inside in
+      if inside && AIMScrollBarModel.isScrolling { return }
+      legendKey = inside ? item.id : nil
+    }
   }
 
   private func info(at point: CGPoint, width: CGFloat, owners: [Int], cells: [Int]) -> OverviewHover? {

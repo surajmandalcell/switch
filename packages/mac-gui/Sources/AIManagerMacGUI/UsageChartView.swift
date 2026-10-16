@@ -91,7 +91,10 @@ struct UsageChartView: View {
           .cornerRadius(1.5)
           .foregroundStyle(AIMTheme.blue.opacity(chosen == nil || chosen?.label == point.label ? 1 : 0.4))
       }
-      .chartXSelection(value: $hoveredLabel)
+      // A hover does not start while the page scrolls.
+      .chartXSelection(value: Binding(
+        get: { hoveredLabel },
+        set: { if $0 == nil || !AIMScrollBarModel.isScrolling { hoveredLabel = $0 } }))
       .chartLegend(.hidden)
       .chartYAxis(.hidden)
       .chartXAxis(.hidden)
@@ -106,5 +109,6 @@ struct UsageChartView: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(chart.title)
     .accessibilityValue(UsageChartPresentation.summary(chart))
+    .endsHover { hoveredLabel = nil }
   }
 }
