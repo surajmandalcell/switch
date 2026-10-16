@@ -2,11 +2,11 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Every run builds in its own folder, so parallel runs never share objects or run state.
-lint_root=${AI_MANAGER_BUILD_PATH:-/Volumes/External1TB/data/_custom/switch-build}
+lint_root=${AI_MANAGER_BUILD_PATH:-/Volumes/External1TB/data/_custom/orca/workspaces/switch/switch-build}
 mkdir -p "$lint_root"
 export AI_MANAGER_BUILD_PATH="$(mktemp -d "$lint_root/lint-run.XXXXXX")"
 trap 'rm -rf "$AI_MANAGER_BUILD_PATH"' EXIT
-export PLAYWRIGHT_BROWSERS_PATH=/Volumes/External1TB/data/_custom/playwright
+export PLAYWRIGHT_BROWSERS_PATH=/Volumes/External1TB/data/_custom/cache/playwright
 export CLANG_MODULE_CACHE_PATH="$AI_MANAGER_BUILD_PATH/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$AI_MANAGER_BUILD_PATH/module-cache/swiftpm"
 export TMPDIR="$AI_MANAGER_BUILD_PATH/ui-lint-run/tmp"

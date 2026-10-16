@@ -6,6 +6,6 @@
     "lintapple": "0.1.20"
   },
   "scripts": {
-    "lint:ui": "export PLAYWRIGHT_BROWSERS_PATH=\"${PLAYWRIGHT_BROWSERS_PATH:-/Volumes/External1TB/data/_custom/playwright}\"; lintapple \"file://$PWD/reference.html\" && lintapple \"file://$PWD/parts.html\""
+    "lint:ui": "export PLAYWRIGHT_BROWSERS_PATH=\"${PLAYWRIGHT_BROWSERS_PATH:-/Volumes/External1TB/data/_custom/cache/playwright}\"; lintapple \"file://$PWD/reference.html\" && lintapple \"file://$PWD/parts.html\""
   }
 }

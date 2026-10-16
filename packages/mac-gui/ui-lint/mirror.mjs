@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const root = '/Volumes/External1TB/data/_custom/switch-build/lint';
+const root = '/Volumes/External1TB/data/_custom/orca/workspaces/switch/switch-build/lint';
 const folder = dirname(fileURLToPath(import.meta.url));
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const area = node => node.frame.width * node.frame.height;
@@ -119,7 +119,7 @@ async function main() {
     const run = spawnSync('npx', ['--no-install', 'lintapple', pathToFileURL(output).href, '--config', config, '--json'], {
       cwd: folder, encoding: 'utf8', timeout: 120000, maxBuffer: 16 * 1024 * 1024,
       env: { ...process.env, TMPDIR: temp, npm_config_cache: join(temp, 'npm-cache'),
-        PLAYWRIGHT_BROWSERS_PATH: '/Volumes/External1TB/data/_custom/playwright' }
+        PLAYWRIGHT_BROWSERS_PATH: '/Volumes/External1TB/data/_custom/cache/playwright' }
     });
     if (run.error || ![0, 1].includes(run.status)) throw new Error(run.error?.message ?? run.stderr ?? 'lintapple failed');
     const report = JSON.parse(run.stdout);
