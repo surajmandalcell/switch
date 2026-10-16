@@ -1313,7 +1313,7 @@ private final class AcceptanceReceipts {
         let fileManager = FileManager.default
         let components = url.pathComponents
         guard url.isFileURL,
-              ["/private/tmp/", "/Volumes/External1TB/tmp/", "/Volumes/External1TB/data/_custom/switch-build/"].contains(where: { url.path.hasPrefix($0) }),
+              ["/private/tmp/", "/Volumes/External1TB/tmp/", "/Volumes/External1TB/data/_custom/orca/workspaces/switch/switch-build/"].contains(where: { url.path.hasPrefix($0) }),
               !components.contains("."),
               !components.contains("..") else { return nil }
 
