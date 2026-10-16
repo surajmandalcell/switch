@@ -70,6 +70,12 @@ if rg -n '(^|[^A-Za-z])(ScrollView\s*(\(|\{)|List\s*\(|Form\s*\{)|\.scrollIndica
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL every surface must use AIMScrollView or AIMSheetForm' >&2
   exit 1
 fi
+# A page is an eager VStack under a fixed header. A lazy stack estimates its height and moves the page
+# by itself as cards realize or the environment changes; a pinned lazy header loses hit testing.
+if awk '/^struct AIMScrollPage</{f=1} f{print} f&&/^}/{exit}' "$parts_source" | rg -q 'Lazy(VStack|VGrid|HStack|HGrid)|pinnedViews'; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL AIMScrollPage uses a lazy stack or a pinned header: use an eager VStack under a fixed header' >&2
+  exit 1
+fi
 if ! rg -q 'AIMSidebar\(' "$window_source" || ! rg -q 'NSVisualEffectView' "$parts_source" \
   || rg -q '\.toolbar \{|NavigationSplitView' "$window_source"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the window must draw its own sidebar (AIMSidebar over a visual-effect material) with no toolbar bar' >&2

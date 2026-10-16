@@ -46,10 +46,6 @@ enum UsageChartPresentation {
 struct UsageChartView: View {
   let chart: UsageChart
   var height: CGFloat = 72
-  /// How far the bars run past the text on each side. Every use sits in a card row, so the default
-  /// is the card inset: the bars span the card edge to edge (the card clips the corners) while the
-  /// title, the total, and the axis labels keep the inset.
-  var bleed: CGFloat = AIMTheme.cardInset
   @State private var hoveredLabel: String?
   @State private var keyIndex: Int?
   @FocusState private var focused: Bool
@@ -64,18 +60,17 @@ struct UsageChartView: View {
 
   /// The first, middle, and last day under the bars. Charts gives an axis label only its own bar's
   /// width (about 10 pt in 30 bars), which cut "Sep 16" to "Sep…". These labels keep their natural
-  /// width; the first starts and the last ends at the text inset (the bars run past it), and the
-  /// middle one centers under its bar.
+  /// width; the first starts at the left edge and the last ends at the right edge, and the middle
+  /// one centers under its bar. A bar chart keeps the card inset like its title; only continuous
+  /// charts (Overview Tokens per day, Trends) run edge to edge.
   private var axis: some View {
     GeometryReader { proxy in
       let count = CGFloat(max(chart.points.count, 1))
-      // The bars span the text width plus the bleed on both sides.
-      let full = proxy.size.width + 2 * bleed
       ForEach(UsageChartPresentation.axisTicks(chart), id: \.index) { tick in
         let edge = tick.index == 0 ? Alignment.leading : tick.index == chart.points.count - 1 ? .trailing : .center
         Text(tick.label).aimText(.secondary).lineLimit(1).fixedSize()
           .frame(width: proxy.size.width, alignment: edge)
-          .offset(x: edge == .center ? (CGFloat(tick.index) + 0.5) / count * full - bleed - proxy.size.width / 2 : 0)
+          .offset(x: edge == .center ? (CGFloat(tick.index) + 0.5) / count * proxy.size.width - proxy.size.width / 2 : 0)
       }
     }
     .accessibilityHidden(true)
@@ -101,7 +96,6 @@ struct UsageChartView: View {
       .chartYAxis(.hidden)
       .chartXAxis(.hidden)
       .frame(height: height - Self.axisHeight - 4)
-      .padding(.horizontal, -bleed)
       axis.frame(height: Self.axisHeight)
     }
     .frame(maxWidth: .infinity)

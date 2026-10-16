@@ -28,7 +28,10 @@ extension AIMTheme {
   /// and a list of text-only rows add what their 36 pt rows lack.
   static let contentInset: CGFloat = 14
   static let tableEndInset: CGFloat = 7
-  static let textRowsEndInset: CGFloat = 4
+  /// A list of text-only rows under a 28 pt header button (Recent backups): the button sits 8 pt
+  /// from the top, so the last 36 pt row (text 10 pt from its bottom) takes 2 pt back to end 8 pt
+  /// from the bottom edge, as the lint's top and bottom gaps must match.
+  static let textRowsEndInset: CGFloat = -2
   static let sidebarWidth: CGFloat = 220
   static let topBarHeight: CGFloat = 52
   /// Push button heights: in cards, and in table rows.
@@ -473,8 +476,11 @@ extension EnvironmentValues {
   }
 }
 
-/// A scrolling page: the header pinned on top, then full-width cards 12 apart, all inside one
-/// scroll view so the header and the cards share their left and right edges.
+/// A scrolling page: the header fixed on top, then full-width cards 12 apart in one scroll view
+/// below it, both inset by the same page margin so they share their left and right edges.
+/// The cards are an eager VStack: a lazy stack estimates heights and corrects the content size and
+/// offset as cards realize, which moved the page by itself. The header is a sibling of the scroll
+/// view, never inside it, so a relayout of the content cannot cover or move its buttons.
 struct AIMScrollPage<Content: View>: View {
   @ViewBuilder var content: Content
   @Environment(\.aimPageHeader) private var header
@@ -482,19 +488,20 @@ struct AIMScrollPage<Content: View>: View {
   @Environment(\.aimPageName) private var pageName
 
   var body: some View {
-    // The 20 pt page margin is the scroll bar's gutter, so the cards keep one width whether or not
-    // the page scrolls.
-    AIMScrollView(name: pageName, gutter: AIMTheme.pageMargin, topInset: AIMTheme.topBarHeight) {
-      LazyVStack(spacing: AIMTheme.cardGap, pinnedViews: [.sectionHeaders]) {
-        Section {
-          content
-        } header: {
-          header.frame(maxWidth: .infinity).background(AIMTheme.page)
-        }
+    VStack(spacing: 0) {
+      header.frame(maxWidth: .infinity).padding(.horizontal, AIMTheme.pageMargin)
+      // The 20 pt page margin is the scroll bar's gutter, so the cards keep one width whether or
+      // not the page scrolls.
+      AIMScrollView(name: pageName, gutter: AIMTheme.pageMargin, page: true) {
+        VStack(spacing: AIMTheme.cardGap) { content }
+          .padding([.horizontal, .bottom], AIMTheme.pageMargin)
+          .padding(.top, AIMTheme.cardGap)
       }
-      .padding([.horizontal, .bottom], AIMTheme.pageMargin)
+      .modifier(PlainTopEdge())
+      // The page ignores the safe area, so the scroll view would draw its content over the header.
+      .clipped()
     }
-    .modifier(PlainTopEdge())
+    .background(AIMTheme.page)
     // A page (or Maintenance tab) with another name gets its own scroll view and remembered offset.
     .id(pageName)
   }
@@ -523,6 +530,9 @@ extension EnvironmentValues {
   @Published private(set) var content: CGFloat = 0
   @Published private(set) var viewport: CGFloat = 0
   var name = ""
+  static let pageScrollID = NSUserInterfaceItemIdentifier("aim-page-scroll")
+  var isPage = false
+  private var restored = false
   private weak var scrollView: NSScrollView?
   private var observers: [NSObjectProtocol] = []
 
@@ -551,8 +561,14 @@ extension EnvironmentValues {
       }
     }
     quietUntil = Date().addingTimeInterval(0.3)
-    // The binder attaches after layout. Restore once here, never from scroll/size notifications.
-    if !name.isEmpty, let saved = AIMPlace.scroll[name] { scroll(to: saved) }
+    // The binder attaches after layout, so the eager page content is already measured. Restore
+    // once per model here, never from scroll, size, environment, or window notifications.
+    if !restored, !name.isEmpty {
+      restored = true
+      if let saved = AIMPlace.scroll[name] { scroll(to: saved) }
+    }
+    // Identifies the page scroll view, so a wheel over the fixed header still scrolls the page.
+    if isPage { next.identifier = AIMScrollBarModel.pageScrollID }
     sync()
   }
 
@@ -578,9 +594,11 @@ extension EnvironmentValues {
 private struct AIMScrollBinder: NSViewRepresentable {
   let model: AIMScrollBarModel
   let name: String
+  let page: Bool
 
   func makeNSView(context: Context) -> Probe {
     model.name = name
+    model.isPage = page
     let view = Probe()
     view.model = model
     return view
@@ -593,9 +611,20 @@ private struct AIMScrollBinder: NSViewRepresentable {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
+      attachSoon()
+    }
+
+    // SwiftUI can place the probe under its scroll view after the window attach; attach is idempotent.
+    override func viewDidMoveToSuperview() {
+      super.viewDidMoveToSuperview()
+      attachSoon()
+    }
+
+    private func attachSoon() {
       guard window != nil else { return }
-      // The scroll view exists once SwiftUI has placed the content.
-      DispatchQueue.main.async { [weak self] in
+      // The scroll view exists once SwiftUI has placed the content. A run-loop block, not a
+      // dispatch block, so a nested run loop (the contract checks) also runs it.
+      RunLoop.main.perform(inModes: [.default, .common]) { [weak self] in
         guard let self, let scroll = self.enclosingScrollView else { return }
         MainActor.assumeIsolated { self.model?.attach(scroll) }
       }
@@ -678,20 +707,20 @@ private struct AIMScrollBar: View {
 struct AIMScrollView<Content: View>: View {
   var name = ""
   var gutter: CGFloat = AIMScroller.gutter
-  /// Space above the bar's track, for a pinned top bar.
-  var topInset: CGFloat = 0
+  /// The scroll view of a whole page, which a wheel over the page's fixed header also scrolls.
+  var page = false
   @ViewBuilder var content: Content
   @StateObject private var model = AIMScrollBarModel()
 
   var body: some View {
     ScrollView(.vertical) {
       content.environment(\.aimAnimatesAppearance, false)
-        .background(AIMScrollBinder(model: model, name: name))
+        .background(AIMScrollBinder(model: model, name: name, page: page))
     }
     // `.hidden` still reserves a 17 pt legacy scroller strip beside the page; `.never` reserves none.
     .scrollIndicators(.never)
     .overlay(alignment: .trailing) {
-      AIMScrollBar(model: model).frame(width: gutter).padding(.top, topInset)
+      AIMScrollBar(model: model).frame(width: gutter)
     }
     .aimAppear()
   }
@@ -719,7 +748,7 @@ struct AIMSheetTextFieldStyle: TextFieldStyle {
   }
 }
 
-/// The pinned header already paints the page color under the transparent title bar, so macOS 26's
+/// The fixed header already paints the page color under the transparent title bar, so macOS 26's
 /// automatic scroll edge effect (a tinted blur at the top) must not draw over it.
 private struct PlainTopEdge: ViewModifier {
   @ViewBuilder func body(content: Content) -> some View {

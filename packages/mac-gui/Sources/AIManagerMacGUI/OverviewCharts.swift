@@ -129,6 +129,20 @@ struct OverviewHover: Equatable {
   var index: Int?
 }
 
+extension OverviewHover {
+  /// Posted when a sheet opens over the Overview: the chart under it never gets a pointer-left event.
+  static let endAll = Notification.Name("switch.overview.endHover")
+}
+
+extension View {
+  /// Ends a chart hover when its window resigns key (a sheet becomes key) or a sheet opens over the
+  /// page, so no tooltip or dimmed series stays behind a cover.
+  func endsHover(_ end: @escaping () -> Void) -> some View {
+    onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in end() }
+      .onReceive(NotificationCenter.default.publisher(for: OverviewHover.endAll)) { _ in end() }
+  }
+}
+
 /// The tooltip follows the pointer on a soft spring and flips to the pointer's other side near an edge.
 struct OverviewTooltipLayer: View {
   let hover: OverviewHover?
@@ -137,22 +151,35 @@ struct OverviewTooltipLayer: View {
   /// The widest a series name grows ("Claude Code · name@example.com"); longer names shorten in the middle.
   static let nameWidth: CGFloat = 280
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// The last tip. One tooltip view stays once it appears: its content changes and its opacity
+  /// fades, so a fade-out never overlaps the next tip.
+  @State private var last: OverviewHover?
+
+  private var current: OverviewHover? { hover ?? last }
 
   var body: some View {
     Color.clear.overlay(alignment: alignment) {
-      if let hover {
-        tip(hover.tip)
-          .padding(insets(for: hover.point))
-          .animation(reduceMotion ? nil : OverviewMotion.follow, value: hover.point)
+      if let current {
+        tip(current.tip)
+          .padding(insets(for: current.point))
+          .animation(reduceMotion ? nil : OverviewMotion.follow, value: current.point)
+          .opacity(hover == nil ? 0 : 1)
           .transition(.opacity)
       }
     }
     .allowsHitTesting(false)
     .animation(AIMMotion.fade(AIMMotion.hover), value: hover == nil)
+    .onChange(of: hover) { _, next in if let next { last = next } }
+    // Drop the faded-out tip, so the next one fades in at its own place instead of sliding there.
+    .task(id: hover == nil) {
+      guard hover == nil else { return }
+      try? await Task.sleep(for: .milliseconds(300))
+      if !Task.isCancelled, hover == nil { last = nil }
+    }
   }
 
   private var alignment: Alignment {
-    guard let point = hover?.point else { return .topLeading }
+    guard let point = current?.point else { return .topLeading }
     return Alignment(horizontal: onRight(point) ? .leading : .trailing, vertical: below(point) ? .top : .bottom)
   }
 
@@ -171,7 +198,7 @@ struct OverviewTooltipLayer: View {
   }
 
   /// About the tooltip's height: padding, a title line, and a line for each row.
-  private var estimatedHeight: CGFloat { 30 + 18 * CGFloat(hover?.tip.rows.count ?? 0) }
+  private var estimatedHeight: CGFloat { 30 + 18 * CGFloat(current?.tip.rows.count ?? 0) }
 
   private func tip(_ tip: OverviewTip) -> some View {
     let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
@@ -348,6 +375,7 @@ struct OverviewStreamChart: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.streamSummary)
     .accessibilityAddTraits(.isImage)
+    .endsHover { hover = nil }
   }
 
   private var plot: some View {
@@ -455,12 +483,14 @@ private struct OverviewHeatCanvas: View, Animatable {
 
   var body: some View {
     Canvas { context, size in
-      let layout = OverviewHeatLayout(size: size, offset: dataset.yearOffset, count: dataset.yearDays.count)
+      // Read once: yearOffset parses a date string on every access.
+      let offset = dataset.yearOffset
+      let layout = OverviewHeatLayout(size: size, offset: offset, count: dataset.yearDays.count)
       let columns = Double(layout.columns + 6)
       for index in dataset.yearDays.indices {
         let rect = layout.rect(index: index)
         // A diagonal wave: the top-left cells land first.
-        let slot = (dataset.yearOffset + index) / 7 + (dataset.yearOffset + index) % 7
+        let slot = (offset + index) / 7 + (offset + index) % 7
         let arrive = OverviewMotion.window(clock, start: Double(slot) / columns * 0.62, length: 0.38)
         let scale = 0.5 + 0.5 * arrive
         let shape = rect.insetBy(dx: rect.width * (1 - scale) / 2, dy: rect.height * (1 - scale) / 2)
@@ -484,8 +514,9 @@ private struct OverviewHeatCanvas: View, Animatable {
 
   private func drawLabels(_ context: GraphicsContext, _ layout: OverviewHeatLayout) {
     var lastColumn = -4
-    for (index, day) in dataset.yearDays.enumerated() where OverviewDay.dayOfMonth(day) == 1 {
-      let column = (dataset.yearOffset + index) / 7
+    // Days are zero-padded yyyy-MM-dd, so "-01" marks a month's first day without parsing.
+    for (index, day) in dataset.yearDays.enumerated() where day.hasSuffix("-01") {
+      let column = (layout.offset + index) / 7
       guard column >= lastColumn + 3 else { continue }
       lastColumn = column
       let text = Text(OverviewDay.month(day)).font(AIMTextRole.caption.font).foregroundStyle(.secondary)
@@ -556,6 +587,7 @@ struct OverviewHeatmap: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.heatmapSummary)
     .accessibilityAddTraits(.isImage)
+    .endsHover { hover = nil; level = nil }
   }
 
   private var legend: some View {
@@ -737,6 +769,7 @@ struct OverviewRidgeline: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.ridgeSummary)
     .accessibilityAddTraits(.isImage)
+    .endsHover { hover = nil }
   }
 
   private func info(at point: CGPoint, layout: OverviewRidgeLayout) -> OverviewHover? {
@@ -904,6 +937,7 @@ struct OverviewWaffleChart: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.waffleSummary)
     .accessibilityAddTraits(.isImage)
+    .endsHover { hover = nil; legendKey = nil }
   }
 
   private func legendRow(_ item: OverviewSeries, cells: Int, active: String?) -> some View {

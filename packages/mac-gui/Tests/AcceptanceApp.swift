@@ -619,6 +619,16 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             }
             menuNavigationFailures.append(contentsOf: await everySurfaceScrollFailures())
         }
+        // `--scroll=0.5` scrolls the page for the window.png of this offscreen run.
+        if let raw = PreviewArguments.value("scroll"), let fraction = Double(raw),
+           let root = window?.contentView, let scroll = AIMHostingView.pageScrollView(in: root),
+           let document = scroll.documentView {
+            let travel = max(0, document.frame.height - scroll.contentView.bounds.height)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: travel * min(max(fraction, 0), 1)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try? await Task.sleep(for: .milliseconds(220))
+            root.layoutSubtreeIfNeeded()
+        }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
     }
