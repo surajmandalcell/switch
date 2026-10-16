@@ -232,8 +232,36 @@ final class MaintenanceStore: ObservableObject {
     let result = BackupChecklist.migrate(sets, lastUsed: lastUsed)
     if result.sets != sets { await save(result.sets) }
     if let folder = result.folder { destination = folder }
-    if let first = checkedSets.first {
-      shared = SharedBackupSettings(schedule: first.schedule, keep: first.keep, includeLogins: first.includeLogins)
+    // One shared toggle must never read Off while a set still copies login files: On only when every checked set has it.
+    let checked = checkedSets
+    guard let derived = Self.derivedShared(checked) else { return }
+    if checked.contains(where: { $0.schedule != derived.schedule || $0.keep != derived.keep || $0.includeLogins != derived.includeLogins }) {
+      guard await save(Self.applying(derived, to: sets)) else {
+        // Not saved: show On while any set still copies login files, and keep the stored choice as it was.
+        shared.includeLogins = checked.contains { $0.includeLogins }
+        return
+      }
+    }
+    commitShared(derived)
+  }
+
+  private func commitShared(_ next: SharedBackupSettings) {
+    shared = next
+    UserDefaults.standard.set(try? JSONEncoder().encode(next), forKey: SharedBackupSettings.key)
+  }
+
+  /// The shared values of the checked sets: schedule and count of the first, login files On only if every set has them.
+  static func derivedShared(_ checked: [BackupSet]) -> SharedBackupSettings? {
+    guard let first = checked.first else { return nil }
+    return SharedBackupSettings(schedule: first.schedule, keep: first.keep, includeLogins: checked.allSatisfy(\.includeLogins))
+  }
+
+  static func applying(_ settings: SharedBackupSettings, to sets: [BackupSet]) -> [BackupSet] {
+    sets.map { set in
+      guard !set.retired else { return set }
+      var copy = set
+      copy.schedule = settings.schedule; copy.keep = settings.keep; copy.includeLogins = settings.includeLogins
+      return copy
     }
   }
 
@@ -294,13 +322,16 @@ final class MaintenanceStore: ObservableObject {
     await save(next)
   }
 
-  private func save(_ next: [BackupSet]) async {
+  /// True when the sets were written. On failure the old sets stay and the error message shows.
+  @discardableResult
+  private func save(_ next: [BackupSet]) async -> Bool {
     do {
       try await engine.saveSets(next)
       sets = next
       for set in next where statuses[set.id] == nil { await refresh(set) }
       for set in next { await refresh(set) }
-    } catch { model.errorMessage = error.localizedDescription }
+      return true
+    } catch { model.errorMessage = error.localizedDescription; return false }
   }
 
   // MARK: Destination and items (folder panels)
@@ -338,14 +369,8 @@ final class MaintenanceStore: ObservableObject {
   func changeShared(_ change: (inout SharedBackupSettings) -> Void) async {
     var next = shared
     change(&next)
-    shared = next
-    UserDefaults.standard.set(try? JSONEncoder().encode(next), forKey: SharedBackupSettings.key)
-    await save(sets.map { set in
-      guard !set.retired else { return set }
-      var copy = set
-      copy.schedule = next.schedule; copy.keep = next.keep; copy.includeLogins = next.includeLogins
-      return copy
-    })
+    // Fail closed: the shown setting changes only after the sets are saved with it.
+    if await save(Self.applying(next, to: sets)) { commitShared(next) }
   }
 
   static func pickFolder(title: String, prompt: String, start: URL?) -> URL? {

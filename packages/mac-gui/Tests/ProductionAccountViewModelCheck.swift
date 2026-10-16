@@ -332,6 +332,38 @@ struct ProductionAccountViewModelCheck {
                    && maintenance.set(for: codexSource)?.schedule == .daily,
                    "Checking a tool again did not bring back its set with the shared schedule")
         await maintenance.changeShared { $0.schedule = .off }
+        // One shared login toggle never reads Off while a set copies login files. Older sets that disagree
+        // migrate to Off for all; a save that fails leaves the toggle and the sets as they were.
+        var withLogins = backupSet
+        withLogins.includeLogins = true
+        var withoutLogins = backupSet
+        withoutLogins.id = UUID()
+        withoutLogins.includeLogins = false
+        let mixed = [withLogins, withoutLogins]
+        let derived = try expect(MaintenanceStore.derivedShared(mixed), "No shared settings for two checked sets")
+        try expect(!derived.includeLogins && MaintenanceStore.applying(derived, to: mixed).allSatisfy { !$0.includeLogins },
+                   "Sets with mixed login choices do not migrate to Off for every set")
+        try expect(MaintenanceStore.derivedShared(mixed.map { var copy = $0; copy.includeLogins = true; return copy })?.includeLogins == true,
+                   "Sets that all copy login files do not migrate to On")
+        // A folder where the settings file belongs makes the write fail.
+        let setsFile = paths.applicationSupport.appending(path: "backup-sets.json")
+        let heldFile = paths.applicationSupport.appending(path: "backup-sets.held")
+        try fileManager.moveItem(at: setsFile, to: heldFile)
+        try fileManager.createDirectory(at: setsFile, withIntermediateDirectories: false)
+        await maintenance.changeShared { $0.includeLogins = true }
+        try fileManager.removeItem(at: setsFile)
+        try fileManager.moveItem(at: heldFile, to: setsFile)
+        try expect(model.errorMessage != nil, "The failed save showed no error")
+        try expect(!maintenance.shared.includeLogins && maintenance.set(for: codexSource)?.includeLogins == false
+                   && maintenance.shared.schedule == .off,
+                   "A failed save changed the shared login toggle")
+        model.errorMessage = nil
+        await maintenance.changeShared { $0.includeLogins = true }
+        try expect(maintenance.shared.includeLogins && maintenance.set(for: codexSource)?.includeLogins == true,
+                   "Include login files did not reach the checked tool")
+        await maintenance.changeShared { $0.includeLogins = false }
+        try expect(!maintenance.shared.includeLogins && maintenance.set(for: codexSource)?.includeLogins == false,
+                   "Include login files did not turn off for the checked tool")
         var waitingSet = backupSet
         waitingSet.destination = URL(fileURLWithPath: "/Volumes/SwitchCheckMissingDrive/Backups")
         await maintenance.update(waitingSet)
