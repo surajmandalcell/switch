@@ -54,8 +54,8 @@ enum AIManagerNativeContract {
     expect(P.separatorOpacity == 0.5 && P.separatorFade == 0.12, "Popover separators lack half-opacity fading edges")
     expect(P.hoverOverhang == 4, "Popover hover does not overhang by four points")
     for model in ["Fable", "Sonnet", "Opus", "Future Model"] {
-      expect(P.windowLabel(minutes: 10_080, title: UsageWindow.modelScopedTitle(model: model)) == model,
-        "Popover model window lost \(model)")
+      expect(P.windowName(minutes: 10_080, title: UsageWindow.modelScopedTitle(model: model))
+        == .init(pool: model, label: "Weekly"), "Popover model window lost \(model)")
     }
     let usage = MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
       .init(id: "s", title: "Session", usedPercent: 20, windowMinutes: 300),
@@ -65,12 +65,12 @@ enum AIManagerNativeContract {
     ], cost: UsageCost(used: 2, limit: 10, currency: "USD", period: "Monthly")))
     let account = MenuBarAccountSnapshot(id: UUID(), identity: "popover@example.test", detail: "",
       isVerified: true, isActive: false, usage: usage, providerID: .claudeCode)
-    expect(P.lines(for: account).map(\.label) == ["Session", "Fable"], "Collapsed popover does not keep two available windows")
-    expect(P.lines(for: account, expanded: true).map(\.label) == ["Session", "Fable", "Monthly", "Monthly"],
-      "Expanded popover omits reported windows or credits")
-    expect(P.lines(for: account, expanded: true).allSatisfy { $0.used != nil || $0.balance != nil },
+    expect(P.lines(for: account).map(\.label) == ["Session", "Monthly"], "Collapsed popover does not keep two available windows")
+    expect(P.lines(for: account, expanded: true).map(\.label) == ["Session", "Monthly", "Monthly", "Fable", "Weekly"],
+      "Expanded popover omits reported windows or credits, or does not put the Fable pool under its heading")
+    expect(P.lines(for: account, expanded: true).allSatisfy { $0.isHeading || $0.used != nil || $0.balance != nil },
       "A window without a value draws an empty bar")
-    expect(P.rowHeight(account) == 70 && P.expansionHeight(account) == 76, "Popover expansion moves existing content")
+    expect(P.rowHeight(account) == 70 && P.expansionHeight(account) == 94, "Popover expansion moves existing content")
     let amountOnly = MenuBarAccountSnapshot(id: UUID(), identity: "credits@example.test", detail: "",
       isVerified: true, isActive: false, usage: MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
         .init(id: "credits", title: "Credits", usedPercent: nil, detail: "12 credits")
@@ -97,12 +97,12 @@ enum AIManagerNativeContract {
     expect(MenuBarSnapshot(accounts: [noCache, signedOutQuota]).statusAccounts.isEmpty,
       "An empty tray does not keep the Switch mark")
     let codex = MenuBarPopoverPreviewData.sixAccountSnapshot.accounts[1]
-    expect(P.lines(for: codex, expanded: true).map(\.label) == ["Session", "Weekly", "Spark", "Monthly"],
+    expect(P.lines(for: codex, expanded: true).map(\.label) == ["Session", "Weekly", "Monthly", "Spark", "Session"],
       "Expanded Codex omits a model bucket, credits, or repeats the default bucket")
     expect(!P.showsSwitch(codex) && P.showsSwitch(account), "Default accounts show a ghost Switch action")
     let defaultWithoutActions = MenuBarAccountSnapshot(id: UUID(), identity: "default@example.test", detail: "",
       isVerified: true, isActive: true, usage: usage, providerID: ProviderID(rawValue: "openrouter"))
-    expect(P.canExpand(defaultWithoutActions) && P.expansionHeight(defaultWithoutActions) == 36,
+    expect(P.canExpand(defaultWithoutActions) && P.expansionHeight(defaultWithoutActions) == 54,
       "Hidden provider windows cannot expand without an action, or leave an empty action band")
     let defaultTokens = MenuBarAccountSnapshot(id: UUID(), identity: "tokens@example.test", detail: "",
       isVerified: true, isActive: true,
@@ -123,7 +123,7 @@ enum AIManagerNativeContract {
     }
     for sample in [account, codex] {
       expect(P.labelColumnWidth(sample, expanded: false) == 56, "Collapsed labels moved their columns")
-      for line in P.lines(for: sample, expanded: true) {
+      for line in P.lines(for: sample, expanded: true) where !line.isHeading {
         if let label = line.label {
           let width = (label as NSString).size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .subheadline)]).width
           expect(width <= P.labelColumnWidth(sample, expanded: true), "Expanded label truncates: \(label)")
@@ -135,8 +135,8 @@ enum AIManagerNativeContract {
         .init(title: "Session", used: 20, resetsAt: nil, minutes: 300),
         .init(title: "Weekly", used: 40, resetsAt: nil, minutes: 10_080),
         .init(title: "Weekly Future Model", used: 60, resetsAt: nil, minutes: 10_080)]))
-    expect(P.labelColumnWidth(long, expanded: false) == 56 && P.labelColumnWidth(long, expanded: true) > 56,
-      "Expanded labels do not fit the longest model name independently of collapsed columns")
+    expect(P.labelColumnWidth(long, expanded: false) == 56 && P.labelColumnWidth(long, expanded: true) == 56,
+      "A pool heading (the long model name) widens the label column")
     let suite = "switch-popover-contract-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
@@ -174,6 +174,11 @@ enum AIManagerNativeContract {
     }
 
     failures.append(contentsOf: nativeDesignFailures())
+    failures.append(contentsOf: pageInputAndScrollFailures())
+    // Seeded sequences; AI_MANAGER_FREEZE_RUNS=N explores N seeds.
+    let freezeRuns = Int(ProcessInfo.processInfo.environment["AI_MANAGER_FREEZE_RUNS"] ?? "") ?? 1
+    for run in 0..<freezeRuns { failures.append(contentsOf: pageFreezeSequenceFailures(seed: 0x5EED_F00D &+ UInt64(run))) }
+    failures.append(contentsOf: wheelTargetFailures())
     failures.append(contentsOf: popoverPolishFailures())
 
     let loginEvent = NSAppleEventDescriptor(
@@ -735,6 +740,25 @@ enum AIManagerNativeContract {
     expect(UsageChartPresentation.summary(tokens) == "2 days, total 1,500,000, peak 1,200,000 on Oct 1"
       && UsageChartPresentation.headline(tokens, selected: nil) == "Total 1.5M",
       "Token chart text is wrong: \(UsageChartPresentation.summary(tokens))")
+    // Every usage bar is 4 pt thick. A bar with a pace tick once drew 8 pt (its ZStack grew to the tick):
+    // the Droid weekly bar looked thicker than the rest of its card.
+    func fillRows(tick: Double?) -> Double {
+      let host = NSHostingView(rootView: UsageBar(usedPercent: 40, providerID: .codex, tick: tick)
+        .frame(width: 200, height: 20))
+      host.frame = NSRect(x: 0, y: 0, width: 200, height: 20)
+      let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+      window.contentView = host
+      host.layoutSubtreeIfNeeded()
+      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      // The column 2 pt in is the middle of the fill's round end; the tick sits at half the width.
+      let x = Int(2 * CGFloat(bitmap.pixelsWide) / 200)
+      let rows = (0..<bitmap.pixelsHigh).filter { (bitmap.colorAt(x: x, y: $0)?.alphaComponent ?? 0) > 0.5 }.count
+      return Double(rows) * 20 / Double(bitmap.pixelsHigh)
+    }
+    let (plain, ticked) = (fillRows(tick: nil), fillRows(tick: 0.5))
+    expect(plain > 0 && abs(plain - ticked) < 0.01 && plain <= Double(UsageBar.height) + 0.5,
+      "A usage bar with a pace tick is thicker than one without (\(ticked) vs \(plain) pt)")
 
     // Account detail, usage, and Add Account views lay out for a synthetic generic account.
     let model = AccountViewModel(scenario: .demo)
@@ -1433,6 +1457,347 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  private final class PageInputTarget: NSObject {
+    var clicks = 0
+    @objc func click(_ sender: Any?) { clicks += 1 }
+  }
+
+  private struct PageInputButton: NSViewRepresentable {
+    let target: PageInputTarget
+    func makeNSView(context: Context) -> NSButton {
+      NSButton(title: "Body action", target: target, action: #selector(PageInputTarget.click(_:)))
+    }
+    func updateNSView(_ button: NSButton, context: Context) {
+      button.isEnabled = context.environment.isEnabled
+    }
+  }
+
+  /// Cached pages must recover input when only the inherited enabled state changes.
+  static func pageInputAndScrollFailures() -> [String] {
+    var failures: [String] = []
+    let target = PageInputTarget()
+    func root(_ page: AIManagerPage, disabled: Bool) -> AnyView {
+      AnyView(AIMVisitedPageHost(page: page, query: "", maintenance: .cleanup,
+        busy: false, loaded: true, error: nil, importing: false, searchFocused: false) { _ in
+          AnyView(PageInputButton(target: target).frame(width: 120, height: 28))
+        }.disabled(disabled))
+    }
+    let host = AIMHostingView(rootView: root(.overview, disabled: false))
+    host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    func flush() {
+      RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+      host.layoutSubtreeIfNeeded()
+      if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+      }
+    }
+    for page in [AIManagerPage.overview, .accounts, .overview] {
+      host.rootView = root(page, disabled: true)
+      flush()
+      if !views(in: host).contains(where: { ($0 as? NSButton)?.isEnabled == false }) {
+        failures.append("\(page.rawValue): body probe did not enter the disabled state")
+      }
+      host.rootView = root(page, disabled: false)
+      flush()
+      guard let button = views(in: host).compactMap({ $0 as? NSButton }).first else {
+        failures.append("\(page.rawValue): body action is missing")
+        continue
+      }
+      let point = host.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button)
+      let hit = host.hitTest(point)
+      if !button.isEnabled || !(hit === button || hit?.isDescendant(of: button) == true) {
+        failures.append("\(page.rawValue): cached body action remains disabled or covered")
+      }
+      let before = target.clicks
+      button.performClick(nil)
+      if target.clicks != before + 1 { failures.append("\(page.rawValue): body action did not receive its click") }
+    }
+
+    let key = "contract-once-only-scroll"
+    let previous = AIMPlace.scroll[key]
+    defer { AIMPlace.scroll[key] = previous }
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+    let document = PaginationTestDocument(frame: NSRect(x: 0, y: 0, width: 280, height: 1_000))
+    scroll.documentView = document
+    scroll.layoutSubtreeIfNeeded()
+    AIMPlace.scroll[key] = 400
+    let model = AIMScrollBarModel()
+    model.name = key
+    model.attach(scroll)
+    if abs(scroll.contentView.bounds.minY - 400) > 0.5 {
+      failures.append("Page-entry scroll restore used stale content dimensions")
+    }
+    // Simulate user movement, then async content growth within the former restore deadline.
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+    NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+    document.setFrameSize(NSSize(width: 280, height: 1_400))
+    NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: document)
+    if abs(scroll.contentView.bounds.minY - 100) > 0.5 {
+      failures.append("Content growth overwrote the user's scroll position")
+    }
+    let shortScroll = NSScrollView(frame: scroll.frame)
+    let shortDocument = PaginationTestDocument(frame: NSRect(x: 0, y: 0, width: 280, height: 450))
+    shortScroll.documentView = shortDocument
+    shortScroll.layoutSubtreeIfNeeded()
+    AIMPlace.scroll[key] = 800
+    let shortModel = AIMScrollBarModel()
+    shortModel.name = key
+    shortModel.attach(shortScroll)
+    shortScroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+    NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: shortScroll.contentView)
+    shortDocument.setFrameSize(NSSize(width: 280, height: 1_400))
+    NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: shortDocument)
+    if abs(shortScroll.contentView.bounds.minY - 100) > 0.5 {
+      failures.append("A pending restore snapped back after the user scrolled")
+    }
+    return failures
+  }
+
+  private struct SeededRandom {
+    var state: UInt64
+    mutating func below(_ count: Int) -> Int {
+      state &+= 0x9E37_79B9_7F4A_7C15
+      var z = state
+      z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+      z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+      return Int((z ^ (z >> 31)) % UInt64(count))
+    }
+  }
+
+  /// The "frozen body" report: after page switches, account clicks, busy and load changes, the add
+  /// sheet, Maintenance tabs, and idle prewarm turns, the current page's Add button is enabled when
+  /// the model allows it, a hit at its center lands in the current page host, and pressing it works.
+  static func pageFreezeSequenceFailures(steps: Int = 200, seed: UInt64 = 0x5EED_F00D) -> [String] {
+    // The navigation request is a process-wide notification, so every other window in the process
+    // follows it. Put the app window back on its page afterwards.
+    let page = AIMPlace.visiblePage
+    let failures = pageFreezeSequenceRun(steps: steps, seed: seed)
+    if let page {
+      NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+      RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    }
+    return failures
+  }
+
+  private static func pageFreezeSequenceRun(steps: Int, seed: UInt64) -> [String] {
+    var model = AccountViewModel(scenario: .demo)
+    var host = NSHostingView(rootView: AccountWindow(model: model, initialPageIndex: 0))
+    var window = NSWindow()
+    // A fresh window and model, so the page prewarm runs while the sequence changes state.
+    func makeRig() {
+      model = AccountViewModel(scenario: .demo)
+      host = NSHostingView(rootView: AccountWindow(model: model, initialPageIndex: 0))
+      host.frame = NSRect(x: 0, y: 0, width: 1200, height: 900)
+      window.close()
+      window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+      window.isReleasedWhenClosed = false
+      window.contentView = host
+    }
+    makeRig()
+    defer { window.close() }
+
+    func spin(_ seconds: TimeInterval) {
+      RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+      host.layoutSubtreeIfNeeded()
+      if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+      }
+    }
+    func render() -> NSBitmapImageRep? {
+      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      return bitmap
+    }
+    /// Mean absolute difference of the bytes inside `rect` (pixels, top-left origin).
+    func difference(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, in rect: (x: Int, y: Int, w: Int, h: Int)) -> Double {
+      guard let pa = a.bitmapData, let pb = b.bitmapData, a.bytesPerRow == b.bytesPerRow,
+            a.samplesPerPixel == b.samplesPerPixel else { return .infinity }
+      let spp = a.samplesPerPixel
+      var total = 0
+      for y in rect.y..<(rect.y + rect.h) {
+        for x in rect.x * spp..<(rect.x + rect.w) * spp {
+          total += abs(Int(pa[y * a.bytesPerRow + x]) - Int(pb[y * a.bytesPerRow + x]))
+        }
+      }
+      return Double(total) / Double(rect.w * rect.h * spp)
+    }
+    /// What the Add button looks like on each page, enabled and dimmed (disabled), from the first rig.
+    var addLook: [AIManagerPage: (enabled: NSBitmapImageRep, dimmed: NSBitmapImageRep, rect: (x: Int, y: Int, w: Int, h: Int))] = [:]
+    var wantedPage = AIManagerPage.overview
+    var random = SeededRandom(state: seed)
+    var log: [String] = []
+    func fail(_ step: Int, _ message: String) -> [String] {
+      ["Freeze sequence step \(step) (seed \(seed)): \(message). Last steps: \(log.suffix(8).joined(separator: ", "))"]
+    }
+    // SwiftUI buttons ignore events sent to a window that is never shown, so the check reads pixels:
+    // a disabled Add button draws dimmed. First learn both looks (and where the button is) on every page.
+    spin(0.2)
+    for page in AIManagerPage.allCases {
+      NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+      model.isBusy = false
+      spin(0.1)
+      spin(0.05)
+      guard let enabled = render() else { return ["Freeze sequence could not render \(page.rawValue)"] }
+      model.isBusy = true
+      spin(0.1)
+      spin(0.05)
+      guard let dimmed = render() else { return ["Freeze sequence could not render \(page.rawValue)"] }
+      model.isBusy = false
+      // The Add button is the part of the top row that changes with the busy state.
+      let scale = enabled.pixelsWide / Int(host.bounds.width)
+      var box = (minX: Int.max, minY: Int.max, maxX: -1, maxY: -1)
+      if let pe = enabled.bitmapData, let pd = dimmed.bitmapData, enabled.bytesPerRow == dimmed.bytesPerRow {
+        let spp = enabled.samplesPerPixel
+        for y in 0..<Int(AIMTheme.topBarHeight) * scale {
+          for x in Int(AIMTheme.sidebarWidth) * scale..<enabled.pixelsWide {
+            let at = y * enabled.bytesPerRow + x * spp
+            if (0..<spp).contains(where: { pe[at + $0] != pd[at + $0] }) {
+              box = (min(box.minX, x), min(box.minY, y), max(box.maxX, x), max(box.maxY, y))
+            }
+          }
+        }
+      }
+      if box.maxX < 0 { return ["Freeze sequence: the Add button on \(page.rawValue) does not change when the model is busy"] }
+      addLook[page] = (enabled, dimmed, (box.minX, box.minY, box.maxX - box.minX + 1, box.maxY - box.minY + 1))
+    }
+    makeRig()
+    host.layoutSubtreeIfNeeded()
+    let accounts = model.status?.accounts ?? []
+    for step in 0..<steps {
+      switch random.below(10) {
+      case 0, 1:
+        wantedPage = AIManagerPage.allCases[random.below(AIManagerPage.allCases.count)]
+        log.append("page:\(wantedPage.rawValue)")
+        NotificationCenter.default.post(name: AIManagerNavigation.request, object: wantedPage)
+      case 2:
+        let id = accounts.isEmpty ? nil : accounts[random.below(accounts.count)].id
+        log.append("account")
+        model.selectedAccountID = id
+      case 3:
+        model.isBusy.toggle()
+        log.append("busy:\(model.isBusy)")
+      case 4:
+        model.setLoadedForCheck(!model.hasLoaded)
+        log.append("loaded:\(model.hasLoaded)")
+      case 5:
+        if model.showImport { model.closeAccountModal() } else { model.showImport = true }
+        log.append("sheet:\(model.showImport)")
+      case 6:
+        // The only way to change the Maintenance tab without a click: the Backup request the Overview makes.
+        log.append("tab:Backup")
+        model.maintenance.wantsBackupTab = true
+      case 7:
+        let id = accounts.isEmpty ? nil : accounts[random.below(accounts.count)].id
+        log.append("account+busy")
+        model.selectedAccountID = id
+        model.isBusy = true
+        spin(0.01)
+        model.isBusy = false
+      case 8:
+        // A user scroll of the shown page, moving the pinned header over the content.
+        log.append("scroll")
+        for scroll in views(in: host).compactMap({ $0 as? NSScrollView }) {
+          let travel = (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height
+          guard travel > 1 else { continue }
+          scroll.contentView.scroll(to: NSPoint(x: 0, y: CGFloat(random.below(Int(travel)))))
+          scroll.reflectScrolledClipView(scroll.contentView)
+        }
+      default:
+        log.append("idle")
+      }
+      // About a third of the steps are a burst: the next one starts before this one settles.
+      if random.below(3) == 0 { spin(0); continue }
+      spin([0, 0.01, 0.03, 0.06][random.below(4)])
+      spin(0.02)
+      guard let container = visitedPageHost(in: host), let current = container.subviews.last else {
+        return fail(step, "the page host is missing")
+      }
+      if container.subviews.count != 1 { return fail(step, "\(container.subviews.count) page hosts are attached") }
+      if container.current != wantedPage { return fail(step, "the shown page is \(container.current?.rawValue ?? "none"), not \(wantedPage.rawValue)") }
+      // The Add button must look enabled exactly when the model allows it, and a hit at its center must
+      // land in the shown page host (not a detached host or an overlay).
+      let shouldWork = !model.isBusy && model.hasLoaded
+      guard let look = addLook[wantedPage], let now = render() else { return fail(step, "no render") }
+      let toEnabled = difference(now, look.enabled, in: look.rect)
+      let toDimmed = difference(now, look.dimmed, in: look.rect)
+      if (toEnabled < toDimmed) != shouldWork {
+        return fail(step, "the Add button looks \(toEnabled < toDimmed ? "enabled" : "disabled") but busy=\(model.isBusy) loaded=\(model.hasLoaded) (diff enabled \(toEnabled), dimmed \(toDimmed))")
+      }
+      let scale = CGFloat(now.pixelsWide) / host.bounds.width
+      let center = NSPoint(x: (CGFloat(look.rect.x) + CGFloat(look.rect.w) / 2) / scale, y: (CGFloat(look.rect.y) + CGFloat(look.rect.h) / 2) / scale)
+      let landed = host.superview.flatMap { host.hitTest($0.convert(host.convert(center, to: nil), from: nil)) }
+      if landed == nil || landed?.isDescendant(of: current) != true {
+        return fail(step, "a hit at the Add button lands in \(landed.map { String(describing: type(of: $0)) } ?? "nothing")")
+      }
+    }
+    return []
+  }
+
+  private final class WheelRecorder: NSScrollView {
+    var wheels = 0
+    override func scrollWheel(with event: NSEvent) { wheels += 1 }
+  }
+
+  /// A wheel gesture keeps the scroll view it began over, through `changed` and momentum events, even
+  /// when content moves another scroll view under the pointer; a legacy wheel click picks every time.
+  static func wheelTargetFailures() -> [String] {
+    var failures: [String] = []
+    let host = AIMHostingView(rootView: AnyView(EmptyView()))
+    host.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+    let big = WheelRecorder(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+    let small = WheelRecorder(frame: NSRect(x: 100, y: 100, width: 100, height: 100))
+    host.addSubview(big)
+    host.addSubview(small)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    let inside = host.convert(NSPoint(x: 150, y: 150), to: nil)
+    let outside = host.convert(NSPoint(x: 350, y: 350), to: nil)
+    func event(phase: Int64, momentum: Int64) -> NSEvent? {
+      guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -10, wheel2: 0, wheel3: 0)
+      else { return nil }
+      cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+      cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+      return NSEvent(cgEvent: cg)
+    }
+    // CG phases: scroll began 1, changed 2, ended 4; momentum begin 1, continue 2, end 3.
+    guard let began = event(phase: 1, momentum: 0), let changed = event(phase: 2, momentum: 0),
+          let ended = event(phase: 4, momentum: 0), let momentum = event(phase: 0, momentum: 2),
+          let legacy = event(phase: 0, momentum: 0),
+          began.phase == .began, changed.phase == .changed, momentum.momentumPhase == .changed,
+          legacy.phase.isEmpty, legacy.momentumPhase.isEmpty else {
+      return ["The wheel check could not build phased scroll events"]
+    }
+    func count(_ view: WheelRecorder) -> Int { view.wheels }
+    host.routeWheel(began, at: inside)
+    host.routeWheel(changed, at: outside)
+    host.routeWheel(ended, at: outside)
+    host.routeWheel(momentum, at: outside)
+    if count(small) != 4 || count(big) != 0 {
+      failures.append("A wheel gesture left the scroll view it began over (inner \(count(small)), outer \(count(big)) of 4 events)")
+    }
+    host.routeWheel(began, at: outside)
+    host.routeWheel(changed, at: inside)
+    if count(big) != 2 || count(small) != 4 {
+      failures.append("A new wheel gesture did not pick the scroll view under the pointer")
+    }
+    host.routeWheel(legacy, at: inside)
+    host.routeWheel(legacy, at: outside)
+    if count(small) != 5 || count(big) != 3 {
+      failures.append("A legacy mouse wheel did not pick its target on every click")
+    }
+    return failures
+  }
+
+  private static func visitedPageHost(in root: NSView) -> AIMVisitedPageHost.Container? {
+    views(in: root).lazy.compactMap { $0 as? AIMVisitedPageHost.Container }.first
+  }
+
   /// Native design tokens, the toolbar search, the Overview page, and the removed settings.
   static func nativeDesignFailures() -> [String] {
     var failures: [String] = []
@@ -1488,6 +1853,26 @@ enum AIManagerNativeContract {
       func byte(_ v: CGFloat) -> UInt32 { UInt32((v * 255).rounded()) }
       return byte(color.redComponent) << 16 | byte(color.greenComponent) << 8 | byte(color.blueComponent)
     }
+    // Badges (owner pick B3): label-color text on the grey chip over the card reaches 4.5:1 for every state tint.
+    for (name, tint) in [("green", AIMTheme.green), ("amber", AIMTheme.amber), ("yellow", AIMTheme.yellow),
+                         ("red", AIMTheme.red), ("blue", AIMTheme.blue)] {
+      _ = tint  // The text is never tinted; the dot carries the state, so the tint cannot change the ratio.
+      for dark in [false, true] {
+        guard let card = resolved(AIMTheme.card, dark: dark), let fill = resolved(Badge.fill, dark: dark),
+          let text = resolved(Color(nsColor: .labelColor), dark: dark) else {
+          failures.append("Badge colors do not resolve (\(name), dark \(dark))"); continue
+        }
+        let chip = fill.alphaComponent
+        func over(_ top: NSColor, _ bottom: NSColor, _ alpha: CGFloat) -> NSColor {
+          NSColor(srgbRed: top.redComponent * alpha + bottom.redComponent * (1 - alpha),
+                  green: top.greenComponent * alpha + bottom.greenComponent * (1 - alpha),
+                  blue: top.blueComponent * alpha + bottom.blueComponent * (1 - alpha), alpha: 1)
+        }
+        let chipColor = over(fill, card, chip)
+        let ratio = hex(text).flatMap { t in hex(chipColor).map { contrast(t, $0) } } ?? 0
+        expect(ratio >= 4.5, "Badge text on the \(name) chip is \(String(format: "%.2f", ratio)):1 in \(dark ? "dark" : "light"), under 4.5:1")
+      }
+    }
     expect(UsageBarColor.table.count == 75, "The usage bar color table is not 75 brands")
     for (id, values) in UsageBarColor.table {
       let bar = UsageBarColor.color(usedPercent: 10, providerID: ProviderID(rawValue: id))
@@ -1542,6 +1927,72 @@ enum AIManagerNativeContract {
       "Overview reset times do not read in 6d 8h, 1h 45m, or 20m form")
     failures.append(contentsOf: overviewFailures())
     failures.append(contentsOf: MainActor.assumeIsolated { accountsPageFailures() })
+    failures.append(contentsOf: MainActor.assumeIsolated { backupChecklistFailures() })
+    return failures
+  }
+
+  /// The Backup tab is one checklist: no source picker, each tool once (Claude Code with its profiles in one row),
+  /// tools without backup support disabled, and a button title that matches the checked count.
+  @MainActor static func backupChecklistFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    expect(!MaintenancePage.showsSourcePicker(.backup) && MaintenancePage.showsSourcePicker(.cleanup),
+      "Only Cleanup shows the source picker; the Backup tab has none")
+    let model = AccountViewModel(scenario: .demo)
+    let store = model.maintenance
+    defer { if let root = store.demoRoot { try? FileManager.default.removeItem(at: root) } }
+    store.refreshSources()
+    let rows = store.checklistSources
+    expect(Set(rows.map(\.id)).count == rows.count && rows.allSatisfy { !$0.isClaudeProfile },
+      "The Backup checklist repeats a tool or lists an own-profile row")
+    expect(rows.filter { $0.title == "Claude Code" }.count == 1 && rows.filter { $0.tool == .claude }.count == 1,
+      "The Backup checklist does not list Claude Code once")
+    expect(Set(rows.map(\.title)).isSuperset(of: ["Codex CLI", "Claude Code", "Droid", "opencode"]),
+      "The Backup checklist lacks Codex CLI, Claude Code, Droid, or opencode")
+    if let claude = rows.first(where: { $0.tool == .claude }) {
+      expect(BackupChecklistText.included(claude) == "Shared history + 1 profile",
+        "The Claude Code row does not say Shared history + 1 profile (\(BackupChecklistText.included(claude)))")
+      expect(BackupChecklist.contents(for: claude).profiles.count == 1
+        && BackupChecklist.contents(for: claude).items.contains { $0.path.hasPrefix("_profiles/") },
+        "The Claude Code set does not cover its profile folder")
+    }
+    if let opencode = rows.first(where: { $0.title == "opencode" }) {
+      expect(opencode.backupService == nil && BackupChecklistText.included(opencode) == "Not supported yet",
+        "An unsupported tool does not read Not supported yet")
+    }
+    expect(store.checkedSets.count == 2 && rows.filter({ store.isChecked($0) }).count == 2,
+      "The Preview does not check Codex CLI and Claude Code")
+    expect(BackupChecklistText.button(store.checkedSets.count) == "Back up 2 tools now"
+      && BackupChecklistText.button(1) == "Back up 1 tool now",
+      "The backup button title does not match the checked count")
+    let page = NSHostingView(rootView: BackupPage(model: model, store: store).frame(width: 800))
+    expect(page.fittingSize.height > 300, "The Backup page did not lay out")
+    // AI_MANAGER_BACKUP_SHOTS=<folder> renders the Backup tab in light and dark, with sizes already read.
+    if let path = ProcessInfo.processInfo.environment["AI_MANAGER_BACKUP_SHOTS"] {
+      let directory = URL(fileURLWithPath: path)
+      try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      store.loadSizesNow()
+      for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+        let content = BackupPage(model: model, store: store).padding(AIMTheme.pageMargin).frame(width: 940)
+          .background(AIMTheme.page).tint(AIMTheme.passiveIcon).renderScaled()
+        let shot = NSHostingView(rootView: content)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 940, height: 1000), styleMask: .borderless,
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = shot
+        shot.layoutSubtreeIfNeeded()
+        let height = shot.fittingSize.height
+        shot.frame = NSRect(x: 0, y: 0, width: 940, height: height)
+        window.setContentSize(shot.frame.size)
+        shot.layoutSubtreeIfNeeded()
+        for _ in 0..<10 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        if let png = RenderScale.png(of: shot) { try? png.write(to: directory.appendingPathComponent("backup-\(name).png")) }
+        window.close()
+      }
+    }
     return failures
   }
 
@@ -1729,6 +2180,41 @@ enum AIManagerNativeContract {
           if let png = RenderScale.png(of: shot) { try? png.write(to: directory.appendingPathComponent("\(label).png")) }
         }
       }
+      // Badge renders (AI_MANAGER_BADGE_SHOTS): the usage card with a red and a yellow pace badge, and the Backup states.
+      if let path = ProcessInfo.processInfo.environment["AI_MANAGER_BADGE_SHOTS"] {
+        let directory = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let day: TimeInterval = 86_400
+        let weekly = 7 * 24 * 60
+        let page = VStack(spacing: AIMTheme.cardGap) {
+          AIMSection("Usage") {
+            ProviderWindowMeter(window: UsageWindow(id: "weekly", title: "Weekly", usedPercent: 75,
+              resetsAt: now.addingTimeInterval(4 * day), windowMinutes: weekly), providerID: .droid, now: now)
+            ProviderWindowMeter(window: UsageWindow(id: "monthly", title: "Monthly", usedPercent: 40,
+              resetsAt: now.addingTimeInterval(4 * day), windowMinutes: weekly), providerID: .droid, now: now)
+          }
+          AIMSection("Backup") {
+            HStack(spacing: AIMTheme.rowSpacing) {
+              Text("Backups").aimText(.body)
+              Badge(text: "Backing up", tint: AIMTheme.blue)
+              Badge(text: "Ready", tint: AIMTheme.green)
+              Badge(text: "Waiting for Codex", tint: AIMTheme.amber)
+              Badge(text: "Limit reached", tint: AIMTheme.red)
+              Badge(text: "WIP", tint: .secondary)
+            }
+          }
+        }.padding(AIMTheme.pageMargin)
+        for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+          let size = NSSize(width: 700, height: 330)
+          let shot = NSHostingView(rootView: page.frame(width: size.width, height: size.height, alignment: .top).background(AIMTheme.page))
+          let shotWindow = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+          shotWindow.appearance = NSAppearance(named: appearance)
+          shotWindow.contentView = shot
+          shot.frame = NSRect(origin: .zero, size: size)
+          shot.layoutSubtreeIfNeeded()
+          if let png = RenderScale.png(of: shot) { try? png.write(to: directory.appendingPathComponent("badges-\(name).png")) }
+        }
+      }
     }
     for reason in ["No Go plan", "Couldn't check", "Not checked yet", "Sign in to see usage"] {
       let empty = UsageWindowBlock(window: nil, providerID: go, showsUsed: false, now: now, note: reason)
@@ -1857,12 +2343,12 @@ enum AIManagerNativeContract {
       for (appearance, name) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
         let views: [(String, AnyView, NSSize)] = [
           ("overview", AnyView(OverviewPage(model: model)), NSSize(width: 900, height: 1700)),
-          ("usage-chart", AnyView(UsageChartView(
-            chart: UsageChart.daily(
-              id: "d", title: "Tokens per day", unit: "tokens",
-              values: ["2026-09-20": 4_000_000, "2026-10-02": 9_000_000, "2026-10-10": 2_500_000],
-              fill: (days: 30, endingAt: Date(timeIntervalSince1970: 1_791_000_000))) ?? .init(id: "d", title: "", unit: "tokens", points: []))
-            .padding(16).background(Color(nsColor: .windowBackgroundColor))), NSSize(width: 520, height: 150)),
+          ("usage-chart", AnyView(AIMSection("Usage") {
+            // Every day has tokens, so the first and last bars show the chart reaching both card edges.
+            UsageChartView(chart: UsageChart(id: "d", title: "Tokens per day", unit: "tokens", points: (0..<30).map {
+              UsagePoint(label: "Sep \($0 + 1)", value: Double(($0 * 7) % 11 + 1) * 1_000_000)
+            }))
+          }.padding(16).background(AIMTheme.page)), NSSize(width: 520, height: 220)),
           ("overview-day", AnyView(OverviewDaySheet(
             pick: OverviewDayPick(day: data.yearDays[day], tokens: data.yearTotals[day]), load: { _ in input },
             accounts: accounts, hideEmails: false, openChat: { _ in }, close: {}, detail: detail)
@@ -1875,6 +2361,11 @@ enum AIManagerNativeContract {
           shotWindow.contentView = shot
           shot.frame = NSRect(origin: .zero, size: size)
           shot.layoutSubtreeIfNeeded()
+          // `--overview-hover=chart:x:y` sets the hover in onAppear: let the run loop apply it before the render.
+          if label == "overview", CommandLine.arguments.contains(where: { $0.hasPrefix("--overview-hover=") }) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            shot.layoutSubtreeIfNeeded()
+          }
           if let png = RenderScale.png(of: shot) { try? png.write(to: directory.appendingPathComponent("\(label)-\(name).png")) }
         }
       }
@@ -1970,6 +2461,25 @@ enum AIManagerNativeContract {
     let shades = (0..<3).map { OverviewPalette.account(service: "codex", rank: $0) }
     expect(Set(shades).count == 3 && shades[0] == UsageBarColor.color(usedPercent: 0, providerID: .codex),
       "Accounts of one service do not keep the brand color and distinct shades")
+    // Edge-to-edge series: the ridges have no label column, and the axis labels clamp inside the card inset.
+    let wide = OverviewRidgeLayout(size: CGSize(width: 800, height: 300), count: 3)
+    expect(wide.plot.minX == 0 && wide.plot.width == 800 && wide.x(0, of: 30) == 0 && wide.x(29, of: 30) == 800,
+      "The Trends ridges do not span the card edge to edge")
+    let inset = AIMTheme.cardInset
+    expect(OverviewDateAxis.labelX(fraction: 0, first: true, last: false, width: 800, inset: inset) == inset
+      && OverviewDateAxis.labelX(fraction: 1, first: false, last: true, width: 800, inset: inset) == 800 - inset
+      && OverviewDateAxis.labelX(fraction: 0.5, first: false, last: false, width: 800, inset: inset) == 400,
+      "Date axis labels do not stay inside the card inset")
+    // Tooltips name the tool and the account.
+    func series(_ label: String, _ service: String?) -> OverviewSeries {
+      OverviewSeries(id: label, label: label, color: .blue, tokens: 1, daily: [1], service: service)
+    }
+    expect(series("surajmandalcell@gmail", "claude-code").tipLabel == "Claude Code · surajmandalcell@gmail"
+      && series("me@mandalsuraj", "codex").tipLabel == "Codex CLI · me@mandalsuraj"
+      && series("Droid 1", "droid").tipLabel == "Droid · Droid 1"
+      && series("Claude Code (shared)", "claude-code").tipLabel == "Claude Code (shared)"
+      && series("claude-opus", nil).tipLabel == "claude-opus",
+      "A tooltip does not name the tool and the account")
     // Waffle cells (20 by 10, half a percent each) always add up to 200; one cell reads "<1%", two read "1%".
     expect(OverviewWaffle.total == 200 && OverviewWaffle.cells([1, 1, 1]) == [67, 67, 66]
       && OverviewWaffle.cells([1_000_000, 1]).reduce(0, +) == 200 && OverviewWaffle.cells([5, 3, 2, 1, 1, 1, 1]).reduce(0, +) == 200

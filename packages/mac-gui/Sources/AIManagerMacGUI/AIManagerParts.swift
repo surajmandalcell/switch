@@ -525,8 +525,6 @@ extension EnvironmentValues {
   var name = ""
   private weak var scrollView: NSScrollView?
   private var observers: [NSObjectProtocol] = []
-  private var pending: CGFloat?
-  private var restoreDeadline = Date.distantPast
 
   var canScroll: Bool { viewport > 0 && content > viewport + 0.5 }
   var travel: CGFloat { max(0, content - viewport) }
@@ -552,36 +550,27 @@ extension EnvironmentValues {
         })
       }
     }
-    if !name.isEmpty, let saved = AIMPlace.scroll[name], saved > 0 {
-      pending = saved
-      restoreDeadline = Date().addingTimeInterval(1.5)
-    }
     quietUntil = Date().addingTimeInterval(0.3)
+    // The binder attaches after layout. Restore once here, never from scroll/size notifications.
+    if !name.isEmpty, let saved = AIMPlace.scroll[name] { scroll(to: saved) }
     sync()
   }
 
   private func sync() {
     guard let scrollView, let document = scrollView.documentView else { return }
     let clip = scrollView.contentView
-    if let wanted = pending {
-      if Date() > restoreDeadline { pending = nil }
-      else if document.frame.height - clip.bounds.height >= wanted - 0.5 {
-        pending = nil
-        quietUntil = Date().addingTimeInterval(0.3)
-        scroll(to: wanted)
-      }
-    }
     let next = (clip.bounds.minY, document.frame.height, clip.bounds.height)
     if abs(next.0 - offset) > 0.5, Date() >= quietUntil { activity &+= 1 }
     if abs(next.0 - offset) > 0.1 { offset = next.0 }
     if abs(next.1 - content) > 0.1 { content = next.1 }
     if abs(next.2 - viewport) > 0.1 { viewport = next.2 }
-    if pending == nil, !name.isEmpty { AIMPlace.scroll[name] = next.0 }
+    if !name.isEmpty { AIMPlace.scroll[name] = next.0 }
   }
 
   func scroll(to y: CGFloat) {
-    guard let scrollView else { return }
-    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), travel)))
+    guard let scrollView, let document = scrollView.documentView else { return }
+    let measuredTravel = max(0, document.frame.height - scrollView.contentView.bounds.height)
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), measuredTravel)))
     scrollView.reflectScrolledClipView(scrollView.contentView)
   }
 }
@@ -696,13 +685,15 @@ struct AIMScrollView<Content: View>: View {
 
   var body: some View {
     ScrollView(.vertical) {
-      content.background(AIMScrollBinder(model: model, name: name))
+      content.environment(\.aimAnimatesAppearance, false)
+        .background(AIMScrollBinder(model: model, name: name))
     }
     // `.hidden` still reserves a 17 pt legacy scroller strip beside the page; `.never` reserves none.
     .scrollIndicators(.never)
     .overlay(alignment: .trailing) {
       AIMScrollBar(model: model).frame(width: gutter).padding(.top, topInset)
     }
+    .aimAppear()
   }
 }
 

@@ -317,6 +317,21 @@ struct ProductionAccountViewModelCheck {
         try fileManager.removeItem(at: agentsFile)
         try expect(maintenance.recent.count == 2 && maintenance.recent.allSatisfy { $0.source == backupSet.name },
                    "The recent backups list does not show both snapshots")
+        // Unchecking a tool stops its schedule and keeps every snapshot; checking it again in the same folder
+        // brings the same set back.
+        await maintenance.changeShared { $0.schedule = .daily }
+        try expect(maintenance.set(for: codexSource)?.schedule == .daily, "A shared schedule did not reach the checked tool")
+        await maintenance.setChecked(codexSource, on: false)
+        try expect(maintenance.set(for: codexSource) == nil && !maintenance.isChecked(codexSource)
+                   && maintenance.sets.first { $0.id == backupSet.id }?.schedule == BackupSchedule.off
+                   && maintenance.history.count == 2 && fileManager.fileExists(atPath: backups[0].folder.path),
+                   "Unchecking a tool lost its snapshots or kept its schedule")
+        await maintenance.useFolder(drive)
+        await maintenance.setChecked(codexSource, on: true)
+        try expect(maintenance.set(for: codexSource)?.id == backupSet.id && maintenance.history.count == 2
+                   && maintenance.set(for: codexSource)?.schedule == .daily,
+                   "Checking a tool again did not bring back its set with the shared schedule")
+        await maintenance.changeShared { $0.schedule = .off }
         var waitingSet = backupSet
         waitingSet.destination = URL(fileURLWithPath: "/Volumes/SwitchCheckMissingDrive/Backups")
         await maintenance.update(waitingSet)

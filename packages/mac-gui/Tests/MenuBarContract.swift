@@ -70,10 +70,45 @@ enum AIManagerMenuBarContract {
       .filter { $0.providerID == .claudeCode }.map(\.identity), "Account order changed inside a service")
 
     // Window labels, content, and the header reset.
-    expect(P.windowLabel(minutes: 300, title: "Session") == "Session"
-      && P.windowLabel(minutes: 10_080, title: "Sonnet") == "Weekly"
-      && P.windowLabel(minutes: 1_440, title: "Daily") == "Daily"
-      && P.windowLabel(minutes: nil, title: "Credits") == "Credits", "Window labels are wrong")
+    func name(_ title: String, _ minutes: Int? = nil) -> P.WindowName { P.windowName(minutes: minutes, title: title) }
+    expect(name("Session", 300) == .init(pool: nil, label: "Session")
+      && name("5-hour", 300) == .init(pool: nil, label: "Session")
+      && name("5 hours", 300) == .init(pool: nil, label: "Session")
+      && name("Daily", 1_440) == .init(pool: nil, label: "Daily")
+      && name("Monthly credits") == .init(pool: nil, label: "Monthly")
+      && name("Credits") == .init(pool: nil, label: "Credits")
+      && name("Pro", 1_440) == .init(pool: nil, label: "Pro")
+      && name("30-day window") == .init(pool: nil, label: "30-day window"),
+      "Window names are wrong")
+    // The pool comes from the title for every provider: Droid Core, Claude and Codex models,
+    // other services' "<pool> <period>" titles, and a pool's credits.
+    expect(name("Core 5-hour", 300) == .init(pool: "Core", label: "Session")
+      && name("Core weekly", 10_080) == .init(pool: "Core", label: "Weekly")
+      && name("Core monthly") == .init(pool: "Core", label: "Monthly")
+      && name("Weekly Opus", 10_080) == .init(pool: "Opus", label: "Weekly")
+      && name("Spark Session", 300) == .init(pool: "Spark", label: "Session")
+      && name("Spark 30-day window") == .init(pool: "Spark", label: "30-day window")
+      && name("Premium weekly") == .init(pool: "Premium", label: "Weekly")
+      && name("Spark credits") == .init(pool: "Spark", label: "Credits"),
+      "Window pools are wrong")
+    // Droid's six windows: the main pool, then Core under its own heading; no repeated name in a pool.
+    let droidSix = MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
+      .init(id: "session", title: "5-hour", usedPercent: 10, windowMinutes: 300),
+      .init(id: "weekly", title: "Weekly", usedPercent: 20, windowMinutes: 10_080),
+      .init(id: "monthly", title: "Monthly", usedPercent: 30),
+      .init(id: "factory-core-5h", title: "Core 5-hour", usedPercent: 40, windowMinutes: 300),
+      .init(id: "factory-core-7d", title: "Core weekly", usedPercent: 50, windowMinutes: 10_080),
+      .init(id: "factory-core-monthly", title: "Core monthly", usedPercent: 60)]))
+    let droidRows = P.lines(for: account("droid", usage: droidSix), expanded: true)
+    expect(droidRows.map(\.label) == ["Session", "Weekly", "Monthly", "Core", "Session", "Weekly", "Monthly"]
+      && droidRows.map(\.isHeading) == [false, false, false, true, false, false, false],
+      "Droid windows are not Session, Weekly, Monthly, then a Core heading over its own rows: \(droidRows.map(\.label))")
+    for pool in [nil, "Core"] as [String?] {
+      let labels = droidRows.filter { !$0.isHeading && $0.pool == pool }.map(\.label)
+      expect(Set(labels).count == labels.count, "A pool repeats a row name: \(labels)")
+    }
+    expect(P.lines(for: account("droid", usage: droidSix)).map(\.label) == ["Session", "Weekly"],
+      "A collapsed row keeps more than two usage rows or a heading without rows")
     if case .lines(let lines) = P.content(for: two) {
       expect(lines.map(\.label) == ["Session", "Weekly"] && lines.map(\.used) == [24, 59],
         "Two-window row lines are wrong")
@@ -134,6 +169,7 @@ enum AIManagerMenuBarContract {
     // First among the hosted checks: it records frames, so it runs before other popover hosts exist.
     failures.append(contentsOf: layoutAgreementFailures())
     failures.append(contentsOf: hostedLayoutFailures())
+    failures.append(contentsOf: valueAlignmentFailures())
     failures.append(contentsOf: polishFailures())
     failures.append(contentsOf: statusItemFailures())
     failures.append(contentsOf: await PopoverMotionCheck.failures())
@@ -456,6 +492,83 @@ enum AIManagerMenuBarContract {
     return failures
   }
 
+  /// Rows with a value and no bar (Credits, Balance, Tokens) start their value at the left edge
+  /// of the bar column of the same account, not at the right edge. Also renders the dark shot.
+  private static func valueAlignmentFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    let now = Date()
+    let price = CodexAPIPrice(model: "gpt-5.6-sol", inputPerMillion: 4, cachedInputPerMillion: 0.4, outputPerMillion: 20)
+    let codex = MenuBarUsageSnapshot(usedPercentage: 79, secondaryUsedPercentage: 12,
+      resetsAt: now.addingTimeInterval(3_600), secondaryResetsAt: now.addingTimeInterval(530_000),
+      tokenPeriodLabel: "since reset", tokens: 34_000_000, apiPrice: price,
+      primaryMinutes: 300, secondaryMinutes: 10_080, providerWindows: [
+        .init(title: "Session", used: 12, resetsAt: now.addingTimeInterval(3_600), minutes: 300),
+        .init(title: "Weekly", used: 79, resetsAt: now.addingTimeInterval(530_000), minutes: 10_080),
+        .init(title: "Credits", used: nil, resetsAt: nil, minutes: nil, balance: "$2,494.68 · 62,367 credits")])
+    let droid = MenuBarUsageSnapshot(providerUsage: ProviderUsage(windows: [
+      .init(id: "session", title: "5-hour", usedPercent: 10, resetsAt: now.addingTimeInterval(14_000), windowMinutes: 300),
+      .init(id: "weekly", title: "Weekly", usedPercent: 20, resetsAt: now.addingTimeInterval(500_000), windowMinutes: 10_080),
+      .init(id: "monthly", title: "Monthly", usedPercent: 30, resetsAt: now.addingTimeInterval(1_800_000)),
+      .init(id: "factory-core-5h", title: "Core 5-hour", usedPercent: 40, resetsAt: now.addingTimeInterval(9_000), windowMinutes: 300),
+      .init(id: "factory-core-7d", title: "Core weekly", usedPercent: 50, resetsAt: now.addingTimeInterval(400_000), windowMinutes: 10_080),
+      .init(id: "factory-core-monthly", title: "Core monthly", usedPercent: 60, resetsAt: now.addingTimeInterval(1_700_000))],
+      cost: UsageCost(balance: 0, period: "Extra usage balance")))!
+    let balanceOnly = MenuBarUsageSnapshot(usedPercentage: nil, balanceText: "$12.40")
+    func account(_ name: String, _ usage: MenuBarUsageSnapshot, _ provider: ProviderID) -> MenuBarAccountSnapshot {
+      MenuBarAccountSnapshot(id: UUID(), identity: name, detail: "", isVerified: true, isActive: false,
+        usage: usage, providerID: provider, identityIsFormatted: true)
+    }
+    let accounts = [account("grace@example.test", codex, .codex), account("ada@example.test", droid, .droid),
+      account("go@example.test", balanceOnly, ProviderID(rawValue: "opencodego"))]
+    let wasRecording = uiLintRecording(true)
+    defer { uiLintRecording(wasRecording) }
+    // Codex expanded (Credits, Tokens), then Droid expanded (Balance, Core heading); a fresh store
+    // for each, so an earlier host never records again.
+    for (index, file) in [(0, "popover-values-dark.png"), (1, "popover-droid-dark.png")] {
+    let store = MenuBarPopoverStore(snapshot: MenuBarSnapshot(accounts: accounts),
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }),
+      visibleScreenHeight: 2_000)
+    store.reduceMotion = true
+    store.toggleExpanded(store.rows[index])
+    let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+    UILintStore.shared.items.removeAll()
+    UILintStore.shared.appearance = NSAppearance(named: .darkAqua)!
+    let host = NSHostingView(rootView: MenuBarPopover(store: store)
+      .background(Color(nsColor: .windowBackgroundColor)).renderScaled())
+    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless,
+      backing: .buffered, defer: false)
+    window.appearance = NSAppearance(named: .darkAqua)
+    window.contentView = host
+    host.frame = NSRect(origin: .zero, size: size)
+    host.layoutSubtreeIfNeeded()
+    window.displayIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    host.layoutSubtreeIfNeeded()
+    if let path = ProcessInfo.processInfo.environment["AI_MANAGER_POPOVER_SHOTS"], let png = RenderScale.png(of: host) {
+      let directory = URL(fileURLWithPath: path)
+      try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try? png.write(to: directory.appendingPathComponent(file))
+    }
+    let items = Array(UILintStore.shared.items.values)
+    UILintStore.shared.items.removeAll()
+    func minXs(_ group: String) -> [CGFloat] {
+      items.filter { ($0["tags"] as? [[String: Any]] ?? []).contains { $0["group"] as? String == group } }
+        .compactMap { ($0["frame"] as? [String: Any])?["x"] as? NSNumber }.map { CGFloat(truncating: $0) }
+    }
+    let account = accounts[index]
+    let bars = minXs(P.barGroup(account)), values = minXs(P.valueGroup(account))
+    // Codex: Credits and Tokens values; Droid: Balance. Both have bar rows in the same block.
+    expect(values.count == (account.providerID == .codex ? 2 : 1) && !bars.isEmpty,
+      "\(account.identity) drew \(values.count) value rows and \(bars.count) bars")
+    expect(values.allSatisfy { abs($0 - bars[0]) < 0.5 } && bars.allSatisfy { abs($0 - bars[0]) < 0.5 },
+      "\(account.identity) values start at \(values) but its bars start at \(bars)")
+    }
+    return failures
+  }
+
   /// Shared inset, footer order, check column, Sign in alignment, hover reach, and the token line.
   private static func polishFailures() -> [String] {
     var failures: [String] = []
@@ -477,7 +590,7 @@ enum AIManagerMenuBarContract {
     // is the row's own top edge: never into the group header.
     expect(P.hoverReach == (10 + 2) / 2 && P.rowPaddingV - P.hoverReach == 0, "Hover fill top reach changed")
 
-    // Token line: compact numbers, one line, two values split to the ends past the threshold.
+    // Token row: compact numbers, label "Tokens", one value line "34M since reset · ≈$68 API".
     expect(P.compactTokens(24_100_000) == "24.1M" && P.compactTokens(24_000_000) == "24M"
       && P.compactTokens(950) == "950" && P.compactTokens(3_200) == "3.2K"
       && P.compactTokens(999_950) == "1M" && P.compactTokens(1_250_000_000) == "1.3B",
@@ -485,11 +598,11 @@ enum AIManagerMenuBarContract {
     let price = CodexAPIPrice(model: "gpt-5.6-sol", inputPerMillion: 4, cachedInputPerMillion: 0.4, outputPerMillion: 20)
     let long = MenuBarUsageSnapshot(usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 24_100_000, apiPrice: price)
     let short = MenuBarUsageSnapshot(usedPercentage: 10, tokenPeriodLabel: "since reset", tokens: 24_100_000)
-    expect(P.tokenCaption(short) == "24.1M tokens since reset" && !P.splitsTokenCaption(short),
-      "A short token line is not one plain value")
-    expect(P.splitsTokenCaption(long) && P.tokenParts(long)?.count == "24.1M tokens since reset"
-      && P.tokenParts(long)?.price?.hasSuffix("API") == true && P.tokenCaption(long)?.contains("\n") == false,
-      "A long token line does not split into its left and right values")
+    expect(P.tokenCaption(short) == "24.1M since reset" && P.tokenLabel == "Tokens",
+      "A token line without an API price is not one plain value: \(P.tokenCaption(short) ?? "nil")")
+    expect(P.tokenCaption(long)?.hasPrefix("24.1M since reset · ≈") == true
+      && P.tokenCaption(long)?.hasSuffix(" API") == true && P.tokenCaption(long)?.contains("\n") == false,
+      "A token line with a price is not one value: \(P.tokenCaption(long) ?? "nil")")
 
     // Footer order, left to right: Open Switch, Refresh, Quit, Settings (also the keyboard
     // and accessibility order, which follow the view order).

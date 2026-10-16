@@ -418,6 +418,8 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     let error: String?
     let importing: Bool
     let searchFocused: Bool
+    // The cached root copies the whole environment, including temporary disabled states.
+    let enabled: Bool
     let scheme: ColorScheme
     let reduceMotion: Bool
     let reduceTransparency: Bool
@@ -437,7 +439,8 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     let environment = context.environment
     let inputs = Inputs(
       query: query, maintenance: maintenance, busy: busy, loaded: loaded, error: error,
-      importing: importing, searchFocused: searchFocused, scheme: environment.colorScheme,
+      importing: importing, searchFocused: searchFocused, enabled: environment.isEnabled,
+      scheme: environment.colorScheme,
       reduceMotion: environment.accessibilityReduceMotion,
       reduceTransparency: environment.accessibilityReduceTransparency,
       contrast: environment.colorSchemeContrast, scale: environment.displayScale,

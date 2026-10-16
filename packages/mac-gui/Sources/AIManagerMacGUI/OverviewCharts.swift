@@ -50,11 +50,15 @@ struct OverviewDrawIn<Content: View>: View {
   let duration: Double
   let content: (Double) -> Content
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// False for content that scrolls into view: it draws at once, never from zero.
+  @Environment(\.aimAnimatesAppearance) private var animatesAppearance
   @State private var runs = 0
 
   var body: some View {
     if let fixed = OverviewMotion.fixedProgress {
       content(fixed)
+    } else if !animatesAppearance {
+      content(1)
     } else {
       Color.clear
         .keyframeAnimator(initialValue: 0.0, trigger: key &* 31 &+ runs) { _, clock in
@@ -62,7 +66,8 @@ struct OverviewDrawIn<Content: View>: View {
         } keyframes: { _ in
           LinearKeyframe(1.0, duration: reduceMotion ? 0.2 : duration)
         }
-        .onAppear { runs += 1 }
+        // The first appearance only; a later one (scrolling back) keeps the drawn chart. A new key replays it.
+        .onAppear { if runs == 0 { runs = 1 } }
     }
   }
 }
@@ -104,10 +109,14 @@ extension Path {
 struct OverviewTip: Equatable {
   struct Row: Equatable {
     var color: Color?
+    /// The tool behind the series this row names; its brand tile precedes the label.
+    var service: String?
     var label: String
     var value: String
   }
   var title: String
+  /// The tool behind a title that names a series.
+  var titleService: String?
   var rows: [Row]
 }
 
@@ -125,6 +134,8 @@ struct OverviewTooltipLayer: View {
   let hover: OverviewHover?
   let size: CGSize
   var flips = true
+  /// The widest a series name grows ("Claude Code · name@example.com"); longer names shorten in the middle.
+  static let nameWidth: CGFloat = 280
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
@@ -150,26 +161,39 @@ struct OverviewTooltipLayer: View {
 
   private func insets(for point: CGPoint) -> EdgeInsets {
     let right = onRight(point), under = below(point)
+    // A tall tooltip (the heatmap's tool rows in a short chart) slides along the pointer's side so it
+    // stays inside the chart instead of running out of the card, where the card would clip it.
+    let room = max(size.height - estimatedHeight, 0)
     return EdgeInsets(
-      top: under ? point.y + 14 : 0, leading: right ? point.x + 14 : 0,
-      bottom: under ? 0 : max(size.height - point.y + 14, 0), trailing: right ? 0 : max(size.width - point.x + 14, 0))
+      top: under ? min(point.y + 14, room) : 0, leading: right ? point.x + 14 : 0,
+      bottom: under ? 0 : min(max(size.height - point.y + 14, 0), room),
+      trailing: right ? 0 : max(size.width - point.x + 14, 0))
   }
+
+  /// About the tooltip's height: padding, a title line, and a line for each row.
+  private var estimatedHeight: CGFloat { 30 + 18 * CGFloat(hover?.tip.rows.count ?? 0) }
 
   private func tip(_ tip: OverviewTip) -> some View {
     let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
     return VStack(alignment: .leading, spacing: 4) {
-      Text(tip.title).aimText(.body)
+      HStack(spacing: 6) {
+        OverviewServiceTile(service: tip.titleService)
+        Text(tip.title).aimText(.body).lineLimit(1).truncationMode(.middle)
+          .frame(maxWidth: Self.nameWidth, alignment: .leading)
+      }
       ForEach(Array(tip.rows.enumerated()), id: \.offset) { _, row in
         HStack(spacing: 6) {
           if let color = row.color { Circle().fill(color).frame(width: 8, height: 8) }
-          Text(row.label).aimText(.secondary).lineLimit(1)
+          OverviewServiceTile(service: row.service)
+          Text(row.label).aimText(.secondary).lineLimit(1).truncationMode(.middle)
+            .frame(maxWidth: Self.nameWidth, alignment: .leading)
           Spacer(minLength: 12)
           Text(row.value).aimText(.secondary).monospacedDigit()
         }
       }
     }
     .padding(8)
-    .frame(minWidth: 120, maxWidth: 260, alignment: .leading)
+    .frame(minWidth: 120, alignment: .leading)
     .fixedSize()
     .background(AIMTheme.card, in: shape)
     .aimBorder(AIMTheme.cardBorder, in: shape)
@@ -185,6 +209,8 @@ struct OverviewTooltipLayer: View {
 struct OverviewLegend: View {
   static let height: CGFloat = 18
   let series: [OverviewSeries]
+  /// The series a hovered ridge or band belongs to: its name brightens and the others dim.
+  var active: String?
 
   var body: some View {
     HStack(spacing: 14) {
@@ -192,23 +218,33 @@ struct OverviewLegend: View {
         HStack(spacing: 6) {
           Circle().fill(item.color).frame(width: 8, height: 8)
           OverviewServiceTile(service: item.service)
-          Text(item.label).aimText(.secondary).lineLimit(1)
+          Text(item.label).aimText(.secondary, tint: active == item.id ? Color.primary : nil).lineLimit(1)
         }
+        .opacity(active == nil || active == item.id ? 1 : OverviewMotion.dimmed)
         .accessibilityHidden(true)
       }
     }
     .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
     .clipped()
+    .animation(AIMMotion.fade(AIMMotion.hover), value: active)
   }
 }
 
 // MARK: - Date axis
 
 /// A faint row of 3 to 5 date labels under a time chart: weekdays for a week, month and day for longer.
-/// The first label starts at the left edge and the last ends at the right edge, like the chart's ends.
+/// A label sits at its tick's x, but the first starts and the last ends `inset` inside the edges, so a
+/// chart that runs edge to edge keeps its labels inside the card inset.
 struct OverviewDateAxis: View {
   static let height: CGFloat = 16
   let days: [String]
+  var inset: CGFloat = 0
+
+  /// Where a label draws: its tick x, clamped so the first label starts and the last ends inside `inset`.
+  static func labelX(fraction: Double, first: Bool, last: Bool, width: CGFloat, inset: CGFloat) -> CGFloat {
+    let x = width * fraction
+    return first ? max(x, inset) : (last ? min(x, width - inset) : x)
+  }
 
   static func labels(_ days: [String]) -> [(fraction: Double, text: String)] {
     guard days.count > 1 else { return [] }
@@ -222,8 +258,10 @@ struct OverviewDateAxis: View {
       let labels = Self.labels(days)
       for (index, label) in labels.enumerated() {
         let text = Text(label.text).font(AIMTextRole.caption.font).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-        let anchor: UnitPoint = index == 0 ? .topLeading : (index == labels.count - 1 ? .topTrailing : .top)
-        context.draw(text, at: CGPoint(x: size.width * label.fraction, y: 2), anchor: anchor)
+        let (first, last) = (index == 0, index == labels.count - 1)
+        let anchor: UnitPoint = first ? .topLeading : (last ? .topTrailing : .top)
+        let x = Self.labelX(fraction: label.fraction, first: first, last: last, width: size.width, inset: inset)
+        context.draw(text, at: CGPoint(x: x, y: 2), anchor: anchor)
       }
     }
     .frame(height: Self.height)
@@ -303,8 +341,9 @@ struct OverviewStreamChart: View {
 
   var body: some View {
     VStack(spacing: 4) {
-      plot
-      OverviewDateAxis(days: dataset.days)
+      // Above the axis, so a tooltip over the plot's bottom edge never draws under the labels.
+      plot.zIndex(1)
+      OverviewDateAxis(days: dataset.days, inset: AIMTheme.cardInset)
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.streamSummary)
@@ -355,7 +394,7 @@ struct OverviewStreamChart: View {
     let tip = OverviewTip(
       title: OverviewDay.short(dataset.days[day]),
       rows: [
-        .init(color: item.color, label: item.label, value: UsagePresentation.formatTokens(item.daily[day])),
+        .init(color: item.color, service: item.service, label: item.tipLabel, value: UsagePresentation.formatTokens(item.daily[day])),
         .init(color: nil, label: "All", value: UsagePresentation.formatTokens(total)),
       ])
     return OverviewHover(point: point, tip: tip, key: item.id, index: day)
@@ -496,7 +535,12 @@ struct OverviewHeatmap: View {
         // A spatial tap ends only on a click, never on a drag.
         .gesture(SpatialTapGesture().onEnded { tap in
           let layout = OverviewHeatLayout(size: proxy.size, offset: dataset.yearOffset, count: dataset.yearDays.count)
-          if let index = layout.index(at: tap.location), dataset.yearTotals[index] > 0 { onSelect(dataset.yearDays[index]) }
+          if let index = layout.index(at: tap.location), dataset.yearTotals[index] > 0 {
+            // The sheet covers the chart and the pointer-left event never arrives: drop the tooltip first.
+            hover = nil
+            NSCursor.arrow.set()
+            onSelect(dataset.yearDays[index])
+          }
         })
         .overlay { OverviewTooltipLayer(hover: hover, size: proxy.size) }
         .onAppear {
@@ -506,6 +550,7 @@ struct OverviewHeatmap: View {
         }
       }
       .aspectRatio(Self.aspect, contentMode: .fit)
+      .zIndex(1)
       legend
     }
     .accessibilityElement(children: .ignore)
@@ -534,9 +579,18 @@ struct OverviewHeatmap: View {
     let layout = OverviewHeatLayout(size: size, offset: dataset.yearOffset, count: dataset.yearDays.count)
     guard let index = layout.index(at: point) else { return nil }
     let tokens = dataset.yearTotals[index]
+    // The tools that ran that day (at most three), then the day's total.
+    let tools = dataset.yearTools.compactMap { tool -> OverviewTip.Row? in
+      tool.daily.indices.contains(index) && tool.daily[index] > 0
+        ? .init(
+          color: nil, service: tool.service, label: OverviewDayDetail.toolName(tool.service),
+          value: UsagePresentation.formatTokens(tool.daily[index]))
+        : nil
+    }
     let tip = OverviewTip(
       title: OverviewDay.long(dataset.yearDays[index]),
-      rows: [.init(color: nil, label: "Tokens", value: tokens == 0 ? "None" : UsagePresentation.formatTokens(tokens))])
+      rows: Array(tools.prefix(3))
+        + [.init(color: nil, label: "Tokens", value: tokens == 0 ? "None" : UsagePresentation.formatTokens(tokens))])
     return OverviewHover(point: point, tip: tip, key: nil, index: index)
   }
 }
@@ -544,7 +598,6 @@ struct OverviewHeatmap: View {
 // MARK: - Ridgeline
 
 struct OverviewRidgeLayout {
-  static let label: CGFloat = 132
   /// The band under the last ridge for the date axis.
   static let axis = OverviewDateAxis.height + 4
   /// How many pitches a peak stands: ridges overlap their neighbors by this much.
@@ -558,7 +611,8 @@ struct OverviewRidgeLayout {
   private var span: CGFloat { max(size.height - Self.axis - 2 * Self.margin, 1) }
   var peak: CGFloat { count > 1 ? min(span / (CGFloat(count - 1) + Self.overlap) * Self.overlap, 150) : span }
   var pitch: CGFloat { count > 1 ? (span - peak) / CGFloat(count - 1) : 0 }
-  var plot: CGRect { CGRect(x: Self.label, y: 0, width: max(size.width - Self.label, 1), height: size.height) }
+  /// The whole width: no label column, so the ridges start at the card's left edge.
+  var plot: CGRect { CGRect(x: 0, y: 0, width: max(size.width, 1), height: size.height) }
 
   func baseline(_ row: Int) -> CGFloat { Self.margin + peak + CGFloat(row) * pitch }
 
@@ -641,48 +695,44 @@ struct OverviewRidgeline: View {
   @State private var lastKey: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+  /// The ridges run the card's full width; the names sit in a one-line legend below, like Tokens per
+  /// day. The legend highlights the hovered ridge's name. The plot is above the legend (zIndex), so
+  /// its tooltip never draws under it.
   var body: some View {
-    GeometryReader { proxy in
-      let layout = OverviewRidgeLayout(size: proxy.size, count: dataset.series.count)
-      ZStack(alignment: .topLeading) {
-        OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.ridge) { clock in
-          OverviewRidgeCanvas(
-            series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
-            highlight: hover?.key ?? lastKey, day: hover?.index)
-            .animation(OverviewMotion.hover, value: hover == nil)
-        }
-        .contentShape(Rectangle())
-        .onContinuousHover { phase in
-          switch phase {
-          case .active(let point):
-            hover = info(at: point, layout: layout)
-            if let key = hover?.key { lastKey = key }
-          case .ended: hover = nil
+    VStack(alignment: .leading, spacing: 10) {
+      GeometryReader { proxy in
+        let layout = OverviewRidgeLayout(size: proxy.size, count: dataset.series.count)
+        ZStack(alignment: .topLeading) {
+          OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.ridge) { clock in
+            OverviewRidgeCanvas(
+              series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
+              highlight: hover?.key ?? lastKey, day: hover?.index)
+              .animation(OverviewMotion.hover, value: hover == nil)
           }
-        }
-        ForEach(Array(dataset.series.enumerated()), id: \.element.id) { row, item in
-          HStack(spacing: 5) {
-            OverviewServiceTile(service: item.service)
-            Text(item.label).aimText(.secondary, tint: hover?.key == item.id ? Color.primary : nil)
-              .lineLimit(1).truncationMode(.middle)
+          .contentShape(Rectangle())
+          .onContinuousHover { phase in
+            switch phase {
+            case .active(let point):
+              hover = info(at: point, layout: layout)
+              if let key = hover?.key { lastKey = key }
+            case .ended: hover = nil
+            }
           }
-            .frame(width: OverviewRidgeLayout.label - 14, alignment: .trailing)
-            .position(x: (OverviewRidgeLayout.label - 14) / 2, y: layout.baseline(row) - 9)
-            .animation(AIMMotion.fade(AIMMotion.hover), value: hover?.key)
+          OverviewDateAxis(days: dataset.days, inset: AIMTheme.cardInset)
+            .frame(width: layout.plot.width)
+            .position(x: layout.plot.midX, y: proxy.size.height - OverviewDateAxis.height / 2)
             .allowsHitTesting(false)
+          OverviewTooltipLayer(hover: hover, size: proxy.size)
         }
-        OverviewDateAxis(days: dataset.days)
-          .frame(width: layout.plot.width)
-          .position(x: layout.plot.midX, y: proxy.size.height - OverviewDateAxis.height / 2)
-          .allowsHitTesting(false)
-        OverviewTooltipLayer(hover: hover, size: proxy.size)
-      }
-      .onAppear {
-        if let point = OverviewMotion.previewHover("ridge", in: proxy.size) {
-          hover = info(at: point, layout: layout)
-          lastKey = hover?.key
+        .onAppear {
+          if let point = OverviewMotion.previewHover("ridge", in: proxy.size) {
+            hover = info(at: point, layout: layout)
+            lastKey = hover?.key
+          }
         }
       }
+      .zIndex(1)
+      OverviewLegend(series: dataset.series, active: hover?.key).padding(.horizontal, AIMTheme.cardInset)
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.ridgeSummary)
@@ -698,7 +748,8 @@ struct OverviewRidgeline: View {
     let item = dataset.series[layout.row(at: point.y)]
     let tip = OverviewTip(
       title: OverviewDay.short(dataset.days[day]),
-      rows: [.init(color: item.color, label: item.label, value: UsagePresentation.formatTokens(item.daily[day]))])
+      rows: [.init(
+        color: item.color, service: item.service, label: item.tipLabel, value: UsagePresentation.formatTokens(item.daily[day]))])
     return OverviewHover(point: point, tip: tip, key: item.id, index: day)
   }
 }
@@ -830,7 +881,6 @@ struct OverviewWaffleChart: View {
           }
           if let key = hover?.key { lastKey = key }
         }
-        .overlay { OverviewTooltipLayer(hover: hover, size: proxy.size, flips: false) }
         .onAppear {
           if let point = OverviewMotion.previewHover("waffle", in: proxy.size) {
             hover = info(at: point, width: proxy.size.width, owners: owners, cells: cells)
@@ -844,6 +894,12 @@ struct OverviewWaffleChart: View {
         }
       }
       .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+    // The tooltip belongs to the whole split, not the grid: inside the grid it drew under the legend
+    // (a later subview), which showed through it. The grid and the split share one origin.
+    .overlay {
+      GeometryReader { proxy in OverviewTooltipLayer(hover: hover, size: proxy.size, flips: false) }
+        .allowsHitTesting(false)
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dataset.waffleSummary)
@@ -880,7 +936,7 @@ struct OverviewWaffleChart: View {
     let index = owners[slot]
     let item = dataset.series[index]
     let tip = OverviewTip(
-      title: item.label,
+      title: item.tipLabel, titleService: item.service,
       rows: [
         .init(color: item.color, label: "Share", value: OverviewWaffle.percent(cells[index])),
         .init(color: nil, label: "Tokens", value: UsagePresentation.formatTokens(item.tokens)),
