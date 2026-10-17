@@ -177,7 +177,7 @@ struct RealChatProvider: ChatHistoryProviding {
     // The window applies the saved appearance, so a run picks its own (a contract run uses a temporary home).
     UserDefaults.standard.set(dark ? "dark" : "light", forKey: "windowAppearance")
     let hosting = NSHostingView(rootView: AnyView(view.renderScaled()))
-    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+    let window = AIManagerWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     window.contentView = hosting
@@ -289,7 +289,8 @@ struct RealChatProvider: ChatHistoryProviding {
           else { continue }
           cg.location = CGPoint(x: point.x, y: screenHeight - point.y)
           guard let event = NSEvent(cgEvent: cg), let hit = frame.hitTest(event.locationInWindow) else { continue }
-          hit.scrollWheel(with: event)
+          // The main window routes a wheel in sendEvent, before SwiftUI sees it; any other window by hit test.
+          if window is AIManagerWindow { window.sendEvent(event) } else { hit.scrollWheel(with: event) }
           _ = await waitUntil(timeout: 2) { scroll.contentView.bounds.minY != top }
           if scroll.contentView.bounds.minY == top {
             failures.append("\(label) wheel: a \(unit == .line ? "line" : "pixel") wheel over the \(spot) of the "
@@ -298,6 +299,71 @@ struct RealChatProvider: ChatHistoryProviding {
           scroll.contentView.scroll(to: NSPoint(x: 0, y: top))
           scroll.reflectScrolledClipView(scroll.contentView)
         }
+      }
+    }
+    // Over the page's fixed header (off every scroll view) a wheel scrolls the page.
+    if window is AIManagerWindow, let page = AIMHostingView.pageScrollView(in: root),
+       (page.documentView?.frame.height ?? 0) > page.contentView.bounds.height + 1 {
+      let top = page.contentView.bounds.minY
+      let spot = root.convert(
+        NSPoint(x: page.convert(NSPoint(x: page.bounds.midX, y: 0), to: root).x,
+                y: root.isFlipped ? AIMTheme.topBarHeight / 2 : root.bounds.height - AIMTheme.topBarHeight / 2), to: nil)
+      if page.bounds.contains(page.convert(spot, from: nil)) {
+        failures.append("\(label) wheel: the header spot lies inside the page scroll view")
+      }
+      let sign: Int32 = top > 60 ? 1 : -1
+      if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: 40 * sign, wheel2: 0, wheel3: 0) {
+        cg.location = CGPoint(x: spot.x, y: screenHeight - spot.y)
+        if let event = NSEvent(cgEvent: cg) {
+          window.sendEvent(event)
+          _ = await waitUntil(timeout: 2) { page.contentView.bounds.minY != top }
+          if page.contentView.bounds.minY == top { failures.append("\(label) wheel: a wheel over the fixed header did not scroll the page") }
+          page.contentView.scroll(to: NSPoint(x: 0, y: top))
+          page.reflectScrolledClipView(page.contentView)
+        }
+      }
+    }
+    return failures
+  }
+
+  /// Main-thread cost of one scroll step (40 pt) of a page: scroll, let queued work run, lay out, and
+  /// (second pass) draw the window content. Prints SCROLLCOST lines, two rounds for Accounts and Overview.
+  static func scrollCost() async -> [String] {
+    var failures: [String] = []
+    for page in [AIManagerPage.accounts, .overview] {
+      for round in 0..<2 {
+        let model = AccountViewModel(scenario: .historyStress)
+        model.installScaleFixture(accountCount: 60, activityDays: 365)
+        let (window, hosting) = host(
+          AccountWindow(model: model, initialPageIndex: AIManagerPage.allCases.firstIndex(of: page) ?? 0),
+          size: NSSize(width: 1200, height: 900), dark: false)
+        await pause(1_200)
+        guard let scroll = AIMHostingView.pageScrollView(in: hosting) else {
+          failures.append("\(page.rawValue): no page scroll view"); window.close(); continue
+        }
+        let travel = (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height
+        for draw in [false, true] {
+          var times: [Double] = []
+          for step in 0..<60 {
+            let start = CFAbsoluteTimeGetCurrent()
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: min(travel, 40 * CGFloat(step + 1))))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.002))
+            hosting.layoutSubtreeIfNeeded()
+            if draw, let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+              hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            }
+            times.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+          }
+          times.sort()
+          print(String(format: "SCROLLCOST round=%d page=%@ draw=%@ median=%.2f p90=%.2f ms",
+            round, page.rawValue, draw ? "yes" : "no", times[30], times[54]))
+          scroll.contentView.scroll(to: NSPoint(x: 0, y: 0))
+          scroll.reflectScrolledClipView(scroll.contentView)
+          await pause(200)
+        }
+        window.close()
       }
     }
     return failures
@@ -538,10 +604,8 @@ struct RealChatProvider: ChatHistoryProviding {
         guard let scroll = views(in: hosting).compactMap({ $0 as? NSScrollView }).max(by: {
           ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
         }) else { failures.append("round trip \(page.rawValue): no scroll view"); continue }
-        // A page's header is a top inset: its rest offset is minus the inset.
-        let inset = scroll.contentInsets.top
-        let travel = max(0, (scroll.documentView?.frame.height ?? 0) - (scroll.contentView.bounds.height - inset))
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(travel, 120) - inset))
+        let travel = max(0, (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(travel, 120)))
         scroll.reflectScrolledClipView(scroll.contentView)
         await pause(500)
         let saved = scroll.contentView.bounds.minY

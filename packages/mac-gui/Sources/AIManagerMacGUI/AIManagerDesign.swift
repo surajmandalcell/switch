@@ -1058,6 +1058,22 @@ final class AIMScroller: NSScroller {
 final class AIMHostingView: NSHostingView<AnyView> {
   private var forwarding = false
   private weak var wheelTarget: NSScrollView?
+  /// Called when the SwiftUI content's ideal size changes (a page host inside a scroll view).
+  var onIntrinsicChange: (() -> Void)?
+
+  #if AI_MANAGER_PREVIEW
+  /// Layout passes of every page host, for the scroll cost measurement.
+  nonisolated(unsafe) static var layoutCalls = 0
+  override func layout() {
+    Self.layoutCalls += 1
+    super.layout()
+  }
+  #endif
+
+  override func invalidateIntrinsicContentSize() {
+    super.invalidateIntrinsicContentSize()
+    onIntrinsicChange?()
+  }
 
   /// A gesture starts at a legacy wheel click (no phase) or at `began`; `changed` and every momentum
   /// event continue the current one.
@@ -1075,6 +1091,14 @@ final class AIMHostingView: NSHostingView<AnyView> {
       }
     }
     return best
+  }
+
+  /// The page host of a window: the first hosting view of this class below `view`.
+  static func visible(in view: NSView) -> AIMHostingView? {
+    for sub in view.subviews where !sub.isHidden {
+      if let host = sub as? AIMHostingView ?? visible(in: sub) { return host }
+    }
+    return nil
   }
 
   static func pageScrollView(in view: NSView) -> NSScrollView? {

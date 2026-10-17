@@ -82,6 +82,14 @@ if [[ "$(rg -c 'onContinuousHover|\.onHover' "$charts_source")" != "$(rg -c 'AIM
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL an Overview chart hover handler does not check AIMScrollBarModel.isScrolling' >&2
   exit 1
 fi
+# The page scroll bar is one AppKit AIMScroller driven by a plain (not observable) model: a scroll frame
+# opens no SwiftUI transaction. The main window sends a wheel to the page host before SwiftUI sees it.
+if rg -q 'class AIMScrollBarModel: ObservableObject|struct AIMScrollBar\b' "$parts_source" \
+  || ! rg -q 'class AIMScrollBarModel: NSObject' "$parts_source" \
+  || ! rg -q 'override func sendEvent' "$window_source"; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the scroll bar model is observable again, or the main window no longer routes the wheel in sendEvent' >&2
+  exit 1
+fi
 if ! rg -q 'AIMSidebar\(' "$window_source" || ! rg -q 'NSVisualEffectView' "$parts_source" \
   || rg -q '\.toolbar \{|NavigationSplitView' "$window_source"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL the window must draw its own sidebar (AIMSidebar over a visual-effect material) with no toolbar bar' >&2

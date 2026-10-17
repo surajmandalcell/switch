@@ -1489,6 +1489,7 @@ struct AccountsTableCard: View {
   var contextMenu: ((AccountRecord) -> AnyView)? = nil
 
   static let group = "accounts"
+  @State private var hover = AccountsRowHover()
 
   var body: some View {
     AIMCard(title: "Accounts", bottomInset: 0) {
@@ -1510,16 +1511,7 @@ struct AccountsTableCard: View {
   }
 
   /// One group per provider, in the order each provider first appears.
-  private var groups: [(provider: ProviderID, accounts: [AccountRecord])] {
-    var order: [ProviderID] = []
-    var byProvider: [ProviderID: [AccountRecord]] = [:]
-    for account in accounts {
-      let provider = account.identity.providerID
-      if byProvider[provider] == nil { order.append(provider) }
-      byProvider[provider, default: []].append(account)
-    }
-    return order.map { ($0, byProvider[$0] ?? []) }
-  }
+  private var groups: [(provider: ProviderID, accounts: [AccountRecord])] { AccountsRowLayout.grouped(accounts) }
 
   /// The 32 pt header above a group: a 16 pt brand tile, the provider name, and the count as plain "×2".
   private func groupHeader(_ provider: ProviderID, count: Int) -> some View {
@@ -1543,13 +1535,15 @@ struct AccountsTableCard: View {
     .accessibilityAddTraits(.isHeader)
   }
 
-  /// One flat lazy list (each group's header, then its accounts), so a page switch builds only the
-  /// rows in view, not every account. Groups sit 6 pt apart (top padding on a header); separators
-  /// and guide pieces are overlays, so a group is exactly its header plus 36 pt for each account.
-  /// The last row also carries the card's bottom inset.
+  /// One flat list (each group's header, then its accounts) of fixed-height rows. Groups sit 6 pt
+  /// apart (top padding on a header); separators and guide pieces are overlays, so a group is exactly
+  /// its header plus 36 pt for each account. The last row also carries the card's bottom inset.
+  /// The stack, not each row, owns the pointer: one hover and one drop target find the row from its y
+  /// (`AccountsRowLayout`, the same constants), so a row has no hover, drag or drop site of its own.
   private var rows: some View {
     let groups = self.groups
-    return LazyVStack(spacing: 0) {
+    let layout = AccountsRowLayout(groups: groups)
+    return VStack(spacing: 0) {
       ForEach(Array(groups.enumerated()), id: \.element.provider) { groupIndex, group in
         groupHeader(group.provider, count: group.accounts.count)
           .padding(.top, groupIndex > 0 ? AIMTheme.groupGap : 0)
@@ -1570,11 +1564,148 @@ struct AccountsTableCard: View {
         }
       }
     }
-    // The height is exact (fixed rows and headers), so the lazy stack's estimate never changes the
-    // page's content height or offset as rows realize.
-    .frame(height: groups.reduce(CGFloat(groups.isEmpty ? 0 : AIMTheme.tableEndInset - AIMTheme.groupGap)) {
-      $0 + AIMTheme.groupGap + AIMTheme.groupHeaderHeight + AIMTheme.rowHeight * CGFloat($1.accounts.count)
-    }, alignment: .top)
+    .frame(height: layout.height, alignment: .top)
+    #if AI_MANAGER_PREVIEW
+    .coordinateSpace(.named(AccountsRowLayout.space))
+    #endif
+    .environment(hover)
+    .contentShape(Rectangle())
+    .onContinuousHover { phase in
+      switch phase {
+      case .active(let point): hover.point(layout.entry(atY: point.y)?.id)
+      case .ended: hover.point(nil)
+      }
+    }
+    // A scroll ends the hover (the rows slide under a still pointer); the next pointer move sets it.
+    .onReceive(NotificationCenter.default.publisher(for: OverviewHover.endAll)) { _ in hover.point(nil) }
+    .modifier(AccountsRowDrop(layout: layout, hover: hover, model: model, onMove: onMove))
+  }
+}
+
+/// Where each account row sits in the table, from the constants the rows are built with: a group's
+/// header, then `rowHeight` for each account, groups `groupGap` apart, `tableEndInset` at the end.
+struct AccountsRowLayout {
+  struct Entry { let id: UUID; let provider: ProviderID; let minY: CGFloat }
+  let entries: [Entry]
+  let height: CGFloat
+
+  /// One group per provider, in the order each provider first appears.
+  static func grouped(_ accounts: [AccountRecord]) -> [(provider: ProviderID, accounts: [AccountRecord])] {
+    var order: [ProviderID] = []
+    var byProvider: [ProviderID: [AccountRecord]] = [:]
+    for account in accounts {
+      let provider = account.identity.providerID
+      if byProvider[provider] == nil { order.append(provider) }
+      byProvider[provider, default: []].append(account)
+    }
+    return order.map { ($0, byProvider[$0] ?? []) }
+  }
+
+  init(groups: [(provider: ProviderID, accounts: [AccountRecord])]) {
+    var y: CGFloat = 0
+    var entries: [Entry] = []
+    for (index, group) in groups.enumerated() {
+      if index > 0 { y += AIMTheme.groupGap }
+      y += AIMTheme.groupHeaderHeight
+      for account in group.accounts {
+        entries.append(Entry(id: account.id, provider: group.provider, minY: y))
+        y += AIMTheme.rowHeight
+      }
+    }
+    self.entries = entries
+    height = groups.isEmpty ? 0 : y + AIMTheme.tableEndInset
+  }
+
+  /// The account row at a y in the table (nil over a header, a gap, or the end inset).
+  func entry(atY y: CGFloat) -> Entry? {
+    entries.last { $0.minY <= y }.flatMap { y < $0.minY + AIMTheme.rowHeight ? $0 : nil }
+  }
+
+  /// Where the insertion line shows: the top edge when the carried account moves up to the row,
+  /// the bottom edge when it moves down.
+  static func insertionEdge(from: Int, to: Int) -> VerticalEdge { from > to ? .top : .bottom }
+}
+
+#if AI_MANAGER_PREVIEW
+/// The contract check reads each row's real frame (in the table's own space) to compare with the layout.
+extension AccountsRowLayout {
+  @MainActor static var measured: [UUID: CGRect] = [:]
+  static let space = "accounts-rows"
+}
+#endif
+
+/// The row under the pointer and the row a drag would land on. Rows read it in tiny views of their own
+/// (the hover fill, the grip, the insertion line), so a change redraws two rows, not the table.
+@MainActor @Observable final class AccountsRowHover {
+  private(set) var hoveredID: UUID?
+  private(set) var drop: (id: UUID, edge: VerticalEdge)?
+
+  func point(_ id: UUID?) { if hoveredID != id { hoveredID = id } }
+  func target(_ next: (id: UUID, edge: VerticalEdge)?) {
+    if drop?.id != next?.id || drop?.edge != next?.edge { drop = next }
+  }
+}
+
+/// The account the pointer is carrying, set when a drag from a row grip starts.
+@MainActor enum AccountReorderDrag {
+  static var source: UUID?
+}
+
+/// Reorder by dropping a grip drag on the table: one drop target for all rows. The row and edge come
+/// from the pointer's y; only an account of the carried account's own provider is a target.
+private struct AccountsRowDrop: ViewModifier {
+  let layout: AccountsRowLayout
+  let hover: AccountsRowHover
+  let model: AccountViewModel
+  let onMove: ((UUID, UUID) -> Void)?
+
+  func body(content: Content) -> some View {
+    if let onMove {
+      content.onDrop(of: [.plainText], delegate: Delegate(layout: layout, hover: hover, model: model, onMove: onMove))
+    } else {
+      content
+    }
+  }
+
+  struct Delegate: DropDelegate {
+    let layout: AccountsRowLayout
+    let hover: AccountsRowHover
+    let model: AccountViewModel
+    let onMove: (UUID, UUID) -> Void
+
+    private func provider(of id: UUID) -> ProviderID? {
+      model.status?.accounts.first { $0.id == id }?.identity.providerID
+    }
+
+    /// The row a drop at `y` lands on, and the edge its line shows on.
+    private func landing(atY y: CGFloat, source: UUID?) -> (id: UUID, edge: VerticalEdge)? {
+      guard let source, let row = layout.entry(atY: y), row.id != source,
+            provider(of: source) == row.provider, let accounts = model.status?.accounts,
+            let from = accounts.firstIndex(where: { $0.id == source }),
+            let to = accounts.firstIndex(where: { $0.id == row.id }) else { return nil }
+      return (row.id, AccountsRowLayout.insertionEdge(from: from, to: to))
+    }
+
+    func dropEntered(info: DropInfo) { hover.target(landing(atY: info.location.y, source: AccountReorderDrag.source)) }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+      hover.target(landing(atY: info.location.y, source: AccountReorderDrag.source))
+      return DropProposal(operation: .move)
+    }
+    func dropExited(info: DropInfo) { hover.target(nil) }
+
+    func performDrop(info: DropInfo) -> Bool {
+      hover.target(nil)
+      let source = AccountReorderDrag.source
+      AccountReorderDrag.source = nil
+      guard let target = landing(atY: info.location.y, source: source),
+            let item = info.itemProviders(for: [.plainText]).first else { return false }
+      // The carried account's id travels in the drag; a drop of anything else moves nothing.
+      _ = item.loadObject(ofClass: NSString.self) { object, _ in
+        guard let id = (object as? String).flatMap(UUID.init(uuidString:)), id == source else { return }
+        Task { @MainActor in onMove(id, target.id) }
+      }
+      return true
+    }
   }
 }
 
@@ -1631,7 +1762,8 @@ private struct AccountsTableRow: View {
     let previewHover = false
     #endif
     let row = AIMTableRow(
-      highlighted: selected, focused: keyboardFocus, previewHovering: previewHover, indent: AIMTheme.groupIndent
+      highlighted: selected, focused: keyboardFocus, previewHovering: previewHover, indent: AIMTheme.groupIndent,
+      hoverID: account.id
     ) {
       // The group header above says the provider; a status dot follows the name only for an incident.
       HStack(spacing: AIMTheme.rowSpacing) {
@@ -1702,7 +1834,17 @@ private struct AccountsTableRow: View {
           AccountMenuItems(account: account, model: model, delete: delete)
         }
       }
-      .modifier(AccountRowReorder(account: account, model: model, onMove: onMove))
+      .overlay(alignment: .leading) { if onMove != nil { AccountRowGrip(account: account) } }
+      .overlay { if onMove != nil { AccountRowInsertion(id: account.id) } }
+      #if AI_MANAGER_PREVIEW
+      .background {
+        GeometryReader { proxy in
+          Color.clear.onChange(of: proxy.frame(in: .named(AccountsRowLayout.space)), initial: true) { _, frame in
+            AccountsRowLayout.measured[account.id] = frame
+          }
+        }
+      }
+      #endif
       .accessibilityElement(children: .contain)
       .accessibilityLabel(name)
       .accessibilityValue(isDefault ? "Default account" : "Not the default account")
@@ -1711,76 +1853,45 @@ private struct AccountsTableRow: View {
   }
 }
 
-/// The account the pointer is carrying, set when a drag from a row handle starts.
-@MainActor private enum AccountReorderDrag {
-  static var source: UUID?
+/// The grip of the hovered row: it sits in the card padding left of the guide line and fades in on
+/// row hover. Only the hovered row builds one, so at most one drag source exists. Dragging it carries
+/// the account to `AccountsRowDrop`.
+private struct AccountRowGrip: View {
+  let account: AccountRecord
+  @Environment(AccountsRowHover.self) private var hover
+
+  var body: some View {
+    let shown = hover.hoveredID == account.id
+    ZStack {
+      if shown { AccountGrip(account: account).transition(.opacity) }
+    }
+    .animation(AIMMotion.fade(AIMMotion.hover), value: shown)
+  }
 }
 
-/// Reorder by dragging a row's grip handle within its provider group. The grip sits in the
-/// card padding left of the guide line and fades in on row hover (its space is always reserved).
-/// A blue line shows where the account lands; the row accepts only accounts of its own provider.
-private struct AccountRowReorder: ViewModifier {
+private struct AccountGrip: View {
   let account: AccountRecord
-  let model: AccountViewModel
-  let onMove: ((UUID, UUID) -> Void)?
-  @State private var rowHover = false
-  @State private var handleHover = false
-  @State private var targeted = false
+  @State private var gripHover = false
+  @State private var cursorPushed = false
 
-  private func providerID(of id: UUID) -> ProviderID? {
-    model.status?.accounts.first { $0.id == id }?.identity.providerID
+  /// Pushes the open hand once per hover and pops it exactly once, whichever way the hover ends.
+  private func setGripHover(_ inside: Bool) {
+    gripHover = inside
+    guard inside != cursorPushed else { return }
+    cursorPushed = inside
+    if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
   }
 
-  /// Where the insertion line shows: the top edge when the carried account moves up to this
-  /// row, the bottom edge when it moves down. Nil unless the carried account may land here.
-  private var insertionEdge: Alignment? {
-    guard targeted, let source = AccountReorderDrag.source, source != account.id,
-          providerID(of: source) == account.identity.providerID,
-          let accounts = model.status?.accounts,
-          let from = accounts.firstIndex(where: { $0.id == source }),
-          let to = accounts.firstIndex(where: { $0.id == account.id }) else { return nil }
-    return from > to ? .top : .bottom
-  }
-
-  func body(content: Content) -> some View {
-    if let onMove {
-      content
-        .onHover { rowHover = $0 }
-        .overlay(alignment: .leading) { handle }
-        .overlay(alignment: insertionEdge ?? .top) {
-          let wash = AIMTheme.cardInset - 8
-          Capsule().fill(AIMTheme.blue).frame(height: 2)
-            .padding(.leading, wash + AIMTheme.groupIndent).padding(.trailing, wash)
-            .offset(y: insertionEdge == .bottom ? 1 : -1)
-            .opacity(insertionEdge == nil ? 0 : 1)
-            .animation(AIMMotion.fade(AIMMotion.hover), value: insertionEdge == nil)
-            .allowsHitTesting(false).accessibilityHidden(true)
-        }
-        .dropDestination(for: String.self) { items, _ in
-          AccountReorderDrag.source = nil
-          guard let id = items.first.flatMap(UUID.init(uuidString:)), id != account.id,
-                providerID(of: id) == account.identity.providerID else { return false }
-          onMove(id, account.id)
-          return true
-        } isTargeted: { targeted = $0 }
-    } else {
-      content
-    }
-  }
-
-  private var handle: some View {
+  var body: some View {
     Image(systemName: "line.3.horizontal")
       .aimText(.secondary)
-      .foregroundStyle(handleHover ? .secondary : .tertiary)
+      .foregroundStyle(gripHover ? .secondary : .tertiary)
       .frame(width: 18, height: AIMTheme.rowHeight)
       .contentShape(Rectangle())
       .padding(.leading, 4)
-      .opacity(rowHover || handleHover ? 1 : 0)
-      .animation(AIMMotion.fade(AIMMotion.hover), value: rowHover || handleHover)
-      .onHover { inside in
-        handleHover = inside
-        if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
-      }
+      .onHover { setGripHover($0) }
+      // The grip leaves with the row's hover, which can end this hover without a callback.
+      .onDisappear { setGripHover(false) }
       .onDrag {
         AccountReorderDrag.source = account.id
         NSCursor.closedHand.set()
@@ -1792,6 +1903,30 @@ private struct AccountRowReorder: ViewModifier {
       }
       .help("Drag to reorder")
       .accessibilityHidden(true)  // Move up and Move down in the account menu do the same.
+  }
+}
+
+/// The 2 pt blue line where a dragged account lands: the row's top edge when it moves up to the row,
+/// its bottom edge when it moves down. Only the target row builds one.
+private struct AccountRowInsertion: View {
+  let id: UUID
+  @Environment(AccountsRowHover.self) private var hover
+
+  var body: some View {
+    let edge = hover.drop?.id == id ? hover.drop?.edge : nil
+    ZStack {
+      if let edge {
+        let wash = AIMTheme.cardInset - 8
+        Capsule().fill(AIMTheme.blue).frame(height: 2)
+          .padding(.leading, wash + AIMTheme.groupIndent).padding(.trailing, wash)
+          .offset(y: edge == .bottom ? 1 : -1)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: edge == .bottom ? .bottom : .top)
+          .transition(.opacity)
+          .allowsHitTesting(false).accessibilityHidden(true)
+      }
+    }
+    .animation(AIMMotion.fade(AIMMotion.hover), value: edge == nil)
+    .allowsHitTesting(false)
   }
 }
 
