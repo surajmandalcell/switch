@@ -2739,9 +2739,10 @@ enum AIManagerNativeContract {
       "The date axis does not have 3 to 5 labels from end to end")
     expect((1...6).allSatisfy { count in
       let layout = OverviewRidgeLayout(size: CGSize(width: 800, height: 300), count: count)
-      return layout.baseline(0) - layout.peak <= OverviewRidgeLayout.margin + 0.5
+      // The first peak leaves room for the hover lift, so a hovered first ridge stays inside the plot.
+      return abs(layout.baseline(0) - layout.peak - OverviewRidgeLayout.margin - OverviewRidgeLayout.lift) < 0.5
         && abs(layout.baseline(count - 1) - (300 - OverviewRidgeLayout.axis - OverviewRidgeLayout.margin)) < 0.5
-    }, "The ridges do not fill the plot")
+    }, "The ridges do not fill the plot, or a hovered first ridge rises past its top")
     expect(OverviewPalette.hash("a") == 0xE40C292C && OverviewPalette.hash("") == 2_166_136_261,
       "The model and project palette hash is not stable")
     let shades = (0..<3).map { OverviewPalette.account(service: "codex", rank: $0) }

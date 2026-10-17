@@ -647,18 +647,21 @@ struct OverviewRidgeLayout {
   /// How many pitches a peak stands: ridges overlap their neighbors by this much.
   static let overlap: CGFloat = 1.9
   static let margin: CGFloat = 4
+  /// How far a hovered ridge rises. The first peak leaves this much room above it, so it never
+  /// rises past the top of the plot.
+  static let lift: CGFloat = 6
   let size: CGSize
   let count: Int
 
-  /// The ridges fill the plot: the first peak touches the top margin and the last baseline sits on
-  /// the axis band. Fewer ridges get more spacing and taller peaks.
-  private var span: CGFloat { max(size.height - Self.axis - 2 * Self.margin, 1) }
+  /// The ridges fill the plot: the first peak sits the hover lift below the top margin and the last
+  /// baseline sits on the axis band. Fewer ridges get more spacing and taller peaks.
+  private var span: CGFloat { max(size.height - Self.axis - 2 * Self.margin - Self.lift, 1) }
   var peak: CGFloat { count > 1 ? min(span / (CGFloat(count - 1) + Self.overlap) * Self.overlap, 150) : span }
   var pitch: CGFloat { count > 1 ? (span - peak) / CGFloat(count - 1) : 0 }
   /// The whole width: no label column, so the ridges start at the card's left edge.
   var plot: CGRect { CGRect(x: 0, y: 0, width: max(size.width, 1), height: size.height) }
 
-  func baseline(_ row: Int) -> CGFloat { Self.margin + peak + CGFloat(row) * pitch }
+  func baseline(_ row: Int) -> CGFloat { Self.margin + Self.lift + peak + CGFloat(row) * pitch }
 
   func x(_ day: Int, of days: Int) -> CGFloat {
     plot.minX + plot.width * CGFloat(day) / CGFloat(max(days - 1, 1))
@@ -693,7 +696,7 @@ private struct OverviewRidgeCanvas: View, Animatable, Equatable {
         let on = highlight == item.id
         let opacity = faded ? 1 - engaged * (1 - OverviewMotion.dimmed) : 1
         let rise = OverviewMotion.window(clock, start: Double(row) * stagger, length: 0.5)
-        let lift = on ? 6 * engaged : 0
+        let lift = on ? OverviewRidgeLayout.lift * engaged : 0
         let top = Double(item.daily.max() ?? 1)
         let points = item.daily.enumerated().map { index, value in
           CGPoint(
