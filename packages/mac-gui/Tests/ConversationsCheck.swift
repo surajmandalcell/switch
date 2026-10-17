@@ -344,9 +344,14 @@ struct RealChatProvider: ChatHistoryProviding {
         let travel = (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height
         for draw in [false, true] {
           var times: [Double] = []
-          for step in 0..<60 {
+          let steps = Int(PreviewArguments.value("scroll-steps") ?? "") ?? 60
+          let fitBefore = AIMPageScrollView.informsStopped, invalidBefore = AIMHostingView.constraintInvalidations
+          let layoutBefore = AIMHostingView.layoutCalls
+          for step in 0..<steps {
             let start = CFAbsoluteTimeGetCurrent()
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: min(travel, 40 * CGFloat(step + 1))))
+            // Down, then back up when the page ends, so a long run keeps moving.
+            let along = 40 * CGFloat(step + 1), back = travel > 0 ? along.truncatingRemainder(dividingBy: 2 * travel) : 0
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: back > travel ? 2 * travel - back : back))
             scroll.reflectScrolledClipView(scroll.contentView)
             RunLoop.main.run(until: Date().addingTimeInterval(0.002))
             hosting.layoutSubtreeIfNeeded()
@@ -357,11 +362,29 @@ struct RealChatProvider: ChatHistoryProviding {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
           }
           times.sort()
-          print(String(format: "SCROLLCOST round=%d page=%@ draw=%@ median=%.2f p90=%.2f ms",
-            round, page.rawValue, draw ? "yes" : "no", times[30], times[54]))
+          // Per step: constraint notices that reached the page scroll view (it stops them; the clip view then
+          // keeps its flag, so a long scroll sends one), and the page host's own invalidations (6 without it).
+          print(String(format: "SCROLLCOST round=%d page=%@ draw=%@ median=%.2f p90=%.2f ms stopped/step=%.2f invalidate/step=%.2f hostLayout/step=%.2f",
+            round, page.rawValue, draw ? "yes" : "no", times[times.count / 2], times[times.count * 9 / 10],
+            Double(AIMPageScrollView.informsStopped - fitBefore) / Double(steps),
+            Double(AIMHostingView.constraintInvalidations - invalidBefore) / Double(steps),
+            Double(AIMHostingView.layoutCalls - layoutBefore) / Double(steps)))
           scroll.contentView.scroll(to: NSPoint(x: 0, y: 0))
           scroll.reflectScrolledClipView(scroll.contentView)
           await pause(200)
+        }
+        // After many scroll frames the page host still redraws on a state change (stopping the constraint
+        // notice must not starve its updates): another selection moves the focused card.
+        if page == .accounts, let other = model.status?.accounts.map(\.id).first(where: { $0 != model.selectedAccountID }) {
+          func snapshot() -> Data? {
+            guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            return bitmap.tiffRepresentation
+          }
+          let before = snapshot()
+          model.selectedAccountID = other
+          await pause(500)
+          if snapshot() == before { failures.append("Accounts: after scrolling, a selection change did not redraw the page host") }
         }
         window.close()
       }

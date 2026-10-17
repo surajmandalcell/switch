@@ -1061,6 +1061,15 @@ final class AIMHostingView: NSHostingView<AnyView> {
   #if AI_MANAGER_PREVIEW
   /// Layout passes of every page host, for the scroll cost measurement.
   nonisolated(unsafe) static var layoutCalls = 0
+  /// Times the host was told its constraints are stale (each scroll frame, through the geometry notice).
+  nonisolated(unsafe) static var constraintInvalidations = 0
+  override var needsUpdateConstraints: Bool {
+    get { super.needsUpdateConstraints }
+    set {
+      if newValue { Self.constraintInvalidations += 1 }
+      super.needsUpdateConstraints = newValue
+    }
+  }
   override func layout() {
     Self.layoutCalls += 1
     super.layout()

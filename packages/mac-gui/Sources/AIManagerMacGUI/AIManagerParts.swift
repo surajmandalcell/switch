@@ -608,6 +608,43 @@ final class AIMPageScrollView: NSScrollView {
 
   nonisolated(unsafe) static var heightChanges = 0
 
+  #if AI_MANAGER_PREVIEW
+  /// Constraint notices the page scroll view kept from its SwiftUI container, for the scroll cost check.
+  nonisolated(unsafe) static var informsStopped = 0
+  #endif
+
+  /// Every scroll frame the page host (a document view of this scroll view) hears the geometry change,
+  /// marks its constraints stale, and AppKit tells each superview up to SwiftUI's platform view host.
+  /// That host then measures the whole scroll view subtree with Auto Layout (a new constraint engine
+  /// per frame, about a third of the main thread while scrolling). Neither `fittingSize` nor
+  /// `intrinsicContentSize` of this view is called by that measure (counted: no call reached an override
+  /// of either, or of the measuring selector), so a public override cannot cut it. This view has no
+  /// constraints of its own and the size it is given never depends on its content, so it stops the
+  /// notice here. Without the notice the window never runs the constraint pass of the views below
+  /// (the page host and the hosts nested in it update there), so this view runs it itself, once per
+  /// run loop turn, on its own subtree only (a Maintenance card that scrolls stayed at a stale size in
+  /// the lint render without it).
+  /// ponytail: overrides a private AppKit selector; the ceiling is a macOS update that renames it or
+  /// stops the notice from reaching it. Revisit when a macOS update breaks it (the scroll-cost check
+  /// then shows `stopped/step` at 0 and a measure again), or when a public API for a self-sized
+  /// platform view exists.
+  @objc(_informContainerThatSubviewsNeedUpdateConstraints)
+  func informContainerThatSubviewsNeedUpdateConstraints() {
+    #if AI_MANAGER_PREVIEW
+    Self.informsStopped += 1
+    #endif
+    guard !constraintPassPending else { return }
+    constraintPassPending = true
+    DispatchQueue.main.async { [weak self] in
+      MainActor.assumeIsolated {
+        self?.constraintPassPending = false
+        self?.updateConstraintsForSubtreeIfNeeded()
+      }
+    }
+  }
+
+  private var constraintPassPending = false
+
   private func heightChanged(_ height: CGFloat) {
     guard abs(height - contentHeight) > 0.01 else { return }
     contentHeight = height
