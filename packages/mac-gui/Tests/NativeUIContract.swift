@@ -2334,6 +2334,8 @@ enum AIManagerNativeContract {
     // The accounts table: a 32 pt header per provider, 36 pt rows, 6 pt between groups, no zebra fill, no
     // column header (height is exactly title + groups + rows + gaps + end inset).
     let groupSizes = Dictionary(grouping: accounts, by: { $0.identity.providerID }).values.map(\.count)
+    AccountsRowLayout.probing = true
+    defer { AccountsRowLayout.probing = false }
     let table = NSHostingView(rootView: AccountsTableCard(
       accounts: accounts, query: "", model: model, focusedID: accounts.first?.id,
       now: Date(), hideEmails: false, showsUsed: false, focus: { _ in }, delete: { _ in }

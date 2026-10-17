@@ -687,11 +687,15 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .milliseconds(400))
             let runs = AIMScrollBodyRuns.count
             var lag = 0
+            let heights = AIMPageScrollView.heightChanges
             for step in 1...30 {
                 let y = travel * CGFloat(step) / 30
                 go(y)
                 try? await Task.sleep(for: .milliseconds(15))
                 if abs(bar.doubleValue - y / travel) > 0.005 { lag += 1 }
+            }
+            if AIMPageScrollView.heightChanges != heights {
+                failures.append("\(page.rawValue): 30 scroll steps changed the page height \(AIMPageScrollView.heightChanges - heights) times")
             }
             if lag > 0 { failures.append("\(page.rawValue): the scroll bar knob missed the offset on \(lag) of 30 steps") }
             let bodies = AIMScrollBodyRuns.count - runs

@@ -1058,9 +1058,6 @@ final class AIMScroller: NSScroller {
 final class AIMHostingView: NSHostingView<AnyView> {
   private var forwarding = false
   private weak var wheelTarget: NSScrollView?
-  /// Called when the SwiftUI content's ideal size changes (a page host inside a scroll view).
-  var onIntrinsicChange: (() -> Void)?
-
   #if AI_MANAGER_PREVIEW
   /// Layout passes of every page host, for the scroll cost measurement.
   nonisolated(unsafe) static var layoutCalls = 0
@@ -1069,11 +1066,6 @@ final class AIMHostingView: NSHostingView<AnyView> {
     super.layout()
   }
   #endif
-
-  override func invalidateIntrinsicContentSize() {
-    super.invalidateIntrinsicContentSize()
-    onIntrinsicChange?()
-  }
 
   /// A gesture starts at a legacy wheel click (no phase) or at `began`; `changed` and every momentum
   /// event continue the current one.
