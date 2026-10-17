@@ -1630,6 +1630,8 @@ struct AccountsRowLayout {
 /// The contract check reads each row's real frame (in the table's own space) to compare with the layout.
 extension AccountsRowLayout {
   @MainActor static var measured: [UUID: CGRect] = [:]
+  /// Rows report their frames only while a check measures them; a probe on every row costs layout.
+  @MainActor static var probing = false
   static let space = "accounts-rows"
 }
 #endif
@@ -1838,9 +1840,11 @@ private struct AccountsTableRow: View {
       .overlay { if onMove != nil { AccountRowInsertion(id: account.id) } }
       #if AI_MANAGER_PREVIEW
       .background {
-        GeometryReader { proxy in
-          Color.clear.onChange(of: proxy.frame(in: .named(AccountsRowLayout.space)), initial: true) { _, frame in
-            AccountsRowLayout.measured[account.id] = frame
+        if AccountsRowLayout.probing {
+          GeometryReader { proxy in
+            Color.clear.onChange(of: proxy.frame(in: .named(AccountsRowLayout.space)), initial: true) { _, frame in
+              AccountsRowLayout.measured[account.id] = frame
+            }
           }
         }
       }

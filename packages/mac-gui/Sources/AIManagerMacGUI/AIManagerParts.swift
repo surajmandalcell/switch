@@ -529,22 +529,32 @@ struct AIMAppKitPage<Content: View>: NSViewRepresentable {
   private func update(_ view: AIMPageScrollView, _ context: Context) {
     let environment = context.environment
     let content = content
-    view.setRoot { width in
-      // Ideal height, like a ScrollView's content: a host frame a little short must not squeeze the
-      // rows that can shrink (a last row has no minimum height).
-      AnyView(content.environment(\.self, environment).environment(\.aimAnimatesAppearance, false)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(width: width, alignment: .top))
+    view.setRoot {
+      AnyView(content.environment(\.self, environment).environment(\.aimAnimatesAppearance, false))
     }
+  }
+
+  /// A scroll view takes the space it is offered. Without this SwiftUI measures it with Auto Layout
+  /// (`fittingSize`), which lays out the whole page host each time its size is invalidated.
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: AIMPageScrollView, context: Context) -> CGSize? {
+    proposal.replacingUnspecifiedDimensions()
   }
 }
 
+private struct AIMPageHeightKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 /// The page scroll view: no system scroller (the model's thin `AIMScroller` overlays the gutter), a
-/// flipped document that is the page host, at the clip width and the host's ideal height.
+/// flipped document that is the page host, at the clip width and the content's height. The height
+/// comes out of the page's own layout pass as a preference: the host does no size tracking of its
+/// own, and a hover update that moves no card costs no measure.
 final class AIMPageScrollView: NSScrollView {
   let host = AIMHostingView(rootView: AnyView(EmptyView()))
-  private var makeRoot: ((CGFloat) -> AnyView)?
+  private var makeRoot: (() -> AnyView)?
   private var width: CGFloat = -1
+  private var contentHeight: CGFloat = 0
   private let model: AIMScrollBarModel
   private var attached = false
 
@@ -559,19 +569,42 @@ final class AIMPageScrollView: NSScrollView {
     hasVerticalScroller = false
     hasHorizontalScroller = false
     identifier = AIMScrollBarModel.pageScrollID
-    host.sizingOptions = [.intrinsicContentSize]
+    host.sizingOptions = []
     // The host moves under the title bar as it scrolls; its safe area must not follow it.
     host.safeAreaRegions = []
     host.focusRingType = .none
-    host.onIntrinsicChange = { [weak self] in self?.needsLayout = true }
     documentView = host
   }
 
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
-  func setRoot(_ make: @escaping (CGFloat) -> AnyView) {
+  func setRoot(_ make: @escaping () -> AnyView) {
     makeRoot = make
-    if width >= 0 { host.rootView = make(width) }
+    if width >= 0 { host.rootView = root(make, width) }
+    needsLayout = true
+  }
+
+  /// The page at the clip width and its ideal height, like a ScrollView's content (a host frame a
+  /// little short must not squeeze the rows that can shrink: a last row has no minimum height).
+  private func root(_ make: () -> AnyView, _ width: CGFloat) -> AnyView {
+    AnyView(
+      make()
+        .fixedSize(horizontal: false, vertical: true)
+        .background(alignment: .top) {
+          GeometryReader { Color.clear.preference(key: AIMPageHeightKey.self, value: $0.size.height) }
+        }
+        .onPreferenceChange(AIMPageHeightKey.self) { [weak self] height in
+          MainActor.assumeIsolated { self?.heightChanged(height) }
+        }
+        .frame(width: width, alignment: .top))
+  }
+
+  nonisolated(unsafe) static var heightChanges = 0
+
+  private func heightChanged(_ height: CGFloat) {
+    guard abs(height - contentHeight) > 0.01 else { return }
+    contentHeight = height
+    Self.heightChanges += 1
     needsLayout = true
   }
 
@@ -581,16 +614,16 @@ final class AIMPageScrollView: NSScrollView {
     guard next > 0, let makeRoot else { return }
     if next != width {
       width = next
-      host.setFrameSize(NSSize(width: next, height: host.frame.height))
-      host.rootView = makeRoot(next)
+      host.rootView = root(makeRoot, next)
     }
-    let height = max(0, host.intrinsicContentSize.height)
-    if host.frame.size != NSSize(width: next, height: height) {
-      host.setFrameSize(NSSize(width: next, height: height))
+    // At least the viewport tall: a hosting view with an empty frame does not lay its content out.
+    let size = NSSize(width: next, height: max(contentHeight, contentSize.height))
+    if host.frame.size != size {
+      host.setFrameSize(size)
       reflectScrolledClipView(contentView)
     }
     // Attach once the page is measured, so the remembered offset is restored against its real height.
-    if !attached, height > 0 {
+    if !attached, contentHeight > 0 {
       attached = true
       model.attach(self)
     }
