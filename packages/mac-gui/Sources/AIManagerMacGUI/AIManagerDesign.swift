@@ -1063,15 +1063,22 @@ final class AIMHostingView: NSHostingView<AnyView> {
   nonisolated(unsafe) static var layoutCalls = 0
   /// Times the host was told its constraints are stale (each scroll frame, through the geometry notice).
   nonisolated(unsafe) static var constraintInvalidations = 0
+  /// The same two counts for the page cache's own host (not the document view of a scroll view).
+  nonisolated(unsafe) static var cacheHostInvalidations = 0
+  nonisolated(unsafe) static var cacheHostLayouts = 0
   override var needsUpdateConstraints: Bool {
     get { super.needsUpdateConstraints }
     set {
-      if newValue { Self.constraintInvalidations += 1 }
+      if newValue {
+        Self.constraintInvalidations += 1
+        if !(superview is NSClipView) { Self.cacheHostInvalidations += 1 }
+      }
       super.needsUpdateConstraints = newValue
     }
   }
   override func layout() {
     Self.layoutCalls += 1
+    if !(superview is NSClipView) { Self.cacheHostLayouts += 1 }
     super.layout()
   }
   #endif
