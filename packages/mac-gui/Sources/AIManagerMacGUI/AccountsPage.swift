@@ -29,6 +29,7 @@ struct AccountsPage: View {
             ? { id, target in Task { await model.moveAccount(id, to: target) } } : nil,
           contextMenu: { AnyView(accountContextMenu(for: $0)) })
       }
+      AccountsSettingsMatches(query: query, accountCount: accounts.count)
       if let account = model.selectedAccount {
         // The Overview's focused-account card, for the selected account.
         TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -53,6 +54,7 @@ struct AccountsPage: View {
         EmptyAccountView(model: model)
       }
     }
+    .environment(\.aimPageFadeKey, query)
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
     // The page restores its selection once per launch, then remembers each change.
     .onChange(of: model.hasLoaded, initial: true) { _, loaded in
@@ -60,10 +62,21 @@ struct AccountsPage: View {
       AIMPlace.accountsFocusRestored = true
       let ids = model.status?.accounts.map(\.id) ?? []
       if let saved = AIMPlace.accountsFocus(in: ids) { model.selectedAccountID = saved }
+      selectFirstMatch()
     }
+    .onChange(of: accounts.map(\.id), initial: true) { selectFirstMatch() }
     .onChange(of: model.selectedAccountID) { _, id in
       if AIMPlace.accountsFocusRestored { AIMPlace.saveAccountsFocus(id) }
     }
+  }
+
+  /// A search that filters the selected account out moves the detail cards to the first match.
+  /// A cleared query or an empty result leaves the selection alone.
+  private func selectFirstMatch() {
+    guard model.hasLoaded, !AppSearch.isBlank(query), let first = accounts.first,
+      !accounts.contains(where: { $0.id == model.selectedAccountID })
+    else { return }
+    model.selectedAccountID = first.id
   }
 
   @ViewBuilder

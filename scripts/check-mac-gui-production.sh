@@ -30,6 +30,7 @@ swiftc \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderUsageStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderChoices.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/QuotaNotificationLogic.swift" \
+  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AppSearch.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ClaudeActivity.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MaintenanceStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \

@@ -510,6 +510,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 statusItemController.showPopoverForPreview()
             }
         }
+        // `--all-spaces` shows the window on the Space in use without activating the app (screenshots only).
+        if CommandLine.arguments.contains("--all-spaces") { controller.window?.collectionBehavior.insert(.canJoinAllSpaces) }
+        if let window = controller.window { SearchPreviewDriver.start(window: window) }
     }
 
     private func runContractOnly(in window: NSWindow?) async {
@@ -632,6 +635,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             scroll.reflectScrolledClipView(scroll.contentView)
             try? await Task.sleep(for: .milliseconds(220))
             root.layoutSubtreeIfNeeded()
+        }
+        if let window {
+            await SearchPreviewDriver.run(window: window)
+            try? await Task.sleep(for: .milliseconds(400))
+            window.contentView?.layoutSubtreeIfNeeded()
         }
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
@@ -1475,6 +1483,78 @@ private enum MaintenanceExtras {
             host.layoutSubtreeIfNeeded()
             if let data = RenderScale.png(of: host) { try? data.write(to: directory.appendingPathComponent("\(name).png")) }
             offscreen.close()
+        }
+    }
+}
+
+/// Preview-only: types and presses keys in the toolbar search through the window's own event path
+/// (no system input, no app activation), so screenshots and checks show the real search.
+/// `--type-search=dark` focuses the field and types; `--press=down,down,return` follows; `--click-at=x,y`
+/// clicks that window point (from the top left) last. `--press` takes down, up, return, escape.
+@MainActor
+enum SearchPreviewDriver {
+    static func start(window: NSWindow) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(2_000))
+            await run(window: window)
+        }
+    }
+
+    /// Also runs in the offscreen contract run, before its window.png is written.
+    static func run(window: NSWindow) async {
+        guard CommandLine.arguments.contains(where: { $0.hasPrefix("--type-search=") }) else { return }
+        do {
+            NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)
+            try? await Task.sleep(for: .milliseconds(500))
+            for character in PreviewArguments.value("type-search") ?? "" {
+                key(String(character), code: 0, in: window)
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            for name in (PreviewArguments.value("press") ?? "").split(separator: ",") {
+                let keys: [String: (UInt32, UInt16)] = [
+                    "down": (UInt32(NSDownArrowFunctionKey), 125), "up": (UInt32(NSUpArrowFunctionKey), 126),
+                    "return": (13, 36), "escape": (27, 53),
+                ]
+                if let (scalar, code) = keys[String(name)], let unicode = Unicode.Scalar(scalar) {
+                    key(String(Character(unicode)), code: code, in: window)
+                }
+                try? await Task.sleep(for: .milliseconds(350))
+            }
+            if let raw = PreviewArguments.value("click-at") {
+                let parts = raw.split(separator: ",").compactMap { Double($0) }
+                if parts.count == 2, let view = window.contentView {
+                    click(NSPoint(x: parts[0], y: view.bounds.height - parts[1]), in: window)
+                }
+            }
+        }
+    }
+
+    private static func key(_ characters: String, code: UInt16, in window: NSWindow) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let event = NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) {
+                window.sendEvent(event)
+            }
+        }
+    }
+
+    private static func click(_ point: NSPoint, in window: NSWindow) {
+        guard let frame = window.contentView?.superview,
+              let hit = frame.hitTest(frame.convert(point, from: nil)) else { return }
+        let inPage = AIMHostingView.visible(in: window.contentView!).map { hit.isDescendant(of: $0) } ?? false
+        print("SEARCH_CLICK_HIT \(type(of: hit)) inPageHost=\(inPage)")
+        // An ordered-out window ignores the pointer. Order it in fully transparent, without activating the app.
+        if !window.isVisible { window.alphaValue = 0; window.orderFrontRegardless() }
+        for kind in [NSEvent.EventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: kind, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: kind == .mouseMoved ? 0 : 1, pressure: kind == .leftMouseUp ? 0 : 1) {
+                window.sendEvent(event)
+            }
         }
     }
 }

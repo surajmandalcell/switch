@@ -250,8 +250,12 @@ struct AccountWindow: View {
   @StateObject private var target = WindowTarget()
   @State private var page: AIManagerPage = .overview
   @State private var searchQuery = ""
+  /// The drop-down row the arrow keys or the pointer are on; the first row after each new query.
+  @State private var dropdownHighlight = 0
+  @State private var dropdownHovered = false
   @State private var maintenanceSection: MaintenanceSection = .cleanup
   @FocusState private var searchFocused: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AppStorage(AppearanceOverride.key) private var appearanceMode = "system"
   @Environment(\.colorScheme) private var systemScheme
   private var themeOverride: ColorScheme? {
@@ -283,6 +287,7 @@ struct AccountWindow: View {
         .environment(\.aimPageHeader, pageHeader)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AIMTheme.page)
+        .overlay(alignment: .topTrailing) { searchDropdown }
     }
     // The content runs under the transparent title bar; the sidebar and top row clear the lights.
     .ignoresSafeArea()
@@ -330,6 +335,7 @@ struct AccountWindow: View {
     .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.focusSearch)) { _ in
       searchFocused = true
     }
+    .onChange(of: searchQuery) { dropdownHighlight = 0 }
     .onChange(of: maintenanceSection) { _, tab in
       UserDefaults.standard.set(tab.rawValue, forKey: AIMPlace.maintenanceTabKey)
     }
@@ -366,7 +372,7 @@ struct AccountWindow: View {
       case .accounts: AccountsPage(model: model, query: searchQuery)
       case .conversations: HistoryPage(model: model)
       case .maintenance: MaintenancePage(model: model, section: $maintenanceSection)
-      case .settings: SettingsPage(model: model)
+      case .settings: SettingsPage(model: model, query: searchQuery)
       }
   }
 
@@ -406,9 +412,80 @@ struct AccountWindow: View {
         }
       }
       .uiLint(.actions)
-      AIMSearchField(text: $searchQuery, focus: $searchFocused, prompt: AIManagerToolbar.searchPrompt)
+      AIMSearchField(
+        text: $searchQuery, focus: $searchFocused, prompt: AppSearch.prompt(for: page),
+        label: AppSearch.label(for: page),
+        onMove: AppSearch.dropdownPages.contains(page) ? { moveDropdownHighlight($0) } : nil,
+        onSubmit: submitSearch)
     }
     .frame(height: AIMTheme.topBarHeight)
+  }
+
+  // MARK: Search drop-down (Overview, Maintenance, Conversations)
+
+  /// The drop-down shows while the field has focus (or the pointer is on the panel, since a click on a
+  /// row first takes focus from the field) and the search has text.
+  private var showsDropdown: Bool {
+    AppSearch.dropdownPages.contains(page) && !AppSearch.isBlank(searchQuery)
+      && (searchFocused || dropdownHovered || AppSearch.keepsDropdownOpen)
+  }
+
+  private var searchList: AppSearchList {
+    AppSearchList(
+      accounts: AppSearch.accounts(matching: searchQuery, in: model),
+      settings: SettingsSearch.search(searchQuery))
+  }
+
+  private func moveDropdownHighlight(_ step: Int) {
+    let count = searchList.rows.count
+    guard count > 0 else { return }
+    dropdownHighlight = min(max(dropdownHighlight + step, 0), count - 1)
+  }
+
+  private func chooseSearchRow(_ row: AppSearchRow) {
+    searchFocused = false
+    dropdownHovered = false
+    switch row {
+    case .account(let id):
+      if let account = searchList.account(id) { AppSearch.open(account, in: model) }
+    case .setting: show(.settings)
+    case .showAll: show(.accounts)
+    }
+  }
+
+  /// Return opens the highlighted drop-down row. On Accounts it selects the first match when the
+  /// selected account is filtered out.
+  private func submitSearch() {
+    if showsDropdown {
+      let rows = searchList.rows
+      if rows.indices.contains(dropdownHighlight) { chooseSearchRow(rows[dropdownHighlight]) }
+    } else if page == .accounts {
+      let matches = AppSearch.accounts(matching: searchQuery, in: model)
+      if let first = matches.first, !matches.contains(where: { $0.id == model.selectedAccountID }) {
+        model.selectedAccountID = first.id
+      }
+    }
+  }
+
+  @ViewBuilder private var searchDropdown: some View {
+    ZStack {
+      if showsDropdown {
+        AppSearchDropdown(
+          list: searchList, highlight: dropdownHighlight,
+          hover: { dropdownHighlight = $0 }, choose: chooseSearchRow
+        )
+        .onHover { dropdownHovered = $0 }
+        .padding(.trailing, AIMTheme.pageMargin)
+        .padding(.top, AppSearch.fieldBottom + AppSearch.dropdownGap)
+        .transition(
+          reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .offset(y: -4)).combined(with: .scale(scale: 0.98, anchor: .top)))
+      }
+    }
+    .animation(
+      AIMMotion.isLive ? (showsDropdown ? AIMSearchMotion.panelIn : AIMSearchMotion.panelOut) : nil,
+      value: showsDropdown)
   }
 
   private func applyAppearance(to window: NSWindow) {
@@ -483,6 +560,12 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     private var prewarmed: Set<AIManagerPage> = []
     private var latestInputs: Inputs?
     private var warming = false
+
+    /// The search drop-down is SwiftUI content over this view; a click on it must reach the window's own hosting view.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+      if AppSearch.isOverDropdown(windowPoint: superview?.convert(point, to: nil) ?? .zero, in: window) { return nil }
+      return super.hitTest(point)
+    }
 
     func show(_ page: AIManagerPage, inputs next: Inputs, root: @escaping (AIManagerPage, Bool) -> AnyView) {
       makePage = root

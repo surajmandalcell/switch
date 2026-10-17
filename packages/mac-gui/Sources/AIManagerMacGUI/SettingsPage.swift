@@ -31,6 +31,9 @@ struct SettingsPage: View {
   @FocusState private var resumeFocused: Bool
   @State private var confirmsReset = false
   @State private var resetCount = 0
+  /// The toolbar search text. Rows and sections that do not match it are left out.
+  var query = ""
+
   private var runningCLIs: Binding<AutoSwitchPreferences.RunningCLIs> {
     Binding(
       get: { AutoSwitchPreferences.RunningCLIs(rawValue: autoSwitchCLIs) ?? .restart },
@@ -38,203 +41,277 @@ struct SettingsPage: View {
   }
   var body: some View {
     // Every card shares the top bar's left and right edges.
+    let filter = SettingsFilter(query)
     AIMScrollPage {
-      AIMSection("General") {
-        launchAtLoginRow
-        Toggle(isOn: $minimizeToTray) {
-          Text("Minimize to menu bar")
-          Text("Hide the window and keep Switch available from its menu-bar icon.")
-            .aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          AIMPopUp(
-            options: ["last", "overview"], selection: $launchPlace,
-            accessibilityLabel: "When Switch opens", label: { $0 == "last" ? "Last place" : "Overview" })
-        } label: {
-          Text("When Switch opens")
-          Text("Choose the page shown when Switch starts.").aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          ShortcutRecorder().id(resetCount)
-        } label: {
-          Text(SettingsCopy.menuShortcut)
-          Text(SettingsCopy.menuShortcutHelp).aimText(.secondary).lineLimit(1)
-        }
-      }
-      AIMSection("Appearance") {
-        LabeledContent {
-          AIMSegmentedPicker(
-            options: ["system", "light", "dark"], selection: $windowAppearance,
-            accessibilityLabel: "Appearance", label: { $0.capitalized })
-        } label: {
-          Text("Appearance")
-          Text("Choose the window and menu bar appearance.").aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          AIMSegmentedPicker(
-            options: [false, true], selection: $showUsageAsUsed,
-            accessibilityLabel: "Usage percentage", label: { $0 ? "Used" : "Left" })
-        } label: {
-          Text("Usage percentage")
-          Text("Show the share left or the share used in every usage view.").aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          AIMSegmentedPicker(
-            options: [false, true], selection: $resetIsExact,
-            accessibilityLabel: "Reset time format", label: { $0 ? "Exact time" : "Countdown" })
-        } label: {
-          Text(SettingsCopy.resetTimes)
-          Text(SettingsCopy.resetTimesHelp).aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          AIMSegmentedPicker(
-            options: HourFormat.allCases, selection: $hourFormat,
-            accessibilityLabel: "Hour format", label: \.label)
-        } label: {
-          Text(SettingsCopy.timeFormat)
-          Text(SettingsCopy.timeFormatHelp).aimText(.secondary).lineLimit(1)
-        }
-      }
-      AIMSection("Accounts") {
-        Toggle(isOn: $showEmailDomains) {
-          Text("Show full email addresses")
-          Text("Show the full address, including the domain ending such as .com or .co.uk.").aimText(.secondary).lineLimit(1)
-        }
-        .disabled(privacyMode)
-        Toggle(isOn: $hideEmails) {
-          Text(SettingsCopy.hideEmails)
-          Text(SettingsCopy.hideEmailsHelp).aimText(.secondary).lineLimit(1)
-        }
-        .disabled(privacyMode)
-        Toggle(isOn: $privacyMode) {
-          Text(SettingsCopy.privacyMode)
-          Text(SettingsCopy.privacyModeHelp).aimText(.secondary)
-        }
-        Toggle(isOn: $checkProviderStatus) {
-          Text(SettingsCopy.checkProviderStatus)
-          Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary).lineLimit(1)
-        }
-        Toggle(isOn: Binding(
-          get: { model.claudeShellIntegrationOn },
-          set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
-        ) {
-          Text(SettingsCopy.claudeShell)
-          Text(SettingsCopy.claudeShellHelp).aimText(.secondary).lineLimit(1)
-          if let error = model.claudeShellIntegrationError {
-            Text(error).aimText(.secondary, tint: AIMTheme.red)
+      if filter.shows(section: "General") {
+        AIMSection("General") {
+          if filter.shows("login") { launchAtLoginRow }
+          if filter.shows("tray") {
+            Toggle(isOn: $minimizeToTray) {
+              Text("Minimize to menu bar")
+              Text("Hide the window and keep Switch available from its menu-bar icon.")
+                .aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("place") {
+            LabeledContent {
+              AIMPopUp(
+                options: ["last", "overview"], selection: $launchPlace,
+                accessibilityLabel: "When Switch opens", label: { $0 == "last" ? "Last place" : "Overview" })
+            } label: {
+              Text("When Switch opens")
+              Text("Choose the page shown when Switch starts.").aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("shortcut") {
+            LabeledContent {
+              ShortcutRecorder().id(resetCount)
+            } label: {
+              Text(SettingsCopy.menuShortcut)
+              Text(SettingsCopy.menuShortcutHelp).aimText(.secondary).lineLimit(1)
+            }
           }
         }
+        .transition(.opacity)
       }
-      AIMSection("Auto switch") {
-        Toggle(isOn: $autoSwitch) {
-          Text(SettingsCopy.autoSwitch)
-          Text(SettingsCopy.autoSwitchHelp).aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          AIMPopUp(
-            options: AutoSwitch.thresholds, selection: $autoSwitchThreshold,
-            accessibilityLabel: SettingsCopy.autoSwitchThreshold, label: { "\($0)% left" })
-        } label: {
-          Text(SettingsCopy.autoSwitchThreshold)
-          Text(SettingsCopy.autoSwitchThresholdHelp).aimText(.secondary).lineLimit(1)
-        }
-        .disabled(!autoSwitch)
-        LabeledContent {
-          AIMPopUp(
-            options: AutoSwitchPreferences.RunningCLIs.allCases, selection: runningCLIs,
-            accessibilityLabel: SettingsCopy.autoSwitchRunningCLIs, label: \.label)
-        } label: {
-          Text(SettingsCopy.autoSwitchRunningCLIs)
-          Text(SettingsCopy.autoSwitchRunningCLIsHelp).aimText(.secondary).lineLimit(1)
-        }
-        .disabled(!autoSwitch)
-        LabeledContent {
-          TextField(SettingsCopy.autoSwitchResume, text: $autoSwitchResume, prompt: Text("No message"))
-            .textFieldStyle(.plain)
-            .aimFieldChrome(focused: resumeFocused, width: 320)
-            .focused($resumeFocused)
-        } label: {
-          Text(SettingsCopy.autoSwitchResume)
-          Text(SettingsCopy.autoSwitchResumeHelp).aimText(.secondary).lineLimit(1)
-        }
-        .disabled(!autoSwitch)
-      }
-      AIMSection("Menu bar") {
-        Toggle(isOn: $defaultShowUsage) {
-          Text("Show account usage")
-          Text("Accounts without their own choice show cached usage in Menubar.")
-            .aimText(.secondary).lineLimit(1)
-        }
-        LabeledContent {
-          AIMPopUp(
-            options: MenuBarTokenPeriod.allCases, selection: $menuTokenPeriod,
-            accessibilityLabel: "Menubar token period", label: \.label)
-        } label: {
-          Text("Token summary")
-          Text("Choose the period shown beside each account’s usage.").aimText(.secondary).lineLimit(1)
-        }
-        Toggle(isOn: $refreshOnOpen) {
-          Text(SettingsCopy.refreshOnOpen)
-          Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary).lineLimit(1)
-        }
-      }
-      AIMSection(SettingsCopy.notificationsTitle) {
-        ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { _, row in
-          Toggle(isOn: notificationBinding(row.key)) {
-            Text(row.title)
-            Text(row.help).aimText(.secondary).lineLimit(1)
+      if filter.shows(section: "Appearance") {
+        AIMSection("Appearance") {
+          if filter.shows("appearance") {
+            LabeledContent {
+              AIMSegmentedPicker(
+                options: ["system", "light", "dark"], selection: $windowAppearance,
+                accessibilityLabel: "Appearance", label: { $0.capitalized })
+            } label: {
+              Text("Appearance")
+              Text("Choose the window and menu bar appearance.").aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("percent") {
+            LabeledContent {
+              AIMSegmentedPicker(
+                options: [false, true], selection: $showUsageAsUsed,
+                accessibilityLabel: "Usage percentage", label: { $0 ? "Used" : "Left" })
+            } label: {
+              Text("Usage percentage")
+              Text("Show the share left or the share used in every usage view.").aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("reset-times") {
+            LabeledContent {
+              AIMSegmentedPicker(
+                options: [false, true], selection: $resetIsExact,
+                accessibilityLabel: "Reset time format", label: { $0 ? "Exact time" : "Countdown" })
+            } label: {
+              Text(SettingsCopy.resetTimes)
+              Text(SettingsCopy.resetTimesHelp).aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("hours") {
+            LabeledContent {
+              AIMSegmentedPicker(
+                options: HourFormat.allCases, selection: $hourFormat,
+                accessibilityLabel: "Hour format", label: \.label)
+            } label: {
+              Text(SettingsCopy.timeFormat)
+              Text(SettingsCopy.timeFormatHelp).aimText(.secondary).lineLimit(1)
+            }
           }
         }
-        if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
+        .transition(.opacity)
+      }
+      if filter.shows(section: "Accounts") {
+        AIMSection("Accounts") {
+          if filter.shows("domain") {
+            Toggle(isOn: $showEmailDomains) {
+              Text("Show full email addresses")
+              Text("Show the full address, including the domain ending such as .com or .co.uk.").aimText(.secondary).lineLimit(1)
+            }
+            .disabled(privacyMode)
+          }
+          if filter.shows("hide-email") {
+            Toggle(isOn: $hideEmails) {
+              Text(SettingsCopy.hideEmails)
+              Text(SettingsCopy.hideEmailsHelp).aimText(.secondary).lineLimit(1)
+            }
+            .disabled(privacyMode)
+          }
+          if filter.shows("privacy") {
+            Toggle(isOn: $privacyMode) {
+              Text(SettingsCopy.privacyMode)
+              Text(SettingsCopy.privacyModeHelp).aimText(.secondary)
+            }
+          }
+          if filter.shows("status") {
+            Toggle(isOn: $checkProviderStatus) {
+              Text(SettingsCopy.checkProviderStatus)
+              Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("claude-shell") {
+            Toggle(isOn: Binding(
+              get: { model.claudeShellIntegrationOn },
+              set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
+            ) {
+              Text(SettingsCopy.claudeShell)
+              Text(SettingsCopy.claudeShellHelp).aimText(.secondary).lineLimit(1)
+              if let error = model.claudeShellIntegrationError {
+                Text(error).aimText(.secondary, tint: AIMTheme.red)
+              }
+            }
+          }
+        }
+        .transition(.opacity)
+      }
+      if filter.shows(section: "Auto switch") {
+        AIMSection("Auto switch") {
+          if filter.shows("auto") {
+            Toggle(isOn: $autoSwitch) {
+              Text(SettingsCopy.autoSwitch)
+              Text(SettingsCopy.autoSwitchHelp).aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("auto-threshold") {
+            LabeledContent {
+              AIMPopUp(
+                options: AutoSwitch.thresholds, selection: $autoSwitchThreshold,
+                accessibilityLabel: SettingsCopy.autoSwitchThreshold, label: { "\($0)% left" })
+            } label: {
+              Text(SettingsCopy.autoSwitchThreshold)
+              Text(SettingsCopy.autoSwitchThresholdHelp).aimText(.secondary).lineLimit(1)
+            }
+            .disabled(!autoSwitch)
+          }
+          if filter.shows("auto-clis") {
+            LabeledContent {
+              AIMPopUp(
+                options: AutoSwitchPreferences.RunningCLIs.allCases, selection: runningCLIs,
+                accessibilityLabel: SettingsCopy.autoSwitchRunningCLIs, label: \.label)
+            } label: {
+              Text(SettingsCopy.autoSwitchRunningCLIs)
+              Text(SettingsCopy.autoSwitchRunningCLIsHelp).aimText(.secondary).lineLimit(1)
+            }
+            .disabled(!autoSwitch)
+          }
+          if filter.shows("auto-resume") {
+            LabeledContent {
+              TextField(SettingsCopy.autoSwitchResume, text: $autoSwitchResume, prompt: Text("No message"))
+                .textFieldStyle(.plain)
+                .aimFieldChrome(focused: resumeFocused, width: 320)
+                .focused($resumeFocused)
+            } label: {
+              Text(SettingsCopy.autoSwitchResume)
+              Text(SettingsCopy.autoSwitchResumeHelp).aimText(.secondary).lineLimit(1)
+            }
+            .disabled(!autoSwitch)
+          }
+        }
+        .transition(.opacity)
+      }
+      if filter.shows(section: "Menu bar") {
+        AIMSection("Menu bar") {
+          if filter.shows("menu-usage") {
+            Toggle(isOn: $defaultShowUsage) {
+              Text("Show account usage")
+              Text("Accounts without their own choice show cached usage in Menubar.")
+                .aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("menu-tokens") {
+            LabeledContent {
+              AIMPopUp(
+                options: MenuBarTokenPeriod.allCases, selection: $menuTokenPeriod,
+                accessibilityLabel: "Menubar token period", label: \.label)
+            } label: {
+              Text("Token summary")
+              Text("Choose the period shown beside each account’s usage.").aimText(.secondary).lineLimit(1)
+            }
+          }
+          if filter.shows("menu-refresh") {
+            Toggle(isOn: $refreshOnOpen) {
+              Text(SettingsCopy.refreshOnOpen)
+              Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary).lineLimit(1)
+            }
+          }
+        }
+        .transition(.opacity)
+      }
+      if filter.shows(section: SettingsCopy.notificationsTitle) {
+        AIMSection(SettingsCopy.notificationsTitle) {
+          ForEach(Array(SettingsCopy.notificationRows.enumerated()), id: \.offset) { _, row in
+            if filter.shows("notify.\(row.key)") {
+              Toggle(isOn: notificationBinding(row.key)) {
+                Text(row.title)
+                Text(row.help).aimText(.secondary).lineLimit(1)
+              }
+            }
+          }
+          if notificationPermission.isDenied, notifyAlmostOut || notifyPace || notifyAvailable || notifySignIn {
+            LabeledContent {
+              AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
+            } label: {
+              Label("Notifications are turned off for Switch in System Settings.",
+                    systemImage: AIMIcon.Name.warning.symbol)
+                .foregroundStyle(AIMTheme.amber)
+            }
+          }
+        }
+        .transition(.opacity)
+      }
+      if filter.shows(section: "Data locations") {
+        AIMSection("Data locations") {
+          if filter.shows("data.codex") {
+            DataLocationRow(
+              title: "Codex home",
+              detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
+              path: model.paths.defaultHome.path
+            ) {
+              model.showDataLocation(model.paths.defaultHome, name: "Codex home")
+            }
+          }
+          if filter.shows("data.codex-vault") {
+            DataLocationRow(
+              title: "Codex account vault",
+              detail: "Private Codex auth.json snapshots.",
+              path: model.paths.credentialStore.path
+            ) {
+              model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
+            }
+          }
+          if filter.shows("data.grok") {
+            DataLocationRow(
+              title: "Grok Build home",
+              detail: "Grok configuration, rules, plugins, sessions, and the active login.",
+              path: model.paths.grokHome.path
+            ) {
+              model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
+            }
+          }
+          if filter.shows("data.grok-vault") {
+            DataLocationRow(
+              title: "Grok Build account vault",
+              detail: "Private Grok subscription OAuth snapshots.",
+              path: model.paths.grokCredentialStore.path
+            ) {
+              model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
+            }
+          }
+        }
+        .transition(.opacity)
+      }
+      if filter.shows(section: "Reset") {
+        AIMSection("Reset") {
           LabeledContent {
-            AIMButton(title: "Open System Settings", action: notificationPermission.openSystemSettings)
+            AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
           } label: {
-            Label("Notifications are turned off for Switch in System Settings.",
-                  systemImage: AIMIcon.Name.warning.symbol)
-              .foregroundStyle(AIMTheme.amber)
+            Text(SettingsCopy.resetSettings)
+            Text(SettingsCopy.resetSettingsHelp).aimText(.secondary).lineLimit(1)
           }
         }
+        .transition(.opacity)
       }
-      AIMSection("Data locations") {
-        DataLocationRow(
-          title: "Codex home",
-          detail: "Settings, plugins, conversations, and databases stay here when accounts change.",
-          path: model.paths.defaultHome.path
-        ) {
-          model.showDataLocation(model.paths.defaultHome, name: "Codex home")
-        }
-        DataLocationRow(
-          title: "Codex account vault",
-          detail: "Private Codex auth.json snapshots.",
-          path: model.paths.credentialStore.path
-        ) {
-          model.showDataLocation(model.paths.credentialStore, name: "Codex account vault")
-        }
-        DataLocationRow(
-          title: "Grok Build home",
-          detail: "Grok configuration, rules, plugins, sessions, and the active login.",
-          path: model.paths.grokHome.path
-        ) {
-          model.showDataLocation(model.paths.grokHome, name: "Grok Build home")
-        }
-        DataLocationRow(
-          title: "Grok Build account vault",
-          detail: "Private Grok subscription OAuth snapshots.",
-          path: model.paths.grokCredentialStore.path
-        ) {
-          model.showDataLocation(model.paths.grokCredentialStore, name: "Grok Build account vault")
-        }
-      }
-      AIMSection("Reset") {
-        LabeledContent {
-          AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
-        } label: {
-          Text(SettingsCopy.resetSettings)
-          Text(SettingsCopy.resetSettingsHelp).aimText(.secondary).lineLimit(1)
-        }
-      }
+      SettingsSearchCards(model: model, query: query)
       #if AI_MANAGER_PREVIEW
-      if model.isDemo {
+      if model.isDemo, filter.showsAll {
         AIMSection("Demo states") {
           HStack(spacing: AIMTheme.rowSpacing) {
             AIMButton(title: "Sample accounts") { model.reset(to: .demo) }
@@ -253,6 +330,7 @@ struct SettingsPage: View {
       }
       #endif
     }
+    .environment(\.aimPageFadeKey, query)
     .confirmationDialog(
       "Reset every setting to its default?", isPresented: $confirmsReset, titleVisibility: .visible
     ) {
@@ -404,45 +482,4 @@ final class LaunchAtLoginSettings: ObservableObject {
   }
 }
 
-/// Titles and help text of the Settings rows that features add, shared with the GUI contract.
-enum SettingsCopy {
-  static let checkProviderStatus = "Check provider status"
-  static let checkProviderStatusHelp = "Show a dot beside a provider that reports an incident."
-  static let claudeShell = "Use the selected Claude account in terminals"
-  static let claudeShellHelp =
-    "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
-  static let autoSwitch = "Switch accounts automatically"
-  static let autoSwitchHelp = "Make the next account in your Accounts order the default when one runs out."
-  static let autoSwitchThreshold = "Switch when an account has"
-  static let autoSwitchThresholdHelp = "Compares the lower of the session and weekly share left."
-  static let autoSwitchRunningCLIs = "Running CLIs"
-  static let autoSwitchRunningCLIsHelp =
-    "Reopen Codex and Claude Code in Terminal on the new account once their turn ends."
-  static let autoSwitchResume = "Resume message"
-  static let autoSwitchResumeHelp = "Sent when a usage limit cut the last turn short."
-  static let hideEmails = "Hide email addresses"
-  static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
-  static let privacyMode = "Privacy mode"
-  static let privacyModeHelp = "Show made-up names, such as Jon Doe, instead of account names and emails."
-  static let resetTimes = "Reset times"
-  static let resetTimesHelp = "Show a countdown or the exact time. Click any reset text to switch."
-  static let timeFormat = "Time format"
-  static let timeFormatHelp = "Hour style for exact reset times."
-  static let menuShortcut = "Menu shortcut"
-  static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
-  static let refreshOnOpen = "Refresh when the menu opens"
-  static let refreshOnOpenHelp = "Check usage each time the popover opens."
-  static let resetSettings = "Reset settings"
-  static let resetSettingsHelp =
-    "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."
-  static let notificationsTitle = "Notifications"
-  /// Title, help text, and the UserDefaults key of each toggle. All off by default.
-  static let notificationRows: [(title: String, help: String, key: String)] = [
-    ("Almost Out", "Alert when a usage window drops below 10% left.", QuotaNotificationSettings.almostOutKey),
-    ("Pace alerts", "Alert when usage will finish close to the limit or run out before the reset.",
-     QuotaNotificationSettings.paceKey),
-    ("Available again", "Alert when a used-up window resets and the account can be used again.",
-     QuotaNotificationSettings.availableAgainKey),
-    ("Sign in again", "Alert once when an account needs a new sign-in.", QuotaNotificationSettings.signInAgainKey),
-  ]
-}
+// SettingsCopy (the shared Settings strings) lives in AppSearch.swift beside the search index.
