@@ -99,8 +99,9 @@ extension AccountIdentity {
     privacy: Bool, hide: Bool = EmailPrivacy.isEnabled(), showDomains: Bool = EmailPrivacy.showsDomains()
   ) -> String {
     if providerID == .droid, let accountID {
-      let name = privacy ? EmailPrivacy.fakeName(seed: accountID) : accountID
-      return email.map { "\(name) · \(EmailPrivacy.display($0, hide: hide, showDomains: showDomains, privacy: privacy))" } ?? name
+      // One seed for both parts, so the made-up name and email name the same person.
+      if privacy { return EmailPrivacy.fakeName(seed: accountID) + (email == nil ? "" : " · \(EmailPrivacy.fakeEmail(seed: accountID))") }
+      return email.map { "\(accountID) · \(EmailPrivacy.display($0, hide: hide, showDomains: showDomains, privacy: false))" } ?? accountID
     }
     if let email, !email.isEmpty { return EmailPrivacy.display(email, hide: hide, showDomains: showDomains, privacy: privacy) }
     if let accountID, !accountID.isEmpty { return privacy ? EmailPrivacy.fakeName(seed: accountID) : accountID }

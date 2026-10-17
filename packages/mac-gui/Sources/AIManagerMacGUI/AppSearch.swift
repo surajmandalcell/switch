@@ -148,7 +148,7 @@ enum SettingsCopy {
   static let autoSwitchResume = "Resume message"
   static let autoSwitchResumeHelp = "Sent when a usage limit cut the last turn short."
   static let hideEmails = "Hide email addresses"
-  static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
+  static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example."
   static let privacyMode = "Privacy mode"
   static let privacyModeHelp = "Show made-up names, such as Jon Doe, instead of account names and emails."
   static let resetTimes = "Reset times"
