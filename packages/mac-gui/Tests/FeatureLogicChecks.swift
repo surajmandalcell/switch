@@ -39,12 +39,46 @@ enum FeatureLogicChecks {
                    "Model-scoped titles do not handle other periods or surrounding spaces")
         try emailPrivacy()
         try settingDefaults()
+        try settingsSearch()
         try notificationEngine()
         try codexWindows()
         try notificationStore()
         try incidentDisplay()
         try await statusPoller()
         try await claudeActivity()
+    }
+
+    // MARK: Settings search
+
+    private static func settingsSearch() throws {
+        func titles(_ query: String) -> [String] { SettingsSearch.search(query).map(\.title) }
+        try expect(Set(SettingsSearch.entries.map(\.id)).count == SettingsSearch.entries.count,
+                   "Two Settings search entries share an id")
+        try expect(titles("dark").contains("Appearance"), "\"dark\" does not find Appearance")
+        let notify = SettingsSearch.search("notify")
+        try expect(notify.count == 4 && notify.allSatisfy { $0.section == SettingsCopy.notificationsTitle },
+                   "\"notify\" does not find the 4 notification rows: \(notify.map(\.title))")
+        let general = SettingsSearch.search("general")
+        try expect(general.count == 4 && general.allSatisfy { $0.section == "General" },
+                   "\"general\" does not find every General row: \(general.map(\.title))")
+        try expect(titles("zzzq").isEmpty, "\"zzzq\" found a setting")
+        try expect(!titles("demo").contains(SettingsCopy.privacyMode), "\"demo\" found Privacy mode")
+        try expect(titles("hotkey") == [SettingsCopy.menuShortcut], "\"hotkey\" does not find Menu shortcut")
+        try expect(titles("STARTUP").contains("Open at Login"), "Search is case sensitive")
+        // "Reset settings" also mentions the menu shortcut in its help, so the title match must lead.
+        try expect(titles("Menü shortcut") == titles("menu shortcut") && titles("Menü shortcut").first == SettingsCopy.menuShortcut,
+                   "Search is not diacritic insensitive: \(titles("Menü shortcut"))")
+        // The whole Appearance section matches its name; the row titled Appearance leads.
+        try expect(titles("appear").first == "Appearance" && titles("appear").count == 4, "Search misses a title prefix")
+        // A title that starts with the query ranks before a title that only contains it, and both
+        // before a match in help or keywords.
+        let ranked = titles("reset")
+        try expect(ranked.first == SettingsCopy.resetTimes && ranked.contains(SettingsCopy.resetSettings),
+                   "\"reset\" ranks \(ranked)")
+        try expect(titles("email").first == "Show full email addresses", "A title match does not lead: \(titles("email"))")
+        try expect(titles("  ").count == SettingsSearch.entries.count, "A blank query hides rows")
+        try expect(SettingsSearch.visibleIDs("   ") == nil && SettingsFilter("zzzq").shows(section: "General") == false,
+                   "The filter hides nothing or everything wrongly")
     }
 
     // MARK: Email privacy

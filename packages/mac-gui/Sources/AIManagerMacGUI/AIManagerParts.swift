@@ -385,9 +385,10 @@ private struct AIMRowsRoot: _VariadicView_UnaryViewRoot {
 
   func body(children: _VariadicView.Children) -> some View {
     VStack(spacing: 0) {
-      ForEach(Array(children.enumerated()), id: \.offset) { index, child in
+      // A row keeps its identity when its neighbors come and go, so a hidden row fades out.
+      ForEach(Array(children.enumerated()), id: \.element.id) { index, child in
         let first = index == 0 && !titled, last = index == children.count - 1
-        if index > 0 { AIMRowSeparator() }
+        if index > 0 { AIMRowSeparator().transition(.opacity) }
         child
           .frame(maxWidth: .infinity, alignment: .leading)
           .aimBodyEdges()
@@ -395,6 +396,7 @@ private struct AIMRowsRoot: _VariadicView_UnaryViewRoot {
           .padding(.top, first ? AIMTheme.contentInset : AIMTheme.rowSpacing)
           .padding(.bottom, last ? AIMTheme.contentInset : AIMTheme.rowSpacing)
           .frame(maxWidth: .infinity, minHeight: first || last ? 0 : AIMTheme.rowHeight, alignment: .leading)
+          .transition(.opacity)
       }
     }
   }
@@ -487,6 +489,8 @@ struct AIMScrollPage<Content: View>: View {
   @Environment(\.aimPageHeader) private var header
 
   @Environment(\.aimPageName) private var pageName
+  /// Cards and rows that come or go when this changes (the search text) fade instead of jumping.
+  @Environment(\.aimPageFadeKey) private var fadeKey
 
   var body: some View {
     #if AI_MANAGER_PREVIEW
@@ -496,6 +500,7 @@ struct AIMScrollPage<Content: View>: View {
       header.frame(maxWidth: .infinity).padding(.horizontal, AIMTheme.pageMargin).background(AIMTheme.page)
       AIMAppKitPage(name: pageName) {
         VStack(spacing: AIMTheme.cardGap) { content }
+          .animation(AIMMotion.isLive ? AIMSearchMotion.filter : nil, value: fadeKey)
           .padding([.horizontal, .bottom], AIMTheme.pageMargin)
           .padding(.top, AIMTheme.cardGap)
       }
@@ -596,7 +601,9 @@ final class AIMPageScrollView: NSScrollView {
         .onPreferenceChange(AIMPageHeightKey.self) { [weak self] height in
           MainActor.assumeIsolated { self?.heightChanged(height) }
         }
-        .frame(width: width, alignment: .top))
+        // A short page (a search leaves one card) starts at the top of the taller host.
+        .frame(width: width, alignment: .top)
+        .frame(maxHeight: .infinity, alignment: .top))
   }
 
   nonisolated(unsafe) static var heightChanges = 0
@@ -1139,6 +1146,11 @@ struct AIMSearchField: View {
   @Binding var text: String
   var focus: FocusState<Bool>.Binding
   let prompt: String
+  /// The VoiceOver name; it follows the prompt ("Search settings").
+  var label = "Search accounts"
+  /// Arrow keys: +1 for Down, -1 for Up. Without it the keys move the caret as usual.
+  var onMove: ((Int) -> Void)? = nil
+  var onSubmit: (() -> Void)? = nil
 
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -1150,7 +1162,10 @@ struct AIMSearchField: View {
         .aimFont(.body)
         .focused(focus)
         .onExitCommand { text = ""; focus.wrappedValue = false }
-        .accessibilityLabel("Search accounts")
+        .onKeyPress(.downArrow) { move(1) }
+        .onKeyPress(.upArrow) { move(-1) }
+        .onSubmit { onSubmit?() }
+        .accessibilityLabel(label)
         .accessibilityIdentifier("toolbar-search")
       if text.isEmpty {
         Text("⌘K").aimText(.secondary)
@@ -1173,6 +1188,12 @@ struct AIMSearchField: View {
     .onTapGesture { focus.wrappedValue = true }
     .uiLint(.control)
     .uiLint(.align("cards-end", .end))
+  }
+
+  private func move(_ step: Int) -> KeyPress.Result {
+    guard let onMove else { return .ignored }
+    onMove(step)
+    return .handled
   }
 }
 

@@ -147,7 +147,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
     [
       item("Refresh Usage", #selector(performRefresh(_:)), key: "r", target: self),
       .separator(),
-      item("Search Accounts", #selector(focusSearch(_:)), key: "k", target: self),
+      item("Search", #selector(focusSearch(_:)), key: "k", target: self),
       .separator(),
       item("Overview", #selector(showOverview(_:)), key: "1", target: self),
       item("Accounts", #selector(showAccounts(_:)), key: "2", target: self),

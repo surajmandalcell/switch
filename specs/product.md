@@ -366,11 +366,11 @@ in light and dark HTML references (Overview and shared-part states) and measured
   Content stays 1200 pt wide. Open at 900 pt high or less on shorter screens; resize from 800 pt.
   Green zoom fills screen height at that width, without full screen. Traffic lights use the
   system inset and align with "Switch" and the top row.
-  Sidebar filled SF Symbols follow section 2: Overview `house.fill`, Accounts `person.2.fill`,
+  Filled sidebar symbols (section 2): Overview `house.fill`, Accounts `person.2.fill`,
   Settings `gearshape.fill`, Maintenance `wrench.and.screwdriver.fill`, Conversations
-  `ellipsis.message.fill`. The top row runs Add, More, then "Search accounts…" at right, lightest
-  to heaviest. Search is 300 pt wide, filters all account lists, shows ⌘K, and takes focus with
-  Command-K. All cards end at the top bar edge.
+  `ellipsis.message.fill`. The top row runs Add, More, then a 300 pt ⌘K search; cards end there.
+- **Search:** keeps text per window, filters Accounts or Settings (synonyms too), and under 3
+  matches adds an end card of the other kind. Other pages: a drop-down.
 - **Messages:** Switch shows results ("Droid opened in Terminal.") in short, silent macOS
   top-right banners, saved in Notification Center and shown while Switch is frontmost. Disabled
   notifications show none. Pages have no message card. Errors use the red bar below the top row

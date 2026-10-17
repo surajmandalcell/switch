@@ -1384,7 +1384,7 @@ enum AIManagerNativeContract {
     command("File", "Advanced Import…", key: "i", modifiers: [.command, .shift])
     command("File", "Close Window", key: "w")
     command("Window", "Minimize", key: "m")
-    command("View", "Search Accounts", key: "k")
+    command("View", "Search", key: "k")
     for (index, page) in AIManagerPage.allCases.enumerated() {
       command("View", page.rawValue, key: String(index + 1))
     }
