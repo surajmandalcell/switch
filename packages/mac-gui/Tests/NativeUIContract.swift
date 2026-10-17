@@ -176,6 +176,7 @@ enum AIManagerNativeContract {
     failures.append(contentsOf: nativeDesignFailures())
     failures.append(contentsOf: pageInputAndScrollFailures())
     failures.append(contentsOf: pageScrollStabilityFailures())
+    failures.append(contentsOf: pageInnerHostFailures())
     // Seeded sequences; AI_MANAGER_FREEZE_RUNS=N explores N seeds.
     let freezeRuns = Int(ProcessInfo.processInfo.environment["AI_MANAGER_FREEZE_RUNS"] ?? "") ?? 1
     for run in 0..<freezeRuns { failures.append(contentsOf: pageFreezeSequenceFailures(seed: 0x5EED_F00D &+ UInt64(run))) }
@@ -557,6 +558,11 @@ enum AIManagerNativeContract {
       || AccountReorder.move(accountIDs: ids, from: IndexSet(integer: 0), to: 4)?.targetID != ids[3]
     {
       failures.append("Dragging an account in the Accounts list targets the wrong position")
+    }
+    // The insertion line shows on the top edge when the carried row moves up, the bottom edge when down.
+    if AccountsRowLayout.insertionEdge(from: 3, to: 1) != .top || AccountsRowLayout.insertionEdge(from: 0, to: 2) != .bottom
+      || AccountsRowLayout.insertionEdge(from: 1, to: 0) != .top || AccountsRowLayout.insertionEdge(from: 0, to: 1) != .bottom {
+      failures.append("The Accounts drop line shows on the wrong edge")
     }
     if AccountActionCopy.use != "Make Default"
       || AccountActionCopy.usingDefault != "Using as default"
@@ -1594,15 +1600,30 @@ enum AIManagerNativeContract {
     let previous = AIMPlace.scroll[name]
     defer { AIMPlace.scroll[name] = previous }
     AIMPlace.scroll[name] = 600
+    // What the page content sees of the environment: the page content lives in its own hosting view.
+    final class Seen: @unchecked Sendable { var pageName = ""; var dark = false; var runs = 0 }
+    let seen = Seen()
+    struct EnvProbe: View {
+      let seen: Seen
+      @Environment(\.aimPageName) private var pageName
+      @Environment(\.colorScheme) private var scheme
+      var body: some View {
+        let _ = { seen.pageName = pageName; seen.dark = scheme == .dark; seen.runs += 1 }()
+        Color.clear
+      }
+    }
     struct Probe: View {
+      let seen: Seen
       var dark = false
       var enabled = true
       var tallHeader = false
+      var tallFirstCard = false
       var body: some View {
         AIMScrollPage {
           ForEach(0..<30, id: \.self) { index in
-            Color.gray.opacity(0.3).frame(height: CGFloat(100 + (index % 3) * 60))
+            Color.gray.opacity(0.3).frame(height: CGFloat(100 + (index % 3) * 60) + (tallFirstCard && index == 0 ? 80 : 0))
               .overlay(Text("Card \(index)").aimText(.body))
+              .overlay { if index == 0 { EnvProbe(seen: seen) } }
           }
         }
         .environment(\.aimPageName, "contract-scroll-stability")
@@ -1610,10 +1631,10 @@ enum AIManagerNativeContract {
           Color.red.opacity(0.2).frame(height: AIMTheme.topBarHeight + (tallHeader ? 60 : 0))))
         .environment(\.colorScheme, dark ? .dark : .light)
         .disabled(!enabled)
-        .frame(width: 1000, height: 700)
+        .frame(minWidth: 1000, maxWidth: .infinity, minHeight: 300, maxHeight: .infinity)
       }
     }
-    let host = AIMHostingView(rootView: AnyView(Probe()))
+    let host = AIMHostingView(rootView: AnyView(Probe(seen: seen)))
     host.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
@@ -1635,31 +1656,75 @@ enum AIManagerNativeContract {
         + views(in: host).filter { String(describing: type(of: $0)).contains("Probe") }.map { "probe win=\($0.window != nil) scroll=\($0.enclosingScrollView != nil)" }
       return ["Page scroll: the page scroll view was not found among \(found)"]
     }
-    // The header is a top inset of the scroll view, so the logical offset counts from the first card.
-    func offset() -> CGFloat { scrollView.contentView.bounds.minY + scrollView.contentInsets.top }
+    // The header is a plain sibling above the scroll view, so the offset counts from the first card.
+    func offset() -> CGFloat { scrollView.contentView.bounds.minY }
     func scrollTo(_ y: CGFloat) {
-      scrollView.contentView.scroll(to: NSPoint(x: 0, y: y - scrollView.contentInsets.top))
+      scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
       scrollView.reflectScrolledClipView(scrollView.contentView)
     }
+    var headerHeight = AIMTheme.topBarHeight
     if abs(offset() - 600) > 0.5 { failures.append("Page scroll: the saved offset 600 was restored as \(offset())") }
+    // The thin bar is one AppKit AIMScroller over the trailing gutter, above the clip view, with its
+    // knob at offset / travel; the scroll view (so the bar) starts right below the header.
+    func checkBar(_ label: String) {
+      let bars = scrollView.subviews.compactMap { $0 as? AIMScroller }
+      guard bars.count == 1, let bar = bars.first, let document = scrollView.documentView else {
+        failures.append("Page scroll bar (\(label)): \(bars.count) AIMScroller subviews, not 1")
+        return
+      }
+      let bounds = scrollView.bounds
+      if abs(bar.frame.minY) > 0.5 || abs(bar.frame.maxY - bounds.maxY) > 0.5
+        || abs(bar.frame.maxX - bounds.maxX) > 0.5 || abs(bar.frame.width - AIMTheme.pageMargin) > 0.5 {
+        failures.append("Page scroll bar (\(label)): frame \(bar.frame) is not the trailing \(AIMTheme.pageMargin) pt strip of \(bounds)")
+      }
+      let corner = scrollView.convert(NSPoint(x: 0, y: scrollView.isFlipped ? 0 : bounds.maxY), to: host)
+      let below = host.isFlipped ? corner.y : host.bounds.height - corner.y
+      if abs(below - headerHeight) > 0.5 { failures.append("Page scroll (\(label)): the scroll view starts \(below) pt down, the header is \(headerHeight) pt") }
+      if scrollView.contentInsets.top != 0 { failures.append("Page scroll (\(label)): the scroll view has a top inset") }
+      if seen.pageName != name { failures.append("Page scroll (\(label)): the page content sees page name \"\(seen.pageName)\"") }
+      if let at = scrollView.subviews.firstIndex(of: bar), let clip = scrollView.subviews.firstIndex(of: scrollView.contentView), at < clip {
+        failures.append("Page scroll bar (\(label)): the bar sits under the clip view")
+      }
+      let travel = max(0, document.frame.height - scrollView.contentView.bounds.height)
+      let expected = travel > 0 ? min(max(offset() / travel, 0), 1) : 0
+      if abs(bar.doubleValue - expected) > 0.005 {
+        failures.append("Page scroll bar (\(label)): knob at \(bar.doubleValue), offset says \(expected)")
+      }
+      if bar.isHidden || !bar.isEnabled { failures.append("Page scroll bar (\(label)): hidden or disabled on a scrollable page") }
+      let middle = scrollView.convert(NSPoint(x: bar.frame.midX, y: bar.frame.midY), to: nil)
+      // A disabled SwiftUI subtree takes no pointer, so the bar cannot be grabbed then (the wheel still scrolls).
+      if label != "disabled", let hit = host.superview?.hitTest(middle), hit !== bar {
+        failures.append("Page scroll bar (\(label)): a hit on the bar lands on \(type(of: hit))")
+      }
+    }
+    checkBar("after restore")
+    func setRoot(dark: Bool = false, enabled: Bool = true, tallHeader: Bool = false, tallFirstCard: Bool = false) {
+      headerHeight = AIMTheme.topBarHeight + (tallHeader ? 60 : 0)
+      host.rootView = AnyView(Probe(seen: seen, dark: dark, enabled: enabled, tallHeader: tallHeader, tallFirstCard: tallFirstCard))
+    }
     let changes: [(String, () -> Void)] = [
-      ("dark mode", { host.rootView = AnyView(Probe(dark: true)) }),
-      ("disabled", { host.rootView = AnyView(Probe(dark: true, enabled: false)) }),
-      ("enabled again", { host.rootView = AnyView(Probe(dark: false)) }),
-      ("taller header", { host.rootView = AnyView(Probe(tallHeader: true)) }),
+      ("dark mode", { setRoot(dark: true) }),
+      ("disabled", { setRoot(dark: true, enabled: false) }),
+      ("enabled again", { setRoot() }),
+      ("taller header", { setRoot(tallHeader: true) }),
+      ("a card above grows", { setRoot(tallHeader: true, tallFirstCard: true) }),
       ("window resigns key", { NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window) }),
       ("window becomes key", { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window) }),
       ("sheet opens (an overview hover ends)", { NotificationCenter.default.post(name: OverviewHover.endAll, object: nil) }),
+      ("window shorter", { window.setContentSize(NSSize(width: 1000, height: 520)) }),
+      ("window taller again", { window.setContentSize(NSSize(width: 1000, height: 700)) }),
     ]
     for (label, change) in changes {
       change()
       flush()
       if abs(offset() - 600) > 0.5 { failures.append("Page scroll: \(label) moved the page from 600 to \(offset())") }
+      if label == "dark mode", !seen.dark { failures.append("Page scroll: the page content did not get the dark color scheme") }
+      checkBar(label)
     }
     // A user scroll stays: nothing restores the saved offset again.
     scrollTo(250)
     AIMPlace.scroll[name] = 900
-    for change in [changes[0], changes[4], changes[5]] {
+    for change in [changes[0], changes[5], changes[6]] {
       change.1()
       flush()
       if abs(offset() - 250) > 0.5 { failures.append("Page scroll: \(change.0) restored a saved offset over the user's scroll (\(offset()))") }
@@ -1676,22 +1741,85 @@ enum AIManagerNativeContract {
     defer { NotificationCenter.default.removeObserver(hoverObserver) }
     flush(0.4)
     let runsBefore = AIMScrollBodyRuns.count
+    let contentRunsBefore = seen.runs
+    var barLag = 0
     for step in 1...30 {
       scrollTo(250 + CGFloat(step) * 10)
       flush(0.015)
+      if let bar = scrollView.subviews.compactMap({ $0 as? AIMScroller }).first, let document = scrollView.documentView {
+        let travel = max(0, document.frame.height - scrollView.contentView.bounds.height)
+        if abs(bar.doubleValue - offset() / travel) > 0.005 { barLag += 1 }
+      }
     }
-    if AIMScrollBodyRuns.count - runsBefore > 2 {
-      failures.append("Page scroll: 30 scroll steps re-ran AIMScrollView's body \(AIMScrollBodyRuns.count - runsBefore) times; it must not observe the scroll model")
+    if barLag > 0 { failures.append("Page scroll bar: the knob missed the offset on \(barLag) of 30 steps") }
+    if AIMScrollBodyRuns.count != runsBefore {
+      failures.append("Page scroll: 30 scroll steps re-ran an AIMScrollView body \(AIMScrollBodyRuns.count - runsBefore) times")
     }
+    checkBar("after 30 steps")
     // A user scroll ends chart hovers once per gesture and blocks new hovers until 0.15 s after it stops.
     if endedHovers != 1 { failures.append("Page scroll: a scroll gesture ended chart hovers \(endedHovers) times, not once") }
     if !AIMScrollBarModel.isScrolling { failures.append("Page scroll: hovers are not blocked right after a scroll") }
     flush(0.3)
     if AIMScrollBarModel.isScrolling { failures.append("Page scroll: hovers stay blocked after the scroll stopped") }
-    // The header is the scroll view's top inset (a safe-area inset), so cards start below it.
-    flush()
-    if abs(scrollView.contentInsets.top - AIMTheme.topBarHeight) > 0.5 {
-      failures.append("Page scroll: the top inset is \(scrollView.contentInsets.top) pt, not the \(AIMTheme.topBarHeight) pt header")
+    // The user scroll revealed the knob; a drag of the bar to half scrolls to half the travel.
+    if let bar = scrollView.subviews.compactMap({ $0 as? AIMScroller }).first, let document = scrollView.documentView {
+      if bar.knobAlpha <= 0 { failures.append("Page scroll bar: a user scroll did not reveal the knob") }
+      let travel = max(0, document.frame.height - scrollView.contentView.bounds.height)
+      bar.doubleValue = 0.5
+      _ = bar.sendAction(bar.action, to: bar.target)
+      if abs(offset() - travel / 2) > 1 { failures.append("Page scroll bar: a drag to 0.5 left the offset at \(offset()), not \(travel / 2)") }
+    }
+    // The page's content is its own hosting graph: scrolling is an AppKit clip move, so the SwiftUI
+    // content (not only the outer page) ran no body during the 30 steps.
+    if seen.runs != contentRunsBefore {
+      failures.append("Page scroll: 30 scroll steps ran the page content's body \(seen.runs - contentRunsBefore) times")
+    }
+    return failures
+  }
+
+  /// A page's cards live in their own hosting view inside the scroll view. A text field there must take
+  /// focus and typing. (Sheets, popovers, and tooltips cannot be shown without ordering a window in,
+  /// which the offscreen suite never does; they are checked in the installed app.)
+  @MainActor static func pageInnerHostFailures() -> [String] {
+    var failures: [String] = []
+    @MainActor final class State: ObservableObject { @Published var text = "" }
+    let state = State()
+    struct Cards: View {
+      @ObservedObject var state: State
+      var body: some View {
+        AIMScrollPage { TextField("Inner field", text: $state.text) }
+          .environment(\.aimPageName, "contract-inner-host")
+          .environment(\.aimPageHeader, AnyView(Color.clear.frame(height: AIMTheme.topBarHeight)))
+          .frame(minWidth: 800, maxWidth: .infinity, minHeight: 300, maxHeight: .infinity)
+      }
+    }
+    let host = AIMHostingView(rootView: AnyView(Cards(state: state)))
+    host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+    let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    func flush(_ seconds: TimeInterval = 0.3) {
+      RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+      host.layoutSubtreeIfNeeded()
+    }
+    flush(0.5)
+    guard let inner = views(in: host).compactMap({ $0 as? AIMPageScrollView }).first?.host else {
+      return ["Inner host: no page scroll view"]
+    }
+    // Text field: takes first responder, and typing reaches the binding.
+    if let field = views(in: inner).compactMap({ $0 as? NSTextField }).first(where: { $0.isEditable }) {
+      if !window.makeFirstResponder(field) { failures.append("Inner host: the text field refused focus") }
+      if let editor = window.firstResponder as? NSTextView {
+        editor.insertText("abc", replacementRange: editor.selectedRange())
+        flush(0.2)
+        if state.text != "abc" { failures.append("Inner host: typing reached the binding as \"\(state.text)\"") }
+      } else {
+        failures.append("Inner host: the text field has no field editor after focus")
+      }
+      window.makeFirstResponder(nil)
+    } else {
+      failures.append("Inner host: no editable text field")
     }
     return failures
   }
@@ -2222,6 +2350,23 @@ enum AIManagerNativeContract {
     let height = table.fittingSize.height
     expect(height >= expected && height <= expected + 2,
       "The accounts table is \(height) tall; the outline formula gives \(expected)")
+
+    // The one hover and drop site finds a row from its y: the middle of every row's real frame
+    // (measured by the page itself) must map to that row, and its edges to the same row, not a neighbor.
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    table.layoutSubtreeIfNeeded()
+    let rowLayout = AccountsRowLayout(groups: AccountsRowLayout.grouped(accounts))
+    expect(AccountsRowLayout.measured.count >= accounts.count, "Only \(AccountsRowLayout.measured.count) of \(accounts.count) account rows were measured")
+    for entry in rowLayout.entries {
+      guard let frame = AccountsRowLayout.measured[entry.id] else { continue }
+      let found = rowLayout.entry(atY: frame.midY)?.id
+      expect(found == entry.id, "The row hit for the middle of an account row (y \(frame.midY)) is not that row")
+      expect(rowLayout.entry(atY: frame.minY + 0.5)?.id == entry.id && rowLayout.entry(atY: frame.maxY - 0.5)?.id == entry.id,
+        "An account row's edges map to another row (frame \(frame), layout \(entry.minY))")
+      expect(abs(frame.height - AIMTheme.rowHeight) < 0.5, "An account row is \(frame.height) tall, not \(AIMTheme.rowHeight)")
+    }
+    expect(rowLayout.entry(atY: -1) == nil && rowLayout.entry(atY: AIMTheme.groupHeaderHeight / 2) == nil,
+      "The row hit finds a row over the table's first header")
 
     // Focused card: the same frame for a signed-in, a signed-out, and an unchecked account.
     func cardSize(_ account: AccountRecord) -> NSSize {

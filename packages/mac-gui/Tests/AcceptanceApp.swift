@@ -519,7 +519,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             window?.contentView = nil
             window?.close()
             let failures: [String]
-            if CommandLine.arguments.contains("--page-switch-only") {
+            if CommandLine.arguments.contains("--scroll-cost-only") {
+                failures = await ConversationsCheck.scrollCost()
+            } else if CommandLine.arguments.contains("--page-switch-only") {
                 failures = await ConversationsCheck.pageSwitchTimes()
             } else if CommandLine.arguments.contains("--page-roundtrip-only") {
                 failures = await ConversationsCheck.roundTripCheck()
@@ -617,6 +619,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             if let view = window?.contentView {
                 menuNavigationFailures.append(contentsOf: await scrollEdgeFailures(in: view))
                 menuNavigationFailures.append(contentsOf: await headerHitFailures(in: view))
+                menuNavigationFailures.append(contentsOf: await pageBarFailures(in: view))
             }
             menuNavigationFailures.append(contentsOf: await everySurfaceScrollFailures())
         }
@@ -624,10 +627,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         if let raw = PreviewArguments.value("scroll"), let fraction = Double(raw),
            let root = window?.contentView, let scroll = AIMHostingView.pageScrollView(in: root),
            let document = scroll.documentView {
-            // A page's fixed header is a top inset: rest is minus that inset.
-            let top = scroll.contentInsets.top
-            let travel = max(0, document.frame.height - (scroll.contentView.bounds.height - top))
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: travel * min(max(fraction, 0), 1) - top))
+            let travel = max(0, document.frame.height - scroll.contentView.bounds.height)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: travel * min(max(fraction, 0), 1)))
             scroll.reflectScrolledClipView(scroll.contentView)
             try? await Task.sleep(for: .milliseconds(220))
             root.layoutSubtreeIfNeeded()
@@ -653,6 +654,50 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 if current is NSScrollView { failures.append("\(page.rawValue): the top row's Add button hits \(first), under a scroll view"); break }
                 hit = current.superview
             }
+        }
+        return failures
+    }
+
+    /// Every scrollable page has one AppKit scroll bar below its header, and 30 scroll steps neither
+    /// re-run AIMScrollView's body (the scroll model is not observable) nor leave the knob behind.
+    private func pageBarFailures(in view: NSView) async -> [String] {
+        var failures: [String] = []
+        for page in AIManagerPage.allCases {
+            NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+            try? await Task.sleep(for: .milliseconds(400))
+            view.layoutSubtreeIfNeeded()
+            guard let scroll = AIMHostingView.pageScrollView(in: view), let document = scroll.documentView,
+                  document.frame.height > scroll.contentView.bounds.height + 1 else { continue }
+            let bars = scroll.subviews.compactMap { $0 as? AIMScroller }
+            guard bars.count == 1, let bar = bars.first else {
+                failures.append("\(page.rawValue): \(bars.count) AppKit scroll bars on the page, not 1"); continue
+            }
+            // The header is a sibling above the scroll view: the scroll view (and its bar) start below it.
+            let frame = scroll.convert(scroll.bounds, to: view)
+            let below = view.isFlipped ? frame.minY : view.bounds.height - frame.maxY
+            if scroll.contentInsets.top != 0 || below < AIMTheme.topBarHeight - 0.5 {
+                failures.append("\(page.rawValue): the scroll view starts \(below) pt down (inset \(scroll.contentInsets.top)), the header is \(AIMTheme.topBarHeight) pt")
+            }
+            let travel = document.frame.height - scroll.contentView.bounds.height
+            func go(_ y: CGFloat) {
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+            go(0)
+            try? await Task.sleep(for: .milliseconds(400))
+            let runs = AIMScrollBodyRuns.count
+            var lag = 0
+            for step in 1...30 {
+                let y = travel * CGFloat(step) / 30
+                go(y)
+                try? await Task.sleep(for: .milliseconds(15))
+                if abs(bar.doubleValue - y / travel) > 0.005 { lag += 1 }
+            }
+            if lag > 0 { failures.append("\(page.rawValue): the scroll bar knob missed the offset on \(lag) of 30 steps") }
+            let bodies = AIMScrollBodyRuns.count - runs
+            if bodies != 0 { failures.append("\(page.rawValue): 30 scroll steps re-ran a page body \(bodies) times") }
+            print("PAGE_BAR \(page.rawValue) steps=30 pageBodyRuns=\(bodies) lag=\(lag)")
+            go(0)
         }
         return failures
     }

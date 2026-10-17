@@ -24,6 +24,25 @@ enum AIManagerLaunchContext {
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
 
+  private weak var pageHost: AIMHostingView?
+
+  /// A wheel goes straight to the page's `AIMHostingView`, which picks the scroll view under the
+  /// pointer. Through the normal path SwiftUI first hit-tests the whole page to find a target, then
+  /// forwards the event to the same place, on every wheel tick.
+  override func sendEvent(_ event: NSEvent) {
+    if event.type == .scrollWheel, attachedSheet == nil, let host = wheelHost() {
+      host.scrollWheel(with: event)
+      return
+    }
+    super.sendEvent(event)
+  }
+
+  private func wheelHost() -> AIMHostingView? {
+    if let host = pageHost, host.window === self, !host.isHiddenOrHasHiddenAncestor { return host }
+    pageHost = contentView.flatMap(AIMHostingView.visible(in:))
+    return pageHost
+  }
+
   /// SwiftUI resets the content minimum while it lays out; the window never reports less.
   override var contentMinSize: NSSize {
     get {

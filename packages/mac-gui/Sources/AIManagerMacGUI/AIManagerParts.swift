@@ -478,10 +478,10 @@ extension EnvironmentValues {
 
 /// A scrolling page: the header fixed on top, then full-width cards 12 apart in one scroll view,
 /// both inset by the same page margin so they share their left and right edges.
-/// The cards are an eager VStack: a lazy stack estimates heights and corrects the content size and
-/// offset as cards realize, which moved the page by itself. The header is a top safe-area inset,
-/// not a sibling above the scroll view: SwiftUI extends the AppKit scroll view under the header
-/// either way, and only an inset makes the header (not the scroll view) take the clicks.
+/// The cards are an eager VStack in one AppKit scroll view (`AIMAppKitPage`): a lazy stack estimates
+/// heights and corrects the content size and offset as cards realize, which moved the page by itself,
+/// and a SwiftUI ScrollView made SwiftUI update the whole page on every scroll frame. The header is a
+/// plain sibling above the scroll view, so it takes its own clicks.
 struct AIMScrollPage<Content: View>: View {
   @ViewBuilder var content: Content
   @Environment(\.aimPageHeader) private var header
@@ -489,17 +489,111 @@ struct AIMScrollPage<Content: View>: View {
   @Environment(\.aimPageName) private var pageName
 
   var body: some View {
-    AIMScrollView(name: pageName, gutter: AIMTheme.pageMargin, page: true) {
-      VStack(spacing: AIMTheme.cardGap) { content }
-        .padding([.horizontal, .bottom], AIMTheme.pageMargin)
-        .padding(.top, AIMTheme.cardGap)
-    }
-    .modifier(PlainTopEdge())
-    .safeAreaInset(edge: .top, spacing: 0) {
+    #if AI_MANAGER_PREVIEW
+    let _ = { AIMScrollBodyRuns.count += 1 }()
+    #endif
+    VStack(spacing: 0) {
       header.frame(maxWidth: .infinity).padding(.horizontal, AIMTheme.pageMargin).background(AIMTheme.page)
+      AIMAppKitPage(name: pageName) {
+        VStack(spacing: AIMTheme.cardGap) { content }
+          .padding([.horizontal, .bottom], AIMTheme.pageMargin)
+          .padding(.top, AIMTheme.cardGap)
+      }
+      .aimAppear()
     }
     // A page (or Maintenance tab) with another name gets its own scroll view and remembered offset.
     .id(pageName)
+  }
+}
+
+/// A page's cards in an AppKit scroll view: the cards are one `AIMHostingView` sized to the clip width
+/// and its ideal height, so a scroll frame moves a layer and SwiftUI sees no event. The whole
+/// SwiftUI environment is passed into the inner host, which is a separate hosting graph.
+struct AIMAppKitPage<Content: View>: NSViewRepresentable {
+  let name: String
+  @ViewBuilder var content: Content
+
+  func makeCoordinator() -> AIMScrollBarModel { AIMScrollBarModel() }
+
+  func makeNSView(context: Context) -> AIMPageScrollView {
+    let model = context.coordinator
+    model.name = name
+    model.gutter = AIMTheme.pageMargin
+    let view = AIMPageScrollView(model: model)
+    update(view, context)
+    return view
+  }
+
+  func updateNSView(_ view: AIMPageScrollView, context: Context) { update(view, context) }
+
+  private func update(_ view: AIMPageScrollView, _ context: Context) {
+    let environment = context.environment
+    let content = content
+    view.setRoot { width in
+      // Ideal height, like a ScrollView's content: a host frame a little short must not squeeze the
+      // rows that can shrink (a last row has no minimum height).
+      AnyView(content.environment(\.self, environment).environment(\.aimAnimatesAppearance, false)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: width, alignment: .top))
+    }
+  }
+}
+
+/// The page scroll view: no system scroller (the model's thin `AIMScroller` overlays the gutter), a
+/// flipped document that is the page host, at the clip width and the host's ideal height.
+final class AIMPageScrollView: NSScrollView {
+  let host = AIMHostingView(rootView: AnyView(EmptyView()))
+  private var makeRoot: ((CGFloat) -> AnyView)?
+  private var width: CGFloat = -1
+  private let model: AIMScrollBarModel
+  private var attached = false
+
+  init(model: AIMScrollBarModel) {
+    self.model = model
+    super.init(frame: .zero)
+    drawsBackground = false
+    borderType = .noBorder
+    // The header is a sibling above: AppKit must not add the title bar's safe area as an inset.
+    automaticallyAdjustsContentInsets = false
+    contentInsets = NSEdgeInsetsZero
+    hasVerticalScroller = false
+    hasHorizontalScroller = false
+    identifier = AIMScrollBarModel.pageScrollID
+    host.sizingOptions = [.intrinsicContentSize]
+    // The host moves under the title bar as it scrolls; its safe area must not follow it.
+    host.safeAreaRegions = []
+    host.focusRingType = .none
+    host.onIntrinsicChange = { [weak self] in self?.needsLayout = true }
+    documentView = host
+  }
+
+  @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+  func setRoot(_ make: @escaping (CGFloat) -> AnyView) {
+    makeRoot = make
+    if width >= 0 { host.rootView = make(width) }
+    needsLayout = true
+  }
+
+  override func layout() {
+    super.layout()
+    let next = contentSize.width
+    guard next > 0, let makeRoot else { return }
+    if next != width {
+      width = next
+      host.setFrameSize(NSSize(width: next, height: host.frame.height))
+      host.rootView = makeRoot(next)
+    }
+    let height = max(0, host.intrinsicContentSize.height)
+    if host.frame.size != NSSize(width: next, height: height) {
+      host.setFrameSize(NSSize(width: next, height: height))
+      reflectScrolledClipView(contentView)
+    }
+    // Attach once the page is measured, so the remembered offset is restored against its real height.
+    if !attached, height > 0 {
+      attached = true
+      model.attach(self)
+    }
   }
 }
 
@@ -515,19 +609,30 @@ extension EnvironmentValues {
 
 // MARK: - Scroll bar
 
-/// Reads a SwiftUI ScrollView's AppKit scroll view: hides the system indicators, reports the
-/// offset and sizes, scrolls on request, and remembers the offset by name. `activity` counts user
-/// scrolls (offset moves outside the quiet window after attach or a restore), so the hidden-at-rest
-/// bar can fade in; content or viewport changes alone never bump it.
-@MainActor final class AIMScrollBarModel: ObservableObject {
-  @Published private(set) var activity = 0
+/// Drives the AppKit scroll view of a page (`AIMPageScrollView`) or of a SwiftUI ScrollView
+/// (`AIMScrollView`): hides the system indicators, reports the offset and sizes, scrolls on request,
+/// and remembers the offset by name. `activity` counts user scrolls (offset moves outside the quiet
+/// window after attach or a restore), so the hidden-at-rest bar can fade in; content or viewport
+/// changes alone never bump it.
+/// The thin bar is one AppKit `AIMScroller` placed over the scroll view's trailing `gutter`. Nothing
+/// here is observable: a scroll frame never opens a SwiftUI transaction.
+@MainActor final class AIMScrollBarModel: NSObject {
+  private(set) var activity = 0
   private var quietUntil = Date.distantPast
-  @Published private(set) var offset: CGFloat = 0
-  @Published private(set) var content: CGFloat = 0
-  @Published private(set) var viewport: CGFloat = 0
+  private(set) var offset: CGFloat = 0
+  private(set) var content: CGFloat = 0
+  private(set) var viewport: CGFloat = 0
   var name = ""
+  var gutter = AIMScroller.gutter
+  let scroller: AIMScroller = {
+    let scroller = AIMScroller()
+    scroller.scrollerStyle = .legacy
+    scroller.autoresizingMask = [.minXMargin, .height]
+    scroller.isHidden = true
+    return scroller
+  }()
+  /// Identifies a page's scroll view, so a wheel over the fixed header still scrolls the page.
   static let pageScrollID = NSUserInterfaceItemIdentifier("aim-page-scroll")
-  var isPage = false
   /// Until this time a user scroll is under way: chart hover handlers ignore the pointer.
   static var scrollingUntil = Date.distantPast
   static var isScrolling: Bool { Date() < scrollingUntil }
@@ -545,6 +650,9 @@ extension EnvironmentValues {
     scrollView = next
     next.hasVerticalScroller = false
     next.hasHorizontalScroller = false
+    scroller.target = self
+    scroller.action = #selector(scrollerMoved)
+    scroller.removeFromSuperview()
     let clip = next.contentView
     clip.postsBoundsChangedNotifications = true
     var watched: [NSView] = [clip]
@@ -566,19 +674,16 @@ extension EnvironmentValues {
       restored = true
       if let saved = AIMPlace.scroll[name] { scroll(to: saved) }
     }
-    // Identifies the page scroll view, so a wheel over the fixed header still scrolls the page.
-    if isPage { next.identifier = AIMScrollBarModel.pageScrollID }
     sync()
   }
 
   private func sync() {
     guard let scrollView, let document = scrollView.documentView else { return }
     let clip = scrollView.contentView
-    // A page's fixed header is a top inset: the clip's rest offset is minus that inset, so the
-    // offset (and the saved one) counts from the first content, and the viewport is what shows below it.
-    let top = scrollView.contentInsets.top
-    let next = (clip.bounds.minY + top, document.frame.height, clip.bounds.height - top)
+    let next = (clip.bounds.minY, document.frame.height, clip.bounds.height)
+    var user = false
     if abs(next.0 - offset) > 0.5, Date() >= quietUntil {
+      user = true
       activity &+= 1
       // A user scroll ends chart hovers once per gesture and blocks new ones until it stops.
       if !Self.isScrolling { NotificationCenter.default.post(name: OverviewHover.endAll, object: nil) }
@@ -588,13 +693,45 @@ extension EnvironmentValues {
     if abs(next.1 - content) > 0.1 { content = next.1 }
     if abs(next.2 - viewport) > 0.1 { viewport = next.2 }
     if !name.isEmpty { AIMPlace.scroll[name] = next.0 }
+    syncScroller(in: scrollView)
+    if user { scroller.reveal() }
+  }
+
+  /// Keeps the bar over the trailing gutter and its knob on the offset. SwiftUI can rebuild the scroll
+  /// view's subviews, so the frame and parent are checked each time.
+  private func syncScroller(in scrollView: NSScrollView) {
+    if scroller.superview !== scrollView { scrollView.addSubview(scroller, positioned: .above, relativeTo: nil) }
+    let frame = NSRect(
+      x: scrollView.bounds.maxX - gutter, y: 0, width: gutter, height: scrollView.bounds.height)
+    if scroller.frame != frame { scroller.frame = frame }
+    let enabled = canScroll
+    if scroller.isHidden == enabled { scroller.isHidden = !enabled }
+    if scroller.isEnabled != enabled { scroller.isEnabled = enabled }
+    let proportion = enabled ? min(1, viewport / content) : 1
+    if abs(scroller.knobProportion - proportion) > 0.0001 { scroller.knobProportion = proportion }
+    let value = travel > 0 ? min(max(offset / travel, 0), 1) : 0
+    if abs(scroller.doubleValue - value) > 0.0001 { scroller.doubleValue = value }
+  }
+
+  /// The bar was dragged (or its track clicked): scroll there. A click on the track jumps to the click.
+  @objc private func scrollerMoved(_ sender: NSScroller) {
+    switch sender.hitPart {
+    case .decrementPage, .incrementPage, .knobSlot:
+      guard let point = sender.window?.currentEvent?.locationInWindow else { return }
+      let slot = sender.rect(for: .knobSlot)
+      let free = max(1, slot.height - sender.rect(for: .knob).height)
+      var fraction = (sender.convert(point, from: nil).y - slot.minY - sender.rect(for: .knob).height / 2) / free
+      if !sender.isFlipped { fraction = 1 - fraction }
+      scroll(to: min(max(fraction, 0), 1) * travel)
+    default:
+      scroll(to: sender.doubleValue * travel)
+    }
   }
 
   func scroll(to y: CGFloat) {
     guard let scrollView, let document = scrollView.documentView else { return }
-    let top = scrollView.contentInsets.top
-    let measuredTravel = max(0, document.frame.height - (scrollView.contentView.bounds.height - top))
-    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), measuredTravel) - top))
+    let measuredTravel = max(0, document.frame.height - scrollView.contentView.bounds.height)
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(y, 0), measuredTravel)))
     scrollView.reflectScrolledClipView(scrollView.contentView)
   }
 }
@@ -602,11 +739,11 @@ extension EnvironmentValues {
 private struct AIMScrollBinder: NSViewRepresentable {
   let model: AIMScrollBarModel
   let name: String
-  let page: Bool
+  let gutter: CGFloat
 
   func makeNSView(context: Context) -> Probe {
     model.name = name
-    model.isPage = page
+    model.gutter = gutter
     let view = Probe()
     view.model = model
     return view
@@ -645,75 +782,6 @@ private struct AIMScrollBinder: NSViewRepresentable {
   }
 }
 
-/// The thin bar: a transparent track in a fixed gutter and a rounded thumb. It is hidden at rest,
-/// fades in (4 -> 6 pt) while the user scrolls and widens to 8 pt on hover or drag, and fades out
-/// 1 s after the last scroll or when the pointer leaves. It can be dragged, and a click on the
-/// track jumps there.
-private struct AIMScrollBar: View {
-  @ObservedObject var model: AIMScrollBarModel
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @State private var hovering = false
-  @State private var dragStart: CGFloat?
-  @State private var shown = false
-  @State private var hideTask: Task<Void, Never>?
-
-  private func reveal() {
-    withAnimation(.easeOut(duration: 0.15)) { shown = true }
-    scheduleHide()
-  }
-
-  private func scheduleHide() {
-    hideTask?.cancel()
-    hideTask = Task { @MainActor in
-      try? await Task.sleep(for: .seconds(1))
-      guard !Task.isCancelled, !hovering, dragStart == nil else { return }
-      withAnimation(.easeIn(duration: 0.3)) { shown = false }
-    }
-  }
-
-  var body: some View {
-    GeometryReader { geometry in
-      let track = geometry.size.height
-      let thumb = model.canScroll ? min(track, max(28, track * model.viewport / model.content)) : 0
-      let free = max(1, track - thumb)
-      let top = model.travel > 0 ? free * min(max(model.offset / model.travel, 0), 1) : 0
-      ZStack(alignment: .top) {
-        Color.clear
-        if model.canScroll {
-          let hot = hovering || dragStart != nil
-          let width: CGFloat = reduceMotion ? (hot ? 8 : 6) : (!shown ? 4 : hot ? 8 : 6)
-          Capsule()
-            .fill(Color(nsColor: .labelColor).opacity(hot ? 0.4 : 0.25))
-            .frame(width: width, height: thumb)
-            .opacity(shown ? 1 : 0)
-            // Before .offset so the thumb position never lags during a drag.
-            .animation(.easeOut(duration: 0.15), value: hot)
-            .offset(y: top)
-        }
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .contentShape(Rectangle())
-      .onChange(of: model.activity) { reveal() }
-      .onHover { inside in
-        hovering = inside && model.canScroll
-        if hovering { reveal() } else { scheduleHide() }
-      }
-      .gesture(DragGesture(minimumDistance: 0)
-        .onChanged { value in
-          guard model.canScroll else { return }
-          if dragStart == nil {
-            let inside = value.startLocation.y >= top && value.startLocation.y <= top + thumb
-            dragStart = inside ? model.offset : model.travel * min(max((value.startLocation.y - thumb / 2) / free, 0), 1)
-            if !inside { model.scroll(to: dragStart ?? 0) }
-          }
-          model.scroll(to: (dragStart ?? 0) + (value.location.y - value.startLocation.y) / free * model.travel)
-        }
-        .onEnded { _ in dragStart = nil; scheduleHide() })
-    }
-    .accessibilityHidden(true)
-  }
-}
-
 #if AI_MANAGER_PREVIEW
 /// AIMScrollView body evaluations, for the contract check that scrolling does not re-run it.
 @MainActor enum AIMScrollBodyRuns { static var count = 0 }
@@ -725,11 +793,8 @@ private struct AIMScrollBar: View {
 struct AIMScrollView<Content: View>: View {
   var name = ""
   var gutter: CGFloat = AIMScroller.gutter
-  /// The scroll view of a whole page, which a wheel over the page's fixed header also scrolls.
-  var page = false
   @ViewBuilder var content: Content
-  // @State, not @StateObject: this view must not re-run its body on every scroll tick (that
-  // re-measured the binder with Auto Layout). Only the thin bar observes the model.
+  // The model is not observable: this view must not re-run its body on a scroll tick.
   @State private var model = AIMScrollBarModel()
   var body: some View {
     #if AI_MANAGER_PREVIEW
@@ -737,17 +802,10 @@ struct AIMScrollView<Content: View>: View {
     #endif
     ScrollView(.vertical) {
       content.environment(\.aimAnimatesAppearance, false)
-        .background(AIMScrollBinder(model: model, name: name, page: page))
+        .background(AIMScrollBinder(model: model, name: name, gutter: gutter))
     }
     // `.hidden` still reserves a 17 pt legacy scroller strip beside the page; `.never` reserves none.
     .scrollIndicators(.never)
-    .overlay(alignment: .trailing) {
-      // The bar's track starts below a page's fixed header (a top safe-area inset).
-      GeometryReader { proxy in
-        AIMScrollBar(model: model).frame(width: gutter).padding(.top, proxy.safeAreaInsets.top)
-          .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
-      }
-    }
     .aimAppear()
   }
 }
@@ -771,18 +829,6 @@ struct AIMSheetTextFieldStyle: TextFieldStyle {
   @FocusState private var focused: Bool
   func _body(configuration: TextField<Self._Label>) -> some View {
     configuration.textFieldStyle(.plain).focused($focused).aimFieldChrome(focused: focused)
-  }
-}
-
-/// The fixed header already paints the page color under the transparent title bar, so macOS 26's
-/// automatic scroll edge effect (a tinted blur at the top) must not draw over it.
-private struct PlainTopEdge: ViewModifier {
-  @ViewBuilder func body(content: Content) -> some View {
-    if #available(macOS 26.0, *) {
-      content.scrollEdgeEffectHidden(true, for: .top)
-    } else {
-      content
-    }
   }
 }
 
@@ -860,11 +906,12 @@ struct AIMTableRow<Content: View>: View {
   /// Extra leading space for rows under a group header. The highlight then starts 8 pt left of the
   /// content and ends 8 pt right of it, instead of 6 pt from the card edges.
   var indent: CGFloat = 0
+  /// The account this row shows. The table owns the pointer (`AccountsRowHover`), so a row has no
+  /// hover site of its own; its fill reads the hovered id in a tiny view.
+  var hoverID: UUID? = nil
   @ViewBuilder var content: Content
-  @State private var pointerInside = false
 
   var body: some View {
-    let hovering = pointerInside || previewHovering
     let shape = RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
     let wash = indent > 0 ? AIMTheme.cardInset - 8 : 6
     HStack(spacing: AIMColumns.gap) { content }
@@ -874,20 +921,33 @@ struct AIMTableRow<Content: View>: View {
       .frame(maxWidth: .infinity)
       .background(alignment: .center) {
         ZStack {
-          shape.fill(AIMTheme.rowHover).opacity(hovering && !highlighted ? 1 : 0)
+          AIMRowHoverFill(id: hoverID, preview: previewHovering, highlighted: highlighted)
           shape.fill(AIMTheme.focusTint).opacity(focused && !highlighted ? 1 : 0)
           shape.fill(AIMTheme.rowHighlight).opacity(highlighted ? 1 : 0)
         }
         .padding(.leading, wash + indent)
         .padding(.trailing, wash)
         .padding(.vertical, AIMTheme.highlightInset)
-        .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
         .animation(AIMMotion.fade(AIMMotion.hover), value: highlighted)
         .allowsHitTesting(false)
       }
       .contentShape(Rectangle())
-      .onHover { pointerInside = $0 }
       .environment(\.aimControlHeight, AIMTheme.rowControlHeight)
+  }
+}
+
+/// The hover fill of a table row: on while the table's pointer is over this row.
+private struct AIMRowHoverFill: View {
+  let id: UUID?
+  let preview: Bool
+  let highlighted: Bool
+  @Environment(AccountsRowHover.self) private var hover: AccountsRowHover?
+
+  var body: some View {
+    let hovering = preview || (id != nil && hover?.hoveredID == id)
+    RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous)
+      .fill(AIMTheme.rowHover).opacity(hovering && !highlighted ? 1 : 0)
+      .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
   }
 }
 
