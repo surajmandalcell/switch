@@ -175,6 +175,8 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let id: UUID
   let providerID: ProviderID
   let identity: String
+  /// What Copy name puts on the pasteboard: the real label, never the made-up one.
+  let realName: String
   let detail: String
   let isVerified: Bool
   let isActive: Bool
@@ -193,9 +195,11 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
     showsUsage: Bool = true,
     providerID: ProviderID = .codex,
     identityIsFormatted: Bool = false,
-    needsDroidAccess: Bool = false
+    needsDroidAccess: Bool = false,
+    realName: String? = nil
   ) {
     self.needsDroidAccess = needsDroidAccess
+    self.realName = realName ?? identity
     self.id = id
     self.providerID = providerID
     self.identity = identityIsFormatted ? identity : EmailPrivacy.display(identity)

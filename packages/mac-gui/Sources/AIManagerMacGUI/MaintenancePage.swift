@@ -93,6 +93,7 @@ struct MaintenanceSourcePanel: View {
   @ObservedObject var store: MaintenanceStore
   let pick: (CleanupSource) -> Void
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
+  @AppStorage(EmailPrivacy.privacyModeKey) private var privacyMode = false
   @State private var query = ""
   @FocusState private var focused: Bool
 
@@ -152,7 +153,7 @@ struct MaintenanceSourcePanel: View {
 
   private func detail(_ source: CleanupSource) -> String {
     guard let email = source.accountEmail else { return source.detail }
-    return "\(source.detail) · \(EmailPrivacy.display(email, hide: hideEmails))"
+    return "\(source.detail) · \(EmailPrivacy.display(email, hide: hideEmails, privacy: privacyMode))"
   }
 }
 

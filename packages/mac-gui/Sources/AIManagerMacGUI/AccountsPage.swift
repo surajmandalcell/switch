@@ -1226,7 +1226,7 @@ struct AccountMenuItems: View {
   @Environment(\.aimCopyPath) private var copyPath
 
   var body: some View {
-    Button("Copy Name") { _ = copyPath(account.identity.accountLabel) }
+    Button("Copy Name") { _ = copyPath(account.identity.realAccountLabel) }
     if !account.usesGenericDetail {
       Button(account.identity.providerID == .claudeCode ? "Copy Config Path" : AccountActionCopy.copyAuthPath) {
         model.copySavedAuthPath(for: account.id)
@@ -1429,7 +1429,7 @@ struct FocusedAccountCard: View {
         if model.needsDroidAccess(account) {
           AllowAccessButton(account: account, model: model)
         }
-        Button { _ = copyPath(account.identity.accountLabel) } label: {
+        Button { _ = copyPath(account.identity.realAccountLabel) } label: {
           Label("Copy", systemImage: AIMIcon.Name.copy.symbol)
         }
         .buttonStyle(AIMPushButtonStyle())

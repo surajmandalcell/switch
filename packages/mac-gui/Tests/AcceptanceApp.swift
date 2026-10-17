@@ -1048,6 +1048,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
     failures.append(contentsOf: AIManagerNativeContract.providerUIFailures())
     failures.append(contentsOf: AIManagerNativeContract.featureUIFailures())
+    failures.append(contentsOf: MainActor.assumeIsolated { PrivacyModeCheck.failures() })
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(
             UserDefaults.standard.string(forKey: "windowAppearance") == mode,

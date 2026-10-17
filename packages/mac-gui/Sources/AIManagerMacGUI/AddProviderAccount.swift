@@ -254,7 +254,9 @@ struct FilesCredentialsPage: View {
 
   private var signedInText: String {
     guard let identity else { return loaded ? "No sign-in found" : "Looking for a sign-in…" }
-    return "Signed in as \(EmailPrivacy.display(identity.email ?? identity.key))"
+    let label = identity.email.map { EmailPrivacy.display($0) }
+      ?? (EmailPrivacy.isPrivacyMode() ? EmailPrivacy.fakeName(seed: identity.key) : identity.key)
+    return "Signed in as \(label)"
   }
 
   var body: some View {

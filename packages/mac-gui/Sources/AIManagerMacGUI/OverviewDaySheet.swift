@@ -95,7 +95,7 @@ struct OverviewDayDetail: Equatable {
       let label: String
       if let record = named[key] {
         let text = record.identity.accountLabel
-        label = hideEmails ? EmailPrivacy.mask(text) : text
+        label = EmailPrivacy.isPrivacyMode() ? text : EmailPrivacy.display(text, hide: hideEmails, privacy: false)
       } else if key.hasPrefix("service:") {
         label = providerName(sum.service)
       } else if let shared = sharedName(key) {
@@ -177,6 +177,7 @@ struct OverviewDaySheet: View {
   /// Loaded by the sheet; a render check passes it ready.
   @State var detail: OverviewDayDetail?
   @State private var split = Split.account
+  @AppStorage(EmailPrivacy.privacyModeKey) private var privacyMode = false
 
   static let size = CGSize(width: 560, height: 680)
 
@@ -204,7 +205,7 @@ struct OverviewDaySheet: View {
     .frame(width: Self.size.width, height: Self.size.height)
     .focusEffectDisabled(!AIMFocus.showsSystemRings)
     .onExitCommand(perform: close)
-    .task {
+    .task(id: privacyMode) {
       let input = await load(pick.day)
       guard !Task.isCancelled else { return }
       detail = OverviewDayDetail.make(

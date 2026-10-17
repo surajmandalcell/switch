@@ -61,14 +61,17 @@ enum FeatureLogicChecks {
         for (full, short) in [("ada@gmail.com", "ada@gmail"), ("ada@mail.example.co.uk", "ada@mail.example")] {
             try expect(EmailPrivacy.display(full, hide: false, showDomains: false) == short, "Abbreviated email: \(full)")
             try expect(EmailPrivacy.display(full, hide: false, showDomains: true) == full, "Full email: \(full)")
-            try expect(EmailPrivacy.display(full, hide: true, showDomains: false) == EmailPrivacy.mask(full), "Hidden email: \(full)")
+            try expect(EmailPrivacy.display(full, hide: true, showDomains: false) == EmailPrivacy.mask(short),
+                       "Hidden email without its ending: \(full)")
+            try expect(EmailPrivacy.display(full, hide: true, showDomains: true) == EmailPrivacy.mask(full),
+                       "Hidden email with its ending: \(full)")
         }
-        try expect(EmailPrivacy.display("alice@example.com", hide: true, showDomains: true)
-                   == EmailPrivacy.display("alice@example.com", hide: true, showDomains: false),
-                   "Show email domains overrides privacy")
-        let masked = EmailPrivacy.display(sentence, hide: true)
+        try expect(EmailPrivacy.display("ada@gmail.com", hide: true, showDomains: false) == "a••••@gmail"
+                   && EmailPrivacy.display("ada@gmail.com", hide: true, showDomains: true) == "a••••@gmail.com",
+                   "Hide email addresses ignores the domain setting")
+        let masked = EmailPrivacy.display(sentence, hide: true, showDomains: true)
         try expect(masked == "Signed in as b••••@corp.example.org and a••••@b.co now", "Embedded emails: \(masked)")
-        try expect(EmailPrivacy.display(masked, hide: true) == masked, "Masking is not idempotent")
+        try expect(EmailPrivacy.display(masked, hide: true, showDomains: true) == masked, "Masking is not idempotent")
 
         let suite = "switch-feature-check-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -80,12 +83,13 @@ enum FeatureLogicChecks {
         let identity = AccountIdentity(email: "carol@example.com", userID: "u", accountID: "a", authMode: .chatGPT)
         UserDefaults.standard.set(true, forKey: EmailPrivacy.key)
         let hidden = identity.accountLabel
-        UserDefaults.standard.removeObject(forKey: EmailPrivacy.key)
-        try expect(hidden == "c••••@example.com" && identity.accountLabel == "carol@example",
-                   "accountLabel does not follow the privacy setting")
         UserDefaults.standard.set(true, forKey: EmailPrivacy.domainsKey)
+        let hiddenFull = identity.accountLabel
+        UserDefaults.standard.removeObject(forKey: EmailPrivacy.key)
         let full = identity.accountLabel
         UserDefaults.standard.removeObject(forKey: EmailPrivacy.domainsKey)
+        try expect(hidden == "c••••@example" && hiddenFull == "c••••@example.com",
+                   "accountLabel does not follow the privacy setting")
         try expect(full == "carol@example.com" && identity.accountLabel == "carol@example",
                    "accountLabel does not follow Show email domains")
     }

@@ -57,7 +57,7 @@ enum AppearanceOverride {
 /// system-owned login item are not preferences and stay.
 enum SettingsReset {
   static let keys = [
-    "appearanceMode", AppearanceOverride.key, "launchPlace", EmailPrivacy.domainsKey,
+    "appearanceMode", AppearanceOverride.key, "launchPlace", EmailPrivacy.domainsKey, EmailPrivacy.privacyModeKey,
     "usageTokenPeriod", ChatFilterPersistence.defaultsKey,
     AIManagerWindowBehavior.minimizeToTrayKey,
     MenuBarUsagePreferences.defaultKey, MenuBarTokenPeriod.preferenceKey,

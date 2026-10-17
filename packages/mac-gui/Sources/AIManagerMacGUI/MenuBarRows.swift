@@ -621,7 +621,7 @@ struct MenuBarRow: View {
     Button("Refresh") { Task { await store.refresh(account) } }
       .disabled(!account.supportsUsageRefresh || store.isRefreshingUsage)
     Divider()
-    Button("Copy name") { store.copy(account.identity) }
+    Button("Copy name") { store.copy(account.realName) }
   }
 }
 

@@ -139,9 +139,9 @@ backup source and destination, conversation selection, and expanded popover rows
 "When Switch opens" selects Last place (default) or Overview. Settings groups follow this order:
 General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut), Appearance
 (System, Light, or Dark; Usage percentage; Reset times; Time format), Accounts (Show full email
-addresses, Hide email addresses, Check provider status, Claude terminals), Auto switch, Menu bar,
-Notifications, Data locations, and Reset. Show full email addresses defaults off:
-"ada@gmail.com" reads "ada@gmail" and "ada@mail.example.co.uk" reads "ada@mail.example".
+addresses, Hide email addresses, Privacy mode, Check provider status, Claude terminals), Auto
+switch, Menu bar, Notifications, Data locations, and Reset. Show full email addresses defaults
+off ("ada@mail.co.uk" reads "ada@mail").
 
 1. **App behavior** includes Open at Login (off by default, macOS login-item service, quiet
    menu-bar launch, approval link to Login Items).
@@ -162,13 +162,14 @@ Notifications, Data locations, and Reset. Show full email addresses defaults off
 4. **Notifications** offers Almost Out (under 10% left), pace (Cutting It Close, Will Run Out),
    Available again (full window reset), and Sign in again (once per failure episode). All are off
    by default; enabling or first post asks permission. Launch never alerts; count only delivered alerts.
-5. **Provider status** is on by default. Poll saved providers'
-   pages at most every five minutes. Yellow or red dots mark incidents; failures keep the last
-   good value.
+5. **Provider status** is on by default. Poll saved providers' pages at most every five
+   minutes. Yellow or red dots mark incidents; failures keep the last good value.
 6. **Claude terminals** has Use the selected Claude account in terminals off by default. It adds
    one marked line to `~/.zshrc`, with backup, sourcing Switch's `claude` shell function.
-7. **Privacy** masks hidden email addresses everywhere as `a••••@example.com`.
-7a. **Auto switch** (owner picks A1 and R1) offers Switch accounts automatically, off by default.
+7. **Privacy** masks hidden emails as `a••••@example` (ending with full emails). Privacy mode
+   (off) shows each account as a stable fake name (`Jon Doe`, `jon.doe@example.com`) everywhere,
+   over both email settings; search and sign-in stay real.
+7a. **Auto switch** offers Switch accounts automatically, off by default.
    Thresholds are 1% (default), 2%, 5%, 10%, or 20% left of the lower session or weekly limit;
    a past-reset window counts as full. Running CLIs offers Restart when idle (default) or Leave
    running. The default Resume message is "Continue. A usage limit cut your last turn short; redo
@@ -378,9 +379,8 @@ in light and dark HTML references (Overview and shared-part states) and measured
   Remember Week or Month and Accounts, Models, or Projects grouping. Six cards show (1) rolling
   tokens, estimated cost, active accounts, and busiest day; (2) a daily grouped-token streamgraph;
   and (3) a one-year all-account Activity heatmap. Only used days show a hand pointer and open a
-  dated sheet ("Saturday, October 3"); dragging and empty days do nothing. The sheet shows token, cost, and
-  session totals; a stacked cost bar with an
-  Account or Model legend in brand and palette colors; and each session's title, tool, start time,
+  dated sheet ("Saturday, October 3"); dragging and empty days do nothing. The sheet shows token,
+  cost, and session totals; a stacked cost bar with an Account or Model legend in brand and palette colors; and each session's title, tool, start time,
   tokens, and cost. Only Codex sessions link to surviving transcripts in Conversations. Removed
   transcripts are dim and inert with "Transcript removed". Without session data, show totals,
   the split, and centered "No sessions on this Mac for this day. The totals come from the account's
@@ -408,18 +408,17 @@ in light and dark HTML references (Overview and shared-part states) and measured
   without picker, provider with Active dot or badge, primary window, and Make Default, Open
   <tool>, Copy, and More. Missing usage leaves dotted meters and dashes in the card's right-side
   space. One grey reason ("No Go plan", "Couldn't check usage: <reason>") appears in the card and
-  Usage header, without orange text or an empty band (owner pick E4). Signed-out accounts use
+  Usage header, without orange text or an empty band. Signed-out accounts use
   "Sign in again" as the primary action. Unreadable Droid logins show "Allow access to see usage"
   in the usage column; Allow replaces the default marker, and the card shows Allow access. The
   table has no column header or Provider column. Provider headers are 32 pt with a 16 pt brand
   tile, semibold name, and plain secondary count ("×2"). The card header has no account total.
   Indent accounts 24 pt under providers; a thin guide line joins the tile to account elbows like
   Finder. Groups have a 6 pt gap and no zebra fill. Row separators start at the indent and stay
-  lighter than card borders. The usage column has a bar and "83% · 6d 19h" (percent then reset),
-  without a reset column. Without usage, a reason such as "Sign in to see usage" replaces the bar
-  and dashes. The default uses a framed disabled button with system disabled fill and text, like
-  Safari's Set Default: "Default" in the table and "Using as default" in the card. Use no green,
-  accent color, or check.
+  lighter than card borders. The usage column has a bar and "83% · 6d 19h" (percent then reset).
+  Without usage, a reason such as "Sign in to see usage" replaces the bar and dashes. The default
+  is a framed disabled button like Safari's Set Default: "Default" in the table and "Using as
+  default" in the card, with no green, accent color, or check.
 - **Conversations, Maintenance, Settings:** They share cards, rows, and buttons.
   Maintenance shows Cleanup then Backup in a 28 pt segmented control with 120 pt segments.
   It aligns left with the cards, uses label-colored icons, and puts Cleanup's source picker at the
@@ -432,7 +431,7 @@ in light and dark HTML references (Overview and shared-part states) and measured
   brightens it. It fades out over 300 ms, 1 s after scroll or pointer exit. Mouse and trackpad
   scroll anywhere on pages, lists, messages, and gutters. Restore a saved offset once, on entry.
   Pages are eager stacks in an AppKit scroll view below a fixed header; chart hovers pause while
-  it scrolls. Accounts rows share one hover and one drop target.
+  it scrolls. Accounts rows share one hover and drop target.
 - **Motion:** Fade hover and press; fill bars on appearance and change; roll numbers; fade cards
   without moving on page change; slide segment indicators; spring popover rows open; draw charts
   in. Use 150-350 ms with ease-out or a soft spring. Reduce Motion keeps fades only. Show the
@@ -475,7 +474,7 @@ Conversations and settings stay.
 
 Background reconciliation never disables UI or republishes unchanged values. Secondary text
 names provider (Codex CLI); badges mean action needed. A badge is a grey chip with label-color
-text and a 6 pt state-color dot (owner pick B3); its text reaches 4.5:1 in both appearances.
+text and a 6 pt state-color dot; its text reaches 4.5:1 in both appearances.
 
 Add Account and Advanced Import use native sheets. Provider search and a single-choice list
 (double-click continues) lead to the form or sign-in page. Keep standard Cancel and Continue

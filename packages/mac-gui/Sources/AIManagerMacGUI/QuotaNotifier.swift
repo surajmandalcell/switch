@@ -10,7 +10,8 @@ import UserNotifications
 extension AccountIdentity {
   /// Account name in an alert: the email (masked when "Hide email addresses" is on), else a key tail.
   var notificationLabel: String {
-    providerID == .codex
+    if EmailPrivacy.isPrivacyMode() { return accountLabel }
+    return providerID == .codex
       ? (email.map { EmailPrivacy.display($0) } ?? "\(providerID.displayName) account") : accountLabel
   }
 }

@@ -231,7 +231,8 @@ enum AccountSearch {
     let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace })
     guard !terms.isEmpty else { return true }
     let haystack = [
-      account.identity.accountLabel, account.identity.email ?? "",
+      account.identity.realAccountLabel, account.identity.email ?? "", account.identity.accountID ?? "",
+      account.identity.userID ?? "",
       account.identity.providerID.guiName, account.identity.workspaceID ?? "",
     ].joined(separator: " ").lowercased()
     return terms.allSatisfy { haystack.contains($0) }
@@ -375,7 +376,7 @@ struct AccountWindow: View {
     AnyView(
       VStack(spacing: 0) {
         topBar
-        if let error = model.errorMessage, !model.showImport {
+        if let error = model.displayedErrorMessage, !model.showImport {
           AIMPanel {
             ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
               model.errorMessage = nil
@@ -823,7 +824,7 @@ struct AddAccountFlow: View {
     }
     #endif
     .overlay(alignment: .bottom) {
-      if let error = model.errorMessage {
+      if let error = model.displayedErrorMessage {
         AIMPanel {
           ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
             model.errorMessage = nil
@@ -846,8 +847,17 @@ struct AddAccountFlow: View {
       AIMSheetForm {
         Section("\(selectedProviderName) sign-in") {
           if model.selectedProviderID == .droid {
-            TextField("Account name", text: $model.droidAccountName)
-              .disabled(model.signInAccountID != nil)
+            // A new account name is typed input and stays real. An existing account's name is a label, so
+            // Privacy mode shows the made-up name and locks the field.
+            let namesExisting = model.signInAccountID != nil
+            TextField("Account name", text: Binding(
+              get: {
+                namesExisting && EmailPrivacy.isPrivacyMode()
+                  ? EmailPrivacy.fakeName(seed: model.droidAccountName) : model.droidAccountName
+              },
+              set: { model.droidAccountName = $0 }))
+              .disabled(namesExisting)
+              .help(namesExisting && EmailPrivacy.isPrivacyMode() ? "Turn off Privacy mode to rename this account." : "")
               .accessibilityHint("Name this encrypted login, for example Droid personal.")
             if model.accountLoginSession == nil {
               SecureField("Factory API key (optional, for usage)", text: $model.droidAPIKey)
@@ -898,7 +908,7 @@ struct AddAccountFlow: View {
             }
           }
           Notice(
-            text: model.accountLoginMessage
+            text: model.displayedAccountLoginMessage
               ?? "Finish signing in to \(selectedProviderName), then return here and choose Check Now.",
             tone: model.accountLoginState == .needsAttention ? AIMTheme.amber : AIMTheme.blue
           )
@@ -962,7 +972,7 @@ struct AddAccountFlow: View {
             Text(model.selectedAccount?.identity.accountLabel ?? "\(selectedProviderName) account")
               .aimText(.section)
           }
-          Text(model.accountLoginMessage ?? "The account is saved and ready to use.")
+          Text(model.displayedAccountLoginMessage ?? "The account is saved and ready to use.")
             .aimText(.secondary)
           Text(model.selectedProviderID == .codex
             ? "The account is ready for new Codex sessions. Shared settings and chats stay in place."
@@ -1023,7 +1033,7 @@ struct ImportFlow: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .environment(\.aimCancelSheet, { model.closeAccountModal() })
     .overlay(alignment: .bottom) {
-      if let error = model.errorMessage {
+      if let error = model.displayedErrorMessage {
         AIMPanel {
           ErrorBar(message: error, copy: { model.copyWarnings([error]) }) {
             model.errorMessage = nil
@@ -1327,6 +1337,7 @@ extension AccountIdentity {
   fileprivate var displayName: String {
     if providerID == .droid { return accountLabel }
     if let email, let workspaceID { return "\(EmailPrivacy.display(email)) · \(workspaceID)" }
+    if EmailPrivacy.isPrivacyMode() { return accountLabel }
     return email.map { EmailPrivacy.display($0) } ?? accountID ?? "Unresolved account"
   }
 }
