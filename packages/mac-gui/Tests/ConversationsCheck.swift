@@ -161,6 +161,16 @@ struct RealChatProvider: ChatHistoryProviding {
 
 // MARK: - Check
 
+/// The window's root hosting view, counting its layout passes: the window-level measure of the page cache
+/// (`AppKitPlatformViewHost.fittingSize`) runs inside one, so layouts per scroll step show it.
+final class CountingRootHost: NSHostingView<AnyView> {
+  nonisolated(unsafe) static var layouts = 0
+  override func layout() {
+    Self.layouts += 1
+    super.layout()
+  }
+}
+
 @MainActor enum ConversationsCheck {
   static var shotsDirectory: URL? {
     ProcessInfo.processInfo.environment["AI_MANAGER_CONV_SHOTS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -176,7 +186,7 @@ struct RealChatProvider: ChatHistoryProviding {
   static func host(_ view: some View, size: NSSize, dark: Bool) -> (NSWindow, NSHostingView<AnyView>) {
     // The window applies the saved appearance, so a run picks its own (a contract run uses a temporary home).
     UserDefaults.standard.set(dark ? "dark" : "light", forKey: "windowAppearance")
-    let hosting = NSHostingView(rootView: AnyView(view.renderScaled()))
+    let hosting = CountingRootHost(rootView: AnyView(view.renderScaled()))
     let window = AIManagerWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -341,12 +351,19 @@ struct RealChatProvider: ChatHistoryProviding {
         guard let scroll = AIMHostingView.pageScrollView(in: hosting) else {
           failures.append("\(page.rawValue): no page scroll view"); window.close(); continue
         }
+        // `--scroll-poke`: also mark the page cache's own host stale on every step, as the live window does
+        // (the wheel trace shows it on Accounts through a transform update). The harness window is
+        // ordered out, where that host does not invalidate by itself.
+        let cacheHost = views(in: hosting).first { $0 is AIMHostingView && !($0.superview is NSClipView) }
+        let poke = CommandLine.arguments.contains("--scroll-poke")
         let travel = (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height
         for draw in [false, true] {
           var times: [Double] = []
           let steps = Int(PreviewArguments.value("scroll-steps") ?? "") ?? 60
-          let fitBefore = AIMPageScrollView.informsStopped, invalidBefore = AIMHostingView.constraintInvalidations
-          let layoutBefore = AIMHostingView.layoutCalls
+          let stoppedBefore = AIMConstraintNoticeStop.stopped
+          let invalidBefore = AIMHostingView.constraintInvalidations, layoutBefore = AIMHostingView.layoutCalls
+          let cacheInvalidBefore = AIMHostingView.cacheHostInvalidations, cacheLayoutBefore = AIMHostingView.cacheHostLayouts
+          let rootBefore = CountingRootHost.layouts
           for step in 0..<steps {
             let start = CFAbsoluteTimeGetCurrent()
             // Down, then back up when the page ends, so a long run keeps moving.
@@ -354,6 +371,7 @@ struct RealChatProvider: ChatHistoryProviding {
             scroll.contentView.scroll(to: NSPoint(x: 0, y: back > travel ? 2 * travel - back : back))
             scroll.reflectScrolledClipView(scroll.contentView)
             RunLoop.main.run(until: Date().addingTimeInterval(0.002))
+            if poke { cacheHost?.needsUpdateConstraints = true }
             hosting.layoutSubtreeIfNeeded()
             if draw, let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
               hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
@@ -362,17 +380,23 @@ struct RealChatProvider: ChatHistoryProviding {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
           }
           times.sort()
-          // Per step: constraint notices that reached the page scroll view (it stops them; the clip view then
-          // keeps its flag, so a long scroll sends one), and the page host's own invalidations (6 without it).
-          print(String(format: "SCROLLCOST round=%d page=%@ draw=%@ median=%.2f p90=%.2f ms stopped/step=%.2f invalidate/step=%.2f hostLayout/step=%.2f",
+          // Per step: constraint notices stopped at the page scroll view and at the page cache; the hosts'
+          // own invalidations and layouts (6 and 3 without the stop); and the window root's layouts, which
+          // hold the window-level measure of the page cache (0 when nothing reaches SwiftUI's host).
+          func stopped(_ kind: String) -> Double {
+            Double(AIMConstraintNoticeStop.stopped[kind, default: 0] - stoppedBefore[kind, default: 0]) / Double(steps)
+          }
+          print(String(format: "SCROLLCOST round=%d page=%@ draw=%@ median=%.2f p90=%.2f ms stoppedPage/step=%.2f stoppedCache/step=%.2f invalidate/step=%.2f hostLayout/step=%.2f cacheInvalidate/step=%.2f cacheLayout/step=%.2f rootLayout/step=%.2f",
             round, page.rawValue, draw ? "yes" : "no", times[times.count / 2], times[times.count * 9 / 10],
-            Double(AIMPageScrollView.informsStopped - fitBefore) / Double(steps),
+            stopped("AIMPageScrollView"), stopped("Container"),
             Double(AIMHostingView.constraintInvalidations - invalidBefore) / Double(steps),
-            Double(AIMHostingView.layoutCalls - layoutBefore) / Double(steps)))
+            Double(AIMHostingView.layoutCalls - layoutBefore) / Double(steps),
+            Double(AIMHostingView.cacheHostInvalidations - cacheInvalidBefore) / Double(steps),
+            Double(AIMHostingView.cacheHostLayouts - cacheLayoutBefore) / Double(steps),
+            Double(CountingRootHost.layouts - rootBefore) / Double(steps)))
           scroll.contentView.scroll(to: NSPoint(x: 0, y: 0))
           scroll.reflectScrolledClipView(scroll.contentView)
-          await pause(200)
-        }
+          await pause(200)        }
         // After many scroll frames the page host still redraws on a state change (stopping the constraint
         // notice must not starve its updates): another selection moves the focused card.
         if page == .accounts, let other = model.status?.accounts.map(\.id).first(where: { $0 != model.selectedAccountID }) {

@@ -561,6 +561,13 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     private var latestInputs: Inputs?
     private var warming = false
 
+    /// Fills its space whatever the page inside needs (the hosts use autoresizing, frame = bounds): the
+    /// notice from a page host stops here instead of making the window root measure every page.
+    @objc(_informContainerThatSubviewsNeedUpdateConstraints)
+    func informContainerThatSubviewsNeedUpdateConstraints() { noticeStop.run() }
+
+    private lazy var noticeStop = AIMConstraintNoticeStop(self)
+
     /// The search drop-down is SwiftUI content over this view; a click on it must reach the window's own hosting view.
     override func hitTest(_ point: NSPoint) -> NSView? {
       if AppSearch.isOverDropdown(windowPoint: superview?.convert(point, to: nil) ?? .zero, in: window) { return nil }
