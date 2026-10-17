@@ -113,6 +113,17 @@ final class AccountViewModel: ObservableObject {
     @Published var isBusy = false
     @Published var refreshedAt: Date?
     @Published var errorMessage: String?
+    private var signInIdentityError: AIManagerError?
+    var displayedErrorMessage: String? {
+        guard let errorMessage else { return nil }
+        return displaySignInError(errorMessage)
+    }
+
+    private func displaySignInError(_ text: String) -> String {
+        guard let signInIdentityError else { return text }
+        return text.replacingOccurrences(of: signInIdentityError.localizedDescription,
+            with: signInIdentityError.privacyDescription)
+    }
     /// The result of the last action. No page renders it: the app posts it as a macOS notification.
     @Published var notice: String? {
         didSet { if let notice { postMessage(notice) } }
@@ -126,6 +137,11 @@ final class AccountViewModel: ObservableObject {
     @Published var accountLoginSession: AccountLoginSession?
     @Published var accountLoginState: AccountLoginState?
     @Published var accountLoginMessage: String?
+    var displayedAccountLoginMessage: String? {
+        guard let accountLoginMessage else { return nil }
+        let text = displaySignInError(accountLoginMessage)
+        return text != accountLoginMessage ? text : EmailPrivacy.display(accountLoginMessage)
+    }
     @Published private(set) var signInAccountID: UUID?
     @Published var selectedProviderID: ProviderID = .codex
     /// Providers whose login is already present on this Mac, found when Add Account opens.
@@ -151,6 +167,7 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var accountWindows: [UUID: [UsageWindow]] = [:]
     private var presentationPreferences: AnyCancellable?
     private var presentationHiddenRows: [UUID: String] = [:]
+    private var presentationPrivacyMode = EmailPrivacy.isPrivacyMode()
     /// Last good incident of each provider that has a saved account. Empty when status checks are off.
     @Published private(set) var providerStatus: [ProviderID: ProviderStatusEntry] = [:]
     /// Local Claude Code usage across all profiles, from the log scan.
@@ -280,6 +297,11 @@ final class AccountViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                let privacy = EmailPrivacy.isPrivacyMode()
+                if privacy != self.presentationPrivacyMode {
+                    self.presentationPrivacyMode = privacy
+                    self.objectWillChange.send()
+                }
                 let hidden = self.hiddenPresentationRows()
                 if hidden != self.presentationHiddenRows { self.rebuildAccountPresentations() }
             }
@@ -599,7 +621,7 @@ final class AccountViewModel: ObservableObject {
                     var confirmed = false
                     if providerID == .droid {
                         let name = status?.accounts.first { $0.id == accountID }?.identity.accountID ?? "Droid"
-                        guard confirmDroidAction(DroidAccountError.confirmSignIn(name).localizedDescription, action: "Sign in") else { return }
+                        guard confirmDroidAction(DroidAccountError.confirmSignIn(name).privacyDescription, action: "Sign in") else { return }
                         confirmed = true
                     }
                     start = try await manager.startAccountLogin(accountID: accountID, confirmDroidAccount: confirmed)
@@ -677,7 +699,7 @@ final class AccountViewModel: ObservableObject {
                                 guard confirmDroidAction(error.localizedDescription, action: "Switch") else { return }
                                 allowRunning = true
                             case .duplicateIdentity where !allowDuplicate:
-                                guard confirmDroidAction(error.localizedDescription, action: "Add anyway") else { return }
+                                guard confirmDroidAction(error.privacyDescription, action: "Add anyway") else { return }
                                 allowDuplicate = true
                             default: throw error
                             }
@@ -688,6 +710,7 @@ final class AccountViewModel: ObservableObject {
                         pendingLoginSessions.removeAll { $0.id == session.id }
                         accountLoginSession = nil
                         accountLoginState = .needsAttention
+                        signInIdentityError = error
                         accountLoginMessage = error.localizedDescription
                     }
                     throw error
@@ -702,7 +725,7 @@ final class AccountViewModel: ObservableObject {
                     try await reloadStatus(using: manager)
                     selectedAccountID = account.id
                     pendingLoginSessions.removeAll { $0.id == session.id }
-                    let name = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "The account")
+                    let name = account.identity.accountLabel
                     let providerName = account.identity.providerID.guiName
                     notice = status?.isDefault(account) == true
                         ? "New \(providerName) sessions will use \(name)."
@@ -791,7 +814,7 @@ final class AccountViewModel: ObservableObject {
                     apiKey: droidAPIKey.isEmpty ? nil : droidAPIKey)
             } catch let error as DroidAccountError {
                 guard case .duplicateIdentity = error else { throw error }
-                guard confirmDroidAction(error.localizedDescription, action: "Add anyway") else { return }
+                guard confirmDroidAction(error.privacyDescription, action: "Add anyway") else { return }
                 account = try await manager.importDroidAccount(name: droidAccountName,
                     apiKey: droidAPIKey.isEmpty ? nil : droidAPIKey, allowDuplicate: true)
             }
@@ -1403,7 +1426,7 @@ final class AccountViewModel: ObservableObject {
                 if selectedAccountID == accountID {
                     selectedAccountID = status?.firstDefaultAccountID ?? status?.accounts.first?.id
                 }
-                let accountName = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "Account")
+                let accountName = account.identity.accountLabel
                 notice = "\(accountName) deleted."
             }
             return
@@ -1425,7 +1448,7 @@ final class AccountViewModel: ObservableObject {
             if selectedAccountID == accountID {
                 selectedAccountID = current.firstDefaultAccountID ?? current.accounts.first?.id
             }
-            let accountName = EmailPrivacy.display(account.identity.email ?? account.identity.accountID ?? "Account")
+            let accountName = account.identity.accountLabel
             notice = "\(accountName) was deleted from the demo."
         }
         #else
@@ -2469,14 +2492,16 @@ final class AccountViewModel: ObservableObject {
         resetAccountLogin()
     }
 
-    private func resetAccountModal() {
+    func resetAccountModal() {
         actionGeneration += 1
         errorMessage = nil
         notice = nil
         resetImport()
         resetAccountLogin()
         droidAPIKey = ""
-        droidAccountName = "Droid \((status?.accounts.filter { $0.identity.providerID == .droid }.count ?? 0) + 1)"
+        // With Privacy mode on, the new Droid name field starts empty and takes the typed real name.
+        droidAccountName = EmailPrivacy.isPrivacyMode()
+            ? "" : "Droid \((status?.accounts.filter { $0.identity.providerID == .droid }.count ?? 0) + 1)"
     }
 
     private func resetAccountLogin() {
@@ -2504,7 +2529,11 @@ final class AccountViewModel: ObservableObject {
         guard !Task.isCancelled, generation == actionGeneration else { return }
         do { try await operation() }
         catch {
-            errorMessage = [failure, error.localizedDescription, recovery]
+            if let identityError = error as? AIManagerError, case .signInIdentityMismatch = identityError {
+                signInIdentityError = identityError
+            }
+            let detail = (error as? DroidAccountError)?.privacyDescription ?? error.localizedDescription
+            errorMessage = [failure, detail, recovery]
                 .compactMap { $0 }
                 .joined(separator: " ")
         }

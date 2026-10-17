@@ -313,7 +313,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     usage: usage,
                     showsUsage: showsUsage,
                     providerID: providerID, identityIsFormatted: true,
-                    needsDroidAccess: providerID == .droid && state?.needsKeychainAccess == true)
+                    needsDroidAccess: providerID == .droid && state?.needsKeychainAccess == true,
+                    realName: account.identity.realAccountLabel)
             },
             lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
                 + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max())

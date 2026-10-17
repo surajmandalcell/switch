@@ -9,6 +9,7 @@ struct SettingsPage: View {
   @StateObject private var notificationPermission = QuotaNotificationPermission()
   @AppStorage(ProviderStatusPoller.enabledKey) private var checkProviderStatus = true
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
+  @AppStorage(EmailPrivacy.privacyModeKey) private var privacyMode = false
   @AppStorage(EmailPrivacy.domainsKey) private var showEmailDomains = false
   @AppStorage(AppearanceOverride.key) private var windowAppearance = "system"
   @AppStorage("launchPlace") private var launchPlace = "last"
@@ -99,9 +100,15 @@ struct SettingsPage: View {
           Text("Show full email addresses")
           Text("Show the full address, including the domain ending such as .com or .co.uk.").aimText(.secondary).lineLimit(1)
         }
+        .disabled(privacyMode)
         Toggle(isOn: $hideEmails) {
           Text(SettingsCopy.hideEmails)
           Text(SettingsCopy.hideEmailsHelp).aimText(.secondary).lineLimit(1)
+        }
+        .disabled(privacyMode)
+        Toggle(isOn: $privacyMode) {
+          Text(SettingsCopy.privacyMode)
+          Text(SettingsCopy.privacyModeHelp).aimText(.secondary)
         }
         Toggle(isOn: $checkProviderStatus) {
           Text(SettingsCopy.checkProviderStatus)
@@ -415,6 +422,8 @@ enum SettingsCopy {
   static let autoSwitchResumeHelp = "Sent when a usage limit cut the last turn short."
   static let hideEmails = "Hide email addresses"
   static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example.com."
+  static let privacyMode = "Privacy mode"
+  static let privacyModeHelp = "Show made-up names, such as Jon Doe, instead of account names and emails."
   static let resetTimes = "Reset times"
   static let resetTimesHelp = "Show a countdown or the exact time. Click any reset text to switch."
   static let timeFormat = "Time format"

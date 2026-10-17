@@ -45,7 +45,7 @@ for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
     mac_gui_sources+=("$source_snapshot/$(basename "$source")")
   fi
 done
-for check in NativeUIContract MenuBarContract ConversationsCheck AcceptanceApp; do
+for check in NativeUIContract MenuBarContract ConversationsCheck PrivacyModeCheck AcceptanceApp; do
   cp "$repo_root/packages/mac-gui/Tests/$check.swift" "$source_snapshot/$check.swift"
 done
 
@@ -80,6 +80,7 @@ swiftc \
   "$source_snapshot/NativeUIContract.swift" \
   "$source_snapshot/MenuBarContract.swift" \
   "$source_snapshot/ConversationsCheck.swift" \
+  "$source_snapshot/PrivacyModeCheck.swift" \
   "$source_snapshot/AcceptanceApp.swift" \
   -o "$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 

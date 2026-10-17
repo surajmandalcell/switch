@@ -136,7 +136,7 @@ struct OverviewDataset: Equatable {
         let shared = OverviewDayDetail.sharedName(group.key)
         let label = shared ?? named[group.key]?.identity.accountLabel ?? "Removed account"
         return OverviewSeries(
-          id: group.key, label: hideEmails && shared == nil ? EmailPrivacy.mask(label) : label,
+          id: group.key, label: hideEmails && shared == nil && !EmailPrivacy.isPrivacyMode() ? EmailPrivacy.mask(label) : label,
           color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: group.daily,
           service: service.isEmpty ? nil : service)
       case .model, .project:
@@ -228,6 +228,7 @@ struct OverviewPage: View {
   @State private var dataset: OverviewDataset?
   @State private var daySheet: OverviewDayPick?
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
+  @AppStorage(EmailPrivacy.privacyModeKey) private var privacyMode = false
 
   init(
     model: AccountViewModel,
@@ -258,6 +259,7 @@ struct OverviewPage: View {
     var snapshot: Int
     var accounts: [UUID]
     var hideEmails: Bool
+    var privacyMode: Bool
   }
 
   var body: some View {
@@ -283,7 +285,7 @@ struct OverviewPage: View {
     .task(id: model.hasLoaded) { await model.loadUsageHistory() }
     .task(id: LoadKey(
       period: period, grouping: grouping, snapshot: model.usageHistoryVersion,
-      accounts: accounts.map(\.id), hideEmails: hideEmails)
+      accounts: accounts.map(\.id), hideEmails: hideEmails, privacyMode: privacyMode)
     ) { await rebuild() }
     .onChange(of: period) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.periodKey) }
     .onChange(of: grouping) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.groupingKey) }

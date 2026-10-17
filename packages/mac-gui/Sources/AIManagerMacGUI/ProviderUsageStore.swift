@@ -18,9 +18,32 @@ extension ProviderID {
 enum EmailPrivacy {
   static let key = "hideEmailAddresses"
   static let domainsKey = "showEmailDomains"
+  static let privacyModeKey = "privacyMode"
 
   static func isEnabled(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: key) }
   static func showsDomains(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: domainsKey) }
+  static func isPrivacyMode(defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: privacyModeKey) }
+
+  private static let firstNames = [
+    "Jon", "Jane", "Alex", "Sam", "Max", "Mia", "Ben", "Ava", "Leo", "Eva", "Tom", "Zoe",
+    "Dan", "Amy", "Ian", "Ivy", "Eli", "Nora", "Luke", "Lucy", "Owen", "Ella", "Finn", "Lily",
+  ]
+  private static let lastNames = [
+    "Doe", "Roe", "Smith", "Park", "Lee", "Hall", "Hill", "Wood", "King", "Gray", "West", "Fox",
+    "Reed", "Bell", "Cook", "Cole", "Lane", "Lake", "Stone", "Green", "Young", "Brown", "White", "Hart",
+  ]
+
+  static func fakeName(seed: String) -> String {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in seed.utf8 {
+      hash = (hash ^ UInt64(byte)) &* 1_099_511_628_211
+    }
+    return "\(firstNames[Int((hash & 0xFFFF_FFFF) % UInt64(firstNames.count))]) \(lastNames[Int((hash >> 32) % UInt64(lastNames.count))])"
+  }
+
+  static func fakeEmail(seed: String) -> String {
+    fakeName(seed: seed).lowercased().replacingOccurrences(of: " ", with: ".") + "@example.com"
+  }
 
   /// `a••••@example.com`: the first character, four bullets, and the domain. The bullet count is
   /// fixed so the length of the address is not revealed.
@@ -31,7 +54,7 @@ enum EmailPrivacy {
   }
 
   private static let pattern = try? NSRegularExpression(
-    pattern: #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+"#)
+    pattern: #"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~•\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+"#)
 
   /// Remove the public ending, retaining the mailbox and host. Country domains can have
   /// a category before the country code, as in example.co.uk.
@@ -49,15 +72,15 @@ enum EmailPrivacy {
   /// Privacy takes priority over the domain display choice.
   static func display(
     _ text: String, hide: Bool = EmailPrivacy.isEnabled(),
-    showDomains: Bool = EmailPrivacy.showsDomains()
+    showDomains: Bool = EmailPrivacy.showsDomains(), privacy: Bool = EmailPrivacy.isPrivacyMode()
   ) -> String {
-    guard hide || !showDomains, text.contains("@"), let pattern else { return text }
+    guard privacy || hide || !showDomains, text.contains("@"), let pattern else { return text }
     let whole = NSRange(text.startIndex..., in: text)
     var result = text
     for match in pattern.matches(in: text, range: whole).reversed() {
       guard let range = Range(match.range, in: result) else { continue }
       let email = String(result[range])
-      result.replaceSubrange(range, with: hide ? mask(email) : abbreviated(email))
+      result.replaceSubrange(range, with: privacy ? fakeEmail(seed: email.lowercased()) : hide ? mask(showDomains ? email : abbreviated(email)) : abbreviated(email))
     }
     return result
   }
@@ -67,15 +90,50 @@ extension AccountIdentity {
   /// Primary account label. Secret accounts have no email, so a short key tail tells them apart.
   /// Emails follow the domain display and privacy settings.
   var accountLabel: String {
+    displayLabel(privacy: EmailPrivacy.isPrivacyMode())
+  }
+
+  var realAccountLabel: String { displayLabel(privacy: false, hide: false, showDomains: true) }
+
+  func displayLabel(
+    privacy: Bool, hide: Bool = EmailPrivacy.isEnabled(), showDomains: Bool = EmailPrivacy.showsDomains()
+  ) -> String {
     if providerID == .droid, let accountID {
-      return email.map { "\(accountID) · \(EmailPrivacy.display($0))" } ?? accountID
+      let name = privacy ? EmailPrivacy.fakeName(seed: accountID) : accountID
+      return email.map { "\(name) · \(EmailPrivacy.display($0, hide: hide, showDomains: showDomains, privacy: privacy))" } ?? name
     }
-    if let email, !email.isEmpty { return EmailPrivacy.display(email) }
-    if let accountID, !accountID.isEmpty { return accountID }
+    if let email, !email.isEmpty { return EmailPrivacy.display(email, hide: hide, showDomains: showDomains, privacy: privacy) }
+    if let accountID, !accountID.isEmpty { return privacy ? EmailPrivacy.fakeName(seed: accountID) : accountID }
     if let userID, !userID.isEmpty, providerID != .codex {
+      if privacy { return EmailPrivacy.fakeName(seed: userID) }
       return "\(providerID.guiName) ···\(userID.suffix(4))"
     }
     return "Unresolved account"
+  }
+}
+
+extension DroidAccountError {
+  var privacyDescription: String {
+    guard EmailPrivacy.isPrivacyMode() else { return localizedDescription }
+    switch self {
+    case .confirmSignIn(let name):
+      return Self.confirmSignIn(EmailPrivacy.fakeName(seed: name)).localizedDescription
+    case .duplicateIdentity(let name, let hint):
+      return Self.duplicateIdentity(name: EmailPrivacy.fakeName(seed: name), hint: EmailPrivacy.display(hint)).localizedDescription
+    default: return localizedDescription
+    }
+  }
+}
+
+extension AIManagerError {
+  var privacyDescription: String {
+    guard EmailPrivacy.isPrivacyMode(), case .signInIdentityMismatch(let signedIn, let target) = self else {
+      return localizedDescription
+    }
+    func label(_ value: String) -> String {
+      value.contains("@") ? EmailPrivacy.display(value) : EmailPrivacy.fakeName(seed: value)
+    }
+    return Self.signInIdentityMismatch(signedIn: label(signedIn), target: label(target)).localizedDescription
   }
 }
 
