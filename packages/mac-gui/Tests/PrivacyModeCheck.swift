@@ -255,7 +255,7 @@ import Vision
       failures.append("Privacy mode: a masked login hint is visible")
     }
     let identity = AccountIdentity(providerID: .droid, email: seed, accountID: "Personal", authMode: .oauth)
-    if identity.displayLabel(privacy: true) != "\(EmailPrivacy.fakeName(seed: "Personal")) · \(email)" {
+    if identity.displayLabel(privacy: true) != "\(EmailPrivacy.fakeName(seed: "Personal")) · \(EmailPrivacy.fakeEmail(seed: "Personal"))" {
       failures.append("Privacy mode: the Droid label exposes its name or email")
     }
     if identity.realAccountLabel != "Personal · ada@gmail.com" {
