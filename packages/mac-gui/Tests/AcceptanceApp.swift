@@ -483,6 +483,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         self.statusItemController = statusItemController
         if let appearance = AcceptanceConfiguration.appearance {
             statusItemController.updateAppearance(NSAppearance(named: appearance == .dark ? .darkAqua : .aqua))
+        } else if let mode = AcceptanceConfiguration.persistedAppearanceMode, mode != "system" {
+            statusItemController.updateAppearance(NSAppearance(named: mode == "dark" ? .darkAqua : .aqua))
         }
         controller.present()
         // `--scroll=0.5` scrolls the page's tallest scroll view, for screenshots of long pages.
@@ -1046,6 +1048,8 @@ enum AIManagerMacGUIAcceptanceApp {
 
 @MainActor
 private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
+    // `--popover` is a screenshot run: the contract takes ~40 s and exits, so the popover would never show.
+    if CommandLine.arguments.contains("--popover") { return }
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { failures.append(message) }
