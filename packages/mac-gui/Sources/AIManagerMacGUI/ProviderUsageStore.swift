@@ -48,8 +48,8 @@ enum EmailPrivacy {
   /// `a••••@example.com`: the first character, four bullets, and the domain. The bullet count is
   /// fixed so the length of the address is not revealed.
   static func mask(_ email: String) -> String {
-    guard let at = email.lastIndex(of: "@"), at != email.startIndex,
-          email.index(after: at) != email.endIndex else { return email }
+    guard let at = email.lastIndex(of: "@"), at != email.startIndex else { return email }
+    // A name such as "alice@" (a Droid account name) has no domain; hide it the same way.
     return "\(email[email.startIndex])••••\(email[at...])"
   }
 
@@ -101,7 +101,8 @@ extension AccountIdentity {
     if providerID == .droid, let accountID {
       // One seed for both parts, so the made-up name and email name the same person.
       if privacy { return EmailPrivacy.fakeName(seed: accountID) + (email == nil ? "" : " · \(EmailPrivacy.fakeEmail(seed: accountID))") }
-      return email.map { "\(accountID) · \(EmailPrivacy.display($0, hide: hide, showDomains: showDomains, privacy: false))" } ?? accountID
+      let name = hide ? EmailPrivacy.mask(accountID) : accountID
+      return email.map { "\(name) · \(EmailPrivacy.display($0, hide: hide, showDomains: showDomains, privacy: false))" } ?? name
     }
     if let email, !email.isEmpty { return EmailPrivacy.display(email, hide: hide, showDomains: showDomains, privacy: privacy) }
     if let accountID, !accountID.isEmpty { return privacy ? EmailPrivacy.fakeName(seed: accountID) : accountID }

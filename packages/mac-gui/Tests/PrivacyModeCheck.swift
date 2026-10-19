@@ -258,6 +258,12 @@ import Vision
     if identity.displayLabel(privacy: true) != "\(EmailPrivacy.fakeName(seed: "Personal")) · \(EmailPrivacy.fakeEmail(seed: "Personal"))" {
       failures.append("Privacy mode: the Droid label exposes its name or email")
     }
+    let named = AccountIdentity(providerID: .droid, email: seed, accountID: "ada@", authMode: .oauth)
+    if named.displayLabel(privacy: false, hide: true, showDomains: false) != "a••••@ · a••••@gmail"
+        || identity.displayLabel(privacy: false, hide: true, showDomains: true) != "Personal · a••••@gmail.com"
+        || named.displayLabel(privacy: false, hide: false, showDomains: true) != "ada@ · ada@gmail.com" {
+      failures.append("Hide email addresses: a Droid account name ending in @ leaks, or a plain name changed")
+    }
     if identity.realAccountLabel != "Personal · ada@gmail.com" {
       failures.append("Privacy mode: the real account label changed")
     }
