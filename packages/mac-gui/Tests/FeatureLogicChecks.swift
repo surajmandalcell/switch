@@ -87,6 +87,8 @@ enum FeatureLogicChecks {
         try expect(EmailPrivacy.mask("alice@example.com") == "a••••@example.com", "Email mask has the wrong shape")
         try expect(EmailPrivacy.mask("no-at-sign") == "no-at-sign" && EmailPrivacy.mask("@x.com") == "@x.com",
                    "A non-email was masked")
+        try expect(EmailPrivacy.mask("alice@") == "a••••@" && EmailPrivacy.mask("Droid 1") == "Droid 1",
+                   "A Droid account name ending in @ was not masked, or a plain name was")
         try expect(EmailPrivacy.display("alice@example.com", hide: false, showDomains: true) == "alice@example.com",
                    "Emails were masked while the setting is off")
         let sentence = "Signed in as bob.smith@corp.example.org and a@b.co now"
