@@ -599,7 +599,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 }
                 try UILintStore.shared.write(to: URL(fileURLWithPath: path)
                     .appendingPathComponent("ui-lint-\(page)-\(appearance).json"),
-                    size: view.bounds.size, page: page, appearance: appearance)
+                    size: view.bounds.size, page: page, appearance: appearance, background: AIMTheme.pageColor)
             } catch {
                 FileHandle.standardError.write(Data("UI_LINT_EXPORT_FAIL: \(error)\n".utf8))
                 exit(2)
