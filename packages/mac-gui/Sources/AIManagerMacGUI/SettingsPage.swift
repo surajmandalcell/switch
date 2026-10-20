@@ -456,8 +456,20 @@ final class LaunchAtLoginSettings: ObservableObject {
     }
   }
 
+  #if AI_MANAGER_PREVIEW
+  /// A Preview build never registers a login item: it keeps the choice here. Run from an odd folder it
+  /// would report `.notFound`, and the dimmed toggle (a group-opacity layer) made the Settings page
+  /// switch check about 5 ms slower than the installed app, where the toggle is live.
+  private var previewOn = false
+  #endif
+
   func setEnabled(_ enabled: Bool) {
     errorMessage = nil
+    #if AI_MANAGER_PREVIEW
+    previewOn = enabled
+    Task { await refresh(clearError: false) }
+    return
+    #else
     do {
       if enabled {
         try service.register()
@@ -468,11 +480,16 @@ final class LaunchAtLoginSettings: ObservableObject {
       errorMessage = error.localizedDescription
     }
     Task { await refresh(clearError: false) }
+    #endif
   }
 
   func refresh(clearError: Bool = true) async {
+    #if AI_MANAGER_PREVIEW
+    status = previewOn ? .enabled : .notRegistered
+    #else
     let service = self.service
     status = await Task.detached(priority: .utility) { service.status }.value
+    #endif
     hasStatus = true
     if clearError { errorMessage = nil }
   }
