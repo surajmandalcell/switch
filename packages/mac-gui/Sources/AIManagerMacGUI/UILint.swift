@@ -77,9 +77,10 @@ private var uiLintEnabled = CommandLine.arguments.contains("--ui-lint")
         return result
     }
 
-    func write(to url: URL, size: CGSize, page: String, appearance name: String) throws {
+    func write(to url: URL, size: CGSize, page: String, appearance name: String,
+               background: NSColor = .windowBackgroundColor) throws {
         let document: [String: Any] = ["window": ["width": size.width, "height": size.height,
-            "background": color(.windowBackgroundColor)], "appearance": name, "page": page,
+            "background": color(background)], "appearance": name, "page": page,
             "items": items.sorted { $0.key.uuidString < $1.key.uuidString }.map { id, value in
                 var item = value
                 if let fill = colors[id]?.fill { item["fill"] = color(fill) }

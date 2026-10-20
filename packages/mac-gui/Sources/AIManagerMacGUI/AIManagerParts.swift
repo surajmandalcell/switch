@@ -40,16 +40,23 @@ extension AIMTheme {
   /// Width shared by the disabled Default, Switch, Sign in, and Allow buttons.
   static let rowButtonWidth: CGFloat = 64
 
-  static func dynamic(light: NSColor, dark: NSColor) -> Color {
-    Color(nsColor: NSColor(name: nil) { appearance in
+  static func dynamicColor(light: NSColor, dark: NSColor) -> NSColor {
+    NSColor(name: nil) { appearance in
       appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-    })
+    }
+  }
+
+  static func dynamic(light: NSColor, dark: NSColor) -> Color {
+    Color(nsColor: dynamicColor(light: light, dark: dark))
   }
 
   /// The light grey content background (dark grey in Dark Mode).
-  /// This Mac reports windowBackgroundColor as white in light, so the light page uses the
-  /// under-page grey (#F6F6F6) and the dark cards use it over the dark window background.
-  static let page = dynamic(light: .underPageBackgroundColor, dark: .windowBackgroundColor)
+  /// A system catalog color (underPageBackgroundColor) resolves by window context: in the installed
+  /// app's window it drew a mid grey, and again under the page header a darker top band. The light
+  /// page is one opaque #F6F6F6. The dark cards use underPageBackgroundColor over the dark window background.
+  static let pageColor = dynamicColor(
+    light: NSColor(srgbRed: 246 / 255, green: 246 / 255, blue: 246 / 255, alpha: 1), dark: .windowBackgroundColor)
+  static let page = Color(nsColor: pageColor)
   static let linkColor = Color(nsColor: .linkColor)
 
   /// Text in a tint (green, orange) darkened in light so it keeps 4.5:1 contrast on its fill.
