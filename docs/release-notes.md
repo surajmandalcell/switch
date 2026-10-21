@@ -1,6 +1,31 @@
 Switch is a native macOS app for keeping multiple AI coding-tool accounts ready
 and switching the account used by new sessions.
 
+Switch 3.8 adds Droid (Factory) accounts and makes every page faster and calmer.
+
+- Droid accounts switch by swapping their login file. Accounts lists Droid missions with
+  progress and the account that started each one. Resume switches to that account first,
+  because only it can continue the mission. Start here begins a new mission on the current
+  account from a plan of what is left.
+- Overview is now a usage dashboard with daily history by account, model, and project,
+  including Claude Code and Droid.
+- Switch accounts automatically when one runs low, and get action results as macOS
+  notifications.
+- Privacy mode shows each account as a made-up name for screenshots and screen sharing.
+  Usage can show Left or Used, and every
+  bar uses its provider's brand color and official icon.
+- Backups use an incremental snapshot engine and can save several tools into one shared
+  folder. Cleanup scans each tool by category and clears old app versions and pasted
+  images.
+- Conversations are grouped by day, keep the model that wrote each message, and remember
+  the reading place.
+- OpenCode 2 logins, z.ai keys from the Z Code app, and other signed-in tools import
+  automatically.
+- Pages stay loaded, so page switches are instant. The wheel scrolls a page from any
+  point, and pages stay still while scrolling. The window is 1200 pt wide, disabled
+  buttons are dimmed, and light mode uses one solid page color.
+- A restarted CLI keeps its options.
+
 Switch 3.4 adds every usage provider from OpenUsage and CodexBar that works without
 the macOS Keychain or browser cookie stores, about 95 in total, and gives each one the
 quick account switch.
