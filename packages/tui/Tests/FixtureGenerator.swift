@@ -9,7 +9,9 @@ guard arguments.count == 2 else {
 
 let root = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
 let systemTemporary = fileManager.temporaryDirectory.standardizedFileURL.path
-let temporaryRoots = ["/private/tmp/ai-manager-", systemTemporary + (systemTemporary.hasSuffix("/") ? "" : "/") + "ai-manager-"]
+// mktemp in acceptance.sh follows TMPDIR, but FileManager.temporaryDirectory does not, so accept both.
+let environmentTemporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL.path } ?? systemTemporary
+let temporaryRoots = ["/private/tmp/ai-manager-"] + [systemTemporary, environmentTemporary].map { $0 + ($0.hasSuffix("/") ? "" : "/") + "ai-manager-" }
 guard temporaryRoots.contains(where: root.path.hasPrefix) else {
     FileHandle.standardError.write(Data("Destination must be an ai-manager-* directory under the system temporary directory.\n".utf8))
     exit(64)
