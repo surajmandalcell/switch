@@ -175,6 +175,8 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var isClaudeActivityLoading = false
     @Published private(set) var droidActivity: ClaudeActivitySummary?
     @Published private(set) var isDroidActivityLoading = false
+    /// Droid missions on this Mac, newest first, each with its owner when Switch knows it.
+    @Published private(set) var droidMissions: [DroidMission] = []
     /// A year of daily usage for the Overview charts. Nil until the first load ends.
     @Published private(set) var usageHistory: UsageHistorySnapshot?
     /// Counts loads, so a page can tell a new snapshot from the one it drew.
@@ -473,6 +475,7 @@ final class AccountViewModel: ObservableObject {
         providerStatus = scenario == .empty || !ProviderStatusPoller.isEnabled() ? [:] : DemoData.providerStatus
         claudeActivity = scenario == .empty ? nil : DemoData.claudeActivity
         droidActivity = scenario == .empty ? nil : DemoData.droidActivity
+        droidMissions = scenario == .empty ? [] : DemoData.droidMissions(accounts: accounts)
         // `--overview-loading` and `--overview-empty` render the two states a screenshot cannot reach otherwise.
         let arguments = CommandLine.arguments
         usageHistory = arguments.contains("--overview-loading") ? nil
@@ -857,12 +860,98 @@ final class AccountViewModel: ObservableObject {
     }
 
     private func switchWithDroidConfirmation(_ manager: AccountManager, to id: UUID) async throws -> SwitchResult? {
-        do { return try await manager.switchDefault(to: id) }
+        let result: SwitchResult?
+        do { result = try await manager.switchDefault(to: id) }
         catch let error as DroidAccountError {
             guard case .running = error else { throw error }
             guard confirmDroidAction(error.localizedDescription, action: "Switch") else { return nil }
-            return try await manager.switchDefault(to: id, allowRunningDroid: true)
+            result = try await manager.switchDefault(to: id, allowRunningDroid: true)
         }
+        if let result, status?.accounts.first(where: { $0.id == id })?.identity.providerID == .droid {
+            await announceUnfinishedMissions(after: result, manager)
+        }
+        return result
+    }
+
+    /// Leaving an account that owns unfinished missions: one notice. The missions stay with it.
+    private func announceUnfinishedMissions(after result: SwitchResult, _ manager: AccountManager) async {
+        defer { Task { await self.refreshDroidMissions() } }
+        guard let previous = status?.accounts.first(where: { $0.id == result.previousAccountID }),
+              let count = try? await manager.unfinishedDroidMissions(after: result), count > 0 else { return }
+        postMessage(DroidMissionReader.unfinishedNotice(count: count, owner: previous.identity.accountLabel))
+    }
+
+    func refreshDroidMissions() async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { return }
+        #endif
+        guard let manager else { return }
+        let hasDroid = status?.accounts.contains { $0.identity.providerID == .droid } == true
+        let missions = hasDroid ? ((try? await manager.droidMissions()) ?? []) : []
+        if missions != droidMissions { droidMissions = missions }
+    }
+
+    func setDroidMissionOwner(_ mission: DroidMission, to accountID: UUID) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo {
+            if let index = droidMissions.firstIndex(where: { $0.id == mission.id }) { droidMissions[index].owner = accountID }
+            return
+        }
+        #endif
+        guard let manager else { return }
+        await perform(failure: "Couldn’t save the mission owner.", recovery: "Try again.") {
+            try await manager.setDroidMissionOwner(folder: mission.id, accountID: accountID)
+            await refreshDroidMissions()
+        }
+    }
+
+    /// Opens `droid --resume <id>` in Terminal, in the mission's folder. A different known owner
+    /// first gets a confirmed, guarded switch of the Droid default.
+    func resumeDroidMission(_ mission: DroidMission) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { notice = "Demo mission. No Terminal process was started."; return }
+        #endif
+        guard let manager else { return }
+        await perform(failure: "Couldn’t resume the mission.", recovery: "Check the mission folder, then try again.") {
+            if let owner = mission.owner, owner != status?.defaultAccountID(for: .droid),
+               let account = status?.accounts.first(where: { $0.id == owner }) {
+                guard confirmDroidAction("Switch Droid to \(account.identity.accountLabel) and resume this mission?", action: "Switch and Resume"),
+                      try await switchWithDroidConfirmation(manager, to: owner) != nil else { return }
+                try await reloadStatus(using: manager)
+            }
+            try await openDroidMission(mission, arguments: ["--resume", mission.id], name: "Resume Droid mission")
+        }
+    }
+
+    /// Starts a new mission on the default account from the plan of done and left features.
+    func startDroidMissionHere(_ mission: DroidMission) async {
+        #if AI_MANAGER_PREVIEW
+        if isDemo { notice = "Demo mission. No Terminal process was started."; return }
+        #endif
+        guard let manager else { return }
+        await perform(failure: "Couldn’t start the mission.", recovery: "Check the mission folder, then try again.") {
+            guard let id = status?.defaultAccountID(for: .droid),
+                  let account = status?.accounts.first(where: { $0.id == id }) else { throw AIManagerError.accountNotFound }
+            let name = account.identity.accountLabel
+            guard confirmDroidAction(
+                "Start a new mission on \(name) from this plan? It skips \(mission.completed) done \(mission.completed == 1 ? "feature" : "features") and uses \(name)’s credit.",
+                action: "Start") else { return }
+            let plan = try await manager.writeDroidMissionPlan(folder: mission.id)
+            try await openDroidMission(
+                mission, arguments: ["exec", "--mission", "-f", plan.path, "--auto", "high"], name: "Start Droid mission")
+        }
+    }
+
+    private func openDroidMission(_ mission: DroidMission, arguments: [String], name: String) async throws {
+        var isDirectory: ObjCBool = false
+        guard let manager, let id = status?.defaultAccountID(for: .droid) else { throw AIManagerError.accountNotFound }
+        guard FileManager.default.fileExists(atPath: mission.workingDirectory, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw AIManagerError.operationFailed("The mission’s folder is gone: \(mission.workingDirectory)")
+        }
+        let spec = try await manager.launchSpec(
+            accountID: id, arguments: arguments,
+            workingDirectory: URL(fileURLWithPath: mission.workingDirectory, isDirectory: true))
+        try openInTerminal(spec, tool: "Droid mission", name: "\(name) \(mission.id.prefix(8)).command")
     }
 
     /// Environment variable that may prefill a credential field. Never read in Preview or in an
@@ -1254,18 +1343,7 @@ final class AccountViewModel: ObservableObject {
                     try await reloadStatus(using: manager)
                     selectedAccountID = id
                 }
-                let spec = try await manager.launchSpec(accountID: id)
-                if paths.isolationRoot != nil {
-                    _ = try makeLaunchArtifact(spec)
-                    notice = "Account launch file prepared for isolated validation. Terminal was not opened."
-                    return
-                }
-                let script = try makeLaunchArtifact(spec)
-                guard NSWorkspace.shared.open(script) else {
-                    throw AIManagerError.operationFailed(
-                        "Terminal could not open the \(providerName) launch file.")
-                }
-                notice = "\(providerName) opened in Terminal."
+                try openInTerminal(try await manager.launchSpec(accountID: id), tool: providerName)
             }
             return
         }
@@ -1759,7 +1837,8 @@ final class AccountViewModel: ObservableObject {
         async let status: Void = refreshProviderStatus()
         async let activity: Void = refreshClaudeActivity(force: forceClaudeActivity)
         async let droid: Void = refreshDroidActivity(force: forceClaudeActivity)
-        _ = await (status, activity, droid)
+        async let missions: Void = refreshDroidMissions()
+        _ = await (status, activity, droid, missions)
     }
 
     // MARK: Provider status
@@ -2579,6 +2658,19 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    /// Opens the launch file in Terminal. An isolated validation run only writes it.
+    private func openInTerminal(_ spec: LaunchSpec, tool: String, name: String = "Open Switch Account.command") throws {
+        let script = try makeLaunchArtifact(spec, name: name)
+        if paths.isolationRoot != nil {
+            notice = "Account launch file prepared for isolated validation. Terminal was not opened."
+            return
+        }
+        guard NSWorkspace.shared.open(script) else {
+            throw AIManagerError.operationFailed("Terminal could not open the \(tool) launch file.")
+        }
+        notice = "\(tool) opened in Terminal."
+    }
+
     private func makeLaunchArtifact(
         _ spec: LaunchSpec, name: String = "Open Switch Account.command", exportKeys: [String]? = nil
     ) throws -> URL {
@@ -2755,6 +2847,23 @@ enum DemoData {
             ],
             unpricedModels: ["claude-preview-synthetic"], computedAt: Date(),
             chart: demoChart(id: "claude-daily", title: "Daily cost (API-equivalent estimate)", unit: "USD", scale: 24))
+    }
+
+    /// Synthetic Droid missions, newest first: one owned by the demo Droid account, two with an unknown owner.
+    static func droidMissions(accounts: [AccountRecord]) -> [DroidMission] {
+        let owner = accounts.first { $0.identity.providerID == .droid }?.id
+        func mission(_ id: String, _ title: String, daysAgo: Double, total: Int, completed: Int, cancelled: Int, owner: UUID?) -> DroidMission {
+            let created = now.addingTimeInterval(-daysAgo * 86_400)
+            return DroidMission(
+                id: id, missionID: "mis_\(id)", state: "paused", workingDirectory: "/Demo/Projects/\(id)",
+                createdAt: created, updatedAt: created, title: title, total: total, completed: completed,
+                cancelled: cancelled, owner: owner)
+        }
+        return [
+            mission("demo-mission-1", "Build the inventory dashboard", daysAgo: 4, total: 160, completed: 131, cancelled: 26, owner: owner),
+            mission("demo-mission-2", "Refactor the sync engine", daysAgo: 11, total: 103, completed: 76, cancelled: 26, owner: nil),
+            mission("demo-mission-3", "Add the export screen", daysAgo: 30, total: 3, completed: 3, cancelled: 0, owner: nil),
+        ]
     }
 
     /// Synthetic Droid activity.

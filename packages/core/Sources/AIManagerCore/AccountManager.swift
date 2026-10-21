@@ -1992,6 +1992,7 @@ extension AccountManager {
         try finishOperation(&operation)
         let staged = paths.applicationSupport.appending(path: "staging/\(operationID.uuidString)")
         if CoreSupport.entryExists(staged) { try fileManager.removeItem(at: staged) }
+        recordDroidMissionSwitch(from: previousDefault, to: accountID)
         return .init(accountID: accountID, backup: backup, previousAccountID: previousDefault)
     }
 
@@ -2015,6 +2016,62 @@ extension AccountManager {
     }
 
     private var registryURL: URL { paths.applicationSupport.appending(path: "accounts.json") }
+
+    // MARK: Droid missions
+
+    private var missionOwnersURL: URL { paths.applicationSupport.appending(path: "droid-missions.json") }
+
+    /// The mission folders, newest first, each with its owner. Owners of deleted accounts read as
+    /// unknown. A refresh also gives new missions to the default account (see `DroidMissionOwners`).
+    public func droidMissions() throws -> [DroidMission] {
+        let registry = try loadRegistry()
+        let saved = Set(registry.accounts.filter { $0.identity.providerID == .droid }.map(\.id))
+        var missions = DroidMissionReader.list(droidHome: paths.droidHome, fileManager: fileManager)
+        var owners = DroidMissionOwners.load(missionOwnersURL)
+        let before = owners
+        owners.refresh(missions, defaultAccount: registry.defaultAccountID(for: .droid), now: Date())
+        if owners != before { try? owners.save(missionOwnersURL, fileManager: fileManager) }
+        for index in missions.indices {
+            missions[index].owner = owners.owners[missions[index].id].flatMap { saved.contains($0) ? $0 : nil }
+        }
+        return missions
+    }
+
+    public func setDroidMissionOwner(folder: String, accountID: UUID) throws {
+        let registry = try loadRegistry()
+        guard registry.accounts.contains(where: { $0.id == accountID && $0.identity.providerID == .droid }) else {
+            throw AIManagerError.accountNotFound
+        }
+        var owners = DroidMissionOwners.load(missionOwnersURL)
+        owners.owners[folder] = accountID
+        try owners.save(missionOwnersURL, fileManager: fileManager)
+    }
+
+    /// Writes the "Start here" plan of a mission to application support `Launch/` and returns it.
+    public func writeDroidMissionPlan(folder: String) throws -> URL {
+        guard DroidMissionReader.list(droidHome: paths.droidHome, fileManager: fileManager).contains(where: { $0.id == folder }),
+              let plan = DroidMissionReader.plan(folder: folder, droidHome: paths.droidHome, fileManager: fileManager) else {
+            throw AIManagerError.operationFailed("That Droid mission could not be read.")
+        }
+        let url = paths.applicationSupport.appending(path: "Launch/Droid mission \(folder.prefix(8)) plan.md")
+        try CoreSupport.atomicWrite(Data(plan.utf8), to: url, fileManager: fileManager)
+        return url
+    }
+
+    /// After a switch away from an account: how many missions it started that still have features
+    /// left. Zero when the default did not change.
+    public func unfinishedDroidMissions(after result: SwitchResult) throws -> Int {
+        guard let previous = result.previousAccountID, previous != result.accountID else { return 0 }
+        return try droidMissions().filter { $0.owner == previous && $0.left > 0 }.count
+    }
+
+    private func recordDroidMissionSwitch(from previous: UUID?, to accountID: UUID) {
+        guard previous != accountID else { return }
+        var owners = DroidMissionOwners.load(missionOwnersURL)
+        let missions = DroidMissionReader.list(droidHome: paths.droidHome, fileManager: fileManager)
+        owners.switched(from: previous, to: accountID, missions, now: Date())
+        try? owners.save(missionOwnersURL, fileManager: fileManager)
+    }
     private var accountsRoot: URL {
         paths.applicationSupport.appending(path: "accounts", directoryHint: .isDirectory)
     }
