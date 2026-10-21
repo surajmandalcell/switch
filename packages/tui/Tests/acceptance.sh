@@ -32,7 +32,7 @@ skip_if_native_writer_unknown() {
 
 "$binary" providers --json \
   | jq -e '
-      map(.id)[0:3] == ["codex", "grok-build", "claude-code"]
+      map(.id)[0:4] == ["codex", "grok-build", "droid", "claude-code"]
       and .[0].displayName == "Codex CLI"
       and .[1].displayName == "Grok Build"
       and (map(.id) | index("gemini-cli") != null and index("antigravity-cli") != null and index("litellm") != null)
@@ -46,7 +46,7 @@ rg -F 'Claude Code CLI was not found.' "$test_root/disabled-provider.log" >/dev/
 "$binary" help >"$test_root/help.log"
 rg -F 'ai-manager add [codex|grok-build|claude-code]' "$test_root/help.log" >/dev/null
 rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
-rg -F 'Codex CLI, Grok Build, and Claude Code are available in this release.' "$test_root/help.log" >/dev/null
+rg -F 'Codex CLI, Grok Build, Droid, and Claude Code are available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
 printf '\033[B\033[A\033' | AI_MANAGER_TUI_KEYS=always \
