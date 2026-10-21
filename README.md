@@ -37,12 +37,12 @@
 
 ## Overview
 
-Every account, model, and project in one page: tokens per day, a 12-month activity map, trends,
+Every account, model, and project on one page: tokens per day, a 12-month activity map, trends,
 and each account's share of tokens.
 
 ![Switch Overview page in dark mode with tokens per day and a year of activity](docs/screenshots/overview-dark.png)
 
-| Trends and share of tokens | Light appearance |
+| Trends | Light mode |
 | :---: | :---: |
 | ![Overview trends, share of tokens, and recent backups](docs/screenshots/overview-insights.png) | ![Switch Overview page in light mode](docs/screenshots/overview-light.png) |
 
@@ -52,7 +52,7 @@ The status item shows up to four account percentages. The popover lists every sa
 the default for each tool, its limits, and when each window resets. Optional notifications
 warn when a window is almost out, and a dot marks a provider incident.
 
-| Light | Dark |
+| Light mode | Dark mode |
 | :---: | :---: |
 | ![Switch menu bar popover in light mode](docs/screenshots/menubar-light.png) | ![Switch menu bar popover in dark mode](docs/screenshots/menubar-dark.png) |
 
@@ -62,7 +62,7 @@ All saved accounts, grouped by tool, with live usage and one button to make any 
 
 ![Switch Accounts page with accounts grouped by tool](docs/screenshots/accounts-dark.png)
 
-<sub>Screenshots show real usage with <b>Hide email addresses</b> turned on. Menu bar screenshots use the synthetic Preview data.</sub>
+<sub>Screenshots show real usage with <b>Hide email addresses</b> on. The menu bar screenshots use Preview sample data.</sub>
 
 ## Get Switch for Mac
 
@@ -77,31 +77,35 @@ Switch requires macOS 14 or later on Apple Silicon.
 
 Choose **Add Account**, then search for the provider.
 
-1. For a command-line tool, sign in through its isolated temporary home, or
+1. For a command-line tool, sign in through its private temporary home, or
    import the login you already have. For an API provider, paste its key.
 2. Return to Switch and choose **Check Now**.
-3. Choose **Switch** in the menu bar, or **Set as Default** in the app.
-4. Choose **Open** to launch that provider with the selected account.
+3. Choose **Switch** in the menu bar, or **Make Default** in the app.
+4. Choose **Open Codex** (or your tool's name) to start the tool with that account.
 
-Sign-in runs in a private temporary home. It does not replace your current
-login while you add another account.
+Adding an account never replaces the login you use now.
 
 ## Supported tools
 
-| Provider | Account switching | Usage limits |
-| --- | --- | --- |
-| Codex CLI | Swaps `~/.codex/auth.json` | Supported |
-| [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Swaps `~/.grok/auth.json` | Supported |
-| Claude Code | Profiles that share one history | Supported |
-| Droid (Factory) | Swaps the Droid login | Supported |
-| Gemini CLI, Antigravity CLI, Cursor, GitHub Copilot, Kiro, Kimi Code, Kilo, Codebuff, Devin, OpenCode Go, Ollama, Vertex AI | Swaps only the tool's login | Supported |
-| About 80 API and plan providers, such as OpenRouter, z.ai, DeepSeek, MiniMax, Mistral, Groq, OpenAI, AWS Bedrock, Warp, and Factory | Switches the saved key or session | Supported |
+| Tool | Switching | Usage |
+| --- | --- | :---: |
+| Codex CLI | Swaps `~/.codex/auth.json` | Yes |
+| [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Swaps `~/.grok/auth.json` | Yes |
+| Claude Code | One profile per account, shared history | Yes |
+| Droid (Factory) | Swaps the auth files in `~/.factory` | Yes |
+| 12 more command-line tools | Swaps only the tool's login | Yes |
+| About 80 API and plan providers | Switches the saved key or session | Yes |
+
+**Command-line tools:** Gemini CLI, Antigravity CLI, Cursor, GitHub Copilot, Kiro, Kimi Code,
+Kilo, Codebuff, Devin, OpenCode Go, Ollama, and Vertex AI.
+
+**API and plan providers:** OpenRouter, z.ai, DeepSeek, MiniMax, Mistral, Groq, OpenAI,
+AWS Bedrock, Warp, Factory, and more.
 
 Switch includes every usage provider from [OpenUsage](https://github.com/robinebers/openusage)
-and [CodexBar](https://github.com/steipete/CodexBar) that works without reading the
-macOS Keychain or browser cookie stores. Providers that need a browser session take a
-pasted Cookie header instead. Codex refreshes every three minutes and other providers
-every five.
+and [CodexBar](https://github.com/steipete/CodexBar) that works without the macOS Keychain
+or browser cookie stores. A provider that needs a browser session takes a pasted Cookie
+header instead. Codex usage refreshes every 3 minutes, and other providers every 5.
 
 ## Only the provider login changes
 
@@ -118,9 +122,9 @@ Each provider keeps its own default account.
 <details>
 <summary><b>Provider notes</b></summary>
 
-- **Codex CLI:** Switch replaces only `~/.codex/auth.json`. Existing sessions keep the
-  credential they already loaded. Usage limits, history, activity, imports, and Cleanup
-  are available.
+- **Codex CLI:** Switch replaces only `~/.codex/auth.json`. Open sessions keep the
+  login they already loaded. Usage, history, activity, imports, and Cleanup are
+  available.
 - **Grok Build:** Switch replaces only `~/.grok/auth.json`. The official CLI reloads that
   file before its next API call.
 - **Claude Code:** Each account is a separate profile with its own
@@ -128,6 +132,9 @@ Each provider keeps its own default account.
   conversations, settings, commands, and skills in `~/.claude`. The default applies to
   sessions launched through Switch. Turn on **Use the selected Claude account in
   terminals** in Settings to make a plain `claude` command follow it.
+- **Droid:** Switch replaces only the auth files in `~/.factory`, and asks first while
+  Droid or Factory.app is running. A mission stays with the account that started it, so
+  **Resume** on the Accounts page switches to that account first.
 - **Other command-line tools:** Switch swaps only the tool's login file, JSON entry, or
   database rows. Quit an app such as Cursor before switching it.
 - **API providers:** Each account is a saved key or pasted session. Switching changes the
@@ -158,22 +165,22 @@ The `ai-manager` command remains available as an alias.
 Script it:
 
 ```bash
-switch usage --json                                  # every account's limits
-switch guard --provider codex --min-remaining 10     # exits non-zero when a window runs low
-switch help                                          # all non-interactive commands
+switch usage --json                               # usage for every account
+switch guard --provider codex --min-remaining 10  # fails when a window runs low
+switch help                                       # every non-interactive command
 ```
 
-## More when you need it
+## More features
 
-- **Check a saved account.** Validate its credential without making it the default, and
-  refresh usage when the provider exposes it.
-- **Import an existing account.** Review a credential or provider home before adding it.
-  Extra settings and history remain optional where supported.
-- **Explore supported history.** Search conversations, track daily token activity, and
-  retain summaries when the provider supplies compatible data.
-- **Clean up and back up safely.** Preview supported conversations and caches, move them to
-  recoverable trash, and restore them when needed. Back up chats and settings to a drive
-  or folder you choose.
+- **Check a saved account.** Test its login without making it the default, and refresh
+  its usage.
+- **Import an existing account.** Review a login or provider home before you add it.
+  Settings and history are optional.
+- **Search your history.** Search conversations, grouped by day, and track daily tokens
+  per account, model, and project.
+- **Clean up and back up.** Preview conversations and caches, move them to a recoverable
+  trash, and restore them when needed. Back up chats and settings to a drive or folder
+  you choose.
 - **Keep your screen private.** Hide email addresses, or turn on Privacy mode to show every
   account under a stable made-up name.
 
