@@ -110,17 +110,10 @@ Selecting an account changes only that provider's credential file, JSON entry, o
 database rows. The previous login is saved first, and the replaced bytes are backed up.
 Each provider keeps its own default account.
 
-```mermaid
-flowchart LR
-    A["Personal account"] --> S["Provider adapter"]
-    B["Work account"] --> S
-    subgraph H["Shared provider home"]
-        AUTH["Credential<br/>replaced"]
-        CONFIG["Settings and extensions<br/>unchanged"]
-        HISTORY["History and data<br/>unchanged"]
-    end
-    S --> AUTH --> NEW["New provider sessions"]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/login-swap-dark.png">
+  <img src="docs/screenshots/login-swap-light.png" alt="Switching Codex from ada.lovelace to grace.hopper: the old login is saved and backed up, the new login replaces only ~/.codex/auth.json, and config.toml, AGENTS.md, sessions, and history are kept. Claude Code keeps its own default." width="100%">
+</picture>
 
 <details>
 <summary><b>Provider notes</b></summary>
