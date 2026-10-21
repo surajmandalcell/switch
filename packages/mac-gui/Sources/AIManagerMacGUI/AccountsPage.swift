@@ -220,6 +220,7 @@ private struct AccountDetail: View {
       }
       if account.identity.providerID == .droid {
         ClaudeActivityPanel(model: model, providerID: .droid)
+        if !model.droidMissions.isEmpty { DroidMissionsCard(model: model) }
         DroidUsageKeyPanel(account: account, model: model)
       }
       AIMSection("Account details") {

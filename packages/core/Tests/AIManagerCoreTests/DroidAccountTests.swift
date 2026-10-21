@@ -466,4 +466,135 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: second.credentialFile.appending(path: "auth.v2.loginkeychain")), Data("synthetic-login-B".utf8))
         XCTAssertEqual(try Data(contentsOf: paths.droidHome.appending(path: "auth.v2.loginkeychain")), Data("synthetic-login-B".utf8))
     }
+
+    // MARK: Missions
+
+    /// A synthetic mission folder. `statuses` gives one feature each.
+    @discardableResult
+    private func mission(
+        _ folder: String, created: Date, title: String? = "Synthetic plan", directory: String = "/tmp/synthetic-project",
+        statuses: [String] = [], extra: [String: String] = [:]
+    ) throws -> URL {
+        let url = paths.droidHome.appending(path: "missions/\(folder)")
+        try fm.createDirectory(at: url, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let state: [String: Any] = ["missionId": "mis_\(folder)", "state": "paused", "workingDirectory": directory,
+            "createdAt": stamp.string(from: created), "updatedAt": stamp.string(from: created), "futureKey": 1]
+        try JSONSerialization.data(withJSONObject: state).write(to: url.appending(path: "state.json"))
+        let features = statuses.enumerated().map { index, status -> [String: Any] in
+            ["id": "feature-\(index)", "description": "Do thing \(index)", "status": status,
+             "expectedBehavior": ["Behaves \(index)"], "milestone": "m1"]
+        }
+        try JSONSerialization.data(withJSONObject: ["features": features]).write(to: url.appending(path: "features.json"))
+        if let title { try "intro\n# \(title)\n\nBody text.\n".write(to: url.appending(path: "mission.md"), atomically: true, encoding: .utf8) }
+        for (name, text) in extra { try text.write(to: url.appending(path: name), atomically: true, encoding: .utf8) }
+        return url
+    }
+
+    func testMissionReaderCountsTitleFallbackAndSkipsBrokenFolders() throws {
+        let now = Date()
+        try mission("aaaa1111", created: now.addingTimeInterval(-100), statuses: ["completed", "completed", "cancelled", "pending", "weird"])
+        try mission("bbbb2222", created: now.addingTimeInterval(-50), title: nil, directory: "/tmp/my-project/app", statuses: ["completed"])
+        let broken = try mission("cccc3333", created: now, statuses: ["pending"])
+        try Data("{".utf8).write(to: broken.appending(path: "features.json"))
+        let noState = paths.droidHome.appending(path: "missions/dddd4444")
+        try fm.createDirectory(at: noState, withIntermediateDirectories: true)
+        let list = DroidMissionReader.list(droidHome: paths.droidHome)
+        XCTAssertEqual(list.map(\.id), ["bbbb2222", "aaaa1111"])
+        let first = list[1]
+        XCTAssertEqual([first.total, first.completed, first.cancelled, first.left], [5, 2, 1, 2])
+        XCTAssertEqual(first.title, "Synthetic plan")
+        XCTAssertEqual(first.missionID, "mis_aaaa1111")
+        XCTAssertEqual(first.workingDirectory, "/tmp/synthetic-project")
+        XCTAssertEqual(list[0].title, "app")
+        XCTAssertEqual(list[0].left, 0)
+        XCTAssertEqual(first.createdAt.timeIntervalSince1970, now.addingTimeInterval(-100).timeIntervalSince1970, accuracy: 0.01)
+        XCTAssertTrue(DroidMissionReader.list(droidHome: root.appending(path: "none")).isEmpty)
+    }
+
+    func testMissionOwnersFirstSightRefreshAndChangeOutsideSwitch() {
+        let (x, y) = (UUID(), UUID())
+        let t = Date(timeIntervalSince1970: 1_000_000)
+        func make(_ id: String, _ offset: TimeInterval) -> DroidMission {
+            DroidMission(id: id, state: "", workingDirectory: "", createdAt: t.addingTimeInterval(offset),
+                         updatedAt: t, title: id, total: 1, completed: 0, cancelled: 0)
+        }
+        let old = make("old", -10), new = make("new", 10)
+        var owners = DroidMissionOwners()
+        owners.refresh([old, new], defaultAccount: x, now: t)  // first sight: attributes nothing
+        XCTAssertEqual(owners.activeSince, .init(account: x, since: t))
+        XCTAssertTrue(owners.owners.isEmpty)
+        owners.refresh([old, new], defaultAccount: x, now: t.addingTimeInterval(20))
+        XCTAssertEqual(owners.owners, ["new": x])
+        owners.refresh([old, new, make("later", 30)], defaultAccount: y, now: t.addingTimeInterval(40))  // changed outside Switch
+        XCTAssertEqual(owners.owners, ["new": x])
+        XCTAssertEqual(owners.activeSince, .init(account: y, since: t.addingTimeInterval(40)))
+        owners.refresh([make("later", 30)], defaultAccount: nil, now: t.addingTimeInterval(50))
+        XCTAssertEqual(owners.activeSince?.account, y)
+    }
+
+    func testMissionSwitchGivesOldAccountItsMissionsAndManualAndDeletedOwners() async throws {
+        let manager = try manager()
+        let (first, second) = try await accounts(manager)
+        let now = Date()
+        try mission("old00000", created: now.addingTimeInterval(-3_600), statuses: ["pending"])
+        var list = try await manager.droidMissions()
+        XCTAssertNil(list[0].owner)  // first sight: nothing before it is attributed
+        try mission("one11111", created: now.addingTimeInterval(60), statuses: ["completed", "pending"])
+        try mission("two22222", created: now.addingTimeInterval(120), statuses: ["completed"])
+        // The switch gives the missions created under `first` to it, before `second` becomes active.
+        let result = try await manager.switchDefault(to: second.id)
+        try mission("new33333", created: now.addingTimeInterval(7_200), statuses: ["pending"])
+        list = try await manager.droidMissions()
+        XCTAssertEqual(list.map(\.id), ["new33333", "two22222", "one11111", "old00000"])
+        XCTAssertEqual(list.map(\.owner), [second.id, first.id, first.id, nil])
+        let stored = try Data(contentsOf: paths.applicationSupport.appending(path: "droid-missions.json"))
+        XCTAssertNotNil(try JSONSerialization.jsonObject(with: stored) as? [String: Any])
+        let mode = try fm.attributesOfItem(atPath: paths.applicationSupport.appending(path: "droid-missions.json").path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o600)
+        // The notice counts only missions with features left that the old account started.
+        let unfinished = try await manager.unfinishedDroidMissions(after: result)
+        XCTAssertEqual(unfinished, 1)
+        XCTAssertEqual(DroidMissionReader.unfinishedNotice(count: 1, owner: "Personal"),
+                       "1 unfinished Droid mission stays with Personal. Resume them from Accounts.")
+        XCTAssertEqual(DroidMissionReader.unfinishedNotice(count: 2, owner: "Personal"),
+                       "2 unfinished Droid missions stay with Personal. Resume them from Accounts.")
+        // Switching to the account that is already the default posts nothing.
+        let same = try await manager.switchDefault(to: second.id)
+        let none = try await manager.unfinishedDroidMissions(after: same)
+        XCTAssertEqual(none, 0)
+        // Manual owner.
+        try await manager.setDroidMissionOwner(folder: "old00000", accountID: second.id)
+        list = try await manager.droidMissions()
+        XCTAssertEqual(list.first { $0.id == "old00000" }?.owner, second.id)
+        // An owner whose account was deleted reads as unknown.
+        _ = try await manager.deleteAccount(accountID: first.id)
+        list = try await manager.droidMissions()
+        XCTAssertEqual(list.map(\.owner), [second.id, nil, nil, second.id])
+    }
+
+    func testMissionPlanListsDoneLeftAndNotes() async throws {
+        let manager = try manager()
+        _ = try await manager.importDroidAccount(name: "Personal")
+        let url = try mission("plan1111", created: Date(), statuses: ["completed", "pending", "cancelled", "in_progress"],
+                              extra: ["architecture.md": "arch", "validation-contract.md": "contract"])
+        let planURL = try await manager.writeDroidMissionPlan(folder: "plan1111")
+        XCTAssertTrue(planURL.path.hasPrefix(paths.applicationSupport.appending(path: "Launch/").path))
+        let plan = try String(contentsOf: planURL, encoding: .utf8)
+        XCTAssertTrue(plan.contains("started on another Factory account"))
+        XCTAssertTrue(plan.contains("Body text."))
+        let done = try XCTUnwrap(plan.range(of: "## Done (do not redo)"))
+        let left = try XCTUnwrap(plan.range(of: "## Left"))
+        let doneText = String(plan[done.upperBound..<left.lowerBound])
+        let leftText = String(plan[left.upperBound...])
+        XCTAssertTrue(doneText.contains("feature-0: Do thing 0"))
+        XCTAssertFalse(doneText.contains("feature-1"))
+        XCTAssertTrue(leftText.contains("feature-1: Do thing 1") && leftText.contains("feature-3: Do thing 3"))
+        XCTAssertTrue(leftText.contains("- Behaves 1"))
+        XCTAssertFalse(leftText.contains("feature-2"))
+        XCTAssertTrue(leftText.contains(url.appending(path: "architecture.md").path))
+        XCTAssertTrue(leftText.contains(url.appending(path: "validation-contract.md").path))
+        do { _ = try await manager.writeDroidMissionPlan(folder: "../escape"); XCTFail("path escaped") } catch {}
+    }
 }

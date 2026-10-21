@@ -15,8 +15,7 @@ Codex's live home is `~/.codex`. After identity and digest checks, Switch atomic
 conversations, databases, and other non-authentication state stay. Running processes keep their
 in-memory credentials; new sessions use the selected account.
 
-Owner-private credentials live at `~/.switch/codex/<account-uuid>.json`. Stable UUIDs keep emails
-out of paths. Application support holds the registry, usage cache, transactions, backups, and
+Owner-private credentials live at `~/.switch/codex/<account-uuid>.json`. Application support holds the registry, usage cache, transactions, backups, and
 recovery metadata. SQLite never stores raw authentication.
 
 Grok Build's live home is `~/.grok` or `$GROK_HOME`. Switch atomically replaces only `auth.json`;
@@ -58,6 +57,15 @@ existing Factory usage provider as fallback. The generic Factory API-key provide
 with its own default. The write lock is a nonempty directory published by rename; its 0600
 `owner.json` holds a random token and process ID. Honor `.reclaim`; never remove another writer's lock.
 
+Droid missions keep plan and progress in `~/.factory/missions/<session id>/`; leader and worker
+chats are Factory sessions owned by the starting account, so only it can resume them. Accounts lists them under Droid, newest first:
+title (mission.md's first heading), "131 of 160 done", owner, and created date; state shows on hover. Switch records the owner
+of missions created while it knows the default (`droid-missions.json`); others offer Set owner.
+Resume runs `droid --resume <id>` in Terminal in its working directory, after a guarded switch to
+a different saved owner. Start here confirms, writes a plan of done and left features,
+and runs `droid exec --mission -f <plan> --auto high` on the default. Leaving an owner of
+unfinished missions posts one notice. Never edit mission files or call Factory's mission API.
+
 Claude Code profiles use stable, separate `CLAUDE_CONFIG_DIR` paths and can stay signed in.
 Claude Code owns credentials and Keychain entries; Switch never copies or parses them.
 `~/.switch/claude/active` selects the default for Switch and host-app launches. Opt-in shell
@@ -90,8 +98,7 @@ cookie stores. Each `ProviderSpec` uses one of two credential styles:
   auth.json. Switch reads active `opencode-go` as live OpenCode Go and imports unsaved
   `zai-coding-plan` keys as z.ai. It never writes the database; changing the OpenCode Go default
   asks for `opencode auth login`. Usage 403 EntitlementError means no Go subscription: show
-  "No Go plan" with a usage reason, not an error or sign-in. OpenCode has no
-  Free plan; without Go, it uses pay-as-you-go Zen.
+  "No Go plan" with a usage reason, not an error or sign-in.
 - **Secret**: API keys, access tokens, or a pasted Cookie header. Switching selects the
   default saved account.
 
@@ -113,11 +120,10 @@ Codex CLI and Grok Build defaults match live credentials; Claude Code's default 
 Switch-launched sessions. Switching and deletion change defaults only within that provider.
 The TUI groups accounts by provider, keeps their order, and marks each group's default.
 
-Existing-account "Sign in" binds an isolated session to its account ID. Before changes, match
-the saved provider identity. On mismatch, discard the home and report both identities. On a match,
-atomically refresh only that credential. Only active defaults update live auth through the
-same-identity switch path. Account-scoped sign-in never signals running CLIs. "Add account"
-remains provider-scoped.
+Existing-account "Sign in" binds an isolated session to its account ID and must match the saved
+identity: a mismatch discards the home and reports both; a match atomically refreshes only that
+credential. Only active defaults update live auth, through the same-identity switch path. It never
+signals running CLIs; "Add account" stays provider-scoped.
 
 After restart, sign-in checks read private staging with auth-only import's identity, digest, and
 transaction checks; unrelated Codex processes cannot block them. Retire metadata when process
@@ -156,8 +162,7 @@ off ("ada@mail.co.uk" reads "ada@mail").
    **Refresh when the menu opens** is off by default.
    **Reset settings** confirms separately. It resets Settings choices, account Menubar and hidden
    rows, and the shortcut; it keeps accounts, sign-ins, placement, and Open at Login.
-2. **Data locations** explains Codex and Grok Build homes and vaults (`~/.codex`,
-   `~/.switch/codex`, `~/.grok`, `~/.switch/grok-build`) and offers Reveal actions.
+2. **Data locations** shows the Codex and Grok Build homes and vaults (section 1) with Reveal.
 3. **Menu bar defaults** has Show account usage on by default; explicit overrides survive changes.
 4. **Notifications** offers Almost Out (under 10% left), pace (Cutting It Close, Will Run Out),
    Available again (full window reset), and Sign in again (once per failure episode). All are off
@@ -213,8 +218,8 @@ Trash moves never claim freed space. Preserve compact activity totals before rem
 changed or unsafe files and active or unknown writers. Protect auth, settings, account registry
 and defaults, backups, Codex databases, and activity ledger. Mark linked or foreign-owned chats
 protected; exclude them from removal review without blocking safe files.
-Use a native time-range pop-up. Align expanded rows to their nesting level's leading edge.
-Give groups clear headings, aligned counts, and brief descriptions; keep totals beside Review.
+Use a native time-range pop-up; align expanded rows to their nesting level; groups get headings,
+aligned counts, and short descriptions; totals sit beside Review.
 
 Backup is one checklist of every tool (size, last backup); Claude Code is one row that includes
 each account's profile folder. Checked tools share one owner-picked folder, schedule (off, daily,
@@ -230,10 +235,9 @@ search cover full conversations and page results. Copy shown exports loaded, fil
 in order. Use virtual native rows; parse, search, and render off the main thread. Large messages
 may be compact but keep original copy text. Align header message count and token total with its subtitle;
 omit unreliable totals. A small sidebar spinner replaces the count only during first-page load;
-counts say "conversations". Give prompt, response, tool, and other roles distinct fills, shared
-leading alignment, and no left borders. Wrap code lines for continuous vertical scrolling. Give
-role, model, and date headers their own lines; show responses and code at full height without
-clipping or overlap. Group threads by Today, Yesterday, and dates. Rows have full-width one-line
+counts say "conversations". Roles get distinct fills, shared leading alignment, and no left
+borders; code lines wrap; role, model, and date headers take their own lines; responses and code
+show at full height without clipping or overlap. Group threads by Today, Yesterday, and dates. Rows have full-width one-line
 titles; subtitles show a small origin badge (Codex CLI, Codex exec, Codex app, Codex Chrome,
 Subagent), then model and time.
 
@@ -252,8 +256,7 @@ Command-R refreshes. The status context menu offers Open, Refresh Usage, Setting
 Claude's account page prices all profiles' local transcripts as an API-equivalent estimate;
 Droid sessions use the same panel above the Factory usage key.
 
-Daily charts (30 days or native span) return id, title, unit (USD, tokens, requests, credits, or
-currency), and dated points. Draw 72-point bars per series below windows. The header shows the
+Daily charts (30 days or native span) return id, title, unit, and dated points. Draw 72-point bars per series below windows. The header shows the
 title and total or hovered or focused day; VoiceOver says "30 days, total $12.40, peak $2.10 on
 Oct 3". Claude Code's 30-day cost uses this chart. On 30-day axes, name the first, middle, and
 last dates in full; end labels clamp inside the card inset. Menu cards omit charts.
@@ -284,18 +287,16 @@ Refresh all saved Codex accounts at launch and every three minutes while running
 age or menu opening. One cache model updates window and menu bar per completed refresh.
 Manual refresh is immediate; failed accounts wait five minutes for automatic retry.
 
-Daily activity is a GitHub-style calendar. Its saved segmented control (Today, Yesterday, Weekly,
-Monthly, Yearly; default Yearly) sets range, total tokens, and cell intensity. Account selection
-changes display without activating credentials, waiting for reads or aggregation, or showing prior
-data. A year of activity stays responsive. One Canvas handles dense grids, exact-day pointer
-selection, arrow keys, and per-date accessibility actions on marker bounds. Label weeks from
-Sunday. Redraws never reload the Dock icon; indexing uses utility priority.
-Selected days show date and exact tokens. Lifetime, Peak day, streak, and Longest turn sit right
-of Ordinary usage.
+Daily activity is a GitHub-style calendar; a saved period control (Today, Yesterday, Weekly,
+Monthly, Yearly; default Yearly) sets range, total, and intensity. Changing account never
+activates credentials, waits, or shows prior data. One Canvas draws a year responsively with
+exact-day pointer, arrow-key, and per-date accessibility selection; weeks start Sunday. Redraws
+never reload the Dock icon; indexing uses utility priority. Selected days show date and exact
+tokens. Lifetime, Peak day, streak, and Longest turn sit right of Ordinary usage.
 
 Keep owner-private SQLite `activity/daily.sqlite` apart from expiring quota snapshots.
-Authoritative Codex responses set totals per account and day. Newer values replace older, even
-lower values and zero; omitted days stay. Local token events set project and day totals on UTC days.
+Authoritative Codex responses set per-account daily totals; newer values replace older ones, even
+lower or zero; omitted days stay. Local token events set project and day totals on UTC days.
 Count cumulative-counter increases, not repeated last-turn counters. Thread IDs remove archived
 or copied duplicates; unknown forks or reset records mark totals incomplete. Shared project totals
 serve history and cleanup, not selected account statistics. Record daily shared-home provenance
@@ -306,19 +307,16 @@ After its first full scan, parse only verified JSONL appends. Replacement, trunc
 boundaries force a full parse. Read metadata only on database or WAL changes. A hidden, unchanged
 app scans nothing.
 
-Selected-account token statistics sit in Daily activity's fixed-height period-total line.
-The tooltip and accessibility value give exact counts; late prices never shift content.
-Weekly, Monthly, and Yearly cover rolling 7, 30, and 365 UTC days including today. There is no
-account or provider filter or source label. Hide Daily activity until history exists; then keep
-explicit zeroes. The TUI uses the same periods and data.
+Selected-account token totals sit in Daily activity's fixed-height period line; tooltip and
+accessibility give exact counts, and late prices never shift content. Weekly, Monthly, and Yearly
+are rolling 7, 30, and 365 UTC days including today, with no filter or source label. Hide Daily
+activity until history exists, then keep zeroes. The TUI uses the same periods and data.
 
-Codex popover rows may add one token summary for the Settings period: Since reset (default), Today,
-Yesterday, Weekly, Monthly, or Yearly. Since reset uses the weekly start when the service returns
-duration and reset time; otherwise it uses Weekly. Hide a zero token row.
-
-Beside tokens, show an API-equivalent value if the shared Codex config's model has published prices
-(LiteLLM public catalog, cached 24 hours). Label it an input-rate equivalent, never billed cost.
-Help shows the model and cached-input, input, and output values.
+Codex popover rows may add one token summary for the Settings period: Since reset (default; the
+weekly start when duration and reset time are known, else Weekly), Today, Yesterday, Weekly,
+Monthly, or Yearly; hide a zero row. Beside tokens, show an API-equivalent value when the shared
+Codex config's model has published prices (LiteLLM catalog, cached 24 hours), labeled an
+input-rate equivalent, never billed cost; help shows model, cached-input, input, and output values.
 
 Each account's More menu has **Show in Menubar** with a checkmark and Use Settings default.
 It controls the popover row and tray entry. The tray shows the first four enabled accounts with
@@ -371,9 +369,8 @@ in light and dark HTML references (Overview and shared-part states) and measured
   `ellipsis.message.fill`. The top row runs Add, More, then a 300 pt ⌘K search; cards end there.
 - **Search:** keeps text per window, filters Accounts or Settings (synonyms too), and under 3
   matches adds an end card of the other kind. Other pages: a drop-down.
-- **Messages:** Switch shows results ("Droid opened in Terminal.") in short, silent macOS
-  top-right banners, saved in Notification Center and shown while Switch is frontmost. Disabled
-  notifications show none. Pages have no message card. Errors use the red bar below the top row
+- **Messages:** Switch shows results ("Droid opened in Terminal.") as short, silent macOS
+  notifications, also while Switch is frontmost. Disabled notifications show none. Pages have no message card. Errors use the red bar below the top row
   with Copy and Dismiss. Preview and isolated checks never notify.
 - **Overview:** Switch accounts on Accounts. Overview has no focused-account card or table.
   Remember Week or Month and Accounts, Models, or Projects grouping. Six cards show (1) rolling
@@ -393,8 +390,7 @@ in light and dark HTML references (Overview and shared-part states) and measured
   whole-percent labels, and "<1%" for one cell. The grid takes 40% width; after a 24 pt gap,
   legend rows take 60%, span grid and card height, and measure 20 to 28 pt each.
   Maintenance (6) shows recent backups (time, source, size, state) and Open Backup or setup.
-  Follow uiarc.dev ridgeline, activity heatmap, waffle, and streamgraph. Use hover values, a
-  faint date axis, and one palette. Fold groups past six into "Other". With account
+  Follow uiarc.dev chart styles with hover values, a faint date axis, and one palette. Fold groups past six into "Other". With account
   grouping, a 13 pt tool brand tile precedes each label in legends, tooltips, and the day-sheet
   cost split. Tiles distinguish matching emails. Model and project
   groups have no tile. The Tokens per day legend stays on one line;
@@ -476,9 +472,9 @@ Background reconciliation never disables UI or republishes unchanged values. Sec
 names provider (Codex CLI); badges mean action needed. A badge is a grey chip with label-color
 text and a 6 pt state-color dot; its text reaches 4.5:1 in both appearances.
 
-Add Account and Advanced Import use native sheets. Provider search and a single-choice list
-(double-click continues) lead to the form or sign-in page. Keep standard Cancel and Continue
-buttons and a small step indicator visible at every step.
+Add Account and Advanced Import use native sheets: provider search and a single-choice list
+(double-click continues) lead to the form or sign-in page, with Cancel, Continue, and a small step
+indicator at every step.
 
 ## 5. Terminal distribution
 
@@ -487,17 +483,13 @@ Ship the compiled Apple Silicon macOS executable as `@smdl/switch`: npx opens th
 install exposes `switch` and the `ai-manager` alias. The root README covers all three.
 The package adds no account logic or Swift build step.
 
-Use **09 Amber Menu** with compact character-cell provider groups, one inverse selected row,
-selected account limits, and arrow navigation. Show every action, including confirmed deletion,
-in full text after its compact semantic glyph. Let the terminal choose colors; use only bold,
-dim, and inverse ANSI without appearance detection. Piped output and `NO_COLOR` are plain. Start
-the animated loader with initial refresh; clear it before the menu. Show cached limits; never
-invent usage.
-
-Attached terminals use raw input: Up and Down move focus; Right or Enter opens an account;
-Enter runs an action; Left or Escape returns. Do not use command-letter navigation. Restore
-normal input for paths, launched Codex, and exit. Keep lines at column zero in Terminal, iTerm,
-and compatible emulators.
+Use **09 Amber Menu**: compact provider groups, one inverse selected row, selected account limits.
+Every action, including confirmed deletion, shows full text after a compact glyph. Use only bold,
+dim, and inverse ANSI, terminal colors, no appearance detection; piped output and `NO_COLOR` are
+plain. The animated loader runs during initial refresh and clears before the menu. Show cached
+limits; never invent usage. Attached terminals use raw input: Up and Down move; Right or Enter
+opens an account; Enter runs an action; Left or Escape returns; no command letters. Restore normal
+input for paths, launched Codex, and exit. Keep lines at column zero in common terminals.
 
 ## 6. Verification contract
 

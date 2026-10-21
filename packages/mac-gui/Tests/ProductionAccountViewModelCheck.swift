@@ -901,6 +901,31 @@ struct ProductionAccountViewModelCheck {
         model.droidConfirmation = { message, _ in prompts.append(message); return true }
         await model.checkAccountLogin()
         try expect(model.status?.accounts.count == 3 && model.selectedAccount?.identity.accountID == "Droid duplicate", "Confirmed duplicate was not added")
+        // Missions: listed under the default account's name, Resume and Start here write launch files.
+        let project = droidRoot.appending(path: "project", directoryHint: .isDirectory)
+        let mission = paths.droidHome.appending(path: "missions/abcd1234-synthetic", directoryHint: .isDirectory)
+        try fm.createDirectory(at: project, withIntermediateDirectories: true)
+        try fm.createDirectory(at: mission, withIntermediateDirectories: true)
+        let state: [String: Any] = ["state": "paused", "workingDirectory": project.path,
+            "createdAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(60))]
+        try JSONSerialization.data(withJSONObject: state).write(to: mission.appending(path: "state.json"))
+        let features = [["id": "f1", "description": "Done one", "status": "completed"],
+                        ["id": "f2", "description": "Left one", "status": "pending", "expectedBehavior": ["Works"]]]
+        try JSONSerialization.data(withJSONObject: ["features": features]).write(to: mission.appending(path: "features.json"))
+        try "# Synthetic mission\n".write(to: mission.appending(path: "mission.md"), atomically: true, encoding: .utf8)
+        await model.refreshDroidMissions()
+        let listed = try expect(model.droidMissions.first, "The mission was not listed")
+        try expect(listed.title == "Synthetic mission" && listed.left == 1 && listed.owner == model.status?.defaultAccountID(for: .droid),
+                   "The mission lost its title, counts, or default owner")
+        await model.resumeDroidMission(listed)
+        let resume = try String(contentsOf: paths.applicationSupport.appending(path: "Launch/Resume Droid mission abcd1234.command"), encoding: .utf8)
+        try expect(resume.contains("cd '\(project.path)'") && resume.contains("'--resume' 'abcd1234-synthetic'"), "Resume did not build the Droid command")
+        model.droidConfirmation = { message, _ in prompts.append(message); return true }
+        await model.startDroidMissionHere(listed)
+        try expect(prompts.last?.contains("skips 1 done feature and uses") == true, "Start here did not confirm what it skips")
+        let start = try String(contentsOf: paths.applicationSupport.appending(path: "Launch/Start Droid mission abcd1234.command"), encoding: .utf8)
+        try expect(start.contains("'exec' '--mission' '-f'") && start.contains("'--auto' 'high'") && start.contains("plan.md"), "Start here did not build the mission command")
+        try expect(fm.fileExists(atPath: paths.applicationSupport.appending(path: "Launch/Droid mission abcd1234 plan.md").path), "Start here wrote no plan")
     }
 
     @MainActor
