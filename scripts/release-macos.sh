@@ -6,9 +6,11 @@ fail() { printf 'RELEASE_NOT_READY: %s\n' "$1" >&2; exit 1; }
 
 preview=0
 adhoc=0
+xcode=0
 case "${1:-}" in
   --preview) preview=1; adhoc=1; shift ;;
   --adhoc) adhoc=1; shift ;;
+  --xcode) xcode=1; shift ;;
   --notarized) shift ;;
 esac
 tag="${1:-}"
@@ -21,7 +23,11 @@ else
 fi
 if (( adhoc )); then unset AI_MANAGER_SIGNING_IDENTITY; fi
 [[ "$(uname -s)" == Darwin ]] || fail "run this on a Mac"
-if (( !adhoc )); then
+if (( xcode )); then
+  [[ -n "${AI_MANAGER_SIGNING_IDENTITY:-}" ]] || fail "set AI_MANAGER_SIGNING_IDENTITY to a development identity"
+  [[ -n "${AI_MANAGER_TEAM_ID:-}" ]] || fail "set AI_MANAGER_TEAM_ID"
+  command -v jq >/dev/null || fail "install jq"
+elif (( !adhoc )); then
   [[ "${AI_MANAGER_SIGNING_IDENTITY:-}" == 'Developer ID Application:'* ]] || \
     fail "set AI_MANAGER_SIGNING_IDENTITY to a Developer ID Application identity"
   security find-identity -v -p codesigning | grep -F "\"$AI_MANAGER_SIGNING_IDENTITY\"" >/dev/null || \
@@ -88,6 +94,65 @@ if (( adhoc )); then
   scripts/check-release-readiness.sh "$app_path" "$cli_path"
   codesign -dv --verbose=4 "$app_path" 2>&1 | grep '^Signature=adhoc$' >/dev/null || \
     fail "ad hoc release app must use an ad hoc signature"
+elif (( xcode )); then
+  # Xcode cloud signing: export re-signs with Developer ID and uploads for notarization.
+  rm -rf "$build_path/local"
+  mkdir -p "$build_path/local"
+  ditto "$app_path" "$build_path/local/Switch.app"
+  xcarchive="$build_path/Switch.xcarchive"
+  export_options="$build_path/export-options.plist"
+  rm -rf "$xcarchive" "$build_path/export" "$build_path/notarized"
+  mkdir -p "$xcarchive/Products/Applications"
+  ditto "$app_path" "$xcarchive/Products/Applications/Switch.app"
+  build_number="$(plutil -extract CFBundleVersion raw -o - "$app_path/Contents/Info.plist")"
+  cat > "$xcarchive/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>ApplicationProperties</key>
+  <dict>
+    <key>ApplicationPath</key><string>Applications/Switch.app</string>
+    <key>CFBundleIdentifier</key><string>com.mandalsuraj.ai-manager</string>
+    <key>CFBundleShortVersionString</key><string>$version</string>
+    <key>CFBundleVersion</key><string>$build_number</string>
+    <key>SigningIdentity</key><string>Apple Development</string>
+    <key>Team</key><string>$AI_MANAGER_TEAM_ID</string>
+  </dict>
+  <key>ArchiveVersion</key><integer>2</integer>
+  <key>CreationDate</key><date>$(date -u +%Y-%m-%dT%H:%M:%SZ)</date>
+  <key>Name</key><string>Switch</string>
+  <key>SchemeName</key><string>Switch</string>
+</dict>
+</plist>
+EOF
+  cat > "$export_options" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>developer-id</string>
+  <key>teamID</key><string>$AI_MANAGER_TEAM_ID</string>
+  <key>signingStyle</key><string>automatic</string>
+  <key>destination</key><string>upload</string>
+</dict>
+</plist>
+EOF
+  xcodebuild -exportArchive -archivePath "$xcarchive" -exportOptionsPlist "$export_options" \
+    -exportPath "$build_path/export" -allowProvisioningUpdates
+  deadline=$((SECONDS + 3600))
+  while :; do
+    if export_out="$(xcodebuild -exportNotarizedApp -archivePath "$xcarchive" \
+      -exportPath "$build_path/notarized" 2>&1)"; then break; fi
+    if grep -Eiq 'reject|invalid' <<<"$export_out"; then fail "Apple rejected notarization: $export_out"; fi
+    (( SECONDS < deadline )) || fail "notarization did not finish in 60 minutes"
+    sleep 30
+  done
+  rm -rf "$app_path"
+  ditto "$build_path/notarized/Switch.app" "$app_path"
+  xcrun stapler validate "$app_path" >/dev/null 2>&1 || xcrun stapler staple "$app_path"
+  install -m 0755 "$app_path/Contents/Helpers/ai-manager" "$cli_path"
+  scripts/check-release-readiness.sh --public "$app_path" "$cli_path"
 else
   if [[ -n "${AI_MANAGER_NOTARY_PROFILE:-}" ]]; then
     notary_args=(--keychain-profile "$AI_MANAGER_NOTARY_PROFILE")
@@ -116,7 +181,7 @@ ditto -c -k --sequesterRsrc --keepParent "$app_path" "$archive"
 (cd "$release_dir" && shasum -a 256 -c "$(basename "$checksum")")
 
 verify_dir="$(mktemp -d "$build_path/release-verify.XXXXXX")"
-if (( adhoc )); then
+if (( adhoc || xcode )); then
   trap 'rm -r "$verify_dir"' EXIT
 else
   trap 'rm -r "$payload_dir" "$verify_dir"' EXIT
