@@ -54,7 +54,9 @@ if (( public )); then
   grep -q '^Timestamp=' <<<"$cli_signature" || fail "CLI signature lacks a secure timestamp"
   /usr/bin/xcrun stapler validate "$app_path" || fail "app has no valid notarization ticket"
   /usr/sbin/spctl --assess --type execute --verbose=4 "$app_path" || fail "Gatekeeper rejected the app"
-  /usr/sbin/spctl --assess --type execute --verbose=4 "$cli_path" || fail "Gatekeeper rejected the CLI"
+  # A bare executable is not an app, so assess its notarized signature instead.
+  /usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=4 "$cli_path" || \
+    fail "Gatekeeper rejected the CLI"
   printf 'PUBLIC_RELEASE_READY %s\n' "$revision"
 else
   printf 'LOCAL_RELEASE_READY %s\n' "$revision"
