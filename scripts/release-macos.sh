@@ -26,9 +26,11 @@ if (( !adhoc )); then
     fail "set AI_MANAGER_SIGNING_IDENTITY to a Developer ID Application identity"
   security find-identity -v -p codesigning | grep -F "\"$AI_MANAGER_SIGNING_IDENTITY\"" >/dev/null || \
     fail "the Developer ID Application identity is not available on this Mac"
-  [[ "${AI_MANAGER_NOTARY_KEY_PATH:-}" == /* ]] || fail "use an absolute AI_MANAGER_NOTARY_KEY_PATH"
-  [[ -r "${AI_MANAGER_NOTARY_KEY_PATH:-}" ]] || fail "set AI_MANAGER_NOTARY_KEY_PATH to a readable .p8 key"
-  [[ -n "${AI_MANAGER_NOTARY_KEY_ID:-}" ]] || fail "set AI_MANAGER_NOTARY_KEY_ID"
+  if [[ -z "${AI_MANAGER_NOTARY_PROFILE:-}" ]]; then
+    [[ "${AI_MANAGER_NOTARY_KEY_PATH:-}" == /* ]] || fail "use an absolute AI_MANAGER_NOTARY_KEY_PATH"
+    [[ -r "${AI_MANAGER_NOTARY_KEY_PATH:-}" ]] || fail "set AI_MANAGER_NOTARY_KEY_PATH to a readable .p8 key"
+    [[ -n "${AI_MANAGER_NOTARY_KEY_ID:-}" ]] || fail "set AI_MANAGER_NOTARY_KEY_ID"
+  fi
   command -v jq >/dev/null || fail "install jq"
 fi
 command -v gh >/dev/null || fail "install GitHub CLI"
@@ -87,8 +89,12 @@ if (( adhoc )); then
   codesign -dv --verbose=4 "$app_path" 2>&1 | grep '^Signature=adhoc$' >/dev/null || \
     fail "ad hoc release app must use an ad hoc signature"
 else
-  notary_args=(--key "$AI_MANAGER_NOTARY_KEY_PATH" --key-id "$AI_MANAGER_NOTARY_KEY_ID")
-  if [[ -n "${AI_MANAGER_NOTARY_ISSUER_ID:-}" ]]; then
+  if [[ -n "${AI_MANAGER_NOTARY_PROFILE:-}" ]]; then
+    notary_args=(--keychain-profile "$AI_MANAGER_NOTARY_PROFILE")
+  else
+    notary_args=(--key "$AI_MANAGER_NOTARY_KEY_PATH" --key-id "$AI_MANAGER_NOTARY_KEY_ID")
+  fi
+  if [[ -z "${AI_MANAGER_NOTARY_PROFILE:-}" && -n "${AI_MANAGER_NOTARY_ISSUER_ID:-}" ]]; then
     notary_args+=(--issuer "$AI_MANAGER_NOTARY_ISSUER_ID")
   fi
   rm -f "$submission"
