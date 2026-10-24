@@ -3,6 +3,9 @@ and switching the account used by new sessions.
 
 Switch 3.8 adds Droid (Factory) accounts and makes every page faster and calmer.
 
+Switch 3.8.1 is signed with Developer ID and notarized by Apple, so macOS opens it
+without a security warning.
+
 - Droid accounts switch by swapping their login file. Accounts lists Droid missions with
   progress and the account that started each one. Resume switches to that account first,
   because only it can continue the mission. Start here begins a new mission on the current

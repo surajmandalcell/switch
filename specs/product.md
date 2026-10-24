@@ -496,7 +496,8 @@ input for paths, launched Codex, and exit. Keep lines at column zero in common t
 Use synthetic credentials and isolated homes for tests. Before UI installation, pass the Mac GUI
 contract, production and Preview model checks, System, Light, and Dark snapshots, lintapple
 (section 4), and full native gate. Core or CLI changes pass both Linux Docker architectures
-without privileges or writes. Public GitHub releases may sign ad hoc without Developer ID.
+without privileges or writes. Public GitHub releases are Developer ID signed (team GF57JXJF5A)
+and notarized through Xcode cloud signing (`release-macos.sh --xcode`).
 Keep install copy concise, without signing or Gatekeeper warning blocks.
 
 Build, validate, and upload Mac archives on the maintainer's Mac, never GitHub Actions. The README
