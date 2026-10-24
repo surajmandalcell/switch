@@ -115,6 +115,8 @@ identity and an App Store Connect notary API key. Keep the `.p8` file outside
 this repository. Set `AI_MANAGER_SIGNING_IDENTITY`,
 `AI_MANAGER_NOTARY_KEY_PATH`, and `AI_MANAGER_NOTARY_KEY_ID` in your shell. Set
 `AI_MANAGER_NOTARY_ISSUER_ID` for a team API key; omit it for an individual key.
+Or save Apple ID credentials with `xcrun notarytool store-credentials <profile>`
+and set `AI_MANAGER_NOTARY_PROFILE` to that profile name instead of the key settings.
 Then commit and push the source and run a notarized version, for example:
 
 ```bash
