@@ -123,6 +123,12 @@ Then commit and push the source and run a notarized version, for example:
 scripts/release-macos.sh --notarized v3.0.1
 ```
 
+`--xcode` signs and notarizes through the Apple ID signed in to Xcode, with no
+local Developer ID certificate or notary key. Set `AI_MANAGER_SIGNING_IDENTITY`
+to a development identity and set `AI_MANAGER_TEAM_ID`. Example:
+`scripts/release-macos.sh --xcode v3.8.1`. A copy of the development-signed app
+stays in `$AI_MANAGER_BUILD_PATH/local/Switch.app` for local install.
+
 For this trusted path, the script checks the clean, pushed commit, runs native
 and CLI checks, builds the versioned app, notarizes and staples it, and checks
 Gatekeeper. It writes
