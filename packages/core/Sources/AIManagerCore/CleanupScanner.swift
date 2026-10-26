@@ -575,9 +575,12 @@ struct CleanupScanner {
     private func workingDirectory(in url: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 131_072), let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self) as String?,
-              let range = text.range(of: #""cwd":"[^"]+""#, options: .regularExpression) else { return nil }
-        return String(text[range].dropFirst(7).dropLast())
+        guard let data = try? handle.read(upToCount: 131_072) else { return nil }
+        for line in data.split(separator: 10).prefix(400) {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
+            if let cwd = object["cwd"] as? String ?? (object["payload"] as? [String: Any])?["cwd"] as? String { return cwd }
+        }
+        return nil
     }
 
     /// Claude and Droid name a project folder after its path with "-" for "/". This is lossy for names with dashes.
@@ -647,7 +650,7 @@ struct CleanupScanner {
                 let stem = String(name.dropLast(6))
                 let beside = all.filter { $0 != name && $0.hasPrefix(stem + ".") }.map { directory + "/" + $0 }
                 if let built = try item(0, directory + "/" + name, title: Self.firstPrompt(in: source.home.appending(path: directory + "/" + name)) ?? stem,
-                    project: Self.decodeProjectFolder(folder), companions: beside) { result.append(built) }
+                    project: workingDirectory(in: source.home.appending(path: directory + "/" + name)) ?? Self.decodeProjectFolder(folder), companions: beside) { result.append(built) }
             }
         }
         return result

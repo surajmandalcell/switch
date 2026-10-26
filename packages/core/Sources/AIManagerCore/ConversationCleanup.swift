@@ -36,6 +36,25 @@ public struct CleanupItem: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
+/// All nonempty filters must match. The source picker supplies the app filter.
+public struct ConversationCleanupFilter: Sendable {
+    public var olderThan: Date?
+    public var projects: Set<String>
+    public var title: String
+
+    public init(olderThan: Date? = nil, projects: Set<String> = [], title: String = "") {
+        self.olderThan = olderThan; self.projects = projects; self.title = title
+    }
+
+    public func matches(_ item: CleanupItem) -> Bool {
+        let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return item.protectedReason == nil && !item.isRewrite
+            && (olderThan.map { item.updatedAt < $0 } ?? true)
+            && (projects.isEmpty || projects.contains(item.project ?? ""))
+            && (text.isEmpty || item.title.localizedCaseInsensitiveContains(text))
+    }
+}
+
 public struct ConversationCleanupPlan: Sendable {
     public let id: UUID
     public let items: [CleanupItem]
