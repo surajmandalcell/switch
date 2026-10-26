@@ -30,6 +30,7 @@ public struct BackupSet: Codable, Identifiable, Equatable, Sendable {
     public var items: [BackupItem]
     public var destination: URL
     public var includeLogins: Bool
+    public var promptsOnly: Bool
     public var schedule: BackupSchedule
     public var keep: Int
     /// Extra homes the set copies, by folder name (a Claude Code account's own profile). Their items start with
@@ -39,10 +40,11 @@ public struct BackupSet: Codable, Identifiable, Equatable, Sendable {
     public var retired: Bool
     public init(id: UUID = UUID(), name: String, source: BackupSource, items: [BackupItem], destination: URL,
                 includeLogins: Bool = false, schedule: BackupSchedule = .off, keep: Int = 10,
-                profiles: [String: URL] = [:], retired: Bool = false) {
+                profiles: [String: URL] = [:], retired: Bool = false, promptsOnly: Bool = false) {
         self.id = id; self.name = name; self.source = source; self.items = items; self.destination = destination
         self.includeLogins = includeLogins; self.schedule = schedule; self.keep = keep
         self.profiles = profiles; self.retired = retired
+        self.promptsOnly = promptsOnly
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +55,7 @@ public struct BackupSet: Codable, Identifiable, Equatable, Sendable {
         items = try values.decode([BackupItem].self, forKey: .items)
         destination = try values.decode(URL.self, forKey: .destination)
         includeLogins = try values.decode(Bool.self, forKey: .includeLogins)
+        promptsOnly = try values.decodeIfPresent(Bool.self, forKey: .promptsOnly) ?? false
         schedule = try values.decode(BackupSchedule.self, forKey: .schedule)
         keep = try values.decode(Int.self, forKey: .keep)
         // Sets saved before the checklist have neither field.
@@ -134,6 +137,7 @@ public struct BackupManifest: Codable, Sendable {
     public var newBytes: Int64
     public var skipped: [String]
     public var safety: Bool
+    public var promptsOnly: Bool? = nil
 }
 
 public struct BackupSnapshot: Identifiable, Sendable {
@@ -471,7 +475,8 @@ private enum BackupIO {
                         try fm.createSymbolicLink(atPath: target.path, withDestinationPath: link!)
                         hash = CoreSupport.digest(Data(link!.utf8))
                     } else if kind == S_IFREG {
-                        if let prior = old[path], let previous, previous.manifest.source == set.source,
+                        // Safety copies must preserve current bytes even when a tool restores the old modified time.
+                        if !safety, let prior = old[path], let previous, previous.manifest.source == set.source,
                            prior.kind == .file, prior.size == before.st_size, prior.mtime == modified(before),
                            prior.mode == UInt32(before.st_mode & 0o7777), prior.inode == before.st_ino, prior.device == before.st_dev {
                             let priorFile = previous.folder.appending(path: "files/" + path)
@@ -514,10 +519,54 @@ private enum BackupIO {
                 }
             }
         }
-        for root in roots(set) {
-            prefix = root.prefix
-            try walk(root.home, items: root.items, includeLogins: set.includeLogins, visit: visit,
-                     skipped: { manifest.skipped.append(prefix.isEmpty ? $0 : prefix + "/" + $0) })
+        if set.promptsOnly {
+            manifest.promptsOnly = true
+            var index = "# Prompt index\n\n"
+            func store(_ path: String, _ text: String) throws {
+                let data = Data(text.utf8)
+                let target = staging.appending(path: "files/" + path)
+                let hash = CoreSupport.digest(data)
+                try CoreSupport.privateDirectory(target.deletingLastPathComponent(), fileManager: fm)
+                if let prior = old[path], prior.kind == .file, prior.sha256 == hash, let previous {
+                    let file = previous.folder.appending(path: "files/" + path)
+                    try noLinks(file, leafMayBeLink: false)
+                    guard try metadata(file).st_mode & S_IFMT == S_IFREG,
+                          try CoreSupport.digest(file: file) == hash else { throw BackupError.changed(path) }
+                    try fm.linkItem(at: file, to: target)
+                } else {
+                    try CoreSupport.atomicWrite(data, to: target, fileManager: fm)
+                    manifest.newBytes += Int64(data.count)
+                }
+                let info = try metadata(target)
+                manifest.entries.append(.init(path: path, kind: .file, size: Int64(data.count), mtime: modified(info),
+                    mode: UInt32(info.st_mode & 0o7777), inode: UInt64(info.st_ino), device: UInt64(info.st_dev), sha256: hash))
+                manifest.files += 1; manifest.bytes += Int64(data.count)
+                progress?(BackupProgress(files: manifest.files, bytes: manifest.bytes))
+            }
+            for root in roots(set) {
+                let items = root.items.filter { PromptBackup.isConversationRoot($0.path, service: set.source.service) }
+                try walk(root.home, items: items, includeLogins: false, visit: { path, source, info in
+                    guard info.st_mode & S_IFMT == S_IFREG,
+                          PromptBackup.isTranscript(path, service: set.source.service) else { return }
+                    try noLinks(source, leafMayBeLink: false)
+                    let document = try PromptBackup.read(source, path: path, service: set.source.service)
+                    try noLinks(source, leafMayBeLink: false)
+                    guard unchanged(info, try metadata(source)) else { throw BackupError.changed(path) }
+                    guard let document else { return }
+                    let identity = root.prefix + "/" + path
+                    let file = "prompts/" + PromptBackup.folder(document.project) + "/" + PromptBackup.folder(document.title)
+                        + "-" + CoreSupport.digest(Data(identity.utf8)) + ".md"
+                    try store(file, document.markdown)
+                    index += "- [\(PromptBackup.inline(document.title))](\(file.dropFirst(8))) · \(PromptBackup.inline(document.project))\n"
+                }, skipped: { manifest.skipped.append(root.prefix + "/" + $0) })
+            }
+            try store("prompts/index.md", index)
+        } else {
+            for root in roots(set) {
+                prefix = root.prefix
+                try walk(root.home, items: root.items, includeLogins: set.includeLogins, visit: visit,
+                         skipped: { manifest.skipped.append(prefix.isEmpty ? $0 : prefix + "/" + $0) })
+            }
         }
         try Task.checkCancellation()
         try CoreSupport.atomicWrite(JSONEncoder().encode(manifest), to: staging.appending(path: BackupEngine.manifestName), fileManager: fm)
@@ -538,7 +587,10 @@ private enum BackupIO {
               !snapshot.folder.lastPathComponent.hasPrefix("."), let stored = try load(snapshot.folder, setID: set.id) else {
             throw BackupError.unsafe("snapshot does not belong to this set")
         }
-        let paths = items ?? set.items.filter { set.includeLogins || !$0.isLogin }.map(\.path)
+        if stored.manifest.promptsOnly == true, destination == nil {
+            throw BackupError.unsafe("prompt backups must be restored into a folder")
+        }
+        let paths = items ?? (stored.manifest.promptsOnly == true ? ["prompts"] : set.items.filter { set.includeLogins || !$0.isLogin }.map(\.path))
         guard paths.allSatisfy(safePath) else { throw BackupError.unsafe("invalid restore selection") }
         // Into a folder, a profile's files keep their stored path. In place, they go back to their profile home (or are skipped when it is gone).
         func place(_ path: String) -> URL? { destination.map { $0.appending(path: path) } ?? location(set, path) }
@@ -569,6 +621,7 @@ private enum BackupIO {
         var extras: [String] = []
         if destination == nil {
             var safetySet = set
+            safetySet.promptsOnly = false
             safetySet.items = expand(paths, in: set).map { BackupItem($0) }
             safety = try self.snapshot(safetySet, safety: true, progress: nil)
             guard safety!.manifest.skipped.allSatisfy({ location(set, $0).map { !CoreSupport.entryExists($0) } ?? true }) else {
