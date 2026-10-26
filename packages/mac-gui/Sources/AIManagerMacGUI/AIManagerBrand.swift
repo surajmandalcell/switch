@@ -539,7 +539,10 @@ final class AIManagerStatusItemController: NSObject {
     button.imagePosition = .imageOnly
     button.image = AIManagerBrand.statusImage(
       groups: snapshot.statusAccountGroups, showsUsed: showsUsed, in: bundle)
-    let omitted = snapshot.accounts.filter { $0.showsUsage && (!$0.isVerified || $0.remainingPercentage == nil) }
+    let omitted = snapshot.orderedAccounts.filter {
+      $0.showsUsage && !snapshot.hiddenServices.contains($0.providerID)
+        && (!$0.isVerified || $0.remainingPercentage == nil)
+    }
     let description = (accounts + omitted).map { account in
       let quota = account.quotaUsedPercentage.map {
         UsagePercentagePreferences.label(forUsed: $0, showsUsed: showsUsed)

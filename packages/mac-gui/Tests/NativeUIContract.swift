@@ -82,13 +82,13 @@ enum AIManagerNativeContract {
       isVerified: true, isActive: false)
     let signedOutQuota = MenuBarAccountSnapshot(id: UUID(), identity: "out@example.test", detail: "",
       isVerified: false, isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: 10))
-    let eligible = (0..<5).map { index in
+    let eligible = (0..<7).map { index in
       MenuBarAccountSnapshot(id: UUID(), identity: "tray\(index)@example.test", detail: "",
         isVerified: true, isActive: false, usage: MenuBarUsageSnapshot(usedPercentage: index * 10))
     }
     let tray = MenuBarSnapshot(accounts: [signedOutQuota, noCache] + eligible)
-    expect(tray.statusAccounts.map(\.id) == eligible.prefix(4).map(\.id),
-      "Missing tray quotas consume the four-account limit")
+    expect(tray.statusAccounts.map(\.id) == eligible.prefix(6).map(\.id),
+      "Missing tray quotas consume the six-account limit")
     let trayController = AIManagerStatusItemController(snapshot: tray,
       actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
     expect(trayController.statusAccessibilityLabel.contains("\(noCache.identity), no usage yet")
@@ -96,7 +96,7 @@ enum AIManagerNativeContract {
       "Tray does not name every account omitted for missing usage")
     expect(MenuBarSnapshot(accounts: [noCache, signedOutQuota]).statusAccounts.isEmpty,
       "An empty tray does not keep the Switch mark")
-    let codex = MenuBarPopoverPreviewData.sixAccountSnapshot.accounts[1]
+    let codex = MenuBarPopoverPreviewData.sixAccountSnapshot.accounts.first { $0.providerID == .codex }!
     expect(P.lines(for: codex, expanded: true).map(\.label) == ["Session", "Weekly", "Monthly", "Spark", "Session"],
       "Expanded Codex omits a model bucket, credits, or repeats the default bucket")
     expect(!P.showsSwitch(codex) && P.showsSwitch(account), "Default accounts show a ghost Switch action")
@@ -691,7 +691,8 @@ enum AIManagerNativeContract {
       "Generic menu cards show more than their first two windows")
     let full = MenuBarPopoverPreviewData.fullSnapshot
     expect(full.accounts.count == 4, "Preview menu does not show its four sample rows")
-    expect(full.statusAccounts.count == 4, "Status item shows more or fewer than four accounts")
+    let six = MenuBarPopoverPreviewData.sixAccountSnapshot
+    expect(six.statusAccounts.count == 6, "Status item does not show all six eligible accounts")
     expect(AIManagerBrand.statusImage(groups: full.statusAccountGroups) != nil, "Status image failed")
 
     // Pace colors follow the used share and never the Used or Left view.
@@ -2320,6 +2321,14 @@ enum AIManagerNativeContract {
       "The Preview lacks Codex CLI, Grok Build, Claude Code, or Droid accounts")
     expect(accounts.first { $0.identity.providerID == .droid }?.identity.accountLabel.hasPrefix("Droid personal") == true,
       "The Preview Droid account is not named Droid personal")
+    let serviceAccounts = accounts.filter { [.codex, .claudeCode, .droid].contains($0.identity.providerID) }
+    let serviceGroups = AccountsRowLayout.grouped(serviceAccounts, serviceOrder: [.droid, .claudeCode])
+    expect(serviceGroups.map(\.provider) == [.droid, .claudeCode, .codex],
+      "Accounts service groups do not use the saved service order and append new services")
+    for group in serviceGroups {
+      expect(group.accounts.map(\.id) == serviceAccounts.filter { $0.identity.providerID == group.provider }.map(\.id),
+        "Service ordering changes saved account order within \(group.provider.rawValue)")
+    }
 
     // Separators are lighter than the card border; the guide line is faint; selection reads over hover.
     for dark in [false, true] {

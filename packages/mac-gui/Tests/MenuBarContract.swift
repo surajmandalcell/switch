@@ -637,7 +637,7 @@ enum AIManagerMenuBarContract {
     controller.update(snapshot: MenuBarSnapshot(accounts: [hiddenAccount]))
     expect(controller.statusTitle.isEmpty, "A hidden account still appears in the status item")
 
-    let enabled = (0..<6).map { index in
+    let enabled = (0..<8).map { index in
       MenuBarAccountSnapshot(
         id: UUID(), identity: "account-\(index)@example.test", detail: "",
         isVerified: true, isActive: index == 5,
@@ -645,17 +645,90 @@ enum AIManagerMenuBarContract {
         showsUsage: index != 1, providerID: index == 2 || index == 5 ? .claudeCode : .codex)
     }
     let capped = MenuBarSnapshot(accounts: enabled)
-    expect(capped.statusAccounts.map(\.id) == [enabled[0].id, enabled[3].id, enabled[4].id, enabled[2].id],
-      "Tray quotas do not group the first four enabled accounts in saved order")
+    expect(capped.statusAccounts.map(\.id) == [0, 3, 4, 6, 7, 2].map { enabled[$0].id },
+      "Tray quotas do not take the first six enabled accounts after service grouping")
     controller.update(snapshot: capped)
-    expect(controller.statusTitle == "100% 70% 60% 80%", "Tray quota order or meaning changed")
+    expect(controller.statusTitle == "100% 70% 60% 40% 30% 80%", "Tray quota order or meaning changed")
     expect(controller.statusAccessibilityLabel.contains("Claude Code, \(enabled[2].identity), 80% left")
       && !controller.statusAccessibilityLabel.contains(enabled[1].identity),
       "Status button does not describe only the displayed accounts")
     defaults.set(true, forKey: UsagePercentagePreferences.showsUsedKey)
     controller.update(snapshot: capped)
-    expect(controller.statusTitle == "0% 30% 40% 20%", "Tray percentages do not switch from left to used")
+    expect(controller.statusTitle == "0% 30% 40% 60% 70% 20%", "Tray percentages do not switch from left to used")
     defaults.set(false, forKey: UsagePercentagePreferences.showsUsedKey)
+
+    let ordered = MenuBarSnapshot(accounts: enabled, serviceOrder: [.claudeCode])
+    expect(ordered.statusAccountGroups.map { $0[0].providerID } == [.claudeCode, .codex]
+      && ordered.statusAccounts.map(\.id) == [2, 5, 0, 3, 4, 6].map { enabled[$0].id },
+      "Service order does not apply before the tray cap, or changes account order")
+    expect(P.groups(ordered.orderedAccounts).map { $0[0].providerID } == [.claudeCode, .codex],
+      "Popover groups do not follow the tray service order")
+    let hiddenService = MenuBarSnapshot(accounts: enabled, serviceOrder: [.claudeCode], hiddenServices: [.claudeCode])
+    expect(hiddenService.statusAccounts.map(\.id) == [0, 3, 4, 6, 7].map { enabled[$0].id },
+      "A hidden service consumes tray slots or leaves one account visible")
+    let hiddenStore = MenuBarPopoverStore(snapshot: hiddenService, actions:
+      MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), defaults: defaults)
+    expect(hiddenStore.rows.map(\.id) == [2, 5, 0, 3, 4, 6, 7].map { enabled[$0].id },
+      "Hiding a service removes its enabled accounts from the popover or changes their order")
+    let hiddenMissingUsage = MenuBarAccountSnapshot(id: UUID(), identity: "hidden-service", detail: "",
+      isVerified: false, isActive: false, providerID: .claudeCode)
+    controller.update(snapshot: MenuBarSnapshot(accounts: enabled + [hiddenMissingUsage], hiddenServices: [.claudeCode]))
+    expect(!controller.statusAccessibilityLabel.contains(hiddenMissingUsage.identity)
+      && !controller.statusAccessibilityLabel.contains("Claude Code"),
+      "A hidden service remains in the tray tooltip")
+    controller.update(snapshot: ordered)
+    expect(controller.statusTitle == "80% 50% 100% 70% 60% 40%",
+      "The tray image groups do not follow service order")
+
+    for provider in [ProviderID(rawValue: "devin"), .droid] {
+      let pair = (0..<2).map { index in
+        MenuBarAccountSnapshot(id: UUID(), identity: "saved-\(index)", detail: "", isVerified: true,
+          isActive: index == 0, usage: MenuBarUsageSnapshot(usedPercentage: 20 + index), providerID: provider)
+      }
+      let saved = MenuBarSnapshot(accounts: pair)
+      let savedStore = MenuBarPopoverStore(snapshot: saved, actions:
+        MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), defaults: defaults)
+      expect(saved.statusAccountGroups.count == 1 && saved.statusAccountGroups[0].map(\.id) == pair.map(\.id)
+        && savedStore.rows.map(\.id) == pair.map(\.id),
+        "Two saved \(provider.rawValue) accounts do not both appear in the tray and popover")
+    }
+    let mixed = (0..<7).map { index in
+      MenuBarAccountSnapshot(id: UUID(), identity: "mixed-\(index)", detail: "", isVerified: true,
+        isActive: index == 0, usage: MenuBarUsageSnapshot(usedPercentage: index * 10),
+        providerID: index == 0 || index == 6 ? .droid : .codex)
+    }
+    let mixedSnapshot = MenuBarSnapshot(accounts: mixed)
+    let mixedStore = MenuBarPopoverStore(snapshot: mixedSnapshot, actions:
+      MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), defaults: defaults)
+    expect(mixedSnapshot.statusAccounts.map(\.id) == [0, 6, 1, 2, 3, 4].map { mixed[$0].id }
+      && mixedSnapshot.statusAccountGroups.first?.count == 2,
+      "The tray cap removes the second Droid account before service grouping")
+    expect(mixedStore.rows.map(\.id) == [0, 6, 1, 2, 3, 4, 5].map { mixed[$0].id },
+      "The popover omits a saved account beyond the six-account tray limit")
+
+    let providers: [ProviderID] = [.codex, .claudeCode, .droid]
+    defaults.set([ProviderID.claudeCode.rawValue, ProviderID.claudeCode.rawValue, "unknown-service"],
+      forKey: MenuBarServicePreferences.orderKey)
+    expect(MenuBarServicePreferences.orderedProviders(providers, defaults: defaults) == [.claudeCode, .codex, .droid],
+      "New services do not append in saved order, or a stored service repeats")
+    MenuBarServicePreferences.move(.droid, to: .claudeCode, in: providers, defaults: defaults)
+    expect(MenuBarServicePreferences.orderedProviders(providers, defaults: UserDefaults(suiteName: domain)!)
+      == [.droid, .claudeCode, .codex], "Service order does not persist after a move")
+    MenuBarServicePreferences.move(.droid, to: .codex, in: providers, defaults: defaults)
+    expect(MenuBarServicePreferences.orderedProviders(providers, defaults: defaults) == [.claudeCode, .codex, .droid],
+      "Moving a service down does not take the target's position")
+    let beforeNoOp = defaults.stringArray(forKey: MenuBarServicePreferences.orderKey)
+    MenuBarServicePreferences.move(.codex, to: .codex, in: providers, defaults: defaults)
+    MenuBarServicePreferences.move(ProviderID(rawValue: "foreign"), to: .codex, in: providers, defaults: defaults)
+    MenuBarServicePreferences.move(.codex, to: ProviderID(rawValue: "foreign"), in: providers, defaults: defaults)
+    expect(defaults.stringArray(forKey: MenuBarServicePreferences.orderKey) == beforeNoOp,
+      "An unchanged or foreign service drop writes a new order")
+    MenuBarServicePreferences.toggleVisibility(.droid, defaults: defaults)
+    expect(!MenuBarServicePreferences.showsInTray(.droid, defaults: UserDefaults(suiteName: domain)!)
+      && MenuBarServicePreferences.showsInTray(.codex, defaults: defaults),
+      "Service visibility does not persist independently")
+    MenuBarServicePreferences.toggleVisibility(.droid, defaults: defaults)
+    expect(MenuBarServicePreferences.showsInTray(.droid, defaults: defaults), "A hidden service cannot return to the tray")
 
     controller.update(snapshot: snapshot)
     let size = controller.popoverContentSize

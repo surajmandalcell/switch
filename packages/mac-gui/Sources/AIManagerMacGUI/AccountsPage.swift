@@ -1504,6 +1504,8 @@ struct AccountsTableCard: View {
 
   static let group = "accounts"
   @State private var hover = AccountsRowHover()
+  @State private var serviceOrder = MenuBarServicePreferences.order()
+  @State private var hiddenServices = MenuBarServicePreferences.hiddenServices()
 
   var body: some View {
     AIMCard(title: "Accounts", bottomInset: 0) {
@@ -1522,21 +1524,23 @@ struct AccountsTableCard: View {
           .accessibilityLabel("Accounts")
       }
     }
+    .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in
+      let order = MenuBarServicePreferences.order()
+      let hidden = MenuBarServicePreferences.hiddenServices()
+      if serviceOrder != order { serviceOrder = order }
+      if hiddenServices != hidden { hiddenServices = hidden }
+    }
   }
 
-  /// One group per provider, in the order each provider first appears.
-  private var groups: [(provider: ProviderID, accounts: [AccountRecord])] { AccountsRowLayout.grouped(accounts) }
+  private var groups: [(provider: ProviderID, accounts: [AccountRecord])] {
+    AccountsRowLayout.grouped(accounts, serviceOrder: serviceOrder)
+  }
 
   /// The 32 pt header above a group: a 16 pt brand tile, the provider name, and the count as plain "×2".
   private func groupHeader(_ provider: ProviderID, count: Int) -> some View {
-    HStack(spacing: 8) {
-      ProviderMark(providerID: provider, size: 16)
-      HStack(spacing: 6) {
-        Text(provider.guiName).aimText(.secondary, tint: .primary).fontWeight(.semibold).lineLimit(1)
-        Text("×\(count)").aimText(.secondary).monospacedDigit().layoutPriority(1)
-      }
-      Spacer(minLength: 0)
-    }
+    ServiceGroupHeader(provider: provider, providers: model.status?.accounts.map(\.identity.providerID) ?? [],
+      showsInTray: !hiddenServices.contains(provider), count: count, canReorder: query.isEmpty)
+    .equatable()
     .padding(.horizontal, AIMTheme.cardInset)
     .frame(height: AIMTheme.groupHeaderHeight)
     // The first 4 pt of the guide line, under the brand tile; the rows draw the rest.
@@ -1544,9 +1548,6 @@ struct AccountsTableCard: View {
       Rectangle().fill(AIMTheme.guideLine).frame(width: 1, height: 4)
         .padding(.leading, AIMTheme.cardInset + 7.5).allowsHitTesting(false).accessibilityHidden(true)
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(provider.guiName), \(count) \(count == 1 ? "account" : "accounts")")
-    .accessibilityAddTraits(.isHeader)
   }
 
   /// One flat list (each group's header, then its accounts) of fixed-height rows. Groups sit 6 pt
@@ -1603,8 +1604,8 @@ struct AccountsRowLayout {
   let entries: [Entry]
   let height: CGFloat
 
-  /// One group per provider, in the order each provider first appears.
-  static func grouped(_ accounts: [AccountRecord]) -> [(provider: ProviderID, accounts: [AccountRecord])] {
+  /// Saved service order first; new services follow their first saved account.
+  static func grouped(_ accounts: [AccountRecord], serviceOrder: [ProviderID] = []) -> [(provider: ProviderID, accounts: [AccountRecord])] {
     var order: [ProviderID] = []
     var byProvider: [ProviderID: [AccountRecord]] = [:]
     for account in accounts {
@@ -1612,7 +1613,7 @@ struct AccountsRowLayout {
       if byProvider[provider] == nil { order.append(provider) }
       byProvider[provider, default: []].append(account)
     }
-    return order.map { ($0, byProvider[$0] ?? []) }
+    return MenuBarServicePreferences.orderedProviders(order, order: serviceOrder).map { ($0, byProvider[$0] ?? []) }
   }
 
   init(groups: [(provider: ProviderID, accounts: [AccountRecord])]) {

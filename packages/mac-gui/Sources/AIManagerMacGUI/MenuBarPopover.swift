@@ -239,8 +239,16 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
 }
 
 struct MenuBarSnapshot: Equatable, Sendable {
+  static let maximumStatusAccounts = 6
   let accounts: [MenuBarAccountSnapshot]
   let lastRefreshedAt: Date?
+  let serviceOrder: [ProviderID]
+  let hiddenServices: Set<ProviderID>
+
+  var orderedAccounts: [MenuBarAccountSnapshot] {
+    let providers = MenuBarServicePreferences.orderedProviders(accounts.map(\.providerID), order: serviceOrder)
+    return providers.flatMap { provider in accounts.filter { $0.providerID == provider } }
+  }
 
   var statusAccounts: [MenuBarAccountSnapshot] {
     statusAccountGroups.flatMap { $0 }
@@ -248,7 +256,9 @@ struct MenuBarSnapshot: Equatable, Sendable {
 
   var statusAccountGroups: [[MenuBarAccountSnapshot]] {
     var groups: [[MenuBarAccountSnapshot]] = []
-    for account in accounts.filter({ $0.showsUsage && $0.isVerified && $0.remainingPercentage != nil }).prefix(4) {
+    for account in orderedAccounts.filter({
+      $0.showsUsage && $0.isVerified && $0.remainingPercentage != nil && !hiddenServices.contains($0.providerID)
+    }).prefix(Self.maximumStatusAccounts) {
       if let index = groups.firstIndex(where: { $0.first?.providerID == account.providerID }) {
         groups[index].append(account)
       } else {
@@ -263,9 +273,13 @@ struct MenuBarSnapshot: Equatable, Sendable {
 
   init(
     accounts: [MenuBarAccountSnapshot],
-    lastRefreshedAt: Date? = nil
+    lastRefreshedAt: Date? = nil,
+    serviceOrder: [ProviderID] = [],
+    hiddenServices: Set<ProviderID> = []
   ) {
     self.accounts = accounts
+    self.serviceOrder = serviceOrder
+    self.hiddenServices = hiddenServices
     self.lastRefreshedAt = lastRefreshedAt ?? accounts.compactMap(\.usage?.fetchedAt).max()
   }
 }
@@ -405,8 +419,8 @@ final class MenuBarPopoverStore: ObservableObject {
     }
   }
 
-  /// Accounts with Show in Menubar on, in saved order. These are the popover's rows.
-  var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.accounts).flatMap { $0 } }
+  /// Enabled accounts follow service order, with saved order inside each service.
+  var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.orderedAccounts).flatMap { $0 } }
 
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
     guard MenuBarPresentation.canExpand(account, hasOpenTool: actions.openTool != nil) else { return }
@@ -584,20 +598,17 @@ struct MenuBarPopover: View {
         AIMScrollView(name: "menu-bar") {
           TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(spacing: 0) {
-              ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.offset) { index, group in
+              ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.element.first!.providerID) { index, group in
                 if index > 0 {
                   MenuBarSeparator()
                     .padding(.leading, MenuBarPresentation.inset)
                     .padding(.trailing, MenuBarPresentation.trailingInset)
                     .frame(height: MenuBarPresentation.groupGap)
                 }
-                HStack(spacing: MenuBarPresentation.tileSpacing) {
-                  ProviderMark(providerID: group[0].providerID, size: 16)
-                  Text(group[0].providerID.guiName)
-                    .aimText(.secondary, tint: MenuBarPresentation.secondaryInk).fontWeight(.semibold)
-                    .uiLint(.align("menuBarGroupHeaderInk", .start))
-                  Spacer(minLength: 0)
-                }
+                ServiceGroupHeader(provider: group[0].providerID,
+                  providers: store.snapshot.accounts.map(\.providerID),
+                  showsInTray: !store.snapshot.hiddenServices.contains(group[0].providerID))
+                .equatable()
                 .padding(.leading, MenuBarPresentation.inset)
                 .padding(.trailing, MenuBarPresentation.trailingInset)
                 .frame(height: MenuBarPresentation.groupHeaderHeight)

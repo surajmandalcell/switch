@@ -1,6 +1,49 @@
 import Foundation
 import AIManagerCore
 
+enum MenuBarServicePreferences {
+  static let orderKey = "menuBarServiceOrder"
+  static let hiddenKey = "menuBarHiddenServices"
+
+  static func order(defaults: UserDefaults = .standard) -> [ProviderID] {
+    (defaults.stringArray(forKey: orderKey) ?? []).map { ProviderID(rawValue: $0) }
+  }
+
+  static func hiddenServices(defaults: UserDefaults = .standard) -> Set<ProviderID> {
+    Set((defaults.stringArray(forKey: hiddenKey) ?? []).map { ProviderID(rawValue: $0) })
+  }
+
+  static func orderedProviders(_ providers: [ProviderID], order: [ProviderID]) -> [ProviderID] {
+    var seen: Set<ProviderID> = []
+    let present = Set(providers)
+    return (order + providers).filter { present.contains($0) && seen.insert($0).inserted }
+  }
+
+  static func orderedProviders(_ providers: [ProviderID], defaults: UserDefaults = .standard) -> [ProviderID] {
+    orderedProviders(providers, order: order(defaults: defaults))
+  }
+
+  static func move(_ provider: ProviderID, to target: ProviderID, in providers: [ProviderID],
+                   defaults: UserDefaults = .standard) {
+    var ordered = orderedProviders(providers, defaults: defaults)
+    guard let from = ordered.firstIndex(of: provider), let to = ordered.firstIndex(of: target), from != to else { return }
+    ordered.remove(at: from)
+    ordered.insert(provider, at: to)
+    let absent = order(defaults: defaults).filter { !ordered.contains($0) }
+    defaults.set((ordered + absent).map(\.rawValue), forKey: orderKey)
+  }
+
+  static func showsInTray(_ provider: ProviderID, defaults: UserDefaults = .standard) -> Bool {
+    !hiddenServices(defaults: defaults).contains(provider)
+  }
+
+  static func toggleVisibility(_ provider: ProviderID, defaults: UserDefaults = .standard) {
+    var hidden = hiddenServices(defaults: defaults)
+    if !hidden.insert(provider).inserted { hidden.remove(provider) }
+    defaults.set(hidden.map(\.rawValue).sorted(), forKey: hiddenKey)
+  }
+}
+
 enum MenuBarUsagePreferences {
   static let expandedAccountKey = "menuBarExpandedAccount"
   static let defaultKey = "showAccountUsageInMenuBar"

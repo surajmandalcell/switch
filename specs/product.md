@@ -318,15 +318,20 @@ Monthly, or Yearly; hide a zero row. Beside tokens, show an API-equivalent value
 Codex config's model has published prices (LiteLLM catalog, cached 24 hours), labeled an
 input-rate equivalent, never billed cost; help shows model, cached-input, input, and output values.
 
-Each account's More menu has **Show in Menubar** with a checkmark and Use Settings default.
-It controls the popover row and tray entry. The tray shows the first four enabled accounts with
-limits in saved order. A 12-point monochrome glyph precedes each service's percentages; the
-first account sets service order. Defaults never reorder. Skip signed-out or uncached accounts,
-name them in the tooltip, and use the next enabled account. If none qualify, show the Switch
-mark. Disabled usage has no refresh or placeholder; enabling never activates an account.
-Choices persist by UUID and apply immediately; main-window usage ignores them. Codex uses the
-5-hour limit when present, else weekly; never invent a 5-hour value. For Left, the tray subtracts
-clamped used percent from 100. Provider glyphs add no providers or network work.
+Each account's More menu has checkmarked **Show in Menubar** and Use Settings default. It controls popover and
+tray visibility, persists by UUID, and leaves main-window usage unchanged. After service order and
+visibility, the tray takes six enabled, verified accounts with cached limits. A 12-point monochrome
+glyph precedes each service's percentages. Defaults never reorder. Name signed-out or uncached
+accounts in the tooltip; an empty tray shows the Switch mark. Disabled usage has no refresh or
+placeholder; enabling never activates an account. Codex uses its 5-hour limit, else weekly.
+Left subtracts used percent from 100, stopping at zero. Glyphs add no network work.
+Inactive accounts keep their own cached usage when live reads are unavailable.
+
+Drag service headers in the popover or Accounts. One saved provider-id order drives both lists and
+tray glyphs. New services append; accounts keep saved order. A fixed line marks each drop.
+Header eye buttons change tray visibility only; popover rows remain. Save visibility by provider id;
+account preferences still apply. Hover fades in the right-hand eye in 180 ms. Hidden services keep
+a dimmed eye.slash. Symbols replace; Reduce Motion uses fades. Controls never shift rows.
 
 Drag the hover grip left of the guide line to reorder accounts within a provider. A blue line
 marks the landing spot; Move up and Move down remain in the context menu. Save order atomically
@@ -433,32 +438,27 @@ in light and dark HTML references (Overview and shared-part states) and measured
   in. Use 150-350 ms with ease-out or a soft spring. Reduce Motion keeps fades only. Show the
   first page-switch frame without delay; run heavy work off the main actor. Motion runs once per
   page load; content scrolling into view stays still.
-- **Menu bar popover:** About 360 pt wide, it omits app name, brand headers, token band, column
-  header, session explanation, and Add Account. It fits all rows up to 80% of visible screen
-  height; beyond that, its body scrolls above a fixed footer. One or two accounts never clip.
-  Hidden or missing limits take no space and are never invented. Its surface is less transparent
-  than default material; Dark Mode stays near #262628, not lifted gray. Separators are half-opacity
-  hairlines faded at both ends. Inset headers, rows, and footer 12 pt. Rows expand only for
-  buttons or hidden lines; idle rows have no hover or press fill. Expanded and focused fills use
-  primary color at 0.06 opacity, and hover uses 0.04 in both appearances. Hover extends 4 pt
-  sideways and below and 6 pt above the name, without touching the header or shifting rows.
-  Text and footer controls keep native contrast and primary label icons. Flat Sequoia buttons
-  are 24 pt painted with radius 5 pt and never grow. During expansion, earlier rows stay fixed;
-  height and content animate together without dropped frames, even in Low Power Mode. Each
-  service header shows a brand tile and name; account usage rows omit both.
-  A leading default-checkmark column precedes row text.
-  Values without a bar (credits, balance, "Tokens 34M since reset · ≈US$68 API") start at the bar
-  column on one line. Windows use full words (Session, Weekly, Monthly); each extra pool (Droid
-  Core, a model such as Fable) gets a small heading over its own rows ("Weekly Fable" in the
-  window). Show all reported windows, even unknown values; plans and hidden rows may reduce
-  them. Align window name, bar, percentage, and reset in fixed columns. Clicking expands all
-  windows, model buckets, credits, Switch, and Open <tool>. Accounts needing sign-in show "Sign in
-  again to see usage" as a subtitle and Sign in at right, aligned with expanded buttons' bottoms.
-  Droid reuses the Accounts access text and action there. Context
-  menus offer Switch, Open <tool>, Refresh, and Copy name. The footer puts Open Switch (Command-O)
-  left and Refresh, Quit (power), Settings icons right, in order, 6 pt apart. Refresh
-  checks enabled accounts in saved order without activating an account or closing the popover.
-  Disable it while running; keep its space during progress.
+- **Menu bar popover:** 360 pt wide; omit app name, brand headers, token band, column header,
+  session explanation, and Add Account. Above 80% of screen height, scroll rows above the fixed
+  footer. One or two accounts never clip. Omit absent or hidden limits; never invent them.
+  Use less transparency than default material; Dark Mode stays near #262628. Separators are
+  half-opacity hairlines faded at both ends. Headers, rows, and footer have 12 pt insets.
+  Expand only for buttons or hidden lines; idle rows have no fill. Expanded and focused fills use
+  primary color at 0.06 opacity; hover uses 0.04. Hover extends 4 pt sideways and below and 6 pt
+  above names, without touching headers or moving rows. Keep native contrast and primary label
+  icons. Flat Sequoia buttons stay 24 pt tall with radius 5 pt. Expansion keeps earlier rows fixed;
+  height and content animate together without dropped frames, including Low Power Mode.
+  Service headers show a brand tile and name; account rows omit both.
+  A default-checkmark column precedes row text. Credits, balance, and tokens with API value start
+  at the bar column on one line. Use full window names (Session, Weekly, Monthly); extra pools
+  such as Droid Core and Fable have headings above their rows. Show reported windows, including
+  unknown values, subject to plan and hidden-row choices. Keep name, bar, percentage, and reset
+  columns fixed. Click to expand windows, model buckets, credits, Switch, and Open <tool>.
+  Signed-out accounts show "Sign in again to see usage" and Sign in at right, bottom-aligned
+  with expanded buttons. Droid uses the Accounts access text and action. Context menus offer
+  Switch, Open <tool>, Refresh, and Copy name. Footer: Open Switch (Command-O) left; Refresh,
+  Quit (power), Settings right, 6 pt apart. Refresh checks enabled accounts in saved order,
+  without activation or dismissal. Disable Refresh during checks; keep its space.
 - **Behavior kept:** Clicking paths copies them with brief Copied feedback; Preview never uses
   the real clipboard. Icon actions have accessible names and keyboard focus. Reduce Transparency
   follows the system. Preview data is synthetic.

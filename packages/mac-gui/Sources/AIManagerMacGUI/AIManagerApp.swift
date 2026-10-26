@@ -317,7 +317,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     realName: account.identity.realAccountLabel)
             },
             lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
-                + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max())
+                + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max(),
+            serviceOrder: MenuBarServicePreferences.order(),
+            hiddenServices: MenuBarServicePreferences.hiddenServices())
     }
 
     private func menuBarUsage(
