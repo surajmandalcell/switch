@@ -69,6 +69,7 @@ struct UsageChartView: View {
       ForEach(UsageChartPresentation.axisTicks(chart), id: \.index) { tick in
         let edge = tick.index == 0 ? Alignment.leading : tick.index == chart.points.count - 1 ? .trailing : .center
         Text(tick.label).aimText(.secondary).lineLimit(1).fixedSize()
+          .help(tick.label)
           .frame(width: proxy.size.width, alignment: edge)
           .offset(x: edge == .center ? (CGFloat(tick.index) + 0.5) / count * proxy.size.width - proxy.size.width / 2 : 0)
       }
@@ -81,10 +82,12 @@ struct UsageChartView: View {
     VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
       HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
         Text(chart.title).aimText(.body).lineLimit(1)
+          .help(chart.title)
         Spacer(minLength: AIMTheme.rowSpacing)
         Text(UsageChartPresentation.headline(chart, selected: chosen))
           .aimText(.secondary, tint: chosen == nil ? nil : .primary).monospacedDigit()
           .lineLimit(1)
+          .help(UsageChartPresentation.headline(chart, selected: chosen))
       }
       Chart(chart.points, id: \.label) { point in
         BarMark(x: .value("Day", point.label), y: .value(chart.unit, point.value))

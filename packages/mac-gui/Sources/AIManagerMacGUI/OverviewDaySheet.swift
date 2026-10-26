@@ -226,7 +226,9 @@ struct OverviewDaySheet: View {
   private func total(_ label: String, _ value: String?) -> some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(label).aimText(.secondary).lineLimit(1)
+        .help(label)
       Text(value ?? " ").aimText(.title).monospacedDigit().lineLimit(1).aimRolling(value)
+        .help(value ?? "")
     }
     .accessibilityElement(children: .combine)
     .aimTile()
@@ -259,10 +261,12 @@ struct OverviewDaySheet: View {
               Circle().fill(slice.color).frame(width: 8, height: 8)
               OverviewServiceTile(service: slice.service, reserve: slices.contains { $0.service != nil })
               Text(slice.label).aimText(.body).lineLimit(1).truncationMode(.middle)
+                .help(slice.label)
               Spacer(minLength: 12)
               Text(Self.percent(slice.value, of: sum)).aimText(.body).monospacedDigit()
               Text(detail.byCost ? UsagePresentation.formatCurrency(slice.value) : UsagePresentation.formatTokens(Int64(slice.value)))
                 .aimText(.secondary).monospacedDigit().frame(width: 64, alignment: .trailing)
+                .help(detail.byCost ? UsagePresentation.formatCurrency(slice.value) : UsagePresentation.formatTokens(Int64(slice.value)))
             }
             .frame(height: 22)
           }
@@ -346,7 +350,9 @@ private struct OverviewDaySessionRow: View {
     HStack(spacing: 12) {
       VStack(alignment: .leading, spacing: 1) {
         Text(session.title).aimText(.body).lineLimit(1).truncationMode(.middle)
+          .help(session.title)
         Text(detail).aimText(.secondary).lineLimit(1)
+          .help(detail)
       }
       Spacer(minLength: 12)
       VStack(alignment: .trailing, spacing: 1) {

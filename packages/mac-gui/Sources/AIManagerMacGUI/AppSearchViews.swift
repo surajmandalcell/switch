@@ -112,6 +112,7 @@ private struct SearchCardRow<Content: View>: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .help(label)
     .onHover { hovering = $0 && !AIMScrollBarModel.isScrolling }
     .accessibilityLabel(label)
   }
@@ -139,7 +140,9 @@ struct SearchAccountsCard: View {
             ProviderMark(providerID: account.identity.providerID, size: 16)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
               Text(account.identity.accountLabel).aimText(.body).lineLimit(1)
+                .help(account.identity.accountLabel)
               Text(account.identity.providerID.guiName).aimText(.secondary).lineLimit(1)
+                .help(account.identity.providerID.guiName)
             }
           }
         }
@@ -163,8 +166,8 @@ struct SearchSettingsCard: View {
             label: "\(entry.title), \(entry.section)", action: { AppSearch.open(.settings) }
           ) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-              Text(entry.title).aimText(.body).lineLimit(1)
-              Text("· \(entry.section)").aimText(.secondary).lineLimit(1)
+              Text(entry.title).aimText(.body).lineLimit(1).help(entry.title)
+              Text("· \(entry.section)").aimText(.secondary).lineLimit(1).help(entry.section)
             }
           }
         }
@@ -203,8 +206,8 @@ struct SettingsSearchCards: View {
         } else {
           if settingCount == 0 {
             AIMCard {
-              Text("No settings match “\(query.trimmingCharacters(in: .whitespaces))”.")
-                .aimText(.secondary).lineLimit(1)
+              let text = "No settings match “\(query.trimmingCharacters(in: .whitespaces))”."
+              Text(text).aimText(.secondary).lineLimit(1).help(text)
                 .padding(.horizontal, AIMTheme.cardInset)
                 .frame(maxWidth: .infinity, minHeight: AIMTheme.rowHeight, alignment: .leading)
             }
@@ -228,8 +231,8 @@ private struct SearchEmptyCard: View {
     AIMCard {
       VStack(spacing: 6) {
         AIMIcon(name: .search).aimText(.section).foregroundStyle(.secondary)
-        Text("No results for “\(query.trimmingCharacters(in: .whitespaces))”")
-          .aimText(.body).lineLimit(1)
+        let title = "No results for “\(query.trimmingCharacters(in: .whitespaces))”"
+        Text(title).aimText(.body).lineLimit(1).help(title)
         Text("Try a setting such as Appearance, or an account name.").aimText(.secondary)
       }
       .frame(maxWidth: .infinity)
@@ -290,7 +293,7 @@ struct AppSearchDropdown: View {
     let accountRows = list.accountRows
     VStack(alignment: .leading, spacing: 0) {
       if list.rows.isEmpty {
-        Text("No accounts or settings match").aimText(.secondary).lineLimit(1)
+        Text("No accounts or settings match").aimText(.secondary).lineLimit(1).help("No accounts or settings match")
           .padding(.horizontal, 8).frame(height: Self.rowHeight)
       }
       if !accountRows.isEmpty {
@@ -348,6 +351,7 @@ struct AppSearchDropdown: View {
           Text(account.identity.accountLabel).aimText(.body).lineLimit(1)
           Text(account.identity.providerID.guiName).aimText(.secondary).lineLimit(1)
         }
+        .help("\(account.identity.accountLabel), \(account.identity.providerID.guiName)")
       }
     case .setting(let id):
       if let entry = list.setting(id) {
@@ -355,9 +359,10 @@ struct AppSearchDropdown: View {
           Text(entry.title).aimText(.body).lineLimit(1)
           Text("· \(entry.section)").aimText(.secondary).lineLimit(1)
         }
+        .help("\(entry.title) · \(entry.section)")
       }
     case .showAll(let count):
-      Text("Show all \(count) in Accounts").aimText(.secondary).lineLimit(1)
+      Text("Show all \(count) in Accounts").aimText(.secondary).lineLimit(1).help("Show all \(count) in Accounts")
     }
   }
 }

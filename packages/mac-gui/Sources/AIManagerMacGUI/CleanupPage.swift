@@ -82,6 +82,9 @@ struct CleanupPage: View {
   @AppStorage(MaintenancePlace.fromKey) private var fromTime = Date().addingTimeInterval(-30 * 86_400).timeIntervalSince1970
   @AppStorage(MaintenancePlace.throughKey) private var throughTime = Date().timeIntervalSince1970
   @AppStorage(MaintenancePlace.expandedKey) private var expandedRaw = ""
+  @AppStorage("cleanupProjects") private var projectsData = Data()
+  @AppStorage("cleanupTitle") private var titleQuery = ""
+  @FocusState private var titleFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var scan: CleanupScan?
   @State private var scannedSourceID: String?
@@ -124,7 +127,21 @@ struct CleanupPage: View {
   private func matches(_ date: Date) -> Bool { range.contains(date, now: anchor, from: from, through: through) }
   /// Old app versions and the like are not dated by use, so every range shows them.
   private func visible(_ category: CleanupCategory) -> [CleanupItem] {
-    category.ageBased ? category.selectable.filter { matches($0.updatedAt) } : category.selectable
+    let items = category.ageBased ? category.selectable.filter { matches($0.updatedAt) } : category.selectable
+    return ["conversations", "archived", "agents"].contains(category.id) ? items.filter(conversationFilter.matches) : items
+  }
+  private var projects: Set<String> {
+    get { Set((try? JSONDecoder().decode([String].self, from: projectsData)) ?? []) }
+    nonmutating set { projectsData = (try? JSONEncoder().encode(newValue.sorted())) ?? Data() }
+  }
+  private var conversationFilter: ConversationCleanupFilter {
+    ConversationCleanupFilter(projects: projects, title: titleQuery)
+  }
+  private var conversations: [CleanupItem] {
+    (scan?.categories ?? []).filter { ["conversations", "archived", "agents"].contains($0.id) }.flatMap(\.items)
+  }
+  private var matchingConversations: [CleanupItem] {
+    conversations.filter { matches($0.updatedAt) && conversationFilter.matches($0) }
   }
   private var visibleSamples: [CleanupUsageSample] { samples.filter { matches($0.fetchedAt) } }
   private var shownCategories: [CleanupCategory] { (scan?.categories ?? []).filter { !visible($0).isEmpty } }
@@ -140,16 +157,16 @@ struct CleanupPage: View {
   var body: some View {
     VStack(spacing: AIMTheme.cardGap) {
       controls
-      if source == nil {
+      if source == nil && (!store.isLoaded || !model.hasLoaded) {
+        AIMSection { AIMLoadingRows() }
+      } else if source == nil {
         AIMSection { Text("No supported tool was found on this Mac.").aimText(.secondary) }
+      } else if scan == nil && error == nil {
+        AIMSection("Files") { AIMLoadingRows() }
       } else if scan == nil {
-        AIMSection {
-          HStack(spacing: AIMTheme.rowSpacing) {
-            ProgressView().controlSize(.small)
-            Text("Reading file names, sizes, and dates…").aimText(.secondary)
-          }
-        }
+        EmptyView()
       } else {
+        conversationCard
         // Expanded lists can contain native tables; flatten their SwiftUI headers separately.
         if expanded.isEmpty {
           categoriesCard.drawingGroup()
@@ -169,12 +186,14 @@ struct CleanupPage: View {
     .onChange(of: rangeRaw) { _, _ in resetSelection() }
     .onChange(of: fromTime) { _, _ in resetSelection() }
     .onChange(of: throughTime) { _, _ in resetSelection() }
+    .onChange(of: projectsData) { _, _ in resetSelection() }
+    .onChange(of: titleQuery) { _, _ in resetSelection() }
     .onChange(of: clearIndex) { _, _ in review = nil }
     .alert("Move \(review?.itemCount.formatted() ?? "0") items to the trash?", isPresented: $confirming) {
       Button("Cancel", role: .cancel) {}
       Button("Move to trash") { Task { await apply() } }
     } message: {
-      Text("\(MaintenanceStore.size(review?.bytes ?? 0)) move to Switch's recoverable trash. Restore brings them back. Nothing is deleted for good.")
+      Text("\(MaintenanceStore.size(review?.bytes ?? 0)) (\((review?.bytes ?? 0).formatted()) bytes) move to Switch's recoverable trash. Restore brings them back. Nothing is deleted for good.")
     }
     .alert("Remove these items for good?", isPresented: Binding(
       get: { removingBatch != nil }, set: { if !$0 { removingBatch = nil } }), presenting: removingBatch) { batch in
@@ -191,7 +210,9 @@ struct CleanupPage: View {
     AIMSection {
       HStack(spacing: AIMTheme.sectionSpacing) {
         CleanupRangeSelect(selection: Binding(get: { range }, set: { range = $0 })).disabled(busy)
-        if range == .custom {
+        if range == .before {
+          AIMDateField(title: "Before", selection: Binding(get: { from }, set: { from = $0 }))
+        } else if range == .custom {
           AIMDateField(title: "From", selection: Binding(get: { from }, set: { from = $0 }))
           AIMDateField(title: "Through", selection: Binding(get: { through }, set: { through = $0 }), after: from)
         }
@@ -203,6 +224,67 @@ struct CleanupPage: View {
   }
 
   // MARK: Categories
+
+  private var conversationCard: some View {
+    let items = matchingConversations
+    let choices = Set(conversations.map { $0.project ?? "" }).sorted()
+    return AIMSection("Delete conversations by filter", accessory: {
+      Text("\(items.count.formatted()) conversations · \(MaintenanceStore.size(items.reduce(0) { $0 + $1.bytes }))")
+        .aimText(.secondary).monospacedDigit()
+    }) {
+      HStack(spacing: AIMTheme.rowSpacing) {
+        Menu {
+          Button("All projects") { projects = [] }
+          ForEach(choices, id: \.self) { path in
+            Button {
+              var next = projects
+              if !next.insert(path).inserted { next.remove(path) }
+              projects = next
+            } label: {
+              Label(path.isEmpty ? "No project" : path, systemImage: projects.contains(path) ? "checkmark" : "folder")
+            }
+          }
+        } label: { Text(projects.isEmpty ? "All projects" : "\(projects.count) projects") }
+        .menuStyle(.borderlessButton).fixedSize()
+        Text("Title").aimText(.secondary)
+        TextField("Match title text", text: $titleQuery).textFieldStyle(.plain).focused($titleFocused)
+          .aimFieldChrome(focused: titleFocused).accessibilityLabel("Conversation title contains")
+          .frame(minWidth: 300)
+      }
+      Text("Use the app picker above and the date range to narrow this list. Active and protected conversations stay untouched.")
+        .aimText(.secondary)
+      if items.isEmpty {
+        Text("No conversations match. Change the filters or choose another app.").aimText(.secondary)
+      } else {
+        AIMVirtualList(items: items, fixedRowHeight: 48) { item in
+          AnyView(HStack {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(item.title).aimText(.body).lineLimit(1)
+                .help(item.title)
+              Text(item.project ?? "No project").aimText(.secondary).lineLimit(1).truncationMode(.middle)
+                .help(item.project ?? "No project")
+            }
+            Spacer()
+            Text(item.updatedAt.formatted(date: .abbreviated, time: .shortened)).aimText(.secondary).monospacedDigit()
+            sizeColumn(item.bytes)
+          }.padding(.horizontal, 4))
+        }
+        .frame(height: min(CGFloat(items.count), 5) * 48)
+      }
+      HStack {
+        Text("Conversation dates are the last file update.").aimText(.secondary)
+        Spacer()
+        AIMButton(title: "Review \(items.count.formatted()) conversations", disabled: busy || items.isEmpty) {
+          selection = Set(items.map(\.id))
+          selectionRevision &+= 1
+          useSamples = false
+          clearIndex = false
+          Task { await makeReview() }
+        }
+      }
+    }
+    .disabled(busy)
+  }
 
   private var categoriesCard: some View {
     let categories = shownCategories
@@ -245,9 +327,11 @@ struct CleanupPage: View {
         VStack(alignment: .leading, spacing: 2) {
           HStack(spacing: 6) {
             Text(category.title).aimText(.body).lineLimit(1)
+              .help(category.title)
             if category.risk == .caution { Badge(text: "Check first", tint: AIMTheme.amber) }
           }
           Text(category.detail).aimText(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            .help(category.detail)
         }
         Spacer(minLength: AIMTheme.rowSpacing)
         countColumn(items.count)
@@ -277,10 +361,11 @@ struct CleanupPage: View {
           disclosure(open: open) { toggleExpanded(id) }
           CleanupCheck(state: state(of: group.items), label: projectName(group.path)) { toggle(group.items) }
           Text(projectName(group.path)).aimText(.body).lineLimit(1).truncationMode(.middle)
-            .help(group.path.isEmpty ? "No project folder" : group.path)
+            .help(group.path.isEmpty ? "No project folder" : "\(projectName(group.path))\n\(group.path)")
           if !group.path.isEmpty {
             Text((group.path as NSString).abbreviatingWithTildeInPath).aimText(.secondary, monospaced: true)
               .lineLimit(1).truncationMode(.head)
+              .help((group.path as NSString).abbreviatingWithTildeInPath)
           }
           Spacer(minLength: AIMTheme.rowSpacing)
           countColumn(group.items.count)
@@ -308,10 +393,11 @@ struct CleanupPage: View {
   private func itemRow(_ item: CleanupItem, indent: CGFloat) -> some View {
     CleanupRowBox(indent: indent) {
       CleanupCheck(state: selection.contains(item.id) ? .on : .off, label: item.title) { toggle([item]) }
-      Text(item.title).aimText(.body).lineLimit(1).truncationMode(.middle).help(item.path)
+      Text(item.title).aimText(.body).lineLimit(1).truncationMode(.middle).help("\(item.title)\n\(item.path)")
       Spacer(minLength: AIMTheme.rowSpacing)
       Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted)).aimText(.secondary).monospacedDigit()
         .frame(width: Self.countWidth, alignment: .trailing)
+        .help(item.updatedAt.formatted(date: .abbreviated, time: .omitted))
       sizeColumn(item.bytes)
     }
   }
@@ -332,10 +418,12 @@ struct CleanupPage: View {
 
   private func countColumn(_ count: Int) -> some View {
     Text("\(count.formatted()) \(count == 1 ? "item" : "items")").aimText(.secondary).monospacedDigit().frame(width: Self.countWidth, alignment: .trailing)
+      .help("\(count.formatted()) \(count == 1 ? "item" : "items")")
   }
   private func sizeColumn(_ bytes: Int64) -> some View {
     Text(MaintenanceStore.size(bytes)).aimText(.body).monospacedDigit().lineLimit(1)
       .frame(width: Self.sizeWidth, alignment: .trailing)
+      .help(MaintenanceStore.size(bytes))
   }
   private func projectName(_ path: String) -> String {
     path.isEmpty ? "No project" : URL(fileURLWithPath: path).lastPathComponent
@@ -409,6 +497,7 @@ struct CleanupPage: View {
         countColumn(review.itemCount)
         Text(MaintenanceStore.size(review.bytes)).aimText(.body).fontWeight(.semibold).monospacedDigit()
           .frame(width: Self.sizeWidth, alignment: .trailing)
+          .help(MaintenanceStore.size(review.bytes))
       }
       if let plan = review.plan {
         Button { withAnimation(AIMMotion.move(reduceMotion: reduceMotion)) { showReviewItems.toggle() } } label: {

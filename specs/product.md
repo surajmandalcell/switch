@@ -195,51 +195,48 @@ off ("ada@mail.co.uk" reads "ada@mail").
 Settings omits "Linked entries," per-account chat libraries, and managed-home topology.
 Show account legacy repair only when needed.
 
-Cleanup's searchable account-style picker lists shared homes ("Codex CLI · 3 accounts"), Claude
-Code once (it scans profile files, never links). Backup has no picker. The disclosure tree shows real
-sizes for AI-tool categories:
-active and archived chats by project, pasted and generated images, logs, caches, debug and temp
-files, file history, old app versions, shell snapshots, usage samples, and conversation index.
-Conversations are shared data, never attributed to the selected account.
-Date ranges, including older-than shortcuts, all time, and custom intervals, use file last-write time.
-Remove selected conversations whole. Undated old app versions and Claude app VM appear in every
-range. The card header reads "N items · <in range> of <total the tool uses>". An empty range
-names the total: "Nothing older than 30 days. Codex CLI uses 11.7 GB; choose a shorter range to see it."
-Old app versions are checked by default: all Codex standalone and app-server, Claude Code,
-and Claude app builds except current, newest Claude app copy, and builds in use.
-"Pasted images in old conversations" is unchecked. It replaces each Codex or Claude Code inline
-base64 image with a 1x1 PNG, keeping text and chat opening. Skip chats open in running apps or
-written within the hour; show saved bytes and trash originals for Restore. Codex "Generated
-images" defaults checked. "Claude app VM" is unchecked and protected while its app runs.
-Show untouched counts and reasons: "701 items stay untouched: linked by another app."
-Preview exact items and bytes for one confirmation. Remove conversations through private
-recoverable trash, a journal, restart recovery, and Restore; confirm permanent removal separately.
-Trash moves never claim freed space. Preserve compact activity totals before removal; reject
-changed or unsafe files and active or unknown writers. Protect auth, settings, account registry
-and defaults, backups, Codex databases, and activity ledger. Mark linked or foreign-owned chats
-protected; exclude them from removal review without blocking safe files.
-Use a native time-range pop-up; align expanded rows to their nesting level; groups get headings,
-aligned counts, and short descriptions; totals sit beside Review.
+Cleanup's searchable app picker lists shared homes and account counts, with Claude Code once
+(profile files included, links skipped). Backup has no picker. Show sizes for chats by project,
+pasted and generated images, logs, caches, debug/temp files, file history, old builds, shell
+snapshots, usage samples, and the conversation index. Chats belong to the shared home.
+Combine app, project folders (multi-select), title text, and last-write date filters. Dates offer
+7/30/90-day older-than presets, a before-date picker, all time, and intervals. Preview matching
+titles, projects, dates, count, and bytes; Review selects only those conversations. Confirm the
+exact count and size before trashing whole chats. Undated builds and Claude app VM show in every
+range. The files header shows in-range and total bytes; empty ranges name the tool's total.
+Check old Codex standalone/app-server, Claude Code, and Claude app builds by default; keep current,
+newest Claude app, and in-use builds. Unchecked "Pasted images in old conversations" replaces
+Codex/Claude inline base64 images with 1x1 PNGs; text and chat opening stay. Skip open chats and
+those written within an hour. Show saved bytes; trash originals for Restore. Check Codex generated
+images by default. Leave Claude app VM unchecked; protect it while Claude runs.
+Show untouched counts and reasons. Use private recoverable trash, a journal, restart recovery,
+and Restore; confirm permanent removal separately. Trash moves free no space. Preserve activity
+totals first. Reject changed/unsafe files and active/unknown writers. Protect auth, settings,
+registry, defaults, backups, Codex databases, and activity ledger. Exclude linked and foreign-owned
+chats from removal review; safe files remain available.
+Use a native range pop-up, nested row alignment, group headings, and totals beside Review.
 
-Backup is one checklist of every tool (size, last backup); Claude Code is one row that includes
-each account's profile folder. Checked tools share one owner-picked folder, schedule (off, daily,
-weekly), and snapshots to keep; "Back up N tools now" runs them, each in its own subfolder and
-history. The first snapshot copies all; later ones copy changes and hard-link unchanged files, so
-each stays complete. Build a temporary folder and manifest (path, size, modified time, SHA-256),
-then rename. Offer Restore of all or chosen items in place after a safety snapshot or to another
-folder. Exclude login files unless the owner includes them. Never delete source data; prune only Switch
-snapshots. If the destination is missing, such as an unplugged drive, wait and explain.
+Backup lists each tool's size and last backup; Claude Code includes its account profiles.
+Checked tools share one folder, schedule (off, daily, weekly), and retention count, with separate
+subfolders and history. Full snapshots copy changes and hard-link unchanged files. Publish a
+temporary folder by rename with a manifest (path, bytes, modified time, SHA-256).
+Prompt-only mode writes user prompts in time order with timestamps, one Markdown file per
+conversation under each project, with title, date, app, and an index. Exclude responses, tools,
+login files, and settings. It uses the same folder, schedule, and retention. Restore prompts into
+a folder only. Full backups restore all or chosen items in place after a safety snapshot or to
+another folder. Login files need opt-in. Never delete sources; prune only Switch snapshots.
+Wait and explain when the destination is missing.
 
-Chat History pages messages by time while scrolling, with no older cutoff. Saved filters and
-search cover full conversations and page results. Copy shown exports loaded, filtered messages
-in order. Use virtual native rows; parse, search, and render off the main thread. Large messages
-may be compact but keep original copy text. Align header message count and token total with its subtitle;
-omit unreliable totals. A small sidebar spinner replaces the count only during first-page load;
-counts say "conversations". Roles get distinct fills, shared leading alignment, and no left
-borders; code lines wrap; role, model, and date headers take their own lines; responses and code
-show at full height without clipping or overlap. Group threads by Today, Yesterday, and dates. Rows have full-width one-line
-titles; subtitles show a small origin badge (Codex CLI, Codex exec, Codex app, Codex Chrome,
-Subagent), then model and time.
+Conversations pages messages without a cutoff. Saved search and any role subset cover the full
+chat; keep the last role on. Chips stay 24 pt high and fade for 150 ms. Put "Copy" before them;
+help says "Copy the visible messages". Export loaded, filtered messages in order. No "Show" or
+shown counts; show search matches only. Virtual native rows parse, search, and render off-thread.
+Compact large messages but copy original text. Align reliable totals with the subtitle; replace
+the sidebar count with a spinner during first load. Roles share a leading edge and neutral fills
+without left borders. Prompts have primary selectable text and 10 pt corners. Wrap code; give
+role, model, and date a header; show responses and code at full height. Group by Today, Yesterday,
+and date. Titles have full-title help and "Copy title" menus; subtitles show origin, model, and
+time. All clipped labels, including popovers, Settings, and sheets, have full-text help.
 
 ## 3. Usage presentation
 
@@ -327,8 +324,9 @@ placeholder; enabling never activates an account. Codex uses its 5-hour limit, e
 Left subtracts used percent from 100, stopping at zero. Glyphs add no network work.
 Inactive accounts keep their own cached usage when live reads are unavailable.
 
-Drag service headers in the popover or Accounts. One saved provider-id order drives both lists and
-tray glyphs. New services append; accounts keep saved order. A fixed line marks each drop.
+Drag service headers in the popover or Accounts. Each whole group accepts drops and moves live
+with a short animation, disabled by Reduce Motion. Save each move by provider id for both lists
+and tray glyphs. New services append; accounts keep saved order. Foreign text does nothing.
 Header eye buttons change tray visibility only; popover rows remain. Save visibility by provider id;
 account preferences still apply. Hover fades in the right-hand eye in 180 ms. Hidden services keep
 a dimmed eye.slash. Symbols replace; Reduce Motion uses fades. Controls never shift rows.
@@ -354,33 +352,33 @@ in light and dark HTML references (Overview and shared-part states) and measured
   focused account name per page); Section (Headline, bold, 13 pt, card and form titles); Body
   (regular, 13 pt, labels, values, buttons, Default); Secondary (Subheadline, 11 pt, secondary
   color, providers, descriptions, resets); Caption (10 pt, badges). No other sizes or weights.
-  Give numbers monospaced digits; use monospaced fonts only for paths and IDs. Usage bars are 4 pt
+  Use monospaced digits for numbers, monospace only for paths and IDs. Usage bars are 4 pt
   brand-color capsules, red from 90% used; unknown values have empty grey tracks. For 75 providers,
-  take brand colors from official logos,
-  else sites or product UI. Adjust only lightness per appearance to reach 3:1 card contrast.
+  use official logo colors, else sites or product UI. Adjust lightness per appearance for 3:1 card contrast.
   Black and white brands (Grok, OpenCode Go, Vercel, others) use #8E8E93 light and #98989D dark.
-- **Geometry (points):** Use 20 content margins, 12 between cards, radius 10, and inset 16.
-  Titles, column headers, rows, and separators share the inset; headers never exceed full-width
-  cards. Title rows are 44 tall: Section title left, Secondary count or accent "View … →" right.
-  Rows are 36 tall with hairline separators. Push buttons are 28 tall in cards and 22 in tables;
-  icon buttons are square. Inner tiles such as Current limits keep 16 at each edge and below,
+- **Geometry (points):** Use margins 20, card gaps 12, radius 10, and inset 16.
+  Titles, columns, rows, and separators share the inset; headers stay within cards.
+  Title rows are 44 tall: Section title left, Secondary count or accent "View … →" right.
+  Rows are 36 tall with hairlines. Push buttons are 28 tall in cards and 22 in tables;
+  icon buttons are square. Inner tiles keep 16 at each edge and below,
   12 between tiles, and radius 6.
 - **Window:** Use a translucent 220 pt sidebar, 52 pt unified title bar, and empty system toolbar.
   Content stays 1200 pt wide. Open at 900 pt high or less on shorter screens; resize from 800 pt.
   Green zoom fills screen height at that width, without full screen. Traffic lights use the
   system inset and align with "Switch" and the top row.
-  Filled sidebar symbols (section 2): Overview `house.fill`, Accounts `person.2.fill`,
+  Sidebar symbols: Overview `house.fill`, Accounts `person.2.fill`,
   Settings `gearshape.fill`, Maintenance `wrench.and.screwdriver.fill`, Conversations
   `ellipsis.message.fill`. The top row runs Add, More, then a 300 pt ⌘K search; cards end there.
 - **Search:** keeps text per window, filters Accounts or Settings (synonyms too), and under 3
   matches adds an end card of the other kind. Other pages: a drop-down.
-- **Messages:** Switch shows results ("Droid opened in Terminal.") as short, silent macOS
-  notifications, also while Switch is frontmost. Disabled notifications show none. Pages have no message card. Errors use the red bar below the top row
+- **Loading:** Match card and row sizes with shimmer skeletons, static under Reduce Motion. Show empty states after loading.
+- **Messages:** Show silent macOS notifications, including while frontmost; none when disabled.
+  Pages have no message card. Errors use the red bar below the top row
   with Copy and Dismiss. Preview and isolated checks never notify.
 - **Overview:** Switch accounts on Accounts. Overview has no focused-account card or table.
-  Remember Week or Month and Accounts, Models, or Projects grouping. Six cards show (1) rolling
-  tokens, estimated cost, active accounts, and busiest day; (2) a daily grouped-token streamgraph;
-  and (3) a one-year all-account Activity heatmap. Only used days show a hand pointer and open a
+  Remember Week or Month and Accounts, Models, or
+  Projects. Six cards show (1) tokens, estimated cost, active accounts, and busiest day;
+  (2) daily grouped-token streams; (3) a one-year all-account Activity heatmap. Only used days show a hand pointer and open a
   dated sheet ("Saturday, October 3"); dragging and empty days do nothing. The sheet shows token,
   cost, and session totals; a stacked cost bar with an Account or Model legend in brand and palette colors; and each session's title, tool, start time,
   tokens, and cost. Only Codex sessions link to surviving transcripts in Conversations. Removed
@@ -390,17 +388,16 @@ in light and dark HTML references (Overview and shared-part states) and measured
   Done or Escape closes the sheet. Trends (4) shows daily group ridgelines scaled to each peak in
   a fixed-height card, names in a one-line legend below. Continuous charts (Tokens per day,
   Trends) run edge to edge; bar charts, titles, legends, and axis labels keep the inset.
-  Tooltips are opaque, draw above legends, and read "Claude Code · account". Share of tokens (5)
-  uses a 20 by 10 waffle grid (200 half-percent cells),
-  whole-percent labels, and "<1%" for one cell. The grid takes 40% width; after a 24 pt gap,
+  Opaque tooltips sit above legends and read "Claude Code · account". Share of tokens (5)
+  uses a 20 by 10 grid (200 half-percent cells),
+  whole-percent labels, and "<1%" for one cell. The grid takes 40%; after a 24 pt gap,
   legend rows take 60%, span grid and card height, and measure 20 to 28 pt each.
   Maintenance (6) shows recent backups (time, source, size, state) and Open Backup or setup.
-  Follow uiarc.dev chart styles with hover values, a faint date axis, and one palette. Fold groups past six into "Other". With account
-  grouping, a 13 pt tool brand tile precedes each label in legends, tooltips, and the day-sheet
-  cost split. Tiles distinguish matching emails. Model and project
-  groups have no tile. The Tokens per day legend stays on one line;
-  shorten all names with "…" together if needed. Fill when accounts load at launch, without a
-  page change. Count Codex, Claude Code, Droid, and Grok Build. Unknown account history (Claude
+  Use uiarc.dev chart styles, hover values, a faint date axis, and one palette. Fold groups past six into "Other".
+  Account legends, tooltips, and day-sheet cost splits prefix labels with 13 pt tool brand tiles
+  to distinguish matching emails. Model and project groups have no tile.
+  Keep the Tokens per day legend on one line; shorten all names with "…" together when needed.
+  Fill at launch when accounts load. Count Codex, Claude Code, Droid, and Grok Build. Unknown account history (Claude
   Code's shared ~/.claude, Droid, Grok Build) goes to the tool's sole saved account. With zero or
   two or more accounts, show "<Tool> (shared)"; never drop it. Droid history uses
   `~/.factory/sessions/*/<id>.settings.json` totals on its last-change day. Compute local history
@@ -420,10 +417,9 @@ in light and dark HTML references (Overview and shared-part states) and measured
   Without usage, a reason such as "Sign in to see usage" replaces the bar and dashes. The default
   is a framed disabled button like Safari's Set Default: "Default" in the table and "Using as
   default" in the card, with no green, accent color, or check.
-- **Conversations, Maintenance, Settings:** They share cards, rows, and buttons.
-  Maintenance shows Cleanup then Backup in a 28 pt segmented control with 120 pt segments.
-  It aligns left with the cards, uses label-colored icons, and puts Cleanup's source picker at the
-  bar's right end.
+- **Conversations, Maintenance, Settings:** Share cards, rows, and buttons.
+  Maintenance puts Cleanup then Backup in 28 pt controls with 120 pt segments, aligned with card
+  starts. Icons use label colors. Cleanup's source picker sits at the bar's right end.
 - **Stability and focus:** The global ui-quality "Owner taste" rules apply: no shift, rings, or
   rims; neutral dark selection; original brand tiles; even insets; still scrolling. Every
   scroll view (pages, sheets, Add Account dialogs, popovers, pickers, text views) hides system

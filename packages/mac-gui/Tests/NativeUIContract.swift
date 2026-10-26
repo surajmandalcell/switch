@@ -1,5 +1,6 @@
 import AIManagerCore
 import AppKit
+import Combine
 import CoreServices
 import SwiftUI
 
@@ -1331,6 +1332,24 @@ enum AIManagerNativeContract {
       if ChatFilterPersistence.load(from: defaults) != selected {
         failures.append("Chat message filters do not persist their multi-selection")
       }
+      for mask in 1...15 {
+        let filter = ChatMessageFilter(rawValue: mask)
+        ChatFilterPersistence.save(filter, to: defaults)
+        if ChatFilterPersistence.load(from: defaults) != filter {
+          failures.append("Chat message filters lose selection \(mask)")
+        }
+        for bit in [1, 2, 4, 8] {
+          let next = ChatFilterPersistence.toggling(ChatMessageFilter(rawValue: bit), in: filter)
+          let expected = mask == bit ? mask : mask ^ bit
+          if next.rawValue != expected {
+            failures.append("Chat toggle \(bit) changed selection \(mask) incorrectly")
+          }
+        }
+      }
+      defaults.set(0, forKey: ChatFilterPersistence.defaultsKey)
+      if ChatFilterPersistence.load(from: defaults) != .all {
+        failures.append("An empty saved chat filter leaves the reader blank")
+      }
       defaults.set(Int.max, forKey: ChatFilterPersistence.defaultsKey)
       if ChatFilterPersistence.load(from: defaults) != .all {
         failures.append("Chat message filters do not discard unsupported saved bits")
@@ -2026,8 +2045,8 @@ enum AIManagerNativeContract {
     defer { window.close() }
     let inside = host.convert(NSPoint(x: 150, y: 150), to: nil)
     let outside = host.convert(NSPoint(x: 350, y: 350), to: nil)
-    func event(phase: Int64, momentum: Int64) -> NSEvent? {
-      guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -10, wheel2: 0, wheel3: 0)
+    func event(phase: Int64, momentum: Int64, unit: CGScrollEventUnit = .pixel) -> NSEvent? {
+      guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: unit, wheelCount: 1, wheel1: -10, wheel2: 0, wheel3: 0)
       else { return nil }
       cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
       cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
@@ -2036,7 +2055,7 @@ enum AIManagerNativeContract {
     // CG phases: scroll began 1, changed 2, ended 4; momentum begin 1, continue 2, end 3.
     guard let began = event(phase: 1, momentum: 0), let changed = event(phase: 2, momentum: 0),
           let ended = event(phase: 4, momentum: 0), let momentum = event(phase: 0, momentum: 2),
-          let legacy = event(phase: 0, momentum: 0),
+          let legacy = event(phase: 0, momentum: 0), let line = event(phase: 0, momentum: 0, unit: .line),
           began.phase == .began, changed.phase == .changed, momentum.momentumPhase == .changed,
           legacy.phase.isEmpty, legacy.momentumPhase.isEmpty else {
       return ["The wheel check could not build phased scroll events"]
@@ -2058,6 +2077,13 @@ enum AIManagerNativeContract {
     host.routeWheel(legacy, at: outside)
     if count(small) != 5 || count(big) != 3 {
       failures.append("A legacy mouse wheel did not pick its target on every click")
+    }
+    let gutter = AIMScroller(frame: NSRect(x: 90, y: 0, width: 10, height: 100))
+    small.addSubview(gutter)
+    gutter.scrollWheel(with: legacy)
+    gutter.scrollWheel(with: line)
+    if count(small) != 7 || count(big) != 3 {
+      failures.append("A wheel over the custom scroller did not reach its own scroll view")
     }
     return failures
   }
@@ -2699,6 +2725,12 @@ enum AIManagerNativeContract {
   /// Cold launch: the Overview is already on screen while the accounts still load. The history
   /// must arrive and rebuild the page with no page change (the load task is keyed on `hasLoaded`).
   @MainActor static func overviewColdLoadFailures() async -> [String] {
+    let cached = AccountViewModel(scenario: .demo)
+    var loadingChanges = 0
+    let observer = cached.$isChatHistoryLoading.dropFirst().sink { _ in loadingChanges += 1 }
+    await cached.refreshChatHistory(query: "")
+    var failures = loadingChanges == 0 ? [] : ["Refreshing cached conversations toggles the initial loader"]
+    withExtendedLifetime(observer) {}
     let root = FileManager.default.temporaryDirectory
       .appending(path: "switch-overview-cold-\(UUID().uuidString)", directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -2710,6 +2742,14 @@ enum AIManagerNativeContract {
     guard (try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)) != nil,
       let manager = try? AccountManager(paths: paths) else { return ["The Overview cold-load fixture failed"] }
     let model = AccountViewModel(paths: paths, manager: manager)
+    if !model.isChatHistoryLoading { failures.append("Conversations shows an empty state before its first task starts") }
+    for scheme in [ColorScheme.light, .dark] {
+      let rows = NSHostingView(rootView: AIMLoadingRows(count: 2)
+        .environment(\.colorScheme, scheme).frame(width: 300))
+      if abs(rows.fittingSize.height - AIMTheme.rowHeight * 2) > 0.5 {
+        failures.append("Loading rows change height across appearances")
+      }
+    }
     OverviewCache.last = nil
     defer { OverviewCache.last = nil }
     let host = NSHostingView(rootView: OverviewPage(model: model).frame(width: 900, height: 900))
@@ -2719,7 +2759,6 @@ enum AIManagerNativeContract {
     host.layoutSubtreeIfNeeded()
     // The page's first load task runs now, while hasLoaded is false, and must not give up for good.
     try? await Task.sleep(for: .milliseconds(300))
-    var failures: [String] = []
     if model.usageHistory != nil { failures.append("The Overview cold-load fixture loaded history before the accounts") }
     await model.load()
     for _ in 0..<200 where OverviewCache.last == nil { try? await Task.sleep(for: .milliseconds(50)) }

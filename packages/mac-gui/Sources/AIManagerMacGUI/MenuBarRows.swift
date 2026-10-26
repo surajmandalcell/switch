@@ -486,7 +486,7 @@ struct MenuBarRow: View {
       .fixedSize(horizontal: true, vertical: false)
       .uiLint(.align("menuBarUsageLabelInk", .start))
       .frame(width: P.labelColumnWidth(account, expanded: isExpanded), alignment: .leading)
-      .uiLint(.align("menuBarUsageLabels", .start)).help(help ?? label)
+      .uiLint(.align("menuBarUsageLabels", .start)).help(help.map { "\(label)\n\($0)" } ?? label)
   }
 
   /// A value without a bar: it starts at the bar column's left edge, one line, tail-truncated.
@@ -546,6 +546,7 @@ struct MenuBarRow: View {
     case .signIn:
       Text(account.isVerified ? P.allowAccessSubtitle : P.signInSubtitle)
         .aimText(.secondary, tint: P.secondaryInk).lineLimit(1)
+        .help(account.isVerified ? P.allowAccessSubtitle : P.signInSubtitle)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: P.signInHeight)
         .uiLint(.align("menuBarSignInSubtitle", .start))
@@ -572,6 +573,7 @@ struct MenuBarRow: View {
       if line.isHeading, let pool = line.label {
         // A pool heading spans the row; it never widens the label column.
         Text(pool).aimText(.caption, tint: P.secondaryInk).lineLimit(1).truncationMode(.tail)
+          .help(pool)
           .frame(maxWidth: .infinity, alignment: .leading)
           .uiLint(.align("menuBarUsageLabels", .start))
           .accessibilityAddTraits(.isHeader)
@@ -600,12 +602,17 @@ struct MenuBarRow: View {
           .animation(.easeOut(duration: 0.24), value: line.used)
           .animation(.easeOut(duration: 0.24), value: showsUsed)
           .frame(width: P.percentWidth, alignment: .trailing)
+          .help(line.used.map { "\(UsagePercentagePreferences.displayedPercentage(forUsed: $0, showsUsed: showsUsed))%" } ?? "—")
         Text(line.resetsAt.map {
           P.resetText($0, now: now, exact: exact,
             hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: line.used)
         } ?? "")
           .aimText(.secondary, tint: P.secondaryInk).monospacedDigit().lineLimit(1)
           .frame(width: P.resetWidth, alignment: .trailing)
+          .help(line.resetsAt.map {
+            P.resetText($0, now: now, exact: exact,
+              hourFormat: HourFormat(rawValue: hourFormat) ?? .auto, used: line.used)
+          } ?? "")
       }
     }
     .frame(height: P.lineHeight)

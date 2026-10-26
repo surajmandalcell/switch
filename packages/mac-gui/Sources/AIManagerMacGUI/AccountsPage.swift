@@ -24,7 +24,7 @@ struct AccountsPage: View {
           showsUsed: showsUsed,
           focus: { model.selectedAccountID = $0 },
           delete: { prepareDeletion(of: $0) },
-          loading: !model.hasLoaded,
+          loading: !model.hasLoaded || (model.isBusy && model.status?.accounts.isEmpty != false),
           onMove: query.isEmpty
             ? { id, target in Task { await model.moveAccount(id, to: target) } } : nil,
           contextMenu: { AnyView(accountContextMenu(for: $0)) })
@@ -50,6 +50,8 @@ struct AccountsPage: View {
           }
         }
         .aimFadeOnChange(account.id)
+      } else if !model.hasLoaded || model.isBusy {
+        AIMCard(title: "Account") { AIMLoadingRows(count: 2) }
       } else {
         EmptyAccountView(model: model)
       }
@@ -885,8 +887,10 @@ private struct UsageBucket: View {
       HStack(alignment: .firstTextBaseline, spacing: AIMTheme.sectionSpacing) {
         Text(AccountUsagePanel.title(of: bucket, key: fallbackName))
           .aimText(.section).lineLimit(1)
+          .help(AccountUsagePanel.title(of: bucket, key: fallbackName))
         if let model = bucket.model, !model.isEmpty {
           Text(model).aimText(.secondary, monospaced: true).lineLimit(1)
+            .help(model)
         }
         Spacer()
         if let plan = CodexPlanNames.display(UsagePresentation.nonempty(bucket.plan)) {
@@ -1016,6 +1020,7 @@ private struct TokenStatistic: View {
         Text("≈\(UsagePresentation.formatCurrency(price.inputEquivalent(for: tokens))) API input rate")
           .aimText(.secondary)
           .lineLimit(1)
+          .help("≈\(UsagePresentation.formatCurrency(price.inputEquivalent(for: tokens))) API input rate")
       }
       Spacer(minLength: 0)
     }
@@ -1048,7 +1053,7 @@ struct UsageFact: View {
     } label: {
       Text(label).aimText(.body)
     }
-    .help(help ?? "")
+    .help(help.map { "\(label): \(value). \($0)" } ?? "\(label): \(value)")
   }
 }
 
@@ -1376,6 +1381,7 @@ struct FocusedAccountCard: View {
             ProviderMark(providerID: providerID, size: 44)
             VStack(alignment: .leading, spacing: 2) {
               Text(name).aimText(.title).lineLimit(1).truncationMode(.middle)
+                .help(name)
                 .accessibilityAddTraits(.isHeader)
               HStack(spacing: AIMTheme.rowSpacing) {
                 Text(providerID.guiName).aimText(.secondary)
@@ -1509,12 +1515,10 @@ struct AccountsTableCard: View {
 
   var body: some View {
     AIMCard(title: "Accounts", bottomInset: 0) {
-      if loading {
-        HStack(spacing: AIMTheme.rowSpacing) {
-          ProgressView().controlSize(.small)
-          Text("Loading accounts…").aimText(.secondary)
-        }
-        .aimRow().padding(.bottom, AIMTheme.tableEndInset)
+      if loading && accounts.isEmpty {
+        AIMLoadingRows(count: 1, rowHeight: AIMTheme.groupHeaderHeight)
+        AIMLoadingRows(count: 2, indent: AIMTheme.groupIndent)
+          .padding(.bottom, AIMTheme.tableEndInset)
       } else if accounts.isEmpty {
         Text(query.isEmpty ? "No accounts yet." : "No accounts match “\(query)”.")
           .aimText(.secondary).aimRow().padding(.bottom, AIMTheme.tableEndInset)
@@ -1560,6 +1564,7 @@ struct AccountsTableCard: View {
     let layout = AccountsRowLayout(groups: groups)
     return VStack(spacing: 0) {
       ForEach(Array(groups.enumerated()), id: \.element.provider) { groupIndex, group in
+        VStack(spacing: 0) {
         groupHeader(group.provider, count: group.accounts.count)
           .padding(.top, groupIndex > 0 ? AIMTheme.groupGap : 0)
         ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
@@ -1577,6 +1582,10 @@ struct AccountsTableCard: View {
             }
             .padding(.bottom, isLast ? AIMTheme.tableEndInset : 0)
         }
+        }
+        .modifier(ServiceGroupDrop(provider: group.provider,
+          providers: model.status?.accounts.map(\.identity.providerID) ?? [], enabled: query.isEmpty,
+          onMove: { serviceOrder = $0 }))
       }
     }
     .frame(height: layout.height, alignment: .top)
@@ -1690,6 +1699,10 @@ private struct AccountsRowDrop: ViewModifier {
     let model: AccountViewModel
     let onMove: (UUID, UUID) -> Void
 
+    func validateDrop(info: DropInfo) -> Bool {
+      ServiceReorderDrag.source == nil && AccountReorderDrag.source != nil
+    }
+
     private func provider(of id: UUID) -> ProviderID? {
       model.status?.accounts.first { $0.id == id }?.identity.providerID
     }
@@ -1785,6 +1798,7 @@ private struct AccountsTableRow: View {
       // The group header above says the provider; a status dot follows the name only for an incident.
       HStack(spacing: AIMTheme.rowSpacing) {
         Text(name).aimText(.body).lineLimit(1).truncationMode(.middle)
+          .help(name)
         ProviderStatusDot(entry: model.providerStatus[account.identity.providerID], size: 6)
         if account.autoImported {
           let note = "Added automatically from the \(account.identity.providerID.guiName) login on this Mac."
@@ -1810,6 +1824,7 @@ private struct AccountsTableRow: View {
           }
           .lineLimit(1)
           .frame(width: 104, alignment: .trailing)
+          .help(percent + (window.resetsAt.map { " · " + OverviewFormat.compactReset($0, now: now, usedPercent: window.usedPercent) } ?? ""))
         } else {
           Text(usageReason).aimText(.secondary).lineLimit(1)
             .help(AccountUsageSummary.reason(for: account, model: model).full)
@@ -1962,8 +1977,10 @@ struct AccountCell: View {
       VStack(alignment: .leading, spacing: 0) {
         Text(account.identity.accountLabel)
           .aimText(.body).lineLimit(1).truncationMode(.middle)
+          .help(account.identity.accountLabel)
         HStack(spacing: 5) {
           Text(account.identity.providerID.guiName).aimText(.secondary).lineLimit(1)
+            .help(account.identity.providerID.guiName)
           ProviderStatusDot(entry: providerStatus, size: 6)
         }
       }
@@ -1993,14 +2010,17 @@ struct UsageWindowBlock: View {
     VStack(alignment: .leading, spacing: spacing) {
       HStack(spacing: AIMTheme.rowSpacing) {
         Text(window?.title ?? Self.emptyTitle).aimText(.body).lineLimit(1)
+          .help(window?.title ?? Self.emptyTitle)
         Spacer(minLength: AIMTheme.rowSpacing)
         if window != nil {
           Text(value).aimText(.body).monospacedDigit().lineLimit(1).aimRolling(value)
+            .help(value)
             .flipsUsedAndLeft(showsUsed).uiLint(.number)
         } else {
           Text(note ?? "Not checked yet").aimText(.secondary)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Color.secondary.opacity(0.08), in: Capsule()).lineLimit(1)
+            .help(note ?? "Not checked yet")
         }
       }
       .frame(height: 18)

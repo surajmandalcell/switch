@@ -49,8 +49,7 @@ struct SettingsPage: View {
           if filter.shows("tray") {
             Toggle(isOn: $minimizeToTray) {
               Text("Minimize to menu bar")
-              Text("Hide the window and keep Switch available from its menu-bar icon.")
-                .aimText(.secondary).lineLimit(1)
+              settingDetail("Hide the window and keep Switch available from its menu-bar icon.")
             }
           }
           if filter.shows("place") {
@@ -60,7 +59,7 @@ struct SettingsPage: View {
                 accessibilityLabel: "When Switch opens", label: { $0 == "last" ? "Last place" : "Overview" })
             } label: {
               Text("When Switch opens")
-              Text("Choose the page shown when Switch starts.").aimText(.secondary).lineLimit(1)
+              settingDetail("Choose the page shown when Switch starts.")
             }
           }
           if filter.shows("shortcut") {
@@ -68,7 +67,7 @@ struct SettingsPage: View {
               ShortcutRecorder().id(resetCount)
             } label: {
               Text(SettingsCopy.menuShortcut)
-              Text(SettingsCopy.menuShortcutHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.menuShortcutHelp)
             }
           }
         }
@@ -83,7 +82,7 @@ struct SettingsPage: View {
                 accessibilityLabel: "Appearance", label: { $0.capitalized })
             } label: {
               Text("Appearance")
-              Text("Choose the window and menu bar appearance.").aimText(.secondary).lineLimit(1)
+              settingDetail("Choose the window and menu bar appearance.")
             }
           }
           if filter.shows("percent") {
@@ -93,7 +92,7 @@ struct SettingsPage: View {
                 accessibilityLabel: "Usage percentage", label: { $0 ? "Used" : "Left" })
             } label: {
               Text("Usage percentage")
-              Text("Show the share left or the share used in every usage view.").aimText(.secondary).lineLimit(1)
+              settingDetail("Show the share left or the share used in every usage view.")
             }
           }
           if filter.shows("reset-times") {
@@ -103,7 +102,7 @@ struct SettingsPage: View {
                 accessibilityLabel: "Reset time format", label: { $0 ? "Exact time" : "Countdown" })
             } label: {
               Text(SettingsCopy.resetTimes)
-              Text(SettingsCopy.resetTimesHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.resetTimesHelp)
             }
           }
           if filter.shows("hours") {
@@ -113,7 +112,7 @@ struct SettingsPage: View {
                 accessibilityLabel: "Hour format", label: \.label)
             } label: {
               Text(SettingsCopy.timeFormat)
-              Text(SettingsCopy.timeFormatHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.timeFormatHelp)
             }
           }
         }
@@ -124,14 +123,14 @@ struct SettingsPage: View {
           if filter.shows("domain") {
             Toggle(isOn: $showEmailDomains) {
               Text("Show full email addresses")
-              Text("Show the full address, including the domain ending such as .com or .co.uk.").aimText(.secondary).lineLimit(1)
+              settingDetail("Show the full address, including the domain ending such as .com or .co.uk.")
             }
             .disabled(privacyMode)
           }
           if filter.shows("hide-email") {
             Toggle(isOn: $hideEmails) {
               Text(SettingsCopy.hideEmails)
-              Text(SettingsCopy.hideEmailsHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.hideEmailsHelp)
             }
             .disabled(privacyMode)
           }
@@ -144,7 +143,7 @@ struct SettingsPage: View {
           if filter.shows("status") {
             Toggle(isOn: $checkProviderStatus) {
               Text(SettingsCopy.checkProviderStatus)
-              Text(SettingsCopy.checkProviderStatusHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.checkProviderStatusHelp)
             }
           }
           if filter.shows("claude-shell") {
@@ -153,7 +152,7 @@ struct SettingsPage: View {
               set: { enabled in Task { await model.setClaudeShellIntegration(enabled) } })
             ) {
               Text(SettingsCopy.claudeShell)
-              Text(SettingsCopy.claudeShellHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.claudeShellHelp)
               if let error = model.claudeShellIntegrationError {
                 Text(error).aimText(.secondary, tint: AIMTheme.red)
               }
@@ -167,7 +166,7 @@ struct SettingsPage: View {
           if filter.shows("auto") {
             Toggle(isOn: $autoSwitch) {
               Text(SettingsCopy.autoSwitch)
-              Text(SettingsCopy.autoSwitchHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.autoSwitchHelp)
             }
           }
           if filter.shows("auto-threshold") {
@@ -177,7 +176,7 @@ struct SettingsPage: View {
                 accessibilityLabel: SettingsCopy.autoSwitchThreshold, label: { "\($0)% left" })
             } label: {
               Text(SettingsCopy.autoSwitchThreshold)
-              Text(SettingsCopy.autoSwitchThresholdHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.autoSwitchThresholdHelp)
             }
             .disabled(!autoSwitch)
           }
@@ -188,7 +187,7 @@ struct SettingsPage: View {
                 accessibilityLabel: SettingsCopy.autoSwitchRunningCLIs, label: \.label)
             } label: {
               Text(SettingsCopy.autoSwitchRunningCLIs)
-              Text(SettingsCopy.autoSwitchRunningCLIsHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.autoSwitchRunningCLIsHelp)
             }
             .disabled(!autoSwitch)
           }
@@ -200,7 +199,7 @@ struct SettingsPage: View {
                 .focused($resumeFocused)
             } label: {
               Text(SettingsCopy.autoSwitchResume)
-              Text(SettingsCopy.autoSwitchResumeHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.autoSwitchResumeHelp)
             }
             .disabled(!autoSwitch)
           }
@@ -212,8 +211,7 @@ struct SettingsPage: View {
           if filter.shows("menu-usage") {
             Toggle(isOn: $defaultShowUsage) {
               Text("Show account usage")
-              Text("Accounts without their own choice show cached usage in Menubar.")
-                .aimText(.secondary).lineLimit(1)
+              settingDetail("Accounts without their own choice show cached usage in Menubar.")
             }
           }
           if filter.shows("menu-tokens") {
@@ -223,13 +221,13 @@ struct SettingsPage: View {
                 accessibilityLabel: "Menubar token period", label: \.label)
             } label: {
               Text("Token summary")
-              Text("Choose the period shown beside each account’s usage.").aimText(.secondary).lineLimit(1)
+              settingDetail("Choose the period shown beside each account’s usage.")
             }
           }
           if filter.shows("menu-refresh") {
             Toggle(isOn: $refreshOnOpen) {
               Text(SettingsCopy.refreshOnOpen)
-              Text(SettingsCopy.refreshOnOpenHelp).aimText(.secondary).lineLimit(1)
+              settingDetail(SettingsCopy.refreshOnOpenHelp)
             }
           }
         }
@@ -241,7 +239,7 @@ struct SettingsPage: View {
             if filter.shows("notify.\(row.key)") {
               Toggle(isOn: notificationBinding(row.key)) {
                 Text(row.title)
-                Text(row.help).aimText(.secondary).lineLimit(1)
+                settingDetail(row.help)
               }
             }
           }
@@ -304,7 +302,7 @@ struct SettingsPage: View {
             AIMButton(title: "Reset settings…", tone: .danger) { confirmsReset = true }
           } label: {
             Text(SettingsCopy.resetSettings)
-            Text(SettingsCopy.resetSettingsHelp).aimText(.secondary).lineLimit(1)
+            settingDetail(SettingsCopy.resetSettingsHelp)
           }
         }
         .transition(.opacity)
@@ -383,7 +381,7 @@ struct SettingsPage: View {
       set: launchAtLogin.setEnabled)
     ) {
       Text("Open at Login")
-      Text(launchAtLogin.detail).aimText(.secondary).lineLimit(1)
+      settingDetail(launchAtLogin.detail)
     }
     .disabled(!launchAtLogin.canChange)
     if launchAtLogin.requiresApproval {
@@ -392,6 +390,11 @@ struct SettingsPage: View {
       }
     }
   }
+}
+
+/// A one-line setting description. Its tooltip shows the full text when the line truncates.
+private func settingDetail(_ text: String) -> some View {
+  Text(text).aimText(.secondary).lineLimit(1).help(text)
 }
 
 private struct DataLocationRow: View {
@@ -405,7 +408,7 @@ private struct DataLocationRow: View {
       AIMButton(title: "Reveal", icon: .folder, action: reveal)
     } label: {
       Text(title)
-      Text(detail).aimText(.secondary).lineLimit(1)
+      settingDetail(detail)
       AIMCopyablePath(path: path)
     }
   }

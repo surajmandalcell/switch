@@ -723,6 +723,29 @@ enum AIManagerMenuBarContract {
     MenuBarServicePreferences.move(.codex, to: ProviderID(rawValue: "foreign"), in: providers, defaults: defaults)
     expect(defaults.stringArray(forKey: MenuBarServicePreferences.orderKey) == beforeNoOp,
       "An unchanged or foreign service drop writes a new order")
+
+    mixedStore.updateServiceOrder([.codex, .droid])
+    expect(mixedStore.rows.first?.providerID == .codex, "The live reorder fixture does not start with Codex")
+    let dragItem = ServiceReorderDrag.begin(.droid)
+    expect(dragItem.hasItemConformingToTypeIdentifier("public.text"), "Service drags do not use system text")
+    let drop = ServiceReorderDropDelegate(provider: .claudeCode, providers: providers,
+      reduceMotion: true, defaults: defaults, onMove: mixedStore.updateServiceOrder)
+    drop.dropEntered()
+    expect(MenuBarServicePreferences.orderedProviders(providers, defaults: defaults) == [.droid, .claudeCode, .codex],
+      "Entering another whole service group does not save the live move")
+    expect(mixedStore.snapshot.serviceOrder.prefix(3) == [.droid, .claudeCode, .codex]
+      && mixedStore.rows.first?.providerID == .droid, "The popover does not render a live move in the same call")
+    expect(drop.dropUpdated()?.operation == .move, "An internal service drag does not propose a move")
+    expect(drop.performDrop() && ServiceReorderDrag.source == nil, "A service drop does not end its drag")
+    let savedDrop = defaults.stringArray(forKey: MenuBarServicePreferences.orderKey)
+    drop.dropEntered()
+    expect(!drop.performDrop() && drop.dropUpdated()?.operation == .cancel
+      && defaults.stringArray(forKey: MenuBarServicePreferences.orderKey) == savedDrop,
+      "Foreign text with no service source changes the saved order")
+    ServiceReorderDrag.source = .codex
+    ServiceReorderDrag.end()
+    expect(ServiceReorderDrag.source == nil, "A cancelled service drag retains its identity")
+
     MenuBarServicePreferences.toggleVisibility(.droid, defaults: defaults)
     expect(!MenuBarServicePreferences.showsInTray(.droid, defaults: UserDefaults(suiteName: domain)!)
       && MenuBarServicePreferences.showsInTray(.codex, defaults: defaults),

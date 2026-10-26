@@ -69,8 +69,9 @@ struct MaintenanceSourcePicker: View {
         if let source = store.cleanupSource {
           ProviderMark(providerID: source.providerID, size: 18)
           Text(source.title).lineLimit(1)
+            .help(source.title)
         } else {
-          Text("No source found")
+          Text(store.isLoaded ? "No source found" : "Loading sources…")
         }
         Image(systemName: "chevron.up.chevron.down").aimFont(.secondary).foregroundStyle(.secondary)
       }
@@ -144,7 +145,9 @@ struct MaintenanceSourcePanel: View {
       ProviderMark(providerID: source.providerID, size: 28)
       VStack(alignment: .leading, spacing: 2) {
         Text(source.title).aimText(.body).lineLimit(1)
+          .help(source.title)
         Text(detail(source)).aimText(.secondary).lineLimit(1).truncationMode(.middle)
+          .help(detail(source))
       }
       Spacer(minLength: 0)
       if source.id == chosen?.id { AIMIcon(name: .check).aimFont(.body).foregroundStyle(AIMTheme.passiveIcon) }
@@ -198,11 +201,12 @@ struct CleanupRangeSelect: View {
 
 enum CleanupDateRange: String, CaseIterable, Identifiable {
   case hour = "Last hour", day = "Last 24 hours", week = "Last 7 days", month = "Last 4 weeks"
-  case olderWeek = "Older than 7 days", olderMonth = "Older than 30 days", olderYear = "Older than 1 year"
-  case all = "All time", custom = "Custom dates"
+  case olderWeek = "Older than 7 days", olderMonth = "Older than 30 days", olderQuarter = "Older than 90 days", olderYear = "Older than 1 year"
+  case all = "All time", before = "Before a date", custom = "Custom dates"
   var id: String { rawValue }
   func contains(_ date: Date, now: Date, from: Date, through: Date) -> Bool {
     if self == .all { return true }
+    if self == .before { return date < Calendar.current.startOfDay(for: from) }
     if self == .custom {
       let start = Calendar.current.startOfDay(for: from)
       let end = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: through)) ?? through
@@ -215,11 +219,12 @@ enum CleanupDateRange: String, CaseIterable, Identifiable {
     case .week, .olderWeek: seconds = 7 * 86_400
     case .month: seconds = 28 * 86_400
     case .olderMonth: seconds = 30 * 86_400
+    case .olderQuarter: seconds = 90 * 86_400
     case .olderYear: seconds = 365 * 86_400
-    case .all, .custom: return false
+    case .all, .before, .custom: return false
     }
     let cutoff = now.addingTimeInterval(-seconds)
-    return [.olderWeek, .olderMonth, .olderYear].contains(self) ? date < cutoff : cutoff <= date && date <= now
+    return [.olderWeek, .olderMonth, .olderQuarter, .olderYear].contains(self) ? date < cutoff : cutoff <= date && date <= now
   }
 
   /// What the card says when the range hides everything, with what the tool uses in total.
@@ -229,9 +234,9 @@ enum CleanupDateRange: String, CaseIterable, Identifiable {
     if total == 0 { return "Nothing to clear. \(tool) has no files that Cleanup lists." }
     switch self {
     case .all: return "Nothing to clear. \(tool) uses \(size), but every item is in use or owned by another app."
-    case .olderWeek, .olderMonth, .olderYear:
+    case .olderWeek, .olderMonth, .olderQuarter, .olderYear:
       return "Nothing \(rawValue.lowercased()). \(tool) uses \(size); choose a shorter range to see it."
-    case .custom: return "Nothing in these dates. \(tool) uses \(size); choose other dates to see it."
+    case .before, .custom: return "Nothing in these dates. \(tool) uses \(size); choose other dates to see it."
     case .hour, .day, .week, .month:
       return "Nothing in the \(rawValue.lowercased()). \(tool) uses \(size); choose a longer range to see it."
     }
@@ -264,10 +269,12 @@ struct RecentBackupsCard: View {
       }
       AIMButton(title: "Open Backup", icon: .database, action: open)
     }) {
-      if recent.isEmpty {
+      if !store.isLoaded && recent.isEmpty {
+        AIMLoadingRows().padding(.bottom, AIMTheme.textRowsEndInset)
+      } else if recent.isEmpty {
         HStack(spacing: AIMTheme.sectionSpacing) {
           VStack(alignment: .leading, spacing: 2) {
-            Text(store.isLoaded ? "No backups yet" : "Reading backups…").aimText(.body)
+            Text("No backups yet").aimText(.body)
             Text("Copy your chats and settings to a drive or folder you choose.").aimText(.secondary)
           }
           Spacer(minLength: AIMTheme.rowSpacing)
@@ -281,9 +288,12 @@ struct RecentBackupsCard: View {
             AIMTableRow {
               Text(backup.date.formatted(date: .abbreviated, time: .shortened)).aimText(.body).monospacedDigit()
                 .frame(width: 170, alignment: .leading)
+                .help(backup.date.formatted(date: .abbreviated, time: .shortened))
               Text(backup.source).aimText(.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                .help(backup.source)
               Text(MaintenanceStore.size(backup.bytes)).aimText(.body).monospacedDigit()
                 .frame(width: Self.sizeWidth, alignment: .trailing)
+                .help(MaintenanceStore.size(backup.bytes))
               Badge(text: backup.state, tint: backup.isSafety || backup.state != "Complete" ? AIMTheme.amber : AIMTheme.green)
                 .frame(width: Self.stateWidth, alignment: .trailing)
             }

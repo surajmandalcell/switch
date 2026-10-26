@@ -58,13 +58,15 @@ private struct DroidMissionRow: View {
     AIMTableRow {
       VStack(alignment: .leading, spacing: 0) {
         Text(mission.title).aimText(.body).lineLimit(1).truncationMode(.tail)
+          .help(mission.title)
         Text(detail).aimText(.secondary).lineLimit(1).truncationMode(.tail)
+          .help(detail)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(mission.title)
       .accessibilityValue("\(detail). \(mission.state)")
-      .help(mission.state.isEmpty ? mission.title : "\(mission.title)\nState: \(mission.state)")
+      .help("\(mission.title)\n\(detail)" + (mission.state.isEmpty ? "" : "\nState: \(mission.state)"))
       HStack(spacing: AIMTheme.rowSpacing) {
         Button("Resume") { Task { await model.resumeDroidMission(mission) } }
           .buttonStyle(AIMPushButtonStyle())  // "Resume" is wider than rowButtonWidth and would truncate

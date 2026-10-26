@@ -10,7 +10,6 @@ struct ServiceGroupHeader: View, Equatable {
   var count: Int? = nil
   var canReorder = true
   @State private var hovered = false
-  @State private var targeted = false
   @FocusState private var eyeFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -28,6 +27,7 @@ struct ServiceGroupHeader: View, Equatable {
       Text(provider.guiName)
         .aimText(.secondary, tint: count == nil ? MenuBarPresentation.secondaryInk : .primary)
         .fontWeight(.semibold).lineLimit(1)
+        .help(provider.guiName)
         .uiLint(.align(count == nil ? "menuBarGroupHeaderInk" : "accountGroupHeaderInk", .start))
       if let count {
         Text("×\(count)").aimText(.secondary).monospacedDigit().layoutPriority(1)
@@ -64,12 +64,7 @@ struct ServiceGroupHeader: View, Equatable {
         Button("Move service down") { move(to: order[index + 1]) }.disabled(index == order.count - 1)
       }
     }
-    .modifier(ServiceHeaderDrag(provider: provider, providers: providers, enabled: canReorder, targeted: $targeted))
-    .overlay(alignment: ServiceReorderDrag.edge(for: provider, in: order) == .top ? .top : .bottom) {
-      if targeted, ServiceReorderDrag.source != provider {
-        Rectangle().fill(Color.accentColor).frame(height: 2).allowsHitTesting(false)
-      }
-    }
+    .modifier(ServiceHeaderDrag(provider: provider, enabled: canReorder))
   }
 
   private func move(to target: ProviderID) {
@@ -78,41 +73,89 @@ struct ServiceGroupHeader: View, Equatable {
 }
 
 @MainActor
-private enum ServiceReorderDrag {
-  static let type = UTType(exportedAs: "com.mandalsuraj.switch.service-order")
+enum ServiceReorderDrag {
   static var source: ProviderID?
+  private static var endTask: Task<Void, Never>?
 
-  static func edge(for target: ProviderID, in providers: [ProviderID]) -> VerticalEdge {
-    guard let source, let from = providers.firstIndex(of: source), let to = providers.firstIndex(of: target)
-    else { return .top }
-    return from > to ? .top : .bottom
+  static func begin(_ provider: ProviderID) -> NSItemProvider {
+    end()
+    source = provider
+    // SwiftUI onDrag has no end callback on macOS 14, including a cancelled drag outside the app.
+    // shortcut: drag identity expires after two minutes; use a drag-session callback when macOS 14 support ends.
+    endTask = Task { @MainActor in
+      for _ in 0..<1200 {
+        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+        if NSEvent.pressedMouseButtons & 1 == 0 || CGEventSource.keyState(.combinedSessionState, key: 53) { break }
+      }
+      end()
+    }
+    return NSItemProvider(object: provider.rawValue as NSString)
+  }
+
+  static func end() {
+    source = nil
+    endTask?.cancel()
+    endTask = nil
   }
 }
 
 private struct ServiceHeaderDrag: ViewModifier {
   let provider: ProviderID
-  let providers: [ProviderID]
   let enabled: Bool
-  @Binding var targeted: Bool
 
   func body(content: Content) -> some View {
     if enabled {
-      content.onDrag {
-        ServiceReorderDrag.source = provider
-        return NSItemProvider(item: Data(provider.rawValue.utf8) as NSData,
-          typeIdentifier: ServiceReorderDrag.type.identifier)
-      }
-      .onDrop(of: [ServiceReorderDrag.type], isTargeted: $targeted) { items in
-        let source = ServiceReorderDrag.source
-        ServiceReorderDrag.source = nil
-        guard let source, source != provider, providers.contains(source),
-              let item = items.first else { return false }
-        item.loadDataRepresentation(forTypeIdentifier: ServiceReorderDrag.type.identifier) { data, _ in
-          guard data == Data(source.rawValue.utf8) else { return }
-          Task { @MainActor in MenuBarServicePreferences.move(source, to: provider, in: providers) }
-        }
-        return true
-      }
+      content.onDrag { ServiceReorderDrag.begin(provider) }
     } else { content }
+  }
+}
+
+struct ServiceGroupDrop: ViewModifier {
+  let provider: ProviderID
+  let providers: [ProviderID]
+  var enabled = true
+  let onMove: ([ProviderID]) -> Void
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  func body(content: Content) -> some View {
+    if enabled {
+      content.contentShape(Rectangle()).onDrop(of: [.text], delegate: ServiceReorderDropDelegate(
+        provider: provider, providers: providers, reduceMotion: reduceMotion, onMove: onMove))
+    } else { content }
+  }
+}
+
+struct ServiceReorderDropDelegate: DropDelegate {
+  let provider: ProviderID
+  let providers: [ProviderID]
+  var reduceMotion = false
+  var defaults: UserDefaults = .standard
+  var onMove: ([ProviderID]) -> Void = { _ in }
+
+  private var acceptsSource: Bool {
+    guard let source = ServiceReorderDrag.source else { return false }
+    return providers.contains(source) && providers.contains(provider)
+  }
+
+  func validateDrop(info: DropInfo) -> Bool { acceptsSource }
+  func dropEntered(info: DropInfo) { dropEntered() }
+  func dropUpdated(info: DropInfo) -> DropProposal? { dropUpdated() }
+  func performDrop(info: DropInfo) -> Bool { performDrop() }
+
+  // DropInfo has no public initializer; these entry points also drive the contract check.
+  func dropEntered() {
+    guard acceptsSource, let source = ServiceReorderDrag.source, source != provider else { return }
+    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+      MenuBarServicePreferences.move(source, to: provider, in: providers, defaults: defaults)
+      onMove(MenuBarServicePreferences.order(defaults: defaults))
+    }
+  }
+
+  func dropUpdated() -> DropProposal? { DropProposal(operation: acceptsSource ? .move : .cancel) }
+
+  func performDrop() -> Bool {
+    let accepted = acceptsSource
+    ServiceReorderDrag.end()
+    return accepted
   }
 }

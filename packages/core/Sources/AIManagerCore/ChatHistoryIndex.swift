@@ -671,6 +671,25 @@ public actor ChatHistoryIndex {
         cache.values.map(\.summary)
     }
 
+    /// Uses the same prompt selection and duplicate handling as Conversations, without its page limit.
+    nonisolated static func prompts(at url: URL) throws -> (ChatThreadSummary, [ChatMessage]) {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let candidate = Candidate(url: url, archived: false,
+            signature: FileSignature(byteCount: Int64(values.fileSize ?? 0), modifiedAt: values.contentModificationDate ?? .distantPast))
+        let parsed = try TranscriptParser.parse(candidate, includeMessages: true)
+        guard parsed.summary.unreadableRecordCount == 0 else { throw BackupError.changed(url.lastPathComponent) }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let messages = try parsed.references.filter { $0.role == .user }.map { reference in
+            try Task.checkCancellation()
+            guard let message = try TranscriptParser.message(reference, handle: handle, path: url.path) else {
+                throw BackupError.changed(url.lastPathComponent)
+            }
+            return message
+        }
+        return (parsed.summary, messages)
+    }
+
     public func preserveActivity(for sources: [URL]) async throws {
         guard let activityCache else { throw AIManagerError.operationFailed("The activity ledger is unavailable. Conversations were kept.") }
         let candidates = try Self.transcriptCandidates(in: home)
@@ -771,7 +790,7 @@ public actor ChatHistoryIndex {
               permissions.intValue & 0o077 == 0,
               let data = try? Data(contentsOf: persistentCacheFile),
               let document = try? JSONDecoder().decode(PersistentDocument.self, from: data),
-              document.version == 5,
+              document.version == 6,
               document.homePath == home.path,
               document.threads.count + document.failures.count <= 500_000
         else { return }
@@ -869,7 +888,7 @@ public actor ChatHistoryIndex {
                 modifiedAt: signature.modifiedAt)
         }
         let document = PersistentDocument(
-            version: 5, homePath: home.path, threads: threads, failures: failures)
+            version: 6, homePath: home.path, threads: threads, failures: failures)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(document) else { return }
@@ -1427,7 +1446,6 @@ private enum TranscriptParser {
             if itemType == "message" || type == "message" {
                 guard let roleName = messageObject["role"] as? String,
                       let role = ChatMessageRole(rawValue: roleName),
-                      role == .user || role == .assistant,
                       let text = messageText(messageObject), !text.isEmpty
                 else { continue }
                 let message = RawMessage(
@@ -1439,8 +1457,12 @@ private enum TranscriptParser {
                 case .assistant:
                     assistants.record(message, offset: reader.lastRecordOffset,
                         byteCount: rawRecord.count, indexed: includeMessages)
-                case .tool, .other:
-                    break
+                case .tool:
+                    tools.record(message, offset: reader.lastRecordOffset,
+                        byteCount: rawRecord.count, indexed: includeMessages)
+                case .other:
+                    others.record(message, offset: reader.lastRecordOffset,
+                        byteCount: rawRecord.count, indexed: includeMessages)
                 }
                 continue
             }
@@ -1575,10 +1597,14 @@ private enum TranscriptParser {
         if object["type"] as? String == "event_msg", reference.role == .user {
             text = payload?["message"] as? String
         } else if let messageObject {
-            switch reference.role {
-            case .user, .assistant: text = messageText(messageObject)
-            case .tool: text = toolText(messageObject, type: messageObject["type"] as? String)
-            case .other: text = reasoningSummary(messageObject)
+            if messageObject["type"] as? String == "message" {
+                text = messageText(messageObject)
+            } else {
+                switch reference.role {
+                case .user, .assistant: text = messageText(messageObject)
+                case .tool: text = toolText(messageObject, type: messageObject["type"] as? String)
+                case .other: text = reasoningSummary(messageObject)
+                }
             }
         } else { text = nil }
         guard let text else { return nil }
@@ -1656,7 +1682,7 @@ private enum TranscriptParser {
     }
 
     private static func mayContainVisibleMessage(_ record: Data) -> Bool {
-        let markers = ["session_meta", "turn_context", "user_message", "user", "assistant",
+        let markers = ["session_meta", "turn_context", "user_message", "message", "user", "assistant",
             "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output",
             "local_shell_call", "web_search_call", "reasoning"].map { Data("\"\($0)\"".utf8) }
         return markers.contains { record.range(of: $0) != nil }
@@ -1670,7 +1696,7 @@ private enum TranscriptParser {
 
 }
 
-private enum ChatTitlePolicy {
+enum ChatTitlePolicy {
     static func resolvedTitle(
         explicitName: String?,
         databaseTitle: String?,

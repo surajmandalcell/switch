@@ -66,6 +66,7 @@ struct HistoryPage: View {
             .accessibilityLabel(error)
         }
         Text(historyCountText)
+          .help(historyCountText)
           .aimText(.secondary)
           .monospacedDigit()
           .aimRolling(model.chatHistory.matchingThreadCount)
@@ -82,11 +83,8 @@ struct HistoryPage: View {
         .padding(.bottom, AIMTheme.rowSpacing)
 
       if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
-        VStack(spacing: AIMTheme.rowSpacing) {
-          ProgressView().controlSize(.small)
-          Text("Reading chat library").aimText(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        AIMLoadingRows(count: 8, rowHeight: Self.rowHeight)
+          .frame(maxHeight: .infinity, alignment: .top)
       } else if model.chatHistory.threads.isEmpty {
         VStack(spacing: 4) {
           AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
@@ -223,9 +221,11 @@ struct ChatThreadRow: View {
         .aimText(.body)
         .lineLimit(1)
         .truncationMode(.tail)
+        .help(thread.title)
         .frame(maxWidth: .infinity, alignment: .leading)
       HStack(spacing: 0) {
         Text(thread.appSource.displayLabel)
+          .help(thread.appSource.displayLabel)
           .aimText(.secondary)
           .padding(.horizontal, 4)
           .frame(height: 16)
@@ -234,6 +234,7 @@ struct ChatThreadRow: View {
         Text(" · " + subtitle)
           .aimText(.secondary)
           .truncationMode(.tail)
+          .help(subtitle)
       }
       .foregroundStyle(.secondary)
       .lineLimit(1)
@@ -241,6 +242,7 @@ struct ChatThreadRow: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(thread.title), \(thread.appSource.displayLabel), \(subtitle)")
+    .contextMenu { ChatTitleCopyButton(title: thread.title) }
   }
 
   private var subtitle: String {
@@ -262,7 +264,13 @@ enum ChatFilterPersistence {
   }
 
   static func normalized(_ rawValue: Int) -> ChatMessageFilter {
-    ChatMessageFilter(rawValue: rawValue & ChatMessageFilter.all.rawValue)
+    let filter = ChatMessageFilter(rawValue: rawValue & ChatMessageFilter.all.rawValue)
+    return filter.isEmpty ? .all : filter
+  }
+
+  static func toggling(_ filter: ChatMessageFilter, in selection: ChatMessageFilter) -> ChatMessageFilter {
+    let next = selection.symmetricDifference(filter)
+    return next.isEmpty ? selection : next
   }
 }
 
@@ -336,11 +344,15 @@ private struct ChatDetailPane: View {
     if let thread = selectedSummary {
       VStack(alignment: .leading, spacing: 2) {
         Text(thread.title).aimText(.section).lineLimit(1)
+          .help(thread.title)
+          .textSelection(.enabled)
+          .contextMenu { ChatTitleCopyButton(title: thread.title) }
         HStack(spacing: AIMTheme.sectionSpacing) {
-          Text(threadContext(thread)).lineLimit(1)
+          Text(threadContext(thread)).lineLimit(1).help(threadContext(thread))
           Spacer(minLength: AIMTheme.rowSpacing)
           HStack(spacing: 6) {
             Text("\(thread.messageCount.formatted()) messages")
+              .help("\(thread.messageCount.formatted()) messages")
             if let tokens = thread.totalTokens {
               Text("·")
               Text("\(tokens.formatted(.number.notation(.compactName))) tokens")
@@ -365,21 +377,25 @@ private struct ChatDetailPane: View {
     VStack(spacing: AIMTheme.rowSpacing) {
       HStack(spacing: AIMTheme.rowSpacing) {
         HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
-        if isSearching {
-          ProgressView().controlSize(.small)
-        } else if let detail = model.selectedChat, messageFilter != .all || !messageQuery.isEmpty {
-          Text(messageCountText(detail))
-            .aimText(.secondary)
-            .monospacedDigit()
-            .aimRolling(detail.matchingMessageCount)
+        ZStack(alignment: .trailing) {
+          if isSearching {
+            ProgressView().controlSize(.small)
+          } else if let detail = model.selectedChat,
+            !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("\(detail.matchingMessageCount.formatted()) matches")
+              .aimText(.secondary)
+              .monospacedDigit()
+              .lineLimit(1)
+              .help("\(detail.matchingMessageCount.formatted()) matches")
+              .aimRolling(detail.matchingMessageCount)
+          }
         }
-        if let detail = model.selectedChat {
-          ChatFilteredCopyButton(messages: displayedMessages(detail))
-        }
+        .frame(width: 104, height: 24, alignment: .trailing)
       }
 
       HStack(spacing: AIMTheme.rowSpacing) {
-        Text("Show").aimText(.secondary)
+        ChatFilteredCopyButton(messages: model.selectedChat.map(displayedMessages) ?? [])
+          .environment(\.aimControlHeight, 24)
         ForEach(ChatFilterChoice.allCases) { choice in
           ChatFilterButton(
             choice: choice,
@@ -395,12 +411,9 @@ private struct ChatDetailPane: View {
   }
 
   @ViewBuilder private var messages: some View {
-    if model.isChatLoading {
-      VStack(spacing: AIMTheme.rowSpacing) {
-        ProgressView().controlSize(.small)
-        Text("Opening chat").aimText(.secondary)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    if model.selectedChat == nil && (model.isChatLoading || model.isChatHistoryLoading) {
+      AIMLoadingRows(count: 5, rowHeight: 64)
+        .frame(maxHeight: .infinity, alignment: .top)
     } else if let detail = model.selectedChat {
       // A new search or filter starts at the top of a fresh list.
       ChatMessageList(
@@ -446,11 +459,7 @@ private struct ChatDetailPane: View {
   }
 
   private func toggleFilter(_ filter: ChatMessageFilter) {
-    if messageFilter.contains(filter) {
-      messageFilter.remove(filter)
-    } else {
-      messageFilter.insert(filter)
-    }
+    messageFilter = ChatFilterPersistence.toggling(filter, in: messageFilter)
   }
 
   private func detailItems(_ detail: ChatThreadDetail) -> [ChatRowItem] {
@@ -506,16 +515,6 @@ private struct ChatDetailPane: View {
       }
       .frame(maxWidth: .infinity, minHeight: 32)
     }
-  }
-
-  private func messageCountText(_ detail: ChatThreadDetail) -> String {
-    if messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      let count = detail.matchingMessageCount
-      return messageFilter == .all
-        ? "\(count.formatted()) messages"
-        : "\(count.formatted()) shown"
-    }
-    return "\(detail.matchingMessageCount.formatted()) matches"
   }
 
   private func threadContext(_ thread: ChatThreadSummary) -> String {
@@ -613,15 +612,27 @@ private struct ChatFilteredCopyButton: View {
         withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = false }
       }
     } label: {
-      Label(copied ? "Copied" : "Copy shown",
+      Label("Copy",
         systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
         .contentTransition(.opacity)
     }
-    // The shared 28 pt push button: even side padding and a 6 pt icon-to-label gap.
-    .buttonStyle(AIMPushButtonStyle())
+    .buttonStyle(AIMPushButtonStyle(width: 76))
     .disabled(messages.isEmpty)
-    .help("Copy the messages currently shown")
-    .accessibilityLabel(copied ? "Copied" : "Copy shown messages")
+    .help("Copy the visible messages")
+    .accessibilityLabel(copied ? "Copied" : "Copy")
+  }
+}
+
+private struct ChatTitleCopyButton: View {
+  let title: String
+
+  var body: some View {
+    Button("Copy title") {
+      #if !AI_MANAGER_PREVIEW
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(title, forType: .string)
+      #endif
+    }
   }
 }
 
@@ -687,11 +698,12 @@ private struct ChatMessageRow: View {
         .fixedSize()
       if message.role == .assistant, let model = message.model {
         Text("·")
-        Text(model).lineLimit(1).truncationMode(.tail).layoutPriority(-1)
+        Text(model).lineLimit(1).truncationMode(.tail).layoutPriority(-1).help(model)
       }
       if let timestamp = message.timestamp {
         Text("·")
         Text(ChatDate.text(timestamp)).monospacedDigit().lineLimit(1).fixedSize()
+          .help(ChatDate.text(timestamp))
       }
       Spacer(minLength: 6)
       ChatCopyButton(text: message.text, label: "Copy message", emphasized: hovered)
