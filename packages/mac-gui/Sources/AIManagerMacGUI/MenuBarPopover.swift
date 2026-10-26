@@ -422,6 +422,11 @@ final class MenuBarPopoverStore: ObservableObject {
   /// Enabled accounts follow service order, with saved order inside each service.
   var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.orderedAccounts).flatMap { $0 } }
 
+  func updateServiceOrder(_ order: [ProviderID]) {
+    snapshot = MenuBarSnapshot(accounts: snapshot.accounts, lastRefreshedAt: snapshot.lastRefreshedAt,
+      serviceOrder: order, hiddenServices: snapshot.hiddenServices)
+  }
+
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
     guard MenuBarPresentation.canExpand(account, hasOpenTool: actions.openTool != nil) else { return }
     frameClock = nil
@@ -599,6 +604,7 @@ struct MenuBarPopover: View {
           TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(spacing: 0) {
               ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.element.first!.providerID) { index, group in
+                VStack(spacing: 0) {
                 if index > 0 {
                   MenuBarSeparator()
                     .padding(.leading, MenuBarPresentation.inset)
@@ -628,6 +634,9 @@ struct MenuBarPopover: View {
                 .focusEffectDisabled()
                 }
                 }
+                }
+                .modifier(ServiceGroupDrop(provider: group[0].providerID,
+                  providers: store.snapshot.accounts.map(\.providerID), onMove: store.updateServiceOrder))
               }
             }
             .padding(.vertical, 12)

@@ -109,6 +109,58 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(emptyQuery.messages, messages)
     }
 
+    func testEveryRoleSubsetPagesAndSearchesRoleMessagesAndToolEvents() async throws {
+        let entries: [(String, ChatMessageRole)] = [
+            ("Prompt needle", .user), ("Response needle", .assistant),
+            ("Tool needle", .tool), ("Other needle", .other),
+        ]
+        var records: [[String: Any]] = [["type": "session_meta", "payload": ["id": "role-subsets"]]]
+        records += entries.map { text, role in
+            ["type": "response_item", "payload": ["type": "message", "role": role.rawValue,
+                "content": [["type": "output_text", "text": text]]]]
+        }
+        records += [
+            ["type": "response_item", "payload": ["type": "function_call_output", "output": "Event needle"]],
+            ["type": "response_item", "payload": ["type": "reasoning",
+                "summary": [["type": "summary_text", "text": "Reasoning needle"]]]],
+        ]
+        _ = try transcript(directory: "sessions", filename: "role-subsets.jsonl", records: records)
+        let cacheFile = root.appending(path: "cache/role-subsets.json")
+        let index = ChatHistoryIndex(home: root, cacheFile: cacheFile)
+        let snapshot = try await index.refresh()
+        let id = try XCTUnwrap(snapshot.threads.first?.id)
+        let expectedRoles = entries.map(\.1) + [.tool, .other]
+        XCTAssertEqual(snapshot.threads.first?.messageCount, expectedRoles.count)
+        for mask in 1...15 {
+            let filter = ChatMessageFilter(rawValue: mask)
+            let expected = expectedRoles.filter { role in
+                let bit = [ChatMessageRole.user, .assistant, .tool, .other].firstIndex(of: role)!
+                return mask & (1 << bit) != 0
+            }
+            var offset = 0
+            var roles: [ChatMessageRole] = []
+            repeat {
+                let loaded = try await index.detail(for: id, offset: offset, limit: 2, filter: filter)
+                let page = try XCTUnwrap(loaded)
+                XCTAssertEqual(page.matchingMessageCount, expected.count, "Mask \(mask)")
+                roles += page.messages.map(\.role)
+                guard let next = page.nextOffset else { break }
+                XCTAssertGreaterThan(next, offset)
+                offset = next
+            } while true
+            XCTAssertEqual(roles, expected, "Mask \(mask)")
+            let search = try await index.detail(for: id, query: "needle", filter: filter)
+            XCTAssertEqual(search?.messages.map(\.role), expected, "Search mask \(mask)")
+        }
+        var cache = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: cacheFile)) as? [String: Any])
+        cache["version"] = 5
+        try JSONSerialization.data(withJSONObject: cache).write(to: cacheFile, options: .atomic)
+        let rebuilt = try await ChatHistoryIndex(home: root, cacheFile: cacheFile).refresh()
+        XCTAssertEqual(rebuilt.reparsedFileCount, 1)
+        XCTAssertEqual(rebuilt.threads.first?.messageCount, expectedRoles.count)
+    }
+
     func testScrollingPagesReachAllMessagesAndSearchBeyondFirstPage() async throws {
         var records: [[String: Any]] = [["type": "session_meta", "payload": ["id": "paged", "cwd": "/Projects/Paged"]]]
         records += (0..<3_100).map { index in
@@ -589,7 +641,7 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(reopened.threads.first?.title, "Migrated canonical name")
         XCTAssertEqual(reopened.threads.first?.appSource, .exec)
         XCTAssertEqual(reopened.threads.first?.model, "gpt-6.1-sol")
-        XCTAssertEqual(migratedObject["version"] as? Int, 5)
+        XCTAssertEqual(migratedObject["version"] as? Int, 6)
     }
 
     func testRefreshReparsesOnlyChangedFilesAndSkipsMalformedRecords() async throws {

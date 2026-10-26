@@ -179,6 +179,7 @@ final class AccountViewModel: ObservableObject {
     @Published private(set) var droidMissions: [DroidMission] = []
     /// A year of daily usage for the Overview charts. Nil until the first load ends.
     @Published private(set) var usageHistory: UsageHistorySnapshot?
+    @Published private(set) var isUsageHistoryLoading = false
     /// Counts loads, so a page can tell a new snapshot from the one it drew.
     @Published private(set) var usageHistoryVersion = 0
     @Published private(set) var claudeShellIntegrationOn = false
@@ -191,7 +192,7 @@ final class AccountViewModel: ObservableObject {
     /// The Markdown blocks of every loaded message, parsed off the main actor together with the page,
     /// so a row never shows plain text first and then changes height.
     @Published private(set) var chatPresentations: [String: ChatMessagePresentation] = [:]
-    @Published private(set) var isChatHistoryLoading = false
+    @Published private(set) var isChatHistoryLoading = true
     @Published private(set) var isChatPageLoading = false
     private var selectedChatQuery = ""
     private var selectedChatFilter: ChatMessageFilter = .all
@@ -215,7 +216,6 @@ final class AccountViewModel: ObservableObject {
     private let claudePricing: ClaudePricingSource?
     private var usageErrorAccountID: UUID?
     private var usageHistoryLoadedAt: Date?
-    private var isUsageHistoryLoading = false
     /// The engine behind `usageHistory`; the day sheet asks it for the sessions of one day.
     private var usageEngine: UsageHistory?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
@@ -2392,6 +2392,9 @@ final class AccountViewModel: ObservableObject {
 
     func refreshChatHistory(query: String) async {
         requestedChatHistoryQuery = query
+        let showsLoader = chatHistory.threads.isEmpty
+        if showsLoader && !isChatHistoryLoading { isChatHistoryLoading = true }
+        defer { if showsLoader { isChatHistoryLoading = false } }
         #if AI_MANAGER_PREVIEW
         if isDemo {
             let terms = query.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }
@@ -2415,9 +2418,6 @@ final class AccountViewModel: ObservableObject {
             if chatHistoryError != message { chatHistoryError = message }
             return
         }
-        let showsInitialLoader = !hasScannedChatHistory
-        if showsInitialLoader { isChatHistoryLoading = true }
-        defer { if showsInitialLoader { isChatHistoryLoading = false } }
         do {
             let snapshot = try await chatHistoryProvider.refresh(query: query)
             guard !Task.isCancelled else { return }

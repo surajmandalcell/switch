@@ -188,8 +188,8 @@ struct AIMCard<Accessory: View, Content: View>: View {
     VStack(alignment: .leading, spacing: 0) {
       if let title {
         HStack(spacing: AIMTheme.rowSpacing) {
-          Text(title).aimText(.section).uiLint(.align("\(cardID)-start", .start))
-          if let note { Text(note).aimText(.secondary) }
+          Text(title).aimText(.section).help(title).uiLint(.align("\(cardID)-start", .start))
+          if let note { Text(note).aimText(.secondary).help(note) }
           Spacer(minLength: AIMTheme.rowSpacing)
           accessory.uiLint(.align("\(cardID)-end", .end))
         }
@@ -269,7 +269,7 @@ struct AIMCardLink: View {
   var body: some View {
     Button(action: action) {
       HStack(spacing: 4) {
-        Text(title)
+        Text(title).help(title)
         Image(systemName: "arrow.right")
       }
       .aimFont(.body)
@@ -987,6 +987,57 @@ extension View {
   }
 }
 
+/// A neutral placeholder that keeps its frame in both appearances and under Reduce Motion.
+struct AIMSkeleton: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    RoundedRectangle(cornerRadius: 4).fill(.primary.opacity(0.07))
+      .overlay {
+        if !reduceMotion {
+          TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+            GeometryReader { geometry in
+              let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.8) / 1.8
+              LinearGradient(colors: [.clear, .primary.opacity(0.06), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: geometry.size.width)
+                .offset(x: geometry.size.width * (phase * 3 - 1.5))
+            }
+          }
+        }
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 4))
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+  }
+}
+
+struct AIMLoadingRows: View {
+  var count = 3
+  var rowHeight = AIMTheme.rowHeight
+  var indent: CGFloat = 0
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ForEach(0..<count, id: \.self) { _ in
+        HStack(spacing: AIMTheme.rowSpacing) {
+          AIMSkeleton().frame(width: 20, height: 20)
+          VStack(alignment: .leading, spacing: 4) {
+            AIMSkeleton().frame(maxWidth: 160).frame(height: 10)
+            AIMSkeleton().frame(maxWidth: 110).frame(height: 8)
+          }
+          Spacer(minLength: AIMTheme.rowSpacing)
+          AIMSkeleton().frame(width: 70, height: 10)
+        }
+        .padding(.leading, AIMTheme.cardInset + indent)
+        .padding(.trailing, AIMTheme.cardInset)
+        .frame(height: rowHeight)
+      }
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Loading")
+  }
+}
+
 /// One 36 pt table row on the card's 16 inset. A highlight sits 6 in from the card edge with a 6
 /// radius. Selection, hover, and keyboard focus are fills that fade in and out, never outlines.
 struct AIMTableRow<Content: View>: View {
@@ -1298,6 +1349,7 @@ struct AIMPopUp<Option: Hashable>: View {
     } label: {
       HStack(spacing: 6) {
         Text(label(selection))
+          .help(label(selection))
         Image(systemName: "chevron.up.chevron.down").aimFont(.secondary).foregroundStyle(.secondary)
       }
     }
@@ -1319,9 +1371,10 @@ struct AIMDateField: View {
 
   var body: some View {
     HStack(spacing: 6) {
-      Text(title).aimText(.body)
+      Text(title).aimText(.body).help(title)
       Button { open.toggle() } label: {
         Text(selection.formatted(date: .abbreviated, time: .omitted)).monospacedDigit()
+          .help(selection.formatted(date: .long, time: .omitted))
       }
       .buttonStyle(AIMPushButtonStyle())
       .accessibilityLabel(title)
@@ -1334,7 +1387,7 @@ struct AIMDateField: View {
   }
 }
 
-/// A two-state chip that reads as a push button and fills with the accent when on.
+/// A stable multi-select chip: a check and a quiet fill mark the selected state.
 struct AIMChipToggleStyle: ToggleStyle {
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.isFocused) private var focused
@@ -1342,17 +1395,22 @@ struct AIMChipToggleStyle: ToggleStyle {
   func makeBody(configuration: Configuration) -> some View {
     let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
     Button { configuration.isOn.toggle() } label: {
-      configuration.label
+      HStack(spacing: 5) {
+        Image(systemName: "checkmark").frame(width: 10).opacity(configuration.isOn ? 1 : 0)
+          .accessibilityHidden(true)
+        configuration.label
+      }
         .aimFont(.body)
-        .padding(.horizontal, 10)
-        .frame(height: AIMTheme.rowControlHeight)
-        .background(shape.fill(configuration.isOn ? AIMTheme.checkboxSelection : AIMTheme.controlFill))
+        .foregroundStyle(.primary)
+        .frame(width: 98, height: 24)
+        .background(shape.fill(configuration.isOn ? AIMTheme.checkboxSelection : Color.clear))
         .overlay(shape.fill(focused ? AIMTheme.focusTint : Color.clear))
-        .aimBorder(AIMTheme.controlBorder, in: shape)
+        .aimBorder(configuration.isOn ? Color.clear : AIMTheme.line.opacity(0.35), in: shape)
         .contentShape(shape)
         .uiLint(.control)
     }
     .buttonStyle(.plain)
+    .animation(AIMMotion.fade(0.15), value: configuration.isOn)
     .opacity(isEnabled ? 1 : 0.45)
     .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
   }
@@ -1483,7 +1541,7 @@ struct AIMSegmentedPicker<Option: Hashable>: View {
               AIMIcon(name: icon(option)).aimFont(.body).foregroundStyle(Color.primary)
                 .frame(width: 14, height: 14)
             }
-            Text(label(option)).aimFont(.body).lineLimit(1)
+            Text(label(option)).aimFont(.body).lineLimit(1).help(label(option))
           }
             .foregroundStyle(Color.primary)
             .padding(.horizontal, segmentWidth == nil ? 12 : 0)

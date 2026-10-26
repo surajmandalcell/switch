@@ -94,7 +94,9 @@ struct ProviderChooserPage: View {
       ProviderMark(providerID: choice.id, size: 20)
       VStack(alignment: .leading, spacing: 0) {
         Text(choice.name).aimText(.body).lineLimit(1)
+          .help(choice.name)
         Text(choice.subtitle).aimText(.secondary).lineLimit(1)
+          .help(choice.subtitle)
       }
       Spacer()
       if choice.signedInOnThisMac {
@@ -269,6 +271,7 @@ struct FilesCredentialsPage: View {
               Text(signedInText)
                 .aimText(.section)
                 .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                .help(signedInText)
               Text(identity?.plan.map { "Plan: \($0.capitalized)" } ?? detailText)
                 .aimText(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

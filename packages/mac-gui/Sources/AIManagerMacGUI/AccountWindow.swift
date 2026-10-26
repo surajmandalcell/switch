@@ -665,6 +665,7 @@ struct AIMButton: View {
     }
     .modifier(AIMButtonStyle(prominent: tone == .primary))
     .disabled(disabled)
+    .help(title)
     .accessibilityAddTraits(active ? .isSelected : [])
   }
 }
@@ -819,6 +820,7 @@ private struct ErrorBar: View {
     HStack(spacing: AIMTheme.rowSpacing) {
       AIMIcon(name: .warning).aimFont(.body).foregroundStyle(AIMTheme.red)
       Text(message).aimText(.body).lineLimit(2).textSelection(.enabled)
+        .help(message)
       Spacer()
       WarningCopyButton(label: "Copy error", action: copy)
       AIMButton(title: "Dismiss", action: dismiss)
@@ -1154,6 +1156,7 @@ private struct ImportHeader: View {
     Text(title)
       .aimText(.title)
       .lineLimit(1)
+      .help(title)
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding([.horizontal, .top], AIMTheme.pageMargin)
       .padding(.bottom, 4)
@@ -1236,6 +1239,7 @@ private struct SourcePage: View {
                   if let reason = source.inspectionError, !supported {
                     Text(reason).aimText(.secondary, tint: AIMTheme.amber)
                       .lineLimit(2)
+                      .help(reason)
                   }
                 }
                 Spacer()

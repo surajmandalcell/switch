@@ -206,6 +206,7 @@ struct OverviewTooltipLayer: View {
       HStack(spacing: 6) {
         OverviewServiceTile(service: tip.titleService)
         Text(tip.title).aimText(.body).lineLimit(1).truncationMode(.middle)
+          .help(tip.title)
           .frame(maxWidth: Self.nameWidth, alignment: .leading)
       }
       ForEach(Array(tip.rows.enumerated()), id: \.offset) { _, row in
@@ -213,6 +214,7 @@ struct OverviewTooltipLayer: View {
           if let color = row.color { Circle().fill(color).frame(width: 8, height: 8) }
           OverviewServiceTile(service: row.service)
           Text(row.label).aimText(.secondary).lineLimit(1).truncationMode(.middle)
+            .help(row.label)
             .frame(maxWidth: Self.nameWidth, alignment: .leading)
           Spacer(minLength: 12)
           Text(row.value).aimText(.secondary).monospacedDigit()
@@ -246,6 +248,7 @@ struct OverviewLegend: View {
           Circle().fill(item.color).frame(width: 8, height: 8)
           OverviewServiceTile(service: item.service)
           Text(item.label).aimText(.secondary, tint: active == item.id ? Color.primary : nil).lineLimit(1)
+            .help(item.label)
         }
         .opacity(active == nil || active == item.id ? 1 : OverviewMotion.dimmed)
         .accessibilityHidden(true)
@@ -965,11 +968,13 @@ struct OverviewWaffleChart: View {
       Circle().fill(item.color).frame(width: 8, height: 8)
       OverviewServiceTile(service: item.service, reserve: dataset.series.contains { $0.service != nil })
       Text(item.label).aimText(.body).lineLimit(1).truncationMode(.middle)
+        .help(item.label)
       Spacer(minLength: 12)
       Text(OverviewWaffle.percent(cells)).aimText(.body).monospacedDigit().aimRolling(cells)
         .uiLint(.number)
       Text(UsagePresentation.formatTokens(item.tokens)).aimText(.secondary).monospacedDigit()
         .frame(width: 56, alignment: .trailing)
+        .help(UsagePresentation.formatTokens(item.tokens))
     }
     .frame(minHeight: OverviewWaffle.minRow, maxHeight: OverviewWaffle.maxRow)
     .opacity(active == nil || active == item.id ? 1 : OverviewMotion.dimmed)

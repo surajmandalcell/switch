@@ -252,6 +252,9 @@ struct OverviewPage: View {
   }
 
   private var accounts: [AccountRecord] { model.status?.accounts ?? [] }
+  private var displayedDataset: OverviewDataset? {
+    model.isUsageHistoryLoading && dataset?.totals.tokens == 0 ? nil : dataset
+  }
 
   private struct LoadKey: Equatable {
     var period: UsagePeriod
@@ -264,7 +267,8 @@ struct OverviewPage: View {
 
   var body: some View {
     AIMScrollPage {
-      if accounts.isEmpty {
+      if model.hasLoaded && !model.isBusy && !model.isUsageHistoryLoading
+        && (model.usageHistory != nil || model.isUnavailable) && accounts.isEmpty {
         OverviewEmptyCard(model: model)
       } else {
         totalsCard
@@ -348,16 +352,17 @@ struct OverviewPage: View {
         }
       }
     ) {
-      let totals = dataset?.totals
+      let totals = displayedDataset?.totals
       HStack(alignment: .top, spacing: AIMTheme.tileGap) {
         StatTile(label: "Tokens", value: totals.map { UsagePresentation.formatTokens($0.tokens) },
-          detail: "In the last \(period.days) days")
+          detail: "In the last \(period.days) days", loading: displayedDataset == nil)
         StatTile(label: "Estimated cost", value: totals?.costUSD.map(UsagePresentation.formatCurrency),
-          detail: "API-rate estimate, not billed")
+          detail: "API-rate estimate, not billed", loading: displayedDataset == nil)
         StatTile(label: "Active accounts", value: totals.map { "\($0.activeAccounts)" },
-          detail: "Of \(accounts.count) saved")
+          detail: "Of \(accounts.count) saved", loading: displayedDataset == nil)
         StatTile(label: "Busiest day", value: totals?.busiestDay.map(OverviewDay.short),
-          detail: totals.map { $0.busiestDay == nil ? "No usage yet" : "\(UsagePresentation.formatTokens($0.busiestDayTokens)) tokens" })
+          detail: totals.map { $0.busiestDay == nil ? "No usage yet" : "\(UsagePresentation.formatTokens($0.busiestDayTokens)) tokens" },
+          loading: displayedDataset == nil)
       }
       .uiLint(.stack)
     }
@@ -373,12 +378,16 @@ struct OverviewPage: View {
     empty: String? = nil, footer: Bool = false, @ViewBuilder chart: @escaping (OverviewDataset) -> Chart
   ) -> some View {
     let groupNote = "(by \(grouping == .account ? "account" : grouping == .model ? "model" : "project"))"
+    let dataset = displayedDataset
     return AIMCard(title: title, note: note ?? groupNote, divider: true, bottomInset: 0) {
       VStack(alignment: .leading, spacing: 10) {
         // Above the legend, so a tooltip near the chart's bottom edge is not drawn under it.
         OverviewSlot(dataset: dataset, height: height, waffle: waffle, bleed: bleed, hasData: hasData, empty: empty, chart: chart)
           .zIndex(1)
-        if footer { OverviewLegend(series: dataset?.series ?? []).padding(.horizontal, AIMTheme.cardInset) }
+        if footer {
+          if let dataset { OverviewLegend(series: dataset.series).padding(.horizontal, AIMTheme.cardInset) }
+          else { AIMSkeleton().frame(width: 180, height: OverviewLegend.height).padding(.horizontal, AIMTheme.cardInset) }
+        }
       }
       // Canvas charts hold no text, so the block itself marks the card's content edge for the inset check.
       .uiLint(.item)
@@ -414,10 +423,12 @@ private struct OverviewSlot<Chart: View>: View {
 
   @ViewBuilder private var placeholder: some View {
     let block = ZStack {
-      RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous).fill(AIMTheme.tileFill)
       if let dataset {
+        RoundedRectangle(cornerRadius: AIMTheme.tileRadius, style: .continuous).fill(AIMTheme.tileFill)
         Text(empty ?? dataset.emptyText).aimText(.secondary).multilineTextAlignment(.center)
           .padding(.horizontal, 24)
+      } else {
+        AIMSkeleton()
       }
     }
     .accessibilityElement(children: .combine)
@@ -440,13 +451,25 @@ private struct StatTile: View {
   let label: String
   let value: String?
   let detail: String?
+  var loading = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(label).aimText(.secondary).lineLimit(1)
+        .help(label)
       Text(value ?? "–").aimText(.title).monospacedDigit().lineLimit(1)
+        .help(value ?? "–")
         .aimRolling(value).uiLint(.number)
+        .opacity(loading ? 0 : 1)
+        .overlay(alignment: .leading) {
+          if loading { AIMSkeleton().frame(width: 100, height: 17) }
+        }
       Text(detail ?? " ").aimText(.secondary).lineLimit(1)
+        .help(detail ?? "")
+        .opacity(loading ? 0 : 1)
+        .overlay(alignment: .leading) {
+          if loading { AIMSkeleton().frame(width: 120, height: 10) }
+        }
     }
     .accessibilityElement(children: .combine)
     .aimTile()
@@ -461,22 +484,15 @@ private struct OverviewEmptyCard: View {
   var body: some View {
     AIMPanel {
       VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
-        if !model.hasLoaded {
-          HStack(spacing: AIMTheme.rowSpacing) {
-            ProgressView().controlSize(.small)
-            Text("Loading accounts…").aimText(.body)
+        Text("Add your first account").aimText(.section)
+        Text("Switch found no saved account. Sign in to Codex or Grok Build, or use Advanced Import for an existing Codex folder.")
+          .aimText(.secondary)
+        HStack(spacing: AIMTheme.rowSpacing) {
+          AIMButton(title: "Add Account", icon: .plus, tone: .primary, disabled: model.isBusy) {
+            Task { await model.beginAddAccount() }
           }
-        } else {
-          Text("Add your first account").aimText(.section)
-          Text("Switch found no saved account. Sign in to Codex or Grok Build, or use Advanced Import for an existing Codex folder.")
-            .aimText(.secondary)
-          HStack(spacing: AIMTheme.rowSpacing) {
-            AIMButton(title: "Add Account", icon: .plus, tone: .primary, disabled: model.isBusy) {
-              Task { await model.beginAddAccount() }
-            }
-            AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
-              Task { await model.beginAdvancedImport() }
-            }
+          AIMButton(title: "Advanced Import…", icon: .folder, disabled: model.isBusy) {
+            Task { await model.beginAdvancedImport() }
           }
         }
       }

@@ -36,6 +36,7 @@ struct SharedBackupSettings: Codable, Equatable {
   var schedule: BackupSchedule = .off
   var keep = 10
   var includeLogins = false
+  var promptsOnly: Bool? = nil
   static let key = "backupShared"
 }
 
@@ -217,8 +218,8 @@ final class MaintenanceStore: ObservableObject {
   }
 
   func loadSets() async {
+    defer { isLoaded = true }
     do { sets = try await engine.sets() } catch { model.errorMessage = "Backup settings could not be read. \(error.localizedDescription)" }
-    isLoaded = true
     await refreshAll()
     await migrate()
     await syncProfiles()
@@ -235,7 +236,7 @@ final class MaintenanceStore: ObservableObject {
     // One shared toggle must never read Off while a set still copies login files: On only when every checked set has it.
     let checked = checkedSets
     guard let derived = Self.derivedShared(checked) else { return }
-    if checked.contains(where: { $0.schedule != derived.schedule || $0.keep != derived.keep || $0.includeLogins != derived.includeLogins }) {
+    if checked.contains(where: { $0.schedule != derived.schedule || $0.keep != derived.keep || $0.includeLogins != derived.includeLogins || $0.promptsOnly != (derived.promptsOnly == true) }) {
       guard await save(Self.applying(derived, to: sets)) else {
         // Not saved: show On while any set still copies login files, and keep the stored choice as it was.
         shared.includeLogins = checked.contains { $0.includeLogins }
@@ -253,7 +254,8 @@ final class MaintenanceStore: ObservableObject {
   /// The shared values of the checked sets: schedule and count of the first, login files On only if every set has them.
   static func derivedShared(_ checked: [BackupSet]) -> SharedBackupSettings? {
     guard let first = checked.first else { return nil }
-    return SharedBackupSettings(schedule: first.schedule, keep: first.keep, includeLogins: checked.allSatisfy(\.includeLogins))
+    return SharedBackupSettings(schedule: first.schedule, keep: first.keep, includeLogins: checked.allSatisfy(\.includeLogins),
+      promptsOnly: checked.allSatisfy(\.promptsOnly))
   }
 
   static func applying(_ settings: SharedBackupSettings, to sets: [BackupSet]) -> [BackupSet] {
@@ -261,6 +263,7 @@ final class MaintenanceStore: ObservableObject {
       guard !set.retired else { return set }
       var copy = set
       copy.schedule = settings.schedule; copy.keep = settings.keep; copy.includeLogins = settings.includeLogins
+      copy.promptsOnly = settings.promptsOnly == true
       return copy
     }
   }
@@ -306,6 +309,7 @@ final class MaintenanceStore: ObservableObject {
       next[index].schedule = shared.schedule
       next[index].keep = shared.keep
       next[index].includeLogins = shared.includeLogins
+      next[index].promptsOnly = shared.promptsOnly == true
     }
     await save(next)
     return set(for: source)

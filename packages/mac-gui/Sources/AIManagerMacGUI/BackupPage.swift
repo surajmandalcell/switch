@@ -68,7 +68,9 @@ struct BackupPage: View {
 
   var body: some View {
     VStack(spacing: AIMTheme.cardGap) {
-      if store.checklistSources.isEmpty {
+      if (!store.isLoaded || !model.hasLoaded) && store.checklistSources.isEmpty {
+        AIMSection("What to back up") { AIMLoadingRows() }
+      } else if store.checklistSources.isEmpty {
         AIMSection { Text("No supported tool was found on this Mac.").aimText(.secondary) }
       } else {
         checklistCard
@@ -120,8 +122,10 @@ struct BackupPage: View {
         ProviderMark(providerID: source.providerID, size: 28)
         VStack(alignment: .leading, spacing: 2) {
           Text(source.title).aimText(.body).lineLimit(1)
+            .help(source.title)
           Text(supported ? "\(BackupChecklistText.included(source)) · \(size)" : BackupChecklistText.included(source))
             .aimText(.secondary).monospacedDigit().lineLimit(1).truncationMode(.tail)
+            .help(supported ? "\(BackupChecklistText.included(source)) · \(size)" : BackupChecklistText.included(source))
         }
         Spacer(minLength: AIMTheme.rowSpacing)
         Group {
@@ -129,6 +133,7 @@ struct BackupPage: View {
           else if supported {
             Text(store.lastBackup(of: source).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never backed up")
               .aimText(.secondary).monospacedDigit().lineLimit(1)
+              .help(store.lastBackup(of: source).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never backed up")
           }
         }
         .frame(width: Self.lastWidth, alignment: .trailing)
@@ -193,17 +198,28 @@ struct BackupPage: View {
           Text(scheduleLine).aimText(.secondary).monospacedDigit()
         }
       }
-      Toggle(isOn: Binding(get: { store.shared.includeLogins }, set: { value in change { $0.includeLogins = value } })) {
+      Toggle(isOn: Binding(get: { store.shared.promptsOnly == true }, set: { value in change { $0.promptsOnly = value } })) {
         VStack(alignment: .leading, spacing: 2) {
-          Text("Include login files").aimText(.body)
-          Text("Off keeps sign-in files out. On, anyone who can read the backup folder can use your accounts, so keep the drive private.")
-            .aimText(.secondary, tint: store.shared.includeLogins ? AIMTheme.amber : nil)
+          Text("Prompt-only backup").aimText(.body)
+          Text("Save only your prompts as Markdown, grouped by project, with one file per conversation and an index. Responses, tools, login files, and settings stay out.")
+            .aimText(.secondary)
         }
       }
+      .disabled(running || store.isRestoring)
+      Toggle(isOn: Binding(get: { store.shared.includeLogins && store.shared.promptsOnly != true }, set: { value in change { $0.includeLogins = value } })) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Include login files").aimText(.body)
+          Text(store.shared.promptsOnly == true ? "Prompt-only backups always exclude login files."
+            : "Off keeps sign-in files out. On, anyone who can read the backup folder can use your accounts, so keep the drive private.")
+            .aimText(.secondary, tint: store.shared.includeLogins && store.shared.promptsOnly != true ? AIMTheme.amber : nil)
+        }
+      }
+      .disabled(store.shared.promptsOnly == true)
       if running {
         HStack(spacing: AIMTheme.rowSpacing) {
           ProgressView().controlSize(.small)
           Text(progressLine).aimText(.secondary).monospacedDigit().lineLimit(1)
+            .help(progressLine)
           Spacer()
           AIMButton(title: "Cancel") { store.cancelBackup() }
         }
@@ -213,8 +229,11 @@ struct BackupPage: View {
           VStack(alignment: .leading, spacing: 2) {
             if let error = lastError {
               Text("Last error: \(error)").aimText(.secondary, tint: AIMTheme.amber).lineLimit(2)
+                .help("Last error: \(error)")
             }
-            Text("The first backup copies everything. Later backups copy only what changed.").aimText(.secondary)
+            Text(store.shared.promptsOnly == true
+              ? "Prompt backups use this folder, schedule, and retention count. Restore exports them into a folder."
+              : "The first backup copies everything. Later backups copy only what changed.").aimText(.secondary)
           }
           Spacer()
           AIMButton(title: BackupChecklistText.button(count), icon: .backup, tone: .primary,
@@ -268,18 +287,20 @@ struct BackupPage: View {
     return AIMCard(title: "History", divider: true, scrolls: true, bottomInset: AIMTheme.tableEndInset, accessory: {
       Text("\(all.count.formatted()) kept").aimText(.secondary).monospacedDigit().aimRolling(all.count)
     }) {
-      if rows.isEmpty {
+      if !store.isLoaded && rows.isEmpty {
+        AIMLoadingRows().padding(.bottom, AIMTheme.tableEndInset)
+      } else if rows.isEmpty {
         Text(waiting != nil ? "Backups appear again when the drive is connected." : "No backups yet. Check a tool, then choose \(BackupChecklistText.button(store.checkedSets.count)).")
           .aimText(.secondary).padding(.horizontal, AIMTheme.cardInset).padding(.vertical, AIMTheme.contentInset)
           .frame(maxWidth: .infinity, alignment: .leading)
       } else {
         VStack(spacing: 0) {
           AIMTableRow {
-            Text("Tool").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Date").frame(width: Self.dateWidth, alignment: .leading)
-            Text("Files").frame(width: Self.filesWidth, alignment: .trailing)
-            Text("Size").frame(width: Self.sizeWidth, alignment: .trailing)
-            Text("State").frame(width: Self.stateWidth, alignment: .leading)
+            Text("Tool").frame(maxWidth: .infinity, alignment: .leading).help("Tool")
+            Text("Date").frame(width: Self.dateWidth, alignment: .leading).help("Date")
+            Text("Files").frame(width: Self.filesWidth, alignment: .trailing).help("Files")
+            Text("Size").frame(width: Self.sizeWidth, alignment: .trailing).help("Size")
+            Text("State").frame(width: Self.stateWidth, alignment: .leading).help("State")
             Color.clear.frame(width: Self.actionWidth, height: 1)
           }
           .aimText(.secondary)
@@ -300,17 +321,21 @@ struct BackupPage: View {
       HStack(spacing: AIMTheme.rowSpacing) {
         if let source = row.source { ProviderMark(providerID: source.providerID, size: 20) }
         Text(row.source?.title ?? row.set.name).aimText(.body).lineLimit(1)
+          .help(row.source?.title ?? row.set.name)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       Text(snapshot.date.formatted(date: .abbreviated, time: .shortened)).aimText(.body).monospacedDigit()
         .frame(width: Self.dateWidth, alignment: .leading)
+        .help(snapshot.date.formatted(date: .abbreviated, time: .shortened))
       Text(snapshot.files.formatted()).aimText(.body).monospacedDigit()
         .frame(width: Self.filesWidth, alignment: .trailing)
+        .help(snapshot.files.formatted())
       Text(MaintenanceStore.size(snapshot.totalBytes)).aimText(.body).monospacedDigit()
         .frame(width: Self.sizeWidth, alignment: .trailing)
+        .help(MaintenanceStore.size(snapshot.totalBytes))
       HStack {
         if snapshot.manifest.safety { Badge(text: "Safety copy", tint: AIMTheme.amber) }
-        else { Badge(text: snapshot.state == "Complete" ? "Complete" : "Some skipped",
+        else { Badge(text: snapshot.state == "Complete" ? (snapshot.manifest.promptsOnly == true ? "Prompts only" : "Complete") : "Some skipped",
           tint: snapshot.state == "Complete" ? AIMTheme.green : AIMTheme.amber) }
         Spacer(minLength: 0)
       }
@@ -391,7 +416,8 @@ struct BackupRestoreSheet: View {
   }
   private static let visibleGroups = 6
   private static let groupRowHeight: CGFloat = 26
-  private var ready: Bool { (whole || !chosen.isEmpty) && (inPlace || folder != nil) && !store.isRestoring }
+  private var promptBackup: Bool { request.snapshot.manifest.promptsOnly == true }
+  private var ready: Bool { (whole || !chosen.isEmpty) && ((inPlace && !promptBackup) || folder != nil) && !store.isRestoring }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -413,6 +439,7 @@ struct BackupRestoreSheet: View {
                 set: { if $0 { chosen.insert(group.id) } else { chosen.remove(group.id) } })) {
                 HStack {
                   Text(BackupLabels.name(group.id) ?? group.id).aimText(.body).lineLimit(1).truncationMode(.middle)
+                    .help(BackupLabels.name(group.id) ?? group.id)
                   Spacer()
                   Text("\(group.files.formatted()) files · \(MaintenanceStore.size(group.bytes))")
                     .aimText(.secondary).monospacedDigit()
@@ -432,10 +459,12 @@ struct BackupRestoreSheet: View {
         }
         Divider()
         Text("Restore to").aimText(.section)
-        AIMSegmentedPicker(
-          options: [true, false], selection: $inPlace, accessibilityLabel: "Where to restore",
-          label: { $0 ? "Original place" : "A folder" }, segmentWidth: 140)
-        if inPlace {
+        if !promptBackup {
+          AIMSegmentedPicker(
+            options: [true, false], selection: $inPlace, accessibilityLabel: "Where to restore",
+            label: { $0 ? "Original place" : "A folder" }, segmentWidth: 140)
+        }
+        if inPlace && !promptBackup {
           Text("Switch first saves a safety backup of the files it replaces. Newer files that are not in this backup stay where they are.")
             .aimText(.secondary)
         } else {
@@ -460,7 +489,7 @@ struct BackupRestoreSheet: View {
         AIMButton(title: "Restore", tone: .primary, disabled: !ready) {
           Task {
             await store.restore(
-              request.snapshot, set: request.set, items: whole ? nil : chosen.sorted(), to: inPlace ? nil : folder)
+              request.snapshot, set: request.set, items: whole ? nil : chosen.sorted(), to: inPlace && !promptBackup ? nil : folder)
             close()
           }
         }

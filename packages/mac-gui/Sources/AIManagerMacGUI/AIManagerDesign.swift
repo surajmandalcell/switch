@@ -180,7 +180,7 @@ enum AIMTheme {
   /// The grouped container fill: the same faint system fill a grouped Form draws.
   static let container = Color(nsColor: .quaternarySystemFill)
   static let panel = Color(nsColor: .controlBackgroundColor)
-  static let chatUserSurface = Color.accentColor.opacity(0.14)
+  static let chatUserSurface = Color.primary.opacity(0.07)
   static let chatAssistantSurface = Color.primary.opacity(0.045)
   static let chatCodeSurface = Color.primary.opacity(0.06)
   static let chatOtherSurface = Color.primary.opacity(0.08)
@@ -467,6 +467,7 @@ struct Badge: View {
     HStack(spacing: 5) {
       Circle().fill(tint).frame(width: 6, height: 6)
       Text(text).aimText(.caption).foregroundStyle(.primary).lineLimit(1)
+        .help(text)
     }
     .padding(.horizontal, 8).padding(.vertical, 2)
     .background(Self.fill, in: Capsule())
@@ -1038,6 +1039,11 @@ final class AIMScroller: NSScroller {
 
   override func mouseEntered(with event: NSEvent) { hovering = true; reveal() }
   override func mouseExited(with event: NSEvent) { hovering = false; restyle(); scheduleHide() }
+
+  override func scrollWheel(with event: NSEvent) {
+    if let scroll = enclosingScrollView { scroll.scrollWheel(with: event) }
+    else { super.scrollWheel(with: event) }
+  }
 
   override func mouseDown(with event: NSEvent) {
     dragging = true

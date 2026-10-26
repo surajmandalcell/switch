@@ -135,7 +135,7 @@ struct ResetTimeText: View {
       .aimText(.secondary)
       .contentShape(Rectangle())
       .onTapGesture { exact.toggle() }
-      .help(text(exact: !exact))
+      .help("\(text(exact: exact))\n\(text(exact: !exact))")
       .accessibilityAddTraits(.isButton)
       .accessibilityHint(exact ? "Shows the countdown" : "Shows the exact time")
   }
@@ -422,6 +422,7 @@ struct ProviderWindowMeter: View {
     VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
       HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
         Text(window.title).aimText(.body).lineLimit(1)
+          .help(window.title)
         if let label = UsagePace.label(state) {
           Badge(text: label, tint: color)
         } else {
@@ -449,6 +450,7 @@ struct ProviderWindowMeter: View {
         if let detail = window.detail {
           Text(detail).aimText(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.tail)
+            .help(detail)
         }
       }
     }
@@ -533,6 +535,7 @@ struct ProviderSectionRows: View {
       ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
         HStack(alignment: .firstTextBaseline, spacing: AIMTheme.sectionSpacing) {
           Text(row.label).aimText(.body).lineLimit(1)
+            .help(row.label)
           Spacer(minLength: AIMTheme.rowSpacing)
           if let progress = row.progress {
             UsageBar(usedPercent: (1 - progress) * 100, providerID: providerID)
@@ -540,6 +543,7 @@ struct ProviderSectionRows: View {
           }
           Text(EmailPrivacy.display(row.value)).aimText(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            .help(EmailPrivacy.display(row.value))
         }
       }
     }
