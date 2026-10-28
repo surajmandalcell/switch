@@ -428,7 +428,10 @@ final class AIManagerStatusItemController: NSObject {
     let content = MenuBarPopover(store: store)
     popover.behavior = .transient
     popover.animates = false
-    popover.contentViewController = NSHostingController(rootView: content)
+    let hostingController = NSHostingController(rootView: content)
+    // The store supplies the size; automatic min/ideal/max probes repeat layout on every frame.
+    hostingController.sizingOptions = []
+    popover.contentViewController = hostingController
     store.clockView = popover.contentViewController?.view
     resizePopover()
 
@@ -479,7 +482,8 @@ final class AIManagerStatusItemController: NSObject {
     let screen = (popover.isShown ? popover.contentViewController?.view.window?.screen : nil)
       ?? statusItem.button?.window?.screen ?? NSScreen.main
     store.update(visibleScreenHeight: screen?.visibleFrame.height ?? Self.fallbackScreenHeight)
-    popover.contentSize = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+    let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+    if popover.contentSize != size { popover.contentSize = size }
     popover.contentViewController?.view.layoutSubtreeIfNeeded()
   }
 
