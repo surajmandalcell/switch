@@ -1,7 +1,6 @@
 import AIManagerCore
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ServiceGroupHeader: View, Equatable {
   let provider: ProviderID
@@ -12,6 +11,7 @@ struct ServiceGroupHeader: View, Equatable {
   @State private var hovered = false
   @FocusState private var eyeFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(ServiceReorderState.self) private var reorder
 
   nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.provider == rhs.provider && lhs.providers == rhs.providers && lhs.showsInTray == rhs.showsInTray
@@ -51,11 +51,14 @@ struct ServiceGroupHeader: View, Equatable {
       .animation(.easeOut(duration: 0.18), value: showsInTray)
       .help(help)
       .accessibilityLabel("\(help): \(provider.guiName)")
+      .accessibilityIdentifier("service-eye-\(provider.rawValue)")
+      .serviceInteractionFrame("service-eye-\(provider.rawValue)")
     }
     .contentShape(Rectangle())
-    .onHover { hovered = $0 }
+    .background(ServiceHeaderHover(provider: provider, hovered: $hovered))
     .accessibilityElement(children: .contain)
     .accessibilityLabel(provider.guiName)
+    .accessibilityIdentifier("service-header-\(provider.rawValue)")
     .accessibilityAddTraits(.isHeader)
     .contextMenu {
       Button(help) { MenuBarServicePreferences.toggleVisibility(provider) }
@@ -64,98 +67,178 @@ struct ServiceGroupHeader: View, Equatable {
         Button("Move service down") { move(to: order[index + 1]) }.disabled(index == order.count - 1)
       }
     }
-    .modifier(ServiceHeaderDrag(provider: provider, enabled: canReorder))
+    .modifier(ServiceHeaderDrag(provider: provider, providers: providers, enabled: canReorder))
   }
 
   private func move(to target: ProviderID) {
     MenuBarServicePreferences.move(provider, to: target, in: providers)
+    reorder.order = MenuBarServicePreferences.order()
   }
 }
 
-@MainActor
-enum ServiceReorderDrag {
-  static var source: ProviderID?
-  private static var endTask: Task<Void, Never>?
+/// Track inactive windows too, without making the header a mouse or keyboard target.
+private struct ServiceHeaderHover: NSViewRepresentable {
+  let provider: ProviderID
+  @Binding var hovered: Bool
 
-  static func begin(_ provider: ProviderID) -> NSItemProvider {
-    end()
-    source = provider
-    // SwiftUI onDrag has no end callback on macOS 14, including a cancelled drag outside the app.
-    // shortcut: drag identity expires after two minutes; use a drag-session callback when macOS 14 support ends.
-    endTask = Task { @MainActor in
-      for _ in 0..<1200 {
-        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-        if NSEvent.pressedMouseButtons & 1 == 0 || CGEventSource.keyState(.combinedSessionState, key: 53) { break }
-      }
-      end()
+  final class HoverView: NSView {
+    var changed: (Bool) -> Void = { _ in }
+    private var hoverArea: NSTrackingArea?
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func updateTrackingAreas() {
+      super.updateTrackingAreas()
+      if let hoverArea { removeTrackingArea(hoverArea) }
+      let area = NSTrackingArea(rect: .zero,
+        options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+      addTrackingArea(area)
+      hoverArea = area
     }
-    return NSItemProvider(object: provider.rawValue as NSString)
+    override func mouseEntered(with event: NSEvent) { changed(true) }
+    override func mouseExited(with event: NSEvent) { changed(false) }
   }
 
-  static func end() {
+  func makeNSView(context: Context) -> HoverView {
+    let view = HoverView()
+    view.identifier = NSUserInterfaceItemIdentifier("service-header-\(provider.rawValue)")
+    view.setAccessibilityElement(false)
+    return view
+  }
+  func updateNSView(_ view: HoverView, context: Context) { view.changed = { hovered = $0 } }
+}
+
+extension View {
+  @ViewBuilder fileprivate func serviceInteractionFrame(_ id: String) -> some View {
+    #if AI_MANAGER_PREVIEW
+    if CommandLine.arguments.contains("--service-interaction-only") {
+      background(ServiceInteractionFrame(id: id))
+    } else { self }
+    #else
+    self
+    #endif
+  }
+}
+
+#if AI_MANAGER_PREVIEW
+private struct ServiceInteractionFrame: NSViewRepresentable {
+  let id: String
+  final class FrameView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+  }
+  func makeNSView(context: Context) -> FrameView {
+    let view = FrameView()
+    view.identifier = NSUserInterfaceItemIdentifier(id)
+    return view
+  }
+  func updateNSView(_ view: FrameView, context: Context) {}
+}
+#endif
+
+@MainActor @Observable final class ServiceReorderState {
+  var source: ProviderID?
+  var order: [ProviderID] = []
+  var frames: [ProviderID: CGRect] = [:]
+  private var originalOrder: [ProviderID] = []
+  private var originalFrames: [ProviderID: CGRect] = [:]
+  private var translation: CGFloat = 0
+
+  func update(_ provider: ProviderID, translation: CGFloat, providers: [ProviderID],
+              reduceMotion: Bool, defaults: UserDefaults = .standard) {
+    guard providers.contains(provider), frames[provider] != nil else { return }
+    if source == nil {
+      originalOrder = MenuBarServicePreferences.orderedProviders(providers, defaults: defaults)
+      originalFrames = frames
+      order = originalOrder
+      source = provider
+    }
+    guard source == provider, let frame = originalFrames[provider],
+      let from = originalOrder.firstIndex(of: provider) else { return }
+    self.translation = translation
+    let position = frame.minY + translation
+    var to = from
+    for (index, candidate) in originalOrder.enumerated() {
+      guard let target = originalFrames[candidate] else { continue }
+      if translation > 0 && index > from && position > target.minY { to = index }
+      if translation < 0 && index < from && position < target.minY { to = min(to, index) }
+    }
+    var next = originalOrder
+    next.remove(at: from)
+    next.insert(provider, at: to)
+    if next != order {
+      withAnimation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.85)) { order = next }
+    }
+  }
+
+  func offset(_ provider: ProviderID) -> CGFloat {
+    guard source == provider, let start = originalFrames[provider], let current = frames[provider] else { return 0 }
+    return start.minY + translation - current.minY
+  }
+
+  func end(reduceMotion: Bool, defaults: UserDefaults = .standard) {
+    guard let source, let to = order.firstIndex(of: source), originalOrder.indices.contains(to) else { return }
+    MenuBarServicePreferences.move(source, to: originalOrder[to], in: originalOrder, defaults: defaults)
+    withAnimation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.85)) {
+      self.source = nil
+      translation = 0
+    }
+  }
+
+  func cancel() {
+    if source != nil { order = originalOrder }
     source = nil
-    endTask?.cancel()
-    endTask = nil
+    translation = 0
   }
 }
 
 private struct ServiceHeaderDrag: ViewModifier {
   let provider: ProviderID
+  let providers: [ProviderID]
   let enabled: Bool
-
-  func body(content: Content) -> some View {
-    if enabled {
-      content.onDrag { ServiceReorderDrag.begin(provider) }
-    } else { content }
-  }
-}
-
-struct ServiceGroupDrop: ViewModifier {
-  let provider: ProviderID
-  let providers: [ProviderID]
-  var enabled = true
-  let onMove: ([ProviderID]) -> Void
+  @Environment(ServiceReorderState.self) private var reorder
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @GestureState private var dragging = false
 
   func body(content: Content) -> some View {
     if enabled {
-      content.contentShape(Rectangle()).onDrop(of: [.text], delegate: ServiceReorderDropDelegate(
-        provider: provider, providers: providers, reduceMotion: reduceMotion, onMove: onMove))
+      content.gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
+        .updating($dragging) { _, dragging, _ in dragging = true }
+        .onChanged { reorder.update(provider, translation: $0.translation.height,
+          providers: providers, reduceMotion: reduceMotion) }
+        .onEnded { _ in reorder.end(reduceMotion: reduceMotion) })
+      .onChange(of: dragging) { _, active in if !active { reorder.cancel() } }
+      .accessibilityAction(named: Text("Move up")) { move(-1) }
+      .accessibilityAction(named: Text("Move down")) { move(1) }
     } else { content }
+  }
+
+  private func move(_ step: Int) {
+    let order = MenuBarServicePreferences.orderedProviders(providers)
+    guard let index = order.firstIndex(of: provider), order.indices.contains(index + step) else { return }
+    MenuBarServicePreferences.move(provider, to: order[index + step], in: providers)
+    reorder.order = MenuBarServicePreferences.order()
   }
 }
 
-struct ServiceReorderDropDelegate: DropDelegate {
+struct ServiceGroupReorder: ViewModifier {
   let provider: ProviderID
-  let providers: [ProviderID]
-  var reduceMotion = false
-  var defaults: UserDefaults = .standard
-  var onMove: ([ProviderID]) -> Void = { _ in }
+  let leadingInset: CGFloat
+  @Environment(ServiceReorderState.self) private var reorder
 
-  private var acceptsSource: Bool {
-    guard let source = ServiceReorderDrag.source else { return false }
-    return providers.contains(source) && providers.contains(provider)
-  }
-
-  func validateDrop(info: DropInfo) -> Bool { acceptsSource }
-  func dropEntered(info: DropInfo) { dropEntered() }
-  func dropUpdated(info: DropInfo) -> DropProposal? { dropUpdated() }
-  func performDrop(info: DropInfo) -> Bool { performDrop() }
-
-  // DropInfo has no public initializer; these entry points also drive the contract check.
-  func dropEntered() {
-    guard acceptsSource, let source = ServiceReorderDrag.source, source != provider else { return }
-    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
-      MenuBarServicePreferences.move(source, to: provider, in: providers, defaults: defaults)
-      onMove(MenuBarServicePreferences.order(defaults: defaults))
-    }
-  }
-
-  func dropUpdated() -> DropProposal? { DropProposal(operation: acceptsSource ? .move : .cancel) }
-
-  func performDrop() -> Bool {
-    let accepted = acceptsSource
-    ServiceReorderDrag.end()
-    return accepted
+  func body(content: Content) -> some View {
+    content
+      .offset(y: reorder.offset(provider))
+      .transaction { if reorder.source == provider { $0.animation = nil } }
+      .background(GeometryReader { geometry in
+        let group = geometry.frame(in: .global)
+        let frame = CGRect(x: group.minX, y: group.minY + leadingInset,
+          width: group.width, height: group.height - leadingInset)
+        Color.clear
+          .onAppear { reorder.frames[provider] = frame }
+          .onChange(of: frame) { _, frame in reorder.frames[provider] = frame }
+      })
+      .zIndex(reorder.source == provider ? 1 : 0)
+      .onDisappear {
+        reorder.frames.removeValue(forKey: provider)
+        if reorder.source == provider { reorder.cancel() }
+      }
   }
 }

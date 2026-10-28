@@ -766,25 +766,25 @@ enum AIManagerMenuBarContract {
 
     mixedStore.updateServiceOrder([.codex, .droid])
     expect(mixedStore.rows.first?.providerID == .codex, "The live reorder fixture does not start with Codex")
-    let dragItem = ServiceReorderDrag.begin(.droid)
-    expect(dragItem.hasItemConformingToTypeIdentifier("public.text"), "Service drags do not use system text")
-    let drop = ServiceReorderDropDelegate(provider: .claudeCode, providers: providers,
-      reduceMotion: true, defaults: defaults, onMove: mixedStore.updateServiceOrder)
-    drop.dropEntered()
-    expect(MenuBarServicePreferences.orderedProviders(providers, defaults: defaults) == [.droid, .claudeCode, .codex],
-      "Entering another whole service group does not save the live move")
+    let drag = ServiceReorderState()
+    drag.frames = [.claudeCode: CGRect(x: 0, y: 0, width: 100, height: 20),
+      .codex: CGRect(x: 0, y: 30, width: 100, height: 20), .droid: CGRect(x: 0, y: 60, width: 100, height: 20)]
+    let beforeDrag = MenuBarServicePreferences.order(defaults: defaults)
+    drag.update(.droid, translation: -70, providers: providers, reduceMotion: true, defaults: defaults)
+    mixedStore.updateServiceOrder(drag.order)
+    expect(MenuBarServicePreferences.order(defaults: defaults) == beforeDrag,
+      "A service gesture saves before release")
     expect(mixedStore.snapshot.serviceOrder.prefix(3) == [.droid, .claudeCode, .codex]
       && mixedStore.rows.first?.providerID == .droid, "The popover does not render a live move in the same call")
-    expect(drop.dropUpdated()?.operation == .move, "An internal service drag does not propose a move")
-    expect(drop.performDrop() && ServiceReorderDrag.source == nil, "A service drop does not end its drag")
-    let savedDrop = defaults.stringArray(forKey: MenuBarServicePreferences.orderKey)
-    drop.dropEntered()
-    expect(!drop.performDrop() && drop.dropUpdated()?.operation == .cancel
-      && defaults.stringArray(forKey: MenuBarServicePreferences.orderKey) == savedDrop,
-      "Foreign text with no service source changes the saved order")
-    ServiceReorderDrag.source = .codex
-    ServiceReorderDrag.end()
-    expect(ServiceReorderDrag.source == nil, "A cancelled service drag retains its identity")
+    drag.end(reduceMotion: true, defaults: defaults)
+    expect(drag.source == nil && MenuBarServicePreferences.orderedProviders(providers, defaults: defaults) == [.droid, .claudeCode, .codex]
+      && MenuBarServicePreferences.order(defaults: defaults).contains(ProviderID(rawValue: "unknown-service")),
+      "A service release does not end and save its gesture")
+    drag.update(.codex, translation: -70, providers: providers, reduceMotion: true, defaults: defaults)
+    drag.cancel()
+    expect(drag.source == nil && drag.order == [.droid, .claudeCode, .codex]
+      && MenuBarServicePreferences.orderedProviders(providers, defaults: defaults) == drag.order,
+      "A cancelled service gesture saves or retains its identity")
 
     MenuBarServicePreferences.toggleVisibility(.droid, defaults: defaults)
     expect(!MenuBarServicePreferences.showsInTray(.droid, defaults: UserDefaults(suiteName: domain)!)
@@ -844,7 +844,7 @@ enum PopoverMotionCheck {
     if AppearanceOverride.mode == "dark" { window.appearance = NSAppearance(named: .darkAqua) }
     else if AppearanceOverride.mode == "light" { window.appearance = NSAppearance(named: .aqua) }
     print("POPOVER_PROBE appearance=\(window.effectiveAppearance.name.rawValue)")
-    window.orderFrontRegardless()
+    window.orderBack(nil)
     store.clockView = host
     store.animatesLayout = true
     let refresh = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
@@ -895,6 +895,227 @@ enum PopoverMotionCheck {
       }
     }
     return failures
+  }
+}
+
+/// Drives the production views through window-local AppKit events, without a desktop input driver.
+@MainActor
+enum ServiceInteractionCheck {
+  private final class TestWindow: NSWindow {
+    private var eventLocation = NSPoint(x: -1, y: -1)
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+    // AppKit's window-local pointer queries follow the last in-process event.
+    override var mouseLocationOutsideOfEventStream: NSPoint { eventLocation }
+    override func sendEvent(_ event: NSEvent) {
+      eventLocation = event.locationInWindow
+      super.sendEvent(event)
+    }
+  }
+
+  private struct CheckFailure: Error, CustomStringConvertible {
+    let description: String
+  }
+
+  static func failures() async -> [String] {
+    let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    print("SERVICE_INTERACTION_FRONT before=\(front ?? -1)")
+    let defaults = UserDefaults.standard
+    let savedOrder = defaults.object(forKey: MenuBarServicePreferences.orderKey)
+    let savedHidden = defaults.object(forKey: MenuBarServicePreferences.hiddenKey)
+    defer {
+      defaults.set(savedOrder, forKey: MenuBarServicePreferences.orderKey)
+      defaults.set(savedHidden, forKey: MenuBarServicePreferences.hiddenKey)
+      print("SERVICE_INTERACTION_FRONT after=\(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)")
+    }
+    var failures: [String] = []
+    for accounts in [false, true] {
+      do {
+        try await run(accounts: accounts, front: front)
+      } catch {
+        failures.append("\(accounts ? "Accounts" : "popover"): \(error)")
+        if NSApp.isActive { break }
+      }
+    }
+    return failures
+  }
+
+  private static func run(accounts: Bool, front: pid_t?) async throws {
+    func require(_ condition: Bool, _ message: String) throws {
+      if !condition { throw CheckFailure(description: message) }
+    }
+    let defaults = UserDefaults.standard
+    defaults.removeObject(forKey: MenuBarServicePreferences.orderKey)
+    defaults.removeObject(forKey: MenuBarServicePreferences.hiddenKey)
+    let model = AccountViewModel(scenario: .demo)
+    var seen: Set<ProviderID> = []
+    let fixtures = (model.status?.accounts ?? []).filter {
+      seen.count < 3 && seen.insert($0.identity.providerID).inserted
+    }
+    model.status = ManagerStatus(accounts: fixtures, defaultAccountID: nil,
+      sharedRoot: model.paths.sharedRoot, pendingRecovery: [])
+    let snapshot = MenuBarPopoverPreviewData.sixAccountSnapshot
+    let store = MenuBarPopoverStore(snapshot: snapshot,
+      actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
+    let size = NSSize(width: accounts ? 880 : MenuBarPopover.width, height: accounts ? 850 : store.contentHeight)
+    let root = accounts ? AnyView(AccountsPage(model: model, query: "")) : AnyView(MenuBarPopover(store: store))
+    let controller = NSHostingController(rootView: root)
+    controller.sizingOptions = []
+    let host = controller.view
+    guard let screen = NSScreen.main else { throw CheckFailure(description: "No main display") }
+    let window = TestWindow(contentRect: NSRect(origin: screen.frame.origin, size: size),
+      styleMask: .borderless, backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.alphaValue = 0
+    window.ignoresMouseEvents = true
+    window.acceptsMouseMovedEvents = true
+    window.contentViewController = controller
+    window.setContentSize(size)
+    window.orderBack(nil)
+    defer { window.close() }
+
+    func safety() throws {
+      // The owner may switch apps during a run; only this test host taking the front is a failure.
+      try require(NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+        "The acceptance app became the front app")
+      try require(!NSApp.isActive && !window.isKeyWindow && !window.isMainWindow
+        && !window.canBecomeKey && !window.canBecomeMain && window.ignoresMouseEvents && window.alphaValue == 0,
+        "The acceptance window took focus or desktop input")
+    }
+    func views(_ view: NSView) -> [NSView] {
+      [view] + view.subviews.flatMap(views)
+    }
+    func headers() -> [(id: String, frame: NSRect)] {
+      views(host).compactMap { view in
+        guard let id = view.identifier?.rawValue, id.hasPrefix("service-header-") else { return nil }
+        return (String(id.dropFirst("service-header-".count)), view.convert(view.bounds, to: nil))
+      }.sorted { $0.frame.midY > $1.frame.midY }
+    }
+    func eyes() throws -> [String: NSBitmapImageRep] {
+      var result: [String: NSBitmapImageRep] = [:]
+      for view in views(host) {
+        guard let id = view.identifier?.rawValue, id.hasPrefix("service-eye-") else { continue }
+        let rect = view.convert(view.bounds, to: host)
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: rect) else {
+          throw CheckFailure(description: "Cannot capture eye: \(id)")
+        }
+        host.cacheDisplay(in: rect, to: bitmap)
+        result[String(id.dropFirst("service-eye-".count))] = bitmap
+      }
+      return result
+    }
+    func changedPixels(_ before: NSBitmapImageRep, _ after: NSBitmapImageRep) -> Int {
+      guard before.pixelsWide == after.pixelsWide, before.pixelsHigh == after.pixelsHigh else { return Int.max }
+      var count = 0
+      for y in 0..<before.pixelsHigh { for x in 0..<before.pixelsWide {
+        guard let a = before.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+          let b = after.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+        if abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+          + abs(a.blueComponent - b.blueComponent) > 0.12 { count += 1 }
+      } }
+      return count
+    }
+    func settle(_ milliseconds: Int = 300) async throws {
+      try await Task.sleep(for: .milliseconds(milliseconds))
+      host.layoutSubtreeIfNeeded()
+      host.displayIfNeeded()
+      try safety()
+    }
+    var tracking: [(NSView, NSView.TrackingRectTag)] = []
+    defer { for (view, tag) in tracking { view.removeTrackingRect(tag) } }
+    func hover(_ point: NSPoint, entered: Bool) throws {
+      try safety()
+      if entered {
+        for view in views(host) where view.identifier?.rawValue.hasPrefix("service-header-") == true {
+          guard view.bounds.contains(view.convert(point, from: nil)) else { continue }
+          tracking.append((view, view.addTrackingRect(view.bounds, owner: view, userData: nil, assumeInside: false)))
+        }
+        try require(tracking.count == 1, "Hover must enter exactly one real header")
+      }
+      for (_, tag) in tracking {
+        guard let event = NSEvent.enterExitEvent(with: entered ? .mouseEntered : .mouseExited,
+          location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+          windowNumber: window.windowNumber, context: nil, eventNumber: 1, trackingNumber: tag,
+          userData: nil) else { throw CheckFailure(description: "Cannot create tracking event") }
+        window.sendEvent(event)
+      }
+      if !entered {
+        for (view, tag) in tracking { view.removeTrackingRect(tag) }
+        tracking.removeAll()
+      }
+    }
+    func send(_ type: NSEvent.EventType, _ point: NSPoint) throws {
+      try safety()
+      guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, eventNumber: 1, clickCount: type == .mouseMoved ? 0 : 1,
+        pressure: type == .leftMouseUp ? 0 : 1) else { throw CheckFailure(description: "Cannot create \(type)") }
+      window.sendEvent(event)
+      host.layoutSubtreeIfNeeded()
+      _ = headers() // Read the rendered hierarchy after each event.
+      try safety()
+    }
+
+    try await settle()
+    let initial = headers()
+    try require(initial.count >= 3, "Expected at least three rendered services, got \(initial.map(\.id))")
+    let baseline = try eyes()
+    try require(baseline.count == initial.count, "Missing eye buttons in the rendered hierarchy")
+    let first = initial[0], second = initial[1]
+    let start = NSPoint(x: first.frame.minX + 45, y: first.frame.midY)
+    try hover(start, entered: true)
+    try send(.mouseMoved, start)
+    try await settle()
+    let hovered = try eyes()
+    var hoverFailure: String?
+    for item in initial {
+      let changed = changedPixels(baseline[item.id]!, hovered[item.id]!)
+      if !(item.id == first.id ? changed > 10 : changed == 0) {
+        hoverFailure = "Hover eye pixels for \(item.id): \(changed)"
+      }
+    }
+    try hover(NSPoint(x: 1, y: 1), entered: false)
+    try send(.mouseMoved, NSPoint(x: 1, y: 1))
+    try await settle()
+    let exited = try eyes()
+    try require(initial.allSatisfy { changedPixels(baseline[$0.id]!, exited[$0.id]!) == 0 },
+      "An eye remains visible after exit")
+    if hoverFailure == nil {
+      print("SERVICE_INTERACTION_HOVER \(accounts ? "accounts" : "popover") exclusive=\(first.id) exit=hidden")
+    }
+
+    try send(.leftMouseDown, start)
+    let distance = first.frame.midY - second.frame.midY + second.frame.height / 2
+    for step in 1...12 {
+      let point = NSPoint(x: start.x, y: start.y - distance * Double(step) / 12)
+      try send(.leftMouseDragged, point)
+      try await settle(25)
+      let carried = headers().first { $0.id == first.id }
+      try require(carried.map { abs($0.frame.midY - point.y) < 3 } == true,
+        "The carried header did not follow the event: \(String(describing: carried?.frame)) at \(point)")
+      if step == 12 {
+        let preview = headers().map(\.id)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        if !accounts { store.update(snapshot: snapshot) }
+        try await settle(50)
+        try require(headers().map(\.id) == preview, "A background refresh erased the live service order")
+      }
+    }
+    try require(defaults.object(forKey: MenuBarServicePreferences.orderKey) == nil,
+      "The service order was saved before release")
+    try send(.leftMouseUp, NSPoint(x: start.x, y: start.y - distance))
+    try await settle()
+    var expected = initial.map(\.id)
+    expected.swapAt(0, 1)
+    try require(headers().map(\.id) == expected, "Visible order did not change: \(headers().map(\.id))")
+    try require(defaults.stringArray(forKey: MenuBarServicePreferences.orderKey) == expected,
+      "The temporary defaults did not save the visible order")
+    try await settle(2_000)
+    try require(headers().map(\.id) == expected
+      && defaults.stringArray(forKey: MenuBarServicePreferences.orderKey) == expected,
+      "The order reverted after two seconds")
+    print("SERVICE_INTERACTION_DRAG \(accounts ? "accounts" : "popover") order=\(expected.joined(separator: ",")) saved=true stable=2s")
+    if let hoverFailure { throw CheckFailure(description: hoverFailure) }
   }
 }
 

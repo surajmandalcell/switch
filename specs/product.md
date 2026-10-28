@@ -324,9 +324,10 @@ placeholder; enabling never activates an account. Codex uses its 5-hour limit, e
 Left subtracts used percent from 100, stopping at zero. Glyphs add no network work.
 Inactive accounts keep their own cached usage when live reads are unavailable.
 
-Drag service headers in the popover or Accounts. Each whole group accepts drops and moves live
-with a short animation, disabled by Reduce Motion. Save each move by provider id for both lists
-and tray glyphs. New services append; accounts keep saved order. Foreign text does nothing.
+Drag service headers in the popover and Accounts. The group follows the pointer; siblings use a short
+spring unless Reduce Motion is on. Save provider order on release for both lists and tray glyphs.
+New services append; account order stays. Foreign drags do nothing. VoiceOver offers Move up/down.
+Acceptance uses only window-local events.
 Header eye buttons change tray visibility only; popover rows remain. Save visibility by provider id;
 account preferences still apply. Hover fades in the right-hand eye in 180 ms. Hidden services keep
 a dimmed eye.slash. Symbols replace; Reduce Motion uses fades. Controls never shift rows.
