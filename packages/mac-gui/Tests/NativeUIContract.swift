@@ -2252,9 +2252,13 @@ enum AIManagerNativeContract {
         && BackupChecklist.contents(for: claude).items.contains { $0.path.hasPrefix("_profiles/") },
         "The Claude Code set does not cover its profile folder")
     }
-    if let opencode = rows.first(where: { $0.title == "opencode" }) {
-      expect(opencode.backupService == nil && BackupChecklistText.included(opencode) == "Not supported yet",
-        "An unsupported tool does not read Not supported yet")
+    for (tool, service) in [(CleanupTool.copilot, BackupSource.Service.copilot), (.opencode, .opencode)] {
+      if let source = rows.first(where: { $0.tool == tool }) {
+        expect(source.backupService == service && BackupChecklistText.included(source) == "Conversations",
+          "\(source.title) does not offer its conversations for backup")
+      } else {
+        failures.append("The Backup checklist lacks \(tool.rawValue)")
+      }
     }
     expect(store.checkedSets.count == 2 && rows.filter({ store.isChecked($0) }).count == 2,
       "The Preview does not check Codex CLI and Claude Code")

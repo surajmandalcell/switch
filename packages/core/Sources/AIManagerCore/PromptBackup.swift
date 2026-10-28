@@ -28,6 +28,8 @@ enum PromptBackup {
         case .claude: roots = ["projects", "sessions"]
         case .droid: roots = ["sessions"]
         case .gemini: roots = ["tmp"]
+        case .copilot: roots = ["session-state"]
+        case .opencode: roots = ["storage", "opencode.db"]
         }
         return roots.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
@@ -41,6 +43,8 @@ enum PromptBackup {
         case .droid: return path.hasSuffix(".jsonl")
         case .grok: return parts.count == 4 && ["updates.jsonl", "chat_history.jsonl"].contains(parts.last ?? "")
         case .gemini: return path.hasSuffix(".json") && parts.contains("chats")
+        case .copilot: return (parts.count == 3 && parts.last == "events.jsonl") || (parts.count == 2 && path.hasSuffix(".jsonl"))
+        case .opencode: return false // Sessions can span files or share one database.
         }
     }
 
@@ -66,12 +70,32 @@ enum PromptBackup {
         var project: String?
         var title: String?
         var started: Date?
+        if service == .copilot, url.lastPathComponent == "events.jsonl" {
+            let workspace = try copilotWorkspace(url.deletingLastPathComponent().appending(path: "workspace.yaml"))
+            project = workspace["cwd"]
+            title = workspace["name"]
+        }
         var grokChunkOpen = false
         func record(_ object: [String: Any]) {
             if project == nil { project = object["cwd"] as? String ?? object["workingDirectory"] as? String }
             if title == nil { title = object["title"] as? String }
             if started == nil { started = date(object["startTime"] ?? object["timestamp"]) }
             guard object["isMeta"] as? Bool != true, object["isSidechain"] as? Bool != true else { return }
+            if service == .copilot {
+                guard object["agentId"] == nil, let data = object["data"] as? [String: Any] else { return }
+                if object["type"] as? String == "session.start", let context = data["context"] as? [String: Any] {
+                    if project == nil { project = context["cwd"] as? String }
+                    started = date(data["startTime"] ?? object["timestamp"])
+                }
+                let source = data["source"] as? String ?? ""
+                guard object["type"] as? String == "user.message", data["isAutopilotContinuation"] as? Bool != true,
+                      !source.hasPrefix("skill-"), !source.hasPrefix("agent-"),
+                      let text = data["content"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !ChatTitlePolicy.isBootstrapContext(text) else { return }
+                prompts.append(ChatMessage(id: object["id"] as? String ?? String(prompts.count), role: .user,
+                    text: text, timestamp: date(object["timestamp"])))
+                return
+            }
             if service == .grok, let params = object["params"] as? [String: Any], let update = params["update"] as? [String: Any] {
                 guard update["sessionUpdate"] as? String == "user_message_chunk" else { grokChunkOpen = false; return }
                 guard let content = update["content"] as? [String: Any], content["type"] as? String == "text",
@@ -131,9 +155,40 @@ enum PromptBackup {
         case .grok: app = "Grok Build"
         case .gemini: app = "Gemini CLI"
         case .codex: app = "Codex"
+        case .copilot: app = "Copilot"
+        case .opencode: app = "OpenCode"
         }
         return Document(title: title ?? String(prompts[0].text.prefix(100)), project: projectPath,
             date: started ?? prompts.first?.timestamp ?? modified, app: app, prompts: prompts)
+    }
+
+    private static func copilotWorkspace(_ url: URL) throws -> [String: String] {
+        guard CoreSupport.entryExists(url) else { return [:] }
+        let before = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey])
+        guard before.isSymbolicLink != true, before.isRegularFile == true else { throw BackupError.unsafe("workspace.yaml") }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: 65_537) ?? Data()
+        guard data.count <= 65_536 else { throw BackupError.unsafe("workspace.yaml exceeds 64 KiB") }
+        let after = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey])
+        guard after.isSymbolicLink != true, before.contentModificationDate == after.contentModificationDate,
+              before.fileSize == after.fileSize else { throw BackupError.changed("workspace.yaml") }
+        let lines = String(decoding: data, as: UTF8.self).components(separatedBy: .newlines)
+        var fields: [String: String] = [:]
+        for key in ["cwd", "name"] {
+            guard let offset = lines.firstIndex(where: { $0.hasPrefix(key + ":") }) else { continue }
+            var value = String(lines[offset].dropFirst(key.count + 1)).trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("|") || value.hasPrefix(">") {
+                value = lines.dropFirst(offset + 1).prefix { $0.isEmpty || $0.first?.isWhitespace == true }
+                    .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+            } else if value.hasPrefix("\""), let decoded = try? JSONSerialization.jsonObject(with: Data(value.utf8), options: .fragmentsAllowed) as? String {
+                value = decoded
+            } else if value.hasPrefix("'"), value.hasSuffix("'") {
+                value = String(value.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
+            }
+            if !value.isEmpty { fields[key] = value }
+        }
+        return fields
     }
 
     static func inline(_ text: String) -> String {

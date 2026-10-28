@@ -199,7 +199,7 @@ Cleanup's searchable app picker lists shared homes and account counts, with Clau
 (profile files included, links skipped). Backup has no picker. Show sizes for chats by project,
 pasted and generated images, logs, caches, debug/temp files, file history, old builds, shell
 snapshots, usage samples, and the conversation index. Chats belong to the shared home.
-Combine app, project folders (multi-select), title text, and last-write date filters. Dates offer
+Combine app, project folders (multi-select), title text, and last-write date filters, including OpenCode JSON and SQLite sessions. Dates offer
 7/30/90-day older-than presets, a before-date picker, all time, and intervals. Preview matching
 titles, projects, dates, count, and bytes; Review selects only those conversations. Confirm the
 exact count and size before trashing whole chats. Undated builds and Claude app VM show in every
@@ -213,18 +213,18 @@ Show untouched counts and reasons. Use private recoverable trash, a journal, res
 and Restore; confirm permanent removal separately. Trash moves free no space. Preserve activity
 totals first. Reject changed/unsafe files and active/unknown writers. Protect auth, settings,
 registry, defaults, backups, Codex databases, and activity ledger. Exclude linked and foreign-owned
-chats from removal review; safe files remain available.
+chats from removal review; safe files remain available. Before OpenCode SQLite removal, save a database snapshot, then remove only selected sessions in one transaction. Restore selected rows without replacing other sessions.
 Use a native range pop-up, nested row alignment, group headings, and totals beside Review.
 
 Backup lists each tool's size and last backup; Claude Code includes its account profiles.
 Checked tools share one folder, schedule (off, daily, weekly), and retention count, with separate
 subfolders and history. Full snapshots copy changes and hard-link unchanged files. Publish a
 temporary folder by rename with a manifest (path, bytes, modified time, SHA-256).
-Prompt-only mode writes user prompts in time order with timestamps, one Markdown file per
+Prompt-only mode includes Copilot and OpenCode. It writes user prompts in time order with timestamps, one Markdown file per
 conversation under each project, with title, date, app, and an index. Exclude responses, tools,
 login files, and settings. It uses the same folder, schedule, and retention. Restore prompts into
 a folder only. Full backups restore all or chosen items in place after a safety snapshot or to
-another folder. Login files need opt-in. Never delete sources; prune only Switch snapshots.
+another folder. Login files and full OpenCode database snapshots need opt-in. Never delete sources; prune only Switch snapshots.
 Wait and explain when the destination is missing.
 
 Conversations pages messages without a cutoff. Saved search and any role subset cover the full
