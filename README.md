@@ -48,9 +48,11 @@ and each account's share of tokens.
 
 ## Menu bar
 
-The status item shows up to four account percentages. The popover lists every saved account,
-the default for each tool, its limits, and when each window resets. Optional notifications
-warn when a window is almost out, and a dot marks a provider incident.
+The status item shows up to six account percentages. The popover lists every saved account,
+the default for each tool, its limits, and when each window resets. Drag a service header to
+change the order of the popover, the Accounts page, and the status item. Hover a header and
+use the eye button to hide that service from the status item. Optional notifications warn when
+a window is almost out, and a dot marks a provider incident.
 
 | Light mode | Dark mode |
 | :---: | :---: |
@@ -179,8 +181,9 @@ switch help                                       # every non-interactive comman
 - **Search your history.** Search conversations, grouped by day, and track daily tokens
   per account, model, and project.
 - **Clean up and back up.** Preview conversations and caches, move them to a recoverable
-  trash, and restore them when needed. Back up chats and settings to a drive or folder
-  you choose.
+  trash, and restore them when needed. Filter conversations by date, project, tool, and
+  title before you remove them. Back up chats and settings to a drive or folder you choose,
+  or back up only your own prompts as Markdown, one folder per project.
 - **Keep your screen private.** Hide email addresses, or turn on Privacy mode to show every
   account under a stable made-up name.
 
