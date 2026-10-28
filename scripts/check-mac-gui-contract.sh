@@ -98,6 +98,19 @@ fi
 
 "$repo_root/scripts/build-mac-gui-acceptance.sh"
 
+run_root="$test_root/service-interaction"
+mkdir -p "$run_root/home" "$run_root/codex-home" "$run_root/manager" "$run_root/tmp" "$run_root/artifacts"
+HOME="$run_root/home" \
+CFFIXED_USER_HOME="$run_root/home" \
+CODEX_HOME="$run_root/codex-home" \
+AI_MANAGER_ROOT="$run_root/manager" \
+AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \
+AI_MANAGER_CODEX_EXECUTABLE="/usr/bin/false" \
+AI_MANAGER_ACCEPTANCE_ARTIFACTS="$run_root/artifacts" \
+TMPDIR="$run_root/tmp" \
+  "$executable" --contract-only --service-interaction-only
+printf '%s\n' 'MAC_GUI_CONTRACT_PASS service interaction'
+
 for appearance in system light dark; do
   run_root="$test_root/$appearance"
   artifacts="$run_root/artifacts"

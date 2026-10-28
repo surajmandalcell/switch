@@ -1512,6 +1512,7 @@ struct AccountsTableCard: View {
   @State private var hover = AccountsRowHover()
   @State private var serviceOrder = MenuBarServicePreferences.order()
   @State private var hiddenServices = MenuBarServicePreferences.hiddenServices()
+  @State private var serviceReorder = ServiceReorderState()
 
   var body: some View {
     AIMCard(title: "Accounts", bottomInset: 0) {
@@ -1531,9 +1532,11 @@ struct AccountsTableCard: View {
     .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in
       let order = MenuBarServicePreferences.order()
       let hidden = MenuBarServicePreferences.hiddenServices()
-      if serviceOrder != order { serviceOrder = order }
+      if serviceReorder.source == nil && serviceOrder != order { serviceOrder = order }
       if hiddenServices != hidden { hiddenServices = hidden }
     }
+    .environment(serviceReorder)
+    .onChange(of: serviceReorder.order) { _, order in serviceOrder = order }
   }
 
   private var groups: [(provider: ProviderID, accounts: [AccountRecord])] {
@@ -1583,9 +1586,8 @@ struct AccountsTableCard: View {
             .padding(.bottom, isLast ? AIMTheme.tableEndInset : 0)
         }
         }
-        .modifier(ServiceGroupDrop(provider: group.provider,
-          providers: model.status?.accounts.map(\.identity.providerID) ?? [], enabled: query.isEmpty,
-          onMove: { serviceOrder = $0 }))
+        .modifier(ServiceGroupReorder(provider: group.provider,
+          leadingInset: groupIndex > 0 ? AIMTheme.groupGap : 0))
       }
     }
     .frame(height: layout.height, alignment: .top)
@@ -1700,7 +1702,7 @@ private struct AccountsRowDrop: ViewModifier {
     let onMove: (UUID, UUID) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-      ServiceReorderDrag.source == nil && AccountReorderDrag.source != nil
+      AccountReorderDrag.source != nil
     }
 
     private func provider(of id: UUID) -> ProviderID? {

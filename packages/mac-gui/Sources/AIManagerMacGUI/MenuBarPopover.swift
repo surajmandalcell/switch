@@ -591,6 +591,7 @@ struct MenuBarPopover: View {
   @FocusState private var focusedID: UUID?
   @State private var keyboardActive = false
   @State private var scrollOffset: CGFloat = 0
+  @State private var serviceReorder = ServiceReorderState()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.colorScheme) private var colorScheme
@@ -605,6 +606,13 @@ struct MenuBarPopover: View {
       MenuBarFooter(store: store)
     }
     .frame(width: Self.width)
+    .environment(serviceReorder)
+    .onChange(of: serviceReorder.order) { _, order in store.updateServiceOrder(order) }
+    .onChange(of: store.snapshot.serviceOrder) { _, order in
+      if serviceReorder.source != nil && order != serviceReorder.order {
+        store.updateServiceOrder(serviceReorder.order)
+      }
+    }
     .modifier(MenuBarContentHeight(store: store))
     .background {
       if colorScheme == .dark { Self.darkSurface.opacity(reduceTransparency ? 1 : 0.96) }
@@ -671,8 +679,8 @@ struct MenuBarPopover: View {
                 }
                 }
                 }
-                .modifier(ServiceGroupDrop(provider: group[0].providerID,
-                  providers: store.snapshot.accounts.map(\.providerID), onMove: store.updateServiceOrder))
+                .modifier(ServiceGroupReorder(provider: group[0].providerID,
+                  leadingInset: index > 0 ? MenuBarPresentation.groupGap : 0))
               }
             }
             .padding(.vertical, 12)

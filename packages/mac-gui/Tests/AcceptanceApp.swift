@@ -385,6 +385,15 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--service-interaction-only") {
+            Task { @MainActor in
+                let failures = await ServiceInteractionCheck.failures()
+                failures.forEach { print("SERVICE_INTERACTION_FAIL \($0)") }
+                print(failures.isEmpty ? "SERVICE_INTERACTION_PASS" : "SERVICE_INTERACTION_FAILED \(failures.count)")
+                exit(failures.isEmpty ? 0 : 1)
+            }
+            return
+        }
         AIMNativeFocusPolicy.install()
         AIManagerBrand.installApplicationIcon()
         if let mode = AcceptanceConfiguration.persistedAppearanceMode {
@@ -1034,6 +1043,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 enum AIManagerMacGUIAcceptanceApp {
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--service-interaction-only") && !AcceptanceConfiguration.contractOnly {
+            FileHandle.standardError.write(Data("Service interaction checks require --contract-only; refusing to use desktop defaults.\n".utf8))
+            exit(3)
+        }
         if CommandLine.arguments.contains("--ui-lint") && !AcceptanceConfiguration.contractOnly {
             FileHandle.standardError.write(Data("UI lint requires --contract-only; refusing to show a window.\n".utf8))
             exit(3)
@@ -1062,6 +1075,7 @@ enum AIManagerMacGUIAcceptanceApp {
             instanceLock = lock
         }
         let application = NSApplication.shared
+        if AcceptanceConfiguration.contractOnly { setbuf(stdout, nil) }
         let delegate = AcceptanceAppDelegate()
         application.setActivationPolicy(AcceptanceConfiguration.contractOnly ? .accessory : .regular)
         application.delegate = delegate
