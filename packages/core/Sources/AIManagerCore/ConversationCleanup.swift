@@ -9,7 +9,7 @@ import Glibc
 /// `root` 0 is the source home; 1 is the user home (for example `~/Library/Caches`).
 public struct CleanupItem: Identifiable, Codable, Sendable, Hashable {
     /// A rewrite shares its path with the transcript's own row, so it gets its own id.
-    public var id: String { "\(root):\(path)" + (isRewrite ? "#images" : "") }
+    public var id: String { "\(root):\(path)" + (databaseSessionID.map { "#session=\($0)" } ?? (isRewrite ? "#images" : "")) }
     public let root: Int
     public let path: String
     public let companions: [String]
@@ -25,6 +25,8 @@ public struct CleanupItem: Identifiable, Codable, Sendable, Hashable {
     let modifiedAt: Double
     /// True for a transcript whose pasted pictures shrink in place. The original goes to the trash.
     let rewrite: Bool?
+    var databaseSessionID: String? = nil
+    var databaseFingerprint: String? = nil
 
     var allPaths: [String] { [path] + companions }
     public var isRewrite: Bool { rewrite == true }
@@ -32,7 +34,7 @@ public struct CleanupItem: Identifiable, Codable, Sendable, Hashable {
     func protecting(_ reason: String) -> CleanupItem {
         CleanupItem(root: root, path: path, companions: companions, title: title, project: project, updatedAt: updatedAt,
             bytes: bytes, isDirectory: isDirectory, protectedReason: protectedReason ?? reason, inode: inode, device: device,
-            modifiedAt: modifiedAt, rewrite: rewrite)
+            modifiedAt: modifiedAt, rewrite: rewrite, databaseSessionID: databaseSessionID, databaseFingerprint: databaseFingerprint)
     }
 }
 
@@ -123,7 +125,16 @@ public struct ConversationCleanup {
         guard !CoreSupport.entryExists(folder) else { throw AIManagerError.sourceChanged }
         try prepareDirectory(folder)
         try save(batch)
-        for item in batch.items {
+        let databaseItems = batch.items.filter { $0.databaseSessionID != nil }
+        if !databaseItems.isEmpty {
+            let backup = folder.appending(path: "0/opencode.db")
+            try prepareDirectory(backup.deletingLastPathComponent())
+            try OpenCodeStore.delete(database: home.appending(path: "opencode.db"),
+                ids: databaseItems.compactMap(\.databaseSessionID),
+                expected: Dictionary(uniqueKeysWithValues: databaseItems.map { ($0.databaseSessionID!, batch.digests[$0.id]!) }),
+                backup: backup)
+        }
+        for item in batch.items where item.databaseSessionID == nil {
             try Task.checkCancellation()
             try validate(item, in: .live)
             guard try fingerprint(item, in: .live) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
@@ -191,7 +202,13 @@ public struct ConversationCleanup {
             batch.items = try batch.items.filter { item in
                 guard CoreSupport.entryExists(folder.appending(path: "\(item.root)/\(item.path)")) else { return false }
                 try validate(item, in: .trash(folder))
-                guard try batch.phase == "restoring" || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+                guard try (batch.phase == "restoring" && item.databaseSessionID == nil)
+                    || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+                if let sessionID = item.databaseSessionID,
+                   let live = try OpenCodeStore.fingerprint(database: home.appending(path: "opencode.db"), id: sessionID) {
+                    guard live == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+                    return false
+                }
                 return true
             }
             return batch.items.isEmpty ? nil : batch
@@ -205,7 +222,9 @@ public struct ConversationCleanup {
         // Check every collision before restoring anything.
         for item in present {
             try validate(item, in: .trash(folder))
-            guard try batch.phase == "restoring" || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            guard try (batch.phase == "restoring" && item.databaseSessionID == nil)
+                || fingerprint(item, in: .trash(folder)) == batch.digests[item.id] else { throw AIManagerError.sourceChanged }
+            if item.databaseSessionID != nil { continue }
             for path in item.allPaths where CoreSupport.entryExists(folder.appending(path: "\(item.root)/\(path)")) {
                 let destination = try url(item.root, path)
                 if CoreSupport.entryExists(destination) {
@@ -218,7 +237,12 @@ public struct ConversationCleanup {
         }
         batch.phase = "restoring"
         try save(batch)
-        for item in present {
+        let databaseItems = present.filter { $0.databaseSessionID != nil }
+        if !databaseItems.isEmpty {
+            try OpenCodeStore.restore(database: home.appending(path: "opencode.db"),
+                ids: databaseItems.compactMap(\.databaseSessionID), backup: folder.appending(path: "0/opencode.db"))
+        }
+        for item in present where item.databaseSessionID == nil {
             for path in item.allPaths.reversed() {
                 let source = folder.appending(path: "\(item.root)/\(path)")
                 guard CoreSupport.entryExists(source) else { continue }
@@ -230,6 +254,9 @@ public struct ConversationCleanup {
                     try files.moveItem(at: source, to: destination)
                 }
             }
+        }
+        if !databaseItems.isEmpty {
+            try files.removeItem(at: folder.appending(path: "0/opencode.db"))
         }
         try finish(&batch)
     }
@@ -286,6 +313,19 @@ public struct ConversationCleanup {
 
     private func validate(_ item: CleanupItem, in where_: Place) throws {
         guard item.protectedReason == nil else { throw AIManagerError.unsafePath("Cleanup found a protected item: \(item.title)") }
+        if item.databaseSessionID != nil {
+            let (database, within) = try databaseLocation(item, in: where_)
+            try validateAncestors(database.deletingLastPathComponent(), within: within)
+            var info = stat()
+            guard lstat(database.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+                  info.st_uid == getuid(), info.st_nlink == 1 else { throw AIManagerError.sourceChanged }
+            if case .live = where_ {
+                guard UInt64(info.st_ino) == item.inode, UInt64(info.st_dev) == item.device,
+                      Date().timeIntervalSince(item.updatedAt) >= CleanupScanner.activeWindow,
+                      try fingerprint(item, in: .live) == item.databaseFingerprint else { throw AIManagerError.sourceChanged }
+            }
+            return
+        }
         for path in item.allPaths {
             let (target, within) = try place(item, path, where_)
             if path != item.path, !CoreSupport.entryExists(target) { continue }
@@ -315,6 +355,11 @@ public struct ConversationCleanup {
 
     /// Size, modified time and inode of every entry below the item (links are never followed).
     private func fingerprint(_ item: CleanupItem, in where_: Place) throws -> String {
+        if let sessionID = item.databaseSessionID {
+            let (database, _) = try databaseLocation(item, in: where_)
+            guard let digest = try OpenCodeStore.fingerprint(database: database, id: sessionID) else { throw AIManagerError.sourceChanged }
+            return digest
+        }
         var lines: [String] = []
         for path in item.allPaths {
             let (target, _) = try place(item, path, where_)
@@ -347,8 +392,23 @@ public struct ConversationCleanup {
         let batch = try JSONDecoder().decode(ConversationCleanupBatch.self, from: Data(contentsOf: manifest))
         guard batch.id == id, batch.home == home, batch.userHome == userHome,
               Set(batch.items.map(\.id)).count == batch.items.count,
-              batch.items.allSatisfy({ item in item.allPaths.allSatisfy(CleanupGuard.acceptable) }) else { throw AIManagerError.sourceChanged }
+              batch.items.allSatisfy({ item in
+                  item.databaseSessionID != nil ? validDatabaseItem(item) : item.allPaths.allSatisfy(CleanupGuard.acceptable)
+              }) else { throw AIManagerError.sourceChanged }
         return batch
+    }
+
+    private func validDatabaseItem(_ item: CleanupItem) -> Bool {
+        item.root == 0 && item.path == "opencode.db" && item.companions.isEmpty && !item.isRewrite
+            && !item.isDirectory && item.databaseSessionID?.isEmpty == false && item.databaseFingerprint != nil
+    }
+
+    private func databaseLocation(_ item: CleanupItem, in place: Place) throws -> (URL, URL) {
+        guard validDatabaseItem(item) else { throw AIManagerError.sourceChanged }
+        switch place {
+        case .live: return (home.appending(path: "opencode.db"), home)
+        case .trash(let folder): return (folder.appending(path: "0/opencode.db"), folder)
+        }
     }
 
     private func save(_ batch: ConversationCleanupBatch) throws {

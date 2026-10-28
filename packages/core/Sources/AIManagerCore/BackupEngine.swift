@@ -8,7 +8,7 @@ import Glibc
 public enum BackupSchedule: String, Codable, Sendable { case off, daily, weekly }
 
 public struct BackupSource: Codable, Hashable, Sendable {
-    public enum Service: String, Codable, CaseIterable, Sendable { case codex, claude, grok, droid, gemini }
+    public enum Service: String, Codable, CaseIterable, Sendable { case codex, claude, grok, droid, gemini, copilot, opencode }
     public var id: String
     public var service: Service
     public var home: URL
@@ -101,6 +101,13 @@ public enum BackupPresets {
         case .gemini:
             paths = ["tmp", "settings.json", "GEMINI.md", "commands", "extensions", "skills"]
             logins = ["oauth_creds.json", "google_accounts.json"]
+        case .copilot:
+            paths = ["session-state"]
+            logins = []
+        case .opencode:
+            paths = ["storage"]
+            // OpenCode 2 keeps credentials in this database alongside conversations.
+            logins = ["opencode.db"]
         }
         return paths.map { BackupItem($0) } + logins.map { BackupItem($0, isLogin: true) }
     }
@@ -108,7 +115,7 @@ public enum BackupPresets {
     public static func isLogin(_ path: String) -> Bool {
         path.split(separator: "/").contains { component in
             let name = component.lowercased()
-            return ["auth.json", ".credentials.json", "oauth_creds.json", "google_accounts.json", ".claude.json"].contains(name)
+            return ["auth.json", ".credentials.json", "oauth_creds.json", "google_accounts.json", ".claude.json", "opencode.db"].contains(name)
                 || name.hasPrefix("auth.v2.") || name.hasSuffix(".key") || name.contains("keychain")
                 || name.contains("token") || name == "credentials" || name == "credentials.json"
         }
@@ -476,7 +483,18 @@ private enum BackupIO {
                         hash = CoreSupport.digest(Data(link!.utf8))
                     } else if kind == S_IFREG {
                         // Safety copies must preserve current bytes even when a tool restores the old modified time.
-                        if !safety, let prior = old[path], let previous, previous.manifest.source == set.source,
+                        if set.source.service == .opencode, relative == "opencode.db" {
+                            for suffix in ["-wal", "-shm", "-journal"] {
+                                let sidecar = URL(fileURLWithPath: source.path + suffix)
+                                if CoreSupport.entryExists(sidecar) {
+                                    try noLinks(sidecar, leafMayBeLink: false)
+                                    guard try metadata(sidecar).st_mode & S_IFMT == S_IFREG else { throw BackupError.unsafe(relative + suffix) }
+                                }
+                            }
+                            try SQLiteSupport.snapshot(source: source, destination: target)
+                            hash = try CoreSupport.digest(file: target)
+                            copied = true
+                        } else if !safety, let prior = old[path], let previous, previous.manifest.source == set.source,
                            prior.kind == .file, prior.size == before.st_size, prior.mtime == modified(before),
                            prior.mode == UInt32(before.st_mode & 0o7777), prior.inode == before.st_ino, prior.device == before.st_dev {
                             let priorFile = previous.folder.appending(path: "files/" + path)
@@ -498,7 +516,7 @@ private enum BackupIO {
                     try noLinks(source, leafMayBeLink: true)
                     guard unchanged(before, try metadata(source)) else { throw BackupError.changed(path) }
                     entry = BackupManifest.Entry(path: path, kind: kind == S_IFDIR ? .directory : (kind == S_IFLNK ? .symlink : .file),
-                                                 size: kind == S_IFDIR ? 0 : Int64(before.st_size), mtime: modified(before),
+                                                 size: kind == S_IFDIR ? 0 : Int64(try metadata(target).st_size), mtime: modified(before),
                                                  mode: UInt32(before.st_mode & 0o7777), inode: UInt64(before.st_ino), device: UInt64(before.st_dev),
                                                  sha256: hash, linkTarget: link)
                     break
@@ -543,8 +561,25 @@ private enum BackupIO {
                 manifest.files += 1; manifest.bytes += Int64(data.count)
                 progress?(BackupProgress(files: manifest.files, bytes: manifest.bytes))
             }
+            func store(_ document: PromptBackup.Document, identity: String) throws {
+                let file = "prompts/" + PromptBackup.folder(document.project) + "/" + PromptBackup.folder(document.title)
+                    + "-" + CoreSupport.digest(Data(identity.utf8)) + ".md"
+                try store(file, document.markdown)
+                index += "- [\(PromptBackup.inline(document.title))](\(file.dropFirst(8))) · \(PromptBackup.inline(document.project))\n"
+            }
             for root in roots(set) {
                 let items = root.items.filter { PromptBackup.isConversationRoot($0.path, service: set.source.service) }
+                if set.source.service == .opencode {
+                    guard !items.isEmpty else { continue }
+                    for session in try OpenCodeStore.sessions(home: root.home, includePrompts: true) where !session.prompts.isEmpty {
+                        try Task.checkCancellation()
+                        guard selected(session.path, items: items.map(\.path)) else { continue }
+                        let document = PromptBackup.Document(title: session.title, project: session.project, date: session.updatedAt,
+                            app: "OpenCode", prompts: session.prompts)
+                        try store(document, identity: root.prefix + "/" + session.path + "/" + session.id)
+                    }
+                    continue
+                }
                 try walk(root.home, items: items, includeLogins: false, visit: { path, source, info in
                     guard info.st_mode & S_IFMT == S_IFREG,
                           PromptBackup.isTranscript(path, service: set.source.service) else { return }
@@ -553,11 +588,7 @@ private enum BackupIO {
                     try noLinks(source, leafMayBeLink: false)
                     guard unchanged(info, try metadata(source)) else { throw BackupError.changed(path) }
                     guard let document else { return }
-                    let identity = root.prefix + "/" + path
-                    let file = "prompts/" + PromptBackup.folder(document.project) + "/" + PromptBackup.folder(document.title)
-                        + "-" + CoreSupport.digest(Data(identity.utf8)) + ".md"
-                    try store(file, document.markdown)
-                    index += "- [\(PromptBackup.inline(document.title))](\(file.dropFirst(8))) · \(PromptBackup.inline(document.project))\n"
+                    try store(document, identity: root.prefix + "/" + path)
                 }, skipped: { manifest.skipped.append(root.prefix + "/" + $0) })
             }
             try store("prompts/index.md", index)

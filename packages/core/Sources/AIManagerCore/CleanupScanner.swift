@@ -41,7 +41,8 @@ public struct CleanupSource: Identifiable, Hashable, Sendable {
         case .grok: .grok
         case .droid: .droid
         case .gemini: .gemini
-        case .copilot, .opencode: nil
+        case .copilot: .copilot
+        case .opencode: .opencode
         }
     }
 
@@ -305,6 +306,8 @@ struct CleanupScanner {
             add("caches", "Caches", caches, preselected: true,
                 try children(["plugin-data"]) + whole(["Library/Caches/copilot"], root: 1))
         case .opencode:
+            add("conversations", "Conversations", "Saved OpenCode chats, by project. Dates are the last update.",
+                risk: .caution, byProject: true, try openCodeSessions())
             add("logs", "Logs", logs, preselected: true, try children(["log"]))
             add("caches", "Caches and tool output", caches, preselected: true,
                 try children(["tool-output"]) + (try children([".cache/opencode"], root: 1)))
@@ -316,6 +319,26 @@ struct CleanupScanner {
     }
 
     // MARK: Item building
+
+    private func openCodeSessions() throws -> [CleanupItem] {
+        try OpenCodeStore.sessions(home: source.home).compactMap { session in
+            if !session.database {
+                guard let built = try item(0, session.path, title: session.title, project: session.project,
+                    date: session.updatedAt, companions: session.companions) else { return nil }
+                return now.timeIntervalSince(session.updatedAt) < Self.activeWindow ? built.protecting("In use now.") : built
+            }
+            let database = source.home.appending(path: "opencode.db")
+            var info = stat()
+            guard lstat(database.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
+            let reason: String? = info.st_uid != getuid() ? "This item belongs to another user."
+                : info.st_nlink != 1 ? "Another app links this file, so it stays."
+                : now.timeIntervalSince(session.updatedAt) < Self.activeWindow ? "In use now." : nil
+            return CleanupItem(root: 0, path: "opencode.db", companions: [], title: session.title,
+                project: session.project, updatedAt: session.updatedAt, bytes: session.bytes, isDirectory: false,
+                protectedReason: reason, inode: UInt64(info.st_ino), device: UInt64(info.st_dev),
+                modifiedAt: Self.modified(info), rewrite: nil, databaseSessionID: session.id, databaseFingerprint: session.fingerprint)
+        }
+    }
 
     private func root(_ index: Int) -> URL { index == 0 ? source.home : source.userHome }
 

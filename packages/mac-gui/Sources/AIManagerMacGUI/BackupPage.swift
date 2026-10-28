@@ -12,7 +12,7 @@ struct BackupRestoreRequest: Identifiable {
 enum BackupLabels {
   static func name(_ path: String) -> String? {
     switch path {
-    case "sessions", "projects": "Conversations"
+    case "sessions", "projects", "session-state", "storage": "Conversations"
     case "archived_sessions": "Archived conversations"
     case "tmp": "Conversations and project data"
     case "config.toml", "settings.json": "Settings"

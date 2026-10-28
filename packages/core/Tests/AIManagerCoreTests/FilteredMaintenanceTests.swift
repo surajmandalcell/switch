@@ -10,7 +10,7 @@ final class FilteredMaintenanceTests: XCTestCase {
     private let old = Date(timeIntervalSince1970: 1_700_000_000)
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: "/private/tmp/switch-work1-build-clean/test-data/\(UUID().uuidString)")
+        root = URL(fileURLWithPath: "/private/tmp/switch-work1-build-oc/test-data/\(UUID().uuidString)")
         home = root.appending(path: "home")
         destination = root.appending(path: "destination")
         try fm.createDirectory(at: home, withIntermediateDirectories: true)

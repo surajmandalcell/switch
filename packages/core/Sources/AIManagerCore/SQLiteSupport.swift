@@ -90,19 +90,25 @@ enum SQLiteSupport {
         defer { sqlite3_close(sourceDB) }
         guard sqlite3_open_v2(destination.path, &destinationDB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK else { throw sqliteError(destinationDB, "Could not create database snapshot") }
         defer { sqlite3_close(destinationDB) }
-        guard let backup = sqlite3_backup_init(destinationDB, "main", sourceDB, "main") else { throw sqliteError(destinationDB, "Could not start database snapshot") }
-        defer { sqlite3_backup_finish(backup) }
-        var retries = 0
-        while true {
-            let result = sqlite3_backup_step(backup, 256)
-            if result == SQLITE_DONE { break }
-            if result == SQLITE_OK { continue }
-            if result == SQLITE_BUSY || result == SQLITE_LOCKED, retries < 5 {
-                retries += 1
-                sqlite3_sleep(100)
-                continue
+        do {
+            guard let backup = sqlite3_backup_init(destinationDB, "main", sourceDB, "main") else { throw sqliteError(destinationDB, "Could not start database snapshot") }
+            defer { sqlite3_backup_finish(backup) }
+            var retries = 0
+            while true {
+                let result = sqlite3_backup_step(backup, 256)
+                if result == SQLITE_DONE { break }
+                if result == SQLITE_OK { continue }
+                if result == SQLITE_BUSY || result == SQLITE_LOCKED, retries < 5 {
+                    retries += 1
+                    sqlite3_sleep(100)
+                    continue
+                }
+                throw sqliteError(destinationDB, "Database snapshot failed")
             }
-            throw sqliteError(destinationDB, "Database snapshot failed")
+        }
+        // A standalone snapshot must open without the live database's WAL sidecars.
+        guard sqlite3_exec(destinationDB, "PRAGMA journal_mode=DELETE", nil, nil, nil) == SQLITE_OK else {
+            throw sqliteError(destinationDB, "Could not finalize standalone database snapshot")
         }
         guard quickCheck(destinationDB) else { throw AIManagerError.operationFailed("Database snapshot failed its integrity check.") }
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)

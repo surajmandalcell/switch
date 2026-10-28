@@ -324,7 +324,7 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(sources.filter { !$0.isClaudeProfile && $0.tool == .claude }.count, 1)
         XCTAssertTrue(sources.contains { $0.accountEmail == "c@x.test" && $0.home == profileHome && $0.tool == .claude })
         XCTAssertEqual(sources.suffix(2).map(\.id), ["gemini", "copilot"])
-        XCTAssertNil(sources.last?.backupService)
+        XCTAssertEqual(sources.last?.backupService, .copilot)
     }
 
     private func transcript(_ relative: String, source: Any = "cli") throws -> URL {

@@ -104,7 +104,7 @@ final class BackupEngineTests: XCTestCase {
         for service in BackupSource.Service.allCases {
             let items = BackupPresets.items(for: service)
             XCTAssertTrue(items.contains { !$0.isLogin }, "\(service)")
-            XCTAssertTrue(items.contains { $0.isLogin }, "\(service)")
+            XCTAssertEqual(items.contains { $0.isLogin }, service != .copilot, "Copilot backs up its session files only")
         }
         XCTAssertTrue(BackupPresets.isLogin("auth.v2.key"))
         XCTAssertTrue(BackupPresets.isLogin("a/.credentials.json"))
