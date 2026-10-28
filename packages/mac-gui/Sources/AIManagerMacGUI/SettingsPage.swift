@@ -488,13 +488,14 @@ final class LaunchAtLoginSettings: ObservableObject {
 
   func refresh(clearError: Bool = true) async {
     #if AI_MANAGER_PREVIEW
-    status = previewOn ? .enabled : .notRegistered
+    let next = previewOn ? SMAppService.Status.enabled : .notRegistered
     #else
     let service = self.service
-    status = await Task.detached(priority: .utility) { service.status }.value
+    let next = await Task.detached(priority: .utility) { service.status }.value
     #endif
-    hasStatus = true
-    if clearError { errorMessage = nil }
+    if status != next { status = next }
+    if !hasStatus { hasStatus = true }
+    if clearError, errorMessage != nil { errorMessage = nil }
   }
 
   func openLoginItems() {

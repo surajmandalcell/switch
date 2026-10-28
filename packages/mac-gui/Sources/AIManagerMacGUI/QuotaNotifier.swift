@@ -27,7 +27,8 @@ final class QuotaNotificationPermission: ObservableObject {
 
   func refresh() async {
     guard Self.isAvailable else { return }
-    status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    let next = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    if status != next { status = next }
   }
 
   func requestIfNeeded() {

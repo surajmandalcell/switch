@@ -580,6 +580,31 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             receipts.prepareMenuBarSnapshot(appearance: window.effectiveAppearance)
             try? await Task.sleep(for: .milliseconds(220))
         }
+        if CommandLine.arguments.contains("--conversations-wheel-only"), let window {
+            for page in AIManagerPage.allCases {
+                NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            guard await ConversationsCheck.waitUntil({
+                AIMPlace.visiblePage == .conversations && model.selectedChat != nil && !model.isChatLoading
+            }) else {
+                print("CONVERSATIONS_WHEEL_FAIL the conversation did not open")
+                exit(1)
+            }
+            window.contentView?.layoutSubtreeIfNeeded()
+            guard let root = window.contentView,
+                  let reader = ConversationsCheck.views(in: root).compactMap({ $0 as? AIMVirtualTableView }).first,
+                  reader.window === window, reader.numberOfRows > 0, let scroll = reader.enclosingScrollView,
+                  reader.frame.height > scroll.contentView.bounds.height + 1 else {
+                print("CONVERSATIONS_WHEEL_FAIL no attached scrollable message reader")
+                exit(1)
+            }
+            var failures = await ConversationsCheck.wheelFailures(window: window, label: "Conversations")
+            failures += await ConversationsCheck.wheelBoundaryFailures()
+            failures.forEach { print("CONVERSATIONS_WHEEL_FAIL \($0)") }
+            print(failures.isEmpty ? "CONVERSATIONS_WHEEL_PASS" : "CONVERSATIONS_WHEEL_FAILED \(failures.count)")
+            exit(failures.isEmpty ? 0 : 1)
+        }
         if CommandLine.arguments.contains("--ui-lint"), let window, let view = window.contentView {
             if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
                 view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -719,7 +744,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     /// Open both sheet entry points with their parent ordered out. Also walk all pages and
     /// windows, including the AppKit field editor, rather than checking only the current page.
     private func everySurfaceScrollFailures() async -> [String] {
-        var failures: [String] = []
+        var failures = await ConversationsCheck.wheelBoundaryFailures()
         func inspect(_ surface: String) {
             AIMNativeFocusPolicy.install()
             if AIMNativeFocusPolicy.observerCount != 4 {

@@ -585,6 +585,8 @@ struct AIMVisitedPageHost: NSViewRepresentable {
       } else {
         host = AIMHostingView(rootView: root(page, true))
         host.sizingOptions = []
+        // Cached pages fill the container; attachment must not invalidate their safe area.
+        host.safeAreaRegions = []
         host.focusRingType = .none
         host.autoresizingMask = [.width, .height]
         hosts[page] = host
@@ -624,6 +626,7 @@ struct AIMVisitedPageHost: NSViewRepresentable {
         let page = AIManagerPage.allCases.first(where: { hosts[$0] == nil }) else { return }
       let host = AIMHostingView(rootView: makePage(page, false))
       host.sizingOptions = []
+      host.safeAreaRegions = []
       host.focusRingType = .none
       host.autoresizingMask = [.width, .height]
       host.frame = bounds
