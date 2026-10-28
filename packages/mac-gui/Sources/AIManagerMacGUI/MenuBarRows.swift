@@ -365,15 +365,26 @@ enum MenuBarPresentation {
   }
 }
 
-struct MenuBarRow: View {
+struct MenuBarRow: View, Equatable {
   let account: MenuBarAccountSnapshot
   let now: Date
   let showsUsed: Bool
   let isSwitching: Bool
   let isFocused: Bool
   let error: String?
+  let expanded: Bool
+  let canSwitch: Bool
+  let isRefreshingUsage: Bool
   let store: MenuBarPopoverStore
   var previewHovered = false
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.account == rhs.account && lhs.now == rhs.now && lhs.showsUsed == rhs.showsUsed
+      && lhs.isSwitching == rhs.isSwitching && lhs.isFocused == rhs.isFocused && lhs.error == rhs.error
+      && lhs.expanded == rhs.expanded
+      && lhs.canSwitch == rhs.canSwitch && lhs.isRefreshingUsage == rhs.isRefreshingUsage
+      && lhs.store === rhs.store && lhs.previewHovered == rhs.previewHovered
+  }
 
   @AppStorage(ResetDisplay.exactKey) private var exact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
@@ -383,9 +394,7 @@ struct MenuBarRow: View {
 
   private typealias P = MenuBarPresentation
   private var canExpand: Bool { P.canExpand(account, hasOpenTool: store.actions.openTool != nil) }
-  private var isExpanded: Bool { canExpand && store.expandedAccountID == account.id }
-  private var expansion: CGFloat { canExpand ? store.expansionAmount(account.id) : 0 }
-  private var reveal: CGFloat { canExpand ? store.revealAmount(account.id) : 0 }
+  private var isExpanded: Bool { canExpand && expanded }
   private var actionHeight: CGFloat { P.actionHeight(account, hasOpenTool: store.actions.openTool != nil) }
 
   var body: some View {
@@ -395,15 +404,18 @@ struct MenuBarRow: View {
         if P.lineCount(account) > 0 { content }
         if P.hasTokenCaption(account), let value = account.usage.flatMap(P.tokenCaption) {
           tokenLine(value)
+            .modifier(MenuBarRowMotion(store: store, id: account.id,
+              region: .token(CGFloat(max(0, P.lines(for: account, expanded: true).count
+                - P.lines(for: account).count)) * P.lineHeight)))
         }
       }
       .padding(.leading, P.rowPaddingH)
       .padding(.trailing, P.trailingInset)
       .padding(.vertical, P.rowPaddingV)
-      if actionHeight > 0 && (expansion > 0 || isExpanded) {
+      if actionHeight > 0 {
         HStack(spacing: 8) {
           if P.showsSwitch(account) {
-            Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+            Button("Switch") { store.select(account) }.disabled(!canSwitch)
           }
           if account.supportsLaunch, store.actions.openTool != nil {
             Button(P.openToolTitle(account)) { store.openTool(account) }
@@ -413,11 +425,11 @@ struct MenuBarRow: View {
         .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
         .padding(.leading, P.rowPaddingH + P.tileSize + P.tileSpacing)
         .padding(.trailing, P.trailingInset)
-        .frame(height: P.expandedHeight)
-        .opacity(reveal)
-        .offset(y: store.reduceMotion ? 0 : 4 * (1 - expansion))
-        .frame(height: P.expandedHeight * expansion, alignment: .top)
-        .clipped()
+        .modifier(MenuBarRowMotion(store: store, id: account.id, region: .actions))
+        .disabled(!isExpanded)
+        .allowsHitTesting(isExpanded)
+        .accessibilityHidden(!isExpanded)
+        .environment(\.uiLintSuppressed, !isExpanded)
       }
     }
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
@@ -444,7 +456,7 @@ struct MenuBarRow: View {
           .buttonStyle(MenuBarButtonStyle()).focusEffectDisabled()
           .uiLint(.align("menuBarSignInTrailing", .end))
           .padding(.trailing, P.trailingInset)
-          .padding(.bottom, P.signInBottomInset(expansion: expansion))
+          .modifier(MenuBarRowMotion(store: store, id: account.id, region: .prompt))
           .help(allow ? "Open Switch to allow access to Droid's login" : "Open Switch to sign in")
           .accessibilityLabel(allow ? "Allow access to \(account.identity)" : "Sign in to \(account.identity)")
       }
@@ -465,7 +477,7 @@ struct MenuBarRow: View {
       if canExpand {
         Button("Show actions") { store.toggleExpanded(account) }
       }
-      if store.canSwitch(account) {
+      if canSwitch {
         Button("Switch") { store.select(account) }
       }
     }
@@ -556,14 +568,12 @@ struct MenuBarRow: View {
       let shown = P.lines(for: account).count
       VStack(spacing: P.lineSpacing) {
         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-          lineView(line)
-            .opacity(index < shown ? 1 : reveal)
-            .offset(y: index < shown || store.reduceMotion ? 0 : 4 * (1 - expansion))
+          if index < shown { lineView(line) }
+          else { lineView(line).modifier(MenuBarRowMotion(store: store, id: account.id, region: .reveal)) }
         }
       }
-      .frame(height: CGFloat(shown) * P.lineHeight
-        + CGFloat(max(0, lines.count - shown)) * P.lineHeight * expansion, alignment: .top)
-      .clipped()
+      .fixedSize(horizontal: false, vertical: true)
+      .modifier(MenuBarRowMotion(store: store, id: account.id, region: .lines(shown, lines.count)))
       .padding(.leading, P.tileSize + P.tileSpacing)
     }
   }
@@ -620,15 +630,60 @@ struct MenuBarRow: View {
 
   @ViewBuilder private var menu: some View {
     if P.showsSwitch(account) {
-      Button("Switch") { store.select(account) }.disabled(!store.canSwitch(account))
+      Button("Switch") { store.select(account) }.disabled(!canSwitch)
     }
     if account.supportsLaunch, store.actions.openTool != nil {
       Button(P.openToolTitle(account)) { store.openTool(account) }
     }
     Button("Refresh") { Task { await store.refresh(account) } }
-      .disabled(!account.supportsUsageRefresh || store.isRefreshingUsage)
+      .disabled(!account.supportsUsageRefresh || isRefreshingUsage)
     Divider()
     Button("Copy name") { store.copy(account.realName) }
+  }
+}
+
+/// Only geometry and opacity observe the frame clock; text and controls keep their layout.
+private struct MenuBarRowMotion: ViewModifier {
+  enum Region { case actions, prompt, reveal, lines(Int, Int), token(CGFloat) }
+  let store: MenuBarPopoverStore
+  let id: UUID
+  let region: Region
+  @ObservedObject private var motion: MenuBarPopoverMotion
+  private typealias P = MenuBarPresentation
+
+  init(store: MenuBarPopoverStore, id: UUID, region: Region) {
+    self.store = store
+    self.id = id
+    self.region = region
+    motion = store.motion
+  }
+
+  @ViewBuilder func body(content: Content) -> some View {
+    let expansion = store.expansionAmount(id)
+    let reveal = store.revealAmount(id)
+    let clip = store.reduceMotion ? expansion : reveal
+    switch region {
+    case .actions:
+      content.frame(height: P.expandedHeight)
+        .opacity(reveal)
+        .offset(y: store.reduceMotion ? 0 : 4 * (1 - reveal))
+        .frame(height: P.expandedHeight * clip, alignment: .top).clipped()
+        .uiLint(.align("menuBarActionReveal", .start))
+        .frame(height: P.expandedHeight * expansion, alignment: .top).clipped()
+    case .prompt:
+      let visible = min(clip, expansion)
+      content.padding(.bottom, P.signInBottomInset(expansion: visible))
+        .offset(y: store.reduceMotion ? 0 : -P.expandedHeight * (expansion - visible))
+    case .reveal:
+      content.opacity(reveal).offset(y: store.reduceMotion ? 0 : 4 * (1 - reveal))
+    case .lines(let shown, let total):
+      content.frame(height: CGFloat(shown) * P.lineHeight
+        + CGFloat(max(0, total - shown)) * P.lineHeight * clip, alignment: .top).clipped()
+        .frame(height: CGFloat(shown) * P.lineHeight
+          + CGFloat(max(0, total - shown)) * P.lineHeight * expansion, alignment: .top).clipped()
+    case .token(let extra):
+      content.offset(y: store.reduceMotion ? 0 : -extra * (expansion - min(reveal, expansion)))
+    }
   }
 }
 

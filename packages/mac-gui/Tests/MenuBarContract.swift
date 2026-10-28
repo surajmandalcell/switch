@@ -369,6 +369,7 @@ enum AIManagerMenuBarContract {
       UILintStore.shared.items.removeAll()
       let host = NSHostingView(rootView: MenuBarPopover(store: store)
         .background(Color(nsColor: .windowBackgroundColor)).renderScaled())
+      host.sizingOptions = []
       let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless,
         backing: .buffered, defer: false)
       window.appearance = NSAppearance(named: appearance)
@@ -418,6 +419,45 @@ enum AIManagerMenuBarContract {
         expect(abs(laidOutHeight - store.contentHeight) <= 1,
           "Popover height \(store.contentHeight) differs from the laid-out content \(laidOutHeight): empty band above the footer")
       }
+      // A stable clock must still let a mounted row collapse and expand.
+      store.animatesLayout = false
+      for expanded in [false, true] {
+        store.toggleExpanded(store.rows[0])
+        window.setContentSize(NSSize(width: MenuBarPopover.width, height: store.contentHeight))
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        host.layoutSubtreeIfNeeded()
+        let first = UILintStore.shared.items.values.filter { inGroup($0, "menuBarRows") }
+          .map(frame).min { $0.minY < $1.minY }
+        let expected = P.rowHeight(store.rows[0]) + (expanded ? P.expansionHeight(store.rows[0]) : 0)
+        expect(first.map { abs($0.height - expected) <= 1 } == true,
+          "An already-hosted popover row did not \(expanded ? "expand" : "collapse")")
+      }
+      store.reduceMotion = false
+      for progress: CGFloat in [0.25, 0.5, 0.75] {
+        store.motion.amounts = [store.rows[0].id: progress]
+        window.setContentSize(NSSize(width: MenuBarPopover.width, height: store.contentHeight))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        host.layoutSubtreeIfNeeded()
+        let frames = UILintStore.shared.items.values.filter { inGroup($0, "menuBarRows") }
+          .map(frame).sorted { $0.minY < $1.minY }
+        let expected = P.rowHeight(store.rows[0]) + P.expansionHeight(store.rows[0])
+        expect(frames.first.map { abs($0.height - expected) <= 1 } == true,
+          "Popover row did not reserve its final height during animation")
+        let reveal = UILintStore.shared.items.values.filter { inGroup($0, "menuBarActionReveal") }.map(frame)
+        expect(reveal.contains { abs($0.height - progress * P.expandedHeight) <= 1 },
+          "Popover action clipping did not follow animation progress \(progress)")
+        expect(frames.last.map { abs($0.maxY + 12 + MenuBarPopover.footerHeight - store.contentHeight) <= 1 } == true,
+          "Popover animation leaves an empty band above the footer")
+      }
+      store.reduceMotion = true
+      store.motion.amounts = [store.rows[0].id: 0.5]
+      RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+      host.layoutSubtreeIfNeeded()
+      let reducedReveal = UILintStore.shared.items.values.filter { inGroup($0, "menuBarActionReveal") }.map(frame)
+      expect(reducedReveal.contains { abs($0.height - P.expandedHeight) <= 1 },
+        "Reduce Motion changed action clipping instead of fading")
+      store.motion.amounts = [:]
     }
     return failures
   }
@@ -790,14 +830,20 @@ enum PopoverMotionCheck {
     let store = MenuBarPopoverStore(snapshot: snapshot,
       actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), visibleScreenHeight: 2_000, defaults: defaults)
     let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
-    let host = NSHostingView(rootView: MenuBarPopover(store: store))
+    let hostingController = NSHostingController(rootView: MenuBarPopover(store: store))
+    hostingController.sizingOptions = []
+    let host = hostingController.view
     // A clear, click-through window on the main display: a display link only ticks for a window
     // on a screen. It never becomes key, so it takes no focus.
     let window = NSWindow(contentRect: NSRect(origin: NSScreen.main?.frame.origin ?? .zero, size: size),
       styleMask: .borderless, backing: .buffered, defer: false)
     window.alphaValue = 0
     window.ignoresMouseEvents = true
-    window.contentView = host
+    window.contentViewController = hostingController
+    window.setContentSize(size)
+    if AppearanceOverride.mode == "dark" { window.appearance = NSAppearance(named: .darkAqua) }
+    else if AppearanceOverride.mode == "light" { window.appearance = NSAppearance(named: .aqua) }
+    print("POPOVER_PROBE appearance=\(window.effectiveAppearance.name.rawValue)")
     window.orderFrontRegardless()
     store.clockView = host
     store.animatesLayout = true
@@ -824,7 +870,11 @@ enum PopoverMotionCheck {
       try? await Task.sleep(for: .milliseconds(600))
       return report
     }
+    host.layoutSubtreeIfNeeded()
+    host.displayIfNeeded()
     try? await Task.sleep(for: .milliseconds(300))
+    precondition(window.contentLayoutRect.size == size && host.bounds.size == size,
+      "Popover probe must finish initial layout before timing expansion")
     let expand = await run()
     let collapse = await run()
     window.close()
@@ -838,6 +888,7 @@ enum PopoverMotionCheck {
     guard NSScreen.main != nil else { return [] }
     var failures: [String] = []
     for (name, report) in await measure() {
+      print("POPOVER_MOTION \(name) \(report.summary)")
       let expected = Int((report.duration * report.refresh).rounded())
       if report.frames * 5 < expected * 4 || report.hitches * 3 > report.frames || report.resizes > report.frames {
         failures.append("Popover \(name) drops frames: \(report.summary)")

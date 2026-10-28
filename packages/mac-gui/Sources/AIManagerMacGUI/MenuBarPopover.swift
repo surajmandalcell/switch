@@ -335,8 +335,8 @@ private final class DisplayFrameClock: NSObject {
     self.tick = tick
     super.init()
     let selector = #selector(step(_:))
-    if let view, view.window != nil { link = view.displayLink(target: self, selector: selector) }
-    else { link = NSScreen.main?.displayLink(target: self, selector: selector) }
+    // Finish on the display's cadence even when the hosting view is temporarily occluded.
+    link = (view?.window?.screen ?? NSScreen.main)?.displayLink(target: self, selector: selector)
     guard let link else { return nil }
     link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
     link.add(to: .main, forMode: .common)
@@ -348,20 +348,33 @@ private final class DisplayFrameClock: NSObject {
 }
 
 @MainActor
+final class MenuBarPopoverMotion: ObservableObject {
+  @Published var amounts: [UUID: CGFloat] = [:]
+}
+
+@MainActor
 final class MenuBarPopoverStore: ObservableObject {
-  @Published private(set) var snapshot: MenuBarSnapshot
+  @Published private(set) var snapshot: MenuBarSnapshot { didSet { updatePresentation() } }
   @Published private(set) var switchingAccountID: UUID?
   @Published private(set) var isRefreshingUsage = false
   @Published private(set) var visibleScreenHeight: CGFloat
   @Published private(set) var rowErrors: [UUID: String] = [:]
   @Published private(set) var expandedAccountID: UUID?
-  @Published private(set) var expansionAmounts: [UUID: CGFloat] = [:]
+  @Published private var layoutExpandedAccountID: UUID?
+  let motion = MenuBarPopoverMotion()
+  private var expansionAmounts: [UUID: CGFloat] {
+    get { motion.amounts }
+    set { motion.amounts = newValue }
+  }
 
   let actions: MenuBarPopoverActions
   var didSwitch: (() -> Void)?
   var didRequestDismissal: (() -> Void)?
   var didChangeLayout: (() -> Void)?
   private let defaults: UserDefaults
+  private(set) var rows: [MenuBarAccountSnapshot] = []
+  private var collapsedHeight: CGFloat = 0
+  private var expansionHeights: [UUID: CGFloat] = [:]
   var animatesLayout = false
   var reduceMotion = false
   /// The popover's hosting view; its display link paces the expansion.
@@ -369,8 +382,7 @@ final class MenuBarPopoverStore: ObservableObject {
   private var frameClock: DisplayFrameClock? { didSet { oldValue?.stop() } }
 
   func expansionAmount(_ id: UUID) -> CGFloat {
-    if reduceMotion { return expandedAccountID == id ? 1 : 0 }
-    return revealAmount(id)
+    layoutExpandedAccountID == id ? 1 : 0
   }
 
   func revealAmount(_ id: UUID) -> CGFloat {
@@ -378,11 +390,10 @@ final class MenuBarPopoverStore: ObservableObject {
   }
 
   var contentHeight: CGFloat {
-    let collapsed = MenuBarPresentation.listHeight(snapshot.accounts)
-    let expanded = rows.reduce(CGFloat.zero) {
-      $0 + MenuBarPresentation.expansionHeight($1, hasOpenTool: actions.openTool != nil) * expansionAmount($1.id)
+    let expanded = expansionHeights.reduce(CGFloat.zero) {
+      $0 + $1.value * expansionAmount($1.key)
     }
-    let ideal = rows.isEmpty ? MenuBarPopover.minimumHeight : collapsed + expanded + MenuBarPopover.footerHeight
+    let ideal = rows.isEmpty ? MenuBarPopover.minimumHeight : collapsedHeight + expanded + MenuBarPopover.footerHeight
     return min(max(ideal.rounded(), MenuBarPopover.minimumHeight), max(MenuBarPopover.minimumHeight, floor(visibleScreenHeight * 0.8)))
   }
 
@@ -396,6 +407,8 @@ final class MenuBarPopoverStore: ObservableObject {
       .flatMap { id in snapshot.accounts.contains(where: {
         $0.id == id && MenuBarPresentation.canExpand($0, hasOpenTool: actions.openTool != nil)
       }) ? id : nil }
+    updatePresentation()
+    layoutExpandedAccountID = expandedAccountID
   }
 
   func update(visibleScreenHeight: CGFloat) {
@@ -417,10 +430,19 @@ final class MenuBarPopoverStore: ObservableObject {
           }) ? id : nil
         }
     }
+    if !snapshot.accounts.contains(where: { $0.id == layoutExpandedAccountID }) {
+      layoutExpandedAccountID = expandedAccountID
+    }
   }
 
-  /// Enabled accounts follow service order, with saved order inside each service.
-  var rows: [MenuBarAccountSnapshot] { MenuBarPresentation.groups(snapshot.orderedAccounts).flatMap { $0 } }
+  private func updatePresentation() {
+    // Parse usage labels and service order once per snapshot, outside the frame callback.
+    rows = MenuBarPresentation.groups(snapshot.orderedAccounts).flatMap { $0 }
+    collapsedHeight = MenuBarPresentation.listHeight(rows)
+    expansionHeights = rows.reduce(into: [:]) {
+      $0[$1.id, default: 0] += MenuBarPresentation.expansionHeight($1, hasOpenTool: actions.openTool != nil)
+    }
+  }
 
   func updateServiceOrder(_ order: [ProviderID]) {
     snapshot = MenuBarSnapshot(accounts: snapshot.accounts, lastRefreshedAt: snapshot.lastRefreshedAt,
@@ -432,8 +454,13 @@ final class MenuBarPopoverStore: ObservableObject {
     frameClock = nil
     let start = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, revealAmount($0.id)) })
     expandedAccountID = expandedAccountID == account.id ? nil : account.id
+    // Reserve the final space before expanding; release it only after collapsing content.
+    if let expandedAccountID, layoutExpandedAccountID != expandedAccountID {
+      layoutExpandedAccountID = expandedAccountID
+    }
     defaults.set(expandedAccountID?.uuidString, forKey: MenuBarUsagePreferences.expandedAccountKey)
     guard animatesLayout else {
+      layoutExpandedAccountID = expandedAccountID
       expansionAmounts = [:]
       didChangeLayout?()
       return
@@ -445,7 +472,7 @@ final class MenuBarPopoverStore: ObservableObject {
     // One step per display frame, timed by the frame's presentation time, so the motion keeps
     // its 250 ms at 120 Hz, at 60 Hz, and at the lower rate of Low Power Mode.
     frameClock = DisplayFrameClock(view: clockView) { [weak self] link in
-      guard let self else { return }
+      guard let self else { link.invalidate(); return }
       let time = min((link.targetTimestamp - began) / 0.25, 1)
       // A critically damped spring, normalized to settle on the final frame.
       let progress = CGFloat((1 - (1 + 8 * time) * exp(-8 * time)) / (1 - 9 * exp(-8.0)))
@@ -457,11 +484,13 @@ final class MenuBarPopoverStore: ObservableObject {
           amounts[id] = amount + ((id == target ? 1 : 0) - amount) * progress
         }
         self.expansionAmounts = time == 1 ? [:] : amounts
+        if time == 1, self.layoutExpandedAccountID != target { self.layoutExpandedAccountID = target }
         self.didChangeLayout?()
       }
       if time == 1 { self.frameClock = nil }
     }
     if frameClock == nil {
+      layoutExpandedAccountID = target
       expansionAmounts = [:]
       didChangeLayout?()
     }
@@ -566,14 +595,17 @@ struct MenuBarPopover: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.colorScheme) private var colorScheme
   var previewHoveredID: UUID? = nil
+  // Resizing must not restart the minute clock and invalidate every row.
+  private let countdownStart = Date()
 
   var body: some View {
     VStack(spacing: 0) {
       accountList
-        .frame(height: store.contentHeight - Self.footerHeight, alignment: .top)
+        .modifier(MenuBarContentHeight(store: store, subtracting: Self.footerHeight))
       MenuBarFooter(store: store)
     }
-    .frame(width: Self.width, height: store.contentHeight, alignment: .top)
+    .frame(width: Self.width)
+    .modifier(MenuBarContentHeight(store: store))
     .background {
       if colorScheme == .dark { Self.darkSurface.opacity(reduceTransparency ? 1 : 0.96) }
       else { Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency ? 1 : 0.82) }
@@ -601,7 +633,7 @@ struct MenuBarPopover: View {
     } else {
       ScrollViewReader { proxy in
         AIMScrollView(name: "menu-bar") {
-          TimelineView(.periodic(from: .now, by: 60)) { context in
+          TimelineView(.periodic(from: countdownStart, by: 60)) { context in
             VStack(spacing: 0) {
               ForEach(Array(MenuBarPresentation.groups(rows).enumerated()), id: \.element.first!.providerID) { index, group in
                 VStack(spacing: 0) {
@@ -627,7 +659,11 @@ struct MenuBarPopover: View {
                   isSwitching: store.switchingAccountID == account.id,
                   isFocused: keyboardActive && focusedID == account.id,
                   error: store.rowErrors[account.id],
+                  expanded: store.expandedAccountID == account.id,
+                  canSwitch: store.canSwitch(account),
+                  isRefreshingUsage: store.isRefreshingUsage,
                   store: store, previewHovered: previewHoveredID == account.id)
+                .equatable()
                 .id(account.id)
                 .focusable(MenuBarPresentation.canExpand(account, hasOpenTool: store.actions.openTool != nil))
                 .focused($focusedID, equals: account.id)
@@ -683,6 +719,20 @@ struct MenuBarPopover: View {
     default:
       return .ignored
     }
+  }
+}
+
+private struct MenuBarContentHeight: ViewModifier {
+  @ObservedObject var store: MenuBarPopoverStore
+  let subtracting: CGFloat
+
+  init(store: MenuBarPopoverStore, subtracting: CGFloat = 0) {
+    self.store = store
+    self.subtracting = subtracting
+  }
+
+  func body(content: Content) -> some View {
+    content.frame(height: store.contentHeight - subtracting, alignment: .top)
   }
 }
 
