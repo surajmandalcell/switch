@@ -321,7 +321,11 @@ struct CleanupScanner {
     // MARK: Item building
 
     private func openCodeSessions() throws -> [CleanupItem] {
-        try OpenCodeStore.sessions(home: source.home).compactMap { session in
+        let sessions: [OpenCodeStore.Session]
+        // A database with no known session table lists no chats; logs and caches still scan.
+        do { sessions = try OpenCodeStore.sessions(home: source.home) }
+        catch AIManagerError.unsupportedSource { return [] }
+        return try sessions.compactMap { session in
             if !session.database {
                 guard let built = try item(0, session.path, title: session.title, project: session.project,
                     date: session.updatedAt, companions: session.companions) else { return nil }
