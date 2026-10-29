@@ -467,6 +467,93 @@ private final class WheelTestDocument: NSView {
   /// Time from a page selection to its first rendered frame, for every page, against many
   /// accounts, a year of daily activity, and thousands of conversations. Returns failures for
   /// first visits above 150 ms, warm medians above 50 ms, or warm frames above 80 ms.
+  /// Environment trackers and the process footprint, read with `heap` on this process.
+  static func memoryReading() -> (tracked: Int, footprint: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/heap")
+    process.arguments = ["\(getpid())"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+    guard (try? process.run()) != nil else { return (-1, "?") }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    var tracked = 0
+    var footprint = "?"
+    for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+      if line.contains("Physical footprint:") { footprint = line.split(separator: " ").last.map(String.init) ?? "?" }
+      if line.contains("_ContiguousArrayStorage<SwiftUI.(AnyTrackedValue") {
+        tracked += Int(line.split(separator: " ", omittingEmptySubsequences: true).dropFirst().first ?? "") ?? 0
+      }
+    }
+    return (tracked, footprint)
+  }
+
+  static func memoryCheck() async -> [String] {
+    let model = AccountViewModel(scenario: .historyStress)
+    let (window, hosting) = host(AccountWindow(model: model, initialPageIndex: 0),
+      size: NSSize(width: 1200, height: 900), dark: false)
+    func select(_ page: AIManagerPage) async {
+      NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
+      _ = await waitUntil { AIMPlace.visiblePage == page }
+      hosting.layoutSubtreeIfNeeded()
+      await pause(300)
+    }
+    func report(_ stage: String) {
+      let reading = memoryReading()
+      print("MEMORY \(stage) tracked=\(reading.tracked) footprint=\(reading.footprint)")
+    }
+    var failures: [String] = []
+    await pause(1_500)
+    for page in AIManagerPage.allCases { await select(page) }
+    await pause(2_000)
+    let warm = memoryReading().tracked
+    print("MEMORY warm tracked=\(warm)")
+    if warm < 0 { failures.append("heap could not read this process") }
+    let cycles = Int(PreviewArguments.value("memory-cycles") ?? "") ?? 200
+    for page in [AIManagerPage.overview, .accounts, .conversations, .maintenance, .settings] {
+      await select(page)
+      for _ in 0..<cycles {
+        model.objectWillChange.send()
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.002))
+        hosting.layoutSubtreeIfNeeded()
+      }
+      let reading = memoryReading()
+      print("MEMORY \(page.rawValue) +\(cycles) updates tracked=\(reading.tracked) footprint=\(reading.footprint)")
+      // A page host that gets the outer EnvironmentValues grew by about 120 KB per update here.
+      if reading.tracked - warm > 1_000_000 {
+        failures.append("\(page.rawValue): environment trackers grew \((reading.tracked - warm) / 1_000) KB in \(cycles) updates")
+      }
+    }
+    window.close()
+
+    // Closing the main window, or hiding it to the menu bar, hands it back so its pages can be freed.
+    let placement = UserDefaults(suiteName: "switch-memory-\(UUID().uuidString)") ?? .standard
+    for hides in [false, true] {
+      UserDefaults.standard.set(hides, forKey: AIManagerWindowBehavior.minimizeToTrayKey)
+      var controller: AIManagerWindowController<AccountWindow>? = AIManagerWindowController(
+        title: "Memory", rootView: AccountWindow(model: AccountViewModel(scenario: .demo)), placementDefaults: placement)
+      weak var released = controller
+      var hidden = false
+      controller?.onHide = { hidden = true }
+      controller?.window?.contentView?.layoutSubtreeIfNeeded()
+      // The app posts a page request right after building a new window; it must arrive.
+      let target: AIManagerPage = hides ? .settings : .maintenance
+      NotificationCenter.default.post(name: AIManagerNavigation.request, object: target)
+      if !(await waitUntil(timeout: 3) {
+        controller?.window?.contentView?.layoutSubtreeIfNeeded()
+        return AIMPlace.visiblePage == target
+      }) { failures.append("a new main window misses the page request posted after it is built") }
+      if hides { controller?.minimize() } else { controller?.window?.close() }
+      controller = nil
+      await pause(300)
+      if !hidden { failures.append(hides ? "hiding to the menu bar does not hand the window back" : "closing does not hand the window back") }
+      if released != nil { failures.append("the main window stays in memory after \(hides ? "hiding" : "closing")") }
+    }
+    UserDefaults.standard.removeObject(forKey: AIManagerWindowBehavior.minimizeToTrayKey)
+    return failures
+  }
+
   static func pageSwitchTimes() async -> [String] {
     var failures: [String] = []
     let model = AccountViewModel(scenario: .historyStress)

@@ -18,13 +18,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         AIMNativeFocusPolicy.install()
         NSApp.disableRelaunchOnLogin()
         AIManagerBrand.installApplicationIcon()
-        let controller = AIManagerWindowController(
-            title: AIManagerBrand.bundleDisplayName(),
-            rootView: AccountWindow(model: model)
-        )
-        windowController = controller
-        let notifier = QuotaNotifier(model: model) {
-            controller.present()
+        let notifier = QuotaNotifier(model: model) { [weak self] in
+            self?.presentWindow()
             NSApp.activate(ignoringOtherApps: true)
         }
         quotaNotifier = notifier
@@ -37,7 +32,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.windowController?.present()
+                self?.presentWindow()
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
@@ -48,8 +43,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 dailyUsage: model.retainedDailyUsage,
                 apiPrice: model.apiPrice),
             actions: MenuBarPopoverActions(
-                openMainWindow: {
-                    controller.present()
+                openMainWindow: { [weak self] in
+                    self?.presentWindow()
                     NSApp.activate(ignoringOtherApps: true)
                 },
                 switchAccount: { [weak self] accountID in
@@ -162,10 +157,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             addAccount: { [weak self] in self?.addAccountFromMenuBar() },
             advancedImport: { [weak self] in self?.advancedImport() },
             closeWindow: { [weak self] in self?.windowController?.window?.close() },
-            minimizeWindow: { [weak self] in
-                AIManagerWindowBehavior.minimize(self?.windowController?.window)
-            },
-            presentWindow: { [weak self] in self?.windowController?.present() },
+            minimizeWindow: { [weak self] in self?.windowController?.minimize() },
+            presentWindow: { [weak self] in self?.presentWindow() },
             canChangeAccounts: { [weak self] in self?.model.isBusy == false },
             refreshNow: { [weak self] in
                 Task { @MainActor [weak self] in
@@ -177,8 +170,33 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.menuController = menuController
         menuController.install()
-        if !AIManagerLaunchContext.launchedAsLoginItem() { controller.present() }
+        if !AIManagerLaunchContext.launchedAsLoginItem() { presentWindow() }
         Task { await model.load() }
+    }
+
+    /// The main window and its pages exist only while it is shown: closing it, or hiding it to the
+    /// menu bar, releases them. A login launch builds no window until one is asked for.
+    private func presentWindow() {
+        if let windowController {
+            windowController.present()
+            return
+        }
+        let controller = AIManagerWindowController(
+            title: AIManagerBrand.bundleDisplayName(),
+            rootView: AccountWindow(model: model)
+        )
+        controller.onHide = { [weak self, weak controller] in
+            // Release after AppKit finishes closing or hiding, unless the window was shown again.
+            DispatchQueue.main.async {
+                guard let self, let controller, self.windowController === controller,
+                      controller.window?.isVisible != true else { return }
+                self.windowController = nil
+            }
+        }
+        windowController = controller
+        controller.present()
+        // Build the view graph now, so a page request posted right after this call reaches the window.
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -186,7 +204,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { windowController?.present() }
+        if !flag { presentWindow() }
         return true
     }
 

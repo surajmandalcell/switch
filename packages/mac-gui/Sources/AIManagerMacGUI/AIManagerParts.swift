@@ -518,9 +518,62 @@ struct AIMScrollPage<Content: View>: View {
   }
 }
 
+/// The values a second hosting graph (a page host) takes from the graph around it. Never pass the
+/// whole `EnvironmentValues` (`.environment(\.self, …)`): it carries the outer graph's dependency
+/// tracker, which then records every read the inner graph makes and never drops them. That grew by
+/// about 120 KB per model update (352 MB after 19 idle hours). System values the inner host reads
+/// from its window (reduce motion, contrast, appearance) need no copy.
+struct AIMHostedEnvironment: ViewModifier {
+  private let colorScheme: ColorScheme
+  private let isEnabled: Bool
+  private let displayScale: CGFloat
+  private let layoutDirection: LayoutDirection
+  private let locale: Locale
+  private let lintSuppressed: Bool
+  private let pageName: String
+  private let pageFadeKey: String
+  private let pageHeader: AnyView
+  private let controlHeight: CGFloat
+  private let copyPath: @MainActor (String) -> Bool
+  private let cancelSheet: () -> Void
+
+  init(_ environment: EnvironmentValues) {
+    colorScheme = environment.colorScheme
+    isEnabled = environment.isEnabled
+    displayScale = environment.displayScale
+    layoutDirection = environment.layoutDirection
+    locale = environment.locale
+    lintSuppressed = environment.uiLintSuppressed
+    pageName = environment.aimPageName
+    pageFadeKey = environment.aimPageFadeKey
+    pageHeader = environment.aimPageHeader
+    controlHeight = environment.aimControlHeight
+    copyPath = environment.aimCopyPath
+    cancelSheet = environment.aimCancelSheet
+  }
+
+  func body(content: Content) -> some View {
+    content
+      .environment(\.colorScheme, colorScheme)
+      .environment(\.isEnabled, isEnabled)
+      .environment(\.displayScale, displayScale)
+      .environment(\.layoutDirection, layoutDirection)
+      .environment(\.locale, locale)
+      .environment(\.uiLintSuppressed, lintSuppressed)
+      .environment(\.aimPageName, pageName)
+      .environment(\.aimPageFadeKey, pageFadeKey)
+      .environment(\.aimPageHeader, pageHeader)
+      .environment(\.aimControlHeight, controlHeight)
+      .environment(\.aimCopyPath, copyPath)
+      .environment(\.aimCancelSheet, cancelSheet)
+      .tint(AIMTheme.passiveIcon)
+      .focusEffectDisabled(!AIMFocus.showsSystemRings)
+  }
+}
+
 /// A page's cards in an AppKit scroll view: the cards are one `AIMHostingView` sized to the clip width
-/// and its ideal height, so a scroll frame moves a layer and SwiftUI sees no event. The whole
-/// SwiftUI environment is passed into the inner host, which is a separate hosting graph.
+/// and its ideal height, so a scroll frame moves a layer and SwiftUI sees no event. The inner host is
+/// a separate hosting graph and takes its environment through `AIMHostedEnvironment`.
 struct AIMAppKitPage<Content: View>: NSViewRepresentable {
   let name: String
   @ViewBuilder var content: Content
@@ -539,10 +592,10 @@ struct AIMAppKitPage<Content: View>: NSViewRepresentable {
   func updateNSView(_ view: AIMPageScrollView, context: Context) { update(view, context) }
 
   private func update(_ view: AIMPageScrollView, _ context: Context) {
-    let environment = context.environment
+    let environment = AIMHostedEnvironment(context.environment)
     let content = content
     view.setRoot {
-      AnyView(content.environment(\.self, environment).environment(\.aimAnimatesAppearance, false))
+      AnyView(content.modifier(environment).environment(\.aimAnimatesAppearance, false))
     }
   }
 
