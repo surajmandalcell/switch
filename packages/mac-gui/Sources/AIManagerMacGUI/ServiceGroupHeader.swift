@@ -11,7 +11,7 @@ struct ServiceGroupHeader: View, Equatable {
   @State private var hovered = false
   @FocusState private var eyeFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(ServiceReorderState.self) private var reorder
+  @Environment(ServiceReorderState.self) private var reorder: ServiceReorderState?
 
   nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.provider == rhs.provider && lhs.providers == rhs.providers && lhs.showsInTray == rhs.showsInTray
@@ -72,7 +72,7 @@ struct ServiceGroupHeader: View, Equatable {
 
   private func move(to target: ProviderID) {
     MenuBarServicePreferences.move(provider, to: target, in: providers)
-    reorder.order = MenuBarServicePreferences.order()
+    reorder?.order = MenuBarServicePreferences.order()
   }
 }
 
@@ -193,7 +193,7 @@ private struct ServiceHeaderDrag: ViewModifier {
   let provider: ProviderID
   let providers: [ProviderID]
   let enabled: Bool
-  @Environment(ServiceReorderState.self) private var reorder
+  @Environment(ServiceReorderState.self) private var reorder: ServiceReorderState?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @GestureState private var dragging = false
 
@@ -201,10 +201,10 @@ private struct ServiceHeaderDrag: ViewModifier {
     if enabled {
       content.gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
         .updating($dragging) { _, dragging, _ in dragging = true }
-        .onChanged { reorder.update(provider, translation: $0.translation.height,
+        .onChanged { reorder?.update(provider, translation: $0.translation.height,
           providers: providers, reduceMotion: reduceMotion) }
-        .onEnded { _ in reorder.end(reduceMotion: reduceMotion) })
-      .onChange(of: dragging) { _, active in if !active { reorder.cancel() } }
+        .onEnded { _ in reorder?.end(reduceMotion: reduceMotion) })
+      .onChange(of: dragging) { _, active in if !active { reorder?.cancel() } }
       .accessibilityAction(named: Text("Move up")) { move(-1) }
       .accessibilityAction(named: Text("Move down")) { move(1) }
     } else { content }
@@ -214,31 +214,31 @@ private struct ServiceHeaderDrag: ViewModifier {
     let order = MenuBarServicePreferences.orderedProviders(providers)
     guard let index = order.firstIndex(of: provider), order.indices.contains(index + step) else { return }
     MenuBarServicePreferences.move(provider, to: order[index + step], in: providers)
-    reorder.order = MenuBarServicePreferences.order()
+    reorder?.order = MenuBarServicePreferences.order()
   }
 }
 
 struct ServiceGroupReorder: ViewModifier {
   let provider: ProviderID
   let leadingInset: CGFloat
-  @Environment(ServiceReorderState.self) private var reorder
+  @Environment(ServiceReorderState.self) private var reorder: ServiceReorderState?
 
   func body(content: Content) -> some View {
     content
-      .offset(y: reorder.offset(provider))
-      .transaction { if reorder.source == provider { $0.animation = nil } }
+      .offset(y: reorder?.offset(provider) ?? 0)
+      .transaction { if reorder?.source == provider { $0.animation = nil } }
       .background(GeometryReader { geometry in
         let group = geometry.frame(in: .global)
         let frame = CGRect(x: group.minX, y: group.minY + leadingInset,
           width: group.width, height: group.height - leadingInset)
         Color.clear
-          .onAppear { reorder.frames[provider] = frame }
-          .onChange(of: frame) { _, frame in reorder.frames[provider] = frame }
+          .onAppear { reorder?.frames[provider] = frame }
+          .onChange(of: frame) { _, frame in reorder?.frames[provider] = frame }
       })
-      .zIndex(reorder.source == provider ? 1 : 0)
+      .zIndex(reorder?.source == provider ? 1 : 0)
       .onDisappear {
-        reorder.frames.removeValue(forKey: provider)
-        if reorder.source == provider { reorder.cancel() }
+        reorder?.frames.removeValue(forKey: provider)
+        if reorder?.source == provider { reorder?.cancel() }
       }
   }
 }

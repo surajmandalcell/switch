@@ -1894,10 +1894,10 @@ private struct AccountsTableRow: View {
 /// the account to `AccountsRowDrop`.
 private struct AccountRowGrip: View {
   let account: AccountRecord
-  @Environment(AccountsRowHover.self) private var hover
+  @Environment(AccountsRowHover.self) private var hover: AccountsRowHover?
 
   var body: some View {
-    let shown = hover.hoveredID == account.id
+    let shown = hover?.hoveredID == account.id
     ZStack {
       if shown { AccountGrip(account: account).transition(.opacity) }
     }
@@ -1946,10 +1946,10 @@ private struct AccountGrip: View {
 /// its bottom edge when it moves down. Only the target row builds one.
 private struct AccountRowInsertion: View {
   let id: UUID
-  @Environment(AccountsRowHover.self) private var hover
+  @Environment(AccountsRowHover.self) private var hover: AccountsRowHover?
 
   var body: some View {
-    let edge = hover.drop?.id == id ? hover.drop?.edge : nil
+    let edge = hover?.drop?.id == id ? hover?.drop?.edge : nil
     ZStack {
       if let edge {
         let wash = AIMTheme.cardInset - 8
