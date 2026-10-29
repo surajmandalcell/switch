@@ -1061,6 +1061,33 @@ struct AIMSkeleton: View {
       .clipShape(RoundedRectangle(cornerRadius: 4))
       .allowsHitTesting(false)
       .accessibilityHidden(true)
+      .uiLint(.item)
+  }
+}
+
+/// Loading rows inside an `AIMSection`: each line is one section row, so the section's own row
+/// insets and separators apply, as they do for the rows that replace them.
+struct AIMSectionLoadingRows: View {
+  var count = 3
+
+  var body: some View {
+    ForEach(0..<count, id: \.self) { _ in
+      AIMLoadingLine().accessibilityElement(children: .ignore).accessibilityLabel("Loading")
+    }
+  }
+}
+
+private struct AIMLoadingLine: View {
+  var body: some View {
+    HStack(spacing: AIMTheme.rowSpacing) {
+      AIMSkeleton().frame(width: 20, height: 20)
+      VStack(alignment: .leading, spacing: 4) {
+        AIMSkeleton().frame(maxWidth: 160).frame(height: 10)
+        AIMSkeleton().frame(maxWidth: 110).frame(height: 8)
+      }
+      Spacer(minLength: AIMTheme.rowSpacing)
+      AIMSkeleton().frame(width: 70, height: 10)
+    }
   }
 }
 
@@ -1072,18 +1099,10 @@ struct AIMLoadingRows: View {
   var body: some View {
     VStack(spacing: 0) {
       ForEach(0..<count, id: \.self) { _ in
-        HStack(spacing: AIMTheme.rowSpacing) {
-          AIMSkeleton().frame(width: 20, height: 20)
-          VStack(alignment: .leading, spacing: 4) {
-            AIMSkeleton().frame(maxWidth: 160).frame(height: 10)
-            AIMSkeleton().frame(maxWidth: 110).frame(height: 8)
-          }
-          Spacer(minLength: AIMTheme.rowSpacing)
-          AIMSkeleton().frame(width: 70, height: 10)
-        }
-        .padding(.leading, AIMTheme.cardInset + indent)
-        .padding(.trailing, AIMTheme.cardInset)
-        .frame(height: rowHeight)
+        AIMLoadingLine()
+          .padding(.leading, AIMTheme.cardInset + indent)
+          .padding(.trailing, AIMTheme.cardInset)
+          .frame(height: rowHeight)
       }
     }
     .accessibilityElement(children: .ignore)
