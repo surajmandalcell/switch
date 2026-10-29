@@ -158,11 +158,11 @@ struct CleanupPage: View {
     VStack(spacing: AIMTheme.cardGap) {
       controls
       if source == nil && (!store.isLoaded || !model.hasLoaded) {
-        AIMSection { AIMLoadingRows() }
+        AIMSection { AIMSectionLoadingRows() }
       } else if source == nil {
         AIMSection { Text("No supported tool was found on this Mac.").aimText(.secondary) }
       } else if scan == nil && error == nil {
-        AIMSection("Files") { AIMLoadingRows() }
+        AIMSection("Files") { AIMSectionLoadingRows() }
       } else if scan == nil {
         EmptyView()
       } else {

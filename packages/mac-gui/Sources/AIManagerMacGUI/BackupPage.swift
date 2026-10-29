@@ -69,7 +69,7 @@ struct BackupPage: View {
   var body: some View {
     VStack(spacing: AIMTheme.cardGap) {
       if (!store.isLoaded || !model.hasLoaded) && store.checklistSources.isEmpty {
-        AIMSection("What to back up") { AIMLoadingRows() }
+        AIMSection("What to back up") { AIMSectionLoadingRows() }
       } else if store.checklistSources.isEmpty {
         AIMSection { Text("No supported tool was found on this Mac.").aimText(.secondary) }
       } else {
