@@ -82,6 +82,8 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
   private let placementDefaults: UserDefaults
   private var preserveUnavailableDisplayPlacement = false
   private var unavailableDisplayFallbackFrame: NSRect?
+  /// Runs after the window closes or hides to the menu bar, so the owner can release it and its pages.
+  var onHide: (() -> Void)?
 
   init(title: String, rootView: Content, placementDefaults: UserDefaults = .standard) {
     self.placementDefaults = placementDefaults
@@ -124,8 +126,14 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
   }
   @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
-  @objc private func minimizeFromButton(_ sender: Any?) {
+  @objc private func minimizeFromButton(_ sender: Any?) { minimize() }
+
+  func minimize() {
     AIManagerWindowBehavior.minimize(window)
+    if AIManagerWindowBehavior.hidesOnMinimize() {
+      savePlacement()
+      onHide?()
+    }
   }
 
   func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
@@ -161,7 +169,10 @@ final class AIManagerWindowController<Content: View>: NSWindowController, NSWind
     savePlacement()
   }
 
-  func windowWillClose(_ notification: Notification) { savePlacement() }
+  func windowWillClose(_ notification: Notification) {
+    savePlacement()
+    onHide?()
+  }
 
   func savePlacement() {
     guard !preserveUnavailableDisplayPlacement, let window else { return }
@@ -518,7 +529,7 @@ struct AIMVisitedPageHost: NSViewRepresentable {
     let error: String?
     let importing: Bool
     let searchFocused: Bool
-    // The cached root copies the whole environment, including temporary disabled states.
+    // The cached root copies the hosted environment values, including temporary disabled states.
     let enabled: Bool
     let scheme: ColorScheme
     let reduceMotion: Bool
@@ -545,8 +556,9 @@ struct AIMVisitedPageHost: NSViewRepresentable {
       reduceTransparency: environment.accessibilityReduceTransparency,
       contrast: environment.colorSchemeContrast, scale: environment.displayScale,
       direction: environment.layoutDirection, lintSuppressed: environment.uiLintSuppressed)
+    let hosted = AIMHostedEnvironment(environment)
     container.show(page, inputs: inputs) { requested, active in
-      AnyView(content(requested).environment(\.self, environment).ignoresSafeArea()
+      AnyView(content(requested).modifier(hosted).ignoresSafeArea()
         .disabled(!active).allowsHitTesting(active).accessibilityHidden(!active))
     }
     container.needsLayout = true

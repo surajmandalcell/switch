@@ -221,8 +221,9 @@ done
 
 # Conversations: long messages (code blocks of hundreds of lines, long lines, nested fences) render
 # with no clipped or overlapping row at two window widths, and every page switch renders its first
-# frame within the bound against a large synthetic dataset.
-for conversation_args in "--conversations-check" "--conversations-check --page-switch-only"; do
+# frame within the bound against a large synthetic dataset. Page hosts keep no growing environment
+# trackers across model updates, and a closed or hidden main window is freed.
+for conversation_args in "--conversations-check" "--conversations-check --page-switch-only" "--conversations-check --memory-only"; do
   run_root="$test_root/conversations-${conversation_args//[^a-z]/}"
   mkdir -p "$run_root/home" "$run_root/codex-home" "$run_root/manager" "$run_root/tmp" "$run_root/artifacts"
   # shellcheck disable=SC2086

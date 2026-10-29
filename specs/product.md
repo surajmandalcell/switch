@@ -500,6 +500,11 @@ Build, validate, and upload Mac archives on the maintainer's Mac, never GitHub A
 links the current Switch download; older releases are not Switch. Lead with provider-neutral
 switching. Put paths, session behavior, and limits in concise provider notes.
 
+Memory: the main window and its pages exist only while it is shown; closing it or hiding it to the
+menu bar frees them, and a login launch builds no window. A page host gets named environment values,
+never the outer `EnvironmentValues`, whose tracker grows with every update. The contract's memory
+check fails when trackers grow over 1 MB in 200 updates per page or a closed window stays alive.
+
 Before installed-app GUI actions, match packaged and `/Applications/Switch.app` executable SHA-256,
 embedded and committed revisions, and the running binary inode. Fix stale processes or
 checksum mismatches before clicking; record proof in the install receipt.

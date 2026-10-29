@@ -535,6 +535,8 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             let failures: [String]
             if CommandLine.arguments.contains("--scroll-cost-only") {
                 failures = await ConversationsCheck.scrollCost()
+            } else if CommandLine.arguments.contains("--memory-only") {
+                failures = await ConversationsCheck.memoryCheck()
             } else if CommandLine.arguments.contains("--page-switch-only") {
                 failures = await ConversationsCheck.pageSwitchTimes()
             } else if CommandLine.arguments.contains("--page-roundtrip-only") {
