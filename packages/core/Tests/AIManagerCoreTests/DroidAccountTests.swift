@@ -1,6 +1,11 @@
 import Foundation
 import XCTest
 @testable import AIManagerCore
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 #if canImport(Darwin)
 import Darwin
 #else
@@ -215,6 +220,44 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertNotEqual(check.account?.id, account.id)
         do { _ = try await manager.importDroidAccount(name: "Again"); XCTFail("Duplicate import accepted") }
         catch { XCTAssertEqual(error as? DroidAccountError, .duplicateIdentity(name: "Personal", hint: "s***@gmail.com")) }
+    }
+
+    private struct SyntheticKey: DroidLoginReader.KeyProvider {
+        func key(interactive: Bool) throws -> Data { Data(repeating: 7, count: 32) }
+    }
+
+    /// A Keychain-format login sealed with the synthetic key, whose token names `subject`.
+    private func sealedLogin(subject: String, nonce: UInt8 = 3) throws -> String {
+        let payload = Data("{\"exp\":1,\"sub\":\"\(subject)\"}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let clear = try JSONSerialization.data(withJSONObject: ["access_token": "eyJhbGciOiJub25lIn0.\(payload).synthetic"])
+        let box = try AES.GCM.seal(clear, using: SymmetricKey(data: Data(repeating: 7, count: 32)),
+                                   nonce: AES.GCM.Nonce(data: Data(repeating: nonce, count: 16)))
+        return [Data(box.nonce), box.tag, box.ciphertext].map { $0.base64EncodedString() }.joined(separator: ":")
+    }
+
+    func testEqualMasksWithDifferentTokenSubjectsAreDifferentAccounts() async throws {
+        try doctor("s***@gmail.com")
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, droidProcessLister: { [] },
+            droidLoginReader: DroidLoginReader(keyProvider: SyntheticKey()))
+        try writeLogin(paths.droidHome, value: sealedLogin(subject: "user_sam"))
+        let first = try await manager.importDroidAccount(name: "Sam")
+        // An expired token still names its account; a different subject is a different person.
+        try writeLogin(paths.droidHome, value: sealedLogin(subject: "user_sara"))
+        let added = await manager.importLiveLogins()
+        XCTAssertEqual(added.count, 1)
+        XCTAssertNotEqual(added.first?.id, first.id)
+        try writeLogin(paths.droidHome, value: sealedLogin(subject: "user_sid"))
+        let third = try await manager.importDroidAccount(name: "Sid")
+        let saved = try await manager.status().accounts.filter { $0.identity.providerID == .droid }
+        XCTAssertEqual(saved.count, 3)
+        // The same subject with a fresh token is still a possible duplicate.
+        try writeLogin(paths.droidHome, value: sealedLogin(subject: "user_sid", nonce: 5))
+        do { _ = try await manager.importDroidAccount(name: "Again"); XCTFail("Same subject added without confirmation") }
+        catch { XCTAssertEqual(error as? DroidAccountError, .duplicateIdentity(name: third.identity.accountID ?? "", hint: "s***@gmail.com")) }
+        let again = await manager.importLiveLogins()
+        XCTAssertTrue(again.isEmpty)
     }
 
     func testImportOpaqueLoginAndPrivateCopiesWithoutChangingLiveFiles() async throws {

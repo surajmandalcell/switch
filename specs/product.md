@@ -47,7 +47,8 @@ for sign-in, live for import). Use Factory.app's bundled droid when present. Nev
 a refresh could spend a rotating token and sign Factory.app out. Passing `auth.verify` gives
 a masked email beside the name. Changed hints reject re-sign-in, discard staging, and preserve
 the account. Confirm names even with equal masks.
-Add Account warns about duplicate masks. If doctor fails or its output is unknown, Switch uses
+Add Account warns about duplicate masks unless the login tokens' `sub` claims (read without a
+prompt, expiry ignored) prove different people. If doctor fails or its output is unknown, Switch uses
 named accounts and reports that limit. Only the active default refreshes live files through the
 guarded switch path;
 others refresh saved copies. Factory usage APIs `/api/billing/limits`
@@ -89,7 +90,7 @@ cookie stores. Each `ProviderSpec` uses one of two credential styles:
   bytes. Other files, members, rows, conversations, and settings stay. Run official Terminal
   sign-in in a private temporary home; import its login. "Import current
   sign-in" saves the live login. At launch and refresh, Droid and OpenCode Go
-  import each distinct unsaved live login once as default. Skip equal Droid masks and never
+  import each distinct unsaved live login once as default. Skip equal Droid masks (unless token subjects differ) and never
   re-import deleted accounts. Auto-import adds a small "i" after the name; its tooltip
   names this Mac's login. The same pass imports Z Code's z.ai coding-plan keys from
   ~/.zcode/v2/credentials.json, named by plan ("Z Code individual plan"). Decrypt with Z Code's

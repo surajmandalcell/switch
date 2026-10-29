@@ -988,13 +988,26 @@ public actor AccountManager {
         else { droidProbe = live; return nil }
         let hint = droidIdentityHint(home: paths.droidHome)
         if let hint, removed.contains(Self.droidKey(hint)) { droidProbe = live; return nil }
-        if !saved.isEmpty, hint == nil || saved.contains(where: { $0.identity.email?.lowercased() == hint }) {
+        if !saved.isEmpty, hint == nil || droidMaskTwin(of: files, hint: hint, in: saved) != nil {
             droidProbe = live
             return nil
         }
         let record = try importDroidAccount(name: "Droid \(saved.count + 1)", automatic: true)
         droidProbe = live
         return record
+    }
+
+    /// The saved Droid account that may be this login: the same doctor mask, and no token subject
+    /// that proves a different person. The mask keeps only the first letter and the domain.
+    private func droidMaskTwin(of files: [String: Data], hint: String?, in accounts: [AccountRecord]) -> AccountRecord? {
+        guard let hint else { return nil }
+        let twins = accounts.filter { $0.identity.providerID == .droid && $0.identity.email?.lowercased() == hint }
+        guard !twins.isEmpty else { return nil }
+        guard let subject = droidLoginReader.subject(files: files) else { return twins.first }
+        return twins.first { account in
+            let saved = (try? droidProvider.files(in: account.credentialFile)).flatMap(droidLoginReader.subject)
+            return saved == nil || saved == subject
+        }
     }
 
     private static func loginDigest(_ files: [String: Data]) -> String {
@@ -1898,7 +1911,7 @@ extension AccountManager {
             throw AIManagerError.signInIdentityMismatch(signedIn: hint, target: savedHint)
         }
         if targetID == nil, !allowDuplicate, let hint,
-           let existing = registry.accounts.first(where: { $0.identity.providerID == .droid && $0.identity.email?.lowercased() == hint }) {
+           let existing = droidMaskTwin(of: files, hint: hint, in: registry.accounts) {
             throw DroidAccountError.duplicateIdentity(name: existing.identity.accountID ?? "Droid", hint: hint)
         }
         let id = targetID ?? UUID(), operationID = UUID()
