@@ -181,6 +181,31 @@ public actor AccountManager {
         return try status()
     }
 
+    /// Droid logins are opaque, so the owner's name is the account's only label. The login, the
+    /// default, the usage key, and missions stay keyed by the account id.
+    public func renameDroidAccount(_ accountID: UUID, to name: String) throws -> ManagerStatus {
+        let label = try Self.droidAccountName(name)
+        try lock.withLock {
+            try ensureNoRecovery()
+            var registry = try loadRegistryLocked()
+            guard let index = registry.accounts.firstIndex(where: { $0.id == accountID && $0.identity.providerID == .droid }) else {
+                throw AIManagerError.accountNotFound
+            }
+            guard registry.accounts[index].identity.accountID != label else { return }
+            registry.accounts[index].identity.accountID = label
+            try saveRegistry(registry)
+        }
+        return try status()
+    }
+
+    public static func droidAccountName(_ name: String) throws -> String {
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, label.count <= 100, !label.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+            throw AIManagerError.invalidSource("Enter a Droid account name with 1 to 100 characters.")
+        }
+        return label
+    }
+
     /// Scans one source. It reads only metadata and runs without the manager lock.
     public static func scanCleanup(_ source: CleanupSource, summaries: [ChatThreadSummary] = []) throws -> CleanupScan {
         try CleanupScanner(source: source, summaries: summaries).scan()
@@ -1897,10 +1922,7 @@ extension AccountManager {
     }
 
     private func saveDroidAccount(from source: URL, hint: String?, name: String, targetID: UUID?, adoptLive: Bool, refreshLive: Bool = false, allowDuplicate: Bool = false, automatic: Bool = false) throws -> AccountRecord {
-        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty, label.count <= 100, !label.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
-            throw AIManagerError.invalidSource("Enter a Droid account name with 1 to 100 characters.")
-        }
+        let label = try Self.droidAccountName(name)
         let files = try droidProvider.files(in: source)
         try droidProvider.requireLogin(files)
         var registry = try loadRegistry()

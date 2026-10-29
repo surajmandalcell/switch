@@ -901,6 +901,16 @@ struct ProductionAccountViewModelCheck {
         model.droidConfirmation = { message, _ in prompts.append(message); return true }
         await model.checkAccountLogin()
         try expect(model.status?.accounts.count == 3 && model.selectedAccount?.identity.accountID == "Droid duplicate", "Confirmed duplicate was not added")
+        let duplicateID = try selectedAccountID(model)
+        try expect(model.canRename(try expect(model.selectedAccount, "No Droid account to rename")), "A Droid account could not be renamed")
+        await model.renameAccount(duplicateID, to: " Droid spare ")
+        try expect(model.status?.accounts.first { $0.id == duplicateID }?.identity.accountID == "Droid spare" && model.errorMessage == nil,
+                   "Rename did not reach the GUI")
+        await model.renameAccount(duplicateID, to: "  ")
+        try expect(model.errorMessage?.contains("1 to 100 characters") == true
+                   && model.status?.accounts.first { $0.id == duplicateID }?.identity.accountID == "Droid spare",
+                   "An empty name was not refused")
+        model.errorMessage = nil
         // Missions: listed under the default account's name, Resume and Start here write launch files.
         let project = droidRoot.appending(path: "project", directoryHint: .isDirectory)
         let mission = paths.droidHome.appending(path: "missions/abcd1234-synthetic", directoryHint: .isDirectory)

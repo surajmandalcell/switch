@@ -58,6 +58,7 @@ struct AccountsPage: View {
     }
     .environment(\.aimPageFadeKey, query)
     .accountDeletionAlert(model: model, pending: $pendingDeletion)
+    .accountRenameAlert(model: model)
     // The page restores its selection once per launch, then remembers each change.
     .onChange(of: model.hasLoaded, initial: true) { _, loaded in
       guard loaded, !AIMPlace.accountsFocusRestored else { return }
@@ -109,6 +110,10 @@ struct AccountsPage: View {
       Button(account.identity.providerID == .claudeCode ? "Copy config path" : AccountActionCopy.copyAuthPath) {
         model.copySavedAuthPath(for: account.id)
       }
+    }
+    if account.identity.providerID == .droid {
+      Button("Rename…") { model.renamingAccountID = account.id }
+        .disabled(model.isBusy || !model.canRename(account))
     }
     Divider()
     Button("Move up") {
@@ -1246,6 +1251,10 @@ struct AccountMenuItems: View {
 
   var body: some View {
     Button("Copy Name") { _ = copyPath(account.identity.realAccountLabel) }
+    if account.identity.providerID == .droid {
+      Button("Rename…") { model.renamingAccountID = account.id }
+        .disabled(model.isBusy || !model.canRename(account))
+    }
     if !account.usesGenericDetail {
       Button(account.identity.providerID == .claudeCode ? "Copy Config Path" : AccountActionCopy.copyAuthPath) {
         model.copySavedAuthPath(for: account.id)
@@ -1340,6 +1349,37 @@ struct AccountDeletionAlert: ViewModifier {
 extension View {
   func accountDeletionAlert(model: AccountViewModel, pending: Binding<AccountRecord?>) -> some View {
     modifier(AccountDeletionAlert(model: model, pending: pending))
+  }
+
+  func accountRenameAlert(model: AccountViewModel) -> some View {
+    modifier(AccountRenameAlert(model: model))
+  }
+}
+
+/// Renames a Droid account. Droid logins carry no readable name, so this name labels it everywhere.
+struct AccountRenameAlert: ViewModifier {
+  @ObservedObject var model: AccountViewModel
+  @State private var name = ""
+
+  private var account: AccountRecord? {
+    model.status?.accounts.first { $0.id == model.renamingAccountID }
+  }
+
+  func body(content: Content) -> some View {
+    content.alert(
+      "Rename \(account?.identity.accountID ?? "account")",
+      isPresented: Binding(get: { account != nil }, set: { if !$0 { model.renamingAccountID = nil } }),
+      presenting: account
+    ) { account in
+      TextField("Account name", text: $name)
+      Button("Rename") { Task { await model.renameAccount(account.id, to: name) } }
+      Button("Cancel", role: .cancel) {}
+    } message: { _ in
+      Text("Its sign-in, default, and missions stay the same.")
+    }
+    .onChange(of: model.renamingAccountID, initial: true) {
+      name = account?.identity.accountID ?? ""
+    }
   }
 }
 
