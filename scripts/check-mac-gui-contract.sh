@@ -60,6 +60,12 @@ if rg -n 'AIMStateChip' "$repo_root/packages/mac-gui/Sources"; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL obsolete default state chip' >&2
   exit 1
 fi
+# An observable object read from the environment is optional: a hosting graph without it (a menu, a drag,
+# a cached page during teardown) then draws the view without it instead of crashing the app.
+if rg -n '@Environment\([A-Z][A-Za-z]*\.self\) (private )?var [A-Za-z]+\s*$' "$repo_root/packages/mac-gui/Sources"; then
+  printf '%s\n' 'MAC_GUI_CONTRACT_FAIL an @Environment observable object is not optional: declare it as Type?' >&2
+  exit 1
+fi
 # The result of an action is a macOS notification, never a card: only the model and the Maintenance store touch `notice`.
 if rg -n 'model\.notice' "$repo_root/packages/mac-gui/Sources" --glob '!AccountViewModel.swift' --glob '!MaintenanceStore.swift'; then
   printf '%s\n' 'MAC_GUI_CONTRACT_FAIL a view renders model.notice: post the message as a notification instead' >&2
