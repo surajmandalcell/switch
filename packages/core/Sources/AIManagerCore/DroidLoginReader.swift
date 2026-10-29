@@ -100,6 +100,20 @@ public struct DroidLoginReader: Sendable {
     /// Droid v2 uses base64(16-byte IV):base64(16-byte tag):base64(ciphertext), with AES-256-GCM.
     /// Files have already passed the adapter's private-file and size checks.
     func read(files: [String: Data], interactive: Bool = false, now: Date = Date()) throws -> Login {
+        let login = try decrypt(files: files, interactive: interactive)
+        guard login.expiresAt > now else { throw DroidLoginError.expired }
+        return login
+    }
+
+    /// The token's `sub` claim, read without a prompt. An expired token still names its account,
+    /// so two logins whose doctor masks match ("s***@gmail.com") can still be told apart.
+    func subject(files: [String: Data]) -> String? {
+        guard let login = try? decrypt(files: files, interactive: false),
+              let subject = Fmt.jwtClaims(login.accessToken)?["sub"].string, !subject.isEmpty else { return nil }
+        return subject
+    }
+
+    private func decrypt(files: [String: Data], interactive: Bool) throws -> Login {
         let secure = files["auth.v2.loginkeychain"] != nil
         guard let data = files[secure ? "auth.v2.loginkeychain" : "auth.v2.file"],
               let text = String(data: data, encoding: .utf8) else { throw DroidLoginError.invalidLogin }
@@ -130,7 +144,6 @@ public struct DroidLoginReader: Sendable {
             }
             login = Login(accessToken: token, expiresAt: Date(timeIntervalSince1970: expiry))
         } catch { throw DroidLoginError.invalidLogin }
-        guard login.expiresAt > now else { throw DroidLoginError.expired }
         return login
     }
 
