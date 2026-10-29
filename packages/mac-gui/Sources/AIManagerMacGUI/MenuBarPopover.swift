@@ -244,6 +244,9 @@ struct MenuBarSnapshot: Equatable, Sendable {
   let lastRefreshedAt: Date?
   let serviceOrder: [ProviderID]
   let hiddenServices: Set<ProviderID>
+  let hiddenAccounts: Set<UUID>
+  /// Only one account of each service in the menu bar: the default one, else the first shown.
+  let onePerService: Bool
 
   var orderedAccounts: [MenuBarAccountSnapshot] {
     let providers = MenuBarServicePreferences.orderedProviders(accounts.map(\.providerID), order: serviceOrder)
@@ -256,9 +259,16 @@ struct MenuBarSnapshot: Equatable, Sendable {
 
   var statusAccountGroups: [[MenuBarAccountSnapshot]] {
     var groups: [[MenuBarAccountSnapshot]] = []
-    for account in orderedAccounts.filter({
-      $0.showsUsage && $0.isVerified && $0.remainingPercentage != nil && !hiddenServices.contains($0.providerID)
-    }).prefix(Self.maximumStatusAccounts) {
+    var eligible = orderedAccounts.filter {
+      $0.showsUsage && $0.isVerified && $0.remainingPercentage != nil && showsInTray($0)
+    }
+    if onePerService {
+      let chosen = Set(Dictionary(grouping: eligible, by: \.providerID).values.compactMap {
+        ($0.first(where: \.isActive) ?? $0.first)?.id
+      })
+      eligible = eligible.filter { chosen.contains($0.id) }
+    }
+    for account in eligible.prefix(Self.maximumStatusAccounts) {
       if let index = groups.firstIndex(where: { $0.first?.providerID == account.providerID }) {
         groups[index].append(account)
       } else {
@@ -268,6 +278,11 @@ struct MenuBarSnapshot: Equatable, Sendable {
     return groups
   }
 
+  /// The service eye and the account eye both allow it.
+  func showsInTray(_ account: MenuBarAccountSnapshot) -> Bool {
+    !hiddenServices.contains(account.providerID) && !hiddenAccounts.contains(account.id)
+  }
+
   static let empty = MenuBarSnapshot(
     accounts: [], lastRefreshedAt: nil)
 
@@ -275,11 +290,15 @@ struct MenuBarSnapshot: Equatable, Sendable {
     accounts: [MenuBarAccountSnapshot],
     lastRefreshedAt: Date? = nil,
     serviceOrder: [ProviderID] = [],
-    hiddenServices: Set<ProviderID> = []
+    hiddenServices: Set<ProviderID> = [],
+    hiddenAccounts: Set<UUID> = [],
+    onePerService: Bool = false
   ) {
     self.accounts = accounts
     self.serviceOrder = serviceOrder
     self.hiddenServices = hiddenServices
+    self.hiddenAccounts = hiddenAccounts
+    self.onePerService = onePerService
     self.lastRefreshedAt = lastRefreshedAt ?? accounts.compactMap(\.usage?.fetchedAt).max()
   }
 }
@@ -446,7 +465,8 @@ final class MenuBarPopoverStore: ObservableObject {
 
   func updateServiceOrder(_ order: [ProviderID]) {
     snapshot = MenuBarSnapshot(accounts: snapshot.accounts, lastRefreshedAt: snapshot.lastRefreshedAt,
-      serviceOrder: order, hiddenServices: snapshot.hiddenServices)
+      serviceOrder: order, hiddenServices: snapshot.hiddenServices, hiddenAccounts: snapshot.hiddenAccounts,
+      onePerService: snapshot.onePerService)
   }
 
   func toggleExpanded(_ account: MenuBarAccountSnapshot) {
@@ -670,7 +690,8 @@ struct MenuBarPopover: View {
                   expanded: store.expandedAccountID == account.id,
                   canSwitch: store.canSwitch(account),
                   isRefreshingUsage: store.isRefreshingUsage,
-                  store: store, previewHovered: previewHoveredID == account.id)
+                  store: store, previewHovered: previewHoveredID == account.id,
+                  showsInTray: !store.snapshot.hiddenAccounts.contains(account.id))
                 .equatable()
                 .id(account.id)
                 .focusable(MenuBarPresentation.canExpand(account, hasOpenTool: store.actions.openTool != nil))

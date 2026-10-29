@@ -60,7 +60,7 @@ enum SettingsReset {
     "appearanceMode", AppearanceOverride.key, "launchPlace", EmailPrivacy.domainsKey, EmailPrivacy.privacyModeKey,
     "usageTokenPeriod", ChatFilterPersistence.defaultsKey,
     AIManagerWindowBehavior.minimizeToTrayKey,
-    MenuBarUsagePreferences.defaultKey, MenuBarTokenPeriod.preferenceKey,
+    MenuBarUsagePreferences.defaultKey, MenuBarTokenPeriod.preferenceKey, MenuBarServicePreferences.onePerServiceKey,
     UsagePercentagePreferences.showsUsedKey, ProviderStatusPoller.enabledKey, EmailPrivacy.key,
     QuotaNotificationSettings.almostOutKey, QuotaNotificationSettings.paceKey,
     QuotaNotificationSettings.availableAgainKey, QuotaNotificationSettings.signInAgainKey,

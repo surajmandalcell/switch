@@ -4,6 +4,8 @@ import AIManagerCore
 enum MenuBarServicePreferences {
   static let orderKey = "menuBarServiceOrder"
   static let hiddenKey = "menuBarHiddenServices"
+  static let hiddenAccountsKey = "menuBarHiddenAccounts"
+  static let onePerServiceKey = "menuBarOneAccountPerService"
 
   static func order(defaults: UserDefaults = .standard) -> [ProviderID] {
     (defaults.stringArray(forKey: orderKey) ?? []).map { ProviderID(rawValue: $0) }
@@ -41,6 +43,20 @@ enum MenuBarServicePreferences {
     var hidden = hiddenServices(defaults: defaults)
     if !hidden.insert(provider).inserted { hidden.remove(provider) }
     defaults.set(hidden.map(\.rawValue).sorted(), forKey: hiddenKey)
+  }
+
+  static func hiddenAccounts(defaults: UserDefaults = .standard) -> Set<UUID> {
+    Set((defaults.stringArray(forKey: hiddenAccountsKey) ?? []).compactMap(UUID.init(uuidString:)))
+  }
+
+  static func toggleAccountVisibility(_ account: UUID, defaults: UserDefaults = .standard) {
+    var hidden = hiddenAccounts(defaults: defaults)
+    if !hidden.insert(account).inserted { hidden.remove(account) }
+    defaults.set(hidden.map(\.uuidString).sorted(), forKey: hiddenAccountsKey)
+  }
+
+  static func showsOnePerService(defaults: UserDefaults = .standard) -> Bool {
+    defaults.bool(forKey: onePerServiceKey)
   }
 }
 

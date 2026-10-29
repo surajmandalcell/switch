@@ -57,6 +57,8 @@ enum SettingsSearch {
             help: c.autoSwitchResumeHelp, keywords: "automatic rotate limit message prompt"),
       Entry(id: "menu-usage", section: "Menu bar", title: "Show account usage",
             help: "Accounts without their own choice show cached usage in Menubar.", keywords: "menubar popover"),
+      Entry(id: "menu-one-per-service", section: "Menu bar", title: c.onePerService, help: c.onePerServiceHelp,
+            keywords: "menubar tray single default account service provider"),
       Entry(id: "menu-tokens", section: "Menu bar", title: "Token summary",
             help: "Choose the period shown beside each account’s usage.", keywords: "menubar popover period"),
       Entry(id: "menu-refresh", section: "Menu bar", title: c.refreshOnOpen, help: c.refreshOnOpenHelp,
@@ -159,6 +161,8 @@ enum SettingsCopy {
   static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
   static let refreshOnOpen = "Refresh when the menu opens"
   static let refreshOnOpenHelp = "Check usage each time the popover opens."
+  static let onePerService = "One account per service"
+  static let onePerServiceHelp = "The menu bar shows the default account of each service, or its first account with usage."
   static let resetSettings = "Reset settings"
   static let resetSettingsHelp =
     "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."

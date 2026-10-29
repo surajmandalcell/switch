@@ -337,7 +337,9 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
             lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
                 + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max(),
             serviceOrder: MenuBarServicePreferences.order(),
-            hiddenServices: MenuBarServicePreferences.hiddenServices())
+            hiddenServices: MenuBarServicePreferences.hiddenServices(),
+            hiddenAccounts: MenuBarServicePreferences.hiddenAccounts(),
+            onePerService: MenuBarServicePreferences.showsOnePerService())
     }
 
     private func menuBarUsage(

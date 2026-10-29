@@ -720,6 +720,30 @@ enum AIManagerMenuBarContract {
     expect(controller.statusTitle == "80% 50% 100% 70% 60% 40%",
       "The tray image groups do not follow service order")
 
+    let hiddenRows = MenuBarSnapshot(accounts: enabled, hiddenAccounts: [enabled[0].id, enabled[2].id])
+    expect(hiddenRows.statusAccounts.map(\.id) == [3, 4, 6, 7, 5].map { enabled[$0].id },
+      "A hidden account consumes a tray slot, or hiding changes the other accounts")
+    let hiddenRowsStore = MenuBarPopoverStore(snapshot: hiddenRows, actions:
+      MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }), defaults: defaults)
+    expect(hiddenRowsStore.rows.map(\.id) == [0, 3, 4, 6, 7, 2, 5].map { enabled[$0].id },
+      "Hiding an account from the tray removes or moves its popover row")
+    let single = MenuBarSnapshot(accounts: enabled, onePerService: true)
+    expect(single.statusAccounts.map(\.id) == [0, 5].map { enabled[$0].id },
+      "One account per service does not take the default account, else the first one")
+    expect(MenuBarSnapshot(accounts: enabled, hiddenAccounts: [enabled[5].id], onePerService: true)
+      .statusAccounts.map(\.id) == [0, 2].map { enabled[$0].id },
+      "One account per service picks a hidden account instead of the next one")
+    controller.update(snapshot: single)
+    expect(controller.statusTitle == "100% 50%" && !controller.statusAccessibilityLabel.contains(enabled[3].identity),
+      "The tray shows more than one account of a service with One account per service on")
+    let toggled = UUID()
+    MenuBarServicePreferences.toggleAccountVisibility(toggled, defaults: defaults)
+    expect(MenuBarServicePreferences.hiddenAccounts(defaults: defaults) == [toggled],
+      "The account eye does not save the hidden account")
+    MenuBarServicePreferences.toggleAccountVisibility(toggled, defaults: defaults)
+    expect(MenuBarServicePreferences.hiddenAccounts(defaults: defaults).isEmpty,
+      "The account eye does not show the account again")
+
     for provider in [ProviderID(rawValue: "devin"), .droid] {
       let pair = (0..<2).map { index in
         MenuBarAccountSnapshot(id: UUID(), identity: "saved-\(index)", detail: "", isVerified: true,
