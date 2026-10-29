@@ -167,14 +167,16 @@ final class DroidLoginReaderTests: XCTestCase {
         XCTAssertEqual(usage.windows.first?.usedPercent, 25)
         _ = try await manager.readProviderUsage(accountID: first.id)
         XCTAssertEqual(keys.interactions, [true, false])
-        try CoreSupport.atomicWrite(try encrypted(expiry: 100), to: live, fileManager: fm)
+        // One sealed value: JSON key order (and so the bytes) can differ between two encryptions.
+        let expired = try encrypted(expiry: 100)
+        try CoreSupport.atomicWrite(expired, to: live, fileManager: fm)
         do { _ = try await manager.readProviderUsage(accountID: second.id); XCTFail("Expired login accepted") }
         catch { XCTAssertEqual(error as? DroidLoginError, .expired) }
         try await manager.setDroidUsageAPIKey(accountID: second.id, apiKey: "synthetic-api-key")
         _ = try await manager.readProviderUsage(accountID: second.id)
         XCTAssertEqual(keys.interactions, [true, false, false])
         XCTAssertTrue(try Data(contentsOf: first.credentialFile.appending(path: "auth.v2.loginkeychain")) == before)
-        XCTAssertTrue(try Data(contentsOf: live) == encrypted(expiry: 100))
+        XCTAssertTrue(try Data(contentsOf: live) == expired)
         XCTAssertFalse(CoreSupport.entryExists(paths.droidHome.appending(path: "auth.v2.key")))
     }
 }
