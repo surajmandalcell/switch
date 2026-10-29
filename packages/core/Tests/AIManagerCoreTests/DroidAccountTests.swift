@@ -260,6 +260,29 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertTrue(again.isEmpty)
     }
 
+    func testRenameChangesOnlyTheDroidName() async throws {
+        let manager = try manager()
+        let (first, second) = try await accounts(manager)
+        let before = try await manager.status()
+        let status = try await manager.renameDroidAccount(first.id, to: "  Home laptop  ")
+        let renamed = try XCTUnwrap(status.accounts.first { $0.id == first.id })
+        XCTAssertEqual(renamed.identity.accountID, "Home laptop")
+        XCTAssertEqual(renamed.credentialDigest, first.credentialDigest)
+        XCTAssertEqual(renamed.credentialFile, first.credentialFile)
+        XCTAssertEqual(status.defaultAccountID(for: .droid), before.defaultAccountID(for: .droid))
+        XCTAssertEqual(status.accounts.first { $0.id == second.id }?.identity.accountID, "Work")
+        XCTAssertEqual(status.accounts.map(\.id), before.accounts.map(\.id))
+        for bad in ["", "   ", "two\nlines", String(repeating: "x", count: 101)] {
+            do { _ = try await manager.renameDroidAccount(first.id, to: bad); XCTFail("Accepted the name \(bad.debugDescription)") }
+            catch { guard case AIManagerError.invalidSource = error else { return XCTFail("Wrong error \(error)") } }
+        }
+        do { _ = try await manager.renameDroidAccount(UUID(), to: "Nobody"); XCTFail("Renamed a missing account") }
+        catch { guard case AIManagerError.accountNotFound = error else { return XCTFail("Wrong error \(error)") } }
+        let reloaded = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, droidProcessLister: { [] })
+        let saved = try await reloaded.status().accounts.first { $0.id == first.id }
+        XCTAssertEqual(saved?.identity.accountID, "Home laptop")
+    }
+
     func testImportOpaqueLoginAndPrivateCopiesWithoutChangingLiveFiles() async throws {
         let manager = try manager()
         let history = paths.droidHome.appending(path: "sessions-index.json")

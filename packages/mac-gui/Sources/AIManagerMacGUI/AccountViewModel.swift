@@ -1409,6 +1409,30 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    /// The Droid account whose Rename dialog is open.
+    @Published var renamingAccountID: UUID?
+
+    /// Only Droid names are the owner's; other services name accounts by their sign-in. Privacy mode
+    /// shows a made-up name, so the dialog would reveal the real one.
+    func canRename(_ account: AccountRecord) -> Bool {
+        account.identity.providerID == .droid && !EmailPrivacy.isPrivacyMode()
+    }
+
+    func renameAccount(_ accountID: UUID, to name: String) async {
+        await perform(failure: "Couldn’t rename the account.") {
+            if let manager {
+                status = try await manager.renameDroidAccount(accountID, to: name)
+                return
+            }
+            #if AI_MANAGER_PREVIEW
+            guard isDemo, var current = status,
+                  let index = current.accounts.firstIndex(where: { $0.id == accountID }) else { return }
+            current.accounts[index].identity.accountID = try AccountManager.droidAccountName(name)
+            status = current
+            #endif
+        }
+    }
+
     func adjacentAccountID(to accountID: UUID, offset: Int) -> UUID? {
         guard let accounts = status?.accounts,
               let index = accounts.firstIndex(where: { $0.id == accountID }),

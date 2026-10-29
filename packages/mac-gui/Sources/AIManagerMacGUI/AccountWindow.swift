@@ -964,7 +964,7 @@ struct AddAccountFlow: View {
               },
               set: { model.droidAccountName = $0 }))
               .disabled(namesExisting)
-              .help(namesExisting && EmailPrivacy.isPrivacyMode() ? "Turn off Privacy mode to rename this account." : "")
+              .help(namesExisting ? "Rename this account from its More menu on Accounts." : "")
               .accessibilityHint("Name this encrypted login, for example Droid personal.")
             if model.accountLoginSession == nil {
               SecureField("Factory API key (optional, for usage)", text: $model.droidAPIKey)

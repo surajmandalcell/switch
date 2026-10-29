@@ -40,7 +40,9 @@ Terminal with a private temporary `FACTORY_HOME_OVERRIDE`, one Droid login at a 
 Factory login supplies that key. While Factory.app runs work, live tests use the droid CLI
 in a separate `FACTORY_HOME_OVERRIDE` test home, never `~/.factory`.
 
-Droid identities are opaque. The owner names imports and sign-ins ("Droid 1"). Account-scoped
+Droid identities are opaque. The owner names imports and sign-ins ("Droid 1") and can rename
+them later (Rename… in the row and More menus, 1 to 100 characters, off in Privacy mode); the
+login, default, usage key, and missions stay keyed by account id. Account-scoped
 sign-in confirms the target name first. Run `droid doctor --auth --json` with
 `FACTORY_HOME_OVERRIDE` and matching `FACTORY_DISABLE_KEYRING` on the login's own home (staging
 for sign-in, live for import). Use Factory.app's bundled droid when present. Never use a copy:
