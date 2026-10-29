@@ -20,6 +20,7 @@ struct SettingsPage: View {
   @AppStorage(AIManagerWindowBehavior.minimizeToTrayKey) private var minimizeToTray = false
   @AppStorage(MenuBarUsagePreferences.defaultKey) private var defaultShowUsage = true
   @AppStorage(MenuBarTokenPeriod.preferenceKey) private var menuTokenPeriod = MenuBarTokenPeriod.sinceReset
+  @AppStorage(MenuBarServicePreferences.onePerServiceKey) private var onePerService = false
   @AppStorage(UsagePercentagePreferences.showsUsedKey) private var showUsageAsUsed = false
   @AppStorage(ResetDisplay.exactKey) private var resetIsExact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto
@@ -212,6 +213,12 @@ struct SettingsPage: View {
             Toggle(isOn: $defaultShowUsage) {
               Text("Show account usage")
               settingDetail("Accounts without their own choice show cached usage in Menubar.")
+            }
+          }
+          if filter.shows("menu-one-per-service") {
+            Toggle(isOn: $onePerService) {
+              Text(SettingsCopy.onePerService)
+              settingDetail(SettingsCopy.onePerServiceHelp)
             }
           }
           if filter.shows("menu-tokens") {

@@ -1512,6 +1512,7 @@ struct AccountsTableCard: View {
   @State private var hover = AccountsRowHover()
   @State private var serviceOrder = MenuBarServicePreferences.order()
   @State private var hiddenServices = MenuBarServicePreferences.hiddenServices()
+  @State private var hiddenAccounts = MenuBarServicePreferences.hiddenAccounts()
   @State private var serviceReorder = ServiceReorderState()
 
   var body: some View {
@@ -1532,8 +1533,10 @@ struct AccountsTableCard: View {
     .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in
       let order = MenuBarServicePreferences.order()
       let hidden = MenuBarServicePreferences.hiddenServices()
+      let hiddenRows = MenuBarServicePreferences.hiddenAccounts()
       if serviceReorder.source == nil && serviceOrder != order { serviceOrder = order }
       if hiddenServices != hidden { hiddenServices = hidden }
+      if hiddenAccounts != hiddenRows { hiddenAccounts = hiddenRows }
     }
     .environment(serviceReorder)
     .onChange(of: serviceReorder.order) { _, order in serviceOrder = order }
@@ -1574,7 +1577,7 @@ struct AccountsTableCard: View {
           let isLast = groupIndex == groups.count - 1 && index == group.accounts.count - 1
           AccountsTableRow(
             account: account, model: model, selected: account.id == focusedID, now: now,
-            hideEmails: hideEmails, showsUsed: showsUsed,
+            hideEmails: hideEmails, showsUsed: showsUsed, showsInTray: !hiddenAccounts.contains(account.id),
             focus: { focus(account.id) }, delete: { delete(account) },
             onMove: onMove, contextMenu: contextMenu)
             .overlay(alignment: .top) {
@@ -1768,6 +1771,7 @@ private struct AccountsTableRow: View {
   let now: Date
   let hideEmails: Bool
   let showsUsed: Bool
+  let showsInTray: Bool
   let focus: () -> Void
   let delete: () -> Void
   let onMove: ((UUID, UUID) -> Void)?
@@ -1809,6 +1813,8 @@ private struct AccountsTableRow: View {
             .help(note)
             .accessibilityLabel(note)
         }
+        Spacer(minLength: 0)
+        AccountRowEye(account: account, name: name, showsInTray: showsInTray)
       }
       .aimColumn(columns[0], group: group)
       // The bar and "83% · 6d 19h"; with no window, the reason fills the cell instead.
@@ -1886,6 +1892,19 @@ private struct AccountsTableRow: View {
       .accessibilityValue(isDefault ? "Default account" : "Not the default account")
       .accessibilityAddTraits(selected ? .isSelected : [])
       .accessibilityAction(named: "Focus account", focus)
+  }
+}
+
+/// The account eye of a table row; it reads the shared hover, so a hover change redraws two eyes.
+private struct AccountRowEye: View {
+  let account: AccountRecord
+  let name: String
+  let showsInTray: Bool
+  @Environment(AccountsRowHover.self) private var hover: AccountsRowHover?
+
+  var body: some View {
+    AccountTrayEye(accountID: account.id, name: name, showsInTray: showsInTray,
+      hovered: hover?.hoveredID == account.id)
   }
 }
 

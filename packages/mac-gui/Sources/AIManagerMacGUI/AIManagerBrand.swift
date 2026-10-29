@@ -543,9 +543,10 @@ final class AIManagerStatusItemController: NSObject {
     button.imagePosition = .imageOnly
     button.image = AIManagerBrand.statusImage(
       groups: snapshot.statusAccountGroups, showsUsed: showsUsed, in: bundle)
+    let shownServices = Set(accounts.map(\.providerID))
     let omitted = snapshot.orderedAccounts.filter {
-      $0.showsUsage && !snapshot.hiddenServices.contains($0.providerID)
-        && (!$0.isVerified || $0.remainingPercentage == nil)
+      $0.showsUsage && snapshot.showsInTray($0) && (!$0.isVerified || $0.remainingPercentage == nil)
+        && !(snapshot.onePerService && shownServices.contains($0.providerID))
     }
     let description = (accounts + omitted).map { account in
       let quota = account.quotaUsedPercentage.map {

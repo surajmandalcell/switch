@@ -76,6 +76,44 @@ struct ServiceGroupHeader: View, Equatable {
   }
 }
 
+/// The small eye on an account row: it hides that one account from the menu bar and leaves the row
+/// in place, like the service eye on the header. It fades in on row hover; a hidden account keeps a
+/// dimmed eye.slash.
+struct AccountTrayEye: View {
+  let accountID: UUID
+  let name: String
+  let showsInTray: Bool
+  let hovered: Bool
+  @FocusState private var focused: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  static let size: CGFloat = 18
+
+  var body: some View {
+    let help = showsInTray ? "Hide account from menu bar" : "Show account in menu bar"
+    Button {
+      MenuBarServicePreferences.toggleAccountVisibility(accountID)
+    } label: {
+      Image(systemName: showsInTray ? "eye" : "eye.slash")
+        .aimText(.secondary)
+        .imageScale(.small)
+        .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+        .frame(width: Self.size, height: Self.size)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .focused($focused)
+    .focusEffectDisabled()
+    .foregroundStyle(.secondary)
+    .opacity(hovered || focused ? 1 : showsInTray ? 0 : 0.5)
+    .animation(.easeOut(duration: 0.18), value: hovered || focused)
+    .animation(.easeOut(duration: 0.18), value: showsInTray)
+    .help(help)
+    .accessibilityLabel("\(help): \(name)")
+    .accessibilityIdentifier("account-eye-\(accountID.uuidString)")
+  }
+}
+
 /// Track inactive windows too, without making the header a mouse or keyboard target.
 private struct ServiceHeaderHover: NSViewRepresentable {
   let provider: ProviderID

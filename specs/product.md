@@ -165,6 +165,8 @@ off ("ada@mail.co.uk" reads "ada@mail").
    rows, and the shortcut; it keeps accounts, sign-ins, placement, and Open at Login.
 2. **Data locations** shows the Codex and Grok Build homes and vaults (section 1) with Reveal.
 3. **Menu bar defaults** has Show account usage on by default; explicit overrides survive changes.
+   **One account per service** (off by default) keeps one tray account per service: the default
+   account, else the first shown one. Popover rows stay.
 4. **Notifications** offers Almost Out (under 10% left), pace (Cutting It Close, Will Run Out),
    Available again (full window reset), and Sign in again (once per failure episode). All are off
    by default; enabling or first post asks permission. Launch never alerts; count only delivered alerts.
@@ -332,6 +334,9 @@ Acceptance uses only window-local events.
 Header eye buttons change tray visibility only; popover rows remain. Save visibility by provider id;
 account preferences still apply. Hover fades in the right-hand eye in 180 ms. Hidden services keep
 a dimmed eye.slash. Symbols replace; Reduce Motion uses fades. Controls never shift rows.
+Each account row (popover and Accounts) has a smaller eye in its reserved trailing slot that hides
+only that account from the tray, saved by account id. It follows the header eye's hover, fade, and
+dimmed eye.slash rules; the row context menu and VoiceOver offer Hide from/Show in menu bar.
 
 Drag the hover grip left of the guide line to reorder accounts within a provider. A blue line
 marks the landing spot; Move up and Move down remain in the context menu. Save order atomically

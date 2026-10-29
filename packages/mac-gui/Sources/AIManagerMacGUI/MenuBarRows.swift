@@ -377,6 +377,7 @@ struct MenuBarRow: View, Equatable {
   let isRefreshingUsage: Bool
   let store: MenuBarPopoverStore
   var previewHovered = false
+  var showsInTray = true
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.account == rhs.account && lhs.now == rhs.now && lhs.showsUsed == rhs.showsUsed
@@ -384,11 +385,13 @@ struct MenuBarRow: View, Equatable {
       && lhs.expanded == rhs.expanded
       && lhs.canSwitch == rhs.canSwitch && lhs.isRefreshingUsage == rhs.isRefreshingUsage
       && lhs.store === rhs.store && lhs.previewHovered == rhs.previewHovered
+      && lhs.showsInTray == rhs.showsInTray
   }
 
   @AppStorage(ResetDisplay.exactKey) private var exact = false
   @AppStorage(ResetDisplay.hourFormatKey) private var hourFormat = HourFormat.auto.rawValue
   @State private var hovered = false
+  @State private var pointerInside = false
   @State private var barsVisible = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -462,7 +465,10 @@ struct MenuBarRow: View, Equatable {
       }
     }
     .contentShape(Rectangle())
-    .onHover { hovered = canExpand && $0 }
+    .onHover {
+      pointerInside = $0
+      hovered = canExpand && $0
+    }
     .animation(.easeOut(duration: 0.12), value: hovered)
     .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.9), value: account.isActive)
     .onAppear { withAnimation(reduceMotion ? .easeOut(duration: 0.18) : .easeOut(duration: 0.3)) { barsVisible = true } }
@@ -479,6 +485,9 @@ struct MenuBarRow: View, Equatable {
       }
       if canSwitch {
         Button("Switch") { store.select(account) }
+      }
+      if account.showsUsage {
+        Button(trayVisibilityTitle) { MenuBarServicePreferences.toggleAccountVisibility(account.id) }
       }
     }
   }
@@ -530,7 +539,7 @@ struct MenuBarRow: View, Equatable {
         .help(account.identity)
         .padding(.trailing, account.showsPrompt ? 54 : 0)
       trailing
-        .frame(width: 18, height: P.headerHeight)
+        .frame(minWidth: 18, minHeight: P.headerHeight, maxHeight: P.headerHeight, alignment: .trailing)
     }
     .frame(height: P.headerHeight)
   }
@@ -548,6 +557,10 @@ struct MenuBarRow: View, Equatable {
           .focusEffectDisabled()
           .help("\(error) Click to copy.")
           .accessibilityLabel("Copy account error")
+        }
+        if account.showsUsage {
+          AccountTrayEye(accountID: account.id, name: account.identity, showsInTray: showsInTray,
+            hovered: pointerInside || previewHovered || isFocused)
         }
       }
     }
@@ -637,9 +650,14 @@ struct MenuBarRow: View, Equatable {
     }
     Button("Refresh") { Task { await store.refresh(account) } }
       .disabled(!account.supportsUsageRefresh || isRefreshingUsage)
+    if account.showsUsage {
+      Button(trayVisibilityTitle) { MenuBarServicePreferences.toggleAccountVisibility(account.id) }
+    }
     Divider()
     Button("Copy name") { store.copy(account.realName) }
   }
+
+  private var trayVisibilityTitle: String { showsInTray ? "Hide from menu bar" : "Show in menu bar" }
 }
 
 /// Only geometry and opacity observe the frame clock; text and controls keep their layout.
