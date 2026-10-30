@@ -518,11 +518,11 @@ struct AIMScrollPage<Content: View>: View {
   }
 }
 
-/// The values a second hosting graph (a page host) takes from the graph around it. Never pass the
-/// whole `EnvironmentValues` (`.environment(\.self, …)`): it carries the outer graph's dependency
-/// tracker, which then records every read the inner graph makes and never drops them. That grew by
-/// about 120 KB per model update (352 MB after 19 idle hours). System values the inner host reads
-/// from its window (reduce motion, contrast, appearance) need no copy.
+/// The values a page's scroll host takes from the page graph around it. Never pass a whole
+/// `EnvironmentValues` read inside a page (`context.environment`, `@Environment(\.self)`): it carries
+/// the page graph's dependency tracker, which then records every read the inner graph makes and never
+/// drops them. That grew by about 120 KB per model update (352 MB after 19 idle hours). The rest of
+/// the environment comes from the page cache (`aimHostedBase`, see `AIMVisitedPageHost`).
 struct AIMHostedEnvironment: ViewModifier {
   private let colorScheme: ColorScheme
   private let isEnabled: Bool
@@ -534,8 +534,29 @@ struct AIMHostedEnvironment: ViewModifier {
   private let pageFadeKey: String
   private let pageHeader: AnyView
   private let controlHeight: CGFloat
-  private let copyPath: @MainActor (String) -> Bool
+  private let copyPath: AIMCopyPath
   private let cancelSheet: () -> Void
+
+  /// The values that can be compared. The closures and the header are new with each window body and
+  /// do the same work, so they do not count.
+  struct Snapshot: Equatable {
+    let colorScheme: ColorScheme
+    let isEnabled: Bool
+    let displayScale: CGFloat
+    let layoutDirection: LayoutDirection
+    let locale: Locale
+    let lintSuppressed: Bool
+    let pageName: String
+    let pageFadeKey: String
+    let controlHeight: CGFloat
+  }
+
+  var snapshot: Snapshot {
+    Snapshot(
+      colorScheme: colorScheme, isEnabled: isEnabled, displayScale: displayScale,
+      layoutDirection: layoutDirection, locale: locale, lintSuppressed: lintSuppressed,
+      pageName: pageName, pageFadeKey: pageFadeKey, controlHeight: controlHeight)
+  }
 
   init(_ environment: EnvironmentValues) {
     colorScheme = environment.colorScheme
@@ -573,7 +594,9 @@ struct AIMHostedEnvironment: ViewModifier {
 
 /// A page's cards in an AppKit scroll view: the cards are one `AIMHostingView` sized to the clip width
 /// and its ideal height, so a scroll frame moves a layer and SwiftUI sees no event. The inner host is
-/// a separate hosting graph and takes its environment through `AIMHostedEnvironment`.
+/// a separate hosting graph: it takes the page cache's environment (`aimHostedBase`) with the page's
+/// own values (`AIMHostedEnvironment`) on top. Its root is built again only when those change; new
+/// content goes through `AIMPageSource`.
 struct AIMAppKitPage<Content: View>: NSViewRepresentable {
   let name: String
   @ViewBuilder var content: Content
@@ -592,10 +615,18 @@ struct AIMAppKitPage<Content: View>: NSViewRepresentable {
   func updateNSView(_ view: AIMPageScrollView, context: Context) { update(view, context) }
 
   private func update(_ view: AIMPageScrollView, _ context: Context) {
+    view.source.view = AnyView(content)
     let environment = AIMHostedEnvironment(context.environment)
-    let content = content
+    let base = context.environment.aimHostedBase
+    let key = AIMPageScrollView.RootKey(
+      environment: environment.snapshot, base: base.map(ObjectIdentifier.init))
+    guard view.rootKey != key else { return }
+    view.rootKey = key
+    let source = view.source
     view.setRoot {
-      AnyView(content.modifier(environment).environment(\.aimAnimatesAppearance, false))
+      let page = AnyView(
+        AIMPageSourceView(source: source).modifier(environment).environment(\.aimAnimatesAppearance, false))
+      return base.map { AnyView(page.environment(\.self, $0.values)) } ?? page
     }
   }
 
@@ -649,12 +680,47 @@ private struct AIMPageHeightKey: PreferenceKey {
   static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
+/// The page cache's whole environment, for the scroll hosts inside a cached page.
+final class AIMEnvironmentBox: @unchecked Sendable {
+  let values: EnvironmentValues
+  init(_ values: EnvironmentValues) { self.values = values }
+}
+
+private struct AIMHostedBaseKey: EnvironmentKey {
+  static let defaultValue: AIMEnvironmentBox? = nil
+}
+
+extension EnvironmentValues {
+  var aimHostedBase: AIMEnvironmentBox? {
+    get { self[AIMHostedBaseKey.self] }
+    set { self[AIMHostedBaseKey.self] = newValue }
+  }
+}
+
+/// A scroll host's content. A new value updates the root that is there; a new root ran every card
+/// body again.
+@MainActor @Observable final class AIMPageSource {
+  var view = AnyView(EmptyView())
+}
+
+private struct AIMPageSourceView: View {
+  let source: AIMPageSource
+  var body: some View { source.view }
+}
+
 /// The page scroll view: no system scroller (the model's thin `AIMScroller` overlays the gutter), a
 /// flipped document that is the page host, at the clip width and the content's height. The height
 /// comes out of the page's own layout pass as a preference: the host does no size tracking of its
 /// own, and a hover update that moves no card costs no measure.
 final class AIMPageScrollView: NSScrollView {
+  struct RootKey: Equatable {
+    let environment: AIMHostedEnvironment.Snapshot
+    let base: ObjectIdentifier?
+  }
+
   let host = AIMHostingView(rootView: AnyView(EmptyView()))
+  let source = AIMPageSource()
+  var rootKey: RootKey?
   private var makeRoot: (() -> AnyView)?
   private var width: CGFloat = -1
   private var contentHeight: CGFloat = 0
