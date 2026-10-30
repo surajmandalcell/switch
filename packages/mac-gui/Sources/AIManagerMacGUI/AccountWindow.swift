@@ -341,10 +341,12 @@ struct AccountWindow: View {
         applyAppearance(to: window)
       }
     )
-    .onAppear { AIManagerBrand.installApplicationIcon(dark: dark) }
+    .onAppear { AIManagerBrand.installApplicationIcon(dark: themeOverride.map { $0 == .dark }) }
     .onChange(of: dark) { _, _ in
       if let window = target.window { applyAppearance(to: window) }
-      AIManagerBrand.installApplicationIcon(dark: dark)
+    }
+    .onChange(of: appearanceMode) { _, _ in
+      AIManagerBrand.installApplicationIcon(dark: themeOverride.map { $0 == .dark })
     }
     .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.request)) { notification in
       guard let requestedPage = notification.object as? AIManagerPage else { return }

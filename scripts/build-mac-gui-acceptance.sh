@@ -94,6 +94,8 @@ install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app_path/Contents/Info
 ditto "$repo_root/packages/mac-gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
 install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.icns" \
   "$app_path/Contents/Resources/AppIcon.icns"
+install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.car" \
+  "$app_path/Contents/Resources/Assets.car"
 /usr/bin/plutil -replace CFBundleDisplayName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleName -string "$app_name" "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleExecutable -string 'AIManagerMacGUIAcceptance' "$app_path/Contents/Info.plist"

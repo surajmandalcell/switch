@@ -101,13 +101,16 @@ rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkMenubar.svg" \
 cmp "$expected/SwitchMarkMenubar.png" "$actual/SwitchMarkMenubar.png"
 cmp "$actual/SwitchMarkMenubar.png" "$icons/SwitchMarkMenubar.png"
 
-test -s "$icons/AppIconEmergencyStop.png"
-[[ "$(sips -g pixelWidth "$icons/AppIconEmergencyStop.png" | awk '/pixelWidth/ {print $2}')" == 1024 ]]
-[[ "$(sips -g pixelHeight "$icons/AppIconEmergencyStop.png" | awk '/pixelHeight/ {print $2}')" == 1024 ]]
+# The Dock icon: the PNGs render the same, and the catalog holds AppIcon with a dark appearance.
+bash "$repo_root/scripts/build-app-icon.sh" "$actual"
 for name in AppIcon AppIconLight AppIconDark
 do
-  cmp "$icons/AppIconEmergencyStop.png" "$icons/$name.png"
+  cmp "$actual/$name.png" "$icons/$name.png"
 done
+xcrun assetutil --info "$icons/AppIcon.car" > "$actual/car.json"
+rg -q '"Name" : "AppIcon"' "$actual/car.json"
+rg -q 'NSAppearanceNameDarkAqua' "$actual/car.json"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$repo_root/packaging/macos/Info.plist")" == AppIcon ]]
 
 rsvg-convert --width 18 --height 18 --page-width 22 --page-height 22 --left 2 --top 2 \
   "$icons/SwitchMarkMenubar.svg" --output "$actual/TrayTemplate.png"
@@ -118,10 +121,10 @@ cmp "$actual/TrayTemplate@2x.png" "$icons/TrayTemplate@2x.png"
 
 for size in 16 32 128 256 512
 do
-  sips -s format png -z "$size" "$size" "$icons/AppIconEmergencyStop.png" \
+  sips -s format png -z "$size" "$size" "$icons/AppIconLight.png" \
     --out "$iconset/icon_${size}x${size}.png" >/dev/null
   sips -s format png -z "$((size * 2))" "$((size * 2))" \
-    "$icons/AppIconEmergencyStop.png" \
+    "$icons/AppIconLight.png" \
     --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil --convert icns "$iconset" --output "$actual/AppIcon.icns"

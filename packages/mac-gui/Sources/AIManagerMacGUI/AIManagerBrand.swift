@@ -11,10 +11,15 @@ enum AIManagerBrand {
     bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? displayName
   }
 
+  /// With no appearance setting, the Dock draws the bundle icon (Assets.car), which follows the
+  /// system icon style at the full Dock size. The app's own Light or Dark setting sets the matching
+  /// Apple-grid image instead.
   static func installApplicationIcon(dark: Bool? = nil, in bundle: Bundle = .main) {
-    let usesDarkTreatment = dark ?? (
-      NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-    let treatment = usesDarkTreatment ? "AppIconDark" : "AppIconLight"
+    guard let dark else {
+      NSApp.applicationIconImage = nil
+      return
+    }
+    let treatment = dark ? "AppIconDark" : "AppIconLight"
     if let image = image(named: treatment, extension: "png", bundle: bundle)
       ?? image(named: "AppIcon", extension: "png", bundle: bundle)
     {
@@ -324,7 +329,7 @@ enum AIManagerBrand {
   static func acceptanceFailures(in bundle: Bundle = .main) -> [String] {
     var failures: [String] = []
     for (name, fileExtension) in [
-      ("AppIcon", "icns"), ("AppIcon", "png"),
+      ("AppIcon", "icns"), ("AppIcon", "car"), ("AppIcon", "png"),
       ("AppIconLight", "png"), ("AppIconDark", "png"),
       ("SwitchMarkPixelTrace", "svg"), ("SwitchMarkMenubar", "svg"),
       ("TrayTemplate", "png"), ("TrayTemplate@2x", "png"),
