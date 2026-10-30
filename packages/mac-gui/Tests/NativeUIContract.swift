@@ -1880,6 +1880,9 @@ enum AIManagerNativeContract {
     var model = AccountViewModel(scenario: .demo)
     var host = NSHostingView(rootView: AccountWindow(model: model, initialPageIndex: 0))
     var window = NSWindow()
+    // `close()` releases a window that is released when closed, and ARC releases it again: the
+    // autorelease pool then crashed the Preview app, whose contract does not end in terminate.
+    window.isReleasedWhenClosed = false
     // A fresh window and model, so the page prewarm runs while the sequence changes state.
     func makeRig() {
       model = AccountViewModel(scenario: .demo)
