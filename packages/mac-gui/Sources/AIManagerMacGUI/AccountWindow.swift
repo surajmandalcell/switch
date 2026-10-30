@@ -329,10 +329,10 @@ struct AccountWindow: View {
       }
       .frame(width: 680, height: 600)
       .interactiveDismissDisabled(model.isBusy)
-      .environment(\.aimCopyPath, model.copyPath)
+      .environment(\.aimCopyPath, model.copyPathAction)
       .tint(AIMTheme.passiveIcon)
     }
-    .environment(\.aimCopyPath, model.copyPath)
+    .environment(\.aimCopyPath, model.copyPathAction)
     .tint(AIMTheme.passiveIcon)
     .preferredColorScheme(themeOverride)
     .background(
@@ -563,9 +563,13 @@ struct AIMVisitedPageHost: NSViewRepresentable {
       reduceTransparency: environment.accessibilityReduceTransparency,
       contrast: environment.colorSchemeContrast, scale: environment.displayScale,
       direction: environment.layoutDirection, lintSuppressed: environment.uiLintSuppressed)
-    let hosted = AIMHostedEnvironment(environment)
+    // The whole window environment is safe here: a page's root is built only when `inputs` change,
+    // and the memory check (rebuilds included) shows no tracker growth. It also hides the window-less
+    // values a cached page sees while detached, which ran every view of the page again on each switch.
+    let base = AIMEnvironmentBox(environment)
     container.show(page, inputs: inputs) { requested, active in
-      AnyView(content(requested).modifier(hosted).ignoresSafeArea()
+      AnyView(content(requested).environment(\.self, environment).environment(\.aimHostedBase, base)
+        .ignoresSafeArea()
         .disabled(!active).allowsHitTesting(active).accessibilityHidden(!active))
     }
     container.needsLayout = true

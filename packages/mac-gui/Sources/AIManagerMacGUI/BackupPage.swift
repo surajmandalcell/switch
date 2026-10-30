@@ -91,7 +91,7 @@ struct BackupPage: View {
     }
     .sheet(item: $restoring) { request in
       BackupRestoreSheet(request: request, store: store) { restoring = nil }
-        .environment(\.aimCopyPath, model.copyPath)
+        .environment(\.aimCopyPath, model.copyPathAction)
         .tint(AIMTheme.passiveIcon)
     }
   }

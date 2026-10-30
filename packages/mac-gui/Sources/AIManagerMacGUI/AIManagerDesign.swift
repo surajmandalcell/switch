@@ -6,8 +6,37 @@ import SwiftUI
 // five text roles, system semantic colors, and native controls. These helpers only name the few
 // shared values (the roles, container geometry, bar colors) so every page agrees.
 
+/// Copies a path and reports whether it did. Two values with one owner are equal: SwiftUI cannot
+/// compare closures, so a closure here counted as changed on each update and ran every view that
+/// reads it again.
+struct AIMCopyPath: Equatable {
+  private let owner: ObjectIdentifier
+  private let run: @MainActor (String) -> Bool
+
+  init(owner: AnyObject, _ run: @escaping @MainActor (String) -> Bool) {
+    self.init(ownerID: ObjectIdentifier(owner), run)
+  }
+
+  private init(ownerID: ObjectIdentifier, _ run: @escaping @MainActor (String) -> Bool) {
+    owner = ownerID
+    self.run = run
+  }
+
+  static let none = AIMCopyPath(ownerID: ObjectIdentifier(AIMCopyPath.self)) { _ in false }
+
+  @MainActor func callAsFunction(_ path: String) -> Bool { run(path) }
+
+  static func == (lhs: AIMCopyPath, rhs: AIMCopyPath) -> Bool { lhs.owner == rhs.owner }
+}
+
 private struct AIMCopyPathKey: EnvironmentKey {
-  static let defaultValue: @MainActor (String) -> Bool = { _ in false }
+  static let defaultValue = AIMCopyPath.none
+}
+
+extension AccountViewModel {
+  var copyPathAction: AIMCopyPath {
+    AIMCopyPath(owner: self) { [weak self] path in self?.copyPath(path) ?? false }
+  }
 }
 
 enum UsageResetLabel {
@@ -38,7 +67,7 @@ private struct AIMCancelSheetKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-  var aimCopyPath: @MainActor (String) -> Bool {
+  var aimCopyPath: AIMCopyPath {
     get { self[AIMCopyPathKey.self] }
     set { self[AIMCopyPathKey.self] = newValue }
   }
@@ -816,7 +845,7 @@ where Item.ID: Hashable {
     private var fixedRowHeight: CGFloat?
     private var contentRevision = 0
     private var rowContent: ((Item) -> AnyView)?
-    private var copyPath: @MainActor (String) -> Bool = { _ in false }
+    private var copyPath = AIMCopyPath.none
     private var width: CGFloat = 0
     /// Measured row heights by item, width, and content revision.
     private var heights: [HeightKey: CGFloat] = [:]
@@ -867,7 +896,7 @@ where Item.ID: Hashable {
       items nextItems: [Item], rowSpacing: CGFloat, fixedRowHeight: CGFloat?,
       contentRevision nextContentRevision: Int,
       rowContent: @escaping (Item) -> AnyView,
-      copyPath: @escaping @MainActor (String) -> Bool
+      copyPath: AIMCopyPath
     ) {
       let oldItems = items
       items = nextItems

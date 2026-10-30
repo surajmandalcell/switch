@@ -525,6 +525,20 @@ private final class WheelTestDocument: NSView {
         failures.append("\(page.rawValue): environment trackers grew \((reading.tracked - warm) / 1_000) KB in \(cycles) updates")
       }
     }
+    // A change the page cache sees (busy, an error, the search) builds the page's root again.
+    await select(.accounts)
+    let before = memoryReading().tracked
+    for _ in 0..<cycles {
+      model.isBusy.toggle()
+      RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.002))
+      hosting.layoutSubtreeIfNeeded()
+    }
+    model.isBusy = false
+    let rebuilt = memoryReading()
+    print("MEMORY Accounts +\(cycles) rebuilds tracked=\(rebuilt.tracked) footprint=\(rebuilt.footprint)")
+    if rebuilt.tracked - before > 1_000_000 {
+      failures.append("Accounts: environment trackers grew \((rebuilt.tracked - before) / 1_000) KB in \(cycles) page rebuilds")
+    }
     window.close()
 
     // Closing the main window, or hiding it to the menu bar, hands it back so its pages can be freed.

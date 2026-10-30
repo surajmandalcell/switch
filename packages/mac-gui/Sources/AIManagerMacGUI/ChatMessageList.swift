@@ -132,7 +132,7 @@ struct ChatMessageList: NSViewRepresentable {
     var scrollObserver: NSObjectProtocol?
     private var items: [ChatRowItem] = []
     private var rowContent: ((ChatRowItem) -> AnyView)?
-    private var copyPath: @MainActor (String) -> Bool = { _ in false }
+    private var copyPath = AIMCopyPath.none
     private var onAnchor: ((ChatScrollAnchor) -> Void)?
     private var width: CGFloat = 0
     private var pendingRestore: ChatScrollAnchor?
@@ -172,7 +172,7 @@ struct ChatMessageList: NSViewRepresentable {
 
     func update(
       items nextItems: [ChatRowItem], restore: ChatScrollAnchor?, onAnchor: @escaping (ChatScrollAnchor) -> Void,
-      rowContent: @escaping (ChatRowItem) -> AnyView, copyPath: @escaping @MainActor (String) -> Bool
+      rowContent: @escaping (ChatRowItem) -> AnyView, copyPath: AIMCopyPath
     ) {
       self.rowContent = rowContent
       self.copyPath = copyPath
