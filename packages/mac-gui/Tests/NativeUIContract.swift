@@ -2417,11 +2417,6 @@ enum AIManagerNativeContract {
     }
     expect(rowLayout.entry(atY: -1) == nil && rowLayout.entry(atY: AIMTheme.groupHeaderHeight / 2) == nil,
       "The row hit finds a row over the table's first header")
-    // An eye waits for hover but stays in accessibility: VoiceOver and background drivers press it there.
-    var tableTexts: [String] = []
-    texts(in: table, into: &tableTexts)
-    let eyes = tableTexts.filter { $0.hasPrefix("Hide account from menu bar: ") || $0.hasPrefix("Show account in menu bar: ") }
-    expect(eyes.count >= accounts.count, "Only \(eyes.count) of \(accounts.count) account eyes are in accessibility")
 
     // Focused card: the same frame for a signed-in, a signed-out, and an unchecked account.
     func cardSize(_ account: AccountRecord) -> NSSize {

@@ -1937,6 +1937,11 @@ private struct AccountsTableRow: View {
       .accessibilityValue(isDefault ? "Default account" : "Not the default account")
       .accessibilityAddTraits(selected ? .isSelected : [])
       .accessibilityAction(named: "Focus account", focus)
+      // A resting eye is fully clear, which takes it out of accessibility (a barely visible one
+      // made the page switch 170 ms slower), so the row carries its action.
+      .accessibilityAction(named: showsInTray ? "Hide account from menu bar" : "Show account in menu bar") {
+        MenuBarServicePreferences.toggleAccountVisibility(account.id)
+      }
   }
 }
 

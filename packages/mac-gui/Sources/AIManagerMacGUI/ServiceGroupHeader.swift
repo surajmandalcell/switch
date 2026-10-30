@@ -105,8 +105,7 @@ struct AccountTrayEye: View {
     .focused($focused)
     .focusEffectDisabled()
     .foregroundStyle(.secondary)
-    // Not 0: SwiftUI drops a fully clear view from accessibility, so VoiceOver could not reach it.
-    .opacity(hovered || focused ? 1 : showsInTray ? 0.001 : 0.5)
+    .opacity(hovered || focused ? 1 : showsInTray ? 0 : 0.5)
     .animation(.easeOut(duration: 0.18), value: hovered || focused)
     .animation(.easeOut(duration: 0.18), value: showsInTray)
     .help(help)
