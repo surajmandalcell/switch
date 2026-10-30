@@ -70,7 +70,9 @@ final class MaintenanceStore: ObservableObject {
     didSet { UserDefaults.standard.set(destination?.path, forKey: MaintenancePlace.destinationKey) }
   }
 
-  private unowned let model: AccountViewModel
+  /// Weak: the schedule task and a profile sync keep the store alive past a model that is gone
+  /// (a check makes and drops many), and an unowned read then aborted the app.
+  private weak var model: AccountViewModel?
   private var engine: BackupEngine
   private var paths: ManagerPaths
   private var runTask: Task<Void, Never>?
@@ -152,9 +154,9 @@ final class MaintenanceStore: ObservableObject {
 
   func refreshSources() {
     #if AI_MANAGER_PREVIEW
-    if let demo { sources = demo.sources(accounts: model.status?.accounts ?? []); return }
+    if let demo { sources = demo.sources(accounts: model?.status?.accounts ?? []); return }
     #endif
-    sources = CleanupSources.make(paths: paths, accounts: model.status?.accounts ?? [])
+    sources = CleanupSources.make(paths: paths, accounts: model?.status?.accounts ?? [])
   }
 
   // MARK: Backup sets
@@ -219,7 +221,7 @@ final class MaintenanceStore: ObservableObject {
 
   func loadSets() async {
     defer { isLoaded = true }
-    do { sets = try await engine.sets() } catch { model.errorMessage = "Backup settings could not be read. \(error.localizedDescription)" }
+    do { sets = try await engine.sets() } catch { model?.errorMessage = "Backup settings could not be read. \(error.localizedDescription)" }
     await refreshAll()
     await migrate()
     await syncProfiles()
@@ -270,7 +272,7 @@ final class MaintenanceStore: ObservableObject {
 
   /// Claude Code's set follows its accounts: a new Claude Code profile joins it, a removed one leaves it.
   func syncProfiles() async {
-    guard model.status != nil, let source = sources.first(where: { $0.id == "claude" }),
+    guard model?.status != nil, let source = sources.first(where: { $0.id == "claude" }),
       let set = set(for: source) else { return }
     let next = BackupChecklist.withProfiles(set, homes: source.extraHomes)
     if next != set { await update(next) }
@@ -282,7 +284,7 @@ final class MaintenanceStore: ObservableObject {
 
   func refresh(_ set: BackupSet) async {
     do { statuses[set.id] = try await engine.status(for: set) }
-    catch { model.errorMessage = "The backups of \(set.name) could not be read. \(error.localizedDescription)" }
+    catch { model?.errorMessage = "The backups of \(set.name) could not be read. \(error.localizedDescription)" }
   }
 
   /// A set for a tool the owner has not backed up yet, with the shared schedule, count, and login choice.
@@ -335,7 +337,7 @@ final class MaintenanceStore: ObservableObject {
       for set in next where statuses[set.id] == nil { await refresh(set) }
       for set in next { await refresh(set) }
       return true
-    } catch { model.errorMessage = error.localizedDescription; return false }
+    } catch { model?.errorMessage = error.localizedDescription; return false }
   }
 
   // MARK: Destination and items (folder panels)
@@ -421,17 +423,17 @@ final class MaintenanceStore: ObservableObject {
         } catch is CancellationError {
           cancelled = true
         } catch {
-          self.model.errorMessage = list.count > 1 ? "\(set.name): \(error.localizedDescription)" : error.localizedDescription
+          self.model?.errorMessage = list.count > 1 ? "\(set.name): \(error.localizedDescription)" : error.localizedDescription
         }
         self.progress = nil
         await self.refresh(set)
         if cancelled { break }
       }
       if !scheduled {
-        if cancelled { self.model.notice = "Backup cancelled." }
+        if cancelled { self.model?.notice = "Backup cancelled." }
         else if tools > 0 {
           let each = tools > 1 ? "\(tools) tools: " : ""
-          self.model.notice = "Backed up \(each)\(files.formatted()) files. \(Self.size(fresh)) of new data."
+          self.model?.notice = "Backed up \(each)\(files.formatted()) files. \(Self.size(fresh)) of new data."
         }
       }
       self.runningSetID = nil
@@ -455,8 +457,8 @@ final class MaintenanceStore: ObservableObject {
       let result = try await engine.restore(snapshot, set: set, items: items, to: folder)
       var text = "Restored \(result.restored.formatted()) files"
       if let folder { text += " to \(folder.lastPathComponent)" }
-      model.notice = text + "."
-    } catch { model.errorMessage = error.localizedDescription }
+      model?.notice = text + "."
+    } catch { model?.errorMessage = error.localizedDescription }
     await refresh(set)
   }
 
