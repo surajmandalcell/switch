@@ -18,9 +18,7 @@ rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkPixelTrace.svg" \
   --output "$icons/SwitchMarkPixelTrace.png"
 rsvg-convert --width 1024 --height 1024 "$icons/SwitchMarkMenubar.svg" \
   --output "$icons/SwitchMarkMenubar.png"
-cp "$icons/AppIconEmergencyStop.png" "$icons/AppIconLight.png"
-cp "$icons/AppIconEmergencyStop.png" "$icons/AppIconDark.png"
-cp "$icons/AppIconEmergencyStop.png" "$icons/AppIcon.png"
+bash "$repo_root/scripts/build-app-icon.sh" "$icons"
 rsvg-convert --width 256 --height 256 "$icons/ManagerMark.svg" --output "$icons/ManagerMark.png"
 rsvg-convert --width 18 --height 18 --page-width 22 --page-height 22 --left 2 --top 2 \
   "$icons/SwitchMarkMenubar.svg" --output "$icons/TrayTemplate.png"
@@ -28,11 +26,13 @@ rsvg-convert --width 36 --height 36 --page-width 44 --page-height 44 --left 4 --
   "$icons/SwitchMarkMenubar.svg" --output "$icons/TrayTemplate@2x.png"
 
 for size in 16 32 128 256 512; do
-  sips -s format png -z "$size" "$size" "$icons/AppIconEmergencyStop.png" \
+  sips -s format png -z "$size" "$size" "$icons/AppIconLight.png" \
     --out "$iconset/icon_${size}x${size}.png" >/dev/null
   sips -s format png -z "$((size * 2))" "$((size * 2))" \
-    "$icons/AppIconEmergencyStop.png" \
+    "$icons/AppIconLight.png" \
     --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil --convert icns "$iconset" --output "$icons/AppIcon.icns"
 printf 'Built Dock, tray, and rail icons.\n'
+
+exit 0

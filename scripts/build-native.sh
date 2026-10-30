@@ -79,6 +79,8 @@ install -m 0644 \
 ditto "$repo_root/packages/mac-gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
 install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.icns" \
   "$app_path/Contents/Resources/AppIcon.icns"
+install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.car" \
+  "$app_path/Contents/Resources/Assets.car"
 
 source_revision="unknown"
 if source_revision="$(git -C "$repo_root" rev-parse --short=12 HEAD 2>/dev/null)"; then
