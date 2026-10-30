@@ -19,7 +19,9 @@ final class DroidAccountTests: XCTestCase {
     private enum Interrupted: Error { case fault }
 
     override func setUpWithError() throws {
-        root = fm.temporaryDirectory.appending(path: "DroidAccountTests-\(UUID().uuidString)")
+        let scratch = ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
+            ?? ProcessInfo.processInfo.environment["TMPDIR"] ?? fm.temporaryDirectory.path
+        root = URL(fileURLWithPath: scratch).appending(path: "switch/DroidAccountTests-\(UUID().uuidString)")
         try CoreSupport.privateDirectory(root, fileManager: fm)
         let fake = root.appending(path: "fake-droid")
         // Opaque synthetic bytes only. This executable cannot call Droid or the Keychain.
@@ -316,6 +318,70 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertFalse(CoreSupport.entryExists(paths.droidHome.appending(path: "auth.v2.loginkeychain")))
         XCTAssertEqual(try Data(contentsOf: paths.droidHome.appending(path: "auth.v2.file")), Data("rotated-A".utf8))
         XCTAssertEqual(try Data(contentsOf: history), Data("unchanged".utf8))
+    }
+
+    func testSwitchTransfersRecentConversationAfterPublishingTheNewLogin() async throws {
+        let testPaths = try XCTUnwrap(paths)
+        let manager = try AccountManager(paths: testPaths, writerCheck: { _ in .inactive },
+            droidProcessLister: { [] }, droidSessionInitializer: { id, cwd, title in
+                let live = testPaths.droidHome.appending(path: "auth.v2.loginkeychain")
+                guard try Data(contentsOf: live) == Data("synthetic-login-B".utf8) else {
+                    throw AIManagerError.operationFailed("The destination account is not active.")
+                }
+                let destination = testPaths.droidHome.appending(path: "sessions/-native/\(id.uuidString).jsonl")
+                try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: .default)
+                let header: [String: Any] = ["type": "session_start", "id": id.uuidString,
+                    "cwd": cwd.path, "title": title, "organizationId": "synthetic-target"]
+                var data = try JSONSerialization.data(withJSONObject: header)
+                data.append(0x0A)
+                try CoreSupport.atomicWrite(data, to: destination, fileManager: .default)
+            })
+        let (_, second) = try await accounts(manager)
+        let original = try writeConversation()
+        let originalBytes = try Data(contentsOf: original)
+        let result = try await manager.switchDefault(to: second.id)
+        XCTAssertEqual(result.droidConversationTransfer?.transferredCount, 1)
+        XCTAssertEqual(result.droidConversationTransfer?.warnings, [])
+        let current = try await manager.status()
+        XCTAssertEqual(current.defaultAccountID(for: .droid), second.id)
+        XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+        let repeated = try await manager.switchDefault(to: second.id)
+        XCTAssertTrue(repeated.droidConversationTransfer?.warnings.isEmpty == true)
+        let native = testPaths.droidHome.appending(path: "sessions/-native")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: native.path).filter { $0.hasSuffix(".jsonl") }.count, 1)
+    }
+
+    func testConversationTransferFailureDoesNotMisreportTheAccountSwitch() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive },
+            droidProcessLister: { [] }, droidSessionInitializer: { _, _, _ in
+                throw AIManagerError.operationFailed("Synthetic initialization failure")
+            })
+        let (_, second) = try await accounts(manager)
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        let result = try await manager.switchDefault(to: second.id)
+        XCTAssertEqual(result.accountID, second.id)
+        XCTAssertEqual(result.droidConversationTransfer?.transferredCount, 0)
+        XCTAssertFalse(result.droidConversationTransfer?.warnings.isEmpty ?? true)
+        let current = try await manager.status()
+        XCTAssertEqual(current.defaultAccountID(for: .droid), second.id)
+        XCTAssertEqual(try Data(contentsOf: original), before)
+    }
+
+    private func writeConversation() throws -> URL {
+        let id = UUID()
+        let file = paths.droidHome.appending(path: "sessions/-original/\(id.uuidString).jsonl")
+        try CoreSupport.privateDirectory(file.deletingLastPathComponent(), fileManager: fm)
+        let header: [String: Any] = ["type": "session_start", "id": id.uuidString,
+            "cwd": root.path, "title": "Synthetic conversation", "organizationId": "synthetic-source"]
+        let message: [String: Any] = ["type": "message", "id": UUID().uuidString,
+            "message": ["role": "user", "content": [["type": "text", "text": "Keep this full prompt."]]]]
+        var data = try JSONSerialization.data(withJSONObject: header)
+        data.append(0x0A)
+        data.append(try JSONSerialization.data(withJSONObject: message))
+        data.append(0x0A)
+        try CoreSupport.atomicWrite(data, to: file, fileManager: fm)
+        return file
     }
 
     func testWriteLockMatchesDroidOwnerProtocolAndRefusesCompetingWriter() throws {

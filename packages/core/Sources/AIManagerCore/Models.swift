@@ -450,11 +450,13 @@ public struct SwitchResult: Codable, Sendable {
     public var accountID: UUID
     public var backup: URL
     public var previousAccountID: UUID?
+    public var droidConversationTransfer: DroidConversationTransferReport?
 
-    public init(accountID: UUID, backup: URL, previousAccountID: UUID?) {
+    public init(accountID: UUID, backup: URL, previousAccountID: UUID?, droidConversationTransfer: DroidConversationTransferReport? = nil) {
         self.accountID = accountID
         self.backup = backup
         self.previousAccountID = previousAccountID
+        self.droidConversationTransfer = droidConversationTransfer
     }
 }
 

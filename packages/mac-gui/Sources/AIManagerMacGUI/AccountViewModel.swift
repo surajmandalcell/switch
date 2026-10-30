@@ -1256,10 +1256,18 @@ final class AccountViewModel: ObservableObject {
                 failure: "Couldn’t change the default account.",
                 recovery: "Resolve any item in Backup, then try again."
             ) {
-                guard try await switchWithDroidConfirmation(manager, to: id) != nil else { return }
+                guard let result = try await switchWithDroidConfirmation(manager, to: id) else { return }
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
-                if announce { notice = "New \(providerName) sessions will use this account." }
+                let count = result.droidConversationTransfer?.transferredCount ?? 0
+                let copied = "\(count) recent \(count == 1 ? "conversation" : "conversations") copied."
+                if let transfer = result.droidConversationTransfer, !transfer.warnings.isEmpty {
+                    notice = "Account switched. \(copied) \(transfer.warnings.joined(separator: " "))"
+                } else if announce {
+                    notice = count > 0
+                        ? "New \(providerName) sessions will use this account. \(copied)"
+                        : "New \(providerName) sessions will use this account."
+                }
             }
             if status?.defaultAccountID(for: providerID) == id {
                 await loadCachedUsage()

@@ -5,6 +5,13 @@ import ServiceManagement
 import SwiftUI
 
 enum AIManagerLaunchContext {
+  static func shouldShowMainWindow(
+    arguments: [String] = ProcessInfo.processInfo.arguments,
+    event: NSAppleEventDescriptor? = NSAppleEventManager.shared().currentAppleEvent
+  ) -> Bool {
+    !arguments.contains("--background") && !launchedAsLoginItem(event: event)
+  }
+
   static func launchedAsLoginItem(
     event: NSAppleEventDescriptor? = NSAppleEventManager.shared().currentAppleEvent
   ) -> Bool {

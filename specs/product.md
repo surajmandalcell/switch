@@ -40,6 +40,18 @@ Terminal with a private temporary `FACTORY_HOME_OVERRIDE`, one Droid login at a 
 Factory login supplies that key. While Factory.app runs work, live tests use the droid CLI
 in a separate `FACTORY_HOME_OVERRIDE` test home, never `~/.factory`.
 
+Clicking Switch also continues the ten most recently updated ordinary Droid conversations on
+the selected account. Create each destination through Droid's native session initializer, keep
+its account-owned header, and import the full local transcript body. Keep original transcripts
+unchanged. Persist logical conversation-to-account session mappings so repeated switches reuse
+copies and carry compatible new messages back. Native session IDs can differ by account.
+Skip missions, child sessions, startup-only records, unsafe files, and divergent histories.
+Never overwrite a conversation that changed during transfer. While Droid or Factory is running,
+switching retains its existing confirmation and skips transcript writes. Report transferred counts
+and copy failures separately from successful login switching. A failed or interrupted copy must
+remain safe to retry. This feature transfers local chat history, not active tools, attachments,
+mission ownership, or source model and autonomy settings.
+
 Droid identities are opaque. The owner names imports and sign-ins ("Droid 1") and can rename
 them later (Rename… in the row and More menus, 1 to 100 characters, off in Privacy mode); the
 login, default, usage key, and missions stay keyed by account id. Account-scoped

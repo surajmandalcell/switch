@@ -97,6 +97,7 @@ Local builds use an ad hoc signature. Maintainers can set
 `AI_MANAGER_SIGNING_IDENTITY` to use an existing signing identity. The app
 records its Git revision and dirty-source state in `AIManagerSourceRevision`
 and `AIManagerSourceDirty`.
+Pass `--background` to the app executable to start in the menu bar without opening the main window.
 
 `scripts/check-release-readiness.sh` checks local package readiness.
 
