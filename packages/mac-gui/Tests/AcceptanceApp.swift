@@ -455,7 +455,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             canChangeAccounts: { [weak self] in self?.model.isBusy == false },
             refreshNow: { AIManagerNativeContract.menuRefreshCalls += 1 },
             activateApplication: {
-                if !AcceptanceConfiguration.contractOnly { NSApp.activate(ignoringOtherApps: true) }
+                if !AcceptanceConfiguration.contractOnly && !WindowContractRun.active { NSApp.activate(ignoringOtherApps: true) }
             }
         )
         self.menuController = menuController
@@ -1087,10 +1087,18 @@ enum AIManagerMacGUIAcceptanceApp {
     }
 }
 
+/// Set while the window contract runs in an open Preview: its menu commands would otherwise bring
+/// the Preview to the front over the owner's app.
+@MainActor enum WindowContractRun {
+    static var active = false
+}
+
 @MainActor
 private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     // `--popover` is a screenshot run: the contract takes ~40 s and exits, so the popover would never show.
     if CommandLine.arguments.contains("--popover") { return }
+    WindowContractRun.active = true
+    defer { WindowContractRun.active = false }
     var failures: [String] = []
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { failures.append(message) }

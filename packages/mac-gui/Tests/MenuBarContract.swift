@@ -861,6 +861,7 @@ enum PopoverMotionCheck {
     // on a screen. It never becomes key, so it takes no focus.
     let window = NSWindow(contentRect: NSRect(origin: NSScreen.main?.frame.origin ?? .zero, size: size),
       styleMask: .borderless, backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
     window.alphaValue = 0
     window.ignoresMouseEvents = true
     window.contentViewController = hostingController
