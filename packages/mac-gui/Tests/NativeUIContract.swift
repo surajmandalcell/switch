@@ -197,6 +197,12 @@ enum AIManagerNativeContract {
       transactionID: AETransactionID(kAnyTransactionID))
     expect(AIManagerLaunchContext.launchedAsLoginItem(event: loginEvent),
       "A login-item launch opens the main window")
+    expect(!AIManagerLaunchContext.shouldShowMainWindow(arguments: ["Switch", "--background"], event: ordinaryEvent),
+           "A background launch must not show or activate the main window")
+    expect(AIManagerLaunchContext.shouldShowMainWindow(arguments: ["Switch"], event: ordinaryEvent),
+           "A normal launch must keep opening the main window")
+    expect(!AIManagerLaunchContext.shouldShowMainWindow(arguments: ["Switch"], event: loginEvent),
+           "A login launch must stay in the menu bar")
     expect(!AIManagerLaunchContext.launchedAsLoginItem(event: ordinaryEvent),
       "An ordinary launch is mistaken for a login-item launch")
     expect(LaunchAtLoginSettings.detail(for: .enabled).contains("menu bar")

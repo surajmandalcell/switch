@@ -94,6 +94,7 @@ public actor AccountManager {
     private let droidProvider: DroidProviderAdapter
     private let droidLoginReader: DroidLoginReader
     private let droidProcessLister: @Sendable () throws -> [DroidProcess]
+    private let droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)?
     private let claudeProfiles: ClaudeCodeProfiles
     private let providerStore: ProviderAccountStore
     private let providerSpecs: [ProviderSpec]
@@ -110,7 +111,7 @@ public actor AccountManager {
     /// Digest of the live Droid login that discovery last examined, so doctor runs once per login.
     private var droidProbe: String?
 
-    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init()) throws {
+    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init(), droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)? = nil) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
@@ -118,6 +119,7 @@ public actor AccountManager {
         self.droidProvider = DroidProviderAdapter(fileManager: fileManager)
         self.droidLoginReader = droidLoginReader
         self.droidProcessLister = droidProcessLister ?? { try DroidProviderAdapter.processes() }
+        self.droidSessionInitializer = droidSessionInitializer
         self.claudeProfiles = try ClaudeCodeProfiles(paths: paths, fileManager: fileManager,
                                                       loginRunner: loginRunner)
         self.providerSpecs = providerSpecs
@@ -766,9 +768,41 @@ public actor AccountManager {
             }
             if selected.identity.providerID == .droid {
                 try guardDroidProcesses(allowRunning: allowRunningDroid)
-                return try droidProvider.withWriteLock(home: paths.droidHome) {
+                let prepared = Result {
+                    try guardDroidProcesses(allowRunning: false)
+                    return try DroidConversationTransfer.prepare(home: paths.droidHome,
+                        state: paths.applicationSupport.appending(path: "droid-conversations.json"),
+                        sourceAccountID: registry.defaultAccountID(for: .droid))
+                }
+                var result = try droidProvider.withWriteLock(home: paths.droidHome) {
                     try performDroidSwitch(to: accountID)
                 }
+                do {
+                    let plan = try prepared.get()
+                    let deadline = Date().addingTimeInterval(60)
+                    result.droidConversationTransfer = try plan.transfer(to: accountID, initialize: { id, cwd, title in
+                        guard Date() < deadline else {
+                            throw AIManagerError.operationFailed("The recent-conversation transfer reached its time limit. Switch again to retry.")
+                        }
+                        try guardDroidProcesses(allowRunning: false)
+                        if let droidSessionInitializer {
+                            try droidSessionInitializer(id, cwd, title)
+                        } else {
+                            guard let executable = resolveDroidExecutable() else { throw AIManagerError.cliNotFound }
+                            let settings = paths.applicationSupport.appending(path: "staging/droid-transfer-settings.json")
+                            try CoreSupport.atomicWrite(Data("{\"cloudSessionSync\":false,\"hooksDisabled\":true}".utf8), to: settings, fileManager: fileManager)
+                            defer { try? fileManager.removeItem(at: settings) }
+                            try DroidSessionRPC.initialize(executable: executable, home: paths.droidHome,
+                                sessionID: id, cwd: cwd, title: title, settingsFile: settings)
+                        }
+                    }, beforeWrite: {
+                        try guardDroidProcesses(allowRunning: false)
+                    })
+                } catch {
+                    result.droidConversationTransfer = .init(transferredCount: 0,
+                        warnings: ["Recent conversations were not copied. \(error.localizedDescription)"])
+                }
+                return result
             }
             if selected.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(selected)

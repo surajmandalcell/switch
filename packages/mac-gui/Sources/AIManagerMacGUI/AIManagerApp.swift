@@ -170,13 +170,14 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.menuController = menuController
         menuController.install()
-        if !AIManagerLaunchContext.launchedAsLoginItem() { presentWindow() }
+        if AIManagerLaunchContext.shouldShowMainWindow() { presentWindow() }
         Task { await model.load() }
     }
 
     /// The main window and its pages exist only while it is shown: closing it, or hiding it to the
     /// menu bar, releases them. A login launch builds no window until one is asked for.
     private func presentWindow() {
+        NSApp.setActivationPolicy(.regular)
         if let windowController {
             windowController.present()
             return
@@ -406,11 +407,14 @@ enum AIManagerApp {
     @MainActor
     static func main() {
         let bundleIdentifier = AIManagerSingleInstance.bundleIdentifier()
-        guard let instanceLock = AIManagerSingleInstance.acquireOrActivate(
-            bundleIdentifier: bundleIdentifier) else { return }
+        let background = CommandLine.arguments.contains("--background")
+        let lock = background
+            ? AIManagerInstanceLock(bundleIdentifier: bundleIdentifier)
+            : AIManagerSingleInstance.acquireOrActivate(bundleIdentifier: bundleIdentifier)
+        guard let instanceLock = lock else { return }
         let application = NSApplication.shared
         let delegate = AIManagerAppDelegate()
-        application.setActivationPolicy(.regular)
+        application.setActivationPolicy(background ? .accessory : .regular)
         application.delegate = delegate
         withExtendedLifetime((delegate, instanceLock)) {
             application.run()

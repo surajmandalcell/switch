@@ -135,7 +135,10 @@ Each provider keeps its own default account.
   sessions launched through Switch. Turn on **Use the selected Claude account in
   terminals** in Settings to make a plain `claude` command follow it.
 - **Droid:** Switch replaces only the auth files in `~/.factory`, and asks first while
-  Droid or Factory.app is running. A mission stays with the account that started it, so
+  Droid or Factory.app is running. When no Droid process is running, Switch also copies the ten
+  most recent ordinary conversations into account-owned sessions. Originals stay intact, and
+  repeat switches carry compatible new messages back without duplicate copies. Missions,
+  child sessions, and attachments are excluded. A mission stays with the account that started it, so
   **Resume** on the Accounts page switches to that account first.
 - **Other command-line tools:** Switch swaps only the tool's login file, JSON entry, or
   database rows. Quit an app such as Cursor before switching it.

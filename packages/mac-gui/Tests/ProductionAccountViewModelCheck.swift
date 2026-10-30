@@ -61,6 +61,7 @@ struct ProductionAccountViewModelCheck {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try await checkAccountScopedSignIn(root: root)
         try await checkDroidAccounts(root: root)
+        try await checkDroidConversationTransfer(root: root)
         try await checkActionMessages(root: root)
         print("ACCOUNT_SCOPED_SIGN_IN_PASS")
 
@@ -877,6 +878,8 @@ struct ProductionAccountViewModelCheck {
         model.droidConfirmation = { message, _ in prompts.append(message); return true }
         await model.switchDefault(to: second.id)
         try expect(try Data(contentsOf: live) == Data("synthetic-B".utf8), "Confirmed Droid switch did not publish the login")
+        try expect(model.notice?.localizedCaseInsensitiveContains("recent conversations were not copied") == true,
+                   "A skipped transfer was not distinguished from successful account switching")
         model.closeAccountModal()
         await model.beginSignIn(for: first.id)
         try expect(model.accountLoginSession?.accountID == first.id, "Droid re-sign-in lost the target")
@@ -1040,6 +1043,55 @@ struct ProductionAccountViewModelCheck {
                    "Back Up Now did not post its result")
         await backups.maintenance.backUp(set, scheduled: true)
         try expect(backupPosted().count == 1 && backups.errorMessage == nil, "A scheduled backup posted a message")
+    }
+
+    @MainActor
+    private static func checkDroidConversationTransfer(root: URL) async throws {
+        let scratch = root.appending(path: "droid-conversation-transfer")
+        let home = scratch.appending(path: "user/.factory")
+        let fake = scratch.appending(path: "droid")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: home.path)
+        try Data("#!/bin/sh\nexit 1\n".utf8).write(to: fake)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        let paths = ManagerPaths(applicationSupport: scratch.appending(path: "support"),
+            defaultHome: scratch.appending(path: "user/.codex"), sharedRoot: scratch.appending(path: "user/.codex"),
+            orcaAccountsRoot: scratch.appending(path: "orca"), droidHome: home,
+            droidExecutable: fake, isolationRoot: scratch)
+        @Sendable func writeLine(_ value: [String: Any], to file: URL) throws {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try (JSONSerialization.data(withJSONObject: value) + Data([10])).write(to: file)
+        }
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, providerSpecs: [],
+            droidProcessLister: { [] }, droidSessionInitializer: { id, cwd, title in
+                let file = home.appending(path: "sessions/-native/\(id.uuidString.lowercased()).jsonl")
+                try writeLine(["type": "session_start", "id": id.uuidString, "cwd": cwd.path,
+                    "title": title, "organizationId": "synthetic-work"], to: file)
+            })
+        let live = home.appending(path: "auth.v2.loginkeychain")
+        try Data("synthetic-personal".utf8).write(to: live)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: live.path)
+        let personal = try await manager.importDroidAccount(name: "Synthetic personal")
+        try Data("synthetic-work".utf8).write(to: live)
+        let work = try await manager.importDroidAccount(name: "Synthetic work")
+        _ = try await manager.switchDefault(to: personal.id)
+        let id = UUID()
+        let source = home.appending(path: "sessions/-original/\(id.uuidString.lowercased()).jsonl")
+        try writeLine(["type": "session_start", "id": id.uuidString, "cwd": scratch.path,
+            "title": "Synthetic GUI transfer", "organizationId": "synthetic-personal"], to: source)
+        let body = try JSONSerialization.data(withJSONObject: ["type": "message", "id": UUID().uuidString,
+            "message": ["role": "user", "content": [["type": "text", "text": "Keep the complete conversation."]]]]) + Data([10])
+        let handle = try FileHandle(forWritingTo: source)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: body)
+        try handle.close()
+        let model = AccountViewModel(paths: paths, manager: manager)
+        await model.load()
+        await model.switchDefault(to: work.id)
+        try expect(model.status?.defaultAccountID(for: .droid) == work.id, "GUI did not select the target Droid account")
+        try expect(model.notice?.contains("1 recent conversation copied") == true && model.errorMessage == nil,
+                   "Successful conversation transfer did not reach the GUI notification")
+        print("DROID_CONVERSATION_TRANSFER_PASS")
     }
 
     private static func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
