@@ -1372,7 +1372,12 @@ struct AccountRenameAlert: ViewModifier {
       presenting: account
     ) { account in
       TextField("Account name", text: $name)
-      Button("Rename") { Task { await model.renameAccount(account.id, to: name) } }
+      Button("Rename") {
+        // Closing the alert clears `renamingAccountID`, and the onChange below then empties `name`
+        // before a task would read it: read it now.
+        let next = name
+        Task { await model.renameAccount(account.id, to: next) }
+      }
       Button("Cancel", role: .cancel) {}
     } message: { _ in
       Text("Its sign-in, default, and missions stay the same.")
