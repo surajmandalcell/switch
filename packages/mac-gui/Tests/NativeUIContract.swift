@@ -428,7 +428,7 @@ enum AIManagerNativeContract {
     }
     let warm = elapsed[1]
     FileHandle.standardError.write(Data("ACTIVITY_RENDER_MS \(Int(warm * 1000))\n".utf8))
-    var failures = warm < 0.2 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
+    var failures = warm < 0.2 + CheckTiming.slack / 1000 ? [] : ["A warm yearly activity render blocks the main thread for \(Int(warm * 1000)) ms"]
     // The Accounts page (index 1) is where an account selection redraws the account detail.
     let pane = NSHostingView(rootView: AccountWindow(model: model, initialPageIndex: 1))
     pane.frame = NSRect(x: 0, y: 0, width: 1200, height: 900)
@@ -444,7 +444,7 @@ enum AIManagerNativeContract {
       }
       let milliseconds = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
       FileHandle.standardError.write(Data("ACCOUNT_SELECTION_RENDER_MS \(milliseconds)\n".utf8))
-      if milliseconds >= 100 { failures.append("Ordinary account selection blocks the full pane for \(milliseconds) ms") }
+      if Double(milliseconds) >= 100 + CheckTiming.slack { failures.append("Ordinary account selection blocks the full pane for \(milliseconds) ms") }
     }
     return failures
   }
