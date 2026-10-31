@@ -628,9 +628,11 @@ private final class WheelTestDocument: NSView {
       let split = parts[page].map { String(format: " [state %.0f, layout %.0f, render %.0f]", $0.state, $0.layout, $0.render) } ?? ""
       print(String(format: "PAGE_SWITCH %@ first=%.0f ms median=%.0f ms worst=%.0f ms", page.rawValue, cold[page] ?? 0, median, worst) + split)
       // A page's cards are a second hosting graph in an AppKit scroll view (about 3 ms per switch),
-      // and a loaded Mac moves a median by up to 10 ms.
-      if worst > 80 || median > 60 || (cold[page] ?? 0) > 150 {
-        failures.append("\(page.rawValue) exceeds first 150 / median 60 / worst 80 ms")
+      // and a loaded Mac moves a median by up to 10 ms. A Mac deep in swap moves every page, old
+      // builds too, by 20-40 ms: AI_MANAGER_PAGE_SWITCH_SLACK_MS widens the bounds for such a run.
+      let slack = ProcessInfo.processInfo.environment["AI_MANAGER_PAGE_SWITCH_SLACK_MS"].flatMap(Double.init) ?? 0
+      if worst > 80 + slack || median > 60 + slack || (cold[page] ?? 0) > 150 + slack {
+        failures.append("\(page.rawValue) exceeds first \(150 + slack) / median \(60 + slack) / worst \(80 + slack) ms")
       }
     }
     window.close()
