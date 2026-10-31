@@ -3,8 +3,19 @@ and switching the account used by new sessions.
 
 Switch 3.8 adds Droid (Factory) accounts and makes every page faster and calmer.
 
-Switch 3.8.1 is signed with Developer ID and notarized by Apple, so macOS opens it
+Switch 3.8.2 is signed with Developer ID and notarized by Apple, so macOS opens it
 without a security warning.
+
+- A new Dock icon at the full macOS Dock size: a red emergency-stop button on a cream
+  tile, warm stone in the Dark icon style.
+- Order and hide services in the menu bar with a drag, and hide single accounts with the
+  eye on each account row. "One account per service" keeps the menu bar short.
+- Rename Droid accounts after they are added, and tell Droid accounts with the same
+  masked email apart. Switching Droid accounts brings recent chats along.
+- Idle memory is much lower: the main window is freed when it closes, and page switches
+  stay fast.
+- Cleanup filters conversations, cleans OpenCode chats, and backs up Copilot prompts.
+- Fixes a crash on account hover and a crash in backups after an account change.
 
 - Droid accounts switch by swapping their login file. Accounts lists Droid missions with
   progress and the account that started each one. Resume switches to that account first,
