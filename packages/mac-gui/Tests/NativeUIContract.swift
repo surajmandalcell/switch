@@ -1449,6 +1449,7 @@ enum AIManagerNativeContract {
     guard let mainMenu = NSApp.mainMenu, let window else { return ["Menu navigation test could not resolve the app window"] }
     var failures: [String] = []
     var shownPages: [AIManagerPage] = []
+    let startPage = UserDefaults.standard.string(forKey: AIMPlace.lastPageKey).flatMap(AIManagerPage.init(rawValue:))
     let observer = NotificationCenter.default.addObserver(
       forName: AIManagerNavigation.didShowPage, object: nil, queue: .main
     ) { notification in
@@ -1479,6 +1480,8 @@ enum AIManagerNativeContract {
       _ = NSApp.sendAction(action, to: item.target, from: item)
       if shownPages.last != page { failures.append("View > \(page.rawValue) did not navigate") }
     }
+    // An open Preview reruns this check on account changes; leave it on the page the owner was on.
+    if let startPage { NotificationCenter.default.post(name: AIManagerNavigation.request, object: startPage) }
     return failures
   }
 
