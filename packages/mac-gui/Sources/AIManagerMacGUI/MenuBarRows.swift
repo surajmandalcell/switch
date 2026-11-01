@@ -438,7 +438,7 @@ struct MenuBarRow: View, Equatable {
     .uiLint(.align("menuBarRows", .start), .align("menuBarRowsEnd", .end))
     .background {
       RoundedRectangle(cornerRadius: 6)
-        .fill(!canExpand ? .clear : isFocused || isExpanded ? P.rowHighlight : hovered || previewHovered ? P.rowHover : .clear)
+        .fill(!canExpand ? .clear : isFocused ? P.rowHighlight : hovered || previewHovered ? P.rowHover : .clear)
         .uiLint(.align("menuBarHoverFill", .start))
         .padding(.leading, P.rowPaddingH - 4)
         .padding(.trailing, P.rowPaddingH - 4 - AIMScroller.gutter)
@@ -469,6 +469,8 @@ struct MenuBarRow: View, Equatable {
       pointerInside = $0
       hovered = canExpand && $0
     }
+    // A closed popover sends no hover exit, so the row under the pointer would stay filled next time.
+    .onDisappear { hovered = false; pointerInside = false }
     .animation(.easeOut(duration: 0.12), value: hovered)
     .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.9), value: account.isActive)
     .onAppear { withAnimation(reduceMotion ? .easeOut(duration: 0.18) : .easeOut(duration: 0.3)) { barsVisible = true } }

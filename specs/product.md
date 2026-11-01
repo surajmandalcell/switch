@@ -460,8 +460,9 @@ in light and dark HTML references (Overview and shared-part states) and measured
   footer. One or two accounts never clip. Omit absent or hidden limits; never invent them.
   Use less transparency than default material; Dark Mode stays near #262628. Separators are
   half-opacity hairlines faded at both ends. Headers, rows, and footer have 12 pt insets.
-  Expand only for buttons or hidden lines; idle rows have no fill. Expanded and focused fills use
-  primary color at 0.06 opacity; hover uses 0.04. Hover extends 4 pt sideways and below and 6 pt
+  Expand only for buttons or hidden lines; idle, default, and expanded rows have no fill; the
+  checkmark alone marks a default. Keyboard focus fills with primary color at 0.06 opacity; hover
+  uses 0.04. Hover extends 4 pt sideways and below and 6 pt
   above names, without touching headers or moving rows. Keep native contrast and primary label
   icons. Flat Sequoia buttons stay 24 pt tall with radius 5 pt. Expansion keeps earlier rows fixed;
   height and content animate together without dropped frames, including Low Power Mode.

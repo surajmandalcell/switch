@@ -119,7 +119,7 @@ enum AIManagerNativeContract {
         let highlight = NSColor(P.rowHighlight).usingColorSpace(.sRGB)?.alphaComponent ?? 1
         let hover = NSColor(P.rowHover).usingColorSpace(.sRGB)?.alphaComponent ?? 1
         expect(highlight > 0.03 && highlight <= 0.0601 && hover > 0.02 && hover < highlight,
-          "Popover focus, expansion, or hover fill is too strong")
+          "Popover focus or hover fill is too strong")
       }
     }
     for sample in [account, codex] {
