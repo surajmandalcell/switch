@@ -1,0 +1,28 @@
+[general]
+host = "::"
+port = 8080
+root = "/public"
+log-level = "warn"
+compression = true
+compression-static = false
+cache-control-headers = false
+security-headers = true
+health = true
+redirect-trailing-slash = true
+
+[advanced]
+
+[[advanced.headers]]
+source = "**"
+[advanced.headers.headers]
+Cache-Control = "public, max-age=300, must-revalidate"
+
+[[advanced.headers]]
+source = "/assets/**"
+[advanced.headers.headers]
+Cache-Control = "public, max-age=604800"
+
+[[advanced.headers]]
+source = "/vendor/**"
+[advanced.headers.headers]
+Cache-Control = "public, max-age=31536000, immutable"
