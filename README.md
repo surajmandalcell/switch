@@ -18,6 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/surajmandalcell/switch/releases/latest"><b>Download for Mac</b></a> ·
+  <a href="https://switch.mandalsuraj.com">Website</a> ·
   <a href="#use-switch-in-the-terminal">Terminal</a> ·
   <a href="#supported-tools">Supported tools</a> ·
   <a href="docs/development.md#build-and-check">Build from source</a>
