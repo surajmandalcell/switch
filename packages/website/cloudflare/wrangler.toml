@@ -1,0 +1,6 @@
+name = "switch-site"
+main = "worker.js"
+account_id = "5dadb33ff9ed908a878e1564bfb89737"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [{ pattern = "switch.mandalsuraj.com", custom_domain = true }]
