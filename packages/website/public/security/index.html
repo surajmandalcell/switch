@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security · Switch</title>
+<meta name="description" content="How to report a vulnerability in Switch, and how Switch protects your logins.">
+<link rel="icon" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="../b.css">
+<link rel="stylesheet" href="../legal.css">
+</head>
+<body data-base="../">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-gh" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+  <symbol id="i-arr" viewBox="0 0 16 16"><path d="M8 2.5v10.5M3.5 8.8 8 13.3l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-right" viewBox="0 0 16 16"><path d="M2.5 8h10.5M8.8 3.5 13.3 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-apple" viewBox="0 0 24 24"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></symbol>
+  <symbol id="i-ok" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<header class="nav">
+  <div class="wrap"><a class="brand" href="../" aria-label="Switch home"><img src="../assets/icon-256.webp" alt=""><span class="bt">Switch</span></a><nav class="lg-nav"><a href="../privacy/">Privacy</a><a href="../terms/">Terms</a><a href="../security/" aria-current="page">Security</a></nav>
+    <div class="dlw"><a class="dl" data-dl href="#" aria-label="Download Switch for Mac"><svg class="dl-ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="dl-t"><span class="dl-m">Download</span></span></a></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <main class="lg">
+    <p class="lg-eye">Switch for Mac</p>
+    <h1>Security</h1>
+    <p class="lg-upd">Last updated November 2, 2026</p>
+    <p class="lg-lede">Switch handles the logins of your AI tools, so security comes first. This page tells you how to report a problem, and how Switch protects your accounts.</p>
+    <section id="report"><h2>Report a vulnerability</h2>
+      <p>Do not open a public issue for a security problem. Report it privately on GitHub, so that it can be fixed before the details are public.</p>
+      <div class="lg-cta"><a class="bk1" data-gh-report href="#" target="_blank" rel="noopener"><svg class="ap" aria-hidden="true" style="width:17px;height:17px;margin:0"><use href="#i-gh"/></svg><span class="tx">Report privately</span></a><a class="ghb" href="https://github.com/surajmandalcell/switch/blob/master/SECURITY.md" target="_blank" rel="noopener"><span class="g1">Read SECURITY.md</span></a></div>
+      <p>In your report, include:</p>
+      <ul><li>The Switch version or commit.</li><li>Your macOS version and your Mac model.</li><li>The steps to reproduce the problem.</li><li>What an attacker could do with it.</li></ul>
+      <p>Do not include credentials, tokens, transcripts, private settings, or logs that are not redacted.</p>
+    </section>
+    <section id="design"><h2>How Switch protects your logins</h2>
+      <ul><li>Logins stay in private files that only your macOS user account can read. Staging folders, backups, and account folders all use private permissions.</li><li>Switch never reads the macOS Keychain or browser cookie stores.</li><li>The app keeps no raw credential bytes in its own records.</li><li>Before every switch, the old login is saved. If a change fails, the previous state stays usable and a recovery record is kept.</li><li>Finding accounts on your Mac makes no network calls and never runs imported hooks. Imported commands and plugins are kept only as data.</li><li>Switch does not ask for Full Disk Access, Accessibility, or Automation access.</li><li>There is no proxy, router, or hosted service. Requests go straight from your Mac to each AI service.</li></ul>
+    </section>
+    <section id="verify"><h2>Check your download</h2>
+      <p>Each release is signed and notarized by Apple, and each release page lists SHA-256 checksums. To check a download, run this command in Terminal. Then compare the result with the checksums file on the release page.</p>
+      <pre><code>shasum -a 256 ~/Downloads/Switch-v3.8.2-mac-arm64.zip</code></pre>
+    </section>
+    <section id="bugs"><h2>Other bugs</h2>
+      <p>For a bug that is not a security problem, <a href="https://github.com/surajmandalcell/switch/issues" target="_blank" rel="noopener">open an issue on GitHub</a>. Use made-up data, and remove account names, tokens, auth files, transcripts, and private paths before you post.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="f2"><div class="top2"><a class="fbrand" href="../"><img src="../assets/icon-256.webp" alt=""><div><b>Switch</b><span>Every AI account, one menu bar.</span></div></a><div class="fcols" data-links></div></div><div class="wm"><b>Switch</b></div><div class="fbar"><span>© 2026 Suraj Mandal</span><span>MIT License</span></div></div>
+  </footer>
+</div>
+
+<div class="dtoast" role="status" aria-live="polite"><i><svg aria-hidden="true"><use href="#i-ok"/></svg></i><div><b>Downloading Switch 3.8.2</b><span>23.5 MB. Open it from Downloads, then move it to Applications.</span></div></div>
+<script src="../site.js"></script>
+</body>
+</html>
