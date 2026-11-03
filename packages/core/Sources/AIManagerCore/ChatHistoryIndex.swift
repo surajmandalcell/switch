@@ -1114,7 +1114,6 @@ public actor ChatHistoryIndex {
                 }
                 guard let values = try? url.resourceValues(forKeys: keys) else { continue }
                 if values.isSymbolicLink == true {
-                    enumerator.skipDescendants()
                     continue
                 }
                 guard values.isRegularFile == true, url.pathExtension.lowercased() == "jsonl" else {

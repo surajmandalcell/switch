@@ -37,6 +37,22 @@ final class ConversationCleanupTests: XCTestCase {
 
     private func category(_ scan: CleanupScan, _ id: String) -> CleanupCategory? { scan.categories.first { $0.id == id } }
 
+    func testLinkedFilesCannotHideSiblingConversationFolders() throws {
+        let external = root.appending(path: "outside.jsonl")
+        try Data("Do not follow this linked transcript.\n".utf8).write(to: external)
+        for seed in 0..<100 {
+            let folder = home.appending(path: "sessions/order-\(seed)", directoryHint: .isDirectory)
+            try files.createDirectory(at: folder, withIntermediateDirectories: true)
+            try files.createSymbolicLink(at: folder.appending(path: "linked.jsonl"), withDestinationURL: external)
+            try transcript("sessions/order-\(seed)/nested/real.jsonl")
+        }
+
+        let items = try scan().categories.flatMap(\.items)
+
+        XCTAssertEqual(Set(items.map(\.path)), Set((0..<100).map { "sessions/order-\($0)/nested/real.jsonl" }))
+        XCTAssertEqual(items.count, 100)
+    }
+
     #if os(Linux)
     func testToolWriterProbeFindsRunningToolInItsHome() throws {
         let executable = root.appending(path: "grok")
