@@ -357,12 +357,16 @@ private enum BackupIO {
         return a.st_ino == b.st_ino && a.st_dev == b.st_dev && a.st_size == b.st_size
             && a.st_mode == b.st_mode && modified(a) == modified(b) && sameChange
     }
-    static func missingDestination(_ destination: URL) -> String? {
+    static func missingVolume(_ destination: URL) -> String? {
         let parts = destination.standardizedFileURL.pathComponents
         if parts.count > 2, parts[1] == "Volumes" {
             let volume = URL(fileURLWithPath: "/Volumes/\(parts[2])")
             if !fm.fileExists(atPath: volume.path) { return parts[2] }
         }
+        return nil
+    }
+    static func missingDestination(_ destination: URL) -> String? {
+        if let volume = missingVolume(destination) { return volume }
         return fm.fileExists(atPath: destination.path) ? nil : destination.lastPathComponent
     }
     static func root(_ set: BackupSet) -> URL { set.destination.appending(path: "Switch Backups").appending(path: set.name) }
@@ -634,7 +638,7 @@ private enum BackupIO {
             guard !CoreSupport.isContained(targetHome, by: root(set)), !CoreSupport.isContained(root(set), by: targetHome) else {
                 throw BackupError.unsafe("restore destination overlaps backups")
             }
-            if let volume = missingDestination(targetHome), targetHome.path.hasPrefix("/Volumes/") { throw BackupError.waiting(volume) }
+            if let volume = missingVolume(targetHome) { throw BackupError.waiting(volume) }
         }
         // Verify the complete selection before changing any current file.
         for entry in entries {
