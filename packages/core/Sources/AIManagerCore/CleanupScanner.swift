@@ -534,7 +534,7 @@ struct CleanupScanner {
                 visited += 1
                 guard visited <= 500_000 else { throw AIManagerError.operationFailed("The conversation inventory is too large.") }
                 if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-                    iterator.skipDescendants(); continue
+                    continue
                 }
                 guard url.pathExtension.lowercased() == "jsonl" else { continue }
                 let path = name + "/" + String(url.standardizedFileURL.path.dropFirst(rootURL.standardizedFileURL.path.count + 1))

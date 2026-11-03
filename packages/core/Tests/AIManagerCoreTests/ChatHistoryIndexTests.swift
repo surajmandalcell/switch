@@ -782,6 +782,23 @@ final class ChatHistoryIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.skippedFileCount, 0)
     }
 
+    func testLinkedFilesCannotHideSiblingConversationFolders() async throws {
+        let external = root.appending(path: "outside.jsonl")
+        try encodedLines(standardRecords(id: "outside", prompt: "Do not follow this link")).write(to: external)
+        for seed in 0..<100 {
+            let folder = root.appending(path: "sessions/order-\(seed)", directoryHint: .isDirectory)
+            try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            try fileManager.createSymbolicLink(at: folder.appending(path: "linked.jsonl"), withDestinationURL: external)
+            try transcript(directory: "sessions/order-\(seed)/nested", filename: "real.jsonl",
+                records: standardRecords(id: "real-\(seed)", prompt: "Keep conversation \(seed) visible"))
+        }
+
+        let snapshot = try await ChatHistoryIndex(home: root).refresh()
+
+        XCTAssertEqual(Set(snapshot.threads.map(\.threadID)), Set((0..<100).map { "real-\($0)" }))
+        XCTAssertEqual(snapshot.totalThreadCount, 100)
+    }
+
     func testOversizedRecordDoesNotBlockVisibleMessages() async throws {
         let file = try transcript(
             directory: "sessions/2026/09/13", filename: "large.jsonl",
