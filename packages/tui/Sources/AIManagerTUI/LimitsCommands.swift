@@ -243,12 +243,14 @@ enum LimitsCommands {
             .mapValues { $0.map { $0.id.uuidString.lowercased() } }
         let sources = UsageHistorySources(
             ledger: codexCache(input.paths),
-            claude: ClaudeCostScanner(cacheURL: support.appending(path: "cache/claude-history.json"),
+            claude: ClaudeCostScanner(roots: ClaudeCostScanner.defaultRoots(
+                environment: input.paths.isolationRoot == nil ? ProcessInfo.processInfo.environment : [:],
+                home: input.paths.userHome), cacheURL: support.appending(path: "cache/claude-history.json"),
                                       pricing: pricing.loader()),
             claudeHomes: UsageHistory.claudeProfileHomes(
                 applicationSupport: support,
                 accountIDs: accounts.filter { $0.identity.providerID == .claudeCode }.map(\.id)),
-            grokSessions: UsageHistory.grokSessionsFolder(),
+            grokSessions: input.paths.grokHome.appending(path: "sessions"),
             droidSessions: DroidUsage.sessionsFolder(droidHome: input.paths.droidHome),
             accounts: owners,
             pricing: pricing.loader())

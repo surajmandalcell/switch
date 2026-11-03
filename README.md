@@ -159,7 +159,7 @@ npx --yes @smdl/switch
 Or install it globally:
 
 ```bash
-npm install --global @smdl/switch
+npm install --global @smdl/switch@latest
 switch
 ```
 
@@ -167,6 +167,8 @@ The terminal interface uses the same account store and switching engine as the
 Mac app. Use the arrow keys to move, Enter to select, and Escape to go back.
 The npm build supports Apple Silicon Macs. From a source checkout, run `make tui`.
 The `ai-manager` command remains available as an alias.
+Run the same install command to update. `switch --version` shows the installed terminal version.
+The app and npm package update separately.
 
 Script it:
 

@@ -27,6 +27,20 @@ open "/private/tmp/ai-manager-build/package/Switch.app"
 The app embeds that CLI at `Contents/Helpers/ai-manager`. Provider Open actions
 use the helper so account activation and process launch share one lock.
 
+Installing the app does not update a separate CLI in your shell. After building, install the
+matching command and its `switch` alias with:
+
+```bash
+bash scripts/install-cli.sh "${AI_MANAGER_BUILD_PATH:-/private/tmp/ai-manager-build}/artifacts/ai-manager"
+"$HOME/.local/bin/ai-manager" --version
+command -v ai-manager switch
+```
+
+The installer replaces `ai-manager` atomically in `~/.local/bin` and refuses to overwrite an
+unrelated `switch` there. Put this directory before older command directories in `PATH`.
+It never changes `/usr/local/bin/switch`. Pass a second argument to choose another bin directory.
+On Linux, pass the executable produced by `swift build --configuration release --product ai-manager`.
+
 Run the terminal interface from the repository root with `make tui`. The npm
 package is assembled and checked locally with:
 
@@ -37,6 +51,9 @@ npm pack
 
 `npm pack` builds the release CLI into the package; packed installs do not
 need Swift or Xcode.
+Keep the version in `package.json` and `packages/tui/Sources/AIManagerTUI/BuildInfo.swift` equal.
+Package preparation and the installed-package check reject a version mismatch. An app release
+does not publish npm automatically; update the global CLI with `npm install --global @smdl/switch@latest`.
 
 On Linux, `scripts/check-linux.sh` checks the core, CLI, and isolated
 acceptance flow. The Swift package needs no Node.js, Electron, local server, or

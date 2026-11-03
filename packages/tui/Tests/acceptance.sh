@@ -20,6 +20,26 @@ export AI_MANAGER_ROOT="$fixture"
 export AI_MANAGER_CODEX_EXECUTABLE="$fixture/fake-codex"
 export AI_MANAGER_GROK_EXECUTABLE="$fixture/fake-grok"
 
+AI_MANAGER_ROOT="$test_root/version-only" "$binary" --version >"$test_root/version.log"
+rg -x 'Switch [0-9]+\.[0-9]+\.[0-9]+' "$test_root/version.log" >/dev/null
+[[ ! -e "$test_root/version-only" ]]
+"$binary" version --json | jq -e '.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")' >/dev/null
+
+missing_account=00000000-0000-0000-0000-000000000001
+if "$binary" open "$missing_account" -- --mode provider-mode --keep-saved --use-login >"$test_root/forwarded.log" 2>&1; then
+  printf '%s\n' 'Opening an unknown account unexpectedly succeeded.' >&2
+  exit 1
+fi
+rg -F 'Account not found' "$test_root/forwarded.log" >/dev/null
+if printf '%s\n' 'synthetic-secret-code' | "$binary" submit-login-code "$missing_account" --stdin --yes --json >"$test_root/code.log" 2>&1; then
+  printf '%s\n' 'Submitting a code to a missing session unexpectedly succeeded.' >&2
+  exit 1
+fi
+if rg -F 'synthetic-secret-code' "$test_root/code.log" >/dev/null; then
+  printf '%s\n' 'Authorization code was printed.' >&2
+  exit 1
+fi
+
 writer_unknown_message='Error: Could not establish whether the default home is in use.'
 skip_if_native_writer_unknown() {
   local log="$1"
@@ -46,6 +66,9 @@ rg -F 'Claude Code CLI was not found.' "$test_root/disabled-provider.log" >/dev/
 "$binary" help >"$test_root/help.log"
 rg -F 'ai-manager add [codex|grok-build|claude-code]' "$test_root/help.log" >/dev/null
 rg -F 'ai-manager remove <account-uuid>' "$test_root/help.log" >/dev/null
+for command in rename reorder submit-login-code conversations missions claude-shell droid-usage-key auto-switch cleanup backup; do
+  rg -F "ai-manager $command" "$test_root/help.log" >/dev/null
+done
 rg -F 'Codex CLI, Grok Build, Droid, and Claude Code are available in this release.' "$test_root/help.log" >/dev/null
 rg -F 'use status to recover their IDs' "$test_root/help.log" >/dev/null
 
@@ -92,6 +115,8 @@ if rg -F 'Provider number:' "$test_root/tui-choice.log" >/dev/null; then
 fi
 
 bash "$(dirname "$0")/generic-providers.sh" "$binary"
+bash "$(dirname "$0")/maintenance.sh" "$binary"
+bash "$(dirname "$0")/workflows.sh" "$binary"
 
 if "$binary" refresh --json >"$test_root/unconfirmed-refresh.json" 2>"$test_root/unconfirmed-refresh.log"; then
   printf '%s\n' 'Expected empty-registry refresh to require confirmation.' >&2
@@ -122,6 +147,8 @@ fi
     ' >/dev/null
 "$binary" status >"$test_root/pending-status.log"
 rg -F "Pending Codex CLI login: $login_id" "$test_root/pending-status.log" >/dev/null
+rg -F 'Droid default: none' "$test_root/pending-status.log" >/dev/null
+rg -F 'Claude Code default: none' "$test_root/pending-status.log" >/dev/null
 rg -F "Check: ai-manager check-login $login_id --yes" "$test_root/pending-status.log" >/dev/null
 rg -F "Cancel: ai-manager cancel-login $login_id --yes" "$test_root/pending-status.log" >/dev/null
 "$binary" check-login "$login_id" --yes --json \

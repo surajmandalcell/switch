@@ -27,7 +27,9 @@ private enum TerminalScreen {
 private enum TerminalMainAction: CaseIterable, Equatable {
     case addAccount
     case importAccount
+    case importDroid
     case checkLogin
+    case submitLoginCode
     case cancelLogin
     case discover
     case recover
@@ -39,6 +41,8 @@ private enum TerminalAccountAction: CaseIterable, Equatable {
     case openCodex
     case refreshLimits
     case verifyFiles
+    case renameAccount
+    case signIn
     case deleteAccount
     case back
 }
@@ -49,14 +53,17 @@ extension ProviderID {
 }
 
 extension TerminalAccountAction {
-    /// Codex, Grok, and Claude Code keep every action; generic accounts get switch, usage, and delete.
+    /// Built-in accounts expose sign-in and launch; only opaque Droid accounts need renaming.
     fileprivate static func available(for account: AccountRecord?) -> [TerminalAccountAction] {
-        guard let account, account.identity.providerID.isGenericProvider else { return allCases }
+        guard let account else { return [.back] }
+        if !account.identity.providerID.isGenericProvider {
+            return allCases.filter { $0 != .renameAccount || account.identity.providerID == .droid }
+        }
         return [.setDefault, .refreshLimits, .deleteAccount, .back]
     }
 }
 
-/// Usage of a generic account read in this session. Nothing is shown before the first check.
+/// Non-Codex usage read in this session. Nothing is shown before the first check.
 private enum GenericUsage {
     case loaded(ProviderUsage)
     case failed(String)
@@ -75,6 +82,11 @@ struct AIManagerCLI {
             let command = try CommandLineInput(Array(CommandLine.arguments.dropFirst()))
             if ["help", "--help", "-h"].contains(command.command) {
                 print(usage)
+                return
+            }
+            if ["version", "--version", "-V"].contains(command.command) {
+                if command.json { await output(["version": AIManagerBuildInfo.version], json: true) }
+                else { print("Switch \(AIManagerBuildInfo.version)") }
                 return
             }
             let manager = try AccountManager(paths: command.paths)
@@ -97,6 +109,33 @@ struct AIManagerCLI {
             let code = try await LimitsCommands.guardLimit(input, manager: manager)
             if code != 0 { exit(code) }
         case "history": try await LimitsCommands.history(input, manager: manager)
+        case "cleanup", "backup": try await MaintenanceCommands.run(input, manager: manager)
+        case "conversations", "missions", "claude-shell", "droid-usage-key", "auto-switch":
+            try await WorkflowCommands.run(input, manager: manager)
+        case "rename":
+            try WorkflowCommands.validate(input, flags: ["--yes", "--json"], options: ["--name"], arguments: 1...1)
+            let id = try input.requiredAccountID()
+            guard let name = input.option("--name") else { throw CLIError.message("Enter the account name with --name.") }
+            try confirm(input, "Rename this Droid account to \(name)?")
+            await output(try await manager.renameDroidAccount(id, to: name), json: input.json)
+        case "reorder":
+            try WorkflowCommands.validate(input, flags: ["--yes", "--json"], arguments: 1...Int.max)
+            let ids = try input.positional.map { value in
+                guard let id = UUID(uuidString: value) else { throw CLIError.message("Every account ID must be a valid UUID.") }
+                return id
+            }
+            try confirm(input, "Save this account order?")
+            await output(try await manager.reorderAccounts(ids), json: input.json)
+        case "submit-login-code":
+            try WorkflowCommands.validate(input, flags: ["--yes", "--json", "--stdin"], arguments: 1...1)
+            let id = try input.requiredLoginSessionID()
+            guard input.values.contains("--stdin"), input.positional.count == 1 else {
+                throw CLIError.message("Pass --stdin and read the authorization code from standard input.")
+            }
+            try confirm(input, "Send an authorization code to the waiting Grok login?")
+            guard let code = readLine() else { throw CLIError.cancelled }
+            try await manager.submitAccountLoginCode(id: id, input: code)
+            await output(["state": "submitted"], json: input.json)
         case "add", "start-login": try await startLogin(input, manager: manager)
         case "import-droid":
             guard let name = input.option("--name") else { throw CLIError.message("Enter the account name with --name.") }
@@ -136,14 +175,11 @@ struct AIManagerCLI {
             guard let account = status.accounts.first(where: { $0.id == id }) else {
                 throw AIManagerError.accountNotFound
             }
-            try confirm(
-                input,
-                "Use this account in \(providerName(account.identity.providerID))?")
-            do { await output(try await manager.switchDefault(to: id), json: input.json) }
-            catch let error as DroidAccountError {
-                guard case .running = error else { throw error }
-                try confirm(input, error.localizedDescription)
-                await output(try await manager.switchDefault(to: id, allowRunningDroid: true), json: input.json)
+            let result = try await switchAccount(id, input: input, manager: manager)
+            await output(result, json: input.json)
+            if !input.json, account.identity.providerID == .droid {
+                let unfinished = try await manager.unfinishedDroidMissions(after: result)
+                if unfinished > 0 { print("\(unfinished) unfinished missions remain with the previous Droid account.") }
             }
         case "open":
             let id = try input.requiredAccountID()
@@ -230,6 +266,16 @@ struct AIManagerCLI {
             await output(try await manager.repairLinkedSetting(accountID: accountID, relativePath: relativePath, reviewedFingerprint: fingerprint), json: input.json)
         case "interactive": try await interactive(manager, paths: input.paths)
         default: throw CLIError.message("Unknown command '\(input.command)'. Run ai-manager help.")
+        }
+    }
+
+    static func switchAccount(_ id: UUID, input: CommandLineInput, manager: AccountManager) async throws -> SwitchResult {
+        try confirm(input, "Switch to this saved account?")
+        do { return try await manager.switchDefault(to: id) }
+        catch let error as DroidAccountError {
+            guard case .running = error else { throw error }
+            try confirm(input, error.localizedDescription)
+            return try await manager.switchDefault(to: id, allowRunningDroid: true)
         }
     }
 
@@ -420,7 +466,7 @@ struct AIManagerCLI {
                             selectedAccountID = accounts[mainFocus].id
                             accountActionFocus = 0
                             screen = .accountActions
-                            if accounts[mainFocus].identity.providerID.isGenericProvider,
+                            if accounts[mainFocus].identity.providerID != .codex,
                                genericUsage[accounts[mainFocus].id] == nil {
                                 genericUsage[accounts[mainFocus].id] = try await loadGenericUsage(
                                     accounts[mainFocus], manager: manager, menu: menu)
@@ -458,7 +504,7 @@ struct AIManagerCLI {
                         let action = accountActions[accountActionFocus]
                         if action == .back {
                             screen = .accounts
-                        } else if let selectedAccount, selectedAccount.identity.providerID.isGenericProvider,
+                        } else if let selectedAccount, selectedAccount.identity.providerID != .codex,
                                   action == .refreshLimits {
                             genericUsage[selectedAccount.id] = try await loadGenericUsage(
                                 selectedAccount, manager: manager, menu: menu)
@@ -475,6 +521,9 @@ struct AIManagerCLI {
                                 terminal: terminal,
                                 menu: menu,
                                 usageCache: usageCache)
+                            if action == .signIn {
+                                pendingSessions = try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
+                            }
                         }
                     case let .character(character):
                         if character.lowercased() == "w",
@@ -509,10 +558,26 @@ struct AIManagerCLI {
             try await terminal.withCookedInput {
                 try await interactiveImport(manager, terminal: terminal)
             }
+        case .importDroid:
+            try await terminal.withCookedInput {
+                guard let name = readField("Droid account name:") else { throw CLIError.cancelled }
+                do { _ = try await manager.importDroidAccount(name: name) }
+                catch let error as DroidAccountError {
+                    guard case .duplicateIdentity = error else { throw error }
+                    guard askYes(error.localizedDescription, terminal: terminal) else { throw CLIError.cancelled }
+                    _ = try await manager.importDroidAccount(name: name, allowDuplicate: true)
+                }
+                message = "Saved the current Droid login."
+            }
         case .checkLogin:
             try await terminal.withCookedInput {
                 if let session = chooseLoginSession(sessions, terminal: terminal) {
-                    var result = try await manager.checkAccountLogin(id: session.id)
+                    let name: String
+                    if session.providerID == .droid, session.accountID == nil {
+                        guard let entered = readField("Droid account name:") else { throw CLIError.cancelled }
+                        name = try AccountManager.droidAccountName(entered)
+                    } else { name = "Droid 1" }
+                    var result = try await interactiveCheckLogin(session, name: name, manager: manager, terminal: terminal)
                     if result.state == .credentialChoiceRequired {
                         let credentialChoice = terminal.choose(
                             "Credential",
@@ -526,13 +591,22 @@ struct AIManagerCLI {
                             }
                         }.map { $0 == 0 ? ConflictChoice.keepShared : .useImported }
                         if let credentialChoice {
-                            result = try await manager.checkAccountLogin(
-                                id: session.id, credentialChoice: credentialChoice)
+                            result = try await interactiveCheckLogin(session, name: name, credentialChoice: credentialChoice,
+                                manager: manager, terminal: terminal)
                         }
                     }
                     await output(SafeLoginCheck(result), json: false)
                     message = result.message
                     if result.state == .completed { sessions.removeAll { $0.id == session.id } }
+                }
+            }
+        case .submitLoginCode:
+            try await terminal.withCookedInput {
+                let grokSessions = sessions.filter { $0.providerID == .grokBuild }
+                if let session = chooseLoginSession(grokSessions, terminal: terminal),
+                   let code = readSecret("Grok authorization code or callback URL:") {
+                    try await manager.submitAccountLoginCode(id: session.id, input: code)
+                    message = "Authorization code sent. Choose Check pending login."
                 }
             }
         case .cancelLogin:
@@ -563,6 +637,29 @@ struct AIManagerCLI {
             pendingSessions: sessions, message: message, shouldQuit: false)
     }
 
+    private static func interactiveCheckLogin(
+        _ session: AccountLoginSession, name: String, credentialChoice: ConflictChoice? = nil,
+        manager: AccountManager, terminal: TerminalInput
+    ) async throws -> AccountLoginCheck {
+        var allowRunning = false, allowDuplicate = false
+        while true {
+            do {
+                return try await manager.checkAccountLogin(id: session.id, credentialChoice: credentialChoice,
+                    droidName: name, allowRunningDroid: allowRunning, allowDuplicateDroid: allowDuplicate)
+            } catch let error as DroidAccountError {
+                switch error {
+                case .running where !allowRunning:
+                    guard askYes(error.localizedDescription, terminal: terminal) else { throw CLIError.cancelled }
+                    allowRunning = true
+                case .duplicateIdentity where !allowDuplicate:
+                    guard askYes(error.localizedDescription, terminal: terminal) else { throw CLIError.cancelled }
+                    allowDuplicate = true
+                default: throw error
+                }
+            }
+        }
+    }
+
     private static func performAccountAction(
         _ action: TerminalAccountAction,
         account: AccountRecord,
@@ -573,8 +670,21 @@ struct AIManagerCLI {
     ) async throws -> String? {
         switch action {
         case .setDefault:
-            _ = try await manager.switchDefault(to: account.id)
-            return "Using \(displayName(account.identity)) as default."
+            let result: SwitchResult
+            do { result = try await manager.switchDefault(to: account.id) }
+            catch let error as DroidAccountError {
+                guard case .running = error else { throw error }
+                guard askYes(error.localizedDescription, terminal: terminal) else { throw CLIError.cancelled }
+                result = try await manager.switchDefault(to: account.id, allowRunningDroid: true)
+            }
+            var message = "Using \(displayName(account.identity)) as default."
+            if let report = result.droidConversationTransfer {
+                message += " \(report.transferredCount) recent conversations copied."
+                if !report.warnings.isEmpty { message += " " + report.warnings.joined(separator: " ") }
+                let unfinished = try await manager.unfinishedDroidMissions(after: result)
+                if unfinished > 0 { message += " \(unfinished) unfinished missions remain with the previous account." }
+            }
+            return message
         case .openCodex:
             _ = try await terminal.withCookedInput {
                 try await manager.activateAndRun(accountID: account.id)
@@ -602,6 +712,22 @@ struct AIManagerCLI {
             let removed = try await manager.deleteAccount(accountID: account.id)
             return "Removed \(displayName(account.identity)) from Switch."
                 + (removed.replacementDefaultAccountID != nil ? " Another saved account is now the default." : "")
+        case .renameAccount:
+            return try await terminal.withCookedInput {
+                guard let name = readField("New Droid account name:") else { throw CLIError.cancelled }
+                _ = try await manager.renameDroidAccount(account.id, to: name)
+                return "Account renamed."
+            }
+        case .signIn:
+            return try await terminal.withCookedInput {
+                let prompt = account.identity.providerID == .droid
+                    ? "Sign in to \(displayName(account.identity))? Droid's masked email cannot prove the full account identity."
+                    : "Sign in to \(displayName(account.identity))?"
+                guard askYes(prompt, terminal: terminal) else { throw CLIError.cancelled }
+                let started = try await manager.startAccountLogin(accountID: account.id, confirmDroidAccount: true)
+                await output(SafeLoginStart(started), json: false)
+                return "Sign-in started. Choose Check pending login when finished."
+            }
         case .deleteAccount:
             let status = try await manager.status()
             let isDefault = status.defaultAccountID(for: account.identity.providerID) == account.id
@@ -631,7 +757,7 @@ struct AIManagerCLI {
         }
     }
 
-    /// Reads a generic account's usage with the loader. A failure becomes a message, never made-up values.
+    /// Uses the shared provider reader for every non-Codex account.
     private static func loadGenericUsage(
         _ account: AccountRecord, manager: AccountManager, menu: TerminalMenu
     ) async throws -> GenericUsage {
@@ -1039,7 +1165,8 @@ struct AIManagerCLI {
             print("Cancelled account login \(cancellation.sessionID.uuidString).")
         case let status as ManagerStatus:
             print("Shared settings: \(status.sharedRoot.path)")
-            for providerID in [ProviderID.codex, .grokBuild] {
+            for providerID in AccountManager.providerCatalog.map(\.id)
+                where status.defaultAccountID(for: providerID) != nil || [.codex, .grokBuild, .droid, .claudeCode].contains(providerID) {
                 print("\(providerName(providerID)) default: "
                     + "\(status.defaultAccountID(for: providerID)?.uuidString ?? "none")")
             }
@@ -1047,7 +1174,8 @@ struct AIManagerCLI {
             if !status.pendingRecovery.isEmpty { print("Pending recovery: \(status.pendingRecovery.count)") }
         case let snapshot as SafeStatusSnapshot:
             print("Shared settings: \(snapshot.sharedRoot.path)")
-            for providerID in [ProviderID.codex, .grokBuild] {
+            for providerID in AccountManager.providerCatalog.map(\.id)
+                where snapshot.defaultAccountIDs[providerID.rawValue] != nil || [.codex, .grokBuild, .droid, .claudeCode].contains(providerID) {
                 print("\(providerName(providerID)) default: "
                     + "\(snapshot.defaultAccountIDs[providerID.rawValue]?.uuidString ?? "none")")
             }
@@ -1065,7 +1193,12 @@ struct AIManagerCLI {
             print("Saved \(displayName(result.account.identity)) at \(result.account.credentialFile.path).")
             print("Backup: \(result.backup.path); files: \(result.importedFiles); chats: \(result.importedChats)")
             for item in result.unresolved { print("Unresolved: \(item)") }
-        case let result as SwitchResult: print("Provider default changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
+        case let result as SwitchResult:
+            print("Provider default changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
+            if let report = result.droidConversationTransfer {
+                print("Recent Droid conversations copied: \(report.transferredCount)")
+                for warning in report.warnings { print("Warning: \(warning)") }
+            }
         case let result as AccountDeletionResult:
             print("Removed account \(result.accountID.uuidString) from Switch.")
             if let replacement = result.replacementDefaultAccountID {
@@ -1114,6 +1247,7 @@ struct AIManagerCLI {
     Switch manages file-based accounts for supported AI tools without using Keychain.
 
     Usage:
+      ai-manager version [--json]                          Print the CLI version without loading accounts
       ai-manager providers [--json]
       ai-manager refresh [--yes] [--json]
       ai-manager adopt [--yes] [--json]                     Alias for refresh
@@ -1129,7 +1263,9 @@ struct AIManagerCLI {
                                                             Token and cost history behind the Overview
       ai-manager guard --provider <id> [--account <uuid>] --min-remaining <0-100> [--window <id>] [--json] [--fail-open]
                                                             Exit 0 allow, 1 block, 64 bad arguments, 69 unknown
-      ai-manager check-login <session-uuid> [--keep-saved|--use-login] [--yes] [--json]
+      ai-manager check-login <session-uuid> [--name <Droid-name>] [--keep-saved|--use-login] [--yes] [--json]
+      ai-manager submit-login-code <session-uuid> --stdin [--yes] [--json]
+                                                            Read a Grok authorization code from standard input
       ai-manager cancel-login <session-uuid> [--yes] [--json]
       ai-manager status [--json]                            Adopt first live account; list pending logins
       ai-manager discover [path] [--json]
@@ -1137,6 +1273,8 @@ struct AIManagerCLI {
       ai-manager advanced-import <path> [import options]     Import an existing Codex folder or auth.json
       ai-manager import <path> [--mode auth-only|full] [--keep-shared path] [--use-imported path] [--review-external path] [--yes] [--json]
       ai-manager use <account-uuid> [--yes] [--json]
+      ai-manager rename <Droid-account-uuid> --name <new-name> [--yes] [--json]
+      ai-manager reorder <account-uuid>... [--yes] [--json]  Save the order of all accounts
       ai-manager import-droid --name <account-name> [--yes] [--json]
       ai-manager add droid [--yes] [--json]                Prepare an isolated Terminal login
       ai-manager open <account-uuid> [-- provider arguments]
@@ -1147,13 +1285,24 @@ struct AIManagerCLI {
       ai-manager resolve-recovery <operation-uuid> (--keep-current|--restore-backup) [--yes] [--json]
       ai-manager inspect-links [account-uuid] [--json]
       ai-manager repair-link <account-uuid> <settings-path> --fingerprint <sha256> [--yes] [--json]
+      ai-manager conversations [list|show|export] [thread-id] [--query text] [--limit n] [--offset n] [--role all|prompts|responses|tools|other] [--json]
+      ai-manager missions [list|owner|plan|resume|start] [mission-id] [--account UUID] [--yes] [--json]
+                                                            Resume and start run in this terminal, without --json
+      ai-manager claude-shell [status|enable|disable] [--yes] [--json]
+      ai-manager droid-usage-key <account-uuid> [--stdin|--remove] [--yes] [--json]
+      ai-manager auto-switch --provider id [--min-remaining percent] [--yes] [--json]
+      ai-manager cleanup sources|scan <source>|trash <source> --item <id>...|trash-list <source>|restore <source> <batch-uuid>|purge <source> <batch-uuid> [--yes] [--json]
+      ai-manager cleanup review <source> --item <id>... [--json]
+      ai-manager cleanup samples [--older-than ISO8601] [--json]
+      ai-manager cleanup remove-samples --sample <id>...|clear-index [--yes] [--json]
+      ai-manager backup list|configure <source> --destination <folder> [--include-logins|--exclude-logins] [--prompts-only|--full-content] [--schedule off|daily|weekly] [--keep N]|retire <source>|run <set-uuid>|history <set-uuid>|restore <set-uuid> <snapshot-id> [--destination folder] [--item path] [--include-logins] [--yes] [--json]
       ai-manager interactive
 
     Isolation overrides: AI_MANAGER_ROOT, AI_MANAGER_DEFAULT_HOME,
     AI_MANAGER_CREDENTIAL_STORE, AI_MANAGER_SHARED_ROOT,
     AI_MANAGER_CODEX_EXECUTABLE, AI_MANAGER_GROK_HOME,
     AI_MANAGER_GROK_CREDENTIAL_STORE, AI_MANAGER_GROK_EXECUTABLE,
-    AI_MANAGER_CLAUDE_EXECUTABLE.
+    AI_MANAGER_CLAUDE_EXECUTABLE, FACTORY_HOME_OVERRIDE, AI_MANAGER_DROID_EXECUTABLE.
 
     Provider IDs: run providers. Every provider except these four takes typed credentials (add --field)
     or the CLI's own sign-in (import, add).
@@ -1252,9 +1401,7 @@ private struct TerminalMenu {
                     let label = account.identity.providerID == .codex
                         ? (amount.map { "\($0)% \(scope) \(showsUsed ? "used" : "left")" }
                             ?? "usage unavailable")
-                        : account.identity.providerID.isGenericProvider
-                            ? genericSummary(genericUsage[account.id])
-                            : "Grok subscription"
+                        : genericSummary(genericUsage[account.id])
                     let row = "  \(padded(Self.accountName(account.identity), to: 32))"
                         + "\(padded(marker, to: 10))\(label)"
                     lines.append(accountIndex == mainFocus ? selectedLine(row) : fitted(row))
@@ -1298,7 +1445,7 @@ private struct TerminalMenu {
             }
             if let message { lines.append(""); lines.append(accent(message)) }
             lines.append("")
-            lines.append(muted(account.identity.providerID.isGenericProvider
+            lines.append(muted(account.identity.providerID != .codex
                 ? "↑↓ move   Enter run   ←/Esc back" : "↑↓ move   Enter run   w period   ←/Esc back"))
         }
 
@@ -1310,7 +1457,7 @@ private struct TerminalMenu {
 
     static func mainActions(hasPendingLogins: Bool) -> [TerminalMainAction] {
         TerminalMainAction.allCases.filter {
-            hasPendingLogins || ($0 != .checkLogin && $0 != .cancelLogin)
+            hasPendingLogins || ($0 != .checkLogin && $0 != .submitLoginCode && $0 != .cancelLogin)
         }
     }
 
@@ -1337,11 +1484,8 @@ private struct TerminalMenu {
         tokenPeriod: CodexTokenPeriod,
         genericUsage: GenericUsage?
     ) -> [String] {
-        if account.identity.providerID.isGenericProvider {
+        if account.identity.providerID != .codex {
             return genericDetailLines(genericUsage)
-        }
-        if account.identity.providerID == .grokBuild {
-            return [muted("Grok Build does not expose subscription limits here.")]
         }
         let view = usage.map(Self.usageView)
         var lines: [String] = []
@@ -1371,7 +1515,9 @@ private struct TerminalMenu {
         switch action {
         case .addAccount: "⊕  Add account"
         case .importAccount: "⇥  Advanced import"
+        case .importDroid: "⇥  Import current Droid login"
         case .checkLogin: "✓  Check pending login (\(pendingLoginCount))"
+        case .submitLoginCode: "⇥  Submit Grok authorization code"
         case .cancelLogin: "×  Cancel pending login"
         case .discover: "⌕  Discover accounts"
         case .recover: "↻  Recover interrupted work"
@@ -1394,8 +1540,10 @@ private struct TerminalMenu {
         return switch action {
         case .setDefault: isDefault ? "✓✓ Using as default" : "✓  Set as default"
         case .openCodex: "▶  Open \(providerID == .codex ? "Codex" : providerID.displayName)"
-        case .refreshLimits: providerID == .codex ? "↻  Refresh limits" : "↻  Check account"
+        case .refreshLimits: providerID == .codex ? "↻  Refresh limits" : "↻  Refresh usage"
         case .verifyFiles: "⌕  Check account files"
+        case .renameAccount: "✎  Rename account"
+        case .signIn: "⇥  Sign in to this account"
         case .deleteAccount: "−  Delete account"
         case .back: "←  Back"
         }
@@ -1963,19 +2111,20 @@ struct CommandLineInput {
     let paths: ManagerPaths
 
     init(_ arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) throws {
-        command = arguments.first ?? "interactive"
-        values = Array(arguments.dropFirst())
-        json = arguments.contains("--json")
-        confirmed = arguments.contains("--yes")
-        let modeValue = Self.option("--mode", in: arguments)
+        let ownArguments = Array(arguments.prefix(while: { $0 != "--" }))
+        command = ownArguments.first ?? "interactive"
+        values = Array(ownArguments.dropFirst())
+        json = ownArguments.contains("--json")
+        confirmed = ownArguments.contains("--yes")
+        let modeValue = Self.option("--mode", in: ownArguments)
         guard modeValue == nil || modeValue == "auth-only" || modeValue == "full" else { throw CLIError.message("Mode must be auth-only or full.") }
         mode = modeValue == "full" ? .full : .authOnly
         var choices: [String: ConflictChoice] = [:]
-        Self.options("--keep-shared", in: arguments).forEach { choices[$0] = .keepShared }
-        Self.options("--use-imported", in: arguments).forEach { choices[$0] = .useImported }
+        Self.options("--keep-shared", in: ownArguments).forEach { choices[$0] = .keepShared }
+        Self.options("--use-imported", in: ownArguments).forEach { choices[$0] = .useImported }
         decisions = choices
-        externalReviews = Set(Self.options("--review-external", in: arguments))
-        let recoveryChoices = arguments.filter { ["--keep-current", "--restore-backup"].contains($0) }
+        externalReviews = Set(Self.options("--review-external", in: ownArguments))
+        let recoveryChoices = ownArguments.filter { ["--keep-current", "--restore-backup"].contains($0) }
         if command == "resolve-recovery" {
             guard recoveryChoices.count == 1 else {
                 throw CLIError.message("Choose exactly one of --keep-current or --restore-backup.")
@@ -1983,7 +2132,7 @@ struct CommandLineInput {
         }
         recoveryChoice = recoveryChoices.first == "--keep-current" ? .preserveCurrent
             : recoveryChoices.first == "--restore-backup" ? .restoreBackup : nil
-        let loginChoices = arguments.filter { ["--keep-saved", "--use-login"].contains($0) }
+        let loginChoices = ownArguments.filter { ["--keep-saved", "--use-login"].contains($0) }
         guard loginChoices.count <= 1 else {
             throw CLIError.message("Choose at most one of --keep-saved or --use-login.")
         }
@@ -1998,7 +2147,7 @@ struct CommandLineInput {
         var result: [String] = []; var skip = false
         for value in values.prefix(while: { $0 != "--" }) {
             if skip { skip = false; continue }
-            if ["--name", "--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement", "--field", "--provider", "--account", "--min-remaining", "--window"].contains(value) { skip = true; continue }
+            if ["--name", "--mode", "--keep-shared", "--use-imported", "--review-external", "--fingerprint", "--replacement", "--field", "--provider", "--account", "--min-remaining", "--window", "--period", "--group", "--query", "--limit", "--offset", "--role", "--item", "--destination", "--schedule", "--keep"].contains(value) { skip = true; continue }
             if value.hasPrefix("--") { continue }
             result.append(value)
         }
@@ -2035,11 +2184,14 @@ struct CommandLineInput {
     func optionValues(_ name: String) -> [String] { Self.options(name, in: values) }
 
     private static func option(_ name: String, in values: [String]) -> String? {
-        guard let index = values.firstIndex(of: name), values.indices.contains(index + 1) else { return nil }
+        guard let index = values.firstIndex(of: name), values.indices.contains(index + 1),
+              !values[index + 1].hasPrefix("--") else { return nil }
         return values[index + 1]
     }
     private static func options(_ name: String, in values: [String]) -> [String] {
-        values.indices.compactMap { values[$0] == name && values.indices.contains($0 + 1) ? values[$0 + 1] : nil }
+        values.indices.compactMap {
+            values[$0] == name && values.indices.contains($0 + 1) && !values[$0 + 1].hasPrefix("--") ? values[$0 + 1] : nil
+        }
     }
 }
 

@@ -213,6 +213,81 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertTrue(try fm.contentsOfDirectory(atPath: home.appending(path: "sessions").path).allSatisfy { !$0.hasPrefix(".switch-restore-") })
     }
 
+    func testManagedRestoreRejectsActiveAndUnknownWritersWithoutChangingFiles() async throws {
+        try write("config.toml", "original")
+        let set = makeSet(items: ["config.toml"])
+        let snapshot = try await engine.snapshot(set)
+        try write("config.toml", "current")
+        let paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path,
+            "AI_MANAGER_DEFAULT_HOME": home.path])
+        for state in [WriterState.active, .unknown] {
+            let manager = try AccountManager(paths: paths, writerCheck: { _ in state })
+            do {
+                _ = try await manager.restoreBackup(snapshot, set: set)
+                XCTFail("Expected a writer guard failure")
+            } catch let error as AIManagerError {
+                switch (state, error) {
+                case (.active, .activeCodexProcesses), (.unknown, .writerStateUnknown): break
+                default: XCTFail("Unexpected writer failure: \(error)")
+                }
+            }
+            XCTAssertEqual(try String(contentsOf: home.appending(path: "config.toml"), encoding: .utf8), "current")
+        }
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let restored = try await manager.restoreBackup(snapshot, set: set)
+        XCTAssertEqual(restored.restored, 1)
+        XCTAssertNotNil(restored.safetySnapshot)
+        XCTAssertEqual(try String(contentsOf: home.appending(path: "config.toml"), encoding: .utf8), "original")
+    }
+
+    func testManagedRestoreCannotBypassWriterGuardWithDestinationOption() async throws {
+        try write("config.toml", "original")
+        let set = makeSet(items: ["config.toml"])
+        let snapshot = try await engine.snapshot(set)
+        try write("config.toml", "current")
+        let paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path,
+            "AI_MANAGER_DEFAULT_HOME": home.path])
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .active })
+        for destination in [home!, home.appending(path: "nested"), root!] {
+            do {
+                _ = try await manager.restoreBackup(snapshot, set: set, to: destination)
+                XCTFail("Expected an overlapping destination failure")
+            } catch {
+                XCTAssertTrue(error is AIManagerError)
+            }
+        }
+        let separate = root.appending(path: "restored")
+        let result = try await manager.restoreBackup(snapshot, set: set, to: separate)
+        XCTAssertEqual(result.restored, 1)
+        XCTAssertEqual(try String(contentsOf: separate.appending(path: "config.toml"), encoding: .utf8), "original")
+        XCTAssertEqual(try String(contentsOf: home.appending(path: "config.toml"), encoding: .utf8), "current")
+    }
+
+    func testManagedRestoreProtectsClaudeProfileOutsideSharedHome() async throws {
+        try write("config.toml", "backup configuration")
+        let set = makeSet(items: ["config.toml"])
+        let snapshot = try await engine.snapshot(set)
+        var paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path,
+            "AI_MANAGER_DEFAULT_HOME": home.path])
+        paths.claudeExecutable = URL(fileURLWithPath: "/usr/bin/true")
+        let profiles = try ClaudeCodeProfiles(paths: paths, fileManager: fm,
+            loginRunner: .init(launch: { _, _ in }),
+            statusCheck: { _ in .init(loggedIn: true, email: "synthetic@example.test") }, logout: { _ in })
+        let started = try profiles.startLogin()
+        let checked = try await profiles.checkLogin(started.session.id)
+        let profile = try XCTUnwrap(checked.account).home
+        let config = profile.appending(path: "config.toml")
+        try Data("profile configuration".utf8).write(to: config)
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        do {
+            _ = try await manager.restoreBackup(snapshot, set: set, to: profile)
+            XCTFail("Expected the managed Claude profile to be protected")
+        } catch let error as AIManagerError {
+            guard case .unsafePath = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+        XCTAssertEqual(try String(contentsOf: config, encoding: .utf8), "profile configuration")
+    }
+
     func testPruneKeepsNewestAndDeletesOnlyOwnSnapshots() async throws {
         try write("sessions/a.jsonl", "a")
         let set = makeSet(keep: 2)

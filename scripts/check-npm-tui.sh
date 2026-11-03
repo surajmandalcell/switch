@@ -3,6 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bash "$repo_root/packages/tui/Tests/install.sh"
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/switch-npm-test.XXXXXX")"
 trap 'find "$test_root" -depth -delete' EXIT
 
@@ -28,6 +29,9 @@ installed="$test_root/global/bin/ai-manager"
 switch_installed="$test_root/global/bin/switch"
 [[ -x "$installed" ]]
 [[ -x "$switch_installed" ]]
+expected_version="$(node -p 'require(process.argv[1]).version' "$repo_root/package.json")"
+[[ "$("$installed" --version)" == "Switch $expected_version" ]]
+[[ "$("$switch_installed" --version)" == "Switch $expected_version" ]]
 "$installed" help | rg -F 'ai-manager interactive' >/dev/null
 "$switch_installed" help | rg -F 'ai-manager interactive' >/dev/null
 
