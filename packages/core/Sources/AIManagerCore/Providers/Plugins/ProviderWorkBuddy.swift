@@ -26,18 +26,22 @@ extension ProviderCatalog {
                 try HTTP.check(response)
                 var usage = try WorkBuddyUsage.map(try response.json())
                 // The reset time is optional: a failed package listing keeps the balance.
-                var listings: [JSON] = []
-                for (path, codes) in [("/billing/meter/get-user-resource-paid-packages", WorkBuddyUsage.paidPackageCodes),
-                                      ("/billing/meter/get-user-resource-free-packages", WorkBuddyUsage.freePackageCodes)] {
+                var listings = [JSON([:]), JSON([:])]
+                for (index, listing) in [("/billing/meter/get-user-resource-paid-packages", WorkBuddyUsage.paidPackageCodes),
+                                         ("/billing/meter/get-user-resource-free-packages", WorkBuddyUsage.freePackageCodes)].enumerated() {
+                    let (path, codes) = listing
                     let body: [String: Any] = ["PageNumber": 1, "PageSize": 100, "PackageCodes": codes, "Status": [0, 3]]
                     if let data = try? JSONSerialization.data(withJSONObject: body),
                        let page = try? await post(path, agent: agent, body: data), page.status == 200,
                        let json = try? page.json(), json["code"].int == 0 {
-                        listings.append(json["data"])
+                        listings[index] = json["data"]
                     }
                 }
-                if let reset = WorkBuddyUsage.nextReset(listings), let first = usage.windows.indices.first {
+                if let reset = WorkBuddyUsage.nextReset(listings), let first = usage.windows.firstIndex(where: { $0.id == "credits" }) {
                     usage.windows[first].resetsAt = reset
+                }
+                if usage.windows.contains(where: { $0.id == "rewards" }), let expiry = WorkBuddyUsage.rewardExpiry(listings) {
+                    usage.sections[0].rows.append(UsageRow("Reward expiry", PluginFmt.monthDay(expiry)))
                 }
                 return usage
             }
@@ -60,20 +64,32 @@ enum WorkBuddyUsage {
                                    "TCACA_code_007_nzdH5h4Nl0", "TCACA_code_028_NtpWi0jzXs", "TCACA_code_037_WxOD3MpI2o",
                                    "TCACA_code_029_6wCGEWquYy", "TCACA_code_030_BjSt89qTvr"]
 
-    /// Earliest future `CycleEndTime` of a credits account in the listings' `data`. The times carry no zone: they
-    /// are China Standard Time, and the dashboard refreshes one second after the inclusive end.
+    private static let rewardPackageCode = "TCACA_code_007_nzdH5h4Nl0"
+
+    private static func cycleEnd(_ account: JSON) -> Date? {
+        guard let raw = account["CycleEndTime"].string?.trimmingCharacters(in: .whitespaces),
+              raw.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#, options: .regularExpression) != nil,
+              let end = Fmt.iso(raw.replacingOccurrences(of: " ", with: "T") + "+08:00") else { return nil }
+        return end.addingTimeInterval(1)
+    }
+
+    /// Paid, then free listings. Paid allowances reset; reward grants expire independently.
     static func nextReset(_ listings: [JSON], now: Date = Date()) -> Date? {
-        var earliest: Date?
         for page in listings {
-            for account in page["Accounts"].array where account["CapacityUnit"].string == "credits" {
-                guard let raw = account["CycleEndTime"].string?.trimmingCharacters(in: .whitespaces),
-                      raw.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#, options: .regularExpression) != nil,
-                      let end = Fmt.iso(raw.replacingOccurrences(of: " ", with: "T") + "+08:00") else { continue }
-                let reset = end.addingTimeInterval(1)
-                if reset > now, earliest.map({ reset < $0 }) ?? true { earliest = reset }
-            }
+            let resets = page["Accounts"].array.filter {
+                $0["CapacityUnit"].string == "credits" && $0["PackageCode"].string != rewardPackageCode
+            }.compactMap(cycleEnd).filter { $0 > now }
+            if let earliest = resets.min() { return earliest }
         }
-        return earliest
+        return nil
+    }
+
+    static func rewardExpiry(_ listings: [JSON], now: Date = Date()) -> Date? {
+        listings.dropFirst().flatMap { $0["Accounts"].array }.filter {
+            guard $0["CapacityUnit"].string == "credits", $0["PackageCode"].string == rewardPackageCode,
+                  let remaining = $0["CycleCapacityRemain"].double else { return false }
+            return remaining.isFinite && remaining > 0
+        }.compactMap(cycleEnd).filter { $0 > now }.min()
     }
 
     static func map(_ json: JSON) throws -> ProviderUsage {
@@ -84,7 +100,8 @@ enum WorkBuddyUsage {
         // Amounts arrive as decimal strings such as "500".
         var total = 0.0, remaining = 0.0, frozen = 0.0
         for item in data["Packages"].array where item["CapacityUnit"].string == "credits" {
-            guard let cycleTotal = item["CycleTotalCapacity"].double, let cycleLeft = item["CycleRemainCapacity"].double else {
+            guard let cycleTotal = item["CycleTotalCapacity"].double, cycleTotal.isFinite, cycleTotal >= 0,
+                  let cycleLeft = item["CycleRemainCapacity"].double, cycleLeft.isFinite, cycleLeft >= 0 else {
                 throw ProviderError.parse("Invalid WorkBuddy billing response: credit amounts.")
             }
             total += cycleTotal
@@ -99,6 +116,17 @@ enum WorkBuddyUsage {
                                        detail: "\(Fmt.number(remaining, digits: 2)) / \(Fmt.number(total, digits: 2)) credits left"))
         } else {
             rows = [UsageRow("Left", Fmt.number(remaining, digits: 2)), UsageRow("Total", Fmt.number(total, digits: 2))] + rows
+        }
+        var rewardTotal = 0.0, rewardRemaining = 0.0
+        for group in data["CreditGroups"].array where group["Kind"].string == "benefit" && group["CapacityUnit"].string == "credits" {
+            guard let total = group["CycleTotalCapacity"].double, total.isFinite, total >= 0,
+                  let remaining = group["CycleRemainCapacity"].double, remaining.isFinite, remaining >= 0 else { continue }
+            rewardTotal += total; rewardRemaining += remaining
+        }
+        if rewardTotal > 0, rewardTotal.isFinite, rewardRemaining.isFinite {
+            windows.append(UsageWindow(id: "rewards", title: "Rewards",
+                usedPercent: max(0, rewardTotal - rewardRemaining) / rewardTotal * 100,
+                detail: "\(Fmt.number(rewardRemaining, digits: 2)) / \(Fmt.number(rewardTotal, digits: 2)) credits left"))
         }
         return ProviderUsage(windows: windows, sections: [UsageSection("Credits", rows)], plan: data["SubscriptionPackageName"].string)
     }

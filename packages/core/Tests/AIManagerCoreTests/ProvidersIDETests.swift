@@ -215,6 +215,16 @@ final class ProvidersIDETests: XCTestCase {
         XCTAssertNil(spec.identify?(credential(id, #"{"github.example.com":{"oauth_token":"x"}}"#)))
     }
 
+    func testCopilotEndedSubscriptionHasItsOwnDiagnostic() throws {
+        XCTAssertThrowsError(try CopilotUsage.map(json(#"{"access_type_sku":"subscription_ended"}"#))) { error in
+            guard case ProviderError.unavailable(let detail) = error else { return XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(detail.contains("subscription has ended"))
+        }
+        XCTAssertThrowsError(try CopilotUsage.map(json("{}"))) { error in
+            guard case ProviderError.parse = error else { return XCTFail("Unknown data must not imply an ended subscription.") }
+        }
+    }
+
     // MARK: Cursor
 
     func testCursorMapsPoolsOnDemandAndCredits() throws {

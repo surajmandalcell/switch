@@ -266,15 +266,78 @@ final class OpenCodeDatabaseLoginTests: XCTestCase {
         XCTAssertEqual(live?.key, identify(saved)?.key)
     }
 
-    func testAuthJsonEntryStillWinsOverTheDatabase() async throws {
+    func testActiveDatabaseLoginWinsOverStaleAuthJson() async throws {
         try writeAuth("synthetic-file-key")
         try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("synthetic-db-key")])
         let manager = try manager()
         let added = await manager.importLiveLogins()
         let record = try XCTUnwrap(added.first)
         let saved = try savedLogin(record)
-        XCTAssertTrue(saved.contains("synthetic-file-key"))
-        XCTAssertFalse(saved.contains("synthetic-db-key"))
+        XCTAssertFalse(saved.contains("synthetic-file-key"))
+        XCTAssertTrue(saved.contains("synthetic-db-key"))
+    }
+
+    func testGeneralOpenCodeApiKeyIsImportedWithoutRewritingItsLogin() async throws {
+        let value = #"{"type":"api","key":"synthetic-general-key"}"#
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [("opencode", value)])
+        let directory = paths.userHome.appending(path: ".local/share/opencode")
+        let login = try XCTUnwrap(OpenCodeGoUsage.databaseLogin("opencode-go", directory: directory))
+        XCTAssertEqual(login.value, Data(value.utf8), "Keep the CLI-owned JSON bytes unchanged.")
+        let manager = try manager()
+        let added = await manager.importLiveLogins()
+        let record = try XCTUnwrap(added.first)
+        XCTAssertEqual(record.identity.providerID, goID)
+        XCTAssertEqual(try savedLogin(record), value)
+        let saved = try JSONDecoder().decode(ProviderCredential.self, from: Data(contentsOf: record.credentialFile))
+        XCTAssertEqual(OpenCodeGoUsage.apiKey(saved.json(".local/share/opencode/auth.json#opencode-go")), login.key)
+        XCTAssertFalse(fm.fileExists(atPath: authFile.path))
+    }
+
+    func testRotatingOAuthAccessDoesNotInventNewOpenCodeAccounts() async throws {
+        let manager = try manager()
+        for access in ["synthetic-first-access", "synthetic-rotated-access"] {
+            let value = "{\"type\":\"oauth\",\"access\":\"\(access)\",\"refresh\":\"synthetic-refresh\"}"
+            try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [("opencode", value)])
+            let added = await manager.importLiveLogins()
+            XCTAssertTrue(added.isEmpty, "OAuth needs a stable owner identity before automatic import is supported.")
+            try fm.removeItem(at: authFile.deletingLastPathComponent().appending(path: "opencode.db"))
+        }
+        let status = try await manager.status()
+        XCTAssertTrue(status.accounts.isEmpty)
+    }
+
+    func testGoCredentialPrecedesGeneralAndInactiveDatabaseDoesNotReviveLegacyLogin() async throws {
+        try writeAuth("stale-legacy")
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("go-first"), ("opencode", #"{"type":"api","key":"general-second"}"#)])
+        let directory = authFile.deletingLastPathComponent()
+        XCTAssertEqual(OpenCodeGoUsage.databaseLogin("opencode-go", directory: directory)?.key, "go-first")
+        try fm.removeItem(at: directory.appending(path: "opencode.db"))
+        try OpenCodeDatabaseFixture.write(home: paths.userHome, rows: [goRow("inactive")], active: 0)
+        let manager = try manager()
+        let added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
+        let status = try await manager.status()
+        XCTAssertTrue(status.accounts.isEmpty)
+        XCTAssertTrue(try String(contentsOf: authFile, encoding: .utf8).contains("stale-legacy"))
+    }
+
+    func testOlderHistoryDatabaseAllowsLegacyAuthButUnreadableDatabaseDoesNot() async throws {
+        try writeAuth("synthetic-legacy-key")
+        let directory = authFile.deletingLastPathComponent()
+        let database = directory.appending(path: "opencode.db")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(database.path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE message (id TEXT);", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        XCTAssertFalse(try OpenCodeGoUsage.hasCredentialTable(directory: directory))
+        let manager = try manager()
+        let legacy = await manager.importLiveLogins()
+        XCTAssertEqual(legacy.count, 1)
+        try fm.removeItem(at: database)
+        try Data("not a readable SQLite database".utf8).write(to: database)
+        XCTAssertThrowsError(try OpenCodeGoUsage.hasCredentialTable(directory: directory))
+        let added = await manager.importLiveLogins()
+        XCTAssertTrue(added.isEmpty)
     }
 
     /// The stored auth.json member of one saved account, as text.

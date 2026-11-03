@@ -55,6 +55,15 @@ final class ProvidersApisBTests: XCTestCase {
         XCTAssertNil(try BedrockUsage.map([page], budget: nil).windows.first)
     }
 
+    func testBedrockMissingCostDataDoesNotBecomeZeroSpend() throws {
+        XCTAssertThrowsError(try BedrockUsage.map([], budget: 100)) { error in
+            guard case ProviderError.unavailable = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+        let zero = try BedrockUsage.map([json(#"{"ResultsByTime":[]}"#)], budget: 100)
+        XCTAssertEqual(zero.cost?.used, 0)
+        XCTAssertEqual(zero.windows.first?.usedPercent, 0)
+    }
+
     /// AWS Signature Version 4 test suite, case "get-vanilla".
     func testSigV4AwsDocumentationVector() throws {
         let date = try XCTUnwrap(Fmt.iso("2015-08-30T12:36:00Z"))
@@ -147,6 +156,6 @@ final class ProvidersApisBTests: XCTestCase {
 
     func testCatalogListsAllProviders() {
         XCTAssertEqual(ProviderCatalog.apisB.map(\.id.rawValue),
-                       ["mistral", "groq", "bedrock", "azureopenai", "commandcode", "wayfinder", "ibmbob", "warp"])
+                       ["mistral", "groq", "bedrock", "azureopenai", "commandcode", "wayfinder", "ibmbob", "warp", "abliteration", "soniox"])
     }
 }

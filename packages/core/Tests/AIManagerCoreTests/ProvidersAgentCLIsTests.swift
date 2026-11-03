@@ -40,13 +40,26 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         XCTAssertEqual(usage.sections[0].rows[0].value, "2,500 credit cap")
         XCTAssertEqual(usage.cost?.balance ?? 0, 14.46, accuracy: 1e-9)
         XCTAssertEqual(usage.plan, "SuperGrok Heavy")
-        // Proto3 JSON drops zeros: no percent means 0, and a missing cap means Disabled.
+        // A valid period without a measured percentage leaves usage unknown.
         let idle = try GrokBuildUsage.map(billing: json(#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-07-01T00:00:00Z","end":"2026-07-08T00:00:00Z"}}}"#))
-        XCTAssertEqual(idle.windows.first?.usedPercent, 0)
+        XCTAssertTrue(idle.windows.isEmpty)
         XCTAssertEqual(idle.sections[0].rows[0].value, "Disabled")
         XCTAssertTrue(GrokBuildUsage.isTeamResponse(status: 412, body: #"{"error":"user has no personal team"}"#))
         XCTAssertFalse(GrokBuildUsage.isTeamResponse(status: 412, body: #"{"error":"other"}"#))
         XCTAssertTrue(GrokBuildUsage.teamOnly(plan: nil, email: nil).windows.isEmpty)
+    }
+
+    func testGrokUnknownCreditsKeepWalletAndExplicitZeroRemainsKnown() throws {
+        let period = #""currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-07-01T00:00:00Z","end":"2026-07-08T00:00:00Z"}"#
+        let unknown = try GrokBuildUsage.map(billing: json("{\"config\":{\(period),\"prepaidBalance\":{\"val\":1446}}}"))
+        XCTAssertTrue(unknown.windows.isEmpty)
+        XCTAssertEqual(unknown.cost?.balance, 14.46)
+        let zero = try GrokBuildUsage.map(billing: json("{\"config\":{\(period),\"creditUsagePercent\":0}}"))
+        XCTAssertEqual(zero.windows.first?.usedPercent, 0)
+        let measured = try GrokBuildUsage.map(billing: json("{\"config\":{\(period),\"onDemandCap\":{\"val\":100},\"onDemandUsed\":{\"val\":25}}}"))
+        XCTAssertTrue(measured.windows.isEmpty, "On-demand spend does not establish subscription quota usage.")
+        XCTAssertEqual(measured.sections.first?.rows.last?.label, "On-demand used")
+        XCTAssertEqual(measured.sections.first?.rows.last?.progress, 0.25)
     }
 
     func testGrokNeverRefreshesAnExpiredToken() async throws {

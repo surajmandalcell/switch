@@ -108,6 +108,9 @@ enum CopilotUsage {
 
     /// Pure mapper for `/copilot_internal/user`. Unlimited (-1) and zero-entitlement buckets are dropped.
     static func map(_ body: JSON) throws -> ProviderUsage {
+        if body["access_type_sku"].string == "subscription_ended" {
+            throw ProviderError.unavailable("Your Copilot subscription has ended. Renew it or use another account.")
+        }
         let reset = (body["quota_reset_date"].string ?? body["limited_user_reset_date"].string).flatMap(Fmt.iso)
         let snapshots = body["quota_snapshots"]
         var windows = [("credits", "Credits", "premium_interactions"), ("chat", "Chat", "chat"),
