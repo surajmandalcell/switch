@@ -1259,13 +1259,13 @@ final class AccountViewModel: ObservableObject {
                 guard let result = try await switchWithDroidConfirmation(manager, to: id) else { return }
                 try await reloadStatus(using: manager)
                 selectedAccountID = id
-                let count = result.droidConversationTransfer?.transferredCount ?? 0
-                let copied = "\(count) recent \(count == 1 ? "conversation" : "conversations") copied."
-                if let transfer = result.droidConversationTransfer, !transfer.warnings.isEmpty {
-                    notice = "Account switched. \(copied) \(transfer.warnings.joined(separator: " "))"
+                let count = result.droidSessionBinding.map { $0.updatedCount + $0.unchangedCount } ?? 0
+                let updated = "\(count) \(count == 1 ? "conversation" : "conversations") ready to resume."
+                if let binding = result.droidSessionBinding, !binding.warnings.isEmpty {
+                    notice = "Account switched. \(updated) \(binding.warnings.joined(separator: " "))"
                 } else if announce {
                     notice = count > 0
-                        ? "New \(providerName) sessions will use this account. \(copied)"
+                        ? "New \(providerName) sessions will use this account. \(updated)"
                         : "New \(providerName) sessions will use this account."
                 }
             }

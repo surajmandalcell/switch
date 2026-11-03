@@ -55,13 +55,15 @@ struct ProductionAccountViewModelCheck {
             "A failed refresh ignored its five-minute cooldown")
         try await FeatureLogicChecks.run()
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appending(
-            path: "iia-directeur-gui-check-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let storage = ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
+            ?? ProcessInfo.processInfo.environment["TMPDIR"] ?? fileManager.temporaryDirectory.path
+        let root = URL(fileURLWithPath: storage).appending(
+            path: "switch/iia-directeur-gui-check-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fileManager.removeItem(at: root) }
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try await checkAccountScopedSignIn(root: root)
         try await checkDroidAccounts(root: root)
-        try await checkDroidConversationTransfer(root: root)
+        try await checkDroidSessionBinding(root: root)
         try await checkActionMessages(root: root)
         print("ACCOUNT_SCOPED_SIGN_IN_PASS")
 
@@ -310,6 +312,7 @@ struct ProductionAccountViewModelCheck {
                    "A backup without login files contains auth.json")
         let restoreFolder = root.appending(path: "restored", directoryHint: .isDirectory)
         await maintenance.restore(backups[0], set: backupSet, items: nil, to: restoreFolder)
+        try expect(model.errorMessage == nil, "Backup restore failed: \(model.errorMessage ?? "nil")")
         try expect(try Data(contentsOf: restoreFolder.appending(path: "sessions/shared.jsonl"))
                    == Data(contentsOf: sessions.appending(path: "shared.jsonl")),
                    "Restoring into a folder did not reproduce the session file")
@@ -374,8 +377,8 @@ struct ProductionAccountViewModelCheck {
 
         await model.beginImport()
         let discovered = try expect(
-            model.discoveries.first { $0.path.standardizedFileURL == authOnlySource.standardizedFileURL },
-            "Real discovery did not find .codex2")
+            model.discoveries.first { $0.path.standardizedFileURL.path == authOnlySource.standardizedFileURL.path },
+            "Real discovery did not find \(authOnlySource.path); found: \(model.discoveries.map { "\($0.path.path) [\($0.support)]" }.joined(separator: ", "))")
         try expect(discovered.support == .supportedChatGPT, "Discovered auth source was unsupported")
         model.selectedSourceID = discovered.id
         model.importMode = .authOnly
@@ -878,8 +881,8 @@ struct ProductionAccountViewModelCheck {
         model.droidConfirmation = { message, _ in prompts.append(message); return true }
         await model.switchDefault(to: second.id)
         try expect(try Data(contentsOf: live) == Data("synthetic-B".utf8), "Confirmed Droid switch did not publish the login")
-        try expect(model.notice?.localizedCaseInsensitiveContains("recent conversations were not copied") == true,
-                   "A skipped transfer was not distinguished from successful account switching")
+        try expect(model.notice?.localizedCaseInsensitiveContains("conversations were not updated") == true,
+                   "A skipped binding was not distinguished from successful account switching")
         model.closeAccountModal()
         await model.beginSignIn(for: first.id)
         try expect(model.accountLoginSession?.accountID == first.id, "Droid re-sign-in lost the target")
@@ -1046,8 +1049,8 @@ struct ProductionAccountViewModelCheck {
     }
 
     @MainActor
-    private static func checkDroidConversationTransfer(root: URL) async throws {
-        let scratch = root.appending(path: "droid-conversation-transfer")
+    private static func checkDroidSessionBinding(root: URL) async throws {
+        let scratch = root.appending(path: "droid-session-binding")
         let home = scratch.appending(path: "user/.factory")
         let fake = scratch.appending(path: "droid")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
@@ -1089,9 +1092,9 @@ struct ProductionAccountViewModelCheck {
         await model.load()
         await model.switchDefault(to: work.id)
         try expect(model.status?.defaultAccountID(for: .droid) == work.id, "GUI did not select the target Droid account")
-        try expect(model.notice?.contains("1 recent conversation copied") == true && model.errorMessage == nil,
-                   "Successful conversation transfer did not reach the GUI notification")
-        print("DROID_CONVERSATION_TRANSFER_PASS")
+        try expect(model.notice?.contains("1 conversation ready to resume") == true && model.errorMessage == nil,
+                   "Successful conversation binding did not reach the GUI notification: notice=\(model.notice ?? "nil"), error=\(model.errorMessage ?? "nil"), home=\(home.pathComponents), resolved=\(home.resolvingSymlinksInPath().standardizedFileURL.pathComponents)")
+        print("DROID_SESSION_BINDING_PASS")
     }
 
     private static func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
