@@ -10,10 +10,10 @@ extension ProviderCatalog {
         files: [openCodeAuth],
         dashboard: "https://opencode.ai/auth",
         identify: { credential in
-            credential.json(openCodeAuth.id)?["key"].string.map { CredentialIdentity(key: AgentCLIsKit.fingerprint($0)) }
+            OpenCodeGoUsage.apiKey(credential.json(openCodeAuth.id)).map { CredentialIdentity(key: AgentCLIsKit.fingerprint($0)) }
         },
         usage: { credential in
-            guard let key = credential.json(openCodeAuth.id)?["key"].string else {
+            guard let key = OpenCodeGoUsage.apiKey(credential.json(openCodeAuth.id)) else {
                 throw ProviderError.missingCredential("Sign in with opencode auth login, then import the sign-in.")
             }
             let response = try await HTTP.send("https://opencode.ai/zen/go/v1/usage", headers: HTTP.bearer(key))
@@ -29,6 +29,11 @@ extension ProviderCatalog {
 }
 
 enum OpenCodeGoUsage {
+    static func apiKey(_ login: JSON?) -> String? {
+        guard let login, login["type"].string != "oauth" else { return nil }
+        return login["key"].string?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyText
+    }
+
     static func map(_ response: HTTPResponse) throws -> ProviderUsage {
         if response.status == 403, response.text.contains("EntitlementError") {
             return ProviderUsage(plan: "No Go plan", availability: .noPlan)
@@ -64,27 +69,43 @@ enum OpenCodeGoUsage {
         let sql = "SELECT value FROM credential WHERE integration_id = ?1 AND active = 1 ORDER BY time_updated DESC LIMIT 1"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { sqlite3_finalize(statement); return nil }
         defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, integration, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        guard sqlite3_step(statement) == SQLITE_ROW, let text = sqlite3_column_text(statement, 0) else { return nil }
-        let value = Data(bytes: text, count: Int(sqlite3_column_bytes(statement, 0)))
-        guard let object = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
-              let key = (object["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty
-        else { return nil }
-        return (value, key)
+        let integrations = integration == "opencode-go" ? [integration, "opencode"] : [integration]
+        for candidate in integrations {
+            sqlite3_bind_text(statement, 1, candidate, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            let code = sqlite3_step(statement)
+            if code == SQLITE_DONE { sqlite3_reset(statement); continue }
+            guard code == SQLITE_ROW, let text = sqlite3_column_text(statement, 0) else { return nil }
+            let value = Data(bytes: text, count: Int(sqlite3_column_bytes(statement, 0)))
+            guard let object = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any] else { return nil }
+            let key = integration == "opencode-go" || integration == "opencode"
+                ? apiKey(JSON(object)) : (object["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyText
+            guard let key else { return nil }
+            return (value, key)
+        }
+        return nil
     }
 
     /// True when `opencode.db` is an OpenCode 2 database, which holds the logins.
-    static func hasCredentialTable(directory: URL) -> Bool {
+    static func hasCredentialTable(directory: URL) throws -> Bool {
+        let database = directory.appendingPathComponent("opencode.db")
+        guard CoreSupport.entryExists(database) else { return false }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(directory.appendingPathComponent("opencode.db").path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             sqlite3_close(db)
-            return false
+            throw ProviderError.unavailable("OpenCode's login database could not be read. Close OpenCode and try again.")
         }
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 1_500)
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
-        return sqlite3_prepare_v2(db, "SELECT 1 FROM credential LIMIT 0", -1, &statement, nil) == SQLITE_OK
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'credential'", -1, &statement, nil) == SQLITE_OK else {
+            throw ProviderError.unavailable("OpenCode's login database could not be read. Close OpenCode and try again.")
+        }
+        let code = sqlite3_step(statement)
+        guard code == SQLITE_ROW || code == SQLITE_DONE else {
+            throw ProviderError.unavailable("OpenCode's login database could not be read. Close OpenCode and try again.")
+        }
+        return code == SQLITE_ROW
     }
 
     private static let provider = "COALESCE(json_extract(data,'$.model.providerID'), json_extract(data,'$.providerID'))"

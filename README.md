@@ -105,8 +105,8 @@ Kilo, Codebuff, Devin, OpenCode Go, Ollama, and Vertex AI.
 **API and plan providers:** OpenRouter, z.ai, DeepSeek, MiniMax, Mistral, Groq, OpenAI,
 AWS Bedrock, Warp, Factory, and more.
 
-Switch includes every usage provider from [OpenUsage](https://github.com/robinebers/openusage)
-and [CodexBar](https://github.com/steipete/CodexBar) that works without the macOS Keychain
+Switch adapts usage providers from [OpenUsage](https://github.com/robinebers/openusage)
+and [CodexBar](https://github.com/steipete/CodexBar) that work without the macOS Keychain
 or browser cookie stores. A provider that needs a browser session takes a pasted Cookie
 header instead. Codex usage refreshes every 3 minutes, and other providers every 5.
 

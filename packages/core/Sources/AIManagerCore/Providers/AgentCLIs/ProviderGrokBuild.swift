@@ -328,27 +328,28 @@ enum GrokBuildUsage {
                       plan: plan, email: email)
     }
 
-    /// `GET /v1/billing?format=credits`. Proto3 JSON drops zero values, so a missing percent means 0.
+    /// A missing percentage is unknown; a billing period alone does not prove zero usage.
     static func map(billing: JSON, plan: String? = nil, email: String? = nil) throws -> ProviderUsage {
         let config = billing["config"]
         guard config.exists else { throw ProviderError.parse("Grok returned an unexpected billing reply.") }
         var windows: [UsageWindow] = []
+        let cap = config.at("onDemandCap.val").double ?? 0
+        let percent = config["creditUsagePercent"].double
         let period = config["currentPeriod"]
         // Older replies carry only billingPeriodStart/End; the length of the span then names the window.
         let spanStart = period["start"].date ?? config["billingPeriodStart"].date
         let spanEnd = period["end"].date ?? config["billingPeriodEnd"].date
-        if let start = spanStart, let end = spanEnd, end > start {
+        if let percent, percent.isFinite, let start = spanStart, let end = spanEnd, end > start {
             let type = period["type"].string ?? ""
             let days = end.timeIntervalSince(start) / 86_400
             let title = type.hasSuffix("WEEKLY") ? "Weekly" : type.hasSuffix("MONTHLY") ? "Monthly"
                 : type.isEmpty ? (days < 10 ? "Weekly" : days < 40 ? "Monthly" : nil) : nil
             if let title {
                 windows.append(UsageWindow(
-                    id: title.lowercased(), title: title, usedPercent: config["creditUsagePercent"].double ?? 0,
+                    id: title.lowercased(), title: title, usedPercent: percent,
                     resetsAt: end, windowMinutes: Int(end.timeIntervalSince(start) / 60)))
             }
         }
-        let cap = config.at("onDemandCap.val").double ?? 0
         var rows = [UsageRow("Pay as you go", cap > 0 ? "\(Fmt.number(cap)) credit cap" : "Disabled")]
         if cap > 0, let used = config.at("onDemandUsed.val").double {
             rows.append(UsageRow("On-demand used", Fmt.number(used), progress: used / cap))

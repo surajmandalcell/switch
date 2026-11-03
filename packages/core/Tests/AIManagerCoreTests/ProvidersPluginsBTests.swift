@@ -47,6 +47,58 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertTrue(usage.windows.isEmpty)
     }
 
+    func testLiteLLMMemberBudgetUsesOnlyMatchingTeamSpend() throws {
+        let key = try json(#"{"info":{"user_id":"u1","team_id":"t1"}}"#)
+        let user = try json("""
+        {"user_info":{"user_id":"u1","spend":140,"max_budget":null},
+         "teams":[{"team_id":"t1","team_alias":"Core","spend":1200,"max_budget":5000,
+          "team_memberships":[{"user_id":"u1","spend":96}]}]}
+        """)
+        let team = try json("""
+        {"team_id":"t1","team_info":{"team_id":"t1","team_member_budget_table":{
+         "max_budget":250,"budget_reset_at":"2026-11-01T00:00:00Z"}}}
+        """)
+        XCTAssertTrue(LiteLLMUsage.needsTeamInfo(key: key, user: user))
+        let usage = try LiteLLMUsage.map(key: key, user: user, team: team)
+        XCTAssertEqual(try XCTUnwrap(usage.windows.first?.usedPercent), 38.4, accuracy: 0.00001)
+        XCTAssertEqual(usage.cost?.used, 96)
+        XCTAssertEqual(usage.cost?.limit, 250)
+        XCTAssertEqual(usage.windows.first?.resetsAt, Fmt.iso("2026-11-01T00:00:00Z"))
+        XCTAssertEqual(usage.windows.last?.usedPercent, 24)
+        let wrongTeam = try json(#"{"team_info":{"team_id":"other","team_member_budget_table":{"max_budget":1}}}"#)
+        let unchanged = try LiteLLMUsage.map(key: key, user: user, team: wrongTeam)
+        XCTAssertEqual(unchanged.windows.map(\.id), ["team"])
+        XCTAssertEqual(unchanged.cost?.used, 140)
+    }
+
+    func testLiteLLMOverrideWinsAndMissingMembershipNeverUsesUserWideSpend() throws {
+        let key = try json(#"{"info":{"user_id":"u1","team_id":"t1"}}"#)
+        let user = try json("""
+        {"user_info":{"user_id":"u1","spend":140},"teams":[{"team_id":"t1","spend":1200,"max_budget":5000,
+         "team_memberships":[{"user_id":"u1","spend":10,"litellm_budget_table":{"max_budget":40}}]}]}
+        """)
+        XCTAssertFalse(LiteLLMUsage.needsTeamInfo(key: key, user: user))
+        let team = try json("""
+        {"team_info":{"team_id":"t1","team_member_budget_table":{"max_budget":250}},
+         "team_memberships":[{"user_id":"u1","team_id":"other","spend":999},{"user_id":"someone-else","spend":999}]}
+        """)
+        let own = try LiteLLMUsage.map(key: key, user: user, team: team)
+        XCTAssertEqual(own.windows.first?.usedPercent, 25)
+        XCTAssertEqual(own.cost?.limit, 40)
+        let missing = try json(#"{"user_info":{"user_id":"u1","spend":140},"teams":[{"team_id":"t1","spend":1200,"max_budget":5000}]}"#)
+        let unknown = try LiteLLMUsage.map(key: key, user: missing, team: team)
+        XCTAssertEqual(unknown.windows.map(\.id), ["team"])
+        XCTAssertEqual(unknown.cost?.used, 140)
+        let matched = try json("""
+        {"team_info":{"team_id":"t1","team_memberships":null,"team_member_budget_table":{"max_budget":250}},
+         "team_memberships":[{"user_id":"u1","team_id":"t1","spend":10}]}
+        """)
+        let recovered = try LiteLLMUsage.map(key: key, user: missing, team: matched)
+        XCTAssertEqual(recovered.windows.first?.usedPercent, 4)
+        XCTAssertEqual(recovered.cost?.used, 10)
+        XCTAssertThrowsError(try LiteLLMUsage.map(key: json(#"{"info":{"team_id":"wrong"}}"#), user: nil, team: matched))
+    }
+
     func testLithosAI() throws {
         let me = try json(#"{"user":{"email":"ada@example.com"},"activeOrganization":{"id":"o1","name":"Lab"}}"#)
         let billing = try json(#"{"balanceNanos":12500000000,"hasCard":true,"onHold":false}"#)
@@ -270,6 +322,38 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertEqual(usage.plan, "Pro")
         XCTAssertEqual(PerplexityUsage.cookies("abc").count, 4)
         XCTAssertEqual(PerplexityUsage.cookies("Cookie: a=b; c=d"), ["a=b; c=d"])
+    }
+
+    func testPerplexityOrganizationPoolTakesOverAfterPersonalCreditsRunOut() throws {
+        let usage = try PerplexityUsage.map(json("""
+        {"balance_cents":3342.28,"renewal_date_ts":1794405600,"current_period_purchased_cents":0,
+         "total_usage_cents":24870.74,"org_pool_draws_cents":24371,"org_user_cap_cents":300000,
+         "is_org_pool_depleted":false,"credit_grants":[{"type":"recurring","amount_cents":500}]}
+        """))
+        XCTAssertEqual(usage.windows.map(\.id), ["org-credits", "credits"])
+        XCTAssertEqual(try XCTUnwrap(usage.windows.first?.usedPercent), 24371 / 27713.28 * 100, accuracy: 0.0001)
+        XCTAssertNil(usage.windows.first?.resetsAt, "Organization balance is not a resetting seat allowance.")
+        XCTAssertEqual(usage.windows.last?.usedPercent, 100)
+        let depleted = try PerplexityUsage.map(json("""
+        {"balanceCents":500,"renewalDateTs":1794405600,"currentPeriodPurchasedCents":0,
+         "totalUsageCents":1000,"orgPoolDrawsCents":100,"orgUserCapCents":10000,
+         "isOrgPoolDepleted":true,"creditGrants":[{"type":"recurring","amountCents":1000}]}
+        """))
+        XCTAssertEqual(depleted.windows.last?.id, "org-credits")
+        XCTAssertEqual(depleted.windows.last?.usedPercent, 100)
+        XCTAssertThrowsError(try PerplexityUsage.map(json("""
+        {"balance_cents":0,"renewal_date_ts":1794405600,"current_period_purchased_cents":0,
+         "total_usage_cents":0,"credit_grants":[],"org_pool_draws_cents":"invalid"}
+        """)))
+    }
+
+    func testPerplexityOrganizationCapAloneDoesNotProveZeroUsage() throws {
+        let fields = #""balance_cents":500,"renewal_date_ts":1794405600,"current_period_purchased_cents":0,"total_usage_cents":0,"credit_grants":[],"org_user_cap_cents":1000"#
+        let unknown = try PerplexityUsage.map(json("{\(fields)}"))
+        XCTAssertFalse(unknown.windows.contains { $0.id == "org-credits" })
+        let known = try PerplexityUsage.map(json("{\(fields),\"org_pool_draws_cents\":0}"))
+        XCTAssertEqual(known.windows.first?.id, "org-credits")
+        XCTAssertEqual(known.windows.first?.usedPercent, 0)
     }
 
     func testPoeBalanceAndHistory() throws {

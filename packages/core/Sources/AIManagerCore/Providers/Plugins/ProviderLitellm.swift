@@ -37,6 +37,11 @@ extension ProviderCatalog {
             var user: JSON?, team: JSON?
             if let userID = info["user_id"].string {
                 user = try await get("user/info?user_id=\(encoded(userID))")
+                if let user, let teamID = info["team_id"].string, LiteLLMUsage.needsTeamInfo(key: keyRoot, user: user) {
+                    do { team = try await get("team/info?team_id=\(encoded(teamID))", optional: true) }
+                    catch is CancellationError { throw CancellationError() }
+                    catch {}
+                }
             } else if let teamID = info["team_id"].string {
                 team = try await get("team/info?team_id=\(encoded(teamID))")
             }
@@ -71,6 +76,18 @@ enum LiteLLMUsage {
         var alias: String?
         var window: UsageWindow?
         var cost: UsageCost?
+    }
+
+    private static func membership(_ rows: JSON, userID: String, teamID: String) -> JSON? {
+        rows.array.first { $0["user_id"].string == userID && ($0["team_id"].string == nil || $0["team_id"].string == teamID) }
+    }
+
+    static func needsTeamInfo(key: JSON, user: JSON) -> Bool {
+        guard let userID = key["info"]["user_id"].string, let teamID = key["info"]["team_id"].string,
+              (user["user_info"]["max_budget"].double ?? 0) <= 0 else { return false }
+        let team = user["teams"].array.first { $0["team_id"].string == teamID }
+        guard let row = team.flatMap({ membership($0["team_memberships"], userID: userID, teamID: teamID) }) else { return true }
+        return row["litellm_budget_table"]["max_budget"].double == nil || row["spend"].double == nil
     }
 
     private static func budget(_ info: JSON, team: Bool) -> Budget {
@@ -110,8 +127,33 @@ enum LiteLLMUsage {
                 ?? account.at("metadata.preferred_username").string
             personal = budget(account, team: false)
             teamBudget = user["teams"].array.map { budget($0, team: true) }.first { $0.teamID == teamID }
+            if personal?.window == nil, let userID, let teamID {
+                let userTeam = user["teams"].array.first { $0["team_id"].string == teamID }
+                let mine = userTeam.flatMap { membership($0["team_memberships"], userID: userID, teamID: teamID) }
+                var table = mine?["litellm_budget_table"] ?? JSON([:])
+                var spend = mine?["spend"].double
+                if let team, (team["team_info"]["team_id"].string ?? team["team_id"].string).map({ $0 == teamID }) ?? true {
+                    let info = team["team_info"]
+                    let nested = info["team_memberships"]
+                    let rows = nested.exists && !(nested.raw is NSNull) ? nested : team["team_memberships"]
+                    let fallback = membership(rows, userID: userID, teamID: teamID)
+                    if table["max_budget"].double == nil {
+                        table = fallback?["litellm_budget_table"] ?? JSON([:])
+                        if table["max_budget"].double == nil { table = info["team_member_budget_table"] }
+                    }
+                    if spend == nil { spend = fallback?["spend"].double }
+                }
+                if let limit = table["max_budget"].double, limit.isFinite, limit > 0,
+                   let spend, spend.isFinite, spend >= 0 {
+                    personal = budget(JSON(["max_budget": limit, "spend": spend,
+                        "budget_reset_at": table["budget_reset_at"].raw ?? NSNull()]), team: false)
+                }
+            }
         } else {
             guard let team else { throw ProviderError.parse("LiteLLM team info is missing.") }
+            if let responseID = team["team_info"]["team_id"].string ?? team["team_id"].string, responseID != teamID {
+                throw ProviderError.parse("LiteLLM team_id did not match /key/info.")
+            }
             teamBudget = budget(team["team_info"], team: true)
         }
         // key.expires is the plugin's subscriptionExpiresAt.

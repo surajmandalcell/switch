@@ -245,6 +245,32 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertThrowsError(try WorkBuddyUsage.map(json(#"{"code":401}"#)))
     }
 
+    func testWorkBuddyRewardsStayInsideTotalAndExpireWithoutResettingIt() throws {
+        let usage = try WorkBuddyUsage.map(json("""
+        {"code":0,"data":{"Packages":[
+         {"CycleTotalCapacity":"2000","CycleRemainCapacity":"1500","CapacityUnit":"credits"},
+         {"CycleTotalCapacity":"2139","CycleRemainCapacity":"621","CapacityUnit":"credits"}],
+         "CreditGroups":[{"Kind":"benefit","CycleTotalCapacity":"2139","CycleRemainCapacity":"621","CapacityUnit":"credits"}]}}
+        """))
+        XCTAssertEqual(usage.windows.map(\.id), ["credits", "rewards"])
+        XCTAssertEqual(try XCTUnwrap(usage.windows[0].usedPercent), (4139 - 2121) / 4139.0 * 100, accuracy: 0.00001)
+        XCTAssertEqual(try XCTUnwrap(usage.windows[1].usedPercent), (2139 - 621) / 2139.0 * 100, accuracy: 0.00001)
+        XCTAssertNil(usage.windows[1].resetsAt)
+        let listings = try [json("""
+        {"Accounts":[{"PackageCode":"paid","CapacityUnit":"credits","CycleEndTime":"2026-11-24 12:44:13"}]}
+        """), json("""
+        {"Accounts":[
+         {"PackageCode":"trial","CapacityUnit":"credits","CycleEndTime":"2026-10-31 23:59:59"},
+         {"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-01 23:59:59","CycleCapacityRemain":"0"},
+         {"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-11 23:09:21","CycleCapacityRemain":"21"},
+         {"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-18 17:11:10","CycleCapacityRemain":"600"}]}
+        """)]
+        let now = utc("2026-10-30T00:00:00Z")
+        XCTAssertEqual(WorkBuddyUsage.nextReset(listings, now: now), utc("2026-11-24T04:44:14Z"))
+        XCTAssertEqual(WorkBuddyUsage.rewardExpiry(listings, now: now), utc("2026-11-11T15:09:22Z"))
+        XCTAssertNil(try WorkBuddyUsage.nextReset([json(#"{"Accounts":[{"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-18 17:11:10"}]}"#)], now: now))
+    }
+
     func testXKiro() throws {
         let now = utc("2026-10-10T12:00:00Z")
         let usage = try XKiroUsage.map(json("""

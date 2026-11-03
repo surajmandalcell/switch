@@ -239,7 +239,7 @@ struct ProviderAccountStore {
                 // ponytail: OpenCode 2 reads only its database, so auth.json would do nothing; write the credential row when the owner needs to switch between OpenCode Go accounts.
                 var databaseOwned = false
                 for file in spec.files where file.databaseRow != nil {
-                    databaseOwned = OpenCodeGoUsage.hasCredentialTable(directory: try liveURL(file, home: nil).deletingLastPathComponent())
+                    databaseOwned = try OpenCodeGoUsage.hasCredentialTable(directory: liveURL(file, home: nil).deletingLastPathComponent())
                 }
                 if databaseOwned, !isComplete(spec, outgoing) || identity(spec, outgoing).key != target.identity.userID {
                     throw AIManagerError.operationFailed(
@@ -592,6 +592,10 @@ struct ProviderAccountStore {
         var files: [String: Data] = [:]
         for file in spec.files {
             let url = try liveURL(file, home: home)
+            if let row = file.databaseRow, try OpenCodeGoUsage.hasCredentialTable(directory: url.deletingLastPathComponent()) {
+                files[file.id] = OpenCodeGoUsage.databaseLogin(row, directory: url.deletingLastPathComponent())?.value
+                continue
+            }
             if let table = file.sqliteTable {
                 files[file.id] = try readRows(url, table: table, keys: file.sqliteKeys)
             } else if let data = try readBounded(url) {

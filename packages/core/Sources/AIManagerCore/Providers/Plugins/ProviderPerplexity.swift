@@ -37,7 +37,7 @@ enum PerplexityUsage {
 
     static func map(_ data: JSON, now: Date = Date()) throws -> ProviderUsage {
         func field(_ snake: String, _ camel: String) -> JSON { data[snake].exists ? data[snake] : data[camel] }
-        guard data.object.isEmpty == false, field("balance_cents", "balanceCents").double != nil,
+        guard data.object.isEmpty == false, let balance = field("balance_cents", "balanceCents").double,
               let renewalTs = field("renewal_date_ts", "renewalDateTs").double,
               let purchasedField = field("current_period_purchased_cents", "currentPeriodPurchasedCents").double,
               var remaining = field("total_usage_cents", "totalUsageCents").double,
@@ -62,6 +62,20 @@ enum PerplexityUsage {
         let recurringUsed = min(remaining, recurring); remaining -= recurringUsed
         let purchasedUsed = min(remaining, purchased); remaining -= purchasedUsed
         let promoUsed = min(remaining, promo)
+        func optionalNumber(_ snake: String, _ camel: String) throws -> Double? {
+            let value = field(snake, camel)
+            guard value.exists, !(value.raw is NSNull) else { return nil }
+            guard value.raw is NSNumber, let number = value.double, number.isFinite else {
+                throw ProviderError.parse("Perplexity returned invalid organization credits.")
+            }
+            return number
+        }
+        let orgDraws = try optionalNumber("org_pool_draws_cents", "orgPoolDrawsCents")
+        _ = try optionalNumber("org_user_cap_cents", "orgUserCapCents")
+        let orgDepleted = field("is_org_pool_depleted", "isOrgPoolDepleted")
+        guard !orgDepleted.exists || orgDepleted.raw is NSNull || JSON.isBoolean(orgDepleted.raw) else {
+            throw ProviderError.parse("Perplexity returned an invalid organization credit state.")
+        }
         let renewal = Date(timeIntervalSince1970: renewalTs)
         let promoExpiry = promoGrants.compactMap(\.expires).min().map { Date(timeIntervalSince1970: $0) }
 
@@ -81,6 +95,17 @@ enum PerplexityUsage {
         if let window = UsageWindow.amounts(id: "purchased", title: "Purchased", used: purchasedUsed, limit: purchased,
                                             unit: "credits") {
             windows.append(window)
+        }
+        if let orgDraws {
+            let used = max(0, orgDraws)
+            let personalLeft = recurring - recurringUsed + purchased - purchasedUsed + promo - promoUsed
+            let available = orgDepleted.bool == true ? 0 : max(0, balance - personalLeft)
+            let total = used + available
+            let window = UsageWindow(id: "org-credits", title: "Organization",
+                usedPercent: total > 0 ? used / total * 100 : 100,
+                detail: "\(Fmt.number(used)) / \(Fmt.number(total)) credits")
+            if personalLeft <= 0 && available > 0 { windows.insert(window, at: 0) }
+            else { windows.append(window) }
         }
         return ProviderUsage(windows: windows, plan: recurring <= 0 ? nil : recurring < 5000 ? "Pro" : "Max")
     }

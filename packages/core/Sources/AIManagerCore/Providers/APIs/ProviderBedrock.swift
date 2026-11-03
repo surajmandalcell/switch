@@ -41,8 +41,9 @@ extension ProviderCatalog {
                     region: "us-east-1", service: "ce", date: now)
                 let response = try await HTTP.send("https://ce.us-east-1.amazonaws.com/", method: "POST",
                                                    headers: headers, body: data)
-                // No cost data yet (new account or first day of month) reads as zero spend.
-                if response.status == 400, response.text.contains("DataUnavailableException") { break }
+                if response.status == 400, response.text.contains("DataUnavailableException") {
+                    throw ProviderError.unavailable("AWS Cost Explorer data is not available yet. Try again later.")
+                }
                 try HTTP.check(response)
                 let page = try response.json()
                 pages.append(page)
@@ -173,6 +174,7 @@ enum BedrockUsage {
     /// `daily` pages (DAILY granularity) also give a per-day cost list; `activity` adds the CloudWatch Claude totals.
     static func map(_ pages: [JSON], budget: Double?, now: Date = Date(), activity: BedrockActivity? = nil,
                     daily: Bool = false) throws -> ProviderUsage {
+        guard !pages.isEmpty else { throw ProviderError.unavailable("AWS Cost Explorer returned no cost data.") }
         var byService: [String: Double] = [:]
         var byDay: [String: Double] = [:]
         var currency = "USD"
