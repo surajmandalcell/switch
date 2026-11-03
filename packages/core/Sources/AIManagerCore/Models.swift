@@ -450,13 +450,13 @@ public struct SwitchResult: Codable, Sendable {
     public var accountID: UUID
     public var backup: URL
     public var previousAccountID: UUID?
-    public var droidConversationTransfer: DroidConversationTransferReport?
+    public var droidSessionBinding: DroidSessionBindingReport?
 
-    public init(accountID: UUID, backup: URL, previousAccountID: UUID?, droidConversationTransfer: DroidConversationTransferReport? = nil) {
+    public init(accountID: UUID, backup: URL, previousAccountID: UUID?, droidSessionBinding: DroidSessionBindingReport? = nil) {
         self.accountID = accountID
         self.backup = backup
         self.previousAccountID = previousAccountID
-        self.droidConversationTransfer = droidConversationTransfer
+        self.droidSessionBinding = droidSessionBinding
     }
 }
 

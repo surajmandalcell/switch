@@ -320,7 +320,45 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: history), Data("unchanged".utf8))
     }
 
-    func testSwitchTransfersRecentConversationAfterPublishingTheNewLogin() async throws {
+    func testSwitchKeepsOriginalSessionResumableByRebindingOrganization() async throws {
+        let testPaths = try XCTUnwrap(paths)
+        let manager = try AccountManager(paths: testPaths, writerCheck: { _ in .inactive },
+            droidProcessLister: { [] }, droidSessionInitializer: { id, cwd, title in
+                let live = testPaths.droidHome.appending(path: "auth.v2.loginkeychain")
+                guard try Data(contentsOf: live) == Data("synthetic-login-B".utf8) else {
+                    throw AIManagerError.operationFailed("The destination account is not active.")
+                }
+                let native = testPaths.droidHome.appending(path: "sessions/-native/\(id.uuidString).jsonl")
+                try CoreSupport.privateDirectory(native.deletingLastPathComponent(), fileManager: .default)
+                let header: [String: Any] = ["type": "session_start", "id": id.uuidString,
+                    "cwd": cwd.path, "title": title, "organizationId": "synthetic-target"]
+                try CoreSupport.atomicWrite(JSONSerialization.data(withJSONObject: header) + Data([0x0A]),
+                    to: native, fileManager: .default)
+            })
+        let (_, second) = try await accounts(manager)
+        let original = try writeConversation()
+        let originalBytes = try Data(contentsOf: original)
+        let settings = original.deletingPathExtension().appendingPathExtension("settings.json")
+        let settingsBytes = Data("{\"model\":\"synthetic-model\",\"autonomyLevel\":\"off\"}".utf8)
+        try CoreSupport.atomicWrite(settingsBytes, to: settings, fileManager: fm)
+
+        let result = try await manager.switchDefault(to: second.id)
+
+        XCTAssertEqual(result.accountID, second.id)
+        let resumedBytes = try Data(contentsOf: original)
+        let firstLine = try XCTUnwrap(resumedBytes.firstIndex(of: 0x0A))
+        let resumedHeader = try XCTUnwrap(JSONSerialization.jsonObject(with: resumedBytes.prefix(upTo: firstLine)) as? [String: Any])
+        // Native resume looks up this original UUID and rejects a different organization.
+        XCTAssertEqual(resumedHeader["organizationId"] as? String, "synthetic-target",
+            "The original session ID still fails resume after switching accounts.")
+        XCTAssertEqual(resumedHeader["id"] as? String, original.deletingPathExtension().lastPathComponent)
+        let expected = Data(String(decoding: originalBytes, as: UTF8.self)
+            .replacingOccurrences(of: "\"synthetic-source\"", with: "\"synthetic-target\"").utf8)
+        XCTAssertEqual(resumedBytes, expected, "Only the original header's organization ID may change.")
+        XCTAssertEqual(try Data(contentsOf: settings), settingsBytes)
+    }
+
+    func testSwitchBindsOriginalConversationAfterPublishingTheNewLogin() async throws {
         let testPaths = try XCTUnwrap(paths)
         let manager = try AccountManager(paths: testPaths, writerCheck: { _ in .inactive },
             droidProcessLister: { [] }, droidSessionInitializer: { id, cwd, title in
@@ -340,18 +378,21 @@ final class DroidAccountTests: XCTestCase {
         let original = try writeConversation()
         let originalBytes = try Data(contentsOf: original)
         let result = try await manager.switchDefault(to: second.id)
-        XCTAssertEqual(result.droidConversationTransfer?.transferredCount, 1)
-        XCTAssertEqual(result.droidConversationTransfer?.warnings, [])
+        XCTAssertEqual(result.droidSessionBinding?.updatedCount, 1)
+        XCTAssertEqual(result.droidSessionBinding?.warnings, [])
         let current = try await manager.status()
         XCTAssertEqual(current.defaultAccountID(for: .droid), second.id)
-        XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+        XCTAssertEqual(try Data(contentsOf: original), Data(String(decoding: originalBytes, as: UTF8.self)
+            .replacingOccurrences(of: "\"synthetic-source\"", with: "\"synthetic-target\"").utf8))
         let repeated = try await manager.switchDefault(to: second.id)
-        XCTAssertTrue(repeated.droidConversationTransfer?.warnings.isEmpty == true)
+        XCTAssertTrue(repeated.droidSessionBinding?.warnings.isEmpty == true)
+        XCTAssertEqual(repeated.droidSessionBinding?.updatedCount, 0)
+        XCTAssertEqual(repeated.droidSessionBinding?.unchangedCount, 1)
         let native = testPaths.droidHome.appending(path: "sessions/-native")
-        XCTAssertEqual(try fm.contentsOfDirectory(atPath: native.path).filter { $0.hasSuffix(".jsonl") }.count, 1)
+        XCTAssertFalse(CoreSupport.entryExists(native), "The disposable organization probe left files or folders behind.")
     }
 
-    func testConversationTransferFailureDoesNotMisreportTheAccountSwitch() async throws {
+    func testConversationBindingFailureDoesNotMisreportTheAccountSwitch() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive },
             droidProcessLister: { [] }, droidSessionInitializer: { _, _, _ in
                 throw AIManagerError.operationFailed("Synthetic initialization failure")
@@ -361,11 +402,47 @@ final class DroidAccountTests: XCTestCase {
         let before = try Data(contentsOf: original)
         let result = try await manager.switchDefault(to: second.id)
         XCTAssertEqual(result.accountID, second.id)
-        XCTAssertEqual(result.droidConversationTransfer?.transferredCount, 0)
-        XCTAssertFalse(result.droidConversationTransfer?.warnings.isEmpty ?? true)
+        XCTAssertEqual(result.droidSessionBinding?.updatedCount, 0)
+        XCTAssertFalse(result.droidSessionBinding?.warnings.isEmpty ?? true)
         let current = try await manager.status()
         XCTAssertEqual(current.defaultAccountID(for: .droid), second.id)
         XCTAssertEqual(try Data(contentsOf: original), before)
+    }
+
+    func testResumeDoesNotLaunchWhenConversationBindingFailsButKeepsTheSelectedAccount() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive },
+            droidProcessLister: { [] }, droidSessionInitializer: { _, _, _ in
+                throw AIManagerError.operationFailed("Synthetic initialization failure")
+            })
+        let (_, second) = try await accounts(manager)
+        let original = try writeConversation()
+        let originalBytes = try Data(contentsOf: original)
+        let marker = paths.droidHome.deletingLastPathComponent().appending(path: "resume-launch-marker")
+        let fake = try XCTUnwrap(paths.droidExecutable)
+        try "#!/bin/sh\nprintf launched > \"$FACTORY_HOME_OVERRIDE/resume-launch-marker\"\n"
+            .write(to: fake, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        let id = original.deletingPathExtension().lastPathComponent
+
+        for arguments in [["--resume", id], ["--resume=\(id)"]] {
+            do {
+                _ = try await manager.activateAndRun(accountID: second.id, arguments: arguments)
+                XCTFail("A failed conversation update must stop the requested resume.")
+            } catch let error as AIManagerError {
+                guard case .operationFailed(let message) = error else { return XCTFail("Unexpected error: \(error)") }
+                XCTAssertTrue(message.contains("account was switched"))
+                XCTAssertTrue(message.contains("conversations could not be updated"))
+                XCTAssertTrue(message.contains("Droid was not started"))
+            }
+            let status = try await manager.status()
+            XCTAssertEqual(status.defaultAccountID(for: .droid), second.id)
+            XCTAssertFalse(CoreSupport.entryExists(marker))
+            XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+        }
+
+        let exit = try await manager.activateAndRun(accountID: second.id)
+        XCTAssertEqual(exit, 0, "A new session does not depend on old conversation binding.")
+        XCTAssertTrue(CoreSupport.entryExists(marker))
     }
 
     private func writeConversation() throws -> URL {

@@ -1,4 +1,54 @@
-# Codex account-switching research
+# Account switching and upstream review
+
+## Droid continuity
+
+Native resume looks up the original session UUID. The retired copy engine created another UUID,
+so resuming the original still read its old organization. Switch now binds original local session
+headers after authentication changes. It keeps paths, UUIDs, owner, settings, body bytes, and dates.
+One disposable native session supplies the target organization. A wrapper around resume was
+rejected because Orca, Factory, and plain shell commands can bypass Switch.
+
+The community [droid-switcher implementation](https://github.com/shariqriazz/droid-switcher/blob/d25a27baa29c02ed0182dbf9b540930e56240928/internal/switcher/sessions.go)
+also rewrites the first header and streams the body into the same path. Its default removes the
+organization field; Switch explicitly sets the target organization. This is community precedent,
+not a Factory-supported cloud transfer. Switch does not borrow its Keychain repair or its
+move-and-delete migration. Cloud missions and their descendants remain owned by their creator.
+Earlier copies remain separate histories; this repair never merges or deletes them.
+
+| Provider | Switch boundary | History behavior |
+| --- | --- | --- |
+| Droid | Replace saved authentication, then bind local organization headers | Original UUIDs and files stay; active writers block changes |
+| Codex | Replace only live `auth.json` | One shared home; running processes can cache authentication |
+| Grok Build | Replace only live `auth.json` | Sessions and settings stay; requests can reload authentication |
+| Claude Code | Select the managed profile | Shared history links; credentials and policy caches remain per profile |
+
+## CodexBar upstream
+
+Reviewed [CodexBar revision 897bff3](https://github.com/steipete/CodexBar/tree/897bff31731bb4b21b105f6e8bf4c32a8a8bf095),
+which declares 111 provider IDs. Switch has no recorded original import revision, so this is a
+provider inventory and targeted correctness audit, not a complete commit-range merge.
+
+The update covers missing Bedrock data, LiteLLM member budgets, Perplexity organization credits,
+WorkBuddy reward expiry, Grok unknown usage, OpenCode active login selection, and Copilot
+ended-subscription diagnostics. Each change has a synthetic regression fixture. Abliteration
+and Soniox add explicit API-key usage checks; their authentication does not require browser or
+Keychain access. The root MIT notice includes the CodexBar copyright for compiled distribution.
+
+Other new upstream providers are not part of these two additions:
+
+| Authentication | Providers | Additional boundary to verify |
+| --- | --- | --- |
+| API or license key | fal, FLORA, FutureAGI, Munito, Chatbox | Provider-specific billing and workspace or license validation |
+| Pasted cookie | Claude Platform, MuseAI, OpenDesign, Parallel, Trae CN, OpenCode | Session expiry, organization selection, and private dashboard schemas |
+| Official CLI | CodeRabbit | File-backed account identity and bounded, stateless probing |
+
+Kiro chat-probe fixes do not apply: Switch already reads the usage API directly. Cursor Safe
+Storage decryption and automatic browser-cookie import remain excluded by the credential policy.
+Kimi gift breakdown, Codex compressed archives, and additional pricing tiers are separate
+capabilities; this update does not claim them. The earlier Codex review below remains pinned
+to its stated source versions.
+
+## Earlier Codex source review
 
 Research date: 2026-09-13
 

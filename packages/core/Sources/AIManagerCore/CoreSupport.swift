@@ -114,17 +114,21 @@ enum CoreSupport {
             return
         }
 
+        try exchange(staged, destination)
+        try fileManager.removeItem(at: staged)
+    }
+
+    static func exchange(_ first: URL, _ second: URL) throws {
 #if os(Linux)
-        let result = staged.path.withCString { stagedPath in
-            destination.path.withCString { destinationPath in
+        let result = first.path.withCString { stagedPath in
+            second.path.withCString { destinationPath in
                 linuxRenameAt2(AT_FDCWD, stagedPath, AT_FDCWD, destinationPath, 2)
             }
         }
 #else
-        let result = renamex_np(staged.path, destination.path, UInt32(RENAME_SWAP))
+        let result = renamex_np(first.path, second.path, UInt32(RENAME_SWAP))
 #endif
         guard result == 0 else { throw posixError() }
-        try fileManager.removeItem(at: staged)
     }
 
     private static func posixError() -> NSError {

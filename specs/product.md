@@ -37,16 +37,15 @@ sign-in. Add Account runs Terminal `/login` with private temporary `FACTORY_HOME
 Droid login at a time. Existing Factory login supplies the key. While Factory.app works, live
 tests use droid in a separate override home, never `~/.factory`.
 
-Switch continues the ten most recently updated ordinary Droid conversations on the selected
-account. Create destinations with Droid's native initializer; retain account-owned headers and
-import full transcript bodies. Keep originals unchanged. Persist conversation/account session
-mappings to reuse copies and carry compatible new messages back. Native IDs can differ by account.
-Skip missions, child sessions, startup-only records, unsafe files, and divergent histories.
-Never overwrite a conversation that changed during transfer. While Droid or Factory is running,
-switching keeps its confirmation and skips transcript writes. Report transfer counts and copy
-failures separately from login-switch success. Failed or interrupted copies stay safe to retry.
-Transfer only local history, excluding active tools, attachments, mission ownership, and source
-model and autonomy settings.
+After changing Droid accounts, bind existing local conversations to the target organization in
+their original files. Change only the first header's `organizationId` value; preserve session IDs,
+owner, settings, paths, timestamps, and every body byte. Cover all ordinary conversations, without
+a recent-session limit. Discover the target organization through one native empty session, then
+remove that owned probe. Do not infer organizations from account labels or rewrite credentials.
+Reject unsafe paths and concurrent writers; interrupted changes remain recoverable and retryable.
+Keep the running-process confirmation and skip transcript writes while Droid or Factory is active.
+Report updated, unchanged, skipped, and failed sessions separately from authentication success.
+This changes local resume metadata; it cannot transfer server-owned missions or running tools.
 
 Droid identities are opaque. Name imports and sign-ins ("Droid 1"); offer Rename… in row and
 More menus (1-100 characters, off in Privacy mode). Keep login, default, usage key, and missions
@@ -85,7 +84,7 @@ Show an uncached Allow hint when a pending Switch privacy prompt blocks the CLI.
 
 ## 1a. Generic providers
 
-Switch includes every OpenUsage and CodexBar usage provider without macOS Keychain or browser
+Switch adapts OpenUsage and CodexBar usage providers without macOS Keychain or browser
 cookie stores. Each `ProviderSpec` uses one of two credential styles:
 
 - **Files**: The official CLI or app owns credential files, shared JSON members, or database

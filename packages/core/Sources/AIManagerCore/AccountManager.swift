@@ -812,42 +812,7 @@ public actor AccountManager {
                 throw AIManagerError.accountNotFound
             }
             if selected.identity.providerID == .droid {
-                try guardDroidProcesses(allowRunning: allowRunningDroid)
-                let prepared = Result {
-                    try guardDroidProcesses(allowRunning: false)
-                    return try DroidConversationTransfer.prepare(home: paths.droidHome,
-                        state: paths.applicationSupport.appending(path: "droid-conversations.json"),
-                        sourceAccountID: registry.defaultAccountID(for: .droid))
-                }
-                var result = try droidProvider.withWriteLock(home: paths.droidHome) {
-                    try performDroidSwitch(to: accountID)
-                }
-                do {
-                    let plan = try prepared.get()
-                    let deadline = Date().addingTimeInterval(60)
-                    result.droidConversationTransfer = try plan.transfer(to: accountID, initialize: { id, cwd, title in
-                        guard Date() < deadline else {
-                            throw AIManagerError.operationFailed("The recent-conversation transfer reached its time limit. Switch again to retry.")
-                        }
-                        try guardDroidProcesses(allowRunning: false)
-                        if let droidSessionInitializer {
-                            try droidSessionInitializer(id, cwd, title)
-                        } else {
-                            guard let executable = resolveDroidExecutable() else { throw AIManagerError.cliNotFound }
-                            let settings = paths.applicationSupport.appending(path: "staging/droid-transfer-settings.json")
-                            try CoreSupport.atomicWrite(Data("{\"cloudSessionSync\":false,\"hooksDisabled\":true}".utf8), to: settings, fileManager: fileManager)
-                            defer { try? fileManager.removeItem(at: settings) }
-                            try DroidSessionRPC.initialize(executable: executable, home: paths.droidHome,
-                                sessionID: id, cwd: cwd, title: title, settingsFile: settings)
-                        }
-                    }, beforeWrite: {
-                        try guardDroidProcesses(allowRunning: false)
-                    })
-                } catch {
-                    result.droidConversationTransfer = .init(transferredCount: 0,
-                        warnings: ["Recent conversations were not copied. \(error.localizedDescription)"])
-                }
-                return result
+                return try switchDroidAccount(to: accountID, allowRunning: allowRunningDroid)
             }
             if selected.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(selected)
@@ -1567,8 +1532,13 @@ public actor AccountManager {
             launchedProviderName = account.identity.providerID.displayName
             let alreadyActive: Bool
             if account.identity.providerID == .droid {
-                try guardDroidProcesses(allowRunning: false)
-                _ = try droidProvider.withWriteLock(home: paths.droidHome) { try performDroidSwitch(to: accountID) }
+                let switched = try switchDroidAccount(to: accountID, allowRunning: false)
+                let resumesSession = arguments.prefix(while: { $0 != "--" }).contains {
+                    $0 == "--resume" || $0.hasPrefix("--resume=")
+                }
+                if resumesSession, let binding = switched.droidSessionBinding, binding.failedCount > 0 {
+                    throw AIManagerError.operationFailed("The Droid account was switched, but its conversations could not be updated. Droid was not started. \(binding.warnings.joined(separator: " "))")
+                }
                 alreadyActive = true
             } else if account.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(account)
@@ -2058,6 +2028,41 @@ extension AccountManager {
         try finishOperation(&operation)
         try fileManager.removeItem(at: staged.deletingLastPathComponent())
         return account
+    }
+
+    private func switchDroidAccount(to accountID: UUID, allowRunning: Bool) throws -> SwitchResult {
+        try guardDroidProcesses(allowRunning: allowRunning)
+        var result = try droidProvider.withWriteLock(home: paths.droidHome) {
+            try performDroidSwitch(to: accountID)
+        }
+        do {
+            try guardDroidProcesses(allowRunning: false)
+            let deadline = Date().addingTimeInterval(60)
+            result.droidSessionBinding = try DroidSessionBinding.rebind(home: paths.droidHome,
+                state: paths.applicationSupport.appending(path: "droid-session-binding"),
+                initialize: { id, cwd, title in
+                    try guardDroidProcesses(allowRunning: false)
+                    if let droidSessionInitializer {
+                        try droidSessionInitializer(id, cwd, title)
+                    } else {
+                        guard let executable = resolveDroidExecutable() else { throw AIManagerError.cliNotFound }
+                        let settings = paths.applicationSupport.appending(path: "staging/droid-binding-settings.json")
+                        try CoreSupport.atomicWrite(Data("{\"cloudSessionSync\":false,\"hooksDisabled\":true}".utf8), to: settings, fileManager: fileManager)
+                        defer { try? fileManager.removeItem(at: settings) }
+                        try DroidSessionRPC.initialize(executable: executable, home: paths.droidHome,
+                            sessionID: id, cwd: cwd, title: title, settingsFile: settings)
+                    }
+                }, beforeWrite: {
+                    guard Date() < deadline else {
+                        throw AIManagerError.operationFailed("Conversation updates reached their time limit. Switch again to finish the remaining sessions.")
+                    }
+                    try guardDroidProcesses(allowRunning: false)
+                })
+        } catch {
+            result.droidSessionBinding = .init(failedCount: 1,
+                warnings: ["Conversations were not updated. \(error.localizedDescription)"])
+        }
+        return result
     }
 
     private func performDroidSwitch(to accountID: UUID) throws -> SwitchResult {

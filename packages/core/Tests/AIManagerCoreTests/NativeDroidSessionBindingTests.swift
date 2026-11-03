@@ -6,9 +6,14 @@ import CryptoKit
 #else
 import Crypto
 #endif
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
-final class NativeDroidConversationTransferTests: XCTestCase {
-    func testSwitchCreatesAnAccountOwnedConversationUsingTheNativeCLI() async throws {
+final class NativeDroidSessionBindingTests: XCTestCase {
+    func testSwitchKeepsOriginalConversationResumableUsingTheNativeCLI() async throws {
         guard let binary = ProcessInfo.processInfo.environment["SWITCH_TEST_DROID_EXECUTABLE"] else {
             throw XCTSkip("Set SWITCH_TEST_DROID_EXECUTABLE for the isolated native CLI check.")
         }
@@ -43,20 +48,76 @@ final class NativeDroidConversationTransferTests: XCTestCase {
         let originalData = try line(header) + body
         try CoreSupport.atomicWrite(originalData, to: original, fileManager: .default)
         let switched = try await manager.switchDefault(to: target.id)
-        let report = try XCTUnwrap(switched.droidConversationTransfer)
+        let report = try XCTUnwrap(switched.droidSessionBinding)
         XCTAssertEqual(report.warnings, [])
-        XCTAssertEqual(report.transferredCount, 1)
-        XCTAssertEqual(try Data(contentsOf: original), originalData)
+        XCTAssertEqual(report.updatedCount, 1)
+        let expected = Data(String(decoding: originalData, as: UTF8.self)
+            .replacingOccurrences(of: "\"org_switch_native_source\"", with: "\"org_switch_native_target\"").utf8)
+        XCTAssertEqual(try Data(contentsOf: original), expected)
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: factory.appending(path: "sessions"),
             includingPropertiesForKeys: nil))
         let copies = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" && $0 != original }
-        XCTAssertEqual(copies.count, 1)
-        let imported = try Data(contentsOf: XCTUnwrap(copies.first))
-        let split = try XCTUnwrap(imported.firstIndex(of: 10))
-        let native = try XCTUnwrap(JSONSerialization.jsonObject(with: imported.prefix(upTo: split)) as? [String: Any])
-        XCTAssertEqual(native["organizationId"] as? String, "org_switch_native_target")
-        XCTAssertNotEqual(native["id"] as? String, originalID.uuidString.lowercased())
-        XCTAssertEqual(imported.suffix(from: imported.index(after: split)), body)
+        XCTAssertEqual(copies.count, 0)
+        let loaded = try load(sessionID: originalID, executable: URL(fileURLWithPath: binary), home: factory, root: root)
+        XCTAssertNil(loaded["error"], "The native CLI rejected the original session ID after switching.")
+        let result = try XCTUnwrap(loaded["result"] as? [String: Any])
+        let text = String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+        XCTAssertTrue(text.contains("Retain the exact native transfer canary."), "Native resume lost the original messages.")
+    }
+
+    private func load(sessionID: UUID, executable: URL, home: URL, root: URL) throws -> [String: Any] {
+        let requestID = UUID().uuidString
+        let output = root.appending(path: "resume-output.jsonl")
+        let settings = root.appending(path: "resume-settings.json")
+        try CoreSupport.atomicWrite(Data(), to: output, fileManager: .default)
+        try CoreSupport.atomicWrite(Data("{\"cloudSessionSync\":false,\"hooksDisabled\":true}".utf8), to: settings, fileManager: .default)
+        let handle = try FileHandle(forWritingTo: output)
+        defer { try? handle.close() }
+        let input = Pipe()
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["exec", "--input-format", "stream-jsonrpc", "-o", "stream-jsonrpc", "--settings", settings.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = home.deletingLastPathComponent().path
+        environment["FACTORY_HOME_OVERRIDE"] = home.deletingLastPathComponent().path
+        environment["FACTORY_DISABLE_KEYRING"] = "1"
+        environment.removeValue(forKey: "FACTORY_API_KEY")
+        for key in ["FACTORY_API_BASE_URL", "FACTORY_WORKOS_BASE_URL", "FACTORY_TELEMETRY_INGEST_BASE_URL"] {
+            environment[key] = "http://127.0.0.1:9"
+        }
+        environment["FACTORY_DISABLE_DYNAMIC_CONFIG"] = "true"
+        environment["DO_NOT_TRACK"] = "1"
+        process.environment = environment
+        process.currentDirectoryURL = home
+        process.standardInput = input
+        process.standardOutput = handle
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            try? input.fileHandleForWriting.close()
+            if process.isRunning { process.terminate() }
+            let deadline = Date().addingTimeInterval(2)
+            while process.isRunning, Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+        }
+        let request: [String: Any] = ["type": "request", "jsonrpc": "2.0", "factoryApiVersion": "1.0.0",
+            "factoryProtocolVersion": "1.0.0", "id": requestID, "method": "droid.load_session",
+            "params": ["sessionId": sessionID.uuidString.lowercased(), "loadAllMessages": true,
+                "messageLimit": 100_000, "disableBuiltinSkills": true, "autoRejectPermissionRequests": true]]
+        try input.fileHandleForWriting.write(contentsOf: line(request))
+        let deadline = Date().addingTimeInterval(20)
+        repeat {
+            let data = try Data(contentsOf: output)
+            guard data.count <= 8 * 1_024 * 1_024 else { throw DroidSessionRPCError.outputTooLarge }
+            for record in data.split(separator: 10) {
+                if let response = try? JSONSerialization.jsonObject(with: record) as? [String: Any],
+                   response["id"] as? String == requestID { return response }
+            }
+            if !process.isRunning { throw DroidSessionRPCError.invalidResponse }
+            Thread.sleep(forTimeInterval: 0.02)
+        } while Date() < deadline
+        throw DroidSessionRPCError.timedOut
     }
 
     private func writeLogin(home: URL, organization: String) throws {
