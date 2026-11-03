@@ -193,6 +193,32 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: chosen.appending(path: "config.toml").path))
     }
 
+    func testRestoreCreatesMissingNestedFolderOnMountedExternalVolume() async throws {
+        #if os(macOS)
+        let dataRoot = URL(fileURLWithPath: ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
+            ?? "/Volumes/External1TB/data/_custom/codex", isDirectory: true)
+        guard fm.fileExists(atPath: "/Volumes/External1TB") else {
+            throw XCTSkip("The external data volume is not mounted on this host.")
+        }
+        let external = dataRoot.appending(path: "switch/backup-restore-\(UUID().uuidString)")
+        try fm.createDirectory(at: external, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: external) }
+        let target = external.appending(path: "new/nested/restored")
+        try write("config.toml", "backup configuration")
+        let set = makeSet(items: ["config.toml"])
+        let snapshot = try await engine.snapshot(set)
+        try write("config.toml", "current configuration")
+        XCTAssertFalse(fm.fileExists(atPath: target.path))
+
+        let restored = try await engine.restore(snapshot, set: set, to: target)
+
+        XCTAssertEqual(restored.restored, 1)
+        XCTAssertNil(restored.safetySnapshot)
+        XCTAssertEqual(try String(contentsOf: target.appending(path: "config.toml"), encoding: .utf8), "backup configuration")
+        XCTAssertEqual(try String(contentsOf: home.appending(path: "config.toml"), encoding: .utf8), "current configuration")
+        #endif
+    }
+
     func testRestoreInPlaceTakesSafetySnapshotAndKeepsExtraFiles() async throws {
         try write("sessions/a.jsonl", "original")
         try write("config.toml", "model = 1")
