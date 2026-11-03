@@ -249,6 +249,51 @@ public actor AccountManager {
         }
     }
 
+    public func restoreBackup(
+        _ snapshot: BackupSnapshot,
+        set: BackupSet,
+        items: [String]? = nil,
+        to destination: URL? = nil
+    ) async throws -> BackupRestoreResult {
+        try await lock.withAsyncLock {
+            try ensureNoRecovery()
+            guard let tool = CleanupTool(rawValue: set.source.service.rawValue) else {
+                throw AIManagerError.invalidSource("Unsupported backup source.")
+            }
+            let homes = [set.source.home] + Array(set.profiles.values)
+            let accounts = try status().accounts
+            let liveSources = CleanupSources.make(paths: paths, accounts: accounts)
+            func overlaps(_ first: URL, _ second: URL) -> Bool {
+                let first = CoreSupport.canonical(first).pathComponents
+                let second = CoreSupport.canonical(second).pathComponents
+                return first.starts(with: second) || second.starts(with: first)
+            }
+            if let destination {
+                let live = liveSources
+                    .flatMap { [$0.home] + $0.extraHomes }
+                    + accounts.map(\.home)
+                    + [paths.sharedRoot, paths.grokHome, paths.droidHome, paths.userHome.appending(path: ".claude")]
+                guard !(homes + live).contains(where: { overlaps(destination, $0) }) else {
+                    throw AIManagerError.unsafePath("restore destination overlaps a live tool home; use in-place restore instead")
+                }
+            } else {
+                for home in homes {
+                    let matching = liveSources.filter { source in
+                        ([source.home] + source.extraHomes).contains { overlaps(home, $0) }
+                    }
+                    var checked = Set<String>()
+                    for probe in [tool] + matching.map(\.tool) where checked.insert(probe.rawValue).inserted {
+                        let source = CleanupSource(id: set.source.id, tool: probe, title: set.name,
+                            detail: "Backup restore", providerID: ProviderID(rawValue: set.source.id), home: home, userHome: paths.userHome)
+                        try await ensureCleanupWritersInactive(source)
+                    }
+                }
+            }
+            return try await BackupEngine(applicationSupport: paths.applicationSupport)
+                .restore(snapshot, set: set, items: items, to: destination)
+        }
+    }
+
     public func permanentlyRemoveCleanupTrash(_ source: CleanupSource, _ id: UUID) throws {
         try lock.withLock {
             try ensureNoRecovery()

@@ -37,6 +37,23 @@ final class ConversationCleanupTests: XCTestCase {
 
     private func category(_ scan: CleanupScan, _ id: String) -> CleanupCategory? { scan.categories.first { $0.id == id } }
 
+    #if os(Linux)
+    func testToolWriterProbeFindsRunningToolInItsHome() throws {
+        let executable = root.appending(path: "grok")
+        try files.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        process.currentDirectoryURL = home
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        XCTAssertEqual(ToolWriterProbe.check(tool: .grok, home: home), .active)
+    }
+    #endif
+
     func testTrashReopenRestorePermanentRemovalAndRetainedActivity() async throws {
         let source = try transcript("sessions/2026/one.jsonl")
         let archived = try transcript("archived_sessions/two.jsonl")

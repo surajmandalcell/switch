@@ -724,6 +724,11 @@ enum ToolWriterProbe {
 
     /// The files the tool's processes hold open; `unknown` when a process list or a process could not be read.
     private static func openPaths(tool: CleanupTool) -> (paths: [URL], unknown: Bool) {
+        #if os(Linux)
+        let lsof = FileManager.default.isExecutableFile(atPath: "/usr/bin/lsof") ? "/usr/bin/lsof" : "/bin/lsof"
+        #else
+        let lsof = "/usr/sbin/lsof"
+        #endif
         var unknown = false
         var paths: [URL] = []
         for name in processNames(tool) {
@@ -731,7 +736,8 @@ enum ToolWriterProbe {
             if status == 1 { continue }
             guard status == 0, let text = String(data: data, encoding: .utf8) else { unknown = true; continue }
             for pid in text.split(whereSeparator: \.isWhitespace).compactMap({ Int32($0) }) {
-                guard let (code, listing) = run("/usr/sbin/lsof", ["-n", "-P", "-a", "-p", String(pid), "-F0n"]), code == 0 else {
+                guard FileManager.default.isExecutableFile(atPath: lsof),
+                      let (code, listing) = run(lsof, ["-n", "-P", "-a", "-p", String(pid), "-F0n"]), code == 0 else {
                     // The process ended between the two calls, or lsof cannot read it.
                     if kill(pid, 0) == 0 || errno != ESRCH { unknown = true }
                     continue

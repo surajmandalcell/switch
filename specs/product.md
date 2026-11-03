@@ -1,96 +1,87 @@
 # Switch product specification
 
-This spec owns current behavior; ignored `goals.md` tracks work, `goals.archive.md` evidence.
+Behavior: this spec. Work/evidence: ignored `goals.md`/`goals.archive.md`.
 
-The owner's red emergency-stop switch on ivory marks Switch in the Dock, Spotlight, MacPowerToys,
-and the window. Its original vector mark is the small menu-bar template.
+Icon: owner's red emergency-stop switch on ivory for Dock/Spotlight/MacPowerToys/window;
+original vector for menu-bar template.
 
 ## 1. Product model
 
-Switch manages authentication snapshots for Codex CLI, Grok Build, Droid (Factory), and Claude
-Code; section 1a covers other providers.
+Switch manages Codex CLI, Grok Build, Droid (Factory), and Claude Code authentication snapshots;
+section 1a covers other providers.
 
-Codex's live home is `~/.codex`. After identity and digest checks, Switch atomically replaces only
-`~/.codex/auth.json` from saved private credentials. Configuration, instructions, skills, plugins,
-conversations, databases, and other non-authentication state stay. Running processes keep their
-in-memory credentials; new sessions use the selected account.
+Codex uses `~/.codex`. Check identity and digest, then atomically replace only `auth.json` from
+saved private credentials. Keep all non-authentication state, including configuration, instructions,
+skills, plugins, conversations, and databases. Running processes keep credentials in memory;
+new sessions use the selected account.
 
-Owner-private credentials live at `~/.switch/codex/<account-uuid>.json`. Application support holds the registry, usage cache, transactions, backups, and
-recovery metadata. SQLite never stores raw authentication.
+Private credentials: `~/.switch/codex/<account-uuid>.json`. Application support holds registry,
+usage cache, transactions, backups, and recovery metadata. Never store raw authentication in SQLite.
 
-Grok Build's live home is `~/.grok` or `$GROK_HOME`. Switch atomically replaces only `auth.json`;
-configuration, rules, plugins, MCP credentials, and sessions stay. It supports subscription OAuth
-(`oidc` and first-party external OAuth), not `XAI_API_KEY`. Credentials live at
-`~/.switch/grok-build/<account-uuid>.json`. Add Account runs `grok login --oauth` in a private
-temporary `GROK_HOME`. If browser loopback fails, the sheet sends an authorization code or full
-callback URL once to the waiting official CLI without saving it. Grok hot-reloads `auth.json`;
-existing processes may use the new account on their next API call.
+Grok Build uses `~/.grok` or `$GROK_HOME`. Atomically replace only `auth.json`; retain
+configuration/rules/plugins/MCP credentials/sessions. Support subscription OAuth (`oidc` and
+first-party external OAuth), not `XAI_API_KEY`. Save credentials in
+`~/.switch/grok-build/<account-uuid>.json`. Add Account runs `grok login --oauth` in private
+temporary `GROK_HOME`. Failed loopback: send a code/full callback URL once to the waiting official
+CLI; never save it. Grok hot-reloads auth, so existing processes may switch on their next API call.
 
-Droid and Factory.app share `$FACTORY_HOME_OVERRIDE/.factory`, or `~/.factory` when unset. Their
-store is `auth.v2.loginkeychain`, or `auth.v2.file` plus `auth.v2.key` with the keyring off.
-A fixed Keychain key encrypts all Factory logins. Switch saves outgoing files, honors
-`auth.v2.write.lock`, then atomically replaces only auth files from owner-private
-`~/.switch/droid/<account-uuid>/`. Sessions, settings, and history stay. droid reads on demand;
-new requests use the selected account. Ask before switching if Factory.app or droid uses the live
-home, or a process's home is unproved; Cancel is default. Only a usage click starts the one macOS
-prompt to read the shared Keychain key; background refreshes never prompt. Switch decrypts
-in memory for the access token and never writes the key, decrypted login, or refreshed token.
-Import the existing login first without sign-in. Add Account runs interactive `/login` in
-Terminal with a private temporary `FACTORY_HOME_OVERRIDE`, one Droid login at a time. An existing
-Factory login supplies that key. While Factory.app runs work, live tests use the droid CLI
-in a separate `FACTORY_HOME_OVERRIDE` test home, never `~/.factory`.
+Droid/Factory.app share `$FACTORY_HOME_OVERRIDE/.factory`, else `~/.factory`. Auth store:
+`auth.v2.loginkeychain`, or `auth.v2.file` plus `auth.v2.key` without keyring. One fixed Keychain
+key encrypts all logins. Save outgoing files, honor `auth.v2.write.lock`, and atomically replace
+only auth files from private `~/.switch/droid/<account-uuid>/`. Keep sessions/settings/history.
+Droid reads on demand; new requests use the selected account. Confirm switching when Factory.app/
+droid uses the live home or process home is unknown; default Cancel. Only a usage click may prompt
+once for the shared Keychain key; never prompt in background. Decrypt access tokens in memory;
+never write the key, decrypted login, or refreshed token. First import existing login without
+sign-in. Add Account runs Terminal `/login` with private temporary `FACTORY_HOME_OVERRIDE`, one
+Droid login at a time. Existing Factory login supplies the key. While Factory.app works, live
+tests use droid in a separate override home, never `~/.factory`.
 
-Clicking Switch also continues the ten most recently updated ordinary Droid conversations on
-the selected account. Create each destination through Droid's native session initializer, keep
-its account-owned header, and import the full local transcript body. Keep original transcripts
-unchanged. Persist logical conversation-to-account session mappings so repeated switches reuse
-copies and carry compatible new messages back. Native session IDs can differ by account.
+Switch continues the ten most recently updated ordinary Droid conversations on the selected
+account. Create destinations with Droid's native initializer; retain account-owned headers and
+import full transcript bodies. Keep originals unchanged. Persist conversation/account session
+mappings to reuse copies and carry compatible new messages back. Native IDs can differ by account.
 Skip missions, child sessions, startup-only records, unsafe files, and divergent histories.
 Never overwrite a conversation that changed during transfer. While Droid or Factory is running,
-switching retains its existing confirmation and skips transcript writes. Report transferred counts
-and copy failures separately from successful login switching. A failed or interrupted copy must
-remain safe to retry. This feature transfers local chat history, not active tools, attachments,
-mission ownership, or source model and autonomy settings.
+switching keeps its confirmation and skips transcript writes. Report transfer counts and copy
+failures separately from login-switch success. Failed or interrupted copies stay safe to retry.
+Transfer only local history, excluding active tools, attachments, mission ownership, and source
+model and autonomy settings.
 
-Droid identities are opaque. The owner names imports and sign-ins ("Droid 1") and can rename
-them later (Rename… in the row and More menus, 1 to 100 characters, off in Privacy mode); the
-login, default, usage key, and missions stay keyed by account id. Account-scoped
-sign-in confirms the target name first. Run `droid doctor --auth --json` with
-`FACTORY_HOME_OVERRIDE` and matching `FACTORY_DISABLE_KEYRING` on the login's own home (staging
-for sign-in, live for import). Use Factory.app's bundled droid when present. Never use a copy:
-a refresh could spend a rotating token and sign Factory.app out. Passing `auth.verify` gives
-a masked email beside the name. Changed hints reject re-sign-in, discard staging, and preserve
-the account. Confirm names even with equal masks.
-Add Account warns about duplicate masks unless the login tokens' `sub` claims (read without a
-prompt, expiry ignored) prove different people. If doctor fails or its output is unknown, Switch uses
-named accounts and reports that limit. Only the active default refreshes live files through the
-guarded switch path;
-others refresh saved copies. Factory usage APIs `/api/billing/limits`
-and `/api/organization/subscription/usage` use that access token. On expiry, usage returns after
-droid refreshes; Switch never refreshes it. An optional per-account Factory API key uses the
-existing Factory usage provider as fallback. The generic Factory API-key provider is separate,
-with its own default. The write lock is a nonempty directory published by rename; its 0600
-`owner.json` holds a random token and process ID. Honor `.reclaim`; never remove another writer's lock.
+Droid identities are opaque. Name imports and sign-ins ("Droid 1"); offer Rename… in row and
+More menus (1-100 characters, off in Privacy mode). Keep login, default, usage key, and missions
+keyed by account ID. Confirm the target name before account-scoped sign-in, even with equal masks.
+Run `droid doctor --auth --json` on the login's own home (staging for sign-in, live for import),
+with `FACTORY_HOME_OVERRIDE` and matching `FACTORY_DISABLE_KEYRING`. Prefer Factory.app's bundled
+droid. Never probe a copy: refresh can spend a rotating token and sign Factory.app out.
+Passing `auth.verify` adds a masked email. Changed hints reject re-sign-in and discard staging,
+preserving the account. Warn about duplicate masks unless tokens' `sub` claims prove distinct
+people (read without a prompt; ignore expiry). Failed or unknown doctor output falls back to
+named accounts with a stated limit. Only the active default refreshes live files through guarded
+switching; others refresh saved copies. `/api/billing/limits` and
+`/api/organization/subscription/usage` use the access token. After expiry, wait for droid to
+refresh; Switch never refreshes it. Optional per-account Factory API keys use the existing usage
+provider as fallback. The generic Factory API-key provider keeps its own default.
+Publish the nonempty write-lock directory by rename. Its 0600 `owner.json` holds a random token
+and PID. Honor `.reclaim`; never remove another writer's lock.
 
-Droid missions keep plan and progress in `~/.factory/missions/<session id>/`; leader and worker
-chats are Factory sessions owned by the starting account, so only it can resume them. Accounts lists them under Droid, newest first:
-title (mission.md's first heading), "131 of 160 done", owner, and created date; state shows on hover. Switch records the owner
-of missions created while it knows the default (`droid-missions.json`); others offer Set owner.
-Resume runs `droid --resume <id>` in Terminal in its working directory, after a guarded switch to
-a different saved owner. Start here confirms, writes a plan of done and left features,
-and runs `droid exec --mission -f <plan> --auto high` on the default. Leaving an owner of
-unfinished missions posts one notice. Never edit mission files or call Factory's mission API.
+Droid mission plans/progress live in `~/.factory/missions/<session id>/`; only the starting
+account can resume their leader/worker Factory sessions. List missions under Droid, newest first:
+title (mission.md's first heading), "131 of 160 done", owner, created date, and state on hover.
+Record new missions' known defaults in `droid-missions.json`; offer Set owner for others.
+Resume uses Terminal, the working directory, and `droid --resume <id>`, guarded-switching to a
+different saved owner first. Start here confirms, writes done/remaining features to a plan, and
+runs `droid exec --mission -f <plan> --auto high` on the default. Post one notice when leaving
+unfinished missions' owner. Never edit mission files or call Factory's mission API.
 
-Claude Code profiles use stable, separate `CLAUDE_CONFIG_DIR` paths and can stay signed in.
-Claude Code owns credentials and Keychain entries; Switch never copies or parses them.
-`~/.switch/claude/active` selects the default for Switch and host-app launches. Opt-in shell
-integration applies it to plain `claude`; otherwise that command keeps its login. Profiles
-share `~/.claude` history through symlinks (projects, history.jsonl, settings.json, CLAUDE.md,
-commands, agents, skills, plugins, and similar items). `.claude.json`, `.credentials.json`,
-and policy caches stay per profile. Before adding links, back up and merge existing data without
-overwriting. Usage reads a file-based access token read-only when present, else the CLI's
-`/usage` panel, at most every ten minutes per profile. Never spend a Claude refresh token.
-If a pending macOS privacy prompt for Switch blocks the CLI, show an uncached Allow hint.
+Claude profiles keep stable separate `CLAUDE_CONFIG_DIR` paths and sign-ins. Claude owns
+credentials/Keychain entries; Switch never copies/parses them. `~/.switch/claude/active` selects
+the Switch/host-app default; opt-in shell integration also selects plain `claude`, else its login
+stays. Symlink shared `~/.claude` projects/history.jsonl/settings.json/CLAUDE.md/commands/agents/
+skills/plugins and similar items; keep `.claude.json`, `.credentials.json`, and policy caches
+per profile. Back up/merge without overwriting before linking. Usage reads a file access token
+read-only, else CLI `/usage`, at most every ten minutes/profile. Never spend refresh tokens.
+Show an uncached Allow hint when a pending Switch privacy prompt blocks the CLI.
 
 ## 1a. Generic providers
 
@@ -135,16 +126,15 @@ Codex CLI and Grok Build defaults match live credentials; Claude Code's default 
 Switch-launched sessions. Switching and deletion change defaults only within that provider.
 The TUI groups accounts by provider, keeps their order, and marks each group's default.
 
-Existing-account "Sign in" binds an isolated session to its account ID and must match the saved
-identity: a mismatch discards the home and reports both; a match atomically refreshes only that
-credential. Only active defaults update live auth, through the same-identity switch path. It never
-signals running CLIs; "Add account" stays provider-scoped.
+Existing-account "Sign in" binds an isolated session to its account ID. A mismatched identity
+discards the home and reports both identities; a match atomically refreshes only that credential.
+Only active defaults update live auth through same-identity switching. Never signal running CLIs.
+"Add account" stays provider-scoped.
 
-After restart, sign-in checks read private staging with auth-only import's identity, digest, and
-transaction checks; unrelated Codex processes cannot block them. Retire metadata when process
-ownership ends and cancel only owned processes. After restart or refresh, remove retired staging
-homes only when home-scoped checks prove no writer. Keep active, unknown, and recovery homes.
-Retired IDs never return as pending or permit re-import.
+After restart, sign-in uses auth-only import's staging identity, digest, and transaction checks;
+unrelated Codex processes cannot block it. Retire metadata when process ownership ends; cancel
+only owned processes. On restart/refresh, delete retired staging only after home-scoped checks
+prove no writer. Keep active, unknown, and recovery homes. Retired IDs cannot return pending or re-import.
 
 Full imports, legacy settings repair, and recovery check writers in affected homes and shared
 symlink targets. Identify Codex processes by held home-scoped runtime locks, never environment
@@ -153,25 +143,23 @@ ownership evidence blocks destructive changes; unlocked stale files are not writ
 
 ## 2. Navigation and Settings
 
-The sidebar and View menu order pages by name length: Overview, Accounts, Settings, Maintenance
-(cleanup, backup, recovery), Conversations (chat history). Command+, opens Settings. Save page,
-tab, each page's account, scroll, filters, chart period and grouping, cleanup source and range,
-backup source and destination, conversation selection, and expanded popover rows across restarts.
-"When Switch opens" selects Last place (default) or Overview. Settings groups follow this order:
-General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut), Appearance
-(System, Light, or Dark; Usage percentage; Reset times; Time format), Accounts (Show full email
-addresses, Hide email addresses, Privacy mode, Check provider status, Claude terminals), Auto
-switch, Menu bar, Notifications, Data locations, and Reset. Show full email addresses defaults
-off ("ada@mail.co.uk" reads "ada@mail").
+Sidebar/View menu: Overview, Accounts, Settings, Maintenance (cleanup/backup/recovery),
+Conversations. Command+, opens Settings. Persist page/tab, per-page account, scroll, filters,
+chart period/grouping, cleanup source/range, backup source/destination, conversation selection,
+and expanded popover rows. "When Switch opens": Last place (default) or Overview.
+Settings order: General (Open at Login, Minimize to menu bar, When Switch opens, Menu shortcut),
+Appearance (System/Light/Dark, Usage percentage, Reset times, Time format), Accounts (Show full
+email addresses, Hide email addresses, Privacy mode, Check provider status, Claude terminals),
+Auto switch, Menu bar, Notifications, Data locations, Reset. Full emails default off:
+"ada@mail.co.uk" becomes "ada@mail".
 
 1. **App behavior** includes Open at Login (off by default, macOS login-item service, quiet
    menu-bar launch, approval link to Login Items).
    **Reset times** offers Countdown (default) or Exact time; **Time format** offers Auto, 12-hour,
    or 24-hour. Reset text uses them: "Resets in 2h 5m", "Resets 5:30 PM", or "tomorrow",
    a weekday, or a date beyond today. Clicking toggles the choice everywhere; hover shows the other.
-   **Usage percentage** has Left (default, "90% left") or Used ("10% used"). Save and apply it to
-   text and fill in every meter, popover row, tray percentage, tooltip, and accessibility label.
-   Clicking a percentage ("52% left") toggles it everywhere.
+   **Usage percentage**: Left (default, "90% left") or Used ("10% used"); persist text/fill across
+   meters, popover, tray, tooltips, and accessibility. Clicking any percentage toggles all.
    **Menu shortcut** records Command, Option, or Control plus a key; Delete clears it. It is off
    by default and toggles the popover from anywhere.
    **Refresh when the menu opens** is off by default.
@@ -233,16 +221,15 @@ registry, defaults, backups, Codex databases, and activity ledger. Exclude linke
 chats from removal review; safe files remain available. Before OpenCode SQLite removal, save a database snapshot, then remove only selected sessions in one transaction. Restore selected rows without replacing other sessions.
 Use a native range pop-up, nested row alignment, group headings, and totals beside Review.
 
-Backup lists each tool's size and last backup; Claude Code includes its account profiles.
-Checked tools share one folder, schedule (off, daily, weekly), and retention count, with separate
-subfolders and history. Full snapshots copy changes and hard-link unchanged files. Publish a
-temporary folder by rename with a manifest (path, bytes, modified time, SHA-256).
-Prompt-only mode includes Copilot and OpenCode. It writes user prompts in time order with timestamps, one Markdown file per
-conversation under each project, with title, date, app, and an index. Exclude responses, tools,
-login files, and settings. It uses the same folder, schedule, and retention. Restore prompts into
-a folder only. Full backups restore all or chosen items in place after a safety snapshot or to
-another folder. Login files and full OpenCode database snapshots need opt-in. Never delete sources; prune only Switch snapshots.
-Wait and explain when the destination is missing.
+Backup lists tool sizes and last backups, including Claude profiles. Checked tools share one
+folder, schedule (off/daily/weekly), and retention count, with separate subfolders/history.
+Full snapshots copy changes, hard-link unchanged files, and publish by temporary-folder rename
+with a manifest (path, bytes, modified time, SHA-256). Prompt-only mode includes Copilot/OpenCode:
+timestamped user prompts in order, one Markdown file per conversation under each project, with
+title, date, app, and index. Exclude responses, tools, login files, and settings; reuse the folder,
+schedule, and retention. Restore prompts only to a folder. Restore full backups wholly or partly,
+in place after a safety snapshot or elsewhere. Login files and full OpenCode database snapshots
+need opt-in. Never delete sources; prune only Switch snapshots. Wait and explain missing destinations.
 
 Conversations pages messages without a cutoff. Saved search and any role subset cover the full
 chat; keep the last role on. Chips stay 24 pt high and fade for 150 ms. Put "Copy" before them;
@@ -270,10 +257,10 @@ Command-R refreshes. The status context menu offers Open, Refresh Usage, Setting
 Claude's account page prices all profiles' local transcripts as an API-equivalent estimate;
 Droid sessions use the same panel above the Factory usage key.
 
-Daily charts (30 days or native span) return id, title, unit, and dated points. Draw 72-point bars per series below windows. The header shows the
-title and total or hovered or focused day; VoiceOver says "30 days, total $12.40, peak $2.10 on
-Oct 3". Claude Code's 30-day cost uses this chart. On 30-day axes, name the first, middle, and
-last dates in full; end labels clamp inside the card inset. Menu cards omit charts.
+Daily charts (30 days/native span) return id/title/unit/dated points. Draw 72-point bars/series
+below windows; header shows title and total or hovered/focused day. VoiceOver: "30 days, total
+$12.40, peak $2.10 on Oct 3". Use for Claude's 30-day cost. Show full first/middle/last dates on
+30-day axes; clamp end labels inside card insets. No menu-card charts.
 `switch usage --json` adds `charts` (`switch.limits.v1`); CLI and TUI each draw one ▁▂▃▄▅▆▇█ line.
 Show real overage ("130% used",
 "0% left"), clamping fills. Sub-cent money uses up to four decimals ("$0.0042").
@@ -301,12 +288,11 @@ Refresh all saved Codex accounts at launch and every three minutes while running
 age or menu opening. One cache model updates window and menu bar per completed refresh.
 Manual refresh is immediate; failed accounts wait five minutes for automatic retry.
 
-Daily activity is a GitHub-style calendar; a saved period control (Today, Yesterday, Weekly,
-Monthly, Yearly; default Yearly) sets range, total, and intensity. Changing account never
-activates credentials, waits, or shows prior data. One Canvas draws a year responsively with
-exact-day pointer, arrow-key, and per-date accessibility selection; weeks start Sunday. Redraws
-never reload the Dock icon; indexing uses utility priority. Selected days show date and exact
-tokens. Lifetime, Peak day, streak, and Longest turn sit right of Ordinary usage.
+Daily activity: responsive GitHub-style year calendar in one Canvas; Sunday weeks, exact-day
+pointer/arrow-key/accessibility selection. Persist Today/Yesterday/Weekly/Monthly/Yearly (default)
+for range/total/intensity. Changing account never activates, waits, or shows prior data. Redraws
+never reload Dock icons; index at utility priority. Selected days show date/exact tokens.
+Lifetime, Peak day, streak, Longest turn sit right of Ordinary usage.
 
 Keep owner-private SQLite `activity/daily.sqlite` apart from expiring quota snapshots.
 Authoritative Codex responses set per-account daily totals; newer values replace older ones, even
@@ -396,87 +382,74 @@ in light and dark HTML references (Overview and shared-part states) and measured
 - **Messages:** Show silent macOS notifications, including while frontmost; none when disabled.
   Pages have no message card. Errors use the red bar below the top row
   with Copy and Dismiss. Preview and isolated checks never notify.
-- **Overview:** Switch accounts on Accounts. Overview has no focused-account card or table.
-  Remember Week or Month and Accounts, Models, or
-  Projects. Six cards show (1) tokens, estimated cost, active accounts, and busiest day;
-  (2) daily grouped-token streams; (3) a one-year all-account Activity heatmap. Only used days show a hand pointer and open a
-  dated sheet ("Saturday, October 3"); dragging and empty days do nothing. The sheet shows token,
-  cost, and session totals; a stacked cost bar with an Account or Model legend in brand and palette colors; and each session's title, tool, start time,
-  tokens, and cost. Only Codex sessions link to surviving transcripts in Conversations. Removed
-  transcripts are dim and inert with "Transcript removed". Without session data, show totals,
-  the split, and centered "No sessions on this Mac for this day. The totals come from the account's
-  usage report."
-  Done or Escape closes the sheet. Trends (4) shows daily group ridgelines scaled to each peak in
-  a fixed-height card, names in a one-line legend below. Continuous charts (Tokens per day,
-  Trends) run edge to edge; bar charts, titles, legends, and axis labels keep the inset.
-  Opaque tooltips sit above legends and read "Claude Code · account". Share of tokens (5)
-  uses a 20 by 10 grid (200 half-percent cells),
-  whole-percent labels, and "<1%" for one cell. The grid takes 40%; after a 24 pt gap,
-  legend rows take 60%, span grid and card height, and measure 20 to 28 pt each.
-  Maintenance (6) shows recent backups (time, source, size, state) and Open Backup or setup.
-  Use uiarc.dev chart styles, hover values, a faint date axis, and one palette. Fold groups past six into "Other".
-  Account legends, tooltips, and day-sheet cost splits prefix labels with 13 pt tool brand tiles
-  to distinguish matching emails. Model and project groups have no tile.
-  Keep the Tokens per day legend on one line; shorten all names with "…" together when needed.
-  Fill at launch when accounts load. Count Codex, Claude Code, Droid, and Grok Build. Unknown account history (Claude
-  Code's shared ~/.claude, Droid, Grok Build) goes to the tool's sole saved account. With zero or
-  two or more accounts, show "<Tool> (shared)"; never drop it. Droid history uses
-  `~/.factory/sessions/*/<id>.settings.json` totals on its last-change day. Compute local history
-  and the activity ledger off the main actor. Explain empty groups in place.
-- **Accounts:** The table sits above the selected account card. It shows a 44 pt icon tile, name
-  without picker, provider with Active dot or badge, primary window, and Make Default, Open
-  <tool>, Copy, and More. Missing usage leaves dotted meters and dashes in the card's right-side
-  space. One grey reason ("No Go plan", "Couldn't check usage: <reason>") appears in the card and
-  Usage header, without orange text or an empty band. Signed-out accounts use
-  "Sign in again" as the primary action. Unreadable Droid logins show "Allow access to see usage"
-  in the usage column; Allow replaces the default marker, and the card shows Allow access. The
-  table has no column header or Provider column. Provider headers are 32 pt with a 16 pt brand
-  tile, semibold name, and plain secondary count ("×2"). The card header has no account total.
-  Indent accounts 24 pt under providers; a thin guide line joins the tile to account elbows like
-  Finder. Groups have a 6 pt gap and no zebra fill. Row separators start at the indent and stay
-  lighter than card borders. The usage column has a bar and "83% · 6d 19h" (percent then reset).
-  Without usage, a reason such as "Sign in to see usage" replaces the bar and dashes. The default
-  is a framed disabled button like Safari's Set Default: "Default" in the table and "Using as
-  default" in the card, with no green, accent color, or check.
+- **Overview:** No focused-account card/table; switching stays on Accounts. Persist Week/Month
+  and Accounts/Models/Projects. Six cards:
+  1. Tokens, estimated cost, active accounts, busiest day.
+  2. Daily grouped-token streams.
+  3. One-year all-account Activity heatmap. Used days alone get hand pointers and dated sheets
+     ("Saturday, October 3"); ignore drags/empty days. Sheets show token/cost/session totals,
+     a stacked cost bar (Account/Model legend, brand/palette colors), and session title/tool/start/
+     tokens/cost. Only surviving Codex transcripts link to Conversations. Removed ones are dim,
+     inert, labeled "Transcript removed". Without sessions show totals, split, and centered
+     "No sessions on this Mac for this day. The totals come from the account's usage report."
+     Done/Escape closes.
+  4. Trends: daily group ridgelines scaled to each peak, fixed-height card, one-line legend below.
+  5. Share of tokens: 20x10 half-percent cells, whole-percent labels ("<1%" for one cell), grid
+     40%, gap 24 pt, legend 60%. Legend spans grid/card height with 20-28 pt rows.
+  6. Maintenance: recent backup time/source/size/state, Open Backup or setup.
+  Tokens per day/Trends run edge to edge; bars, titles, legends, and axis labels keep insets.
+  Opaque tooltips above legends say "Claude Code · account". Use uiarc.dev charts, hover values,
+  faint date axes, one palette, and "Other" beyond six groups. Prefix account legends/tooltips/
+  day-sheet cost splits with 13 pt tool brand tiles; omit tiles for models/projects. Keep Tokens
+  per day legends on one line; truncate all names with "…" together. Fill when accounts load.
+  Count Codex/Claude Code/Droid/Grok Build. Attribute unknown shared history to a tool's sole
+  saved account, else "<Tool> (shared)"; never drop it. Droid uses
+  `~/.factory/sessions/*/<id>.settings.json` totals on the last-change day. Compute local history
+  and activity off the main actor. Explain empty groups in place.
+- **Accounts:** Table above selected-account card. Card: 44 pt icon tile, name without picker,
+  provider with Active dot/badge, primary window, Make Default, Open <tool>, Copy, More.
+  Missing usage: dotted meters/dashes in the card's right space; one grey reason ("No Go plan",
+  "Couldn't check usage: <reason>") in card/Usage header, no orange or empty band. Signed-out
+  primary action: "Sign in again". Unreadable Droid: "Allow access to see usage" in usage column,
+  Allow instead of default marker, Allow access in card. No table headers/Provider column.
+  Provider headers: 32 pt, 16 pt brand tile, semibold name, secondary "×2" count; no card total.
+  Accounts indent 24 pt; Finder-like guide line joins tile to elbows. Groups: 6 pt gaps, no zebra
+  fill. Separators start at indent, lighter than card borders. Usage: bar and "83% · 6d 19h"
+  (percent/reset), or reason ("Sign in to see usage") replacing bar/dashes. Default: framed
+  disabled Safari-style button, "Default" in table, "Using as default" in card; no green/accent/check.
 - **Conversations, Maintenance, Settings:** Share cards, rows, and buttons.
   Maintenance puts Cleanup then Backup in 28 pt controls with 120 pt segments, aligned with card
   starts. Icons use label colors. Cleanup's source picker sits at the bar's right end.
-- **Stability and focus:** The global ui-quality "Owner taste" rules apply: no shift, rings, or
-  rims; neutral dark selection; original brand tiles; even insets; still scrolling. Every
-  scroll view (pages, sheets, Add Account dialogs, popovers, pickers, text views) hides system
-  indicators and draws a thin gutter bar without track or border. It hides at rest, fades in over
-  150 ms on scroll or gutter entry, and grows from 4 to 6 pt. Hover or drag widens it to 8 pt and
-  brightens it. It fades out over 300 ms, 1 s after scroll or pointer exit. Mouse and trackpad
-  scroll anywhere on pages, lists, messages, and gutters. Restore a saved offset once, on entry.
-  Pages are eager stacks in an AppKit scroll view below a fixed header; chart hovers pause while
-  it scrolls. Accounts rows share one hover and drop target.
-- **Motion:** Fade hover and press; fill bars on appearance and change; roll numbers; fade cards
-  without moving on page change; slide segment indicators; spring popover rows open; draw charts
-  in. Use 150-350 ms with ease-out or a soft spring. Reduce Motion keeps fades only. Show the
-  first page-switch frame without delay; run heavy work off the main actor. Motion runs once per
-  page load; content scrolling into view stays still.
-- **Menu bar popover:** 360 pt wide; omit app name, brand headers, token band, column header,
-  session explanation, and Add Account. Above 80% of screen height, scroll rows above the fixed
-  footer. One or two accounts never clip. Omit absent or hidden limits; never invent them.
-  Use less transparency than default material; Dark Mode stays near #262628. Separators are
-  half-opacity hairlines faded at both ends. Headers, rows, and footer have 12 pt insets.
-  Expand only for buttons or hidden lines; idle, default, and expanded rows have no fill; the
-  checkmark alone marks a default. Keyboard focus fills with primary color at 0.06 opacity; hover
-  uses 0.04. Hover extends 4 pt sideways and below and 6 pt
-  above names, without touching headers or moving rows. Keep native contrast and primary label
-  icons. Flat Sequoia buttons stay 24 pt tall with radius 5 pt. Expansion keeps earlier rows fixed;
-  height and content animate together without dropped frames, including Low Power Mode.
-  Service headers show a brand tile and name; account rows omit both.
-  A default-checkmark column precedes row text. Credits, balance, and tokens with API value start
-  at the bar column on one line. Use full window names (Session, Weekly, Monthly); extra pools
-  such as Droid Core and Fable have headings above their rows. Show reported windows, including
-  unknown values, subject to plan and hidden-row choices. Keep name, bar, percentage, and reset
-  columns fixed. Click to expand windows, model buckets, credits, Switch, and Open <tool>.
-  Signed-out accounts show "Sign in again to see usage" and Sign in at right, bottom-aligned
-  with expanded buttons. Droid uses the Accounts access text and action. Context menus offer
-  Switch, Open <tool>, Refresh, and Copy name. Footer: Open Switch (Command-O) left; Refresh,
-  Quit (power), Settings right, 6 pt apart. Refresh checks enabled accounts in saved order,
-  without activation or dismissal. Disable Refresh during checks; keep its space.
+- **Stability and focus:** Apply global ui-quality "Owner taste": no shift/rings/rims; neutral
+  dark selection, original brand tiles, even insets, still scrolling. All scroll views
+  (pages/sheets/Add Account/popovers/pickers/text) replace system indicators with trackless,
+  borderless gutter bars. Hidden at rest; scroll/gutter entry fades in over 150 ms, 4 to 6 pt.
+  Hover/drag brightens and widens to 8 pt. Fade out over 300 ms, 1 s after scroll/pointer exit.
+  Mouse/trackpad scroll pages/lists/messages/gutters anywhere. Restore offsets once on entry.
+  Pages: eager stacks in AppKit scroll views below fixed headers; pause chart hovers while
+  scrolling. Accounts rows share one hover/drop target.
+- **Motion:** Fade hover/press; fill bars on appearance/change; roll numbers; fade cards without
+  movement on page changes; slide segment indicators; spring popover rows open; draw charts in.
+  Use 150-350 ms ease-out/soft spring; Reduce Motion keeps fades only. Show first page-switch
+  frame immediately; move heavy work off main actor. Animate once per page load, never on scroll entry.
+- **Menu bar popover:** 360 pt wide. Omit app name, brand headers, token band, column header,
+  session explanation, Add Account, and absent/hidden limits. Beyond 80% screen height, scroll
+  rows above fixed footer; never clip one/two accounts. Reduce default-material transparency;
+  Dark near #262628. Half-opacity hairlines fade at both ends. Insets: 12 pt throughout.
+  Expand only for buttons/hidden lines. Idle/default/expanded rows have no fill; only checkmark
+  marks default. Focus: primary fill 0.06; hover: 0.04, extends 4 pt sides/below and 6 pt above
+  names, without touching headers/shifting rows. Keep native contrast/primary-label icons.
+  Flat Sequoia buttons: 24 pt high, radius 5. Keep earlier rows fixed during expansion; animate
+  height/content together without dropped frames, including Low Power Mode. Service headers
+  alone show brand tile/name. Default-checkmark column precedes text. Credits/balance/tokens
+  with API value start at bar column, one line. Full window names: Session/Weekly/Monthly;
+  extra pools (Droid Core/Fable) get headings. Show reported windows, including unknown values,
+  subject to plan/hidden-row choices. Fix name/bar/percentage/reset columns. Click expands
+  windows, model buckets, credits, Switch, Open <tool>. Signed-out: "Sign in again to see usage",
+  Sign in right/bottom-aligned with expanded buttons. Droid reuses Accounts access text/action.
+  Context menu: Switch, Open <tool>, Refresh, Copy name. Footer: Open Switch (Command-O) left;
+  Refresh, Quit (power), Settings right, 6 pt gaps. Refresh enabled accounts in saved order without
+  activation/dismissal; disable Refresh during checks without changing its space.
 - **Behavior kept:** Clicking paths copies them with brief Copied feedback; Preview never uses
   the real clipboard. Icon actions have accessible names and keyboard focus. Reduce Transparency
   follows the system. Preview data is synthetic.
@@ -486,13 +459,12 @@ selection, most recently used, then first available. Confirmation names it; fail
 keeps the account. Without a fallback, Delete account stays disabled with its normal label.
 Conversations and settings stay.
 
-Background reconciliation never disables UI or republishes unchanged values. Secondary text
-names provider (Codex CLI); badges mean action needed. A badge is a grey chip with label-color
-text and a 6 pt state-color dot; its text reaches 4.5:1 in both appearances.
+Background reconciliation never disables UI or republishes unchanged values. Secondary text names
+providers (Codex CLI). Action-needed badges: grey chip, label-color text (4.5:1 both appearances),
+6 pt state-color dot.
 
-Add Account and Advanced Import use native sheets: provider search and a single-choice list
-(double-click continues) lead to the form or sign-in page, with Cancel, Continue, and a small step
-indicator at every step.
+Add Account/Advanced Import use native sheets: provider search, single-choice list (double-click
+continues), then form/sign-in. Every step has Cancel, Continue, and a small step indicator.
 
 ## 5. Terminal distribution
 
@@ -500,6 +472,14 @@ indicator at every step.
 Ship the compiled Apple Silicon macOS executable as `@smdl/switch`: npx opens the UI; global
 install exposes `switch` and the `ai-manager` alias. The root README covers all three.
 The package adds no account logic or Swift build step.
+
+Keep the CLI current with shared-core operations: account naming and order, login code submission,
+all-provider usage, Droid transfer reports, conversations, missions, backups, Cleanup, Claude shell
+integration, and one-shot automatic account selection. Use the same validation, writer guards, and
+recovery checks as the app. Require confirmation for mutations; accept secrets through standard input.
+GUI appearance, menu-bar preferences, notifications, and background scheduling remain app settings.
+Report the CLI version without opening account stores. Provide an explicit standalone update command;
+installing the app alone must not imply that an older command in PATH was updated.
 
 Use **09 Amber Menu**: compact provider groups, one inverse selected row, selected account limits.
 Every action, including confirmed deletion, shows full text after a compact glyph. Use only bold,
@@ -517,15 +497,15 @@ contract, production and Preview model checks, System, Light, and Dark snapshots
 without privileges or writes. Public releases are Developer ID signed and notarized
 (`release-macos.sh --xcode`). Keep install copy short, with no Gatekeeper warning blocks.
 
-Build, validate, and upload Mac archives on the maintainer's Mac, never GitHub Actions. The README
-links the current Switch download; older releases are not Switch. Lead with provider-neutral
-switching. Put paths, session behavior, and limits in concise provider notes.
+Build/validate/upload Mac archives on the maintainer's Mac, never GitHub Actions. README links
+the current Switch download; older releases are not Switch. Lead with provider-neutral switching;
+keep paths, session behavior, and limits in concise provider notes.
 
-Memory: the main window and its pages exist only while it is shown; closing it or hiding it to the
-menu bar frees them, and a login launch builds no window. A page host gets named environment values,
-never the outer `EnvironmentValues`, whose tracker grows with every update. The contract's memory
-check fails when trackers grow over 1 MB in 200 updates per page or a closed window stays alive.
+Memory: free main window/pages on close or hide to menu bar; login launches build no window.
+Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows
+per update). Fail the memory check for a surviving closed window or tracker growth over 1 MB
+in 200 updates/page.
 
-Before installed-app GUI actions, match packaged and `/Applications/Switch.app` executable SHA-256,
-embedded and committed revisions, and the running binary inode. Fix stale processes or
-checksum mismatches before clicking; record proof in the install receipt.
+Before installed-app GUI actions, match packaged/installed (`/Applications/Switch.app`) SHA-256,
+embedded/committed revisions, and running binary inode. Fix stale processes/checksum mismatches
+before clicking; record proof in the install receipt.

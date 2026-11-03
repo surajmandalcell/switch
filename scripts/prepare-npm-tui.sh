@@ -32,4 +32,9 @@ mkdir -p "$(dirname "$destination")"
 install -m 0755 "$bin_path/ai-manager" "$destination"
 codesign --force --sign - "$destination"
 codesign --verify --strict "$destination"
+expected_version="$(node -p 'require(process.argv[1]).version' "$repo_root/package.json")"
+[[ "$("$destination" --version)" == "Switch $expected_version" ]] || {
+  printf '%s\n' 'CLI version does not match package.json.' >&2
+  exit 1
+}
 "$destination" help >/dev/null
