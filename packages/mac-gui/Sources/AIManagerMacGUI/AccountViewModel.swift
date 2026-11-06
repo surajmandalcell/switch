@@ -226,6 +226,8 @@ final class AccountViewModel: ObservableObject {
     private var unavailableReason: String? = nil
     private var actionGeneration = 0
     private var isActivationReloading = false
+    private var isRefreshingDroidConversations = false
+    private var lastDroidBindingReport: DroidSessionBindingReport?
     private var chatSelectionGeneration = 0
     private var hasScannedChatHistory = false
     private var requestedChatHistoryQuery = ""
@@ -390,6 +392,7 @@ final class AccountViewModel: ObservableObject {
         isActivationReloading = true
         defer { isActivationReloading = false }
         do {
+            await refreshDroidConversations()
             try await reloadStatus(using: manager)
             await loadCachedUsage()
             Task { await self.loadAPIPricing() }
@@ -730,9 +733,15 @@ final class AccountViewModel: ObservableObject {
                     pendingLoginSessions.removeAll { $0.id == session.id }
                     let name = account.identity.accountLabel
                     let providerName = account.identity.providerID.guiName
-                    notice = status?.isDefault(account) == true
-                        ? "New \(providerName) sessions will use \(name)."
-                        : "\(name) saved."
+                    if status?.isDefault(account) != true {
+                        notice = "\(name) saved."
+                    } else if ProviderCatalog.spec(account.identity.providerID)?.style == .secret {
+                        notice = "\(providerName) usage checks will use \(name)."
+                    } else if ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(account.identity.providerID) {
+                        notice = "\(providerName) sign-in files updated for \(name). Reopen the tool to load this account."
+                    } else {
+                        notice = "New \(providerName) sessions will use \(name)."
+                    }
                     await loadCachedUsage()
                     Task { await self.refreshAnyUsage(accountID: account.id) }
                 }
@@ -1261,12 +1270,21 @@ final class AccountViewModel: ObservableObject {
                 selectedAccountID = id
                 let count = result.droidSessionBinding.map { $0.updatedCount + $0.unchangedCount } ?? 0
                 let updated = "\(count) \(count == 1 ? "conversation" : "conversations") ready to resume."
-                if let binding = result.droidSessionBinding, !binding.warnings.isEmpty {
+                if let binding = result.droidSessionBinding, binding.pending {
+                    lastDroidBindingReport = binding
+                    notice = "Account switched. Conversation updates are pending and will retry automatically. \(binding.warnings.joined(separator: " "))"
+                } else if let binding = result.droidSessionBinding, !binding.warnings.isEmpty {
                     notice = "Account switched. \(updated) \(binding.warnings.joined(separator: " "))"
                 } else if announce {
-                    notice = count > 0
-                        ? "New \(providerName) sessions will use this account. \(updated)"
-                        : "New \(providerName) sessions will use this account."
+                    if ProviderCatalog.spec(providerID)?.style == .secret {
+                        notice = "\(providerName) usage checks will use this account."
+                    } else if ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(providerID) {
+                        notice = "\(providerName) sign-in files updated. Reopen the tool to load this account."
+                    } else {
+                        notice = count > 0
+                            ? "New \(providerName) sessions will use this account. \(updated)"
+                            : "New \(providerName) sessions will use this account."
+                    }
                 }
             }
             if status?.defaultAccountID(for: providerID) == id {
@@ -1856,11 +1874,32 @@ final class AccountViewModel: ObservableObject {
 
     /// Automatic pass: only accounts that are due. `onCadence` is the fixed timer tick.
     func refreshProviderUsage(onCadence: Bool = false) async {
+        await refreshDroidConversations()
         let due = providerUsageAccountIDs.filter {
             ProviderUsagePolicy.isDue(providerUsage[$0], onCadence: onCadence)
         }
         Task { await self.refreshSideChecks() }
         await runProviderUsage(due)
+    }
+
+    func refreshDroidConversations() async {
+        guard !isBusy, !isRefreshingDroidConversations, let manager else { return }
+        isRefreshingDroidConversations = true
+        defer { isRefreshingDroidConversations = false }
+        do {
+            guard let report = try await manager.refreshDroidConversationBinding() else { return }
+            try await reloadStatus(using: manager)
+            guard report != lastDroidBindingReport else { return }
+            lastDroidBindingReport = report
+            let count = report.updatedCount + report.unchangedCount
+            if report.pending {
+                notice = "Droid conversation updates are pending and will retry automatically. \(report.warnings.joined(separator: " "))"
+            } else if count > 0 {
+                notice = "\(count) Droid \(count == 1 ? "conversation" : "conversations") ready to resume. \(report.warnings.joined(separator: " "))"
+            }
+        } catch {
+            errorMessage = "Couldn’t update Droid conversations. \(error.localizedDescription)"
+        }
     }
 
     /// Provider incident status and the Claude log scan ride along with every refresh pass. Both

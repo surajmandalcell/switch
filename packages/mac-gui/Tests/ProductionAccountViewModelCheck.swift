@@ -64,6 +64,11 @@ struct ProductionAccountViewModelCheck {
         try await checkAccountScopedSignIn(root: root)
         try await checkDroidAccounts(root: root)
         try await checkDroidSessionBinding(root: root)
+        try await checkUsageOnlyAccountSelection(root: root)
+        if let executable = ProcessInfo.processInfo.environment["SWITCH_TEST_DROID_EXECUTABLE"] {
+            try await NativeDroidResumeCheck.run(executable: executable)
+            print("NATIVE_DROID_SESSION_BINDING_PASS")
+        }
         try await checkActionMessages(root: root)
         print("ACCOUNT_SCOPED_SIGN_IN_PASS")
 
@@ -1061,15 +1066,21 @@ struct ProductionAccountViewModelCheck {
             defaultHome: scratch.appending(path: "user/.codex"), sharedRoot: scratch.appending(path: "user/.codex"),
             orcaAccountsRoot: scratch.appending(path: "orca"), droidHome: home,
             droidExecutable: fake, isolationRoot: scratch)
+        let id = UUID()
+        let writer = scratch.appending(path: "writer-running")
         @Sendable func writeLine(_ value: [String: Any], to file: URL) throws {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try (JSONSerialization.data(withJSONObject: value) + Data([10])).write(to: file)
         }
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, providerSpecs: [],
-            droidProcessLister: { [] }, droidSessionInitializer: { id, cwd, title in
-                let file = home.appending(path: "sessions/-native/\(id.uuidString.lowercased()).jsonl")
-                try writeLine(["type": "session_start", "id": id.uuidString, "cwd": cwd.path,
-                    "title": title, "organizationId": "synthetic-work"], to: file)
+            droidProcessLister: {
+                FileManager.default.fileExists(atPath: writer.path) ? [.init(pid: 999_999, home: home)] : []
+            }, droidSessionInitializer: { probeID, cwd, title in
+                try expect(probeID != id, "Automatic binding attempted to resume a user session")
+                let organization = try String(contentsOf: home.appending(path: "auth.v2.loginkeychain"), encoding: .utf8)
+                let file = home.appending(path: "sessions/-native/\(probeID.uuidString.lowercased()).jsonl")
+                try writeLine(["type": "session_start", "id": probeID.uuidString, "cwd": cwd.path,
+                    "title": title, "organizationId": organization], to: file)
             })
         let live = home.appending(path: "auth.v2.loginkeychain")
         try Data("synthetic-personal".utf8).write(to: live)
@@ -1078,7 +1089,6 @@ struct ProductionAccountViewModelCheck {
         try Data("synthetic-work".utf8).write(to: live)
         let work = try await manager.importDroidAccount(name: "Synthetic work")
         _ = try await manager.switchDefault(to: personal.id)
-        let id = UUID()
         let source = home.appending(path: "sessions/-original/\(id.uuidString.lowercased()).jsonl")
         try writeLine(["type": "session_start", "id": id.uuidString, "cwd": scratch.path,
             "title": "Synthetic GUI transfer", "organizationId": "synthetic-personal"], to: source)
@@ -1088,13 +1098,58 @@ struct ProductionAccountViewModelCheck {
         try handle.seekToEnd()
         try handle.write(contentsOf: body)
         try handle.close()
+        let original = try Data(contentsOf: source)
         let model = AccountViewModel(paths: paths, manager: manager)
         await model.load()
         await model.switchDefault(to: work.id)
         try expect(model.status?.defaultAccountID(for: .droid) == work.id, "GUI did not select the target Droid account")
         try expect(model.notice?.contains("1 conversation ready to resume") == true && model.errorMessage == nil,
                    "Successful conversation binding did not reach the GUI notification: notice=\(model.notice ?? "nil"), error=\(model.errorMessage ?? "nil"), home=\(home.pathComponents), resolved=\(home.resolvingSymlinksInPath().standardizedFileURL.pathComponents)")
+        try Data().write(to: writer)
+        model.droidConfirmation = { _, _ in true }
+        await model.switchDefault(to: personal.id)
+        try expect(model.notice?.contains("pending") == true, "A busy Droid switch did not report its queued conversation update")
+        try FileManager.default.removeItem(at: writer)
+        await model.refreshProviderUsage(onCadence: true)
+        try expect(try Data(contentsOf: source) == original, "The existing refresh timer did not finish the queued binding")
+        try expect(model.notice?.contains("ready to resume") == true, "Background binding completion was not reported")
+
+        try Data("synthetic-work".utf8).write(to: live)
+        await model.reloadAfterActivation()
+        try expect(model.status?.defaultAccountID(for: .droid) == work.id, "Activation did not observe the external Droid account change")
+        let expected = Data(String(decoding: original, as: UTF8.self)
+            .replacingOccurrences(of: "\"synthetic-personal\"", with: "\"synthetic-work\"").utf8)
+        try expect(try Data(contentsOf: source) == expected, "Activation did not rebind the original conversation without changing its body")
         print("DROID_SESSION_BINDING_PASS")
+    }
+
+    @MainActor
+    private static func checkUsageOnlyAccountSelection(root: URL) async throws {
+        let scratch = root.appending(path: "usage-only-selection")
+        let paths = ManagerPaths(applicationSupport: scratch.appending(path: "support"),
+            defaultHome: scratch.appending(path: "user/.codex"), sharedRoot: scratch.appending(path: "user/.codex"),
+            orcaAccountsRoot: scratch.appending(path: "orca"), isolationRoot: scratch)
+        let spec = ProviderSpec(id: "amp", name: "Amp", fields: [.init("token", "Token")],
+            usage: { _ in ProviderUsage(plan: "synthetic") })
+        let editorFile = LiveFile(".fake-editor/auth.json")
+        let editorSpec = ProviderSpec(id: "cursor", name: "Cursor", style: .files, files: [editorFile],
+            usage: { _ in ProviderUsage(plan: "synthetic") })
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, providerSpecs: [spec, editorSpec])
+        let account = try await manager.addProviderAccount(providerID: spec.id, fields: ["token": "synthetic-only"])
+        let model = AccountViewModel(paths: paths, manager: manager)
+        await model.load()
+        await model.switchDefault(to: account.id)
+        try expect(model.notice?.contains("usage checks") == true && model.notice?.contains("New Amp sessions") != true,
+            "A usage-only account selection claimed to change native Amp sessions")
+        let editorAuth = paths.userHome.appending(path: editorFile.path)
+        try FileManager.default.createDirectory(at: editorAuth.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"token\":\"synthetic-editor\"}".utf8).write(to: editorAuth)
+        let editor = try await manager.importLiveProviderAccount(providerID: editorSpec.id)
+        await model.load()
+        await model.switchDefault(to: editor.id)
+        try expect(model.notice?.contains("sign-in files updated") == true && model.notice?.contains("New Cursor sessions") != true,
+            "An on-disk account update claimed that a running editor had already changed accounts")
+        print("USAGE_ONLY_SELECTION_PASS")
     }
 
     private static func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {

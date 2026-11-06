@@ -35,6 +35,7 @@ swiftc \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MaintenanceStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \
   "$repo_root/packages/mac-gui/Tests/FeatureLogicChecks.swift" \
+  "$repo_root/packages/core/Tests/AIManagerCoreTests/NativeDroidResumeCheck.swift" \
   "$repo_root/packages/mac-gui/Tests/ProductionAccountViewModelCheck.swift" \
   -o "$output_path"
 
