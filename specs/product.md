@@ -37,15 +37,14 @@ sign-in. Add Account runs Terminal `/login` with private temporary `FACTORY_HOME
 Droid login at a time. Existing Factory login supplies the key. While Factory.app works, live
 tests use droid in a separate override home, never `~/.factory`.
 
-After changing Droid accounts, bind existing local conversations to the target organization in
-their original files. Change only the first header's `organizationId` value; preserve session IDs,
-owner, settings, paths, timestamps, and every body byte. Cover all ordinary conversations, without
-a recent-session limit. Discover the target organization through one native empty session, then
-remove that owned probe. Do not infer organizations from account labels or rewrite credentials.
-Reject unsafe paths and concurrent writers; interrupted changes remain recoverable and retryable.
-Keep the running-process confirmation and skip transcript writes while Droid or Factory is active.
-Report updated, unchanged, skipped, and failed sessions separately from authentication success.
-This changes local resume metadata; it cannot transfer server-owned missions or running tools.
+Bind all ordinary Droid conversations after managed or observed external account changes.
+Change only the first header's `organizationId`; preserve IDs, owner, settings, paths, dates,
+and every body byte. Read the current organization from one native empty session, then remove it.
+Never infer an organization from labels or reuse a prior repair's ID. Keep running-process
+confirmation; defer writes while Droid or Factory is active. Persist unfinished work across
+restart; retry on activation and refresh after writers stop. Reject unsafe paths and recover interrupted
+writes. Report pending, updated, unchanged, skipped, and failed work separately from login success.
+Local metadata changes do not transfer cloud missions or running tools.
 
 Droid identities are opaque. Name imports and sign-ins ("Droid 1"); offer Rename… in row and
 More menus (1-100 characters, off in Privacy mode). Keep login, default, usage key, and missions
@@ -90,8 +89,8 @@ cookie stores. Each `ProviderSpec` uses one of two credential styles:
 - **Files**: The official CLI or app owns credential files, shared JSON members, or database
   key and value rows, such as `~/.gemini/oauth_creds.json`, OpenCode auth.json's `opencode-go`,
   or Cursor's `cursorAuth/*`. Switching keeps the newest ten live-byte backups per provider,
-  saves outgoing and rotated tokens (including unsaved logins), then atomically writes only selected
-  bytes. Other files, members, rows, conversations, and settings stay. Run official Terminal
+  saves outgoing and rotated tokens (including unsaved logins), then replaces the complete login,
+  clearing absent optional fields. Other data, conversations, and settings stay. Run official Terminal
   sign-in in a private temporary home; import its login. "Import current
   sign-in" saves the live login. At launch and refresh, Droid and OpenCode Go
   import each distinct unsaved live login once as default. Skip equal Droid masks (unless token subjects differ) and never
@@ -107,23 +106,25 @@ cookie stores. Each `ProviderSpec` uses one of two credential styles:
 - **Secret**: API keys, access tokens, or a pasted Cookie header. Switching selects the
   default saved account.
 
-Saved credentials live at `~/.switch/<provider>/<account-uuid>.json` (0600); index and backups
-live in application support `provider-accounts/`. Files usage reads live bytes without spending
-CLI-held refresh tokens. Vault-only accounts may refresh and save tokens. Write refreshed live
-bytes back only if unchanged.
+Credentials: `~/.switch/<provider>/<account-uuid>.json` (0600); index/backups:
+application support `provider-accounts/`. Files usage must not spend CLI-held refresh tokens.
+Vault-only accounts may refresh/save tokens. Replace refreshed live bytes only if unchanged.
 
-Usage holds rate windows (used share, reset time, length), money (spend, limit, balance),
-detail rows, plan, and identity. Its first window drives the menu-bar percentage. Omit missing
-values. Use HTTPS; allow HTTP only for loopback, RFC 1918, and `.local` gateways. Never follow
-cross-host redirects.
+Conversation continuity is an account-switch contract, not a usage-provider claim. Verify the
+native authentication change and original history together. Keep local history outside credential
+snapshots. Distinguish usage-only selection and local viewing from native resume; never promise
+cross-account access to provider-owned cloud history without a supported provider mechanism.
 
-Excluded: hooks, the QuickJS plugin engine, browser cookie import, Keychain
-reads, keepalive, adaptive refresh, agent sessions, widgets, iCloud sync, Sparkle,
-telemetry, local HTTP API, proxy settings, and merge-icons mode, with the providers that need them.
+Usage: rate windows (share, reset, duration), money (spend, limit, balance), details, plan, identity.
+The first window drives menu-bar percentage; omit missing values. Require HTTPS except loopback,
+RFC 1918, and `.local` gateways. Never follow cross-host redirects.
 
-Codex CLI and Grok Build defaults match live credentials; Claude Code's default selects
-Switch-launched sessions. Switching and deletion change defaults only within that provider.
-The TUI groups accounts by provider, keeps their order, and marks each group's default.
+Exclude hooks, QuickJS, browser cookie import, Keychain reads, keepalive, adaptive refresh,
+agent sessions, widgets, iCloud, Sparkle, telemetry, local HTTP API, proxy settings, merge-icons,
+and providers requiring them.
+
+Codex/Grok defaults match live credentials; Claude's default selects Switch-launched sessions.
+Switch/delete defaults stay provider-scoped. The TUI keeps provider groups, order, and default marks.
 
 Existing-account "Sign in" binds an isolated session to its account ID. A mismatched identity
 discards the home and reports both identities; a match atomically refreshes only that credential.
@@ -473,7 +474,7 @@ install exposes `switch` and the `ai-manager` alias. The root README covers all 
 The package adds no account logic or Swift build step.
 
 Keep the CLI current with shared-core operations: account naming and order, login code submission,
-all-provider usage, Droid transfer reports, conversations, missions, backups, Cleanup, Claude shell
+all-provider usage, Droid continuity reports, conversations, missions, backups, Cleanup, Claude shell
 integration, and one-shot automatic account selection. Use the same validation, writer guards, and
 recovery checks as the app. Require confirmation for mutations; accept secrets through standard input.
 GUI appearance, menu-bar preferences, notifications, and background scheduling remain app settings.
@@ -497,8 +498,7 @@ without privileges or writes. Public releases are Developer ID signed and notari
 (`release-macos.sh --xcode`). Keep install copy short, with no Gatekeeper warning blocks.
 
 Build/validate/upload Mac archives on the maintainer's Mac, never GitHub Actions. README links
-the current Switch download; older releases are not Switch. Lead with provider-neutral switching;
-keep paths, session behavior, and limits in concise provider notes.
+the current Switch download; older releases are not Switch. Keep provider paths and limits concise.
 
 Memory: free main window/pages on close or hide to menu bar; login launches build no window.
 Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows
