@@ -497,9 +497,9 @@ without privileges or writes. Public releases are Developer ID signed and notari
 (`release-macos.sh --xcode`). Keep install copy short, with no Gatekeeper warning blocks.
 
 Build, check, and upload Mac archives on the maintainer's Mac, never GitHub Actions.
-README uses website styling, real screenshots, concise copy, tool limits, and current downloads.
-Enlarge its cover desktop with vertical space. One shell command installs the Mac app and CLI,
-or Linux CLI. Check download hashes; state architecture and runtime requirements.
+README uses website styling, real screenshots, short copy, limits, and current downloads.
+Cover: text-free website demo GIF, static reduced-motion fallback, 6px corners, transparent padding.
+Collapse requirements. One command installs Mac app/CLI or Linux CLI; check hashes.
 
 Memory: free main window/pages on close or hide to menu bar; login launches build no window.
 Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows

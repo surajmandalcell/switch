@@ -1,31 +1,36 @@
 <p align="center">
-  <img src="docs/screenshots/cover-spaced.png" alt="Switch: account switching and usage for AI coding tools" width="100%">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/screenshots/cover-demo.png">
+    <img src="docs/screenshots/cover-demo.gif" alt="Switch menu bar demo: open the menu, select an account, and switch" width="100%">
+  </picture>
 </p>
 
 # Switch
 
-Account switching and usage for AI coding tools. A native macOS app with a menu bar popover, plus a terminal interface for macOS and Linux.
-
-Save accounts, check their limits, and choose which account a supported tool uses. Keep local settings and conversations in place when you switch. Access to cloud conversations still belongs to the provider account.
+Account switching and usage for AI coding tools. Native on macOS, with a terminal interface for macOS and Linux.
 
 **[Download for Mac](https://github.com/surajmandalcell/switch/releases/latest)** · [Website](https://switch.mandalsuraj.com) · [Terminal](#use-switch-in-the-terminal) · [Build from source](docs/development.md#build-and-check)
 
 ## Get started
 
-Install with one command:
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/surajmandalcell/switch/master/install.sh | sh
 ```
 
-On **macOS 14 or later with Apple Silicon**, this installs the app in `~/Applications` and the CLI in `~/.local/bin`. On **Linux x86_64 with glibc 2.38 or later**, it installs the CLI. No administrator access is needed. Run the same command to update.
+Installs the Mac app and CLI, or the Linux CLI. Run it again to update.
 
-1. On macOS, open Switch from Applications. On Linux, run `~/.local/bin/switch`.
-2. Choose **Add Account** and search for the tool or provider you use.
-3. Follow its sign-in flow, import an existing login, or enter an API key. Adding an account keeps your current login active.
-4. Choose **Check Now** to load usage. For tools with account switching, choose **Switch** in the menu bar or **Make Default** in the app.
+1. Open Switch, or run `~/.local/bin/switch` in a terminal.
+2. Choose **Add Account** and follow the sign-in steps for your tool.
+3. Check usage and choose the account you want to use.
 
-Install each coding tool separately. Use its **Open** action in Switch to launch it with the selected account.
+<details>
+<summary>Requirements and install locations</summary>
+
+macOS 14+ on Apple Silicon; Linux x86_64 with glibc 2.38+. Install each coding tool separately.
+
+The Mac app goes in `~/Applications`; terminal commands go in `~/.local/bin`. The installer needs no administrator access and keeps your account data in place.
+
+</details>
 
 ## Usage at a glance
 
