@@ -1,5 +1,10 @@
 import CSQLite
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 /// Account store for every generic `ProviderSpec`. Mirrors `ClaudeCodeProfiles`: its own index,
 /// lock, default per provider, and pending sign-ins. `AccountManager.status()` merges it in.
@@ -235,6 +240,7 @@ struct ProviderAccountStore {
             var backup = indexURL
             if spec.style == .files {
                 let targetCredential = try readVault(target)
+                try validateLiveWrite(spec, targetCredential, home: nil)
                 let outgoing = try readLive(spec, home: nil)
                 // ponytail: OpenCode 2 reads only its database, so auth.json would do nothing; write the credential row when the owner needs to switch between OpenCode Go accounts.
                 var databaseOwned = false
@@ -265,7 +271,7 @@ struct ProviderAccountStore {
                 do {
                     if !databaseOwned { try writeLive(spec, targetCredential, home: nil) }
                 } catch {
-                    try? writeLive(spec, outgoing, home: nil)
+                    try? writeLive(spec, outgoing, home: nil, restoringSnapshot: true)
                     throw error
                 }
             }
@@ -373,12 +379,13 @@ struct ProviderAccountStore {
                    (!isComplete(spec, live) || identity(spec, live).key != foundIdentity.key) {
                     throw AIManagerError.credentialConflict
                 }
+                if isDefault { try validateLiveWrite(spec, found, home: nil) }
                 _ = try persist(accountID, found, live: false, liveDigest: nil)
                 if isDefault {
                     _ = try writeBackup(spec.id, live)
                     do { try writeLive(spec, found, home: nil) }
                     catch {
-                        try writeLive(spec, live, home: nil)
+                        try writeLive(spec, live, home: nil, restoringSnapshot: true)
                         throw error
                     }
                 }
@@ -613,12 +620,14 @@ struct ProviderAccountStore {
         return ProviderCredential(files: files)
     }
 
-    private func writeLive(_ spec: ProviderSpec, _ credential: ProviderCredential, home: URL?) throws {
+    private func writeLive(_ spec: ProviderSpec, _ credential: ProviderCredential, home: URL?, restoringSnapshot: Bool = false) throws {
+        if !restoringSnapshot { try validateLiveWrite(spec, credential, home: home) }
         for file in spec.files {
-            guard let data = credential.files[file.id] else { continue }
+            let data = credential.files[file.id]
             let url = try liveURL(file, home: home)
-            if file.sqliteTable != nil {
-                try writeRows(url, file: file, data: data)
+            if let table = file.sqliteTable {
+                if data == nil, try readRows(url, table: table, keys: file.sqliteKeys) == nil { continue }
+                try writeRows(url, file: file, data: data ?? Data("{}".utf8))
             } else if let key = file.key {
                 var object: [String: Any] = [:]
                 var mode = 0o600
@@ -634,11 +643,43 @@ struct ProviderAccountStore {
                     mode = ((try? fileManager.attributesOfItem(atPath: resolved.path))?[.posixPermissions]
                         as? NSNumber)?.intValue ?? 0o600
                 }
-                object[key] = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+                if let data { object[key] = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) }
+                else {
+                    guard object.removeValue(forKey: key) != nil else { continue }
+                }
                 try replaceFile(url, with: Self.json(object, pretty: true), mode: mode)
-            } else {
+            } else if let data {
                 try replaceFile(url, with: data, mode: 0o600)
+            } else if CoreSupport.entryExists(url) {
+                try validateFileRemoval(url, file: file, home: home)
+                guard unlink(url.path) == 0 else {
+                    throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+                }
             }
+        }
+    }
+
+    private func validateLiveWrite(_ spec: ProviderSpec, _ credential: ProviderCredential, home: URL?) throws {
+        guard isComplete(spec, credential) else {
+            throw AIManagerError.invalidSource("The saved credential for \(spec.name) is incomplete. Import its sign-in again.")
+        }
+        for file in spec.files where credential.files[file.id] == nil && file.key == nil && file.sqliteTable == nil {
+            let url = try liveURL(file, home: home)
+            if CoreSupport.entryExists(url) { try validateFileRemoval(url, file: file, home: home) }
+        }
+    }
+
+    private func validateFileRemoval(_ url: URL, file: LiveFile, home: URL?) throws {
+        var root = home ?? paths.userHome
+        if home == nil, let name = file.homeEnv, let value = environment[name], !value.isEmpty {
+            let configured = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
+            if paths.isolationRoot.map({ CoreSupport.isContained(configured, by: $0) }) ?? true { root = configured }
+        }
+        var info = stat()
+        guard CoreSupport.isContained(url, by: root),
+              lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == getuid(), info.st_nlink == 1, info.st_size <= Self.maxFileBytes else {
+            throw AIManagerError.unsafePath("\(file.path) is not an owned bounded regular file.")
         }
     }
 
@@ -747,6 +788,15 @@ struct ProviderAccountStore {
         guard begin == SQLITE_OK else { throw fail(begin) }
         do {
             let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            for key in file.sqliteKeys where rows[key] == nil {
+                var statement: OpaquePointer?
+                let prepared = sqlite3_prepare_v2(db, "DELETE FROM \(table) WHERE key = ?1", -1, &statement, nil)
+                guard prepared == SQLITE_OK else { throw fail(prepared) }
+                defer { sqlite3_finalize(statement) }
+                sqlite3_bind_text(statement, 1, key, -1, transient)
+                let stepped = sqlite3_step(statement)
+                guard stepped == SQLITE_DONE else { throw fail(stepped) }
+            }
             for (key, value) in rows where file.sqliteKeys.contains(key) {
                 var changed = false
                 for sql in ["UPDATE \(table) SET value = ?2 WHERE key = ?1",
