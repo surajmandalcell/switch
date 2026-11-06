@@ -359,6 +359,29 @@ public enum RunningCLIs {
 
     /// The exact argv and environment of a process of this user; nil when unreadable.
     static func procArgs(pid: Int32) -> (argv: [String], env: [String])? {
+        #if os(Linux)
+        guard pid > 0 else { return nil }
+        let directory = URL(fileURLWithPath: "/proc/\(pid)")
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: directory.path),
+              (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else { return nil }
+        func strings(_ name: String) -> [String]? {
+            guard let handle = try? FileHandle(forReadingFrom: directory.appending(path: name)) else { return nil }
+            defer { try? handle.close() }
+            var bytes = Data()
+            do {
+                while let part = try handle.read(upToCount: 65_536), !part.isEmpty {
+                    bytes.append(part)
+                    guard bytes.count <= 2_097_152 else { return nil }
+                }
+            } catch { return nil }
+            if bytes.isEmpty { return [] }
+            guard bytes.last == 0 else { return nil }
+            return bytes.dropLast().split(separator: 0, omittingEmptySubsequences: false)
+                .map { String(decoding: $0, as: UTF8.self) }
+        }
+        guard let argv = strings("cmdline"), !argv.isEmpty, let env = strings("environ") else { return nil }
+        return (argv, env)
+        #else
         var limit: Int32 = 0
         var limitSize = MemoryLayout<Int32>.size
         var maxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
@@ -368,6 +391,7 @@ public enum RunningCLIs {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
         return parseProcArgs(Array(buffer[..<size]))
+        #endif
     }
 
     // MARK: Waiting, stopping, reopening

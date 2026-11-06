@@ -197,8 +197,9 @@ final class CLIResumeCommandTests: XCTestCase {
 
     func testProcArgsOfThisProcessMatchItsOwnArgv() throws {
         let args = try XCTUnwrap(RunningCLIs.procArgs(pid: getpid()))
-        XCTAssertEqual(args.argv.count, CommandLine.arguments.count)
+        XCTAssertEqual(args.argv, CommandLine.arguments)
         XCTAssertFalse(args.env.isEmpty)
+        XCTAssertNil(RunningCLIs.procArgs(pid: -1))
     }
 
     func testOnlyInteractiveRunsAreCandidates() {

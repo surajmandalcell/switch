@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// The z.ai coding-plan API keys that the Z Code app saves in `~/.zcode/v2/credentials.json`.
