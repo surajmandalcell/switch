@@ -175,13 +175,14 @@ Update the script's pinned versions only after publishing matching assets.
 
 ## README cover
 
-The cover records the website's menu bar demo without its headline. On the
+The cover records the website's menu bar demo inside a light poster with its heading. On the
 rendering host, run `node packages/website/export-cover.cjs --gif` from the
 repository root to create the GIF and static reduced-motion fallback.
-The outer canvas is transparent; the desktop has 6px rounded corners.
+Only the area outside the cover's 6px corners is transparent. Its padding keeps the light background.
 It uses the existing Playwright installation under `packages/mac-gui/ui-lint`;
 set `PLAYWRIGHT_MODULE` or `CHROME_PATH` to use another installed renderer.
-GIF export also needs FFmpeg and ImageMagick. Temporary frames are removed after export.
+GIF export also needs FFmpeg and Gifsicle. Set `GIFSICLE_PATH` for a custom executable path.
+Temporary recordings are removed after export. ImageMagick builds the social preview below.
 Run `sh packages/website/build-assets.sh` to refresh the website assets,
 including the social preview. Check the README in light and dark mode at
 desktop and phone widths after replacing images.
