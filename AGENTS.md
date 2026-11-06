@@ -11,5 +11,11 @@ Preserve general security and data-recovery requirements from the existing docum
 Use synthetic credentials and temporary homes for automated tests.
 Never commit real auth, transcripts, private config, or workstation backups.
 
+After app or shared-core changes, rebuild and test the matching CLI, update the
+installed commands, and publish the matching `@smdl/switch` npm version.
+The owner authorizes these routine CLI updates without another approval step.
+Verify the registry version and a fresh package install before reporting completion.
+Keep required signing, validation, and password or OTP stops.
+
 Work on the existing branch. Do not execute or push the inherited remote branch-deletion workflow.
 Remove that workflow behavior in G1 before an implementation push.
