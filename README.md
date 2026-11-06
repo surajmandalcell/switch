@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="docs/screenshots/cover-website.png" alt="Switch: account switching and usage for AI coding tools" width="100%">
+  <img src="docs/screenshots/cover-spaced.png" alt="Switch: account switching and usage for AI coding tools" width="100%">
 </p>
 
 # Switch
 
-Account switching and usage for AI coding tools. A native macOS app with a menu bar popover and a terminal interface.
+Account switching and usage for AI coding tools. A native macOS app with a menu bar popover, plus a terminal interface for macOS and Linux.
 
 Save accounts, check their limits, and choose which account a supported tool uses. Keep local settings and conversations in place when you switch. Access to cloud conversations still belongs to the provider account.
 
@@ -12,10 +12,16 @@ Save accounts, check their limits, and choose which account a supported tool use
 
 ## Get started
 
-Requires **macOS 14 or later and Apple Silicon**.
+Install with one command:
 
-1. Download the latest release, unzip it, and move `Switch.app` to Applications.
-2. Open Switch and choose **Add Account**. Search for the tool or provider you use.
+```sh
+curl -fsSL https://raw.githubusercontent.com/surajmandalcell/switch/master/install.sh | sh
+```
+
+On **macOS 14 or later with Apple Silicon**, this installs the app in `~/Applications` and the CLI in `~/.local/bin`. On **Linux x86_64 with glibc 2.38 or later**, it installs the CLI. No administrator access is needed. Run the same command to update.
+
+1. On macOS, open Switch from Applications. On Linux, run `~/.local/bin/switch`.
+2. Choose **Add Account** and search for the tool or provider you use.
 3. Follow its sign-in flow, import an existing login, or enter an API key. Adding an account keeps your current login active.
 4. Choose **Check Now** to load usage. For tools with account switching, choose **Switch** in the menu bar or **Make Default** in the app.
 

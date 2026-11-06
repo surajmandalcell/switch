@@ -11,7 +11,7 @@ magick "$icons/AppIcon.png" -resize 256x256 -quality 90 "$out/icon-256.webp"
 magick "$icons/AppIcon.png" -resize 512x512 -quality 88 "$out/icon-512.webp"
 magick "$icons/AppIcon.png" -resize 180x180 -strip "$out/apple-touch-icon.png"
 magick "$icons/AppIcon.png" -resize 64x64 -strip "$out/favicon.png"
-magick "$shots/cover-website.png" -resize 1200x630 -background '#F2F2F4' -gravity center -extent 1200x630 -quality 84 "$out/og.jpg"
+magick "$shots/cover-spaced.png" -resize 1200x630 -background '#F2F2F4' -gravity center -extent 1200x630 -quality 84 "$out/og.jpg"
 
 for name in overview-light overview-dark overview-insights login-swap-light login-swap-dark menubar-light menubar-dark; do
   cwebp -quiet -q 84 -m 6 "$shots/$name.png" -o "$out/$name.webp"

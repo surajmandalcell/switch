@@ -468,21 +468,20 @@ continues), then form/sign-in. Every step has Cancel, Continue, and a small step
 
 ## 5. Terminal distribution
 
-`ai-manager` opens the terminal UI without arguments; `make tui` is the checkout entry.
-Ship the compiled Apple Silicon macOS executable as `@smdl/switch`: npx opens the UI; global
-install exposes `switch` and the `ai-manager` alias. The root README covers all three.
-The package adds no account logic or Swift build step.
+`ai-manager` opens the terminal UI; `make tui` runs it from source. Ship Apple Silicon macOS
+as `@smdl/switch`: npx opens the UI; global installs expose `switch` and `ai-manager`.
+Document all three. The package adds no account logic or Swift build step.
 
 Keep the CLI current with shared-core operations: account naming and order, login code submission,
 all-provider usage, Droid continuity reports, conversations, missions, backups, Cleanup, Claude shell
 integration, and one-shot automatic account selection. Use the same validation, writer guards, and
 recovery checks as the app. Require confirmation for mutations; accept secrets through standard input.
 GUI appearance, menu-bar preferences, notifications, and background scheduling remain app settings.
-Report the CLI version without opening account stores. Provide an explicit standalone update command;
-installing the app alone must not imply that an older command in PATH was updated.
+Report CLI versions without opening account stores. Document standalone updates;
+app installation must not imply that an older PATH command was updated.
 
-Use **09 Amber Menu**: compact provider groups, one inverse selected row, selected account limits.
-Every action, including confirmed deletion, shows full text after a compact glyph. Use only bold,
+Use **09 Amber Menu**: compact provider groups, one inverse selected row, account limits.
+Every action, including confirmed deletion, has full text after a glyph. Use only bold,
 dim, and inverse ANSI, terminal colors, no appearance detection; piped output and `NO_COLOR` are
 plain. The animated loader runs during initial refresh and clears before the menu. Show cached
 limits; never invent usage. Attached terminals use raw input: Up and Down move; Right or Enter
@@ -497,14 +496,16 @@ contract, production and Preview model checks, System, Light, and Dark snapshots
 without privileges or writes. Public releases are Developer ID signed and notarized
 (`release-macos.sh --xcode`). Keep install copy short, with no Gatekeeper warning blocks.
 
-Build, validate, and upload Mac archives on the maintainer's Mac, never GitHub Actions.
-README uses website styling, real app screenshots, concise copy, accurate provider limits, and current Switch downloads.
+Build, check, and upload Mac archives on the maintainer's Mac, never GitHub Actions.
+README uses website styling, real screenshots, concise copy, tool limits, and current downloads.
+Enlarge its cover desktop with vertical space. One shell command installs the Mac app and CLI,
+or Linux CLI. Check download hashes; state architecture and runtime requirements.
 
 Memory: free main window/pages on close or hide to menu bar; login launches build no window.
 Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows
 per update). Fail the memory check for a surviving closed window or tracker growth over 1 MB
 in 200 updates/page.
 
-Before installed-app GUI actions, match packaged/installed (`/Applications/Switch.app`) SHA-256,
-embedded/committed revisions, and running binary inode. Fix stale processes/checksum mismatches
-before clicking; record proof in the install receipt.
+Before installed-app GUI actions, match package/install (`/Applications/Switch.app`) SHA-256,
+source revisions, and running binary inode. Fix stale processes or hashes before clicking;
+record proof in the install receipt.
