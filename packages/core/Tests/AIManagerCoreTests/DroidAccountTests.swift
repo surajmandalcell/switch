@@ -18,6 +18,36 @@ final class DroidAccountTests: XCTestCase {
     private let fm = FileManager.default
     private enum Interrupted: Error { case fault }
 
+    private final class BindingConditions: @unchecked Sendable {
+        private let lock = NSLock()
+        private var runningValue = false
+        private var failureValue = false
+        private var attemptsValue = 0
+        private var rotationValue = false
+        var running: Bool {
+            get { lock.withLock { runningValue } }
+            set { lock.withLock { runningValue = newValue } }
+        }
+        var failInitialization: Bool {
+            get { lock.withLock { failureValue } }
+            set { lock.withLock { failureValue = newValue } }
+        }
+        var attempts: Int { lock.withLock { attemptsValue } }
+        var rotateNextInitialization: Bool {
+            get { lock.withLock { rotationValue } }
+            set { lock.withLock { rotationValue = newValue } }
+        }
+        func initialize() throws -> Bool {
+            try lock.withLock {
+                attemptsValue += 1
+                if failureValue { throw AIManagerError.operationFailed("Synthetic initialization failure") }
+                let rotation = rotationValue
+                rotationValue = false
+                return rotation
+            }
+        }
+    }
+
     override func setUpWithError() throws {
         let scratch = ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
             ?? ProcessInfo.processInfo.environment["TMPDIR"] ?? fm.temporaryDirectory.path
@@ -83,6 +113,39 @@ final class DroidAccountTests: XCTestCase {
         return (first, try XCTUnwrap(check.account))
     }
 
+    private func bindingManager(_ conditions: BindingConditions, fault: FaultPoint? = nil) throws -> AccountManager {
+        let testPaths = try XCTUnwrap(paths)
+        return try AccountManager(paths: testPaths, writerCheck: { _ in .inactive },
+            faultInjector: { if $0 == fault { throw Interrupted.fault } },
+            droidProcessLister: {
+                conditions.running ? [.init(pid: 999_999, bundleID: "com.factory.app", home: testPaths.droidHome)] : []
+            }, droidSessionInitializer: { id, cwd, title in
+                let rotate = try conditions.initialize()
+                let live = try Data(contentsOf: testPaths.droidHome.appending(path: "auth.v2.loginkeychain"))
+                let organization: String
+                switch live {
+                case Data("synthetic-login-A".utf8): organization = "synthetic-source"
+                case Data("synthetic-login-B".utf8): organization = "synthetic-target"
+                case Data("synthetic-login-B-refreshed".utf8): organization = "synthetic-target"
+                default: throw AIManagerError.operationFailed("The synthetic live account is unknown.")
+                }
+                let native = testPaths.droidHome.appending(path: "sessions/-native/\(id.uuidString).jsonl")
+                let header: [String: Any] = ["type": "session_start", "id": id.uuidString,
+                    "cwd": cwd.path, "title": title, "organizationId": organization]
+                try CoreSupport.atomicWrite(JSONSerialization.data(withJSONObject: header) + Data([10]),
+                    to: native, fileManager: .default)
+                if rotate {
+                    try CoreSupport.atomicWrite(Data("synthetic-login-B-refreshed".utf8),
+                        to: testPaths.droidHome.appending(path: "auth.v2.loginkeychain"), fileManager: .default)
+                }
+            })
+    }
+
+    private func boundToTarget(_ bytes: Data) -> Data {
+        Data(String(decoding: bytes, as: UTF8.self)
+            .replacingOccurrences(of: "\"synthetic-source\"", with: "\"synthetic-target\"").utf8)
+    }
+
     private func doctor(_ hint: String, status: String = "pass") throws {
         let data = try JSONSerialization.data(withJSONObject: ["results": [
             ["id": "auth.verify", "status": status, "detail": "authenticated as \(hint) via stored login session"]
@@ -94,7 +157,7 @@ final class DroidAccountTests: XCTestCase {
         try doctor("S***@gmail.com")
         let data = try Data(contentsOf: root.appending(path: "doctor.json"))
         XCTAssertEqual(DroidProviderAdapter.identityHint(data), "s***@gmail.com")
-        for hint in ["full@gmail.com", "bad***@", "s***@gmail.com extra", "s***@gmail.com\n"] {
+        for hint in ["full@gmail.com", "bad***@", "s***@gmail.com extra", "s***@gmail.com\n", "s***@gmail.com\r", "s***@gmail.com\r\n", "s***@gmail.com\u{2028}"] {
             try doctor(hint)
             XCTAssertNil(DroidProviderAdapter.identityHint(try Data(contentsOf: root.appending(path: "doctor.json"))))
         }
@@ -390,6 +453,207 @@ final class DroidAccountTests: XCTestCase {
         XCTAssertEqual(repeated.droidSessionBinding?.unchangedCount, 1)
         let native = testPaths.droidHome.appending(path: "sessions/-native")
         XCTAssertFalse(CoreSupport.entryExists(native), "The disposable organization probe left files or folders behind.")
+    }
+
+    func testDeferredConversationBindingRetriesOnRefreshAfterDroidStops() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        conditions.running = true
+        let switched = try await manager.switchDefault(to: target.id, allowRunningDroid: true)
+        XCTAssertEqual(switched.droidSessionBinding?.pending, true)
+        XCTAssertEqual(switched.droidSessionBinding?.failedCount, 0)
+        XCTAssertEqual(try Data(contentsOf: original), before)
+        conditions.running = false
+
+        _ = try await manager.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+        let attempts = conditions.attempts
+        _ = try await manager.status()
+        XCTAssertEqual(conditions.attempts, attempts, "Reading status must not start Droid or change sessions.")
+    }
+
+    func testFailedConversationBindingSurvivesManagerRestartAndRetriesOnRefresh() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        conditions.failInitialization = true
+        _ = try await manager.switchDefault(to: target.id)
+        XCTAssertEqual(try Data(contentsOf: original), before)
+        conditions.failInitialization = false
+        let restarted = try bindingManager(conditions)
+
+        _ = try await restarted.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+        let attempts = conditions.attempts
+        let repeated = try await restarted.refreshDroidConversationBinding()
+        XCTAssertNil(repeated)
+        XCTAssertEqual(conditions.attempts, attempts, "Completed cadence checks must not start another native probe.")
+    }
+
+    func testRefreshRecognizesAnExternalSwitchToAnAlreadySavedDroidAccount() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        try writeLogin(paths.droidHome, value: "synthetic-login-B")
+
+        let refreshed = try await manager.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertEqual(refreshed.status.defaultAccountID(for: .droid), target.id)
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+    }
+
+    func testRefreshBindsConversationsAfterImportingANewExternalDroidLogin() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let first = try await manager.importDroidAccount(name: "Personal")
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        try doctor("w***@example.test")
+        try writeLogin(paths.droidHome, value: "synthetic-login-B")
+
+        let refreshed = try await manager.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertNotEqual(refreshed.status.defaultAccountID(for: .droid), first.id)
+        XCTAssertEqual(refreshed.status.accounts.filter { $0.identity.providerID == .droid }.count, 2)
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+    }
+
+    func testDefaultDroidSignInRefreshQueuesConversationBinding() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let target = try await manager.importDroidAccount(name: "Personal")
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        let login = try await manager.startAccountLogin(accountID: target.id, confirmDroidAccount: true)
+        _ = try await manager.run(login.launchSpec)
+        _ = try await manager.checkAccountLogin(id: login.session.id)
+
+        _ = try await manager.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+    }
+
+    func testRecoveredDroidSwitchRetriesConversationBindingOnRefresh() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        let interrupted = try bindingManager(conditions, fault: .afterRegistryCommit)
+        do { _ = try await interrupted.switchDefault(to: target.id); XCTFail("Expected the synthetic interruption") }
+        catch Interrupted.fault {}
+        let restarted = try bindingManager(conditions)
+        _ = try await restarted.recover()
+
+        _ = try await restarted.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+    }
+
+    func testFullRefreshRepairsForeignHeadersWithAnUnchangedCompletedLogin() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        _ = try await manager.importDroidAccount(name: "Personal")
+        let original = try writeConversation()
+        let correctlyBound = try Data(contentsOf: original)
+        try boundToTarget(correctlyBound).write(to: original)
+        let cadence = try await manager.refreshDroidConversationBinding()
+        XCTAssertNil(cadence)
+
+        _ = try await manager.refreshAccounts(includeDiscoveries: false)
+
+        XCTAssertEqual(try Data(contentsOf: original), correctlyBound)
+    }
+
+    func testNativeProbeCredentialRotationPreservesAuthAndQueuesACleanRetry() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let original = try writeConversation()
+        let before = try Data(contentsOf: original)
+        conditions.rotateNextInitialization = true
+
+        let switched = try await manager.switchDefault(to: target.id)
+
+        XCTAssertEqual(switched.droidSessionBinding?.pending, true)
+        XCTAssertEqual(try Data(contentsOf: original), before)
+        let live = paths.droidHome.appending(path: "auth.v2.loginkeychain")
+        let refreshed = Data("synthetic-login-B-refreshed".utf8)
+        XCTAssertEqual(try Data(contentsOf: live), refreshed)
+        let probeFiles = (try? fm.contentsOfDirectory(atPath: paths.droidHome.appending(path: "sessions/-native").path)) ?? []
+        XCTAssertFalse(probeFiles.contains { $0.hasSuffix(".jsonl") })
+
+        let retried = try await manager.refreshDroidConversationBinding()
+
+        XCTAssertEqual(retried?.pending, false)
+        XCTAssertEqual(try Data(contentsOf: original), boundToTarget(before))
+        XCTAssertEqual(try Data(contentsOf: live), refreshed)
+    }
+
+    func testUnsafeConversationStateCannotRedirectWritesOrChangeLiveAuth() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let state = paths.applicationSupport.appending(path: "droid-session-binding-state.json")
+        if fm.fileExists(atPath: state.path) { try fm.removeItem(at: state) }
+        let outside = root.appending(path: "untouched-state.json")
+        let outsideBytes = Data("{}".utf8)
+        try outsideBytes.write(to: outside)
+        try fm.createSymbolicLink(at: state, withDestinationURL: outside)
+        let live = paths.droidHome.appending(path: "auth.v2.loginkeychain")
+        let before = try Data(contentsOf: live)
+
+        do { _ = try await manager.switchDefault(to: target.id); XCTFail("Expected unsafe state to block authentication publication") }
+        catch let error as AIManagerError {
+            guard case .unsafePath = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outside), outsideBytes)
+        XCTAssertEqual(try Data(contentsOf: live), before)
+        try fm.removeItem(at: state)
+        XCTAssertEqual(mkfifo(state.path, mode_t(0o600)), 0)
+        do { _ = try await manager.refreshDroidConversationBinding(); XCTFail("Expected a FIFO state file to fail without waiting for a writer") }
+        catch let error as AIManagerError {
+            guard case .unsafePath = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+        XCTAssertEqual(try Data(contentsOf: live), before)
+    }
+
+    func testConversationStateFailureAfterAuthCommitStillReportsTheSelectedAccount() async throws {
+        let conditions = BindingConditions()
+        let manager = try bindingManager(conditions)
+        let (_, target) = try await accounts(manager)
+        let original = try writeConversation()
+        let originalBytes = try Data(contentsOf: original)
+        let testPaths = try XCTUnwrap(paths)
+        let state = testPaths.applicationSupport.appending(path: "droid-session-binding-state.json")
+        let corruptBytes = Data("synthetic invalid state".utf8)
+        let interrupted = try AccountManager(paths: testPaths, writerCheck: { _ in .inactive },
+            faultInjector: { point in
+                if point == .afterRegistryCommit {
+                    try CoreSupport.atomicWrite(corruptBytes, to: state, fileManager: .default)
+                }
+            }, droidProcessLister: { [] })
+
+        let result = try await interrupted.switchDefault(to: target.id)
+
+        XCTAssertEqual(result.accountID, target.id)
+        XCTAssertEqual(result.droidSessionBinding?.pending, true)
+        XCTAssertEqual(result.droidSessionBinding?.failedCount, 1)
+        let status = try await interrupted.status()
+        XCTAssertEqual(status.defaultAccountID(for: .droid), target.id)
+        XCTAssertEqual(try Data(contentsOf: testPaths.droidHome.appending(path: "auth.v2.loginkeychain")), Data("synthetic-login-B".utf8))
+        XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+        XCTAssertEqual(try Data(contentsOf: state), corruptBytes)
     }
 
     func testConversationBindingFailureDoesNotMisreportTheAccountSwitch() async throws {
