@@ -158,6 +158,21 @@ workflow has been removed; native CI remains for source checks. If the upload
 fails, keep the files in `release/` and resume from the created tag after
 checking the draft release.
 
+## Install script
+
+`install.sh` downloads pinned release archives and checks their SHA-256 values.
+macOS also checks the developer signature and notarization before installing
+the app into `~/Applications`. Both systems install the CLI under
+`${XDG_DATA_HOME:-~/.local/share}/switch/cli/<version>` and link commands in
+`~/.local/bin`. Linux runtime libraries stay beside the executable.
+The installer does not need sudo, change shell profiles, or touch account data.
+Run `bash scripts/check-installer.sh` for isolated installation and failure checks.
+It currently installs the public Mac app 3.8.2 and CLI 3.9.1. Publish both
+`Switch-cli-v<version>-darwin-arm64.tar.gz` and
+`Switch-cli-v<version>-linux-x86_64.tar.gz`, plus `checksums.txt`, under the
+`cli-v<version>` release. Keep the app ZIP and its checksum under `v<version>`.
+Update the script's pinned versions only after publishing matching assets.
+
 ## README cover
 
 The cover reuses the website hero and its app preview. On the rendering host,

@@ -12,7 +12,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '../mac-gui/ui-lin
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
   });
   try {
-    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1280 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
     page.setDefaultTimeout(15000);
     // Keep the website's components in their initial state without starting demo loops.
     await page.addInitScript(() => {
@@ -24,11 +24,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '../mac-gui/ui-lin
       body > :not(.page):not(svg), .page > :not([data-g="top"]),
       .h-badge, .h-cta, .h-meta, .strip, .dk-cur { display: none !important; }
       *, *::before, *::after { animation: none !important; transition: none !important; }
-      .hero { padding-top: 38px; }
+      .page { max-width: 1416px; }
+      .hero { padding-top: 100px; }
       .h-t { font-size: 64px; letter-spacing: -.04em; color: var(--ink2); }
       .h-sub { margin-top: 16px; }
-      .desk { margin-top: 28px; height: 740px; }
-      .dk-win { top: 44px; }
+      .desk { --fit: 1360px; margin-top: 56px; height: 860px; }
+      .dk-win { top: 60px; width: 900px; }
       .dk-pop { opacity: 1; }
     ` });
     await page.evaluate(async () => {
@@ -46,18 +47,20 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '../mac-gui/ui-lin
         const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
         return { x, y, width, height };
       };
-      return { desk: rect('.desk'), window: rect('.dk-win'), popover: rect('.dk-pop') };
+      return { title: rect('.h-t'), desk: rect('.desk'), window: rect('.dk-win'), popover: rect('.dk-pop') };
     });
     for (const box of Object.values(bounds)) {
-      assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1600 && box.y + box.height <= 1000, `Cover content must fit the complete frame: ${JSON.stringify(bounds)}`);
+      assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1600 && box.y + box.height <= 1280, `Cover content must fit the complete frame: ${JSON.stringify(bounds)}`);
     }
+    assert(bounds.title.y >= 100 && 1280 - bounds.desk.y - bounds.desk.height >= 90, 'The cover needs generous top and bottom space');
+    assert(bounds.desk.width >= 1360 && bounds.window.width >= 900, 'The desktop and app must stay larger than the previous cover');
     for (const box of [bounds.window, bounds.popover]) {
       assert(box.x >= bounds.desk.x && box.x + box.width <= bounds.desk.x + bounds.desk.width && box.y + box.height <= bounds.desk.y + bounds.desk.height, 'The desktop must contain the complete window and popover');
     }
     const colors = await page.evaluate(() => Object.fromEntries(['body', '.h-t', '.hw', '.h-sub'].map(selector => [selector, { color: getComputedStyle(document.querySelector(selector)).color, background: getComputedStyle(document.querySelector(selector)).backgroundColor }])));
-    const output = path.resolve(process.argv[2] || path.join(__dirname, '../../docs/screenshots/cover-website.png'));
+    const output = path.resolve(process.argv[2] || path.join(__dirname, '../../docs/screenshots/cover-spaced.png'));
     await page.screenshot({ path: output, animations: 'disabled' });
-    console.log(JSON.stringify({ output, width: 1600, height: 1000, bounds, colors }));
+    console.log(JSON.stringify({ output, width: 1600, height: 1280, bounds, colors }));
   } finally {
     await browser.close();
   }
