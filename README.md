@@ -135,13 +135,14 @@ Each provider keeps its own default account.
   conversations, settings, commands, and skills in `~/.claude`. The default applies to
   sessions launched through Switch. Turn on **Use the selected Claude account in
   terminals** in Settings to make a plain `claude` command follow it.
-- **Droid:** Switch replaces only the auth files in `~/.factory`, and asks first while
-  Droid or Factory.app is running. When no Droid process is running, Switch also copies the ten
-  most recent ordinary conversations into account-owned sessions. Originals stay intact, and
-  repeat switches carry compatible new messages back without duplicate copies. Missions,
-  child sessions, and attachments are excluded. A mission stays with the account that started it, so
-  **Resume** on the Accounts page switches to that account first.
-- **Other command-line tools:** Switch swaps only the tool's login file, JSON entry, or
+- **Droid:** The continuity contract replaces auth, then binds eligible ordinary local
+  conversations to the target organization by changing only their first header. Original
+  session IDs, paths, bodies, owners, and settings stay intact; there is no ten-chat copy limit.
+  A disposable native session supplies the target organization. Active writers defer binding
+  until a safe retry. Cloud missions and their descendants stay with their owner; mission
+  **Resume** selects that account. Local history does not transfer cloud access or attachments.
+  See [conversation continuity and proof limits](specs/conversation-continuity.md).
+- **File-backed integrations:** Switch swaps only the tool's login file, JSON entry, or
   database rows. Quit an app such as Cursor before switching it.
 - **API providers:** Each account is a saved key or pasted session. Switching changes the
   default that the menu bar shows.
