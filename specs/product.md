@@ -497,8 +497,8 @@ contract, production and Preview model checks, System, Light, and Dark snapshots
 without privileges or writes. Public releases are Developer ID signed and notarized
 (`release-macos.sh --xcode`). Keep install copy short, with no Gatekeeper warning blocks.
 
-Build/validate/upload Mac archives on the maintainer's Mac, never GitHub Actions. README links
-the current Switch download; older releases are not Switch. Keep provider paths and limits concise.
+Build, validate, and upload Mac archives on the maintainer's Mac, never GitHub Actions.
+README uses website styling, real app screenshots, concise copy, accurate provider limits, and current Switch downloads.
 
 Memory: free main window/pages on close or hide to menu bar; login launches build no window.
 Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows
