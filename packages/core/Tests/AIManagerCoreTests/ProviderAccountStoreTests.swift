@@ -53,14 +53,15 @@ final class ProviderAccountStoreTests: XCTestCase {
     }
 
     private func filesSpec(rotate: Bool = false, id: String = "test-files",
-                           login: [String]? = ["true"]) -> ProviderSpec {
+                           login: [String]? = ["true"], optionalCompanions: Bool = false) -> ProviderSpec {
         let recorder = recorder
         return ProviderSpec(
             id: id, name: "Test Files", style: .files,
             files: [
                 LiveFile(authPath, homeEnv: "TESTCLI_HOME"),
-                LiveFile(".config/shared.json", key: "testcli"),
-                LiveFile(sqlite: "Library/app/state.vscdb", table: "ItemTable", keys: ["tok", "mail"]),
+                LiveFile(".config/shared.json", optional: optionalCompanions, key: "testcli"),
+            ] + (optionalCompanions ? [LiveFile(".testcli/optional.json", optional: true)] : []) + [
+                LiveFile(sqlite: "Library/app/state.vscdb", table: "ItemTable", keys: ["tok", "mail"], optional: optionalCompanions),
             ],
             login: login, loginEnv: ["SSH_TTY": "1"],
             identify: { credential in
@@ -104,23 +105,23 @@ final class ProviderAccountStoreTests: XCTestCase {
         try sqlite(home, "INSERT OR REPLACE INTO ItemTable(key, value) VALUES('tok', 'tk-\(name)'), ('mail', '\(name)@x.com')")
     }
 
-    private func sqlite(_ home: URL, _ sql: String) throws {
-        let url = home.appending(path: "Library/app/state.vscdb")
+    private func sqlite(_ home: URL, _ sql: String, path: String = "Library/app/state.vscdb", table: String = "ItemTable") throws {
+        let url = home.appending(path: path)
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
         defer { sqlite3_close(db) }
-        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS ItemTable(key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)",
+        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS \(table)(key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)",
                                     nil, nil, nil), SQLITE_OK)
         XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
     }
 
-    private func row(_ key: String, in home: URL) -> String? {
+    private func row(_ key: String, in home: URL, path: String = "Library/app/state.vscdb", table: String = "ItemTable") -> String? {
         var db: OpaquePointer?
-        guard sqlite3_open(home.appending(path: "Library/app/state.vscdb").path, &db) == SQLITE_OK else { return nil }
+        guard sqlite3_open(home.appending(path: path).path, &db) == SQLITE_OK else { return nil }
         defer { sqlite3_close(db) }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT value FROM ItemTable WHERE key = ?1", -1, &statement, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(db, "SELECT value FROM \(table) WHERE key = ?1", -1, &statement, nil) == SQLITE_OK else {
             return nil
         }
         defer { sqlite3_finalize(statement) }
@@ -628,6 +629,265 @@ final class ProviderAccountStoreTests: XCTestCase {
         let bare = try makeManager([])
         await assertThrows { _ = try await bare.readProviderUsage(accountID: account.id) }
         await assertThrows { _ = try await bare.readProviderUsage(accountID: UUID()) }
+    }
+
+    func testSwitchRemovesAbsentOptionalMembersAndRowsWithoutRemovingOtherData() async throws {
+        let manager = try makeManager([filesSpec(optionalCompanions: true)])
+        try writeState("A", in: userHome)
+        var shared = try sharedObject()
+        shared["other"] = "keep"
+        try JSONSerialization.data(withJSONObject: shared).write(to: userHome.appending(path: ".config/shared.json"))
+        try sqlite(userHome, "INSERT INTO ItemTable VALUES('other','keep')")
+        let first = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "test-files"))
+        try writeState("B", in: userHome)
+        shared = try sharedObject()
+        shared.removeValue(forKey: "testcli")
+        try JSONSerialization.data(withJSONObject: shared).write(to: userHome.appending(path: ".config/shared.json"))
+        try sqlite(userHome, "DELETE FROM ItemTable WHERE key IN ('tok','mail')")
+        let second = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "test-files"))
+
+        _ = try await manager.switchDefault(to: first.id)
+        _ = try await manager.switchDefault(to: second.id)
+
+        let remaining = try sharedObject()
+        XCTAssertNil(remaining["testcli"])
+        XCTAssertEqual(remaining["other"] as? String, "keep")
+        XCTAssertNil(row("tok", in: userHome))
+        XCTAssertNil(row("mail", in: userHome))
+        XCTAssertEqual(row("other", in: userHome), "keep")
+        XCTAssertEqual(try authObject()["id"] as? String, "B")
+    }
+
+    func testFailedSwitchRestoresAbsenceOfOptionalOwnedState() throws {
+        let store = try makeStore([filesSpec(optionalCompanions: true)])
+        let (_, second) = try seedAB(store)
+        var target = try vaultCredential(second)
+        target.files[".testcli/optional.json"] = Data(#"{"account":"B"}"#.utf8)
+        try JSONEncoder().encode(target).write(to: second.credentialFile)
+        try JSONSerialization.data(withJSONObject: ["other": "keep"]).write(to: userHome.appending(path: ".config/shared.json"))
+        try sqlite(userHome, "DELETE FROM ItemTable WHERE key IN ('tok','mail'); INSERT INTO ItemTable VALUES('other','keep')")
+        let first = try store.importLive(ProviderID(rawValue: "test-files"))
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(userHome.appending(path: "Library/app/state.vscdb").path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_OK)
+
+        XCTAssertThrowsError(try store.makeDefault(second.id))
+        XCTAssertEqual(sqlite3_exec(db, "ROLLBACK", nil, nil, nil), SQLITE_OK)
+
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertNil(try sharedObject()["testcli"], "Rollback must remove the target's newly added owned member.")
+        XCTAssertFalse(fileManager.fileExists(atPath: userHome.appending(path: ".testcli/optional.json").path),
+                       "Rollback must remove the target's newly added optional file.")
+        XCTAssertEqual(try sharedObject()["other"] as? String, "keep")
+        XCTAssertNil(row("tok", in: userHome))
+        XCTAssertNil(row("mail", in: userHome))
+        XCTAssertEqual(row("other", in: userHome), "keep")
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testSwitchRejectsIncompleteRequiredSnapshotBeforeChangingLiveFiles() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        var incomplete = try vaultCredential(second)
+        incomplete.files.removeValue(forKey: authPath)
+        try JSONEncoder().encode(incomplete).write(to: second.credentialFile)
+        let authBefore = try Data(contentsOf: userHome.appending(path: authPath))
+        let sharedBefore = try Data(contentsOf: userHome.appending(path: ".config/shared.json"))
+
+        XCTAssertThrowsError(try store.makeDefault(second.id))
+
+        XCTAssertEqual(try Data(contentsOf: userHome.appending(path: authPath)), authBefore)
+        XCTAssertEqual(try Data(contentsOf: userHome.appending(path: ".config/shared.json")), sharedBefore)
+        XCTAssertEqual(row("tok", in: userHome), "tk-A")
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testAbsentOptionalFileDoesNotDeleteASymbolicLinkOrItsTarget() throws {
+        let store = try makeStore([filesSpec(optionalCompanions: true)])
+        let (first, second) = try seedAB(store)
+        let foreign = root.appending(path: "unrelated.json")
+        let foreignBytes = Data(#"{"keep":"unrelated data"}"#.utf8)
+        try foreignBytes.write(to: foreign)
+        let foreignMode = try mode(foreign)
+        let optional = userHome.appending(path: ".testcli/optional.json")
+        try fileManager.createSymbolicLink(at: optional, withDestinationURL: foreign)
+
+        XCTAssertThrowsError(try store.makeDefault(second.id))
+
+        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: optional.path), foreign.path)
+        XCTAssertEqual(try Data(contentsOf: foreign), foreignBytes)
+        XCTAssertEqual(try mode(foreign), foreignMode)
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testAbsentOptionalFileIsRemovedFromAnExplicitConfiguredHome() throws {
+        let configured = root.appending(path: "configured-native-home")
+        try fileManager.createDirectory(at: configured, withIntermediateDirectories: true)
+        let spec = ProviderSpec(id: "test-files", name: "Configured files", style: .files,
+            files: [LiveFile(authPath), LiveFile(".testcli/optional.json", homeEnv: "OPTIONAL_NATIVE_HOME", optional: true)],
+            identify: { credential in
+                credential.json(".testcli/auth.json")?["id"].string.map { CredentialIdentity(key: $0) }
+            }, usage: { _ in ProviderUsage() })
+        let store = try makeStore([spec], environment: ["OPTIONAL_NATIVE_HOME": configured.path])
+        try writeState("A", in: userHome)
+        let optional = configured.appending(path: "optional.json")
+        let ownedBytes = Data(#"{"account":"A"}"#.utf8)
+        try ownedBytes.write(to: optional)
+        let first = try store.importLive(ProviderID(rawValue: "test-files"))
+        try writeState("B", in: userHome)
+        try fileManager.removeItem(at: optional)
+        let second = try store.importLive(ProviderID(rawValue: "test-files"))
+
+        _ = try store.makeDefault(first.id)
+        XCTAssertEqual(try Data(contentsOf: optional), ownedBytes)
+        _ = try store.makeDefault(second.id)
+        XCTAssertFalse(fileManager.fileExists(atPath: optional.path))
+        XCTAssertEqual(try authObject()["id"] as? String, "B")
+    }
+
+    func testGeminiSwitchRemovesAnAbsentOwnedAccountsFileAndPreservesConversationInBothDirections() async throws {
+        let manager = try makeManager([ProviderCatalog.geminiCLI])
+        let auth = userHome.appending(path: ".gemini/oauth_creds.json")
+        let accounts = userHome.appending(path: ".gemini/google_accounts.json")
+        try fileManager.createDirectory(at: auth.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = try writeContinuityFixture(".gemini/tmp/project/chats/session-original.json")
+        let originalBytes = try Data(contentsOf: original)
+        func writeAuth(_ identity: String) throws {
+            let payload = try JSONSerialization.data(withJSONObject: ["sub": identity, "email": "\(identity)@example.test"])
+                .base64EncodedString()
+            try JSONSerialization.data(withJSONObject: ["id_token": "synthetic.\(payload).signature", "access_token": "synthetic-\(identity)"])
+                .write(to: auth)
+        }
+        try writeAuth("account-A")
+        try Data(#"{"active":"account-A@example.test","old":[]}"#.utf8).write(to: accounts)
+        let first = try await manager.importLiveProviderAccount(providerID: .geminiCLI)
+        try writeAuth("account-B")
+        try fileManager.removeItem(at: accounts)
+        let second = try await manager.importLiveProviderAccount(providerID: .geminiCLI)
+
+        for account in [first, second, first] {
+            _ = try await manager.switchDefault(to: account.id)
+            let liveIdentity = await manager.liveProviderIdentity(providerID: account.identity.providerID)
+            XCTAssertEqual(try XCTUnwrap(liveIdentity).key, try XCTUnwrap(account.identity.userID))
+            let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: auth)) as? [String: String])
+            XCTAssertEqual(decoded["access_token"], "synthetic-\(account.id == first.id ? "account-A" : "account-B")")
+            if account.id == first.id {
+                let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: accounts)) as? [String: Any])
+                XCTAssertEqual(saved["active"] as? String, "account-A@example.test")
+            } else {
+                XCTAssertFalse(fileManager.fileExists(atPath: accounts.path), "The previous account's optional login file must not survive.")
+            }
+            try assertContinuityFixture(original, originalBytes: originalBytes)
+        }
+    }
+
+    func testCursorSwitchRemovesAbsentOwnedRowsAndPreservesConversationInBothDirections() async throws {
+        let manager = try makeManager([ProviderCatalog.cursor])
+        let database = "Library/Application Support/Cursor/User/globalStorage/state.vscdb"
+        let original = try writeContinuityFixture("Library/Application Support/Cursor/User/workspaceStorage/project/conversation.json")
+        let originalBytes = try Data(contentsOf: original)
+        try sqlite(userHome, #"INSERT INTO ItemTable VALUES('cursorAuth/accessToken','synthetic-A'),('cursorAuth/refreshToken','refresh-A'),('cursorAuth/cachedEmail','account-A@example.test'),('cursorAuth/stripeMembershipType','pro'),('workbench.colorTheme','Original theme')"#, path: database)
+        let first = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "cursor"))
+        try sqlite(userHome, #"DELETE FROM ItemTable WHERE key LIKE 'cursorAuth/%'; INSERT INTO ItemTable VALUES('cursorAuth/accessToken','synthetic-B'),('cursorAuth/cachedEmail','account-B@example.test')"#, path: database)
+        let second = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "cursor"))
+
+        for account in [first, second, first] {
+            _ = try await manager.switchDefault(to: account.id)
+            let liveIdentity = await manager.liveProviderIdentity(providerID: account.identity.providerID)
+            XCTAssertEqual(try XCTUnwrap(liveIdentity).key, try XCTUnwrap(account.identity.userID))
+            XCTAssertEqual(row("cursorAuth/accessToken", in: userHome, path: database), account.id == first.id ? "synthetic-A" : "synthetic-B")
+            XCTAssertEqual(row("cursorAuth/refreshToken", in: userHome, path: database), account.id == first.id ? "refresh-A" : nil)
+            XCTAssertEqual(row("cursorAuth/stripeMembershipType", in: userHome, path: database), account.id == first.id ? "pro" : nil)
+            XCTAssertEqual(row("workbench.colorTheme", in: userHome, path: database), "Original theme")
+            try assertContinuityFixture(original, originalBytes: originalBytes)
+        }
+    }
+
+    func testKiroSwitchRemovesTheOtherLoginMethodAndPreservesConversationInBothDirections() async throws {
+        let manager = try makeManager([ProviderCatalog.agentKiro])
+        let database = "Library/Application Support/kiro-cli/data.sqlite3"
+        let original = try writeContinuityFixture("Library/Application Support/kiro-cli/conversation-original.json")
+        let originalBytes = try Data(contentsOf: original)
+        try sqlite(userHome, #"INSERT INTO auth_kv VALUES('kirocli:odic:token','{"access_token":"synthetic-A"}'),('kirocli:odic:device-registration','{"client_id":"synthetic-client-A"}'),('unrelated-login','keep')"#, path: database, table: "auth_kv")
+        try sqlite(userHome, #"INSERT INTO state VALUES('api.codewhisperer.profile','{"arn":"arn:aws:codewhisperer:us-east-1:111111111111:profile/account-A"}'),('selected-model','original-model')"#, path: database, table: "state")
+        let first = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "kiro"))
+        try sqlite(userHome, #"DELETE FROM auth_kv WHERE key LIKE 'kirocli:%'; INSERT INTO auth_kv VALUES('kirocli:social:token','{"access_token":"synthetic-B"}')"#, path: database, table: "auth_kv")
+        try sqlite(userHome, #"UPDATE state SET value = '{"arn":"arn:aws:codewhisperer:us-east-1:222222222222:profile/account-B"}' WHERE key = 'api.codewhisperer.profile'"#, path: database, table: "state")
+        let second = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "kiro"))
+
+        for account in [first, second, first] {
+            _ = try await manager.switchDefault(to: account.id)
+            let liveIdentity = await manager.liveProviderIdentity(providerID: account.identity.providerID)
+            XCTAssertEqual(try XCTUnwrap(liveIdentity).key, try XCTUnwrap(account.identity.userID))
+            let firstSelected = account.id == first.id
+            XCTAssertEqual(row("kirocli:odic:token", in: userHome, path: database, table: "auth_kv"), firstSelected ? #"{"access_token":"synthetic-A"}"# : nil)
+            XCTAssertEqual(row("kirocli:odic:device-registration", in: userHome, path: database, table: "auth_kv"), firstSelected ? #"{"client_id":"synthetic-client-A"}"# : nil)
+            XCTAssertEqual(row("kirocli:social:token", in: userHome, path: database, table: "auth_kv"), firstSelected ? nil : #"{"access_token":"synthetic-B"}"#)
+            XCTAssertEqual(row("unrelated-login", in: userHome, path: database, table: "auth_kv"), "keep")
+            XCTAssertEqual(row("selected-model", in: userHome, path: database, table: "state"), "original-model")
+            try assertContinuityFixture(original, originalBytes: originalBytes)
+        }
+    }
+
+    func testCopilotKimiAndAntigravitySwitchCompleteCredentialsAndPreserveStoredConversation() async throws {
+        let providers: [(ProviderSpec, String, String)] = [
+            (ProviderCatalog.copilot, ".config/github-copilot/apps.json", ".config/github-copilot/conversation-original.json"),
+            (ProviderCatalog.agentKimi, ".kimi-code/credentials/kimi-code.json", ".kimi/sessions/project/conversation-original.json"),
+            (ProviderCatalog.antigravityCLI, ".gemini/antigravity-cli/antigravity-oauth-token", ".gemini/antigravity-cli/conversation-original.json"),
+        ]
+        for (spec, path, historyPath) in providers {
+            let manager = try makeManager([spec])
+            let auth = userHome.appending(path: path)
+            try fileManager.createDirectory(at: auth.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let original = try writeContinuityFixture(historyPath)
+            let originalBytes = try Data(contentsOf: original)
+            func credential(_ name: String) throws -> Data {
+                let claims = try JSONSerialization.data(withJSONObject: ["sub": "account-\(name)", "email": "\(name)@example.test"])
+                let jwt = "synthetic.\(claims.base64EncodedString()).signature"
+                let body: [String: Any]
+                switch spec.id.rawValue {
+                case "copilot": body = ["github.com": ["user": "account-\(name)", "oauth_token": "synthetic-\(name)"]]
+                case "kimi": body = ["access_token": jwt, "refresh_token": "synthetic-\(name)"]
+                default: body = ["id_token": jwt, "access_token": "synthetic-\(name)", "refresh_token": "refresh-\(name)"]
+                }
+                return try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+            }
+            let firstBytes = try credential("A")
+            let secondBytes = try credential("B")
+            try firstBytes.write(to: auth)
+            let first = try await manager.importLiveProviderAccount(providerID: spec.id)
+            try secondBytes.write(to: auth)
+            let second = try await manager.importLiveProviderAccount(providerID: spec.id)
+            XCTAssertNotEqual(first.id, second.id, spec.name)
+            for account in [first, second, first] {
+                _ = try await manager.switchDefault(to: account.id)
+                XCTAssertEqual(try Data(contentsOf: auth), account.id == first.id ? firstBytes : secondBytes, spec.name)
+                let liveIdentity = await manager.liveProviderIdentity(providerID: spec.id)
+                XCTAssertEqual(try XCTUnwrap(liveIdentity).key, try XCTUnwrap(account.identity.userID), spec.name)
+                try assertContinuityFixture(original, originalBytes: originalBytes)
+            }
+        }
+    }
+
+    // Storage-boundary fixtures prove message preservation, not native application resume.
+    private func writeContinuityFixture(_ relativePath: String) throws -> URL {
+        let url = userHome.appending(path: relativePath)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"sessionId":"original-session","settings":{"model":"original-model","project":"original-project"},"messages":[{"id":"prompt-1","role":"user","text":"Original question"},{"id":"response-1","role":"assistant","text":"Original answer"}]}"#.utf8).write(to: url)
+        return url
+    }
+
+    private func assertContinuityFixture(_ url: URL, originalBytes: Data, file: StaticString = #filePath, line: UInt = #line) throws {
+        let bytes = try Data(contentsOf: url)
+        XCTAssertEqual(bytes, originalBytes, file: file, line: line)
+        let document = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any], file: file, line: line)
+        XCTAssertEqual(document["sessionId"] as? String, "original-session", file: file, line: line)
+        XCTAssertEqual(document["settings"] as? [String: String], ["model": "original-model", "project": "original-project"], file: file, line: line)
+        let messages = try XCTUnwrap(document["messages"] as? [[String: String]], file: file, line: line)
+        XCTAssertEqual(messages, [["id": "prompt-1", "role": "user", "text": "Original question"],
+                                  ["id": "response-1", "role": "assistant", "text": "Original answer"]], file: file, line: line)
     }
 
     // MARK: Helpers
