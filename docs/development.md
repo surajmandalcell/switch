@@ -175,6 +175,11 @@ Update the script's pinned versions only after publishing matching assets.
 
 ## README cover
 
+Compare cover options before exporting: `node packages/website/cover-lab.cjs --serve`.
+It serves a local preview at `http://127.0.0.1:8847` for up to eight hours.
+The generated HTML is self-contained; favorites, ratings, and notes stay in the browser.
+Choose a design in the lab before replacing the public README cover.
+
 The cover records the website's menu bar demo inside a light poster with its heading. On the
 rendering host, run `node packages/website/export-cover.cjs --gif` from the
 repository root to create the GIF and static reduced-motion fallback.
