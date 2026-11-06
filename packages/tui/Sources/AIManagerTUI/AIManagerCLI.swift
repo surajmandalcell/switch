@@ -680,6 +680,7 @@ struct AIManagerCLI {
             var message = "Using \(displayName(account.identity)) as default."
             if let report = result.droidSessionBinding {
                 message += " \(report.updatedCount + report.unchangedCount) conversations ready to resume."
+                if report.pending { message += " Conversation updates are pending and will retry when Switch refreshes after Droid stops." }
                 if !report.warnings.isEmpty { message += " " + report.warnings.joined(separator: " ") }
                 let unfinished = try await manager.unfinishedDroidMissions(after: result)
                 if unfinished > 0 { message += " \(unfinished) unfinished missions remain with the previous account." }
@@ -1197,6 +1198,7 @@ struct AIManagerCLI {
             print("Provider default changed to \(result.accountID.uuidString). Backup: \(result.backup.path)")
             if let report = result.droidSessionBinding {
                 print("Droid conversations updated: \(report.updatedCount); already ready: \(report.unchangedCount); skipped: \(report.skippedCount); failed: \(report.failedCount)")
+                if report.pending { print("Conversation updates are pending and will retry when Switch refreshes after Droid stops.") }
                 for warning in report.warnings { print("Warning: \(warning)") }
             }
         case let result as AccountDeletionResult:
