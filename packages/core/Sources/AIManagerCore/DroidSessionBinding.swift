@@ -15,11 +15,24 @@ public struct DroidSessionBindingReport: Codable, Equatable, Sendable {
     public var unchangedCount: Int
     public var skippedCount: Int
     public var failedCount: Int
+    public var pending: Bool
     public var warnings: [String]
 
-    public init(updatedCount: Int = 0, unchangedCount: Int = 0, skippedCount: Int = 0, failedCount: Int = 0, warnings: [String] = []) {
+    public init(updatedCount: Int = 0, unchangedCount: Int = 0, skippedCount: Int = 0, failedCount: Int = 0, pending: Bool = false, warnings: [String] = []) {
         self.updatedCount = updatedCount; self.unchangedCount = unchangedCount
-        self.skippedCount = skippedCount; self.failedCount = failedCount; self.warnings = warnings
+        self.skippedCount = skippedCount; self.failedCount = failedCount; self.pending = pending; self.warnings = warnings
+    }
+
+    private enum CodingKeys: String, CodingKey { case updatedCount, unchangedCount, skippedCount, failedCount, pending, warnings }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        updatedCount = try values.decode(Int.self, forKey: .updatedCount)
+        unchangedCount = try values.decode(Int.self, forKey: .unchangedCount)
+        skippedCount = try values.decode(Int.self, forKey: .skippedCount)
+        failedCount = try values.decode(Int.self, forKey: .failedCount)
+        pending = try values.decodeIfPresent(Bool.self, forKey: .pending) ?? false
+        warnings = try values.decode([String].self, forKey: .warnings)
     }
 }
 
@@ -71,7 +84,7 @@ enum DroidSessionBinding {
 
     static func rebind(
         home: URL, state: URL, initialize: (UUID, URL, String) throws -> Void,
-        beforeWrite: () throws -> Void = {}
+        beforeWrite: () throws -> Void = {}, beforePublish: () throws -> Void = {}
     ) throws -> DroidSessionBindingReport {
         try safe(home, within: home)
         let root = home.appending(path: "sessions")
@@ -133,6 +146,7 @@ enum DroidSessionBinding {
                 guard probes.count == 1 else { throw Failure.probe }
                 let native = try header(at: probes[0], root: root)
                 guard try emptyProbe(probes[0], header: native) else { throw Failure.probe }
+                try beforePublish()
                 for candidate in candidates {
                     let url = candidate.url
                     do {
@@ -143,7 +157,7 @@ enum DroidSessionBinding {
                             continue
                         }
                         try publish(url, header: snapshot, organization: native.organization,
-                            root: root, state: state, beforeWrite: beforeWrite)
+                            root: root, state: state, beforeWrite: beforeWrite, beforePublish: beforePublish)
                         report.updatedCount += 1
                     } catch {
                         report.failedCount += 1
@@ -263,7 +277,7 @@ enum DroidSessionBinding {
 
     private static func publish(
         _ url: URL, header snapshot: Header, organization: String, root: URL, state: URL,
-        beforeWrite: () throws -> Void
+        beforeWrite: () throws -> Void, beforePublish: () throws -> Void
     ) throws {
         let current = try header(at: url, root: root)
         guard current.bytes == snapshot.bytes else { throw Failure.changed }
@@ -299,6 +313,7 @@ enum DroidSessionBinding {
         try beforeWrite()
         try safe(url, within: root)
         guard try digest(url) == originalDigest else { throw Failure.changed }
+        try beforePublish()
         try CoreSupport.exchange(temporary, url)
         if try recover(root: root, state: state, beforeWrite: beforeWrite) == .restoredChangedOriginal {
             throw Failure.changed
@@ -416,7 +431,7 @@ enum DroidSessionBinding {
     }
 
     private static func openRead(_ url: URL) throws -> FileHandle {
-        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         guard descriptor >= 0 else { throw AIManagerError.unsafePath("could not safely open session file \(url.path) (\(errno))") }
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,

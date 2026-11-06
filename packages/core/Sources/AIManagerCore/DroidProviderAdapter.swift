@@ -55,7 +55,7 @@ struct DroidProviderAdapter {
         guard detail.hasPrefix(prefix), detail.hasSuffix(suffix) else { return nil }
         let hint = String(detail.dropFirst(prefix.count).dropLast(suffix.count))
         guard hint.count <= 320, hint.contains("*"),
-              hint.range(of: #"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"#, options: .regularExpression) != nil else { return nil }
+              hint.range(of: #"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\z"#, options: .regularExpression) != nil else { return nil }
         return hint.lowercased()
     }
 

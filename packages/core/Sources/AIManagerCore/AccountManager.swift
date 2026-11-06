@@ -111,6 +111,10 @@ public actor AccountManager {
     /// Digest of the live Droid login that discovery last examined, so doctor runs once per login.
     private var droidProbe: String?
 
+    private struct DroidBindingState: Codable {
+        var completedLoginDigest: String?
+    }
+
     public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init(), droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)? = nil) throws {
         self.paths = paths
         self.fileManager = fileManager
@@ -340,7 +344,7 @@ public actor AccountManager {
             _ = try await recover()
         }
         try await pruneRetiredLoginSessions()
-        if try pendingOperations().isEmpty { importLiveLogins() }
+        if try pendingOperations().isEmpty { importLiveLogins(forceDroidBinding: true) }
         var current = try status()
         if current.pendingRecovery.isEmpty, current.accounts.isEmpty {
             let live = provider.inspect(home: paths.defaultHome)
@@ -1021,6 +1025,10 @@ public actor AccountManager {
     /// (the live files belong to it); no live file is written. Never throws: a failed import is retried on the next refresh.
     @discardableResult
     public func importLiveLogins() -> [AccountRecord] {
+        importLiveLogins(forceDroidBinding: false)
+    }
+
+    private func importLiveLogins(forceDroidBinding: Bool) -> [AccountRecord] {
         let removed = Set(removedLogins())
         var added: [AccountRecord] = []
         let skipped: Set<ProviderID> = [.codex, .grokBuild, .claudeCode, .droid]
@@ -1041,6 +1049,7 @@ public actor AccountManager {
                ProviderID(rawValue: "zai"), fields: ["apiKey": login.key], name: "OpenCode z.ai coding plan", removed: removed) {
             added.append(record)
         }
+        _ = try? lock.withLock { try refreshDroidBinding(force: forceDroidBinding) }
         return added
     }
 
@@ -1818,7 +1827,7 @@ extension AccountManager {
     // MARK: Droid opaque file logins
 
     public func importDroidAccount(name: String, apiKey: String? = nil, allowDuplicate: Bool = false, automatic: Bool = false) throws -> AccountRecord {
-        try lock.withLock {
+        let account = try lock.withLock {
             try ensureNoRecovery()
             // Import takes the same writer lock but never changes live authentication.
             try droidProvider.requireLogin(droidProvider.files(in: paths.droidHome))
@@ -1829,6 +1838,8 @@ extension AccountManager {
                 return account
             }
         }
+        if !automatic { _ = try? lock.withLock { try refreshDroidBinding(force: false) } }
+        return account
     }
 
     public func setDroidUsageAPIKey(accountID: UUID, apiKey: String) throws {
@@ -1952,6 +1963,9 @@ extension AccountManager {
         }
         // Terminal owns the process. Retire metadata without killing it or deleting an open home.
         try retireLoginSession(session.id)
+        if try loadRegistry().defaultAccountID(for: .droid) == account.id {
+            _ = try? lock.withLock { try refreshDroidBinding(force: false) }
+        }
         return .init(session: session, state: .completed, account: account,
                      message: "Droid account saved. Choose Switch to use this login for new requests. \(account.verification.detail)")
     }
@@ -1985,6 +1999,7 @@ extension AccountManager {
            let existing = droidMaskTwin(of: files, hint: hint, in: registry.accounts) {
             throw DroidAccountError.duplicateIdentity(name: existing.identity.accountID ?? "Droid", hint: hint)
         }
+        if adoptLive || refreshLive { try markDroidBindingPending() }
         let id = targetID ?? UUID(), operationID = UUID()
         let staged = paths.applicationSupport.appending(path: "staging/\(operationID.uuidString)/droid-auth")
         try CoreSupport.privateDirectory(staged, fileManager: fileManager)
@@ -2032,13 +2047,83 @@ extension AccountManager {
 
     private func switchDroidAccount(to accountID: UUID, allowRunning: Bool) throws -> SwitchResult {
         try guardDroidProcesses(allowRunning: allowRunning)
+        _ = try readDroidBindingState()
         var result = try droidProvider.withWriteLock(home: paths.droidHome) {
             try performDroidSwitch(to: accountID)
+        }
+        do { result.droidSessionBinding = try refreshDroidBinding(force: false) }
+        catch {
+            result.droidSessionBinding = .init(failedCount: 1, pending: true,
+                warnings: ["Conversation updates remain pending. \(error.localizedDescription)"])
+        }
+        return result
+    }
+
+    /// Retries deferred conversation work without starting discovery or reading the Keychain.
+    public func refreshDroidConversationBinding() async throws -> DroidSessionBindingReport? {
+        try await lock.withAsyncLock { try refreshDroidBinding(force: false) }
+    }
+
+    private var droidBindingStateURL: URL {
+        paths.applicationSupport.appending(path: "droid-session-binding-state.json")
+    }
+
+    private func readDroidBindingState() throws -> DroidBindingState {
+        let url = droidBindingStateURL
+        guard CoreSupport.entryExists(url) else { return .init(completedLoginDigest: nil) }
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard descriptor >= 0 else { throw AIManagerError.unsafePath("Droid conversation state is not a safe regular file.") }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == getuid(), info.st_nlink == 1, info.st_mode & 0o077 == 0, info.st_size <= 1024 else {
+            throw AIManagerError.unsafePath("Droid conversation state is not a safe private file.")
+        }
+        let data = try handle.read(upToCount: 1025) ?? Data()
+        guard data.count <= 1024 else { throw AIManagerError.sourceChanged }
+        let state = try decoder.decode(DroidBindingState.self, from: data)
+        if let digest = state.completedLoginDigest {
+            guard digest.utf8.count == 64, digest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+                throw AIManagerError.invalidSource("Droid conversation state has an invalid login fingerprint.")
+            }
+        }
+        return state
+    }
+
+    private func saveDroidBindingState(_ state: DroidBindingState) throws {
+        _ = try readDroidBindingState()
+        try CoreSupport.atomicWrite(encoder.encode(state), to: droidBindingStateURL, fileManager: fileManager)
+    }
+
+    private func markDroidBindingPending() throws {
+        try saveDroidBindingState(.init(completedLoginDigest: nil))
+    }
+
+    private func refreshDroidBinding(force: Bool) throws -> DroidSessionBindingReport? {
+        try ensureNoRecovery()
+        let files = try droidProvider.files(in: paths.droidHome)
+        guard !files.isEmpty else { return nil }
+        try droidProvider.requireLogin(files)
+        let loginDigest = Self.loginDigest(files)
+        let state = try readDroidBindingState()
+        guard force || state.completedLoginDigest != loginDigest else { return nil }
+        try markDroidBindingPending()
+        var registry = try loadRegistry()
+        let matches = registry.accounts.filter { account in
+            account.identity.providerID == .droid
+                && (try? droidProvider.files(in: account.credentialFile)).map(Self.loginDigest) == loginDigest
+        }
+        let previousDefault = registry.defaultAccountID(for: .droid)
+        if !matches.contains(where: { $0.id == previousDefault }), matches.count == 1 {
+            registry.setDefaultAccountID(matches[0].id, for: .droid)
+            try saveRegistry(registry)
+            recordDroidMissionSwitch(from: previousDefault, to: matches[0].id)
         }
         do {
             try guardDroidProcesses(allowRunning: false)
             let deadline = Date().addingTimeInterval(60)
-            result.droidSessionBinding = try DroidSessionBinding.rebind(home: paths.droidHome,
+            var report = try DroidSessionBinding.rebind(home: paths.droidHome,
                 state: paths.applicationSupport.appending(path: "droid-session-binding"),
                 initialize: { id, cwd, title in
                     try guardDroidProcesses(allowRunning: false)
@@ -2054,15 +2139,27 @@ extension AccountManager {
                     }
                 }, beforeWrite: {
                     guard Date() < deadline else {
-                        throw AIManagerError.operationFailed("Conversation updates reached their time limit. Switch again to finish the remaining sessions.")
+                        throw AIManagerError.operationFailed("Conversation updates reached their time limit. They will retry automatically on the next refresh.")
                     }
                     try guardDroidProcesses(allowRunning: false)
+                }, beforePublish: {
+                    guard try Self.loginDigest(droidProvider.files(in: paths.droidHome)) == loginDigest else {
+                        throw AIManagerError.sourceChanged
+                    }
                 })
+            if report.failedCount == 0, try Self.loginDigest(droidProvider.files(in: paths.droidHome)) == loginDigest {
+                try saveDroidBindingState(.init(completedLoginDigest: loginDigest))
+            } else { report.pending = true }
+            return report
+        } catch let error as DroidAccountError {
+            if case .running = error {
+                return .init(pending: true, warnings: ["Conversations will update automatically after Droid and Factory stop using this home."])
+            }
+            throw error
         } catch {
-            result.droidSessionBinding = .init(failedCount: 1,
+            return .init(failedCount: 1, pending: true,
                 warnings: ["Conversations were not updated. \(error.localizedDescription)"])
         }
-        return result
     }
 
     private func performDroidSwitch(to accountID: UUID) throws -> SwitchResult {
@@ -2116,6 +2213,7 @@ extension AccountManager {
     }
 
     private func publishDroidFiles(from source: URL, files incoming: [String: Data], operation: inout RecoveryOperation) throws {
+        try markDroidBindingPending()
         for name in DroidProviderAdapter.authNames {
             let live = paths.droidHome.appending(path: name)
             if incoming[name] != nil {

@@ -1,12 +1,37 @@
 import Foundation
 import XCTest
 @testable import AIManagerCore
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 final class DroidSessionBindingTests: XCTestCase {
     private let fm = FileManager.default
     private var root: URL!
     private var home: URL!
     private var state: URL!
+
+    func testOldBindingReportsDecodeWithoutPending() throws {
+        let data = Data(#"{"updatedCount":2,"unchangedCount":1,"skippedCount":0,"failedCount":0,"warnings":[]}"#.utf8)
+        let report = try JSONDecoder().decode(DroidSessionBindingReport.self, from: data)
+        XCTAssertEqual(report, .init(updatedCount: 2, unchangedCount: 1))
+        XCTAssertFalse(report.pending)
+    }
+
+    func testNonRegularRecoveryJournalIsRejectedWithoutWaitingForAPipeWriter() throws {
+        let path = try session()
+        let before = try Data(contentsOf: path)
+        try CoreSupport.privateDirectory(state, fileManager: fm)
+        let journal = state.appending(path: "pending.json")
+        XCTAssertEqual(mkfifo(journal.path, mode_t(0o600)), 0)
+
+        XCTAssertThrowsError(try bind())
+
+        XCTAssertEqual(try Data(contentsOf: path), before)
+        XCTAssertTrue(fm.fileExists(atPath: journal.path))
+    }
 
     override func setUpWithError() throws {
         let scratch = ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
