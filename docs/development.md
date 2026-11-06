@@ -52,8 +52,8 @@ npm pack
 `npm pack` builds the release CLI into the package; packed installs do not
 need Swift or Xcode.
 Keep the version in `package.json` and `packages/tui/Sources/AIManagerTUI/BuildInfo.swift` equal.
-Package preparation and the installed-package check reject a version mismatch. An app release
-does not publish npm automatically; update the global CLI with `npm install --global @smdl/switch@latest`.
+Package preparation and the installed-package check reject a version mismatch.
+Complete the CLI publication and installation rule in `AGENTS.md` with each app update.
 
 On Linux, `scripts/check-linux.sh` checks the core, CLI, and isolated
 acceptance flow. The Swift package needs no Node.js, Electron, local server, or
