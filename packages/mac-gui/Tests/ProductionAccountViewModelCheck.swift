@@ -886,8 +886,11 @@ struct ProductionAccountViewModelCheck {
         model.droidConfirmation = { message, _ in prompts.append(message); return true }
         await model.switchDefault(to: second.id)
         try expect(try Data(contentsOf: live) == Data("synthetic-B".utf8), "Confirmed Droid switch did not publish the login")
-        try expect(model.notice?.localizedCaseInsensitiveContains("conversations were not updated") == true,
-                   "A skipped binding was not distinguished from successful account switching")
+        try expect(model.notice?.localizedCaseInsensitiveContains("pending") == true &&
+                   model.notice?.localizedCaseInsensitiveContains("retry automatically") == true,
+                   "A pending binding did not report its automatic retry")
+        try expect(model.status?.defaultAccountID(for: .droid) == second.id,
+                   "A pending binding prevented the Droid account switch")
         model.closeAccountModal()
         await model.beginSignIn(for: first.id)
         try expect(model.accountLoginSession?.accountID == first.id, "Droid re-sign-in lost the target")
