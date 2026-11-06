@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/cover.png" alt="Switch: account switching and usage for AI coding tools" width="100%">
+  <img src="docs/screenshots/cover.png?v=2" alt="Switch: account switching and usage for AI coding tools" width="100%">
 </p>
 
 # Switch
