@@ -71,7 +71,7 @@ enum CodexWriterProbe {
         return tmp.deletingLastPathComponent()
     }
 
-    private static func openPaths(pid: Int32) throws -> [URL] {
+    static func openPaths(pid: Int32) throws -> [URL] {
 #if canImport(Darwin)
         let (status, data) = try output("/usr/sbin/lsof", ["-n", "-P", "-a", "-p", String(pid), "-F0n"])
         guard status == 0 else { throw probeError() }
@@ -82,7 +82,9 @@ enum CodexWriterProbe {
         }
 #else
         let root = URL(fileURLWithPath: "/proc/\(pid)/fd")
-        return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            + [URL(fileURLWithPath: "/proc/\(pid)/cwd")]
+        return try entries
             .compactMap { entry in
                 do {
                     let path = try FileManager.default.destinationOfSymbolicLink(atPath: entry.path)

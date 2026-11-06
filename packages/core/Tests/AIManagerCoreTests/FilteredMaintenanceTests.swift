@@ -10,14 +10,18 @@ final class FilteredMaintenanceTests: XCTestCase {
     private let old = Date(timeIntervalSince1970: 1_700_000_000)
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: "/private/tmp/switch-work1-build-oc/test-data/\(UUID().uuidString)")
+        let scratch = ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
+            ?? ProcessInfo.processInfo.environment["TMPDIR"] ?? fm.temporaryDirectory.path
+        root = URL(fileURLWithPath: scratch).appending(path: "switch/FilteredMaintenanceTests-\(UUID().uuidString)")
         home = root.appending(path: "home")
         destination = root.appending(path: "destination")
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws { try fm.removeItem(at: root) }
+    override func tearDownWithError() throws {
+        if let root, fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
+    }
 
     private func write(_ path: String, _ data: Data) throws {
         let url = home.appending(path: path)
