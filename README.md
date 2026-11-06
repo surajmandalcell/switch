@@ -169,7 +169,7 @@ Mac app. Use the arrow keys to move, Enter to select, and Escape to go back.
 The npm build supports Apple Silicon Macs. From a source checkout, run `make tui`.
 The `ai-manager` command remains available as an alias.
 Run the same install command to update. `switch --version` shows the installed terminal version.
-The app and npm package update separately.
+Releases include matching app and npm CLI updates. Run the install command above to update an existing terminal installation.
 
 Script it:
 
