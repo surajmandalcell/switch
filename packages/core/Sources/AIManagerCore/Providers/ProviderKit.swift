@@ -300,16 +300,19 @@ public struct CredentialField: Sendable, Equatable {
 public struct LiveFile: Sendable, Equatable {
     public let path: String
     public let homeEnv: String?
+    public let homeEnvSubpath: String?
     public let optional: Bool
     public let key: String?
     public let databaseRow: String?
     public let sqliteTable: String?
     public let sqliteKeys: [String]
 
-    public init(_ path: String, homeEnv: String? = nil, optional: Bool = false, key: String? = nil,
+    public init(_ path: String, homeEnv: String? = nil, homeEnvSubpath: String? = nil,
+                optional: Bool = false, key: String? = nil,
                 databaseRow: String? = nil) {
         self.path = path
         self.homeEnv = homeEnv
+        self.homeEnvSubpath = homeEnvSubpath
         self.optional = optional
         self.key = key
         self.databaseRow = databaseRow
@@ -320,6 +323,7 @@ public struct LiveFile: Sendable, Equatable {
     public init(sqlite path: String, table: String, keys: [String], optional: Bool = false) {
         self.path = path
         self.homeEnv = nil
+        self.homeEnvSubpath = nil
         self.optional = optional
         self.key = nil
         self.databaseRow = nil

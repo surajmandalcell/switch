@@ -334,7 +334,17 @@ struct ProviderAccountStore {
             for file in spec.files {
                 guard let name = file.homeEnv else { continue }
                 guard CoreSupport.safeRelativePath(file.path) else { throw AIManagerError.unsafePath(file.path) }
-                let parent = (file.path as NSString).deletingLastPathComponent
+                let parent: String
+                if let subpath = file.homeEnvSubpath {
+                    guard CoreSupport.safeRelativePath(subpath),
+                          file.path == subpath || file.path.hasSuffix("/" + subpath) else {
+                        throw AIManagerError.unsafePath(subpath)
+                    }
+                    parent = String(file.path.dropLast(subpath.count))
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                } else {
+                    parent = (file.path as NSString).deletingLastPathComponent
+                }
                 let directory = parent.isEmpty ? home : home.appending(path: parent, directoryHint: .isDirectory)
                 try CoreSupport.privateDirectory(directory, fileManager: fileManager)
                 launchEnvironment[name] = directory.path
@@ -588,9 +598,12 @@ struct ProviderAccountStore {
         if let home { return home.appending(path: file.path) }
         if let name = file.homeEnv, let value = environment[name], !value.isEmpty {
             let directory = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
-            if paths.isolationRoot.map({ CoreSupport.isContained(directory, by: $0) }) ?? true {
-                return directory.appending(path: (file.path as NSString).lastPathComponent)
+            guard paths.isolationRoot.map({ CoreSupport.isContained(directory, by: $0) }) ?? true else {
+                throw AIManagerError.unsafePath(directory.path)
             }
+            let subpath = file.homeEnvSubpath ?? (file.path as NSString).lastPathComponent
+            guard CoreSupport.safeRelativePath(subpath) else { throw AIManagerError.unsafePath(subpath) }
+            return directory.appending(path: subpath)
         }
         return paths.userHome.appending(path: file.path)
     }
@@ -662,6 +675,11 @@ struct ProviderAccountStore {
     private func validateLiveWrite(_ spec: ProviderSpec, _ credential: ProviderCredential, home: URL?) throws {
         guard isComplete(spec, credential) else {
             throw AIManagerError.invalidSource("The saved credential for \(spec.name) is incomplete. Import its sign-in again.")
+        }
+        if spec.id.rawValue == "copilot",
+           let legacy = spec.files.first(where: { $0.path == ".config/github-copilot/apps.json" }),
+           CoreSupport.entryExists(try liveURL(legacy, home: home).deletingLastPathComponent().appending(path: "auth.db")) {
+            throw AIManagerError.operationFailed("Copilot auth.db is present. Switch cannot safely change that login. Change accounts in Copilot.")
         }
         for file in spec.files where credential.files[file.id] == nil && file.key == nil && file.sqliteTable == nil {
             let url = try liveURL(file, home: home)
