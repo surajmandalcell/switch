@@ -158,6 +158,16 @@ workflow has been removed; native CI remains for source checks. If the upload
 fails, keep the files in `release/` and resume from the created tag after
 checking the draft release.
 
+## README cover
+
+The cover reuses the website hero and its app preview. On the rendering host,
+run `node packages/website/export-cover.cjs` from the repository root.
+It uses the existing Playwright installation under `packages/mac-gui/ui-lint`;
+set `PLAYWRIGHT_MODULE` or `CHROME_PATH` to use another installed renderer.
+Run `sh packages/website/build-assets.sh` to refresh the website assets,
+including the social preview. Check the README in light and dark mode at
+desktop and phone widths after replacing images.
+
 ## Sources of truth
 
 | Product | Path | Role |
@@ -168,6 +178,6 @@ checking the draft release.
 
 The app and CLI share the core account manager. The earlier Electron gateway
 is legacy and is not needed to build or run Switch. See the
-[product specification](specs/product.md), local ignored goal ledgers,
+[product specification](../specs/product.md), local ignored goal ledgers,
 [macOS packaging notes](../packaging/macos/README.md), and
 [credential transaction decision](adr/0003-credential-transactions.md).

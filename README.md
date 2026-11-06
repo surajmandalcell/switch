@@ -1,207 +1,100 @@
 <p align="center">
-  <img src="docs/screenshots/cover.png" alt="Switch: the Overview page and the menu bar popover on macOS" width="100%">
+  <img src="docs/screenshots/cover.png" alt="Switch: account switching and usage for AI coding tools" width="100%">
 </p>
 
-<p align="center">
-  <b>Switch AI accounts without signing in over and over.</b><br>
-  A native macOS menu bar app that keeps every login for your AI coding tools ready,
-  shows how much of each limit is left, and opens the right tool with one click.
-</p>
+# Switch
 
-<p align="center">
-  <a href="https://github.com/surajmandalcell/switch/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/surajmandalcell/switch?label=release&color=e8543a"></a>
-  <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
-  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-111111">
-  <a href="https://www.npmjs.com/package/@smdl/switch"><img alt="npm" src="https://img.shields.io/npm/v/@smdl/switch?label=npm&color=0a84ff"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-3fb950"></a>
-</p>
+Account switching and usage for AI coding tools. A native macOS app with a menu bar popover and a terminal interface.
 
-<p align="center">
-  <a href="https://github.com/surajmandalcell/switch/releases/latest"><b>Download for Mac</b></a> ·
-  <a href="https://switch.mandalsuraj.com">Website</a> ·
-  <a href="#use-switch-in-the-terminal">Terminal</a> ·
-  <a href="#supported-tools">Supported tools</a> ·
-  <a href="docs/development.md#build-and-check">Build from source</a>
-</p>
+Save accounts, check their limits, and choose which account a supported tool uses. Keep local settings and conversations in place when you switch. Access to cloud conversations still belongs to the provider account.
 
-## Why Switch
+**[Download for Mac](https://github.com/surajmandalcell/switch/releases/latest)** · [Website](https://switch.mandalsuraj.com) · [Terminal](#use-switch-in-the-terminal) · [Build from source](docs/development.md#build-and-check)
 
-- **One click to change accounts.** Pick an account in the menu bar. Switch replaces only that
-  tool's login, so settings, extensions, and history stay where they are.
-- **See every limit before you hit it.** Session and weekly windows, reset countdowns, and a pace
-  color for each account, across about 95 tools and API providers.
-- **Know where your tokens go.** The Overview page charts tokens per day, a year of activity,
-  trends per account, and an estimated API cost.
-- **Safe by design.** Sign-in runs in a private temporary home. The old login is saved and the
-  replaced bytes are backed up before every switch. Switch never reads the macOS Keychain or
-  browser cookie stores.
+## Get started
 
-## Overview
+Requires **macOS 14 or later and Apple Silicon**.
 
-Every account, model, and project on one page: tokens per day, a 12-month activity map, trends,
-and each account's share of tokens.
+1. Download the latest release, unzip it, and move `Switch.app` to Applications.
+2. Open Switch and choose **Add Account**. Search for the tool or provider you use.
+3. Follow its sign-in flow, import an existing login, or enter an API key. Adding an account keeps your current login active.
+4. Choose **Check Now** to load usage. For tools with account switching, choose **Switch** in the menu bar or **Make Default** in the app.
 
-![Switch Overview page in dark mode with tokens per day and a year of activity](docs/screenshots/overview-dark.png)
+Install each coding tool separately. Use its **Open** action in Switch to launch it with the selected account.
 
-| Trends | Light mode |
+## Usage at a glance
+
+See account limits and reset times in the menu bar. The Overview page shows daily tokens, activity, account trends, and estimated API costs.
+
+![Overview with daily tokens and an activity calendar](docs/screenshots/overview-dark.png)
+
+| Account trends | Light appearance |
 | :---: | :---: |
-| ![Overview trends, share of tokens, and recent backups](docs/screenshots/overview-insights.png) | ![Switch Overview page in light mode](docs/screenshots/overview-light.png) |
+| ![Account trends and share of tokens](docs/screenshots/overview-insights.png) | ![Overview in light mode](docs/screenshots/overview-light.png) |
 
-## Menu bar
-
-The status item shows up to six account percentages. The popover lists every saved account,
-the default for each tool, its limits, and when each window resets. Drag a service header to
-change the order of the popover, the Accounts page, and the status item. Hover a header and
-use the eye button to hide that service from the status item. Optional notifications warn when
-a window is almost out, and a dot marks a provider incident.
-
-| Light mode | Dark mode |
+| Menu bar in light mode | Menu bar in dark mode |
 | :---: | :---: |
-| ![Switch menu bar popover in light mode](docs/screenshots/menubar-light.png) | ![Switch menu bar popover in dark mode](docs/screenshots/menubar-dark.png) |
+| ![Account limits and reset times in light mode](docs/screenshots/menubar-light.png) | ![Account limits and reset times in dark mode](docs/screenshots/menubar-dark.png) |
 
-## Accounts
+Manage saved accounts by tool, check usage without switching, and set a default for each tool.
 
-All saved accounts, grouped by tool, with live usage and one button to make any of them the default.
+![Accounts grouped by tool with usage and default controls](docs/screenshots/accounts-dark.png)
 
-![Switch Accounts page with accounts grouped by tool](docs/screenshots/accounts-dark.png)
+<sub>App screenshots show real usage with email addresses hidden. Menu bar screenshots use Preview sample data.</sub>
 
-<sub>Screenshots show real usage with <b>Hide email addresses</b> on. The menu bar screenshots use Preview sample data.</sub>
+## Accounts and access
 
-## Get Switch for Mac
+Switch changes the selected tool's login while preserving its local settings and workspace data. It saves the outgoing login and backs up replaced data. Each tool has its own default account.
 
-1. [Download the latest release](https://github.com/surajmandalcell/switch/releases/latest)
-   and unzip it.
-2. Move `Switch.app` to Applications and open it.
-3. Install the command-line tool for each provider you use.
+| Tool or provider | What selecting an account does |
+| --- | --- |
+| Codex CLI | Replaces its auth file. Running sessions may need to reopen to use the new account. |
+| Grok Build | Replaces its auth file, which the CLI reloads before its next API call. |
+| Claude Code | Uses a separate account profile with shared local conversations and settings. The default applies to launches through Switch; optional terminal integration also covers plain `claude` commands. |
+| Droid / Factory | Replaces auth files and updates eligible local conversation headers for the selected organization. Original session IDs and message bodies remain intact. Active writers defer this step until a safe retry. |
+| File-backed integrations, including Gemini CLI, Cursor, Kimi Code, and Kiro | Change only the selected tool's supported auth files or entries. Support differs by client; Cursor editor switching does not switch Cursor CLI. Quit the affected app before switching. |
+| API-key and session providers | Save credentials and check usage. Selecting a default does not generally change a coding tool's login. |
 
-Switch requires macOS 14 or later on Apple Silicon.
+Local history and cloud access are separate. Droid cloud missions stay with their owner. Codex account rules can restrict which conversations a different account can resume. Other tools can also require the original account for cloud history or attachments.
 
-## Start switching
-
-Choose **Add Account**, then search for the provider.
-
-1. For a command-line tool, sign in through its private temporary home, or
-   import the login you already have. For an API provider, paste its key.
-2. Return to Switch and choose **Check Now**.
-3. Choose **Switch** in the menu bar, or **Make Default** in the app.
-4. Choose **Open Codex** (or your tool's name) to start the tool with that account.
-
-Adding an account never replaces the login you use now.
-
-## Supported tools
-
-| Tool | Switching | Usage |
-| --- | --- | :---: |
-| Codex CLI | Swaps `~/.codex/auth.json` | Yes |
-| [Grok Build](https://github.com/xai-org/grok-build#installing-the-released-binary) | Swaps `~/.grok/auth.json` | Yes |
-| Claude Code | One profile per account, shared history | Yes |
-| Droid (Factory) | Swaps the auth files in `~/.factory` | Yes |
-| 12 more command-line tools | Swaps only the tool's login | Yes |
-| About 80 API and plan providers | Switches the saved key or session | Yes |
-
-**Command-line tools:** Gemini CLI, Antigravity CLI, Cursor, GitHub Copilot, Kiro, Kimi Code,
-Kilo, Codebuff, Devin, OpenCode Go, Ollama, and Vertex AI.
-
-**API and plan providers:** OpenRouter, z.ai, DeepSeek, MiniMax, Mistral, Groq, OpenAI,
-AWS Bedrock, Warp, Factory, and more.
-
-Switch adapts usage providers from [OpenUsage](https://github.com/robinebers/openusage)
-and [CodexBar](https://github.com/steipete/CodexBar) that work without the macOS Keychain
-or browser cookie stores. A provider that needs a browser session takes a pasted Cookie
-header instead. Codex usage refreshes every 3 minutes, and other providers every 5.
-
-## Only the provider login changes
-
-Switch keeps each provider's settings, extensions, and work history in its shared home.
-Selecting an account changes only that provider's credential file, JSON entry, or
-database rows. The previous login is saved first, and the replaced bytes are backed up.
-Each provider keeps its own default account.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/login-swap-dark.png">
-  <img src="docs/screenshots/login-swap-light.png" alt="Switching Codex from ada.lovelace to grace.hopper: the old login is saved and backed up, the new login replaces only ~/.codex/auth.json, and config.toml, AGENTS.md, sessions, and history are kept. Claude Code keeps its own default." width="100%">
-</picture>
-
-<details>
-<summary><b>Provider notes</b></summary>
-
-- **Codex CLI:** Switch replaces only `~/.codex/auth.json`. Open sessions keep the
-  login they already loaded. Usage, history, activity, imports, and Cleanup are
-  available.
-- **Grok Build:** Switch replaces only `~/.grok/auth.json`. The official CLI reloads that
-  file before its next API call.
-- **Claude Code:** Each account is a separate profile with its own
-  `CLAUDE_CONFIG_DIR`, so several can stay signed in. All profiles share the
-  conversations, settings, commands, and skills in `~/.claude`. The default applies to
-  sessions launched through Switch. Turn on **Use the selected Claude account in
-  terminals** in Settings to make a plain `claude` command follow it.
-- **Droid:** The continuity contract replaces auth, then binds eligible ordinary local
-  conversations to the target organization by changing only their first header. Original
-  session IDs, paths, bodies, owners, and settings stay intact; there is no ten-chat copy limit.
-  A disposable native session supplies the target organization. Active writers defer binding
-  until a safe retry. Cloud missions and their descendants stay with their owner; mission
-  **Resume** selects that account. Local history does not transfer cloud access or attachments.
-  See [conversation continuity and proof limits](specs/conversation-continuity.md).
-- **File-backed integrations:** Switch swaps only the tool's login file, JSON entry, or
-  database rows. Quit an app such as Cursor before switching it.
-- **API providers:** Each account is a saved key or pasted session. Switching changes the
-  default that the menu bar shows.
-
-</details>
+See [conversation continuity and tool limits](specs/conversation-continuity.md) for the detailed support table. The [website](https://switch.mandalsuraj.com) lists providers; the terminal's provider list reflects your installed version.
 
 ## Use Switch in the terminal
 
-Open the terminal interface without a global install:
+Run without a global install:
 
 ```bash
 npx --yes @smdl/switch
 ```
 
-Or install it globally:
+Or install and update globally:
 
 ```bash
 npm install --global @smdl/switch@latest
 switch
 ```
 
-The terminal interface uses the same account store and switching engine as the
-Mac app. Use the arrow keys to move, Enter to select, and Escape to go back.
-The npm build supports Apple Silicon Macs. From a source checkout, run `make tui`.
-The `ai-manager` command remains available as an alias.
-Run the same install command to update. `switch --version` shows the installed terminal version.
-Releases include matching app and npm CLI updates. Run the install command above to update an existing terminal installation.
-
-Script it:
+The terminal uses the same account store and switching engine as the Mac app. Use arrow keys to move, Enter to select, and Escape to go back. `ai-manager` is also available as an alias.
 
 ```bash
-switch usage --json                               # usage for every account
-switch guard --provider codex --min-remaining 10  # fails when a window runs low
-switch help                                       # every non-interactive command
+switch --version
+switch providers
+switch usage --json
+switch guard --provider codex --min-remaining 10
+switch help
 ```
 
-## More features
+The npm package supports Apple Silicon Macs only. The shared core and CLI also run on Linux when [built from source](docs/development.md#build-and-check). Run `make tui` from a source checkout to start the terminal interface.
 
-- **Check a saved account.** Test its login without making it the default, and refresh
-  its usage.
-- **Import an existing account.** Review a login or provider home before you add it.
-  Settings and history are optional.
-- **Search your history.** Search conversations, grouped by day, and track daily tokens
-  per account, model, and project.
-- **Clean up and back up.** Preview conversations and caches, move them to a recoverable
-  trash, and restore them when needed. Filter conversations by date, project, tool, and
-  title before you remove them. Back up chats and settings to a drive or folder you choose,
-  or back up only your own prompts as Markdown, one folder per project.
-- **Keep your screen private.** Hide email addresses, or turn on Privacy mode to show every
-  account under a stable made-up name.
+## History, backups, and privacy
 
-## Development
+Search local conversations and review token use by account, model, or project. Preview Cleanup changes before moving conversations and caches to recoverable trash. Back up chats and settings to a folder or drive, or export your prompts as Markdown.
 
-- [Build and check](docs/development.md#build-and-check) from source.
-- Try the [isolated Preview build](docs/development.md#preview-with-sample-accounts) with
-  sample accounts and no real credentials.
-- The [product specification](specs/product.md) defines current behavior.
-- [Security policy](SECURITY.md) · [Release notes](docs/release-notes.md)
+Hide email addresses or use Privacy mode for stable account aliases. Switch does not read the macOS Keychain or browser cookie stores. Providers that need a browser session accept a pasted session instead.
 
-## License
+## Documentation and credits
 
-[MIT](LICENSE)
+[Build and check](docs/development.md#build-and-check) · [Product specification](specs/product.md) · [Security policy](SECURITY.md) · [Release notes](docs/release-notes.md)
+
+Usage integrations include work adapted from [OpenUsage](https://github.com/robinebers/openusage) and [CodexBar](https://github.com/steipete/CodexBar).
+
+Switch is released under the [MIT license](LICENSE).
