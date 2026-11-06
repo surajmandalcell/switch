@@ -230,7 +230,7 @@ public enum RunningCLIs {
         for row in run("/bin/ps", ["-axww", "-o", "pid=,tty=,command="]).split(separator: "\n") {
             let parts = row.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
             guard parts.count == 3, let pid = Int32(parts[0]), pid != getpid() else { continue }
-            if requireTTY, parts[1] == "??" { continue }
+            if requireTTY, parts[1] == "??" || parts[1] == "?" { continue }
             let command = String(parts[2]).trimmingCharacters(in: .whitespaces)
             guard let tool = interactiveTool(of: command) else { continue }
             let args = procArgs(pid: pid)
@@ -250,16 +250,12 @@ public enum RunningCLIs {
         return found
     }
 
-    /// Codex keeps its rollout open; `lsof` names it, and the first line holds the session id and cwd.
+    /// Codex keeps its rollout open; its first line holds the session id and cwd.
     private static func codexSession(pid: Int32, command: String) -> RunningCLI? {
-        let rollout = run("/usr/sbin/lsof", ["-nP", "-p", String(pid), "-Fn"]).split(separator: "\n")
-            .map { String($0.dropFirst()) }
-            .first { path in
-                let name = URL(fileURLWithPath: path).lastPathComponent
-                return path.contains("/sessions/") && name.hasPrefix("rollout-") && name.hasSuffix(".jsonl")
-            }
-        guard let rollout else { return nil }
-        let url = URL(fileURLWithPath: rollout)
+        guard let url = try? CodexWriterProbe.openPaths(pid: pid).first(where: { path in
+            let name = path.lastPathComponent
+            return path.path.contains("/sessions/") && name.hasPrefix("rollout-") && name.hasSuffix(".jsonl")
+        }) else { return nil }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         guard let head = try? handle.read(upToCount: 1_000_000),

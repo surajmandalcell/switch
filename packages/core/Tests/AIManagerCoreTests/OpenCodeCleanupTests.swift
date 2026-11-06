@@ -10,12 +10,16 @@ final class OpenCodeCleanupTests: XCTestCase {
     private let old = Date(timeIntervalSince1970: 1_700_000_000)
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: "/private/tmp/switch-work1-build-oc/test-data/\(UUID().uuidString)")
+        let scratch = ProcessInfo.processInfo.environment["AGENT_DATA_DIR"]
+            ?? ProcessInfo.processInfo.environment["TMPDIR"] ?? files.temporaryDirectory.path
+        root = URL(fileURLWithPath: scratch).appending(path: "switch/OpenCodeCleanupTests-\(UUID().uuidString)")
         home = root.appending(path: "home/.local/share/opencode")
         try files.createDirectory(at: home, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws { try files.removeItem(at: root) }
+    override func tearDownWithError() throws {
+        if let root, files.fileExists(atPath: root.path) { try files.removeItem(at: root) }
+    }
 
     private var database: URL { home.appending(path: "opencode.db") }
     private var source: CleanupSource {
