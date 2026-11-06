@@ -1,8 +1,8 @@
 import Foundation
 
 extension ProviderCatalog {
-    // KIMI_CODE_HOME replaces ~/.kimi-code, not the credentials folder, so LiveFile.homeEnv does not fit.
-    private static let kimiFile = LiveFile(".kimi-code/credentials/kimi-code.json")
+    private static let kimiFile = LiveFile(".kimi-code/credentials/kimi-code.json",
+        homeEnv: "KIMI_CODE_HOME", homeEnvSubpath: "credentials/kimi-code.json")
 
     /// Kimi Code CLI sign-in. Never refreshes: the refresh endpoint and client id are not confirmed
     /// in the sources, and the refresh token rotates.

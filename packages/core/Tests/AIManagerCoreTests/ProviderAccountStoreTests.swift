@@ -831,6 +831,38 @@ final class ProviderAccountStoreTests: XCTestCase {
         }
     }
 
+    func testCopilotDatabaseLoginDoesNotPretendThatChangingTheLegacyFileSwitchesAccounts() async throws {
+        let manager = try makeManager([ProviderCatalog.copilot])
+        let directory = userHome.appending(path: ".config/github-copilot")
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let auth = directory.appending(path: "apps.json")
+        let firstBytes = Data(#"{"github.com":{"user":"account-A","oauth_token":"synthetic-A"}}"#.utf8)
+        try firstBytes.write(to: auth)
+        let first = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "copilot"))
+        try Data(#"{"github.com":{"user":"account-B","oauth_token":"synthetic-B"}}"#.utf8).write(to: auth)
+        let second = try await manager.importLiveProviderAccount(providerID: ProviderID(rawValue: "copilot"))
+        _ = try await manager.switchDefault(to: first.id)
+        let database = directory.appending(path: "auth.db")
+        let databaseBytes = Data("synthetic native-owned authentication database".utf8)
+        try databaseBytes.write(to: database)
+        let history = try writeContinuityFixture(".copilot/session-state/project/session.json")
+        let historyBytes = try Data(contentsOf: history)
+
+        do {
+            _ = try await manager.switchDefault(to: second.id)
+            XCTFail("A legacy file write cannot prove that a database-backed Copilot login changed.")
+        } catch let error as AIManagerError {
+            guard case .operationFailed(let message) = error else { return XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(message.contains("auth.db"))
+        }
+
+        let status = try await manager.status()
+        XCTAssertEqual(status.defaultAccountID(for: ProviderID(rawValue: "copilot")), first.id)
+        XCTAssertEqual(try Data(contentsOf: auth), firstBytes)
+        XCTAssertEqual(try Data(contentsOf: database), databaseBytes)
+        XCTAssertEqual(try Data(contentsOf: history), historyBytes)
+    }
+
     func testCopilotKimiAndAntigravitySwitchCompleteCredentialsAndPreserveStoredConversation() async throws {
         let providers: [(ProviderSpec, String, String)] = [
             (ProviderCatalog.copilot, ".config/github-copilot/apps.json", ".config/github-copilot/conversation-original.json"),
