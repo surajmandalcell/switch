@@ -55,7 +55,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '../mac-gui/ui-lin
       assert(box.x >= bounds.desk.x && box.x + box.width <= bounds.desk.x + bounds.desk.width && box.y + box.height <= bounds.desk.y + bounds.desk.height, 'The desktop must contain the complete window and popover');
     }
     const colors = await page.evaluate(() => Object.fromEntries(['body', '.h-t', '.hw', '.h-sub'].map(selector => [selector, { color: getComputedStyle(document.querySelector(selector)).color, background: getComputedStyle(document.querySelector(selector)).backgroundColor }])));
-    const output = path.resolve(process.argv[2] || path.join(__dirname, '../../docs/screenshots/cover.png'));
+    const output = path.resolve(process.argv[2] || path.join(__dirname, '../../docs/screenshots/cover-website.png'));
     await page.screenshot({ path: output, animations: 'disabled' });
     console.log(JSON.stringify({ output, width: 1600, height: 1000, bounds, colors }));
   } finally {
