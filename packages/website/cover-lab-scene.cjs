@@ -24,7 +24,7 @@ function makeScene({
   fontSize = 56, fontWeight = 600, titleFontFamily = 'var(--sans)',
   align = 'center', layout = 'center', pattern = 'plain', subtitleFontSize = 18,
   sceneHeight = 860, appWidth = 900, topPadding = 187.5, sidePadding = 60,
-  bottomPadding = 71, gap = 56, animate = false,
+  bottomPadding = 71, gap = 56, animate = false, startPaused = false,
 } = {}) {
   assert(['center', 'left', 'split'].includes(layout));
   assert(['center', 'left'].includes(align));
@@ -52,10 +52,11 @@ html,body{margin:0;background:transparent!important;width:1600px;overflow:hidden
 ${animate ? '' : '*,*::before,*::after{animation:none!important;transition:none!important}.dk-cur{display:none}'}
 </style></head><body><main class="page" data-cover-width="1600"><div class="cover-layout"><section class="hero"><h1 class="h-t">${escape(title).replaceAll('\n', '<br>')}</h1><p class="h-sub">${escape(subtitle).replaceAll('\n', '<br>')}</p></section><div class="desktop-slot"><div class="desk" data-desk><div data-mbar data-app="Switch"></div><div class="dk-win"><div class="wsh"><div class="win"><img src="${asset('overview-tall-light.webp')}" alt="Switch Overview"><i class="tl"><b></b><b></b><b></b></i></div></div></div><div class="dk-pop"><div data-pop></div></div><svg class="dk-cur" viewBox="0 0 19 28" aria-hidden="true"><path d="M2 2v20.5l5-4.7 3.2 7.4 3.4-1.5-3.2-7.3H17z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg></div></div></div></main><script>
 const SCENE_TOOLS=${JSON.stringify(tools)},SCENE_GLYPHS=${JSON.stringify(glyphs)};
-${animate ? '' : 'window.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};'}
+${!animate ? 'window.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};' : startPaused ? 'window.heroStart=null;window.IntersectionObserver=class{constructor(callback){this.callback=callback}observe(element){if(element.matches("[data-desk]"))window.heroStart=()=>this.callback([{isIntersecting:true}])}unobserve(){}disconnect(){}};' : ''}
 ${kit.replace(/<\/script/gi, '<\\/script')}
 Promise.all([document.fonts.ready,...Array.from(document.images,image=>image.decode())]).then(()=>{
  const height=Math.ceil(document.querySelector('.page').getBoundingClientRect().height);
+ document.querySelector('.page').style.height=height+'px';
  document.documentElement.dataset.coverHeight=height;
  document.documentElement.dataset.coverReady='true';
  parent.postMessage({type:'cover-scene-size',height,width:1600},'*');

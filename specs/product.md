@@ -468,9 +468,9 @@ continues), then form/sign-in. Every step has Cancel, Continue, and a small step
 
 ## 5. Terminal distribution
 
-`ai-manager` opens the terminal UI; `make tui` runs it from source. Ship Apple Silicon macOS
-as `@smdl/switch`: npx opens the UI; global installs expose `switch` and `ai-manager`.
-Document all three. The package adds no account logic or Swift build step.
+`ai-manager` opens the terminal UI; `make tui` runs source. Ship Apple Silicon macOS as
+`@smdl/switch`: npx opens it; global installs expose `switch` and `ai-manager`.
+Document all three. Add no account logic or Swift build step to the package.
 
 Keep the CLI current with shared-core operations: account naming and order, login code submission,
 all-provider usage, Droid continuity reports, conversations, missions, backups, Cleanup, Claude shell
@@ -498,7 +498,7 @@ without privileges or writes. Public releases are Developer ID signed and notari
 
 Build, check, and upload Mac archives on the maintainer's Mac, never GitHub Actions.
 README uses site styling, real screenshots, short copy, limits, and latest downloads.
-Cover: smooth demo and still fallback, heading, light fill, top space; only 6px corner cutouts are clear.
+Cover 01/Clear center: 52px/600, top187.5/sides60/bottom71px. Keep glyphs, light fill, 6px cutouts and demo/still.
 Collapse requirements. One command installs Mac app/CLI or Linux CLI; check hashes.
 
 Memory: free main window/pages on close or hide to menu bar; login launches build no window.

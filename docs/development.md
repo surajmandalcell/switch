@@ -180,14 +180,16 @@ It serves a local preview at `http://127.0.0.1:8847` for up to eight hours.
 The generated HTML is self-contained; favorites, ratings, and notes stay in the browser.
 Choose a design in the lab before replacing the public README cover.
 
-The cover records the website's menu bar demo inside a light poster with its heading. On the
+The cover uses the approved Clear center scene from `cover-lab-scene.cjs`, shared with the lab.
+It records the website's menu bar demo inside that light poster. On the
 rendering host, run `node packages/website/export-cover.cjs --gif` from the
 repository root to create the GIF and static reduced-motion fallback.
 Only the area outside the cover's 6px corners is transparent. Its padding keeps the light background.
 It uses the existing Playwright installation under `packages/mac-gui/ui-lint`;
 set `PLAYWRIGHT_MODULE` or `CHROME_PATH` to use another installed renderer.
 GIF export also needs FFmpeg and Gifsicle. Set `GIFSICLE_PATH` for a custom executable path.
-Temporary recordings are removed after export. ImageMagick builds the social preview below.
+Successful exports remove temporary frames; failures print the retained path for repair.
+ImageMagick builds the social preview below.
 Run `sh packages/website/build-assets.sh` to refresh the website assets,
 including the social preview. Check the README in light and dark mode at
 desktop and phone widths after replacing images.
