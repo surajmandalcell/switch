@@ -175,14 +175,17 @@ Update the script's pinned versions only after publishing matching assets.
 
 ## README cover
 
-Compare cover options before exporting: `node packages/website/cover-lab.cjs --serve`.
-It serves a local preview at `http://127.0.0.1:8847` for up to eight hours.
-The generated HTML is self-contained; favorites, ratings, and notes stay in the browser.
-Choose a design in the lab before replacing the public README cover.
-
-The cover uses the approved Clear center scene from `cover-lab-scene.cjs`, shared with the lab.
+The final cover is Monument: a centered 200px/800 wordmark and 36px subtitle.
+Its wording is "Switch" and "Coding accounts and usage. Right in your menu bar."
+The owner closed the design rounds. Keep this selection until explicitly asked to change it.
+On Lin1, use the approved fonts through the process-only
+`FONTCONFIG_FILE=/mnt/nvme1/data/switch/cover-fonts/fonts.conf` setting.
+This profile matches the selected preview without changing the machine's font settings.
+The exporter checks the approved title and subtitle widths to reject a different font fallback.
+The exporter uses `cover-lab-scene.cjs`. Run `node packages/website/cover-lab.cjs --serve`
+to view the final exported PNG and GIF locally; the viewer embeds both files for offline use.
 It records the website's menu bar demo inside that light poster. On the
-rendering host, run `node packages/website/export-cover.cjs --gif` from the
+rendering host, run `FONTCONFIG_FILE=/mnt/nvme1/data/switch/cover-fonts/fonts.conf node packages/website/export-cover.cjs --gif` from the
 repository root to create the GIF and static reduced-motion fallback.
 Only the area outside the cover's 6px corners is transparent. Its padding keeps the light background.
 It uses the existing Playwright installation under `packages/mac-gui/ui-lint`;

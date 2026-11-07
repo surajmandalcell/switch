@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-reduced-motion: reduce)" srcset="docs/screenshots/cover-clear-center.png">
-    <img src="docs/screenshots/cover-clear-center.gif" alt="Switch accounts. Keep the conversation. A menu bar demo shows account switching." width="100%">
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/screenshots/cover-monument.png">
+    <img src="docs/screenshots/cover-monument.gif" alt="Switch. Coding accounts and usage, right in your menu bar. A demo shows account switching." width="100%">
   </picture>
 </p>
 

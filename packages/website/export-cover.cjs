@@ -7,15 +7,16 @@ const { execFileSync } = require('node:child_process');
 const { makeScene } = require('./cover-lab-scene.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '../mac-gui/ui-lint/node_modules/playwright');
 const selected = {
-  title: 'Switch accounts.\nKeep the conversation.',
-  subtitle: 'Account switching and usage for your coding tools.',
-  fontSize: 52, fontWeight: 600, align: 'center', layout: 'center', pattern: 'plain',
-  subtitleFontSize: 18, topPadding: 187.5, sidePadding: 60, bottomPadding: 71,
+  title: 'Switch',
+  subtitle: 'Coding accounts and usage. Right in your menu bar.',
+  fontSize: 200, fontWeight: 800, align: 'center', layout: 'center', pattern: 'plain',
+  subtitleFontSize: 36, titleTreatment: 'bold', titleTracking: -.06,
+  topPadding: 187.5, sidePadding: 60, bottomPadding: 71,
   sceneHeight: 860, appWidth: 900, gap: 56,
 };
 
 (async () => {
-  const output = path.resolve(process.argv.find(arg => arg.endsWith('.png')) || path.join(__dirname, '../../docs/screenshots/cover-clear-center.png'));
+  const output = path.resolve(process.argv.find(arg => arg.endsWith('.png')) || path.join(__dirname, '../../docs/screenshots/cover-monument.png'));
   const frames = process.argv.includes('--gif') ? await fs.mkdtemp(path.join(path.dirname(output), '.cover-frames-')) : null;
   // Chrome screenshot capture can interrupt an active screencast. Finish the still first.
   if (frames) execFileSync(process.execPath, [__filename, output], { stdio: 'inherit', timeout: 30000 });
@@ -37,11 +38,13 @@ const selected = {
         const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
         return { x, y, width, height };
       };
-      return { title: rect('.h-t'), desk: rect('.desk'), window: rect('.dk-win') };
+      return { title: rect('.h-t'), subtitle: rect('.h-sub'), desk: rect('.desk'), window: rect('.dk-win') };
     });
     for (const box of Object.values(bounds)) {
       assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1600 && box.y + box.height <= height, `Cover content must fit the complete frame: ${JSON.stringify(bounds)}`);
     }
+    // Font hinting can shift advances slightly across Chrome builds using the same approved fonts.
+    assert(Math.abs(bounds.title.width - 681.90625) < 2 && Math.abs(bounds.subtitle.width - 910.484375) < 2, 'Render with the approved OCI2 fonts; a different system font changes Monument');
     assert(bounds.title.y >= 187.5 && height - bounds.desk.y - bounds.desk.height >= 71, 'The cover must preserve the approved vertical padding');
     assert(bounds.desk.x === 60 && bounds.desk.width === 1480 && bounds.window.width === 900, 'The desktop and app must preserve the approved sizes');
     for (const box of [bounds.window]) {
