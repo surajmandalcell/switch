@@ -498,7 +498,7 @@ without privileges or writes. Public releases are Developer ID signed and notari
 
 Build and validate Mac archives locally; upload from the Mac, not Actions.
 README uses site styling, real screenshots, short copy, limits, and current downloads.
-Cover 01/Clear center: 52px/600; padding187.5/60/71px. Keep glyphs, light fill, 6px cutouts, demo/still.
+Cover: Clear center geometry; title/subtitle open. Keep glyphs, light fill, 6px cutouts, demo/still.
 Collapse requirements. One command installs Mac app/CLI or Linux CLI; check hashes.
 Site hero: "Keep your local conversations." About links to mandalsuraj.com.
 
