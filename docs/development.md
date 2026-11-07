@@ -194,6 +194,14 @@ Run `sh packages/website/build-assets.sh` to refresh the website assets,
 including the social preview. Check the README in light and dark mode at
 desktop and phone widths after replacing images.
 
+## Website copy
+
+Run `node packages/website/copy-preview.cjs --serve` to compare three copy sets
+at `http://127.0.0.1:8850/`. The floating dock switches between current and proposed
+copy without changing the website layout or demos. The server stops after eight hours.
+Apply the owner's chosen copy to `public/index.html` and the FAQ in `public/kit.js`.
+Pushing website changes to `master` deploys the Railway site automatically.
+
 ## Sources of truth
 
 | Product | Path | Role |
