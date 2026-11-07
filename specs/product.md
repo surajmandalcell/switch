@@ -500,7 +500,7 @@ Build and validate Mac archives locally; upload from the Mac, not Actions.
 README uses site styling, real screenshots, short copy, limits, and current downloads.
 Cover 01/Clear center: 52px/600; padding187.5/60/71px. Keep glyphs, light fill, 6px cutouts, demo/still.
 Collapse requirements. One command installs Mac app/CLI or Linux CLI; check hashes.
-Website: Switching first copy; Hushpen-style About links to mandalsuraj.com.
+Site hero: "Keep your local conversations." About links to mandalsuraj.com.
 
 Memory: free main window/pages on close or hide; login launches build no window.
 Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows
