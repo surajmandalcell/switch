@@ -20,6 +20,7 @@ artifacts/
 npm/vendor/
 /goals.md
 /goals.archive.md
+/specs/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
