@@ -25,10 +25,14 @@ function makeScene({
   align = 'center', layout = 'center', pattern = 'plain', subtitleFontSize = 18,
   sceneHeight = 860, appWidth = 900, topPadding = 187.5, sidePadding = 60,
   bottomPadding = 71, gap = 56, animate = false, startPaused = false,
+  titleTreatment = 'default', titleLineHeight = 1, titleTracking = -.045,
 } = {}) {
   assert(['center', 'left', 'split'].includes(layout));
   assert(['center', 'left'].includes(align));
   assert(['plain', 'grid', 'dots'].includes(pattern));
+  assert(['default', 'bold', 'two-tone', 'outline'].includes(titleTreatment));
+  assert(Number.isFinite(titleLineHeight) && titleLineHeight >= .9 && titleLineHeight <= 1.2);
+  assert(Number.isFinite(titleTracking) && titleTracking >= -.08 && titleTracking <= .02);
   assert(/^[\w\s,'()\-]+$/.test(titleFontFamily), 'Use a local CSS font family');
   assert([fontSize, fontWeight, subtitleFontSize, sceneHeight, appWidth, topPadding, sidePadding, bottomPadding, gap].every(value => Number.isFinite(value) && value >= 0 && value <= 2000));
   const width = 1600 - 2 * sidePadding;
@@ -45,12 +49,12 @@ html,body{margin:0;background:transparent!important;width:1600px;overflow:hidden
 .cover-layout{${layout === 'split' ? 'display:grid;grid-template-columns:400px 1fr;align-items:center;' : 'display:block;'}gap:${gap}px}
 .hero{padding:0;animation:none;align-items:${align === 'left' ? 'flex-start' : 'center'};text-align:${align};${layout === 'split' ? '' : `margin-bottom:${gap}px;`}}
 .h-t{font-family:${titleFontFamily};font-size:${fontSize}px;font-weight:${fontWeight};line-height:1.08;letter-spacing:-.035em;color:#111;text-wrap:balance}
-.h-sub{max-width:1120px;margin-top:16px;font-size:${subtitleFontSize}px;color:#6B6B70;line-height:1.35}
+.h-sub{max-width:1120px;margin-top:16px;font-size:${subtitleFontSize}px;color:#6B6B70;line-height:1.35}${titleTreatment === 'default' ? '' : `\n.h-t{line-height:${titleLineHeight};letter-spacing:${titleTracking}em;text-wrap:initial;max-width:100%}.h-t .title-line{display:block}.h-t .title-line.muted{color:#86868b}.h-t .title-line.outline{color:transparent;-webkit-text-stroke:2px #111}.h-sub{margin-top:24px;max-width:1280px}`}
 .desktop-slot{width:${width * scale}px;height:${sceneHeight * scale}px}
 .desk{width:${width}px;height:${sceneHeight}px;margin:0;zoom:${scale};border-radius:26px;clip-path:inset(0 round 26px);isolation:isolate;overflow:hidden;box-shadow:none;animation:none}
 .dk-win{top:60px;left:64px;width:${fittedAppWidth}px}
 ${animate ? '' : '*,*::before,*::after{animation:none!important;transition:none!important}.dk-cur{display:none}'}
-</style></head><body><main class="page" data-cover-width="1600"><div class="cover-layout"><section class="hero"><h1 class="h-t">${escape(title).replaceAll('\n', '<br>')}</h1><p class="h-sub">${escape(subtitle).replaceAll('\n', '<br>')}</p></section><div class="desktop-slot"><div class="desk" data-desk><div data-mbar data-app="Switch"></div><div class="dk-win"><div class="wsh"><div class="win"><img src="${asset('overview-tall-light.webp')}" alt="Switch Overview"><i class="tl"><b></b><b></b><b></b></i></div></div></div><div class="dk-pop"><div data-pop></div></div><svg class="dk-cur" viewBox="0 0 19 28" aria-hidden="true"><path d="M2 2v20.5l5-4.7 3.2 7.4 3.4-1.5-3.2-7.3H17z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg></div></div></div></main><script>
+</style></head><body><main class="page" data-cover-width="1600"><div class="cover-layout"><section class="hero"><h1 class="h-t">${titleTreatment === 'default' ? escape(title).replaceAll('\n', '<br>') : title.split('\n').map((line,index) => `<span class="title-line${index > 0 && titleTreatment === 'two-tone' ? ' muted' : index > 0 && titleTreatment === 'outline' ? ' outline' : ''}">${escape(line)}</span>`).join('')}</h1><p class="h-sub">${escape(subtitle).replaceAll('\n', '<br>')}</p></section><div class="desktop-slot"><div class="desk" data-desk><div data-mbar data-app="Switch"></div><div class="dk-win"><div class="wsh"><div class="win"><img src="${asset('overview-tall-light.webp')}" alt="Switch Overview"><i class="tl"><b></b><b></b><b></b></i></div></div></div><div class="dk-pop"><div data-pop></div></div><svg class="dk-cur" viewBox="0 0 19 28" aria-hidden="true"><path d="M2 2v20.5l5-4.7 3.2 7.4 3.4-1.5-3.2-7.3H17z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg></div></div></div></main><script>
 const SCENE_TOOLS=${JSON.stringify(tools)},SCENE_GLYPHS=${JSON.stringify(glyphs)};
 ${!animate ? 'window.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};' : startPaused ? 'window.heroStart=null;window.IntersectionObserver=class{constructor(callback){this.callback=callback}observe(element){if(element.matches("[data-desk]"))window.heroStart=()=>this.callback([{isIntersecting:true}])}unobserve(){}disconnect(){}};' : ''}
 ${kit.replace(/<\/script/gi, '<\\/script')}
