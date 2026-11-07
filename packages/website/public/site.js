@@ -4,8 +4,8 @@
   const DL = GH + '/releases/download/v3.8.2/Switch-v3.8.2-mac-arm64.zip';
   const base = document.body.dataset.base || '';
   const COLS = [
-    ['Product', [['Download', DL], ['Release notes', GH + '/blob/master/docs/release-notes.md'], ['All releases', GH + '/releases']]],
-    ['Project', [['GitHub', GH], ['Report an issue', GH + '/issues'], ['npm package', 'https://www.npmjs.com/package/@smdl/switch']]],
+    ['Downloads', [['Download', DL], ['Release notes', GH + '/blob/master/docs/release-notes.md'], ['All releases', GH + '/releases']]],
+    ['Project', [['About', base + 'about/'], ['GitHub', GH], ['Report an issue', GH + '/issues'], ['npm package', 'https://www.npmjs.com/package/@smdl/switch']]],
     ['Legal', [['Privacy', base + 'privacy/'], ['Terms', base + 'terms/'], ['Security', base + 'security/'], ['MIT License', GH + '/blob/master/LICENSE']]],
   ];
   const ext = u => u.startsWith('http') ? ' target="_blank" rel="noopener"' : '';

@@ -459,8 +459,8 @@ selection, most recently used, then first available. Confirmation names it; fail
 keeps the account. Without a fallback, Delete account stays disabled with its normal label.
 Conversations and settings stay.
 
-Background reconciliation never disables UI or republishes unchanged values. Secondary text names
-providers (Codex CLI). Action-needed badges: grey chip, label-color text (4.5:1 both appearances),
+Background reconciliation keeps UI enabled and publishes only changes. Secondary text names
+providers (Codex CLI). Action badges: grey chip, label-color text (4.5:1 both appearances),
 6 pt state-color dot.
 
 Add Account/Advanced Import use native sheets: provider search, single-choice list (double-click
@@ -472,36 +472,37 @@ continues), then form/sign-in. Every step has Cancel, Continue, and a small step
 `@smdl/switch`: npx opens it; global installs expose `switch` and `ai-manager`.
 Document all three. Add no account logic or Swift build step to the package.
 
-Keep the CLI current with shared-core operations: account naming and order, login code submission,
+Keep CLI and core operations aligned: account naming and order, login code submission,
 all-provider usage, Droid continuity reports, conversations, missions, backups, Cleanup, Claude shell
 integration, and one-shot automatic account selection. Use the same validation, writer guards, and
 recovery checks as the app. Require confirmation for mutations; accept secrets through standard input.
 GUI appearance, menu-bar preferences, notifications, and background scheduling remain app settings.
-Report CLI versions without opening account stores. Document standalone updates;
-app installation must not imply that an older PATH command was updated.
+Report versions without opening account stores. Document standalone updates;
+app installation must not imply an older PATH command was updated.
 
-Use **09 Amber Menu**: compact provider groups, one inverse selected row, account limits.
-Every action, including confirmed deletion, has full text after a glyph. Use only bold,
-dim, and inverse ANSI, terminal colors, no appearance detection; piped output and `NO_COLOR` are
-plain. The animated loader runs during initial refresh and clears before the menu. Show cached
+Use **09 Amber Menu**: compact provider groups, inverse selection, account limits.
+Every action, including confirmed deletion, has full text after a glyph. Use bold,
+dim, and inverse ANSI with terminal colors; no appearance detection. Piped output and `NO_COLOR` are
+plain. Animate the loader during initial refresh; clear it before the menu. Show cached
 limits; never invent usage. Attached terminals use raw input: Up and Down move; Right or Enter
 opens an account; Enter runs an action; Left or Escape returns; no command letters. Restore normal
 input for paths, launched Codex, and exit. Keep lines at column zero in common terminals.
 
 ## 6. Verification contract
 
-Use synthetic credentials and isolated homes for tests. Before UI installation, pass the Mac GUI
+Use synthetic credentials and isolated test homes. Before UI installation, pass the Mac GUI
 contract, production and Preview model checks, System, Light, and Dark snapshots, lintapple
 (section 4), and full native gate. Core or CLI changes pass both Linux Docker architectures
 without privileges or writes. Public releases are Developer ID signed and notarized
 (`release-macos.sh --xcode`). Keep install copy short, with no Gatekeeper warning blocks.
 
-Build, check, and upload Mac archives on the maintainer's Mac, never GitHub Actions.
-README uses site styling, real screenshots, short copy, limits, and latest downloads.
-Cover 01/Clear center: 52px/600, top187.5/sides60/bottom71px. Keep glyphs, light fill, 6px cutouts and demo/still.
+Build and validate Mac archives locally; upload from the Mac, not Actions.
+README uses site styling, real screenshots, short copy, limits, and current downloads.
+Cover 01/Clear center: 52px/600; padding187.5/60/71px. Keep glyphs, light fill, 6px cutouts, demo/still.
 Collapse requirements. One command installs Mac app/CLI or Linux CLI; check hashes.
+Website: Switching first copy; Hushpen-style About links to mandalsuraj.com.
 
-Memory: free main window/pages on close or hide to menu bar; login launches build no window.
+Memory: free main window/pages on close or hide; login launches build no window.
 Page hosts receive named environment values, never outer `EnvironmentValues` (its tracker grows
 per update). Fail the memory check for a surviving closed window or tracker growth over 1 MB
 in 200 updates/page.

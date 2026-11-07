@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Switch: every AI coding account, one click away</title>
-<meta name="description" content="Switch is a free, open-source macOS menu bar app. It keeps every login for Codex, Claude Code, Cursor, and about 90 more AI tools ready, and shows how much of each limit is left.">
+<title>Switch: change saved coding accounts</title>
+<meta name="description" content="Save logins for supported coding tools and change accounts without signing in again. Switch is a native Mac app with an optional CLI.">
 <meta name="theme-color" content="#FFFFFF">
 <link rel="canonical" href="https://switch.mandalsuraj.com/">
 <link rel="icon" type="image/png" href="/assets/favicon.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://switch.mandalsuraj.com/">
-<meta property="og:title" content="Switch: every AI coding account, one click away">
-<meta property="og:description" content="A native macOS menu bar app for Codex, Claude Code, Grok Build, Gemini CLI, and about 90 more providers.">
+<meta property="og:title" content="Switch: change saved coding accounts">
+<meta property="og:description" content="Save logins for supported coding tools and change accounts without signing in again. Switch is a native Mac app with an optional CLI.">
 <meta property="og:image" content="https://switch.mandalsuraj.com/assets/og.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="kit.css">
@@ -39,7 +39,7 @@
 </svg>
 
 <header class="nav" id="nav">
-  <div class="wrap"><a class="brand" href="#" data-noedit aria-label="Switch, back to top"><img src="assets/icon-256.webp" alt=""><span class="bt">Switch</span></a><nav data-noedit><span class="ind" aria-hidden="true"></span><a href="#speed">Performance</a><a href="#features">Features</a><a href="#tools">Tools</a><a href="#safety">Safety</a><a href="#faq">FAQ</a></nav>
+  <div class="wrap"><a class="brand" href="#" data-noedit aria-label="Switch, back to top"><img src="assets/icon-256.webp" alt=""><span class="bt">Switch</span></a><nav data-noedit><span class="ind" aria-hidden="true"></span><a href="#speed">Performance</a><a href="#features">Switching</a><a href="#tools">Tools</a><a href="#safety">Logins</a><a href="#faq">FAQ</a></nav>
     <div class="dlw"><a class="dl dlx" data-dl href="#" aria-label="Download Switch for Mac"><svg class="dl-ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="dl-t"><span class="dl-m">Download</span></span></a></div>
   </div>
 </header>
@@ -47,9 +47,9 @@
 <div class="wrap page">
   <div class="grp" data-g="top">
   <section class="hero">
-    <div class="h-badge"><span class="h-faces"><img src="assets/tools/claude-code.webp" alt=""><img src="assets/tools/openai.webp" alt=""><img src="assets/tools/cursor.webp" alt=""></span><span>For Claude Code, Codex, and 93 more <span class="h-ai">AI </span>tools</span></div>
-    <h1 class="h-t"><em class="hw">Switch</em> accounts. <span class="g">Keep the conversation.</span></h1>
-    <p class="h-sub">Free and open source, as it should be.</p>
+    <div class="h-badge"><span class="h-faces"><img src="assets/tools/claude-code.webp" alt=""><img src="assets/tools/openai.webp" alt=""><img src="assets/tools/cursor.webp" alt=""></span><span>For Claude Code, Codex, and more</span></div>
+    <h1 class="h-t"><em class="hw">Change coding accounts.</em><span class="g">Without signing in again.</span></h1>
+    <p class="h-sub">Keep saved logins for your coding tools. Choose another supported account when you need it.</p>
     <div class="h-cta">
       <a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a>
       <a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span>View on GitHub</span></a>
@@ -67,48 +67,48 @@
 
 
   <div class="grp" data-g="speed">
-  <div class="sh" id="speed" data-reveal><h2>Light and fast. <span>Native all the way down.</span></h2></div>
+  <div class="sh" id="speed" data-reveal><h2>A small native app. <span>Light on memory.</span></h2></div>
   <section class="speed">
     <div class="pf-c" data-card="cpu"><div class="pf-mo pf-cpu" aria-hidden="true"><svg viewBox="0 0 240 100" preserveAspectRatio="none"><path class="ar"/><path class="ln"/></svg><i class="pf-dot"></i><span class="pf-tag"><span class="on">idle</span><span>checking usage</span></span></div><b class="pf-k"></b><span class="pf-l"></span><p class="pf-cap">It checks usage every three minutes, is done in under a second, then sleeps.</p></div>
     <div class="pf-c" data-card="mem"><div class="pf-mo pf-bars" aria-hidden="true"></div><b class="pf-k"></b><span class="pf-l"></span><p class="pf-cap">Electron apps on the same Mac used 170 to 520 MB.</p></div>
-    <div class="pf-c" data-card="speed"><div class="pf-mo pf-app" aria-hidden="true"></div><b class="pf-k"></b><span class="pf-l"></span><p class="pf-cap">No web views, so pages change the moment you click.</p></div>
-    <div class="pf-c" data-card="dl"><div class="pf-mo" aria-hidden="true"><svg class="pf-dg" viewBox="0 0 48 48"><circle class="t" cx="24" cy="24" r="20"/><circle class="r" cx="24" cy="24" r="20" pathLength="100"/><path class="a" d="M24 15v15M18.5 24.5 24 30l5.5-5.5"/><path class="o" d="m16.5 24.5 5 5 10-11" pathLength="100"/></svg></div><b class="pf-k"></b><span class="pf-l"></span><p class="pf-cap">One zip, signed and notarized by Apple. No installer.</p></div>
+    <div class="pf-c" data-card="speed"><div class="pf-mo pf-app" aria-hidden="true"></div><b class="pf-k"></b><span class="pf-l"></span><p class="pf-cap">No Electron or web views. The interface uses native Mac controls.</p></div>
+    <div class="pf-c" data-card="dl"><div class="pf-mo" aria-hidden="true"><svg class="pf-dg" viewBox="0 0 48 48"><circle class="t" cx="24" cy="24" r="20"/><circle class="r" cx="24" cy="24" r="20" pathLength="100"/><path class="a" d="M24 15v15M18.5 24.5 24 30l5.5-5.5"/><path class="o" d="m16.5 24.5 5 5 10-11" pathLength="100"/></svg></div><b class="pf-k"></b><span class="pf-l"></span><p class="pf-cap">Download one signed, Apple-notarized ZIP.</p></div>
   </section>
   <p class="pf-note">Measured on Switch 3.8.2 on an Apple silicon Mac, over a day of running.</p>
   </div>
 
   <div class="grp" data-g="features">
-  <div class="sh" id="features" data-reveal><h2>Everything, at a glance.</h2></div>
+  <div class="sh" id="features" data-reveal><h2>Use a saved login. <span>Keep your local work.</span></h2></div>
   <section class="bento">
     <div class="t m" data-reveal>
       <div data-mbar data-app="Finder"></div>
-      <div class="mrow"><div class="mcopy"><h3>Always in your menu bar</h3><p>The remaining limit for each tool's default account. Switch an account and the numbers follow.</p><div class="mtoast" aria-live="polite"><span class="mtt"></span></div></div>
+      <div class="mrow"><div class="mcopy"><h3>Choose an account from the menu bar</h3><p>Keep a default account for each supported tool. Choose another saved login when you need it.</p><div class="mtoast" aria-live="polite"><span class="mtt"></span></div></div>
         <div data-mzoom><div class="mbig"><div data-mbz></div></div></div></div>
     </div>
 
-    <div class="t a" data-reveal><div class="lab"><h3>One click to switch</h3><p>Click an account, then Switch.</p></div><div class="fill"><div data-pop data-foot="no"></div></div></div>
-    <div class="t b" data-reveal style="--i:1"><h3>Limits, live</h3><div data-limring></div></div>
-    <div class="t c" data-reveal style="--i:2"><h3>Providers</h3><b data-count="95">95</b><ul data-tiles="15"></ul></div>
+    <div class="t a" data-reveal><div class="lab"><h3>Change to a saved login</h3><p>Select an account, then choose Switch.</p></div><div class="fill"><div data-pop data-foot="no"></div></div></div>
+    <div class="t b" data-reveal style="--i:1"><h3>See limits and reset times</h3><div data-limring></div></div>
+    <div class="t c" data-reveal style="--i:2"><h3>Tools and providers</h3><b data-count="95">95</b><ul data-tiles="15"></ul></div>
     <div class="t d" data-reveal style="--i:3"><div data-pal data-delay="700"></div></div>
 
     <div class="t e" data-reveal>
-      <div class="lab"><h3>Backed up first</h3><p>Before every switch, the old login is saved. Settings, extensions, and history stay where they are.</p></div>
+      <div class="lab"><h3>Back up logins before switching</h3><p>Switch saves the outgoing login and backs up replaced data. Local settings and supported history stay in place.</p></div>
       <div class="fill"><div data-backup></div></div>
     </div>
 
     <div class="t h" data-reveal>
       <div data-mbar data-app="Finder" data-menus="2"></div>
       <div class="fill"><div data-alerts></div></div>
-      <div class="lab"><h3>Low-limit alerts</h3><p>Switch before a window runs out.</p></div>
+      <div class="lab"><h3>Get alerts when limits run low</h3><p>Choose another saved account before a usage window runs out.</p></div>
     </div>
 
-    <div class="t f" data-reveal style="--i:1"><div class="lab"><h3>Privacy mode</h3><p>Show made-up names when you share your screen.</p></div><div class="fill">
+    <div class="t f" data-reveal style="--i:1"><div class="lab"><h3>Hide account details on screen</h3><p>Replace email addresses with stable aliases when you share your screen.</p></div><div class="fill">
       <div class="setrow"><div><b>Privacy mode</b><span>Hide real email addresses</span></div><button type="button" class="sw" role="switch" aria-checked="false" aria-label="Privacy mode" data-privacy-toggle></button></div>
       <div data-pop data-foot="no" data-privacy-pop></div>
     </div></div>
 
     <div class="t g" data-reveal>
-      <div class="lab"><h3>Insights</h3><p>See where your tokens go, across every account.</p>
+      <div class="lab"><h3>See usage across saved accounts</h3><p>See daily tokens, activity, account trends, and estimated API costs.</p>
         <ul class="gl"><li style="--c:#B57EDC">Tokens per day</li><li style="--c:#2F7CF6">A year of activity</li><li style="--c:#E0735B">Trends by model</li><li style="--c:#2AB7CA">Share of tokens</li><li style="--c:#8BC34A">Estimated API cost</li></ul></div>
       <div class="gw"><div class="wsh dk"><div class="win dark pan"><img src="assets/ins-frame-dark.webp" alt=""><div class="pc"><img src="assets/ins-content-dark.webp" alt=""></div><i class="tl"><b></b><b></b><b></b></i></div></div></div>
     </div>
@@ -116,7 +116,7 @@
   </div>
 
   <div class="grp" data-g="limits">
-  <div class="sh" data-reveal><h2>Every limit, live. <span>Before you hit it.</span></h2></div>
+  <div class="sh" data-reveal><h2>Know when an account runs low. <span>Choose another login.</span></h2></div>
   <section class="lim">
     <div class="t la" data-reveal><div data-autosw></div></div>
     <div class="lm" data-reveal style="--i:1"><div data-meters></div></div>
@@ -124,33 +124,33 @@
   </div>
 
   <div class="grp" data-g="tools">
-  <div class="sh" id="tools" data-reveal><h2>95 tools. <span>Yours is here.</span></h2></div>
+  <div class="sh" id="tools" data-reveal><h2>Switch supported tools. <span>Check provider usage.</span></h2></div>
   <section class="wall" data-reveal data-wall aria-label="Supported tools"><div class="wall-rows"></div></section>
   </div>
 
   <div class="grp" data-g="safety">
-  <div class="sh" id="safety" data-reveal><h2>Your logins <span>stay yours.</span></h2></div>
+  <div class="sh" id="safety" data-reveal><h2>How Switch handles <span>your logins.</span></h2></div>
   <section class="safe">
-    <div data-reveal><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 13 4l9 7.5V22H4z"/><path d="M10.5 22v-6h5v6"/></svg><h3>Private sign-in</h3><p>A new sign-in runs in a private temporary home.</p></div>
-    <div data-reveal style="--i:1"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="19" height="5" rx="1.5"/><path d="M5 10v9.5A1.5 1.5 0 0 0 6.5 21h13a1.5 1.5 0 0 0 1.5-1.5V10M10.5 14h5"/></svg><h3>Backed up first</h3><p>The old login and the replaced bytes are saved.</p></div>
-    <div data-reveal style="--i:2"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="16" height="11" rx="2.5"/><path d="M9 11V8a4 4 0 0 1 8 0v3"/><path d="m4 4 18 18"/></svg><h3>No Keychain, no cookies</h3><p>It never reads the Keychain or browser cookie stores.</p></div>
-    <div data-reveal style="--i:3"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 8-5 5 5 5M17 8l5 5-5 5M14.5 5l-3 16"/></svg><h3>Open source</h3><p>MIT licensed, signed, and notarized by Apple.</p></div>
+    <div data-reveal><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 13 4l9 7.5V22H4z"/><path d="M10.5 22v-6h5v6"/></svg><h3>Sign in separately</h3><p>New sign-ins use a private temporary home, separate from your active login.</p></div>
+    <div data-reveal style="--i:1"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="19" height="5" rx="1.5"/><path d="M5 10v9.5A1.5 1.5 0 0 0 6.5 21h13a1.5 1.5 0 0 0 1.5-1.5V10M10.5 14h5"/></svg><h3>Save the previous login</h3><p>Switch saves the old login and backs up data before replacing it.</p></div>
+    <div data-reveal style="--i:2"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="16" height="11" rx="2.5"/><path d="M9 11V8a4 4 0 0 1 8 0v3"/><path d="m4 4 18 18"/></svg><h3>No Keychain or browser access</h3><p>Switch does not read the macOS Keychain or browser cookie stores.</p></div>
+    <div data-reveal style="--i:3"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 8-5 5 5 5M17 8l5 5-5 5M14.5 5l-3 16"/></svg><h3>Read the source</h3><p>MIT licensed. The Mac download is signed and notarized.</p></div>
   </section>
   </div>
 
   <section class="cli grp" data-g="terminal" id="terminal">
-    <div data-reveal><h2 class="h2">Prefer a terminal?</h2><p>The same accounts work from the command line.<br>You never need it to use Switch.</p><div class="cmd"><code>npx --yes @smdl/switch</code><button type="button" class="k-copy" data-copy="npx --yes @smdl/switch" aria-label="Copy command"></button></div></div>
+    <div data-reveal><h2 class="h2">Run Switch in your terminal</h2><p>Use the same saved accounts from the command line.<br>Available on Mac and Linux. The npm package is Mac-only.</p><div class="cmd"><code>npx --yes @smdl/switch</code><button type="button" class="k-copy" data-copy="npx --yes @smdl/switch" aria-label="Copy command"></button></div></div>
     <div class="tw msh" data-reveal style="--i:1"><div data-macterm></div></div>
   </section>
 
-  <section class="faqs grp" data-g="faq" id="faq"><div class="q" data-reveal><h2 class="h2">Questions.</h2><p>Still unsure? Open an issue on GitHub.</p></div><div data-faq data-reveal style="--i:1"></div></section>
+  <section class="faqs grp" data-g="faq" id="faq"><div class="q" data-reveal><h2 class="h2">Questions about Switch</h2><p>For other questions, open an issue on GitHub.</p></div><div data-faq data-reveal style="--i:1"></div></section>
 
   <section class="cta-wrap grp" data-g="get" id="get">
-    <div class="bigicon" data-reveal><button type="button" data-noedit aria-label="Switch"><img src="assets/icon-512.webp" alt=""></button><h2>Get Switch.</h2><p class="bi-sub">Free and open source, as it should be.</p><div class="row"><a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span class="g1">View on GitHub</span></a></div><div class="meta">v3.8.2<i></i>23.5 MB<i></i>macOS 14 or later</div></div>
+    <div class="bigicon" data-reveal><button type="button" data-noedit aria-label="Switch"><img src="assets/icon-512.webp" alt=""></button><h2>Download Switch for Mac</h2><p class="bi-sub">Save logins, check usage, and choose an account from the menu bar.</p><div class="row"><a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span class="g1">View on GitHub</span></a></div><div class="meta">v3.8.2<i></i>23.5 MB<i></i>macOS 14 or later</div></div>
   </section>
 
   <footer class="foot grp" data-g="foot">
-    <div class="f2"><div class="top2"><div class="fbrand"><img src="assets/icon-256.webp" alt=""><div><b>Switch</b><span>Every AI account, one menu bar.</span></div></div><div class="fcols" data-links></div></div><div class="wm"><b>Switch</b></div><div class="fbar"><span>© 2026 Suraj Mandal</span><span>MIT License</span></div></div>
+    <div class="f2"><div class="top2"><div class="fbrand"><img src="assets/icon-256.webp" alt=""><div><b>Switch</b><span>Saved coding accounts, ready to switch.</span></div></div><div class="fcols" data-links></div></div><div class="wm"><b>Switch</b></div><div class="fbar"><span>© 2026 Suraj Mandal</span><span>MIT License</span></div></div>
   </footer>
 </div>
 
