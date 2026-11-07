@@ -82,12 +82,12 @@
   }
   const FAQ = [
     ['Is Switch free?', 'Yes. Switch is free and open source under the MIT license.'],
-    ['Which Macs does it run on?', 'macOS 14 or later on Apple silicon.'],
-    ['Will it slow down my Mac?', 'No. Switch is a native Swift app with no Electron and no web views. It checks usage every three minutes and sleeps in between. Over a day it averaged 0.6% CPU and kept about 20 MB in memory while idle.'],
-    ['What changes when I switch?', 'Only that tool\'s login file. Settings, extensions, and history stay where they are, and each tool keeps its own default.'],
-    ['Can a switch lose my login?', 'No. Before every switch, Switch saves the old login and backs up the replaced bytes.'],
-    ['Does Switch read my Keychain or browser cookies?', 'No. It never reads the macOS Keychain or browser cookie stores.'],
-    ['Do I need the terminal?', 'No. Everything works from the menu bar and the app. The terminal tool is optional.'],
+    ['Does Switch work on Mac and Linux?', 'The Mac app requires macOS 14 or later on Apple silicon. The standalone CLI supports Linux x86_64 with glibc 2.38 or later. The npm package is for Apple Silicon Macs.'],
+    ['How much CPU and memory does it use?', 'Switch is a native Swift app with no Electron or web views. It refreshes usage and sleeps between checks. In the published day-long measurement, it averaged 0.6% CPU and about 20 MB of idle memory.'],
+    ['What changes when I switch accounts?', 'For supported tools, Switch updates the login while keeping local settings and workspace data in place. Some tools use separate account profiles. Other providers support usage checks without changing a coding tool login. Cloud history and attachments can still require the original account.'],
+    ['What if a switch fails?', 'Switch backs up the previous login and replaced data. Failed changes have recovery options.'],
+    ['Does Switch read Keychain or browser cookies?', 'No. Switch does not read the macOS Keychain or browser cookie stores. Providers that need a browser session accept a session value you paste.'],
+    ['Do I need the terminal?', 'No. On Mac, you can use the app and menu bar. The optional CLI uses the same saved accounts; Linux uses the CLI.'],
   ];
   const ALIAS = { 'ada.lovelace@example': 'Calm Heron', 'katherine.johnson@example': 'Bright Fox', 'grace.hopper@example': 'Swift Owl', 'linus.torvalds@example': 'Quiet Pine' };
   const COPY_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg><svg class="ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5 6.5 11.5 12.5 4.5"/></svg>';
