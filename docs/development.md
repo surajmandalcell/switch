@@ -150,10 +150,12 @@ stays in `$AI_MANAGER_BUILD_PATH/local/Switch.app` for local install.
 For this trusted path, the script checks the clean, pushed commit, runs native
 and CLI checks, builds the versioned app, notarizes and staples it, and checks
 Gatekeeper. It writes
-`release/Switch-v3.0.1-mac-arm64.zip` and `release/checksums-v3.0.1.txt`,
-checks the archived app, then creates the tag and uploads both files to a
-GitHub Release from this Mac. It downloads the uploaded ZIP and compares it
-with the local file before publishing the draft. The tag-triggered release
+`release/Switch-v3.0.1-mac-arm64.zip`, a drag-to-Applications
+`release/Switch-v3.0.1-mac-arm64.dmg` (from `scripts/make-dmg.sh`), and
+`release/checksums-v3.0.1.txt`, checks the archived app, then creates the tag
+and uploads all three files to a GitHub Release from this Mac. It downloads the
+uploaded ZIP and DMG and compares them with the local files before publishing
+the draft. The tag-triggered release
 workflow has been removed; native CI remains for source checks. If the upload
 fails, keep the files in `release/` and resume from the created tag after
 checking the draft release.
@@ -180,30 +182,25 @@ its required Swift `.so` libraries, `LICENSE`, and `SWIFT-LICENSE.txt` at the
 archive root. Use `$ORIGIN` library lookup and check the glibc requirements of
 the executable and bundled libraries before setting the installer minimum.
 
-## README cover
+## README art
 
-The final cover is Monument: a centered 200px/800 wordmark and 36px subtitle.
-Its wording is "Switch" and "Coding accounts and usage. Right in your menu bar."
-The owner closed the design rounds. Keep this selection until explicitly asked to change it.
-On Lin1, use the approved fonts through the process-only
-`FONTCONFIG_FILE=/mnt/nvme1/data/switch/cover-fonts/fonts.conf` setting.
-This profile matches the selected preview without changing the machine's font settings.
-The exporter checks the approved title and subtitle widths to reject a different font fallback.
-The exporter uses `cover-lab-scene.cjs`. Run `node packages/website/cover-lab.cjs --serve`
-to view the final exported PNG and GIF locally; the viewer embeds both files for offline use.
-It records the website's menu bar demo inside that light poster. On the
-rendering host, run `FONTCONFIG_FILE=/mnt/nvme1/data/switch/cover-fonts/fonts.conf node packages/website/export-cover.cjs --gif` from the
-repository root to create the GIF and static reduced-motion fallback.
-Only the area outside the cover's 6px corners is transparent. Its padding keeps the light background.
-It uses the existing Playwright installation under `packages/mac-gui/ui-lint`;
-set `PLAYWRIGHT_MODULE` or `CHROME_PATH` to use another installed renderer.
-GIF export also needs FFmpeg and Gifsicle. Set `GIFSICLE_PATH` for a custom executable path.
-Successful exports remove temporary frames; failures print the retained path for repair.
-ImageMagick builds the social preview below.
+The README header follows Hushpen: app icon, Jost wordmark, a two-line promise,
+links, then four captioned tiles (app window, menu bar popover, the terminal app's
+Accounts screen, and the Auto switch notification). Run
+`node packages/website/readme-art.cjs` from the repository root to render
+`docs/readme/` in light and dark. It uses the website assets and the Playwright
+installation under `packages/mac-gui/ui-lint`; set `PLAYWRIGHT_MODULE` or
+`CHROME_PATH` to use another renderer. It also needs `cwebp` and ImageMagick.
+Keep the terminal tile text in step with the terminal app's Accounts screen.
+Check the README on GitHub in light and dark mode at desktop and phone widths
+after replacing images.
+
+The earlier Monument cover now only feeds the website social preview.
+`node packages/website/cover-lab.cjs --serve` shows it, and
+`FONTCONFIG_FILE=/mnt/nvme1/data/switch/cover-fonts/fonts.conf node packages/website/export-cover.cjs --gif`
+re-exports it on Lin1 with the approved fonts (needs FFmpeg and Gifsicle).
 Run `sh packages/website/build-assets.sh` to refresh the website assets,
-including the social preview. Check the README in light and dark mode at
-desktop and phone widths after replacing images.
-
+including the social preview.
 ## Website copy
 
 Run `node packages/website/copy-preview.cjs --serve` to compare three copy sets
