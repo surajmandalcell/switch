@@ -9,12 +9,15 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "Install $1 and try again."; }
 
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) platform=darwin-arm64 ;;
-  Linux/x86_64)
-    platform=linux-x86_64
+  Linux/x86_64) platform=linux-x86_64 ;;
+  Linux/aarch64|Linux/arm64) platform=linux-aarch64 ;;
+  *) fail 'Supported systems: Apple Silicon macOS and x86_64 or aarch64 (arm64) Linux.' ;;
+esac
+case "$platform" in
+  linux-*)
     libc=$(getconf GNU_LIBC_VERSION 2>/dev/null) || fail 'Linux requires glibc 2.38 or later.'
     printf '%s\n' "$libc" | awk '$1 == "glibc" && $2 ~ /^[0-9]+[.][0-9]+$/ {split($2,v,"."); ok=(v[1]+0>2 || (v[1]+0==2 && v[2]+0>=38))} END {exit !ok}' || fail 'Linux requires glibc 2.38 or later (for example, Ubuntu 24.04).'
     ;;
-  *) fail 'Supported systems: Apple Silicon macOS and x86_64 Linux.' ;;
 esac
 for command in curl tar awk mktemp; do need "$command"; done
 if command -v sha256sum >/dev/null 2>&1; then
