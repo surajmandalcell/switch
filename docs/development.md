@@ -164,14 +164,21 @@ checking the draft release.
 macOS also checks the developer signature and notarization before installing
 the app into `~/Applications`. Both systems install the CLI under
 `${XDG_DATA_HOME:-~/.local/share}/switch/cli/<version>` and link commands in
-`~/.local/bin`. Linux runtime libraries stay beside the executable.
+`~/.local/bin`. Linux supports x86_64 and aarch64 (including the arm64 alias),
+with glibc 2.38 or later, SQLite 3, and libcurl 4. Swift runtime libraries stay
+beside the executable; neither Linux archive is a static musl build.
 The installer does not need sudo, change shell profiles, or touch account data.
 Run `bash scripts/check-installer.sh` for isolated installation and failure checks.
-It currently installs the public Mac app 3.8.2 and CLI 3.9.1. Publish both
-`Switch-cli-v<version>-darwin-arm64.tar.gz` and
-`Switch-cli-v<version>-linux-x86_64.tar.gz`, plus `checksums.txt`, under the
+It currently installs the public Mac app 3.8.2 and CLI 3.9.1. Publish
+`Switch-cli-v<version>-darwin-arm64.tar.gz`,
+`Switch-cli-v<version>-linux-x86_64.tar.gz`, and
+`Switch-cli-v<version>-linux-aarch64.tar.gz`, plus `checksums.txt`, under the
 `cli-v<version>` release. Keep the app ZIP and its checksum under `v<version>`.
 Update the script's pinned versions only after publishing matching assets.
+Build each Linux archive on its matching CPU architecture. Keep `ai-manager`,
+its required Swift `.so` libraries, `LICENSE`, and `SWIFT-LICENSE.txt` at the
+archive root. Use `$ORIGIN` library lookup and check the glibc requirements of
+the executable and bundled libraries before setting the installer minimum.
 
 ## README cover
 

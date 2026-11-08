@@ -10,9 +10,9 @@ cat > "$work/cli/ai-manager" <<'SH'
 echo "Switch ${FIXTURE_VERSION:-3.9.1}"
 SH
 chmod +x "$work/cli/ai-manager"
-printf 'bundled runtime\n' > "$work/cli/libswiftCore.so"
 printf 'license\n' > "$work/cli/SWIFT-LICENSE.txt"
-for platform in darwin-arm64 linux-x86_64; do
+for platform in darwin-arm64 linux-x86_64 linux-aarch64; do
+  printf 'bundled runtime %s\n' "$platform" > "$work/cli/libswiftCore.so"
   tar -czf "$work/assets/Switch-cli-v3.9.1-$platform.tar.gz" -C "$work/cli" ai-manager libswiftCore.so SWIFT-LICENSE.txt
 done
 printf 'fixture app\n' > "$work/app/Switch.app/Contents/Info.plist"
@@ -36,6 +36,7 @@ case "$1" in -s) echo "$OS";; -m) echo "$ARCH";; esac
 SH
 cat > "$work/mock/getconf" <<'SH'
 #!/bin/sh
+[ "${FAIL_GETCONF:-0}" = 0 ] || exit 1
 echo "glibc ${GLIBC:-2.39}"
 SH
 cat > "$work/mock/sw_vers" <<'SH'
@@ -77,7 +78,10 @@ reject() { if run; then printf 'Unexpected installer success\n' >&2; exit 1; fi;
 
 run
 test "$("$HOME/.local/bin/switch" --version)" = 'Switch 3.9.1'
-test -f "$HOME/.local/share/switch/cli/3.9.1/libswiftCore.so"
+test "$(cat "$HOME/.local/share/switch/cli/3.9.1/libswiftCore.so")" = 'bundled runtime linux-x86_64'
+export GLIBC=2.38
+run
+unset GLIBC
 printf '#!/bin/sh\necho stale\n' > "$work/mock/switch"
 chmod +x "$work/mock/switch"
 export PATH="$PATH:$HOME/.local/bin"
@@ -99,7 +103,10 @@ unset GLIBC
 export GLIBC=invalid
 reject
 unset GLIBC
-export ARCH=aarch64
+export FAIL_GETCONF=1
+reject
+unset FAIL_GETCONF
+export ARCH=riscv64
 reject
 export ARCH=x86_64
 export FAIL_DOWNLOAD=1
@@ -115,6 +122,32 @@ reject
 test ! -e "$HOME/.local"
 unset BAD_CHECKSUM
 
+for arch in aarch64 arm64; do
+  export HOME="$work/linux-$arch-home" OS=Linux ARCH="$arch"
+  export GLIBC=2.38
+  mkdir -p "$HOME"
+  run
+  test "$("$HOME/.local/bin/switch" --version)" = 'Switch 3.9.1'
+  test "$(cat "$HOME/.local/share/switch/cli/3.9.1/libswiftCore.so")" = 'bundled runtime linux-aarch64'
+  run
+  export BAD_CHECKSUM=1
+  reject
+  unset BAD_CHECKSUM
+  export FIXTURE_VERSION=0.0.0
+  reject
+  unset FIXTURE_VERSION
+  export GLIBC=2.37
+  reject
+  unset GLIBC
+  export GLIBC=invalid
+  reject
+  unset GLIBC
+  export FAIL_GETCONF=1
+  reject
+  unset FAIL_GETCONF
+  test "$("$HOME/.local/bin/switch" --version)" = 'Switch 3.9.1'
+done
+
 export HOME="$work/mac-home" OS=Darwin ARCH=arm64
 mkdir -p "$HOME"
 run
@@ -129,4 +162,4 @@ reject
 unset BAD_SIGNATURE
 test "$(cat "$HOME/Applications/Switch.app/Contents/Info.plist")" = 'fixture app'
 test "$("$HOME/.local/bin/switch" --version)" = 'Switch 3.9.1'
-printf 'INSTALLER_FIXTURES_PASS: Linux/Mac install, repeat, checksum, wrong version, old/invalid glibc, architecture, download, unrelated command, running app, signature\n'
+printf 'INSTALLER_FIXTURES_PASS: Linux x86_64/aarch64/arm64 and Mac install, repeat, checksum, wrong version, old/invalid glibc, unsupported architecture, download, unrelated command, running app, signature\n'
