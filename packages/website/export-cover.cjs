@@ -9,9 +9,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '../mac-gui/ui-lin
 const selected = {
   title: 'Switch',
   subtitle: 'Coding accounts and usage. Right in your menu bar.',
-  fontSize: 200, fontWeight: 800, align: 'center', layout: 'center', pattern: 'plain',
+  fontSize: 170, fontWeight: 800, titleFontFamily: 'Jost', align: 'center', layout: 'center', pattern: 'plain',
   subtitleFontSize: 36, titleTreatment: 'bold', titleTracking: -.06,
-  topPadding: 187.5, sidePadding: 60, bottomPadding: 71,
+  topPadding: 168.75, sidePadding: 60, bottomPadding: 71,
   sceneHeight: 860, appWidth: 900, gap: 56,
 };
 
@@ -44,8 +44,9 @@ const selected = {
       assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1600 && box.y + box.height <= height, `Cover content must fit the complete frame: ${JSON.stringify(bounds)}`);
     }
     // Font hinting can shift advances slightly across Chrome builds using the same approved fonts.
-    assert(Math.abs(bounds.title.width - 681.90625) < 2 && Math.abs(bounds.subtitle.width - 910.484375) < 2, 'Render with the approved OCI2 fonts; a different system font changes Monument');
-    assert(bounds.title.y >= 187.5 && height - bounds.desk.y - bounds.desk.height >= 71, 'The cover must preserve the approved vertical padding');
+    assert(await page.evaluate(() => [...document.fonts].some(font => font.family === 'Jost' && font.status === 'loaded') && getComputedStyle(document.querySelector('.h-t')).fontFamily === 'Jost' && getComputedStyle(document.querySelector('.h-t')).fontSize === '170px'), 'The cover title must use the embedded Jost font at 170px');
+    assert(Math.abs(bounds.subtitle.width - 910.484375) < 2, 'Render with the approved OCI2 body fonts');
+    assert(bounds.title.y === 168.75 && height - bounds.desk.y - bounds.desk.height >= 71, 'The cover must preserve the approved vertical padding');
     assert(bounds.desk.x === 60 && bounds.desk.width === 1480 && bounds.window.width === 900, 'The desktop and app must preserve the approved sizes');
     for (const box of [bounds.window]) {
       assert(box.x >= bounds.desk.x && box.x + box.width <= bounds.desk.x + bounds.desk.width && box.y + box.height <= bounds.desk.y + bounds.desk.height, 'The desktop must contain the complete window and popover');
