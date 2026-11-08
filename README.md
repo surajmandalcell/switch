@@ -69,7 +69,7 @@ Then:
 </details>
 
 <details>
-<summary><b>Linux</b> (x86_64)</summary>
+<summary><b>Linux</b> (x86_64 or arm64)</summary>
 
 <br>
 
