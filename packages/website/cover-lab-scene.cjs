@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const publicDir = path.join(__dirname, 'public');
-const mime = { '.webp': 'image/webp', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const mime = { '.webp': 'image/webp', '.svg': 'image/svg+xml', '.png': 'image/png', '.ttf': 'font/ttf' };
 const assets = new Map();
 function asset(file) {
   if (!assets.has(file)) assets.set(file, `data:${mime[path.extname(file)]};base64,${fs.readFileSync(path.join(publicDir, 'assets', file)).toString('base64')}`);
@@ -44,6 +44,7 @@ function makeScene({
     ? '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><path d="M32 0H0V32" fill="none" stroke="#111" stroke-opacity=".04"/></svg>'
     : '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="1" fill="#111" fill-opacity=".07"/></svg>').toString('base64')}")`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1600"><title>Switch cover preview</title><style>${css}
+@font-face{font-family:Jost;src:url("${asset('fonts/Jost.ttf')}") format('truetype');font-weight:100 900;font-style:normal;font-display:block}
 html,body{margin:0;background:transparent!important;width:1600px;overflow:hidden}
 .page{width:1600px;max-width:none;padding:${topPadding}px ${sidePadding}px ${bottomPadding}px;background-color:#F2F2F4;background-image:${texture};border-radius:6px;overflow:hidden}
 .cover-layout{${layout === 'split' ? 'display:grid;grid-template-columns:400px 1fr;align-items:center;' : 'display:block;'}gap:${gap}px}
