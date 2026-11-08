@@ -42,9 +42,9 @@ See account limits and reset times in the menu bar. The Overview page shows dail
 | :---: | :---: |
 | ![Account trends and share of tokens](docs/screenshots/overview-insights.png) | ![Overview in light mode](docs/screenshots/overview-light.png) |
 
-| Menu bar in light mode | Menu bar in dark mode |
+| Menu bar in dark mode | Menu bar in light mode |
 | :---: | :---: |
-| ![Account limits and reset times in light mode](docs/screenshots/menubar-light.png) | ![Account limits and reset times in dark mode](docs/screenshots/menubar-dark.png) |
+| ![Account limits and reset times in dark mode](docs/screenshots/menubar-dark.png) | ![Account limits and reset times in light mode](docs/screenshots/menubar-light.png) |
 
 Manage saved accounts by tool, check usage without switching, and set a default for each tool.
 
