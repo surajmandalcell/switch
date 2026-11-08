@@ -49,6 +49,7 @@ app_path="$build_path/package/Switch.app"
 cli_path="$build_path/artifacts/ai-manager"
 submission="$build_path/release-submission.zip"
 archive="$release_dir/Switch-$tag-mac-arm64.zip"
+dmg="$release_dir/Switch-$tag-mac-arm64.dmg"
 checksum="$release_dir/checksums-$tag.txt"
 version="${tag#v}"
 version="${version%%-*}"
@@ -181,7 +182,12 @@ fi
 mkdir -p "$release_dir"
 rm -f "$archive"
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$archive"
-(cd "$release_dir" && shasum -a 256 "$(basename "$archive")" > "$(basename "$checksum")")
+if (( adhoc )); then
+  scripts/make-dmg.sh "$app_path" "$dmg"
+else
+  scripts/make-dmg.sh "$app_path" "$dmg" --public
+fi
+(cd "$release_dir" && shasum -a 256 "$(basename "$archive")" "$(basename "$dmg")" > "$(basename "$checksum")")
 (cd "$release_dir" && shasum -a 256 -c "$(basename "$checksum")")
 
 verify_dir="$(mktemp -d "$build_path/release-verify.XXXXXX")"
@@ -206,14 +212,14 @@ if [[ -z "$remote_tag" ]]; then
   git push "$remote" "$tag"
 fi
 if (( preview )); then
-  gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
+  gh release create "$tag" "$archive" "$dmg" "$checksum" --repo "$repo" --verify-tag \
     --title "Switch ${tag#v} Preview" --draft --prerelease \
     --notes-file "$repo_root/docs/release-notes-preview.md"
 elif (( adhoc )); then
-  gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
+  gh release create "$tag" "$archive" "$dmg" "$checksum" --repo "$repo" --verify-tag \
     --title "Switch $version" --draft --notes-file "$repo_root/docs/release-notes.md"
 else
-  gh release create "$tag" "$archive" "$checksum" --repo "$repo" --verify-tag \
+  gh release create "$tag" "$archive" "$dmg" "$checksum" --repo "$repo" --verify-tag \
     --title "Switch $version" --draft \
     --notes-file "$repo_root/docs/release-notes.md"
 fi
@@ -221,6 +227,7 @@ fi
 mkdir -p "$verify_dir/download"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir/download"
 cmp "$archive" "$verify_dir/download/$(basename "$archive")" || fail "uploaded archive differs from the local package"
+cmp "$dmg" "$verify_dir/download/$(basename "$dmg")" || fail "uploaded disk image differs from the local file"
 cmp "$checksum" "$verify_dir/download/$(basename "$checksum")" || fail "uploaded checksum differs from the local file"
 if (( preview )); then
   gh release edit "$tag" --repo "$repo" --draft=false --prerelease
@@ -228,10 +235,10 @@ else
   gh release edit "$tag" --repo "$repo" --draft=false --latest
 fi
 
-for old in "$release_dir"/Switch-v*-mac-arm64.zip "$release_dir"/checksums-v*.txt; do
-  [[ -f "$old" && "$old" != "$archive" && "$old" != "$checksum" ]] || continue
+for old in "$release_dir"/Switch-v*-mac-arm64.zip "$release_dir"/Switch-v*-mac-arm64.dmg "$release_dir"/checksums-v*.txt; do
+  [[ -f "$old" && "$old" != "$archive" && "$old" != "$dmg" && "$old" != "$checksum" ]] || continue
   printf 'Removing superseded release artifact: %s\n' "$old"
   rm "$old"
 done
-printf 'Published %s\nArchive: %s\nChecksum: %s\n' \
-  "$(gh release view "$tag" --repo "$repo" --json url --jq .url)" "$archive" "$checksum"
+printf 'Published %s\nArchive: %s\nDisk image: %s\nChecksum: %s\n' \
+  "$(gh release view "$tag" --repo "$repo" --json url --jq .url)" "$archive" "$dmg" "$checksum"
