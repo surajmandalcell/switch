@@ -556,11 +556,10 @@ public actor UsageHistory {
         return points
     }
 
-    /// Config folder of a Claude Code profile that Switch created (lowercase id keys, as the ledger uses).
-    public static func claudeProfileHomes(applicationSupport: URL, accountIDs: [UUID]) -> [String: URL] {
-        Dictionary(uniqueKeysWithValues: accountIDs.map {
-            ($0.uuidString.lowercased(), applicationSupport
-                .appending(path: "claude-code-profiles/\($0.uuidString)/config", directoryHint: .isDirectory))
+    /// Saved native profile folders, keyed by the stable account IDs used by the ledger.
+    public static func claudeProfileHomes(accounts: [AccountRecord]) -> [String: URL] {
+        Dictionary(uniqueKeysWithValues: accounts.filter { $0.identity.providerID == .claudeCode }.map {
+            ($0.id.uuidString.lowercased(), $0.home)
         })
     }
 

@@ -1998,9 +1998,7 @@ final class AccountViewModel: ObservableObject {
         if paths.isolationRoot == nil, let pricing = claudePricing {
             sources.claude = ClaudeCostScanner(
                 cacheURL: support.appending(path: "cache/claude-history.json"), pricing: pricing.loader())
-            sources.claudeHomes = UsageHistory.claudeProfileHomes(
-                applicationSupport: support,
-                accountIDs: accounts.filter { $0.identity.providerID == .claudeCode }.map(\.id))
+            sources.claudeHomes = UsageHistory.claudeProfileHomes(accounts: accounts)
             sources.grokSessions = UsageHistory.grokSessionsFolder()
             sources.droidSessions = DroidUsage.sessionsFolder(droidHome: paths.droidHome)
         }
