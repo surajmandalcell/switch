@@ -679,6 +679,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .milliseconds(400))
             window.contentView?.layoutSubtreeIfNeeded()
         }
+        menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.accountSignInMenuFailures())
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
     }
