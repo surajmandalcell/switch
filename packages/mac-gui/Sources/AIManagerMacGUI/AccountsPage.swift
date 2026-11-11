@@ -89,6 +89,10 @@ struct AccountsPage: View {
       Task { await model.switchDefault(to: account.id) }
     }
     .disabled(model.isBusy)
+    if AccountMenuItems.canSignInAgain(account.identity.providerID) {
+      Button("Sign in again") { Task { await model.beginSignIn(for: account.id) } }
+        .disabled(model.isBusy)
+    }
     if account.usesGenericDetail {
       Button("Refresh usage") {
         Task { await model.refreshProviderUsage(accountID: account.id) }
@@ -1249,6 +1253,12 @@ struct AccountMenuItems: View {
   let delete: () -> Void
   @Environment(\.aimCopyPath) private var copyPath
 
+  static func canSignInAgain(_ providerID: ProviderID) -> Bool {
+    if ProviderChoices.builtIn.contains(providerID) { return true }
+    guard let spec = ProviderCatalog.spec(providerID) else { return false }
+    return spec.style == .files && spec.login != nil
+  }
+
   var body: some View {
     Button("Copy Name") { _ = copyPath(account.identity.realAccountLabel) }
     if account.identity.providerID == .droid {
@@ -1265,6 +1275,10 @@ struct AccountMenuItems: View {
     Divider()
     Button("Refresh Usage") { Task { await model.refreshAnyUsage(accountID: account.id) } }
       .disabled(model.isBusy)
+    if Self.canSignInAgain(account.identity.providerID) {
+      Button("Sign in again") { Task { await model.beginSignIn(for: account.id) } }
+        .disabled(model.isBusy)
+    }
     if !account.usesGenericDetail {
       Button("Check Account") { Task { await model.checkAccount(account.id) } }
         .disabled(model.isBusy)

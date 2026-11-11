@@ -2358,6 +2358,15 @@ enum AIManagerNativeContract {
     let model = AccountViewModel(scenario: .demo)
     let accounts = model.status?.accounts ?? []
 
+    expect(ProviderChoices.builtIn.allSatisfy(AccountMenuItems.canSignInAgain),
+      "A built-in account cannot sign in again from its menu")
+    expect([ProviderID.geminiCLI, .antigravityCLI, ProviderID(rawValue: "vertexai")]
+      .allSatisfy(AccountMenuItems.canSignInAgain),
+      "A file-login provider account menu lost its supported sign-in command")
+    expect(!AccountMenuItems.canSignInAgain(ProviderID(rawValue: "cursor"))
+      && !AccountMenuItems.canSignInAgain(ProviderID(rawValue: "deepseek")),
+      "An import-only or API-key account offers an unsupported sign-in command")
+
     // Preview data holds every service the owner uses, Droid included.
     expect(Set(accounts.map(\.identity.providerID)).isSuperset(of: [.codex, .grokBuild, .claudeCode, .droid]),
       "The Preview lacks Codex CLI, Grok Build, Claude Code, or Droid accounts")
