@@ -126,7 +126,7 @@ final class AccountOnboardingTests: XCTestCase {
         let firstLogin = try profiles.startLogin()
         let secondLogin = try profiles.startLogin()
         XCTAssertEqual(recorder.launchCount, 2)
-        XCTAssertEqual(firstLogin.launchSpec.arguments, ["auth", "login"])
+        XCTAssertEqual(firstLogin.launchSpec.arguments, ["auth", "login", "--claudeai"])
         XCTAssertNotEqual(firstLogin.launchSpec.environment["CLAUDE_CONFIG_DIR"],
                           secondLogin.launchSpec.environment["CLAUDE_CONFIG_DIR"])
         XCTAssertNil(firstLogin.launchSpec.environment["ANTHROPIC_API_KEY"])

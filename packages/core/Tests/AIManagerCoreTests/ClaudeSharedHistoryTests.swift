@@ -56,13 +56,27 @@ final class ClaudeSharedHistoryTests: XCTestCase {
         let account = try XCTUnwrap(firstResult.account)
         let credential = config(account.id).appending(path: ".credentials.json")
         try write("synthetic-old", to: credential)
-        try write("saved-settings", to: config(account.id).appending(path: ".claude.json"))
+        let savedSettings = #"{"theme":"dark","mcpServers":{"local":{}},"oauthAccount":{"emailAddress":"old@example.test"}}"#
+        try write(savedSettings, to: config(account.id).appending(path: ".claude.json"))
         let refresh = try profiles.startLogin(accountID: account.id)
+        let stagedSettingsURL = config(refresh.session.id).appending(path: ".claude.json")
+        var stagedSettings = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stagedSettingsURL)) as? [String: Any])
+        XCTAssertEqual(stagedSettings["theme"] as? String, "dark")
+        XCTAssertNotNil(stagedSettings["mcpServers"])
+        XCTAssertNil(stagedSettings["oauthAccount"])
+        stagedSettings["oauthAccount"] = ["emailAddress": "a@example.test"]
+        try JSONSerialization.data(withJSONObject: stagedSettings).write(to: stagedSettingsURL)
         try write("synthetic-fresh", to: config(refresh.session.id).appending(path: ".credentials.json"))
         let result = try await profiles.checkLogin(refresh.session.id)
         XCTAssertEqual(result.account?.id, account.id)
-        XCTAssertEqual(try text(credential), "synthetic-fresh")
-        XCTAssertEqual(try text(config(account.id).appending(path: ".claude.json")), "saved-settings")
+        let refreshed = try XCTUnwrap(result.account)
+        XCTAssertEqual(refreshed.home.path, config(refresh.session.id).path)
+        XCTAssertEqual(try text(refreshed.home.appending(path: ".credentials.json")), "synthetic-fresh")
+        XCTAssertEqual(try text(credential), "synthetic-old")
+        XCTAssertEqual(try text(config(account.id).appending(path: ".claude.json")), savedSettings)
+        let promotedSettings = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: refreshed.home.appending(path: ".claude.json"))) as? [String: Any])
+        XCTAssertEqual(promotedSettings["theme"] as? String, "dark")
+        XCTAssertEqual((promotedSettings["oauthAccount"] as? [String: String])?["emailAddress"], "a@example.test")
         XCTAssertEqual(try profiles.accounts().count, 1)
 
         let mismatchProfiles = try makeProfiles(status: { _ in .init(loggedIn: true, email: "other@example.test") })
@@ -75,10 +89,218 @@ final class ClaudeSharedHistoryTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription,
                            "Signed in as other@example.test. Sign in as a@example.test to refresh this account.")
         }
-        XCTAssertEqual(try text(credential), "synthetic-fresh")
+        XCTAssertEqual(try text(credential), "synthetic-old")
+        XCTAssertEqual(try profiles.accounts().first?.home, refreshed.home)
+        XCTAssertEqual(try text(refreshed.home.appending(path: ".credentials.json")), "synthetic-fresh")
         XCTAssertEqual(try profiles.accounts().count, 1)
         XCTAssertTrue(try profiles.pending().isEmpty)
         XCTAssertFalse(fileManager.fileExists(atPath: config(mismatch.session.id).path))
+    }
+
+    func testClaudeReauthenticationKeepsNativeHomeWithoutCredentialFileAcrossRestart() async throws {
+        let profiles = try makeProfiles()
+        let login = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(login.session.id)
+        let account = try XCTUnwrap(initial.account)
+        try profiles.reorder([account.id])
+        let active = paths.vaultRoot.appending(path: "claude/active")
+
+        for _ in 0..<2 {
+            let previous = try XCTUnwrap(profiles.accounts().first)
+            try write(#"{"theme":"dark"}"#, to: previous.home.appending(path: ".claude.json"))
+            let refresh = try profiles.startLogin(accountID: account.id)
+            let staged = config(refresh.session.id)
+            XCTAssertFalse(fileManager.fileExists(atPath: staged.appending(path: ".credentials.json").path))
+            let result = try await profiles.checkLogin(refresh.session.id)
+            let updated = try XCTUnwrap(result.account)
+            XCTAssertEqual(updated.id, account.id)
+            XCTAssertEqual(updated.home.path, staged.path)
+            XCTAssertEqual(updated.credentialFile.path, staged.path)
+            XCTAssertEqual(updated.source.path, staged.path)
+            XCTAssertEqual(UsageHistory.claudeProfileHomes(accounts: [updated])[account.id.uuidString.lowercased()]?.path, staged.path)
+            XCTAssertEqual(try text(active), staged.path)
+            XCTAssertEqual(try text(previous.home.appending(path: ".claude.json")), #"{"theme":"dark"}"#)
+
+            let restarted = try makeProfiles()
+            XCTAssertEqual(try restarted.accounts().map(\.id), [account.id])
+            XCTAssertEqual(try restarted.defaultID(), account.id)
+            XCTAssertEqual(try restarted.accountOrder(), [account.id])
+            XCTAssertEqual(try restarted.launchSpec(account.id, arguments: [], workingDirectory: nil)
+                .environment["CLAUDE_CONFIG_DIR"], staged.path)
+            let checked = await restarted.check(account.id)
+            XCTAssertEqual(checked.verification.state, .verifiedLocally)
+            for item in ClaudeCodeProfiles.sharedItems {
+                XCTAssertTrue(isLink(staged.appending(path: item), to: shared.appending(path: item)), item)
+            }
+        }
+    }
+
+    func testCancelClaudeReauthenticationPreservesSavedProfile() async throws {
+        let profiles = try makeProfiles()
+        let login = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(login.session.id)
+        let account = try XCTUnwrap(initial.account)
+        let refresh = try profiles.startLogin(accountID: account.id)
+        try await profiles.cancelLogin(refresh.session.id)
+        XCTAssertEqual(try profiles.accounts().first?.id, account.id)
+        XCTAssertEqual(try profiles.accounts().first?.home.path, account.home.path)
+        XCTAssertTrue(try profiles.pending().isEmpty)
+        XCTAssertTrue(fileManager.fileExists(atPath: account.home.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: config(refresh.session.id).path))
+        XCTAssertEqual(try text(paths.vaultRoot.appending(path: "claude/active")), account.home.path)
+    }
+
+    func testClaudeReauthenticationRejectsInvalidSettingsWithoutLeavingStaging() async throws {
+        let profiles = try makeProfiles()
+        let first = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(first.session.id)
+        let account = try XCTUnwrap(initial.account)
+        try write("invalid-json", to: account.home.appending(path: ".claude.json"))
+        XCTAssertThrowsError(try profiles.startLogin(accountID: account.id))
+        XCTAssertEqual(try profiles.accounts().first?.id, account.id)
+        XCTAssertEqual(try profiles.accounts().first?.home.path, account.home.path)
+        XCTAssertTrue(try profiles.pending().isEmpty)
+        let folders = try fileManager.contentsOfDirectory(
+            at: paths.applicationSupport.appending(path: "claude-code-profiles"), includingPropertiesForKeys: nil)
+            .filter { UUID(uuidString: $0.lastPathComponent) != nil }
+        XCTAssertEqual(folders.map(\.lastPathComponent), [account.id.uuidString])
+    }
+
+    func testDeletingReauthenticatedClaudeAccountRemovesItsCurrentHomeOnly() async throws {
+        let profiles = try makeProfiles()
+        let first = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(first.session.id)
+        let account = try XCTUnwrap(initial.account)
+        let replacement = try profiles.startLogin()
+        let replacementResult = try await profiles.checkLogin(replacement.session.id)
+        let replacementAccount = try XCTUnwrap(replacementResult.account)
+        let refresh = try profiles.startLogin(accountID: account.id)
+        let refreshed = try await profiles.checkLogin(refresh.session.id)
+        let current = try XCTUnwrap(refreshed.account)
+
+        _ = try await profiles.delete(account.id, replacement: replacementAccount.id)
+        XCTAssertFalse(fileManager.fileExists(atPath: current.home.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: account.home.path))
+        XCTAssertEqual(try profiles.accounts().map(\.id), [replacementAccount.id])
+        XCTAssertEqual(try text(paths.vaultRoot.appending(path: "claude/active")), replacementAccount.home.path)
+    }
+
+    func testClaudeDeletionRejectsAProfileReauthenticatedDuringLogout() async throws {
+        let profiles = try makeProfiles()
+        let login = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(login.session.id)
+        let account = try XCTUnwrap(initial.account)
+        let replacement = try profiles.startLogin()
+        let replacementCheck = try await profiles.checkLogin(replacement.session.id)
+        let replacementAccount = try XCTUnwrap(replacementCheck.account)
+        let deleting = try ClaudeCodeProfiles(
+            paths: paths, fileManager: fileManager, loginRunner: .init(launch: { _, _ in }),
+            statusCheck: { _ in .init(loggedIn: true, email: "a@example.test") },
+            logout: { _ in
+                let refresh = try profiles.startLogin(accountID: account.id)
+                _ = try await profiles.checkLogin(refresh.session.id)
+            })
+
+        do {
+            _ = try await deleting.delete(account.id, replacement: replacementAccount.id)
+            XCTFail("Deletion must not remove a newly signed-in profile")
+        } catch AIManagerError.sourceChanged {
+            let current = try XCTUnwrap(profiles.accounts().first(where: { $0.id == account.id }))
+            XCTAssertNotEqual(current.home, account.home)
+            XCTAssertTrue(fileManager.fileExists(atPath: current.home.path))
+            XCTAssertTrue(fileManager.fileExists(atPath: account.home.path))
+            XCTAssertEqual(try profiles.defaultID(), account.id)
+        }
+    }
+
+    func testClaudeProfileIndexRejectsTwoAccountsSharingOneHome() async throws {
+        let profiles = try makeProfiles()
+        for _ in 0..<2 {
+            let login = try profiles.startLogin()
+            _ = try await profiles.checkLogin(login.session.id)
+        }
+        let index = paths.applicationSupport.appending(path: "claude-code-profiles/profiles.json")
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any])
+        var accounts = try XCTUnwrap(object["accounts"] as? [[String: Any]])
+        for key in ["home", "credentialFile", "source"] { accounts[1][key] = accounts[0][key] }
+        object["accounts"] = accounts
+        try JSONSerialization.data(withJSONObject: object).write(to: index)
+        XCTAssertThrowsError(try profiles.accounts())
+    }
+
+    func testNondefaultClaudeReauthenticationLeavesActiveAccountUnchanged() async throws {
+        let profiles = try makeProfiles()
+        let first = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(first.session.id)
+        let active = try XCTUnwrap(initial.account)
+        let second = try profiles.startLogin()
+        let secondResult = try await profiles.checkLogin(second.session.id)
+        let inactive = try XCTUnwrap(secondResult.account)
+        let refresh = try profiles.startLogin(accountID: inactive.id)
+        let result = try await profiles.checkLogin(refresh.session.id)
+        XCTAssertEqual(result.account?.home.path, config(refresh.session.id).path)
+        XCTAssertEqual(try profiles.defaultID(), active.id)
+        XCTAssertEqual(try text(paths.vaultRoot.appending(path: "claude/active")), active.home.path)
+    }
+
+    func testClaudeReauthenticationActiveWriteFailurePreservesSavedAccountAndPendingLogin() async throws {
+        let profiles = try makeProfiles()
+        let first = try profiles.startLogin()
+        let initial = try await profiles.checkLogin(first.session.id)
+        let account = try XCTUnwrap(initial.account)
+        let refresh = try profiles.startLogin(accountID: account.id)
+        let activeFolder = paths.vaultRoot.appending(path: "claude")
+        let preservedFolder = paths.vaultRoot.appending(path: "claude-preserved")
+        try fileManager.moveItem(at: activeFolder, to: preservedFolder)
+        try Data("blocked".utf8).write(to: activeFolder)
+        do {
+            _ = try await profiles.checkLogin(refresh.session.id)
+            XCTFail("A failed active-path write must leave sign-in pending")
+        } catch {
+            XCTAssertEqual(try profiles.accounts().first?.id, account.id)
+            XCTAssertEqual(try profiles.accounts().first?.home.path, account.home.path)
+            XCTAssertEqual(try profiles.defaultID(), account.id)
+            XCTAssertEqual(try profiles.pending().map(\.id), [refresh.session.id])
+            XCTAssertTrue(fileManager.fileExists(atPath: config(refresh.session.id).path))
+        }
+        try fileManager.removeItem(at: activeFolder)
+        try fileManager.moveItem(at: preservedFolder, to: activeFolder)
+        XCTAssertEqual(try text(activeFolder.appending(path: "active")), account.home.path)
+        let retried = try await profiles.checkLogin(refresh.session.id)
+        XCTAssertEqual(retried.account?.home.path, config(refresh.session.id).path)
+    }
+
+    func testClaudeProfileIndexRejectsOutsideAndAliasedHomes() async throws {
+        let profiles = try makeProfiles()
+        let login = try profiles.startLogin()
+        _ = try await profiles.checkLogin(login.session.id)
+        let index = paths.applicationSupport.appending(path: "claude-code-profiles/profiles.json")
+        let original = try Data(contentsOf: index)
+        let outside = root.appending(path: "outside/config")
+        for invalid in [outside, config(UUID()).appending(path: "nested")] {
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
+            var accounts = try XCTUnwrap(object["accounts"] as? [[String: Any]])
+            for key in ["home", "credentialFile", "source"] { accounts[0][key] = invalid.absoluteString }
+            object["accounts"] = accounts
+            try JSONSerialization.data(withJSONObject: object).write(to: index)
+            XCTAssertThrowsError(try profiles.accounts())
+        }
+        try original.write(to: index)
+        let actual = config(login.session.id)
+        let saved = actual.deletingLastPathComponent().appending(path: "saved-config")
+        try fileManager.moveItem(at: actual, to: saved)
+        try fileManager.createSymbolicLink(at: actual, withDestinationURL: saved)
+        XCTAssertThrowsError(try profiles.accounts())
+    }
+
+    func testClaudeLoginRemovesInheritedAnthropicProfileSelectors() throws {
+        let selectors = ["ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID",
+                         "ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_IDENTITY_TOKEN_FILE",
+                         "ANTHROPIC_IDENTITY_TOKEN", "ANTHROPIC_WORKSPACE_ID"]
+        for key in selectors { XCTAssertTrue(ClaudeCodeProfiles.strippedEnvironmentKeys.contains(key), key) }
+        let login = try makeProfiles().startLogin()
+        for key in selectors { XCTAssertNil(login.launchSpec.environment[key], key) }
+        XCTAssertEqual(login.launchSpec.arguments, ["auth", "login", "--claudeai"])
     }
 
     func testNewProfileLinksSharedItemsAndSeedsConfigWithoutAccount() throws {

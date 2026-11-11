@@ -56,9 +56,13 @@ struct ClaudeCodeProfiles {
         paths.applicationSupport.appending(path: "claude-code-profiles", directoryHint: .isDirectory)
     }
     private var indexURL: URL { root.appending(path: "profiles.json") }
-    private func home(_ id: UUID) -> URL {
+    private func managedHome(_ id: UUID) -> URL {
         root.appending(path: id.uuidString, directoryHint: .isDirectory)
             .appending(path: "config", directoryHint: .isDirectory)
+    }
+
+    private func home(_ id: UUID) -> URL {
+        (try? readIndex().accounts.first(where: { $0.id == id })?.home) ?? managedHome(id)
     }
 
     func accounts() throws -> [AccountRecord] { try lock.withLock { try readIndex().accounts } }
@@ -83,16 +87,19 @@ struct ClaudeCodeProfiles {
             throw AIManagerError.operationFailed("Claude Code CLI was not found.")
         }
         let session = AccountLoginSession(id: UUID(), providerID: .claudeCode, createdAt: Date(), accountID: accountID)
-        let config = home(session.id)
-        let spec = launchSpec(executable: executable, home: config, arguments: ["auth", "login"])
-        try lock.withLock {
-            try CoreSupport.privateDirectory(config, fileManager: fileManager)
-            linkSharedHistory(session.id)
-            var index = try readIndex()
-            index.pending.append(session)
-            try writeIndex(index)
-        }
+        let config = managedHome(session.id)
+        let spec = launchSpec(executable: executable, home: config, arguments: ["auth", "login", "--claudeai"])
         do {
+            try lock.withLock {
+                var index = try readIndex()
+                let target = index.accounts.first(where: { $0.id == accountID })
+                if accountID != nil, target == nil { throw AIManagerError.accountNotFound }
+                try CoreSupport.privateDirectory(config, fileManager: fileManager)
+                if let target { try seedConfig(config, source: target.home.appending(path: ".claude.json")) }
+                linkSharedHistory(session.id)
+                index.pending.append(session)
+                try writeIndex(index)
+            }
             try loginRunner.launch(session.id, spec)
         } catch {
             try? lock.withLock {
@@ -133,22 +140,33 @@ struct ClaudeCodeProfiles {
                 }
                 let target = index.accounts[position]
                 guard target.identity.email?.caseInsensitiveCompare(email) == .orderedSame else {
+                    _ = loginRunner.cancel(id)
                     index.pending.removeAll { $0.id == id }
                     try writeIndex(index)
                     try fileManager.removeItem(at: home(id).deletingLastPathComponent())
                     throw target.identity.signInMismatch(email)
                 }
-                let credential = home(id).appending(path: ".credentials.json")
-                guard let bytes = Self.boundedRead(credential) else {
-                    throw AIManagerError.invalidSource("Claude sign-in did not produce file-based credentials.")
-                }
-                let destination = home(accountID).appending(path: ".credentials.json")
-                try CoreSupport.atomicWrite(bytes, to: destination, fileManager: fileManager)
+                // Native credentials belong to this exact config path, including on macOS.
+                let config = managedHome(id)
+                index.accounts[position].home = config
+                index.accounts[position].credentialFile = config
+                index.accounts[position].source = config
                 index.accounts[position].verification = .init(state: .verifiedLocally, checkedAt: Date(),
                                                               detail: "Claude Code reports this profile is signed in.")
                 index.pending.removeAll { $0.id == id }
-                try writeIndex(index)
-                try fileManager.removeItem(at: home(id).deletingLastPathComponent())
+                if index.defaultID == accountID {
+                    try writeActive(accountID, config: config)
+                    do {
+                        try writeIndex(index)
+                    } catch {
+                        try writeActive(accountID, config: target.home)
+                        throw error
+                    }
+                } else {
+                    try writeIndex(index)
+                }
+                Self.usageCache.remove(accountID)
+                Self.statusCache.store(accountID, status)
                 return index.accounts[position]
             }
             let identity = AccountIdentity(providerID: .claudeCode, email: email,
@@ -168,17 +186,17 @@ struct ClaudeCodeProfiles {
             try writeIndex(index)
             return account
         }
-        if session.accountID == nil { _ = loginRunner.cancel(id) }
+        _ = loginRunner.cancel(id)
         return .init(session: session, state: .completed, account: account,
                      message: "Claude Code profile was saved.")
     }
 
     func cancelLogin(_ id: UUID) async throws {
-        guard let session = try pending().first(where: { $0.id == id }) else {
+        guard try pending().contains(where: { $0.id == id }) else {
             throw AIManagerError.invalidSource("Claude Code sign-in is no longer active.")
         }
-        if session.accountID == nil { _ = loginRunner.cancel(id) }
-        if session.accountID == nil, let executable = executable() {
+        _ = loginRunner.cancel(id)
+        if let executable = executable() {
             let status = try await statusCheck(launchSpec(executable: executable, home: home(id),
                                                            arguments: ["auth", "status"]))
             if status.loggedIn {
@@ -238,7 +256,8 @@ struct ClaudeCodeProfiles {
         do {
             let status = try await statusCheck(launchSpec(executable: executable, home: home(id),
                                                            arguments: ["auth", "status"]))
-            let matches = status.loggedIn && status.email == account.identity.email
+            let matches = status.loggedIn
+                && status.email?.caseInsensitiveCompare(account.identity.email ?? "") == .orderedSame
             result = .init(state: matches ? .verifiedLocally : .needsSignIn,
                            checkedAt: Date(),
                            detail: matches ? "Claude Code reports this profile is signed in."
@@ -259,7 +278,7 @@ struct ClaudeCodeProfiles {
 
     func delete(_ id: UUID, replacement: UUID?) async throws -> AccountDeletionResult {
         let index = try lock.withLock { try readIndex() }
-        guard index.accounts.contains(where: { $0.id == id }) else { throw AIManagerError.accountNotFound }
+        guard let account = index.accounts.first(where: { $0.id == id }) else { throw AIManagerError.accountNotFound }
         if index.defaultID == id {
             guard let replacement, replacement != id,
                   index.accounts.contains(where: { $0.id == replacement }) else {
@@ -269,11 +288,13 @@ struct ClaudeCodeProfiles {
         guard let executable = executable() else {
             throw AIManagerError.operationFailed("Claude Code CLI was not found.")
         }
-        try await logout(launchSpec(executable: executable, home: home(id),
+        try await logout(launchSpec(executable: executable, home: account.home,
                                     arguments: ["auth", "logout"]))
         return try lock.withLock {
             var current = try readIndex()
-            guard current.accounts.contains(where: { $0.id == id }) else { throw AIManagerError.sourceChanged }
+            guard current.accounts.first(where: { $0.id == id })?.home == account.home else {
+                throw AIManagerError.sourceChanged
+            }
             current.accounts.removeAll { $0.id == id }
             current.accountOrder.removeAll { $0 == id }
             if current.defaultID == id {
@@ -281,7 +302,7 @@ struct ClaudeCodeProfiles {
                 try? writeActive(replacement)
             }
             try writeIndex(current)
-            try fileManager.removeItem(at: home(id).deletingLastPathComponent())
+            try fileManager.removeItem(at: account.home.deletingLastPathComponent())
             return .init(accountID: id, replacementDefaultAccountID: replacement,
                          removedManagedHome: true, removedCredential: true)
         }
@@ -295,19 +316,38 @@ struct ClaudeCodeProfiles {
             throw AIManagerError.unsafePath("Claude Code profile index is not a bounded regular file")
         }
         let index = try decoder.decode(Index.self, from: Data(contentsOf: indexURL))
+        let savedHomes = index.accounts.map(\.home)
+        let pendingHomes = index.pending.map { managedHome($0.id) }
         guard Set(index.accounts.map(\.id)).count == index.accounts.count,
               Set(index.pending.map(\.id)).count == index.pending.count,
               Set(index.accounts.map(\.id)).isDisjoint(with: index.pending.map(\.id)),
+              Set((savedHomes + pendingHomes).map(\.path)).count == savedHomes.count + pendingHomes.count,
+              pendingHomes.allSatisfy(validManagedHome),
               index.accountOrder.count == Set(index.accountOrder).count,
               index.accounts.allSatisfy({ account in
                   account.identity.providerID == .claudeCode
-                      && CoreSupport.sameLocation(account.home, home(account.id))
-                      && CoreSupport.sameLocation(account.credentialFile, home(account.id))
+                      && validManagedHome(account.home)
+                      && account.credentialFile.isFileURL && account.source.isFileURL
+                      && account.credentialFile.path == account.home.path
+                      && account.source.path == account.home.path
               }),
               index.defaultID == nil || index.accounts.contains(where: { $0.id == index.defaultID }) else {
             throw AIManagerError.invalidSource("Claude Code profile index contains invalid account paths or IDs.")
         }
         return index
+    }
+
+    private func validManagedHome(_ config: URL) -> Bool {
+        guard config.isFileURL, config.lastPathComponent == "config",
+              let id = UUID(uuidString: config.deletingLastPathComponent().lastPathComponent),
+              config.path == managedHome(id).path else { return false }
+        for component in [config.deletingLastPathComponent(), config] {
+            if CoreSupport.entryExists(component),
+               (try? component.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != false {
+                return false
+            }
+        }
+        return true
     }
 
     private func writeIndex(_ index: Index) throws {
@@ -337,6 +377,9 @@ struct ClaudeCodeProfiles {
         "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_AWS_API_KEY", "ANTHROPIC_BASE_URL",
         "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+        "ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID",
+        "ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_IDENTITY_TOKEN_FILE", "ANTHROPIC_IDENTITY_TOKEN",
+        "ANTHROPIC_WORKSPACE_ID",
         // Links to a parent Claude Code or agent session. When Switch itself was started from one,
         // a child that inherits them waits on that session and never draws its screen.
         "CLAUDECODE", "CLAUDE_PID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
@@ -520,12 +563,18 @@ extension ClaudeCodeProfiles {
         try handle.write(contentsOf: addition)
     }
 
-    /// New profiles start from the shared `~/.claude.json` minus the signed-in account.
-    private func seedConfig(_ config: URL) throws {
+    /// Keep profile settings while excluding the prior signed-in account.
+    private func seedConfig(_ config: URL, source: URL? = nil) throws {
         let url = config.appending(path: ".claude.json")
-        guard !CoreSupport.entryExists(url),
-              let data = try? Data(contentsOf: paths.userHome.appending(path: ".claude.json")),
-              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let origin = source ?? paths.userHome.appending(path: ".claude.json")
+        guard !CoreSupport.entryExists(url), CoreSupport.entryExists(origin) else { return }
+        let values = try origin.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              let data = Self.boundedRead(origin),
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if source != nil { throw AIManagerError.invalidSource("Claude Code profile settings are not a valid JSON file.") }
+            return
+        }
         object.removeValue(forKey: "oauthAccount")
         try CoreSupport.atomicWrite(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
                                     to: url, fileManager: fileManager)
@@ -539,8 +588,8 @@ extension ClaudeCodeProfiles {
     private static let endMarker = "# <<< switch claude <<<"
 
     /// Names the config dir that plain `claude` should use; empty when there is no default.
-    func writeActive(_ id: UUID?) throws {
-        try CoreSupport.atomicWrite(Data((id.map { home($0).path } ?? "").utf8), to: activeFile,
+    func writeActive(_ id: UUID?, config: URL? = nil) throws {
+        try CoreSupport.atomicWrite(Data((config?.path ?? id.map { home($0).path } ?? "").utf8), to: activeFile,
                                     fileManager: fileManager)
     }
 
@@ -627,6 +676,11 @@ private final class ClaudeUsageCache: @unchecked Sendable {
     func store(_ id: UUID, _ result: Result<ProviderUsage, Error>) {
         lock.lock(); defer { lock.unlock() }
         entries[id] = (Date(), result)
+    }
+
+    func remove(_ id: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        entries.removeValue(forKey: id)
     }
 }
 
