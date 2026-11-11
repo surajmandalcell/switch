@@ -2334,6 +2334,35 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  @MainActor static func accountSignInMenuFailures() async -> [String] {
+    guard #available(macOS 14.4, *) else { return [] }
+    let model = AccountViewModel(scenario: .demo)
+    guard let account = model.status?.accounts.first(where: { $0.identity.providerID == .claudeCode }) else {
+      return ["The sign-in menu check has no synthetic Claude account"]
+    }
+    let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let menu = NSHostingMenu(rootView: AccountMenuItems(account: account, model: model, delete: {}))
+    menu.update()
+    let index = menu.indexOfItem(withTitle: "Sign in again")
+    guard index >= 0, let item = menu.item(at: index) else {
+      return ["The native account menu has no Sign in again item; found \(menu.items.map(\.title))"]
+    }
+    guard item.isEnabled else { return ["The native Sign in again menu item is disabled"] }
+    menu.performActionForItem(at: index)
+    let deadline = Date().addingTimeInterval(1)
+    while model.accountLoginSession == nil, Date() < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    var failures: [String] = []
+    if model.accountLoginSession?.accountID != account.id || model.selectedProviderID != .claudeCode || !model.showImport {
+      failures.append("Pressing Sign in again did not open sign-in for the saved Claude account")
+    }
+    if NSApp.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier != foreground {
+      failures.append("The native Sign in again menu check changed focus")
+    }
+    return failures
+  }
+
   /// The Accounts page: no table header, an indented outline of provider groups, a fixed-frame focused card with
   /// dotted usage tracks and "Sign in again", no name picker, remembered choices, and motion tokens.
   @MainActor static func accountsPageFailures() -> [String] {

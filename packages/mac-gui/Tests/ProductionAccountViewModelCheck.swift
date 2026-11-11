@@ -558,7 +558,8 @@ struct ProductionAccountViewModelCheck {
         let deletionCredential = deletionAccount.credentialFile
         let accountCountBeforeDeletion = try expect(model.status?.accounts.count, "Account count was unavailable")
         await model.deleteAccount(deletionAccount.id)
-        try expect(model.errorMessage == nil, "Non-default account deletion failed")
+        try expect(model.errorMessage == nil,
+                   "Non-default account deletion failed: \(model.errorMessage ?? "nil"); busy=\(model.isBusy); provider=\(deletionAccount.identity.providerID.rawValue); recovery=\(model.status?.pendingRecovery.count ?? -1)")
         try expect(model.status?.accounts.count == accountCountBeforeDeletion - 1,
                    "Account deletion did not refresh the model")
         try expect(!fileManager.fileExists(atPath: deletionCredential.path),
