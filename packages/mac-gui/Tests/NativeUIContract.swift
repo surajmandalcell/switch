@@ -2346,6 +2346,37 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  @MainActor static func chatCopyFailures() -> [String] {
+    guard #available(macOS 14.4, *) else { return [] }
+    let previous = ChatPasteboard.previewName
+    let name = NSPasteboard.Name("switch-history-copy-\(UUID().uuidString)")
+    let pasteboard = NSPasteboard(name: name)
+    ChatPasteboard.previewName = name
+    defer { pasteboard.releaseGlobally(); ChatPasteboard.previewName = previous }
+    let messages = [
+      ChatMessage(id: "prompt", role: .user, text: "# Goal\n\nKeep **raw Markdown**.", timestamp: nil),
+      ChatMessage(id: "response", role: .assistant, text: "Hidden response", timestamp: nil),
+      ChatMessage(id: "tool", role: .tool, text: "Hidden tool output", timestamp: nil)
+    ]
+    let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let menu = NSHostingMenu(rootView: ChatFilteredCopyButton(
+      messages: messages.filter { ChatMessageFilter.prompts.includes($0.role) }))
+    menu.update()
+    let index = menu.indexOfItem(withTitle: "Copy")
+    guard index >= 0, menu.item(at: index)?.isEnabled == true else {
+      return ["The actual History Copy control is missing or disabled"]
+    }
+    menu.performActionForItem(at: index)
+    guard pasteboard.string(forType: .string) == "[Prompt | Unknown time]\n# Goal\n\nKeep **raw Markdown**." else {
+      return ["The History Copy control did not copy only the visible raw messages"]
+    }
+    if NSApp.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier != foreground {
+      return ["The private History copy check changed focus"]
+    }
+    print("HISTORY_COPY_PASS")
+    return []
+  }
+
   @MainActor static func accountSignInMenuFailures() async -> [String] {
     guard #available(macOS 14.4, *) else { return [] }
     let model = AccountViewModel(scenario: .demo)

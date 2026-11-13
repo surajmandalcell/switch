@@ -372,7 +372,7 @@ private struct ChatDetailPane: View {
         .aimText(.secondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, AIMTheme.sectionSpacing)
+      .padding(.horizontal, 12)
       .frame(height: 58)
     } else {
       Color.clear.frame(height: 58)
@@ -401,7 +401,7 @@ private struct ChatDetailPane: View {
       .frame(height: 32)
     }
     .environment(\.aimControlHeight, 32)
-    .padding(.horizontal, AIMTheme.sectionSpacing)
+    .padding(.horizontal, 12)
     .padding(.vertical, 12)
   }
 
@@ -612,17 +612,14 @@ private struct ChatFilterButton: View {
   }
 }
 
-private struct ChatFilteredCopyButton: View {
+struct ChatFilteredCopyButton: View {
   let messages: [ChatMessage]
   @State private var copied = false
 
   var body: some View {
     Button {
       let text = ChatTranscriptExport.text(for: messages)
-      #if !AI_MANAGER_PREVIEW
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(text, forType: .string)
-      #endif
+      ChatPasteboard.copy(text)
       withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = true }
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(1.2))
@@ -686,10 +683,7 @@ private struct ChatTitleCopyButton: View {
 
   var body: some View {
     Button("Copy title") {
-      #if !AI_MANAGER_PREVIEW
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(title, forType: .string)
-      #endif
+      ChatPasteboard.copy(title)
     }
   }
 }
@@ -726,15 +720,15 @@ private struct ChatMessageRow: View {
       header
         .padding(.horizontal, 12)
         .frame(height: 36)
-        .background(messageSurface, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .background(Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: AIMTheme.radius))
         .aimBorder(AIMTheme.line, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
       ChatMessageBlocks(message: message, presentation: presentation, expanded: expanded, toggleBlock: toggleBlock)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(maxWidth: 820, alignment: .leading)
-    // The right side gives the scroll bar gutter back, so a surface ends on the card's 16 pt inset.
-    .padding(.leading, AIMTheme.sectionSpacing)
-    .padding(.trailing, AIMTheme.sectionSpacing - AIMScroller.gutter)
+    // The right side gives the scroll bar gutter back, keeping the reader's 12 pt insets equal.
+    .padding(.leading, 12)
+    .padding(.trailing, 12 - AIMScroller.gutter)
     .padding(.top, separated ? 12 : 4)
     .padding(.bottom, 4)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -750,14 +744,14 @@ private struct ChatMessageRow: View {
   private var header: some View {
     HStack(spacing: 6) {
       Text(message.role.displayName)
-        .aimText(.section)
+        .aimText(.section, tint: .primary)
         .fixedSize()
       if message.role == .assistant, let model = message.model {
         Text("·")
         Text(model).lineLimit(1).truncationMode(.tail).layoutPriority(-1).help(model)
       }
       if let timestamp = message.timestamp {
-        Text(ChatDate.text(timestamp)).monospacedDigit().lineLimit(1).fixedSize().padding(.leading, 12)
+        Text(ChatDate.text(timestamp)).monospacedDigit().lineLimit(1).fixedSize().padding(.leading, 24)
           .help(ChatDate.text(timestamp))
       }
       Spacer(minLength: 6)
@@ -767,14 +761,6 @@ private struct ChatMessageRow: View {
     .frame(height: 20)
   }
 
-  private var messageSurface: Color {
-    switch message.role {
-    case .user: AIMTheme.chatUserSurface
-    case .assistant: AIMTheme.chatAssistantSurface
-    case .tool: AIMTheme.chatCodeSurface
-    case .other: AIMTheme.chatOtherSurface
-    }
-  }
 }
 
 /// Messages that were already announced as new, so a recycled row does not fade in again.
@@ -846,7 +832,7 @@ private struct ChatMessageSection: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AIMTheme.chatOtherSurface, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .background(Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: AIMTheme.radius))
     .aimBorder(AIMTheme.line, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
   }
 
@@ -866,6 +852,14 @@ private struct ChatMessageSection: View {
   }
 
   private var symbol: String {
+    if let heading = section.heading, case let .heading(_, _, text) = heading {
+      let title = String(text.characters).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      if title == "goal" || title.hasPrefix("goal ") || title.hasPrefix("goal:") { return "clipboard" }
+      if title.hasPrefix("repository") { return "folder" }
+      if title.hasPrefix("inputs") { return "shippingbox" }
+      if title.hasPrefix("rules") || title.hasPrefix("hard rules") { return "exclamationmark.triangle" }
+      if title.hasPrefix("steps") { return "list.number" }
+    }
     if section.blocks.contains(where: { if case .table = $0 { true } else { false } }) { return "tablecells" }
     if section.blocks.contains(where: { if case .orderedList = $0 { true } else { false } }) { return "list.number" }
     if section.blocks.contains(where: { if case .unorderedList = $0 { true } else { false } }) { return "list.bullet" }
@@ -926,7 +920,11 @@ struct ChatPresentationBlockView: View {
             Text(headers[column]).aimText(headers.count == 2 && column > 0 ? .body : .section)
               .fixedSize(horizontal: false, vertical: true)
               .frame(width: headers.count == 2 && column == 0 ? 128 : nil, alignment: .leading)
+              .frame(maxHeight: headers.count == 2 && column == 0 ? .infinity : nil, alignment: .topLeading)
               .padding(.vertical, 6)
+              .overlay(alignment: .trailing) {
+                if headers.count == 2 && column == 0 { Rectangle().fill(AIMTheme.line.opacity(0.6)).frame(width: 1) }
+              }
           }
         }
         ForEach(rows.indices, id: \.self) { row in
@@ -936,8 +934,12 @@ struct ChatPresentationBlockView: View {
               Text(rows[row][column]).aimText(headers.count == 2 && column == 0 ? .section : .body)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: headers.count == 2 && column == 0 ? 128 : nil, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: headers.count == 2 && column == 0 ? nil : .infinity, alignment: .leading)
+                .frame(maxHeight: headers.count == 2 && column == 0 ? .infinity : nil, alignment: .topLeading)
                 .padding(.vertical, 6)
+                .overlay(alignment: .trailing) {
+                  if headers.count == 2 && column == 0 { Rectangle().fill(AIMTheme.line.opacity(0.6)).frame(width: 1) }
+                }
             }
           }
         }
@@ -1028,10 +1030,7 @@ private struct ChatCopyButton: View {
 
   var body: some View {
     Button {
-      #if !AI_MANAGER_PREVIEW
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(text, forType: .string)
-      #endif
+      ChatPasteboard.copy(text)
       withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = true }
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(1.2))
@@ -1053,5 +1052,22 @@ private struct ChatCopyButton: View {
     .animation(AIMMotion.fade(AIMMotion.hover), value: emphasized)
     .help(copied ? "Copied" : label)
     .accessibilityLabel(copied ? "Copied" : label)
+  }
+}
+
+@MainActor enum ChatPasteboard {
+  #if AI_MANAGER_PREVIEW
+  static var previewName: NSPasteboard.Name?
+  #endif
+
+  static func copy(_ text: String) {
+    #if AI_MANAGER_PREVIEW
+    guard let previewName else { return }
+    let pasteboard = NSPasteboard(name: previewName)
+    #else
+    let pasteboard = NSPasteboard.general
+    #endif
+    pasteboard.clearContents()
+    pasteboard.setString(text, forType: .string)
   }
 }
