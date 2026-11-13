@@ -2970,6 +2970,21 @@ enum AIManagerNativeContract {
       accounts: [], hideEmails: true)
     expect(sharedSeries.series.map(\.label) == ["Droid (shared)"] && sharedSeries.totals.activeAccounts == 0,
       "A shared group is not named after its tool or counts as an account")
+    let removedHistory = UsageHistorySnapshot(points: [
+      UsageHistoryPoint(day: "2026-10-03", service: "openrouter", accountID: "removed-id", tokens: 120, costUSD: 3.5)
+    ], today: "2026-10-03")
+    let removed = OverviewDataset.make(
+      summary: removedHistory.summary(period: .week, grouping: .account),
+      year: removedHistory.summary(period: .year, grouping: .model), accounts: [], hideEmails: false)
+    expect(removed.totals.tokens == 120 && removed.totals.costUSD == 3.5
+      && removed.series.map(\.label) == ["Removed account"] && removed.series.first?.service == "openrouter"
+      && removed.yearTokens == 120 && !removed.ridgeSummary.isEmpty,
+      "Overview or Trends lost the last removed account's history or provider")
+    let removedDay = OverviewDayDetail.make(day: "2026-10-03", tokens: 120,
+      input: OverviewDayInput(points: removedHistory.points, sessions: nil, threads: [:]), accounts: [], hideEmails: false)
+    expect(removedDay?.tokens == 120 && removedDay?.cost == 3.5
+      && removedDay?.byAccount.first?.label == "Removed account" && removedDay?.byAccount.first?.service == "openrouter",
+      "The day sheet lost a removed account's statistics or provider")
     // More than six groups fold into one gray "Other" series that keeps the total.
     let many = (0..<9).map { UsageHistoryPoint(day: "2026-10-03", service: "codex", model: "m\($0)", project: "p", tokens: Int64(10 - $0)) }
     let crowded = UsageHistorySnapshot(points: many, today: "2026-10-03")

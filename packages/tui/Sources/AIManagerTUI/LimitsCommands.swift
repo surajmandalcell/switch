@@ -237,9 +237,10 @@ enum LimitsCommands {
             throw CLIError.exit(2, "Group must be account, model, or project.")
         }
         let accounts = try await manager.status().accounts
+        let historyAccounts = try await manager.usageHistoryAccounts()
         let support = input.paths.applicationSupport
         let pricing = ClaudePricingSource(cacheURL: support.appending(path: "cache/model-pricing.json"))
-        let owners: [String: [String]] = Dictionary(grouping: accounts, by: { $0.identity.providerID.rawValue })
+        let owners: [String: [String]] = Dictionary(grouping: historyAccounts, by: { $0.providerID.rawValue })
             .mapValues { $0.map { $0.id.uuidString.lowercased() } }
         let sources = UsageHistorySources(
             ledger: codexCache(input.paths),

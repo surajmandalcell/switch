@@ -577,6 +577,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             window.setContentSize(NSSize(width: AIManagerWindow.defaultSize.width, height: height))
         }
         await model.load()
+        if CommandLine.arguments.contains("--removed-accounts") {
+            model.status?.accounts = []
+            model.status?.defaultAccountIDs = [:]
+            model.selectedAccountID = nil
+        }
         await configureAccountModal()
         if model.showImport { openOffscreenSheet() }
         if CommandLine.arguments.contains("--focus-search") {

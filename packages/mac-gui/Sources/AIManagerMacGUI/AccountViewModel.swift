@@ -216,6 +216,7 @@ final class AccountViewModel: ObservableObject {
     private let claudePricing: ClaudePricingSource?
     private var usageErrorAccountID: UUID?
     private var usageHistoryLoadedAt: Date?
+    private var needsUsageHistoryReload = false
     /// The engine behind `usageHistory`; the day sheet asks it for the sessions of one day.
     private var usageEngine: UsageHistory?
     private let chatHistoryProvider: (any ChatHistoryProviding)?
@@ -1532,6 +1533,9 @@ final class AccountViewModel: ObservableObject {
                 recovery: "Refresh accounts, then try again."
             ) {
                 do {
+                    if let usage = providerUsage[accountID]?.usage {
+                        try await manager.retainProviderUsage(accountID: accountID, usage: usage)
+                    }
                     _ = try await manager.deleteAccount(
                         accountID: accountID,
                         replacementDefaultAccountID: replacement)
@@ -1556,6 +1560,7 @@ final class AccountViewModel: ObservableObject {
                 }
                 let accountName = account.identity.accountLabel
                 notice = "\(accountName) deleted."
+                await loadUsageHistory(maxAge: 0)
             }
             return
         }
@@ -1861,9 +1866,19 @@ final class AccountViewModel: ObservableObject {
 
     /// Shows the last good values before the first network check finishes.
     func loadProviderUsageCache() async {
-        guard let url = providerUsageCacheURL, !providerUsageCacheLoaded else { return }
-        providerUsageCacheLoaded = true
+        guard let url = providerUsageCacheURL, !providerUsageCacheLoaded, let manager else { return }
         let cached = await Task.detached(priority: .utility) { ProviderUsageCache.load(from: url) }.value
+        do {
+            for account in status?.accounts ?? [] {
+                if let usage = cached[account.id] {
+                    try await manager.retainProviderUsage(accountID: account.id, usage: usage)
+                }
+            }
+        } catch {
+            usageError = "Usage history could not be saved. \(error.localizedDescription)"
+            return
+        }
+        providerUsageCacheLoaded = true
         let known = Set(providerUsageAccountIDs)
         var merged = providerUsage
         for (id, usage) in cached where known.contains(id) && merged[id] == nil {
@@ -1984,15 +1999,32 @@ final class AccountViewModel: ObservableObject {
         #if AI_MANAGER_PREVIEW
         if isDemo { return }
         #endif
-        guard !isUsageHistoryLoading, manager != nil, hasLoaded else { return }
+        guard let manager, hasLoaded else { return }
+        if isUsageHistoryLoading {
+            if maxAge == 0 { needsUsageHistoryReload = true }
+            return
+        }
         if let loadedAt = usageHistoryLoadedAt, Date().timeIntervalSince(loadedAt) < maxAge { return }
         isUsageHistoryLoading = true
-        defer { isUsageHistoryLoading = false }
+        defer {
+            isUsageHistoryLoading = false
+            if needsUsageHistoryReload {
+                needsUsageHistoryReload = false
+                Task { await self.loadUsageHistory(maxAge: 0) }
+            }
+        }
         await prepareUsageCache()
         let accounts = status?.accounts ?? []
+        let historyAccounts: [HistoricalUsageAccount]
+        do {
+            historyAccounts = try await manager.usageHistoryAccounts()
+        } catch {
+            usageError = "Usage history could not be loaded. \(error.localizedDescription)"
+            return
+        }
         let support = paths.applicationSupport
         var sources = UsageHistorySources(ledger: usageCache, pricing: claudePricing?.loader())
-        sources.accounts = Dictionary(grouping: accounts, by: { $0.identity.providerID.rawValue })
+        sources.accounts = Dictionary(grouping: historyAccounts, by: { $0.providerID.rawValue })
             .mapValues { $0.map { $0.id.uuidString.lowercased() } }
         // A test home never reads the real Claude, Grok, or Droid folders.
         if paths.isolationRoot == nil, let pricing = claudePricing {
@@ -2178,7 +2210,7 @@ final class AccountViewModel: ObservableObject {
     }
 
     private func persistProviderUsage() {
-        guard let url = providerUsageCacheURL else { return }
+        guard let url = providerUsageCacheURL, providerUsageCacheLoaded else { return }
         let snapshot = providerUsage.compactMapValues(\.usage)
         Task.detached(priority: .utility) { try? ProviderUsageCache.save(snapshot, to: url) }
     }
