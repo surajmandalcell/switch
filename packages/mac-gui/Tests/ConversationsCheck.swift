@@ -145,24 +145,47 @@ struct SyntheticChatProvider: ChatHistoryProviding {
       """
     let titles = ["# Goal: finish the desktop reader and verify its history", "Review the conversation search",
       "Check the message sections and input table", "Keep the reader's scroll position", "Verify the native controls"]
-    let firstMessages = (0..<530).map { index in
-      ChatMessage(id: "reference-0#\(index)", role: index == 0 ? .user : index % 3 == 0 ? .tool : .assistant,
-        text: index == 0 ? prompt : index % 3 == 0 ? "Check \(index): passed" : "Response \(index): the content stays readable.",
-        timestamp: now.addingTimeInterval(Double(index - 530) * 10), model: index == 0 ? nil : "gpt-6.1-sol")
+    var firstMessages: [ChatMessage] = []
+    for index in 0..<530 {
+      let role: ChatMessageRole
+      let text: String
+      if index == 0 {
+        role = .user
+        text = prompt
+      } else if index.isMultiple(of: 3) {
+        role = .tool
+        text = "Check \(index): passed"
+      } else {
+        role = .assistant
+        text = "Response \(index): the content stays readable."
+      }
+      let model: String? = index == 0 ? nil : "gpt-6.1-sol"
+      let timestamp = now.addingTimeInterval(Double(index - 530) * 10)
+      firstMessages.append(ChatMessage(id: "reference-0#\(index)", role: role, text: text,
+        timestamp: timestamp, model: model))
     }
-    let threads = (0..<1_098).map { index in
-      ChatThreadSummary(id: "reference-\(index)", threadID: "reference-\(index)", title: titles[index % titles.count],
+    var threads: [ChatThreadSummary] = []
+    for index in 0..<1_098 {
+      let id = "reference-\(index)"
+      let count = index == 0 ? firstMessages.count : 2
+      let bytes = Int64(index == 0 ? prompt.utf8.count : 200)
+      let tokens: Int64 = index == 0 ? 59_000_000 : 1_200
+      let source: ChatThreadSource = index == 0 ? .exec : .subagent
+      let model = index.isMultiple(of: 3) ? "gpt-6.1-sol" : "gpt-6-luna"
+      threads.append(ChatThreadSummary(id: id, threadID: id, title: titles[index % titles.count],
         preview: "A synthetic conversation for the History reader.", workingDirectory: "/Projects/Reader",
         updatedAt: now.addingTimeInterval(-Double(index) * 180), archived: false,
-        messageCount: index == 0 ? firstMessages.count : 2, fileByteCount: Int64(index == 0 ? prompt.utf8.count : 200),
-        source: URL(fileURLWithPath: "/Synthetic/reference-\(index).jsonl"), unreadableRecordCount: 0,
-        totalTokens: index == 0 ? 59_000_000 : 1_200, appSource: index == 0 ? .exec : .subagent,
-        model: index.isMultiple(of: 3) ? "gpt-6.1-sol" : "gpt-6-luna")
+        messageCount: count, fileByteCount: bytes,
+        source: URL(fileURLWithPath: "/Synthetic/\(id).jsonl"), unreadableRecordCount: 0,
+        totalTokens: tokens, appSource: source, model: model))
     }
-    var messages = Dictionary(uniqueKeysWithValues: threads.dropFirst().map { thread in
-      (thread.id, [ChatMessage(id: thread.id + "#0", role: .user, text: "Review this conversation.", timestamp: now),
-                   ChatMessage(id: thread.id + "#1", role: .assistant, text: "The conversation is ready.", timestamp: now)])
-    })
+    var messages: [String: [ChatMessage]] = [:]
+    for thread in threads.dropFirst() {
+      messages[thread.id] = [
+        ChatMessage(id: thread.id + "#0", role: .user, text: "Review this conversation.", timestamp: now),
+        ChatMessage(id: thread.id + "#1", role: .assistant, text: "The conversation is ready.", timestamp: now)
+      ]
+    }
     messages[threads[0].id] = firstMessages
     return SyntheticChatProvider(threads: threads, messages: messages)
   }

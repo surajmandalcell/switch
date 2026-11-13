@@ -1223,8 +1223,8 @@ enum AIManagerNativeContract {
       rows: [[AttributedString("Source"), AttributedString("/Projects/" + String(repeating: "longpath", count: 30))]])
     let tableHost = NSHostingController(rootView: ChatPresentationBlockView(
       block: table, bare: false, expanded: false, toggle: {}))
-    let narrowTable = tableHost.sizeThatFits(in: NSSize(width: 300, height: .greatestFiniteMagnitude))
-    let wideTable = tableHost.sizeThatFits(in: NSSize(width: 600, height: .greatestFiniteMagnitude))
+    let narrowTable = tableHost.sizeThatFits(in: NSSize(width: 300, height: CGFloat.greatestFiniteMagnitude))
+    let wideTable = tableHost.sizeThatFits(in: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
     if narrowTable.width > 300.5 || wideTable.width > 600.5 || narrowTable.height <= wideTable.height {
       failures.append("A Markdown table with a long path escapes its width instead of wrapping")
     }
