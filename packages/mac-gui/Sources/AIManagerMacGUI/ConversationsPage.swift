@@ -21,9 +21,9 @@ struct HistoryPage: View {
   var body: some View {
     // Two cards: the thread list and the selected conversation.
     AIMFixedPage {
-      HStack(spacing: AIMTheme.cardGap) {
+      HStack(spacing: 16) {
         AIMCard(
-          title: "Conversations", edges: .start, scrolls: true,
+          title: "History", edges: .start, scrolls: true,
           accessory: { threadAccessory },
           content: { threadList.frame(maxHeight: .infinity) }
         )
@@ -77,6 +77,7 @@ struct HistoryPage: View {
   private var threadList: some View {
     VStack(spacing: 0) {
       HistorySearchField(text: $threadQuery, placeholder: "Search conversations")
+        .environment(\.aimControlHeight, 32)
         .frame(maxWidth: .infinity)
         .aimBodyEdges()
         .padding(.horizontal, AIMTheme.cardInset)
@@ -164,14 +165,23 @@ extension ChatPlace {
 private struct HistorySearchField: View {
   @Binding var text: String
   let placeholder: String
+  var status: String? = nil
+  var isLoading = false
 
   @FocusState private var focused: Bool
 
   var body: some View {
     HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass").aimFont(.body).foregroundStyle(.secondary)
+        .accessibilityHidden(true)
       TextField(placeholder, text: $text)
         .textFieldStyle(.plain)
         .focused($focused)
+      if isLoading {
+        ProgressView().controlSize(.small)
+      } else if let status {
+        Text(status).aimText(.secondary).monospacedDigit().fixedSize()
+      }
       if !text.isEmpty {
         Button { text = "" } label: { Image(systemName: "xmark.circle.fill").aimFont(.body) }
           .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -205,6 +215,7 @@ private struct ChatThreadButton: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .overlay(alignment: .bottom) { AIMHairline().padding(.horizontal, 6).opacity(0.45) }
     .onHover { hovered = $0 }
     .animation(AIMMotion.fade(AIMMotion.hover), value: hovered)
     .animation(AIMMotion.fade(AIMMotion.state), value: selected)
@@ -223,18 +234,17 @@ struct ChatThreadRow: View {
         .truncationMode(.tail)
         .help(thread.title)
         .frame(maxWidth: .infinity, alignment: .leading)
-      HStack(spacing: 0) {
+      HStack(spacing: 6) {
         Text(thread.appSource.displayLabel)
           .help(thread.appSource.displayLabel)
           .aimText(.secondary)
-          .padding(.horizontal, 4)
-          .frame(height: 16)
-          .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-          .fixedSize(horizontal: true, vertical: false)
-        Text(" · " + subtitle)
-          .aimText(.secondary)
-          .truncationMode(.tail)
-          .help(subtitle)
+        if let model = thread.model {
+          Text("·").aimText(.secondary)
+          Text(model).aimText(.secondary).truncationMode(.tail).help(model)
+        }
+        Spacer(minLength: 0)
+        Text(thread.updatedAt.formatted(date: .omitted, time: .shortened))
+          .aimText(.secondary).monospacedDigit().fixedSize()
       }
       .foregroundStyle(.secondary)
       .lineLimit(1)
@@ -276,18 +286,10 @@ enum ChatFilterPersistence {
 
 /// Message dates as "Oct 13, 12:56 PM", with the year only when it is not this year.
 @MainActor private enum ChatDate {
-  private static let sameYear: DateFormatter = make("MMMdjmm")
-  private static let otherYear: DateFormatter = make("MMMdyjmm")
-
-  private static func make(_ template: String) -> DateFormatter {
-    let formatter = DateFormatter()
-    formatter.setLocalizedDateFormatFromTemplate(template)
-    return formatter
-  }
-
   static func text(_ date: Date) -> String {
     let current = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
-    return (current ? sameYear : otherYear).string(from: date)
+    return date.formatted(current ? .dateTime.month(.abbreviated).day().hour().minute()
+      : .dateTime.month(.abbreviated).day().year().hour().minute())
   }
 }
 
@@ -309,6 +311,7 @@ private struct ChatDetailPane: View {
     _messageQuery = State(initialValue: ChatPlace.messageQuery(for: model.selectedChatID))
     _messageFilter = State(initialValue: ChatFilterPersistence.load())
     _restoreTarget = State(initialValue: ChatPlace.anchor(for: model.selectedChatID))
+    _expandedBlocks = State(initialValue: ChatPlace.blockStates(for: model.selectedChatID))
   }
 
   var body: some View {
@@ -329,6 +332,9 @@ private struct ChatDetailPane: View {
     .onChange(of: messageQuery) { _, query in
       ChatPlace.saveMessageQuery(query, for: model.selectedChatID)
       restoreTarget = nil
+    }
+    .onChange(of: expandedBlocks) { _, states in
+      ChatPlace.saveBlockStates(states, for: model.selectedChatID)
     }
     .onChange(of: model.selectedChat?.messages.count ?? 0) { old, new in
       // A page that arrives after the first fades in; a new search or chat does not.
@@ -374,40 +380,29 @@ private struct ChatDetailPane: View {
   }
 
   private var searchBar: some View {
-    VStack(spacing: AIMTheme.rowSpacing) {
-      HStack(spacing: AIMTheme.rowSpacing) {
-        HistorySearchField(text: $messageQuery, placeholder: "Search this chat")
-        ZStack(alignment: .trailing) {
-          if isSearching {
-            ProgressView().controlSize(.small)
-          } else if let detail = model.selectedChat,
-            !messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Text("\(detail.matchingMessageCount.formatted()) matches")
-              .aimText(.secondary)
-              .monospacedDigit()
-              .lineLimit(1)
-              .help("\(detail.matchingMessageCount.formatted()) matches")
-              .aimRolling(detail.matchingMessageCount)
+    VStack(spacing: 12) {
+      HistorySearchField(text: $messageQuery, placeholder: "Search this chat",
+        status: messageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil
+          : model.selectedChat.map { "\($0.matchingMessageCount.formatted()) matches" }, isLoading: isSearching)
+
+      GeometryReader { geometry in
+        let unit = max(0, geometry.size.width - 48) / 548
+        HStack(spacing: 12) {
+          ChatFilteredCopyButton(messages: model.selectedChat.map(displayedMessages) ?? [])
+            .frame(width: 92 * unit)
+          ForEach(ChatFilterChoice.allCases) { choice in
+            ChatFilterButton(choice: choice, selected: messageFilter.contains(choice.filter)) {
+                toggleFilter(choice.filter)
+            }
+            .frame(width: choice.widthWeight * unit)
           }
         }
-        .frame(width: 104, height: 24, alignment: .trailing)
       }
-
-      HStack(spacing: AIMTheme.rowSpacing) {
-        ChatFilteredCopyButton(messages: model.selectedChat.map(displayedMessages) ?? [])
-          .environment(\.aimControlHeight, 24)
-        ForEach(ChatFilterChoice.allCases) { choice in
-          ChatFilterButton(
-            choice: choice,
-            selected: messageFilter.contains(choice.filter)) {
-              toggleFilter(choice.filter)
-            }
-        }
-        Spacer(minLength: 0)
-      }
+      .frame(height: 32)
     }
+    .environment(\.aimControlHeight, 32)
     .padding(.horizontal, AIMTheme.sectionSpacing)
-    .padding(.vertical, AIMTheme.rowSpacing)
+    .padding(.vertical, 12)
   }
 
   @ViewBuilder private var messages: some View {
@@ -581,6 +576,24 @@ private enum ChatFilterChoice: String, CaseIterable, Identifiable {
     case .other: .other
     }
   }
+
+  var symbol: String {
+    switch self {
+    case .prompts: "curlybraces"
+    case .responses: "bubble.right"
+    case .tools: "wrench.and.screwdriver"
+    case .other: "square.3.layers.3d"
+    }
+  }
+
+  var widthWeight: CGFloat {
+    switch self {
+    case .prompts: 110
+    case .responses: 126
+    case .tools: 98
+    case .other: 122
+    }
+  }
 }
 
 private struct ChatFilterButton: View {
@@ -589,8 +602,12 @@ private struct ChatFilterButton: View {
   let action: () -> Void
 
   var body: some View {
-    Toggle(choice.rawValue, isOn: Binding(get: { selected }, set: { _ in action() }))
-      .toggleStyle(AIMChipToggleStyle())
+    Button(action: action) {
+      Label(choice.rawValue, systemImage: choice.symbol).frame(maxWidth: .infinity)
+    }
+      .buttonStyle(ChatToolbarButtonStyle(selected: selected))
+      .accessibilityAddTraits(selected ? .isSelected : [])
+      .accessibilityValue(selected ? "Shown" : "Hidden")
       .accessibilityLabel("Show \(choice.rawValue.lowercased())")
   }
 }
@@ -615,11 +632,52 @@ private struct ChatFilteredCopyButton: View {
       Label("Copy",
         systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
         .contentTransition(.opacity)
+        .frame(maxWidth: .infinity)
     }
-    .buttonStyle(AIMPushButtonStyle(width: 76))
+    .buttonStyle(ChatToolbarButtonStyle())
     .disabled(messages.isEmpty)
     .help("Copy the visible messages")
     .accessibilityLabel(copied ? "Copied" : "Copy")
+  }
+}
+
+private struct ChatToolbarButtonStyle: ButtonStyle {
+  var selected = true
+
+  func makeBody(configuration: Configuration) -> some View {
+    ChatToolbarButtonFace(configuration: configuration, selected: selected)
+  }
+}
+
+private struct ChatToolbarButtonFace: View {
+  let configuration: ButtonStyleConfiguration
+  let selected: Bool
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var focused
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var hovered = false
+
+  var body: some View {
+    let shape = RoundedRectangle(cornerRadius: 6)
+    let fill = configuration.isPressed ? AIMTheme.controlPressed
+      : hovered && isEnabled ? AIMTheme.rowHover : Color.primary.opacity(selected ? 0.045 : 0)
+    configuration.label
+      .labelStyle(AIMButtonLabelStyle())
+      .aimFont(.body)
+      .foregroundStyle(Color.primary.opacity(isEnabled ? 1 : 0.45))
+      .lineLimit(1)
+      .padding(.horizontal, 10)
+      .frame(height: 32)
+      .background(shape.fill(fill))
+      .aimBorder(Color.primary.opacity(isEnabled ? (selected ? 0.22 : 0.12) : 0.08), in: shape)
+      .overlay(shape.fill(focused && isEnabled ? AIMTheme.focusTint : Color.clear))
+      .contentShape(shape)
+      .uiLint(.control)
+      .onHover { hovered = $0 }
+      .scaleEffect(AIMMotion.scale(pressed: configuration.isPressed && isEnabled, reduceMotion: reduceMotion))
+      .animation(AIMMotion.fade(AIMMotion.hover), value: hovered)
+      .animation(AIMMotion.fade(AIMMotion.hover), value: configuration.isPressed)
+      .animation(AIMMotion.fade(AIMMotion.state), value: selected)
   }
 }
 
@@ -638,7 +696,7 @@ private struct ChatTitleCopyButton: View {
 
 // MARK: - Messages
 
-/// One message: a filled surface with a header line (role, model, date, copy) above the content.
+/// One message: a role/date strip above its Markdown sections.
 /// Every role shares the leading edge. The row is as tall as its content, so nothing clips.
 private struct ChatMessageRow: View {
   let message: ChatMessage
@@ -647,7 +705,6 @@ private struct ChatMessageRow: View {
   let expanded: Set<Int>
   let fadesIn: Bool
   let toggleBlock: (Int) -> Void
-  @State private var hovered = false
   @State private var shown: Bool
 
   init(
@@ -665,14 +722,15 @@ private struct ChatMessageRow: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: AIMTheme.rowSpacing) {
+    VStack(alignment: .leading, spacing: 12) {
       header
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(messageSurface, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
+        .aimBorder(AIMTheme.line, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
       ChatMessageBlocks(message: message, presentation: presentation, expanded: expanded, toggleBlock: toggleBlock)
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(messageSurface, in: RoundedRectangle(cornerRadius: AIMTheme.radius, style: .continuous))
     .frame(maxWidth: 820, alignment: .leading)
     // The right side gives the scroll bar gutter back, so a surface ends on the card's 16 pt inset.
     .padding(.leading, AIMTheme.sectionSpacing)
@@ -681,8 +739,6 @@ private struct ChatMessageRow: View {
     .padding(.bottom, 4)
     .frame(maxWidth: .infinity, alignment: .leading)
     .opacity(shown ? 1 : AIMMotion.appearOpacity)
-    .onHover { hovered = $0 }
-    .animation(AIMMotion.fade(AIMMotion.hover), value: hovered)
     .onAppear {
       guard !shown else { return }
       ChatFadeLedger.mark(message.id)
@@ -694,19 +750,18 @@ private struct ChatMessageRow: View {
   private var header: some View {
     HStack(spacing: 6) {
       Text(message.role.displayName)
-        .aimText(.secondary, tint: .primary)
+        .aimText(.section)
         .fixedSize()
       if message.role == .assistant, let model = message.model {
         Text("·")
         Text(model).lineLimit(1).truncationMode(.tail).layoutPriority(-1).help(model)
       }
       if let timestamp = message.timestamp {
-        Text("·")
-        Text(ChatDate.text(timestamp)).monospacedDigit().lineLimit(1).fixedSize()
+        Text(ChatDate.text(timestamp)).monospacedDigit().lineLimit(1).fixedSize().padding(.leading, 12)
           .help(ChatDate.text(timestamp))
       }
       Spacer(minLength: 6)
-      ChatCopyButton(text: message.text, label: "Copy message", emphasized: hovered)
+      ChatCopyButton(text: message.text, label: "Copy message", emphasized: true)
     }
     .aimText(.secondary)
     .frame(height: 20)
@@ -739,10 +794,8 @@ private struct ChatMessageBlocks: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       if let presentation {
-        ForEach(presentation.blocks) { block in
-          ChatPresentationBlockView(
-            block: block, bare: message.role == .tool,
-            expanded: expanded.contains(block.id), toggle: { toggleBlock(block.id) })
+        ForEach(presentation.sections) { section in
+          ChatMessageSection(section: section, bare: message.role == .tool, expanded: expanded, toggle: toggleBlock)
         }
         if presentation.sourceWasTruncated {
           Text("This long message is shortened in the reader.")
@@ -753,13 +806,74 @@ private struct ChatMessageBlocks: View {
           .aimText(.body)
           .lineSpacing(4)
           .textSelection(.enabled)
+          .padding(12)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
-private struct ChatPresentationBlockView: View {
+private struct ChatMessageSection: View {
+  let section: ChatPresentationSection
+  let bare: Bool
+  let expanded: Set<Int>
+  let toggle: (Int) -> Void
+
+  private var collapsed: Bool { section.isCollapsible && expanded.contains(section.id) }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      if let heading = section.heading, case let .heading(_, _, text) = heading {
+        if section.isCollapsible {
+          Button { toggle(section.id) } label: {
+            headingRow(text)
+          }
+          .buttonStyle(.plain)
+          .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+        } else {
+          headingRow(text)
+        }
+        if !collapsed { AIMHairline().padding(.horizontal, 12) }
+      }
+      if !collapsed {
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(section.blocks) { block in
+            ChatPresentationBlockView(block: block, bare: bare,
+              expanded: expanded.contains(block.id), toggle: { toggle(block.id) })
+          }
+        }
+        .padding(12)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(AIMTheme.chatOtherSurface, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
+    .aimBorder(AIMTheme.line, in: RoundedRectangle(cornerRadius: AIMTheme.radius))
+  }
+
+  private func headingRow(_ text: AttributedString) -> some View {
+    HStack(spacing: 10) {
+      Image(systemName: symbol).aimFont(.body).accessibilityHidden(true)
+      Text(text).aimText(.section)
+      Spacer(minLength: 4)
+      if section.isCollapsible {
+        Image(systemName: collapsed ? "chevron.right" : "chevron.down").aimFont(.secondary).accessibilityHidden(true)
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+    .padding(.horizontal, 12)
+    .contentShape(Rectangle())
+    .accessibilityAddTraits(.isHeader)
+  }
+
+  private var symbol: String {
+    if section.blocks.contains(where: { if case .table = $0 { true } else { false } }) { return "tablecells" }
+    if section.blocks.contains(where: { if case .orderedList = $0 { true } else { false } }) { return "list.number" }
+    if section.blocks.contains(where: { if case .unorderedList = $0 { true } else { false } }) { return "list.bullet" }
+    return "doc.text"
+  }
+}
+
+struct ChatPresentationBlockView: View {
   let block: ChatPresentationBlock
   let bare: Bool
   let expanded: Bool
@@ -795,7 +909,8 @@ private struct ChatPresentationBlockView: View {
           HStack(alignment: .firstTextBaseline, spacing: AIMTheme.rowSpacing) {
             Text("\(index + 1).")
               .aimText(.body).monospacedDigit()
-              .frame(width: 24, alignment: .trailing)
+              .frame(width: 24, height: 24)
+              .background(AIMTheme.tileFill, in: RoundedRectangle(cornerRadius: 4))
             readable(item)
           }
         }
@@ -804,6 +919,30 @@ private struct ChatPresentationBlockView: View {
       ChatCodeBlock(
         language: language, preview: preview, expandedText: expandedText,
         sourceWasTruncated: sourceWasTruncated, expanded: expanded, bare: bare, toggle: toggle)
+    case let .table(_, headers, rows):
+      Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 0) {
+        GridRow {
+          ForEach(headers.indices, id: \.self) { column in
+            Text(headers[column]).aimText(headers.count == 2 && column > 0 ? .body : .section)
+              .fixedSize(horizontal: false, vertical: true)
+              .frame(width: headers.count == 2 && column == 0 ? 128 : nil, alignment: .leading)
+              .padding(.vertical, 6)
+          }
+        }
+        ForEach(rows.indices, id: \.self) { row in
+          AIMHairline().gridCellColumns(headers.count)
+          GridRow(alignment: .top) {
+            ForEach(headers.indices, id: \.self) { column in
+              Text(rows[row][column]).aimText(headers.count == 2 && column == 0 ? .section : .body)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: headers.count == 2 && column == 0 ? 128 : nil, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+            }
+          }
+        }
+      }
+      .textSelection(.enabled)
     case .divider:
       AIMHairline().padding(.vertical, 2)
     }

@@ -104,6 +104,69 @@ struct SyntheticChatProvider: ChatHistoryProviding {
     return (0..<(words * 3)).map { pool[($0 * 7 + words) % pool.count] }.joined(separator: " ") + "."
   }
 
+  static func reference() -> SyntheticChatProvider {
+    let now = Date()
+    let prompt = """
+      # Goal
+
+      Keep the desktop reader clear and compact. Preserve every conversation and verify the working app.
+
+      ## Repository
+
+      `/Projects/Reader`
+
+      The source and the installed app use the same revision.
+
+      ## Inputs
+
+      Input | Location
+      --- | ---
+      Source folder | `/Projects/Reader/source/`
+      Work folder | `/Projects/Reader/build/` (tools, packages, and test output)
+      Environment | Swift, the macOS SDK, and the existing build cache
+      Fixtures | Synthetic conversations with no account credentials
+      Version | Current source revision
+
+      ## Rules
+
+      - Keep the window, sidebar, and toolbar in their current positions.
+      - Preserve both search fields, the filters, and the reading place.
+      - Verify the reader in Light and Dark appearance.
+
+      ## Steps
+
+      1. Inspect the current reader, then compare the measured body frames with the reference.
+      2. Run the native checks with synthetic conversations.
+
+      ```swift
+      let reader = HistoryPage(model: model)
+      let messages = conversation.messages
+      ```
+      """
+    let titles = ["# Goal: finish the desktop reader and verify its history", "Review the conversation search",
+      "Check the message sections and input table", "Keep the reader's scroll position", "Verify the native controls"]
+    let firstMessages = (0..<530).map { index in
+      ChatMessage(id: "reference-0#\(index)", role: index == 0 ? .user : index % 3 == 0 ? .tool : .assistant,
+        text: index == 0 ? prompt : index % 3 == 0 ? "Check \(index): passed" : "Response \(index): the content stays readable.",
+        timestamp: now.addingTimeInterval(Double(index - 530) * 10), model: index == 0 ? nil : "gpt-6.1-sol")
+    }
+    let threads = (0..<1_098).map { index in
+      ChatThreadSummary(id: "reference-\(index)", threadID: "reference-\(index)", title: titles[index % titles.count],
+        preview: "A synthetic conversation for the History reader.", workingDirectory: "/Projects/Reader",
+        updatedAt: now.addingTimeInterval(-Double(index) * 180), archived: false,
+        messageCount: index == 0 ? firstMessages.count : 2, fileByteCount: Int64(index == 0 ? prompt.utf8.count : 200),
+        source: URL(fileURLWithPath: "/Synthetic/reference-\(index).jsonl"), unreadableRecordCount: 0,
+        totalTokens: index == 0 ? 59_000_000 : 1_200, appSource: index == 0 ? .exec : .subagent,
+        model: index.isMultiple(of: 3) ? "gpt-6.1-sol" : "gpt-6-luna")
+    }
+    var messages = Dictionary(uniqueKeysWithValues: threads.dropFirst().map { thread in
+      (thread.id, [ChatMessage(id: thread.id + "#0", role: .user, text: "Review this conversation.", timestamp: now),
+                   ChatMessage(id: thread.id + "#1", role: .assistant, text: "The conversation is ready.", timestamp: now)])
+    })
+    messages[threads[0].id] = firstMessages
+    return SyntheticChatProvider(threads: threads, messages: messages)
+  }
+
   static func codeLines(count: Int, longEvery: Int) -> String {
     (0..<count).map { line in
       if line % longEvery == 0 {

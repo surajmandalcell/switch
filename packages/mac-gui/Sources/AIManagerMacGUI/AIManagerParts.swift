@@ -1608,7 +1608,7 @@ struct AIMSidebar: View {
         Image(systemName: page.icon.symbol).aimFont(.body)
           .foregroundStyle(AIMTheme.passiveIcon)
           .frame(width: 20)
-        Text(page.rawValue).aimText(.body)
+        Text(page.title).aimText(.body)
         Spacer(minLength: 0)
       }
     }

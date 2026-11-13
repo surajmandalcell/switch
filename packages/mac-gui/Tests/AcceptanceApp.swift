@@ -370,10 +370,20 @@ private enum AcceptanceConfiguration {
 @MainActor
 private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private let receipts = AcceptanceReceipts()
-    private let model = AccountViewModel(
-        scenario: AcceptanceConfiguration.stressesHistory
-            ? .historyStress
-            : (AcceptanceConfiguration.showsAllStates ? .allStates : .demo))
+    private let model: AccountViewModel = {
+        if CommandLine.arguments.contains("--history-reference"),
+           let directory = ProcessInfo.processInfo.environment["AI_MANAGER_ROOT"] {
+            let root = URL(fileURLWithPath: directory)
+            let paths = ManagerPaths(applicationSupport: root.appending(path: "support"),
+                defaultHome: root.appending(path: "user/.codex"), sharedRoot: root.appending(path: "user/.codex"),
+                orcaAccountsRoot: root.appending(path: "orca"),
+                codexExecutable: URL(fileURLWithPath: "/usr/bin/false"), isolationRoot: root)
+            return AccountViewModel(paths: paths, chatHistoryProvider: SyntheticChatProvider.reference(),
+                                    chatHistoryMonitor: NoChatMonitor())
+        }
+        return AccountViewModel(scenario: AcceptanceConfiguration.stressesHistory
+            ? .historyStress : (AcceptanceConfiguration.showsAllStates ? .allStates : .demo))
+    }()
     private var windowController: AIManagerWindowController<AnyView>?
     private(set) var offscreenSheet: NSWindow?
     private var statusItemController: AIManagerStatusItemController?
@@ -1051,6 +1061,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
 enum AIManagerMacGUIAcceptanceApp {
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--history-reference"),
+           !AcceptanceConfiguration.contractOnly || ProcessInfo.processInfo.environment["AI_MANAGER_ROOT"] == nil {
+            FileHandle.standardError.write(Data("The History reference requires --contract-only and a synthetic AI_MANAGER_ROOT.\n".utf8))
+            exit(3)
+        }
         if CommandLine.arguments.contains("--service-interaction-only") && !AcceptanceConfiguration.contractOnly {
             FileHandle.standardError.write(Data("Service interaction checks require --contract-only; refusing to use desktop defaults.\n".utf8))
             exit(3)
