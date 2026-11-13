@@ -44,8 +44,63 @@ enum FeatureLogicChecks {
         try codexWindows()
         try notificationStore()
         try incidentDisplay()
+        try chatMarkdown()
         try await statusPoller()
         try await claudeActivity()
+    }
+
+    private static func chatMarkdown() throws {
+        let source = #"""
+        # Goal
+
+        Keep **all** the content.
+
+        ## Inputs
+
+        Name | Value
+        :--- | ---:
+        Repository | `/Projects/Reader`
+        Pipe | left\|right
+        Code | ``left|right``
+        Missing |
+
+        ## Steps
+
+        1. Read the file
+        2. Run the check
+        """#
+        let parsed = try ChatMessagePresenter.parse(ChatMessage(id: "table", role: .user, text: source, timestamp: nil))
+        let tables = parsed.blocks.compactMap { block -> ([AttributedString], [[AttributedString]])? in
+            if case let .table(_, headers, rows) = block { return (headers, rows) }
+            return nil
+        }
+        try expect(tables.count == 1 && tables[0].0.map { String($0.characters) } == ["Name", "Value"],
+                   "Markdown table headers or alignment rules were not parsed")
+        let rows = tables[0].1.map { $0.map { String($0.characters) } }
+        try expect(rows == [["Repository", "/Projects/Reader"], ["Pipe", "left|right"],
+                            ["Code", "left|right"], ["Missing", ""]],
+                   "Markdown table parsing lost escaped pipes, inline code, or a missing cell")
+        try expect(parsed.sections.count == 3 && parsed.sections[1].blocks.contains { if case .table = $0 { true } else { false } },
+                   "Markdown section grouping lost its table or headings")
+        try expect(!parsed.sections[0].isCollapsible && parsed.sections[1].isCollapsible,
+                   "The top-level heading became an inert disclosure or a subheading lost its disclosure")
+        let plain = try ChatMessagePresenter.parse(ChatMessage(id: "plain", role: .assistant,
+            text: "Name | Value\nnot | a separator", timestamp: nil))
+        try expect(!plain.blocks.contains { if case .table = $0 { true } else { false } },
+                   "Pipe-separated prose became a table without a separator")
+        let single = try ChatMessagePresenter.parse(ChatMessage(id: "single", role: .assistant,
+            text: "| Field |\n| --- |\n| Value |", timestamp: nil))
+        try expect(single.blocks.contains { if case let .table(_, headers, rows) = $0 {
+            return headers.count == 1 && rows.count == 1
+        }; return false }, "A single-column Markdown table was not preserved")
+        let suite = "switch-reader-blocks-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let states: [String: Set<Int>] = ["message": [0, 3]]
+        ChatPlace.saveBlockStates(states, for: "thread", defaults)
+        try expect(ChatPlace.blockStates(for: "thread", defaults) == states
+                   && ChatPlace.blockStates(for: "other-thread", defaults).isEmpty,
+                   "Message section and code disclosures did not retain their thread-scoped state")
     }
 
     // MARK: Settings search

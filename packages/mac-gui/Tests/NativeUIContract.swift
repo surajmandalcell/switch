@@ -1219,6 +1219,15 @@ enum AIManagerNativeContract {
       ```
       """
     let message = ChatMessage(id: "markdown", role: .assistant, text: markdown, timestamp: nil)
+    let table = ChatPresentationBlock.table(0, headers: [AttributedString("Input"), AttributedString("Location")],
+      rows: [[AttributedString("Source"), AttributedString("/Projects/" + String(repeating: "longpath", count: 30))]])
+    let tableHost = NSHostingController(rootView: ChatPresentationBlockView(
+      block: table, bare: false, expanded: false, toggle: {}))
+    let narrowTable = tableHost.sizeThatFits(in: NSSize(width: 300, height: .greatestFiniteMagnitude))
+    let wideTable = tableHost.sizeThatFits(in: NSSize(width: 600, height: .greatestFiniteMagnitude))
+    if narrowTable.width > 300.5 || wideTable.width > 600.5 || narrowTable.height <= wideTable.height {
+      failures.append("A Markdown table with a long path escapes its width instead of wrapping")
+    }
     do {
       let presentation = try ChatMessagePresenter.parse(message)
       if !presentation.blocks.contains(where: { if case .heading = $0 { true } else { false } }) {
@@ -1374,9 +1383,12 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Overview", "Accounts", "Settings", "Maintenance", "Conversations"]
-    if AIManagerPage.allCases.map(\.rawValue) != expectedPages {
+    let expectedPages = ["Overview", "Accounts", "Settings", "Maintenance", "History"]
+    if AIManagerPage.allCases.map(\.title) != expectedPages {
       failures.append("The sidebar and View menu page order is incorrect")
+    }
+    if AIManagerPage.conversations.rawValue != "Conversations" {
+      failures.append("Renaming History changed its saved navigation identifier")
     }
     let expectedSymbols = ["house.fill", "person.2.fill", "gearshape.fill", "wrench.and.screwdriver.fill", "ellipsis.message.fill"]
     if AIManagerPage.allCases.map(\.icon.symbol) != expectedSymbols
@@ -1412,7 +1424,7 @@ enum AIManagerNativeContract {
     command("Window", "Minimize", key: "m")
     command("View", "Search", key: "k")
     for (index, page) in AIManagerPage.allCases.enumerated() {
-      command("View", page.rawValue, key: String(index + 1))
+      command("View", page.title, key: String(index + 1))
     }
     for (menu, title, action) in [
       (applicationName, "About \(applicationName)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
@@ -1472,7 +1484,7 @@ enum AIManagerNativeContract {
     if shownPages.last != .settings { failures.append("Command+, did not navigate to Settings") }
 
     for page in AIManagerPage.allCases {
-      guard let item = mainMenu.item(withTitle: "View")?.submenu?.item(withTitle: page.rawValue),
+      guard let item = mainMenu.item(withTitle: "View")?.submenu?.item(withTitle: page.title),
             let action = item.action else {
         failures.append("View > \(page.rawValue) could not resolve its action")
         continue

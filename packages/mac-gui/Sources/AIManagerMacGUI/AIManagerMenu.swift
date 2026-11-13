@@ -1,12 +1,14 @@
 import AppKit
 
-/// The sidebar and View menu order: by name length, shortest first.
+/// Stable saved navigation identifiers in sidebar and View menu order.
 enum AIManagerPage: String, CaseIterable {
   case overview = "Overview"
   case accounts = "Accounts"
   case settings = "Settings"
   case maintenance = "Maintenance"
   case conversations = "Conversations"
+
+  var title: String { self == .conversations ? "History" : rawValue }
 }
 
 enum AIManagerNavigation {
@@ -153,7 +155,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
       item("Accounts", #selector(showAccounts(_:)), key: "2", target: self),
       item("Settings", #selector(showSettings(_:)), key: "3", target: self),
       item("Maintenance", #selector(showMaintenance(_:)), key: "4", target: self),
-      item("Conversations", #selector(showConversations(_:)), key: "5", target: self),
+      item("History", #selector(showConversations(_:)), key: "5", target: self),
     ]
   }
 

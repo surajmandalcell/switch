@@ -5,6 +5,31 @@ struct ChatMessagePresentation: Identifiable, Equatable, Sendable {
   let id: String
   let blocks: [ChatPresentationBlock]
   let sourceWasTruncated: Bool
+
+  var sections: [ChatPresentationSection] {
+    var sections: [ChatPresentationSection] = []
+    for block in blocks {
+      if case .heading = block {
+        sections.append(ChatPresentationSection(id: block.id, heading: block, blocks: []))
+      } else if sections.isEmpty {
+        sections.append(ChatPresentationSection(id: block.id, heading: nil, blocks: [block]))
+      } else {
+        sections[sections.count - 1].blocks.append(block)
+      }
+    }
+    return sections
+  }
+}
+
+struct ChatPresentationSection: Identifiable, Equatable, Sendable {
+  let id: Int
+  let heading: ChatPresentationBlock?
+  var blocks: [ChatPresentationBlock]
+
+  var isCollapsible: Bool {
+    guard let heading, case let .heading(_, level, _) = heading else { return false }
+    return level > 1
+  }
 }
 
 enum ChatPresentationBlock: Identifiable, Equatable, Sendable {
@@ -13,6 +38,7 @@ enum ChatPresentationBlock: Identifiable, Equatable, Sendable {
   case quote(Int, AttributedString)
   case unorderedList(Int, [AttributedString])
   case orderedList(Int, [AttributedString])
+  case table(Int, headers: [AttributedString], rows: [[AttributedString]])
   case code(Int, language: String?, preview: String, expanded: String?, sourceWasTruncated: Bool)
   case divider(Int)
 
@@ -20,6 +46,7 @@ enum ChatPresentationBlock: Identifiable, Equatable, Sendable {
     switch self {
     case let .paragraph(id, _), let .heading(id, _, _), let .quote(id, _),
       let .unorderedList(id, _), let .orderedList(id, _), let .code(id, _, _, _, _),
+      let .table(id, _, _),
       let .divider(id):
       id
     }
@@ -112,6 +139,18 @@ enum ChatMessagePresenter {
         continue
       }
 
+      if index + 1 < lines.count, let headers = tableHeader(line, separator: lines[index + 1])
+      {
+        index += 2
+        var rows: [[AttributedString]] = []
+        while index < lines.count, let cells = tableCells(lines[index]) {
+          rows.append((0..<headers.count).map { inline($0 < cells.count ? cells[$0] : "") })
+          index += 1
+        }
+        blocks.append(.table(nextID(), headers: headers.map(inline), rows: rows))
+        continue
+      }
+
       if let heading = heading(in: trimmed) {
         blocks.append(.heading(nextID(), level: heading.level, text: inline(heading.text)))
         index += 1
@@ -164,6 +203,8 @@ enum ChatMessagePresenter {
       while index < lines.count {
         let candidate = lines[index].trimmingCharacters(in: .whitespaces)
         guard !candidate.isEmpty, !startsBlock(candidate) || paragraph.isEmpty else { break }
+        if !paragraph.isEmpty, index + 1 < lines.count,
+          tableHeader(candidate, separator: lines[index + 1]) != nil { break }
         paragraph.append(lines[index])
         index += 1
         if paragraph.count == 1 && startsBlock(candidate) { break }
@@ -180,6 +221,52 @@ enum ChatMessagePresenter {
   private static func isClosingFence(_ line: String, length: Int) -> Bool {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     return trimmed.count >= length && trimmed.allSatisfy { $0 == "`" }
+  }
+
+  private static func tableHeader(_ line: String, separator: String) -> [String]? {
+    guard let headers = tableCells(line),
+      let rules = tableCells(separator), headers.count == rules.count,
+      rules.allSatisfy({ cell in
+        let rule = cell.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        return rule.count >= 3 && rule.allSatisfy { $0 == "-" }
+      }) else { return nil }
+    return headers
+  }
+
+  private static func tableCells(_ line: String) -> [String]? {
+    let text = line.trimmingCharacters(in: .whitespaces)
+    guard text.contains("|") else { return nil }
+    var cells = [String]()
+    var cell = ""
+    var escaped = false
+    var codeTicks = 0
+    var pendingTicks = 0
+    for character in text {
+      if escaped {
+        if character != "|", character != "\\" { cell.append("\\") }
+        cell.append(character)
+        escaped = false
+      } else if character == "`" {
+        pendingTicks += 1
+        cell.append(character)
+      } else {
+        if pendingTicks > 0 {
+          if codeTicks == 0 { codeTicks = pendingTicks }
+          else if codeTicks == pendingTicks { codeTicks = 0 }
+          pendingTicks = 0
+        }
+        if character == "\\" { escaped = true }
+        else if character == "|", codeTicks == 0 {
+          cells.append(cell.trimmingCharacters(in: .whitespaces))
+          cell = ""
+        } else { cell.append(character) }
+      }
+    }
+    if escaped { cell.append("\\") }
+    cells.append(cell.trimmingCharacters(in: .whitespaces))
+    if text.first == "|" { cells.removeFirst() }
+    if text.last == "|", cells.last == "" { cells.removeLast() }
+    return cells.isEmpty ? nil : cells
   }
 
   private static func inline(_ text: String) -> AttributedString {
@@ -234,6 +321,20 @@ enum ChatPlace {
   static let messageQueryKey = "chat.messageQuery"
   static let anchorKey = "chat.anchor"
   static let threadsScrollKey = "chat.threadsScroll"
+  static let blockStatesKey = "chat.blockStates"
+
+  static func blockStates(for threadID: String?, _ defaults: UserDefaults = .standard) -> [String: Set<Int>] {
+    guard let threadID,
+      let saved = defaults.dictionary(forKey: blockStatesKey) as? [String: [String: [Int]]] else { return [:] }
+    return saved[threadID]?.mapValues { Set($0) } ?? [:]
+  }
+
+  static func saveBlockStates(_ states: [String: Set<Int>], for threadID: String?, _ defaults: UserDefaults = .standard) {
+    guard let threadID else { return }
+    var saved = defaults.dictionary(forKey: blockStatesKey) as? [String: [String: [Int]]] ?? [:]
+    saved[threadID] = states.mapValues { $0.sorted() }
+    defaults.set(saved, forKey: blockStatesKey)
+  }
 
   static func selectedID(_ defaults: UserDefaults = .standard) -> String? {
     defaults.string(forKey: selectedKey)
