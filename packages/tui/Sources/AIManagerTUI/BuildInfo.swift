@@ -1,3 +1,3 @@
 enum AIManagerBuildInfo {
-    static let version = "3.9.2"
+    static let version = "3.9.3"
 }
