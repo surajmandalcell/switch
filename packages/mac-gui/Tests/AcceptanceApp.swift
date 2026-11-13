@@ -615,8 +615,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                         || (view as? NSAccessibilityProtocol)?.accessibilityRole() == .progressIndicator
                     return indicator && !view.isHiddenOrHasHiddenAncestor
                 }
+                let readerSearching = ChatReaderReadiness.activeSearches[model.selectedChatID ?? "", default: 0] > 0
                 let settled = model.selectedChat != nil && !model.isChatLoading
-                    && !model.isChatHistoryLoading && !hasProgress
+                    && !model.isChatHistoryLoading && !hasProgress && !readerSearching
                 readyPasses = settled ? readyPasses + 1 : 0
                 return readyPasses >= 2
             }

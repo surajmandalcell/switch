@@ -1225,8 +1225,12 @@ enum AIManagerNativeContract {
       block: table, bare: false, expanded: false, toggle: {}))
     let narrowTable = tableHost.sizeThatFits(in: NSSize(width: 300, height: CGFloat.greatestFiniteMagnitude))
     let wideTable = tableHost.sizeThatFits(in: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
-    if narrowTable.width > 300.5 || wideTable.width > 600.5 || narrowTable.height <= wideTable.height {
-      failures.append("A Markdown table with a long path escapes its width instead of wrapping")
+    let dimensions = [narrowTable.width, narrowTable.height, wideTable.width, wideTable.height]
+    if dimensions.contains(where: { !$0.isFinite || $0 <= 0 })
+      || narrowTable.width > 300.5 || wideTable.width > 600.5
+      || narrowTable.height > 2_000 || wideTable.height > 2_000
+      || narrowTable.height <= wideTable.height {
+      failures.append("A Markdown table with a long path has invalid layout: narrow \(narrowTable), wide \(wideTable)")
     }
     do {
       let presentation = try ChatMessagePresenter.parse(message)

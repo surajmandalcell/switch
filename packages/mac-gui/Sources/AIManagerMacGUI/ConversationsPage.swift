@@ -539,6 +539,14 @@ private struct ChatDetailPane: View {
       isSearching = false
       return
     }
+    #if AI_MANAGER_PREVIEW
+    let threadID = model.selectedChatID ?? ""
+    ChatReaderReadiness.activeSearches[threadID, default: 0] += 1
+    defer {
+      let remaining = ChatReaderReadiness.activeSearches[threadID, default: 1] - 1
+      ChatReaderReadiness.activeSearches[threadID] = remaining > 0 ? remaining : nil
+    }
+    #endif
     isSearching = true
     do {
       try await Task.sleep(for: .milliseconds(120))
@@ -552,6 +560,12 @@ private struct ChatDetailPane: View {
     }
   }
 }
+
+#if AI_MANAGER_PREVIEW
+@MainActor enum ChatReaderReadiness {
+  static var activeSearches: [String: Int] = [:]
+}
+#endif
 
 private struct ChatMessageSearchKey: Hashable {
   let threadID: String?
@@ -920,11 +934,7 @@ struct ChatPresentationBlockView: View {
             Text(headers[column]).aimText(headers.count == 2 && column > 0 ? .body : .section)
               .fixedSize(horizontal: false, vertical: true)
               .frame(width: headers.count == 2 && column == 0 ? 128 : nil, alignment: .leading)
-              .frame(maxHeight: headers.count == 2 && column == 0 ? .infinity : nil, alignment: .topLeading)
               .padding(.vertical, 6)
-              .overlay(alignment: .trailing) {
-                if headers.count == 2 && column == 0 { Rectangle().fill(AIMTheme.line.opacity(0.6)).frame(width: 1) }
-              }
           }
         }
         ForEach(rows.indices, id: \.self) { row in
@@ -935,16 +945,17 @@ struct ChatPresentationBlockView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: headers.count == 2 && column == 0 ? 128 : nil, alignment: .leading)
                 .frame(maxWidth: headers.count == 2 && column == 0 ? nil : .infinity, alignment: .leading)
-                .frame(maxHeight: headers.count == 2 && column == 0 ? .infinity : nil, alignment: .topLeading)
                 .padding(.vertical, 6)
-                .overlay(alignment: .trailing) {
-                  if headers.count == 2 && column == 0 { Rectangle().fill(AIMTheme.line.opacity(0.6)).frame(width: 1) }
-                }
             }
           }
         }
       }
       .textSelection(.enabled)
+      .overlay(alignment: .leading) {
+        if headers.count == 2 {
+          Rectangle().fill(AIMTheme.line.opacity(0.6)).frame(width: 1).offset(x: 134).allowsHitTesting(false)
+        }
+      }
     case .divider:
       AIMHairline().padding(.vertical, 2)
     }
