@@ -607,24 +607,11 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 print("HISTORY_REFERENCE_READY_FAIL no reader view")
                 exit(1)
             }
-            var readyPasses = 0
-            let ready = await ConversationsCheck.waitUntil(timeout: 3) {
-                root.layoutSubtreeIfNeeded()
-                let hasProgress = ConversationsCheck.views(in: root).contains { view in
-                    let indicator = view is NSProgressIndicator
-                        || (view as? NSAccessibilityProtocol)?.accessibilityRole() == .progressIndicator
-                    return indicator && !view.isHidden
-                }
-                let readerSearching = ChatReaderReadiness.activeSearches[model.selectedChatID ?? "", default: 0] > 0
-                let settled = model.selectedChat != nil && !model.isChatLoading
-                    && !model.isChatHistoryLoading && !hasProgress && !readerSearching
-                readyPasses = settled ? readyPasses + 1 : 0
-                return readyPasses >= 2
-            }
-            guard ready else {
+            guard await waitForReferenceHistory(in: root) else {
                 print("HISTORY_REFERENCE_READY_FAIL initial reader search did not settle")
                 exit(1)
             }
+            receipts.writeHistoryReferenceSnapshot(of: root, stage: "before-contract")
         }
         await MaintenanceExtras.write(model: model, window: window)
         if !CommandLine.arguments.contains("--ui-lint"), let window {
@@ -722,7 +709,31 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         menuNavigationFailures.append(contentsOf: AIManagerNativeContract.chatCopyFailures())
         menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.accountSignInMenuFailures())
         checkWindowContract(receipts: receipts, stage: "contract-only")
+        if CommandLine.arguments.contains("--history-reference"), let root = window?.contentView {
+            receipts.writeHistoryReferenceSnapshot(of: root, stage: "after-checks")
+            guard await waitForReferenceHistory(in: root) else {
+                print("HISTORY_REFERENCE_READY_FAIL post-contract reader search did not settle")
+                exit(1)
+            }
+            receipts.writeHistoryReferenceSnapshot(of: root, stage: "settled")
+            guard receipts.repaintWindowContract(of: root) else {
+                print("HISTORY_REFERENCE_READY_FAIL could not update the final snapshot receipt")
+                exit(1)
+            }
+        }
         NSApp.terminate(nil)
+    }
+
+    private func waitForReferenceHistory(in root: NSView) async -> Bool {
+        var readyPasses = 0
+        return await ConversationsCheck.waitUntil(timeout: 3) {
+            root.layoutSubtreeIfNeeded()
+            let searching = ChatReaderReadiness.activeSearches[self.model.selectedChatID ?? "", default: 0] > 0
+            let settled = self.model.selectedChat != nil && !self.model.isChatLoading
+                && !self.model.isChatHistoryLoading && !searching && self.receipts.progressIndicatorCount(in: root) == 0
+            readyPasses = settled ? readyPasses + 1 : 0
+            return readyPasses >= 2
+        }
     }
 
     /// The page's top row (Add, More, search) must hit the hosting view, never an AppKit scroll view
@@ -1233,6 +1244,9 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     }
     if let contentView = window.contentView {
         if stage == "after-load" || stage == "contract-only" {
+            if CommandLine.arguments.contains("--history-reference") {
+                receipts.writeHistoryReferenceSnapshot(of: contentView, stage: "during-contract")
+            }
             receipts.writeSnapshot(of: contentView)
             receipts.writeMenuBarSnapshot(appearance: window.effectiveAppearance)
         }
@@ -1296,6 +1310,31 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
 @MainActor
 private final class AcceptanceReceipts {
     weak var model: AccountViewModel?
+
+    func progressIndicatorCount(in root: NSView) -> Int {
+        ConversationsCheck.views(in: root).filter { view in
+            let indicator = view is NSProgressIndicator
+                || (view as? NSAccessibilityProtocol)?.accessibilityRole() == .progressIndicator
+            return indicator && !view.isHidden
+        }.count
+    }
+
+    func writeHistoryReferenceSnapshot(of root: NSView, stage: String) {
+        let selected = model?.selectedChatID ?? "none"
+        let searches = ChatReaderReadiness.activeSearches[selected, default: 0]
+        print("HISTORY_REFERENCE_STATE stage=\(stage) time=\(Date().timeIntervalSince1970) indicators=\(progressIndicatorCount(in: root)) searches=\(searches) selected=\(selected) root=\(ObjectIdentifier(root))")
+        writeSnapshot(of: root, filename: "history-\(stage).png")
+    }
+
+    func repaintWindowContract(of root: NSView) -> Bool {
+        guard let directory,
+              let data = try? Data(contentsOf: directory.appending(path: "window-contract.json")),
+              var receipt = try? JSONDecoder().decode(WindowContractReceipt.self, from: data) else { return false }
+        writeSnapshot(of: root)
+        receipt.hierarchy = AIManagerNativeContract.hierarchySnapshot(in: root)
+        writeWindowContract(receipt)
+        return true
+    }
     private var menuBarHost: NSWindow?
 
     func prepareMenuBarSnapshot(appearance: NSAppearance) {
