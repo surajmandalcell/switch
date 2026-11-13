@@ -395,6 +395,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     private var modelObservers = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ChatPasteboard.previewName = NSPasteboard.Name("switch-history-preview-\(UUID().uuidString)")
         if CommandLine.arguments.contains("--service-interaction-only") {
             Task { @MainActor in
                 let failures = await ServiceInteractionCheck.failures()
@@ -601,6 +602,29 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         await MaintenanceExtras.unplugDrive(model: model)
         try? await Task.sleep(for: .milliseconds(220))
         window?.contentView?.layoutSubtreeIfNeeded()
+        if CommandLine.arguments.contains("--history-reference") {
+            guard let root = window?.contentView else {
+                print("HISTORY_REFERENCE_READY_FAIL no reader view")
+                exit(1)
+            }
+            var readyPasses = 0
+            let ready = await ConversationsCheck.waitUntil(timeout: 3) {
+                root.layoutSubtreeIfNeeded()
+                let hasProgress = ConversationsCheck.views(in: root).contains { view in
+                    let indicator = view is NSProgressIndicator
+                        || (view as? NSAccessibilityProtocol)?.accessibilityRole() == .progressIndicator
+                    return indicator && !view.isHiddenOrHasHiddenAncestor
+                }
+                let settled = model.selectedChat != nil && !model.isChatLoading
+                    && !model.isChatHistoryLoading && !hasProgress
+                readyPasses = settled ? readyPasses + 1 : 0
+                return readyPasses >= 2
+            }
+            guard ready else {
+                print("HISTORY_REFERENCE_READY_FAIL initial reader search did not settle")
+                exit(1)
+            }
+        }
         await MaintenanceExtras.write(model: model, window: window)
         if !CommandLine.arguments.contains("--ui-lint"), let window {
             receipts.prepareMenuBarSnapshot(appearance: window.effectiveAppearance)
@@ -694,6 +718,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .milliseconds(400))
             window.contentView?.layoutSubtreeIfNeeded()
         }
+        menuNavigationFailures.append(contentsOf: AIManagerNativeContract.chatCopyFailures())
         menuNavigationFailures.append(contentsOf: await AIManagerNativeContract.accountSignInMenuFailures())
         checkWindowContract(receipts: receipts, stage: "contract-only")
         NSApp.terminate(nil)
@@ -1043,6 +1068,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let name = ChatPasteboard.previewName {
+            NSPasteboard(name: name).releaseGlobally()
+            ChatPasteboard.previewName = nil
+        }
         windowController?.savePlacement()
         if let instanceActivationObserver {
             DistributedNotificationCenter.default().removeObserver(instanceActivationObserver)
