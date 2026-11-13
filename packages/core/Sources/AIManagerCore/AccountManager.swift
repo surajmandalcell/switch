@@ -108,6 +108,7 @@ public actor AccountManager {
     private let decoder: JSONDecoder
     private var grokRefreshAttempts: [String: Date] = [:]
     private var grokRefreshTimeout: TimeInterval = 20
+    private var retainedUsageCache: CodexUsageStatisticsCache?
     /// Digest of the live Droid login that discovery last examined, so doctor runs once per login.
     private var droidProbe: String?
 
@@ -832,6 +833,7 @@ public actor AccountManager {
         accountID: UUID,
         replacementDefaultAccountID: UUID? = nil
     ) async throws -> AccountDeletionResult {
+        try await retainUsageBeforeDeletion(accountID)
         let keys = try removalKeys(of: accountID)
         let result = try await removeAccount(accountID: accountID, replacementDefaultAccountID: replacementDefaultAccountID)
         forgetLogins(keys)
@@ -1146,10 +1148,96 @@ public actor AccountManager {
     /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
     /// accounts only; Codex and Grok registry accounts are never rewritten from here.
     public func readProviderUsage(accountID: UUID, interactive: Bool = false) async throws -> ProviderUsage {
-        try await fetchProviderUsage(accountID: accountID, interactive: interactive).sanitized()
+        let fetched = try await fetchProviderUsage(accountID: accountID, interactive: interactive)
+        let usage = fetched.usage.sanitized()
+        try await retainProviderUsage(account: .init(id: accountID, providerID: fetched.providerID), usage: usage)
+        return usage
     }
 
-    private func fetchProviderUsage(accountID: UUID, interactive: Bool) async throws -> ProviderUsage {
+    private func usageHistoryCache() throws -> CodexUsageStatisticsCache {
+        if let retainedUsageCache { return retainedUsageCache }
+        let cache = try CodexUsageStatisticsCache(
+            databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
+            activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
+        retainedUsageCache = cache
+        return cache
+    }
+
+    public func usageHistoryAccounts() async throws -> [HistoricalUsageAccount] {
+        let cache = try usageHistoryCache()
+        let accounts = try status().accounts
+        try await cache.retainUsageAccounts(accounts.map { .init(id: $0.id, providerID: $0.identity.providerID) })
+        try await retainLegacyProviderUsage(accounts)
+        return try await cache.usageHistoryAccounts()
+    }
+
+    /// Retains numeric charts only. Authentication, labels, account details and quota windows stay out.
+    public func retainProviderUsage(accountID: UUID, usage: ProviderUsage) async throws {
+        guard usage.charts.contains(where: { ["tokens", "usd"].contains($0.unit.lowercased()) }) else { return }
+        guard let account = try status().accounts.first(where: { $0.id == accountID }) else {
+            throw AIManagerError.accountNotFound
+        }
+        try await retainProviderUsage(account: .init(id: accountID, providerID: account.identity.providerID), usage: usage)
+    }
+
+    private func retainProviderUsage(account: HistoricalUsageAccount, usage: ProviderUsage) async throws {
+        let charts = usage.charts.map {
+            ProviderChartSource(service: account.providerID.rawValue,
+                                accountID: account.id.uuidString.lowercased(), chart: $0)
+        }
+        let points = UsageHistory.retainedChartPoints(charts, fetchedAt: usage.fetchedAt)
+        guard !points.isEmpty else { return }
+        let cache = try usageHistoryCache()
+        try await cache.retainUsageAccounts([account])
+        try await cache.retainHistoryPoints(points)
+    }
+
+    private func retainLegacyProviderUsage(_ accounts: [AccountRecord]) async throws {
+        struct LegacyUsageCache: Decodable { let usage: [String: ProviderUsage] }
+        let legacy = paths.applicationSupport.appending(path: "provider-usage-cache.json")
+        if CoreSupport.entryExists(legacy) {
+            let values = try legacy.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true,
+                  let size = values.fileSize, size <= 32_000_000 else {
+                throw AIManagerError.invalidSource("Saved usage is not a bounded regular file.")
+            }
+            let old = try JSONDecoder().decode(LegacyUsageCache.self, from: Data(contentsOf: legacy))
+            for account in accounts {
+                if let usage = old.usage[account.id.uuidString] ?? old.usage[account.id.uuidString.lowercased()] {
+                    try await retainProviderUsage(accountID: account.id, usage: usage)
+                }
+            }
+        }
+    }
+
+    private func retainUsageBeforeDeletion(_ accountID: UUID) async throws {
+        let accounts = try status().accounts
+        guard let target = accounts.first(where: { $0.id == accountID }) else { throw AIManagerError.accountNotFound }
+        _ = try await usageHistoryAccounts()
+        let cache = try usageHistoryCache()
+        if target.identity.providerID == .codex {
+            let index = ChatHistoryIndex(home: target.home)
+            await index.attachActivityCache(cache)
+            _ = try await index.refresh()
+        } else if target.identity.providerID == .claudeCode {
+            let scannerCache = paths.applicationSupport.appending(path: "cache/claude-delete-history.json")
+            defer { try? fileManager.removeItem(at: scannerCache) }
+            let scanner = ClaudeCostScanner(roots: [target.home], cacheURL: scannerCache, pricing: { [:] })
+            let candidates = try await cache.usageHistoryAccounts()
+            let owners = Dictionary(grouping: candidates, by: { $0.providerID.rawValue })
+                .mapValues { $0.map { $0.id.uuidString.lowercased() } }
+            let history = UsageHistory(sources: .init(
+                ledger: cache, claude: scanner, claudeHomes: [accountID.uuidString.lowercased(): target.home],
+                accounts: owners))
+            let snapshot = await history.snapshot()
+            guard snapshot.unavailableSources.isEmpty else {
+                throw AIManagerError.operationFailed("Usage history could not be saved before deleting this account.")
+            }
+        }
+    }
+
+    private func fetchProviderUsage(accountID: UUID, interactive: Bool) async throws
+        -> (providerID: ProviderID, usage: ProviderUsage) {
         if try providerStore.contains(accountID) {
             let spec = try providerStore.spec(forAccount: accountID)
             let stored = try providerStore.credential(for: accountID)
@@ -1157,11 +1245,11 @@ public actor AccountManager {
             if let updated = result.updated {
                 try providerStore.persist(accountID, updated, live: stored.live, liveDigest: stored.liveDigest)
             }
-            return result.usage
+            return (spec.id, result.usage)
         }
         guard let account = try loadRegistry().accounts.first(where: { $0.id == accountID }) else {
             if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
-                return try await claudeProfiles.usage(accountID: accountID)
+                return (.claudeCode, try await claudeProfiles.usage(accountID: accountID))
             }
             throw AIManagerError.accountNotFound
         }
@@ -1178,7 +1266,7 @@ public actor AccountManager {
                 credential = ProviderCredential(fields: ["apiKey": login.accessToken])
             }
             let factory = providerSpecs.first { $0.id.rawValue == "factory" } ?? ProviderCatalog.agentFactory
-            return try await factory.fetch(credential).usage
+            return (.droid, try await factory.fetch(credential).usage)
         }
         guard let spec = providerSpecs.first(where: { $0.id == account.identity.providerID }),
               let file = spec.files.first else {
@@ -1195,7 +1283,7 @@ public actor AccountManager {
            account.identity.providerID == .grokBuild {
             try? persistRefreshedGrokCredential(account, refreshed)
         }
-        return result.usage
+        return (account.identity.providerID, result.usage)
     }
 
     /// Grok access tokens last about 6 hours and only the official CLI may refresh the live login. When the

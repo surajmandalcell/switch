@@ -1,5 +1,40 @@
 import Foundation
 
+/// Attribution only. Historical accounts cannot be used to sign in, refresh, or switch.
+public struct HistoricalUsageAccount: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let providerID: ProviderID
+
+    public init(id: UUID, providerID: ProviderID) {
+        self.id = id
+        self.providerID = providerID
+    }
+}
+
+struct RetainedHistoryPoint: Codable, Sendable {
+    let key: String
+    let point: UsageHistoryPoint
+    let observedAt: Date
+
+    var isValid: Bool {
+        key.count == 64 && key.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+            && UsageHistory.validService(point.service)
+            && point.day.count == 10 && UsageHistory.epochDay(point.day) != nil
+            && point.tokens >= 0 && observedAt.timeIntervalSince1970.isFinite
+            && (point.costUSD == nil || (point.costUSD!.isFinite && point.costUSD! >= 0))
+            && (point.accountID == nil || UUID(uuidString: point.accountID!) != nil
+                || UsageHistory.sharedService(point.accountID!) == point.service)
+            && [point.model, point.project].allSatisfy { value in
+                value == nil || (value!.utf8.count <= 4096 && !value!.unicodeScalars.contains { $0.value < 32 })
+            }
+    }
+
+    static func scan(_ point: UsageHistoryPoint, observedAt: Date) -> Self {
+        let key = ["scan", point.service, point.accountID ?? "", point.day, point.model ?? "", point.project ?? ""]
+        return .init(key: CoreSupport.digest(Data(key.joined(separator: "\u{0}").utf8)), point: point, observedAt: observedAt)
+    }
+}
+
 // Usage history for the Overview dashboard: one year of daily points from the activity ledger,
 // Claude Code logs, Grok Build sessions and provider charts, grouped by account, model or project.
 //
@@ -276,9 +311,11 @@ public actor UsageHistory {
 
     private let sources: UsageHistorySources
     private var grokFiles: [String: GrokFile] = [:]
+    private var attributionAccounts: [String: [String]]
 
     public init(sources: UsageHistorySources) {
         self.sources = sources
+        self.attributionAccounts = sources.accounts
     }
 
     /// The last 365 UTC days. Unchanged logs are served from caches, so a repeat call reads only
@@ -288,6 +325,7 @@ public actor UsageHistory {
         let start = ClaudeCostScanner.utcDayName(Int((now.timeIntervalSince1970 / 86_400).rounded(.down)) - Self.windowDays + 1)
         var points: [UsageHistoryPoint] = []
         var unavailable: [String] = []
+        do { try await loadHistoricalAccounts() } catch { unavailable.append("history-accounts") }
 
         if let ledger = sources.ledger {
             do {
@@ -312,12 +350,86 @@ public actor UsageHistory {
         if let sessions = sources.droidSessions {
             points += await droidPoints(sessions, start: start, now: now)
         }
-        points += chartPoints(start: start, through: today)
+        var nativeByKey: [String: RetainedHistoryPoint] = [:]
+        for point in points where point.service != ProviderID.codex.rawValue {
+            let row = RetainedHistoryPoint.scan(point, observedAt: now)
+            if let previous = nativeByKey[row.key] {
+                var combined = previous.point
+                combined.tokens += point.tokens
+                if let cost = point.costUSD { combined.costUSD = (combined.costUSD ?? 0) + cost }
+                nativeByKey[row.key] = .init(key: row.key, point: combined, observedAt: now)
+            } else {
+                nativeByKey[row.key] = row
+            }
+        }
+        let native = Array(nativeByKey.values)
+        points = points.filter { $0.service == ProviderID.codex.rawValue } + native.map(\.point)
+        let charts = Self.retainedChartPoints(sources.charts, fetchedAt: .distantPast)
+            .filter { $0.point.day >= start && $0.point.day <= today }
+        if let ledger = sources.ledger {
+            do {
+                try await ledger.retainHistoryPoints(native + charts)
+                let archived = try await ledger.retainedHistoryPoints(from: start, through: today)
+                var combined = Dictionary((native + charts).map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
+                for row in archived { combined[row.key] = row }
+                points = points.filter { $0.service == ProviderID.codex.rawValue } + combined.values.map(\.point)
+            } catch {
+                unavailable.append("retained-history")
+                points += charts.map(\.point)
+            }
+        } else {
+            points += charts.map(\.point)
+        }
         for index in points.indices {
             points[index].accountID = Self.owner(service: points[index].service, accountID: points[index].accountID,
-                                                 accounts: sources.accounts)
+                                                 accounts: attributionAccounts)
         }
         return UsageHistorySnapshot(points: points, today: today, unavailableSources: unavailable)
+    }
+
+    private func loadHistoricalAccounts() async throws {
+        guard let ledger = sources.ledger else { return }
+        let archived = try await ledger.usageHistoryAccounts()
+        for account in archived {
+            let service = account.providerID.rawValue
+            let id = account.id.uuidString.lowercased()
+            if !attributionAccounts[service, default: []].contains(id) {
+                attributionAccounts[service, default: []].append(id)
+            }
+        }
+    }
+
+    static func validService(_ service: String) -> Bool {
+        !service.isEmpty && service.utf8.count <= 100
+            && service.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }
+    }
+
+    static func retainedChartPoints(_ sources: [ProviderChartSource], fetchedAt: Date) -> [RetainedHistoryPoint] {
+        let scanned: Set<String> = [ProviderID.codex.rawValue, ProviderID.claudeCode.rawValue,
+                                   ProviderID.grokBuild.rawValue, ProviderID.droid.rawValue]
+        return sources.flatMap { source -> [RetainedHistoryPoint] in
+            guard !scanned.contains(source.service), UUID(uuidString: source.accountID) != nil,
+                  validService(source.service), ["usd", "tokens"].contains(source.chart.unit.lowercased()) else { return [] }
+            var daily: [String: Double] = [:]
+            for point in source.chart.points {
+                guard let date = point.date, date.timeIntervalSince1970.isFinite,
+                      (-62_135_596_800...253_402_300_799).contains(date.timeIntervalSince1970),
+                      let epoch = Int(exactly: floor(date.timeIntervalSince1970 / 86_400)),
+                      point.value.isFinite, point.value >= 0 else { continue }
+                let day = ClaudeCostScanner.utcDayName(epoch)
+                guard day.count == 10, Self.epochDay(day) != nil else { continue }
+                daily[day, default: 0] += min(point.value, 1e15)
+            }
+            let unit = source.chart.unit.lowercased()
+            return daily.map { day, value in
+                let key = ["chart", source.service, source.accountID.lowercased(), source.chart.id, unit, day]
+                return RetainedHistoryPoint(
+                    key: CoreSupport.digest(Data(key.joined(separator: "\u{0}").utf8)),
+                    point: .init(day: day, service: source.service, accountID: source.accountID.lowercased(),
+                                 tokens: unit == "tokens" ? Int64(min(value, 1e15)) : 0,
+                                 costUSD: unit == "usd" ? value : nil), observedAt: fetchedAt)
+            }
+        }
     }
 
     // MARK: Attribution
@@ -380,6 +492,7 @@ public actor UsageHistory {
     /// Codex threads from the ledger, Claude Code logs, Grok Build sessions. Sources that keep no
     /// per-session data (provider charts, account totals) add none. Run it off the main actor.
     public func daySessions(day: String) async -> [UsageDaySession] {
+        try? await loadHistoricalAccounts()
         var sessions: [UsageDaySession] = []
         if let ledger = sources.ledger, let rows = try? await ledger.threadSessions(day: day) {
             var rates: [String: ModelRate] = [:]
@@ -448,7 +561,7 @@ public actor UsageHistory {
         }
         return sessions.map { session in
             var session = session
-            session.accountID = Self.owner(service: session.service, accountID: session.accountID, accounts: sources.accounts)
+            session.accountID = Self.owner(service: session.service, accountID: session.accountID, accounts: attributionAccounts)
             return session
         }.sorted { ($1.tokens, $0.id) < ($0.tokens, $1.id) }
     }
@@ -534,26 +647,6 @@ public actor UsageHistory {
         let folder = relative.split(separator: "/").first.map(String.init) ?? ""
         let decoded = folder.removingPercentEncoding ?? folder
         return decoded.isEmpty ? "Unknown project" : decoded
-    }
-
-    private func chartPoints(start: String, through end: String) -> [UsageHistoryPoint] {
-        let handled: Set<String> = [
-            ProviderID.codex.rawValue, ProviderID.claudeCode.rawValue, ProviderID.grokBuild.rawValue, ProviderID.droid.rawValue]
-        var points: [UsageHistoryPoint] = []
-        for source in sources.charts where !handled.contains(source.service) {
-            let unit = source.chart.unit.lowercased()
-            guard unit == "tokens" || unit == "usd" else { continue }
-            for point in source.chart.points where point.value > 0 {
-                guard let date = point.date else { continue }
-                let day = ClaudeCostScanner.utcDayName(Int((date.timeIntervalSince1970 / 86_400).rounded(.down)))
-                guard day >= start, day <= end else { continue }
-                points.append(UsageHistoryPoint(
-                    day: day, service: source.service, accountID: source.accountID,
-                    tokens: unit == "tokens" ? Int64(min(point.value, 1e15)) : 0,
-                    costUSD: unit == "usd" ? point.value : nil))
-            }
-        }
-        return points
     }
 
     /// Saved native profile folders, keyed by the stable account IDs used by the ledger.

@@ -168,8 +168,8 @@ public struct CodexLedgerAccountDay: Sendable, Equatable {
 
 public actor CodexUsageStatisticsCache {
     public static let schemaVersion: Int32 = 1
-    /// Version 2 adds `model_days`; version 1 files migrate in place and keep every row.
-    static let activitySchemaVersion: Int32 = 2
+    /// Activity tables migrate in place and remain separate from expiring quota samples.
+    static let activitySchemaVersion: Int32 = 3
 
     private let databaseURL: URL
     private let activityDatabaseURL: URL?
@@ -254,6 +254,14 @@ public actor CodexUsageStatisticsCache {
                             FOREIGN KEY(thread_id) REFERENCES activity_threads(thread_id)
                         ) WITHOUT ROWID;
                         CREATE INDEX IF NOT EXISTS model_days_date ON model_days(day);
+                        CREATE TABLE IF NOT EXISTS historical_accounts(
+                            account_id TEXT PRIMARY KEY NOT NULL, provider TEXT NOT NULL
+                        ) WITHOUT ROWID;
+                        CREATE TABLE IF NOT EXISTS historical_usage(
+                            point_key TEXT PRIMARY KEY NOT NULL, day TEXT NOT NULL,
+                            payload BLOB NOT NULL, observed_at REAL NOT NULL
+                        ) WITHOUT ROWID;
+                        CREATE INDEX IF NOT EXISTS historical_usage_day ON historical_usage(day);
                         PRAGMA user_version = \(Self.activitySchemaVersion);
                         """)
                 }
@@ -283,6 +291,115 @@ public actor CodexUsageStatisticsCache {
                 }
             }
             try Self.secureDatabaseFiles(activityDatabaseURL)
+        }
+    }
+
+    public func retainUsageAccounts(_ accounts: [HistoricalUsageAccount]) throws {
+        guard let activityDatabaseURL else { return }
+        guard accounts.allSatisfy({ UsageHistory.validService($0.providerID.rawValue) }) else {
+            throw CodexUsageStatisticsCacheError.invalidSnapshot
+        }
+        try Self.withDatabase(at: activityDatabaseURL) { database in
+            try Self.transaction(database) {
+                for account in accounts {
+                    let statement = try Self.prepare(database, "INSERT INTO historical_accounts VALUES(?1, ?2) ON CONFLICT(account_id) DO NOTHING")
+                    defer { sqlite3_finalize(statement) }
+                    Self.bind(account.id.uuidString.lowercased(), to: statement, at: 1)
+                    Self.bind(account.providerID.rawValue, to: statement, at: 2)
+                    guard sqlite3_step(statement) == SQLITE_DONE else { throw Self.databaseError(database, "Could not retain usage account") }
+                    let existing = try Self.prepare(database, "SELECT provider FROM historical_accounts WHERE account_id = ?1")
+                    defer { sqlite3_finalize(existing) }
+                    Self.bind(account.id.uuidString.lowercased(), to: existing, at: 1)
+                    guard sqlite3_step(existing) == SQLITE_ROW, Self.text(existing, column: 0) == account.providerID.rawValue else {
+                        throw CodexUsageStatisticsCacheError.invalidSnapshot
+                    }
+                }
+            }
+        }
+    }
+
+    public func usageHistoryAccounts() throws -> [HistoricalUsageAccount] {
+        guard let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            let statement = try Self.prepare(database, "SELECT account_id, provider FROM historical_accounts ORDER BY account_id")
+            defer { sqlite3_finalize(statement) }
+            var accounts: [HistoricalUsageAccount] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let raw = Self.text(statement, column: 0), let id = UUID(uuidString: raw),
+                      let provider = Self.text(statement, column: 1), UsageHistory.validService(provider) else {
+                    throw CodexUsageStatisticsCacheError.invalidSnapshot
+                }
+                accounts.append(.init(id: id, providerID: .init(rawValue: provider)))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read usage accounts")
+            }
+            return accounts
+        }
+    }
+
+    func retainHistoryPoints(_ points: [RetainedHistoryPoint]) throws {
+        guard let activityDatabaseURL, !points.isEmpty else { return }
+        guard points.allSatisfy({ $0.isValid }) else { throw CodexUsageStatisticsCacheError.invalidSnapshot }
+        try Self.withDatabase(at: activityDatabaseURL) { database in
+            try Self.transaction(database) {
+                for point in points {
+                    let statement = try Self.prepare(database, """
+                        INSERT INTO historical_usage VALUES(?1, ?2, ?3, ?4)
+                        ON CONFLICT(point_key) DO UPDATE SET payload = excluded.payload, observed_at = excluded.observed_at
+                        WHERE excluded.observed_at >= historical_usage.observed_at
+                        """)
+                    defer { sqlite3_finalize(statement) }
+                    Self.bind(point.key, to: statement, at: 1)
+                    Self.bind(point.point.day, to: statement, at: 2)
+                    var retained = point
+                    if point.point.costUSD == nil {
+                        let old = try Self.prepare(database, "SELECT payload FROM historical_usage WHERE point_key = ?1")
+                        defer { sqlite3_finalize(old) }
+                        Self.bind(point.key, to: old, at: 1)
+                        if sqlite3_step(old) == SQLITE_ROW, let bytes = sqlite3_column_blob(old, 0) {
+                            let count = sqlite3_column_bytes(old, 0)
+                            guard count > 0, count <= 32_768 else { throw CodexUsageStatisticsCacheError.invalidSnapshot }
+                            let previous = try decoder.decode(RetainedHistoryPoint.self, from: Data(bytes: bytes, count: Int(count)))
+                            if previous.point.tokens == point.point.tokens {
+                                var merged = point.point
+                                merged.costUSD = previous.point.costUSD
+                                retained = .init(key: point.key, point: merged, observedAt: point.observedAt)
+                            }
+                        }
+                    }
+                    let data = try encoder.encode(retained)
+                    data.withUnsafeBytes { bytes in
+                        _ = sqlite3_bind_blob(statement, 3, bytes.baseAddress, Int32(bytes.count), Self.transient)
+                    }
+                    sqlite3_bind_double(statement, 4, point.observedAt.timeIntervalSince1970)
+                    guard sqlite3_step(statement) == SQLITE_DONE else { throw Self.databaseError(database, "Could not retain usage history") }
+                }
+            }
+        }
+    }
+
+    func retainedHistoryPoints(from startDay: String, through endDay: String) throws -> [RetainedHistoryPoint] {
+        guard let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            let statement = try Self.prepare(database, "SELECT payload FROM historical_usage WHERE day BETWEEN ?1 AND ?2")
+            defer { sqlite3_finalize(statement) }
+            Self.bind(startDay, to: statement, at: 1)
+            Self.bind(endDay, to: statement, at: 2)
+            var points: [RetainedHistoryPoint] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let size = sqlite3_column_bytes(statement, 0)
+                guard size > 0, size <= 32_768, let bytes = sqlite3_column_blob(statement, 0) else {
+                    throw CodexUsageStatisticsCacheError.invalidSnapshot
+                }
+                let point = try decoder.decode(RetainedHistoryPoint.self, from: Data(bytes: bytes, count: Int(size)))
+                guard point.isValid else { throw CodexUsageStatisticsCacheError.invalidSnapshot }
+                points.append(point)
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read retained usage")
+            }
+            return points
         }
     }
 
