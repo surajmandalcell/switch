@@ -268,7 +268,8 @@ struct OverviewPage: View {
   var body: some View {
     AIMScrollPage {
       if model.hasLoaded && !model.isBusy && !model.isUsageHistoryLoading
-        && (model.usageHistory != nil || model.isUnavailable) && accounts.isEmpty {
+        && (model.usageHistory != nil || model.isUnavailable) && accounts.isEmpty
+        && model.usageHistory?.points.isEmpty != false {
         OverviewEmptyCard(model: model)
       } else {
         totalsCard
@@ -359,7 +360,7 @@ struct OverviewPage: View {
         StatTile(label: "Estimated cost", value: totals?.costUSD.map(UsagePresentation.formatCurrency),
           detail: "API-rate estimate, not billed", loading: displayedDataset == nil)
         StatTile(label: "Active accounts", value: totals.map { "\($0.activeAccounts)" },
-          detail: "Of \(accounts.count) saved", loading: displayedDataset == nil)
+          detail: "With usage in this period", loading: displayedDataset == nil)
         StatTile(label: "Busiest day", value: totals?.busiestDay.map(OverviewDay.short),
           detail: totals.map { $0.busiestDay == nil ? "No usage yet" : "\(UsagePresentation.formatTokens($0.busiestDayTokens)) tokens" },
           loading: displayedDataset == nil)

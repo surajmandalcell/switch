@@ -674,10 +674,17 @@ struct ProductionAccountViewModelCheck {
 
         // The cache is private and a new model shows it before any check.
         let cacheURL = ProviderUsageCache.url(in: paths.applicationSupport)
+        let usageDate = Date()
+        let usageDay = String(ISO8601DateFormatter().string(from: usageDate).prefix(10))
         let cached = ProviderUsage(
             windows: [UsageWindow(id: "s", title: "Session", usedPercent: 33, resetsAt: Date().addingTimeInterval(3_600),
                                   windowMinutes: 300, detail: "33 / 100 requests")],
-            cost: UsageCost(balance: 4.2), plan: "Pro", fetchedAt: Date().addingTimeInterval(-60))
+            cost: UsageCost(balance: 4.2), plan: "Pro", fetchedAt: Date().addingTimeInterval(-60), charts: [
+                UsageChart(id: "daily-tokens", title: "Tokens", unit: "tokens",
+                           points: [.init(label: usageDay, date: usageDate, value: 120)]),
+                UsageChart(id: "daily-cost", title: "Spend", unit: "USD",
+                           points: [.init(label: usageDay, date: usageDate, value: 3.5)])
+            ])
         try ProviderUsageCache.save([account.id: cached], to: cacheURL)
         let mode = try fileManager.attributesOfItem(atPath: cacheURL.path)[.posixPermissions] as? Int
         try expect(mode == 0o600, "The usage cache is not owner-private")
@@ -726,6 +733,34 @@ struct ProductionAccountViewModelCheck {
         try expect(ProviderUsageCache.load(from: cacheURL)[second.id] == nil
                    && ProviderUsageCache.load(from: cacheURL)[account.id] == cached,
                    "Deleting an account left its usage in the cache file")
+        let afterDeletion = try expect(reopened.usageHistory, "Deleting an account did not load retained statistics")
+        let deletedTotals = afterDeletion.summary(period: .week, grouping: .account)
+        try expect(deletedTotals.totals.tokens == 240 && deletedTotals.totals.costUSD == 7
+                   && deletedTotals.groups.contains { $0.key == second.id.uuidString.lowercased() },
+                   "Deleting an account removed its historical tokens or spend")
+        await reopened.clearUsageCache()
+        let restartedManager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let restarted = AccountViewModel(paths: paths, manager: restartedManager)
+        await restarted.load()
+        await restarted.loadUsageHistory(maxAge: 0)
+        try expect(restarted.status?.accounts.map(\.id) == [account.id]
+                   && restarted.providerUsage[second.id] == nil,
+                   "Restart restored a removed account or its live usage state")
+        try expect(restarted.usageHistory?.summary(period: .week, grouping: .account) == deletedTotals,
+                   "Restart or quota-cache clearing changed retained account statistics")
+        _ = try await restartedManager.deleteAccount(accountID: account.id)
+        let emptyManager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let empty = AccountViewModel(paths: paths, manager: emptyManager)
+        await empty.load()
+        await empty.loadUsageHistory(maxAge: 0)
+        try expect(empty.status?.accounts.isEmpty == true && empty.providerUsage.isEmpty,
+                   "Removing the last account left it available for usage checks")
+        try expect(empty.usageHistory?.summary(period: .week, grouping: .account) == deletedTotals,
+                   "Removing the last saved account hid or changed historical totals")
+        let retainedDay = await empty.loadUsageDay(usageDay)
+        try expect(retainedDay.points.reduce(Int64(0)) { $0 + $1.tokens } == 240
+                   && retainedDay.points.compactMap(\.costUSD).reduce(0, +) == 7,
+                   "The day sheet lost statistics after the last account was removed")
     }
 
     @MainActor
