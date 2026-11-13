@@ -298,6 +298,7 @@ private struct ChatDetailPane: View {
   @State private var messageQuery: String
   @State private var messageFilter: ChatMessageFilter
   @State private var isSearching = false
+  @State private var searchGeneration = 0
   /// Where to scroll once the remembered message is loaded; cleared when the reader changes the search.
   @State private var restoreTarget: ChatScrollAnchor?
   /// Code blocks the reader opened, by message ID.
@@ -535,8 +536,10 @@ private struct ChatDetailPane: View {
 
   @MainActor
   private func updateMessageSearch() async {
+    searchGeneration += 1
+    let generation = searchGeneration
+    defer { if searchGeneration == generation { isSearching = false } }
     guard model.selectedChat != nil else {
-      isSearching = false
       return
     }
     #if AI_MANAGER_PREVIEW
@@ -552,11 +555,10 @@ private struct ChatDetailPane: View {
       try await Task.sleep(for: .milliseconds(120))
       await model.searchChatMessages(query: messageQuery, filter: messageFilter)
       guard !Task.isCancelled else { return }
-      isSearching = false
     } catch is CancellationError {
       return
     } catch {
-      isSearching = false
+      return
     }
   }
 }

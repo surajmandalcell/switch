@@ -613,7 +613,7 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
                 let hasProgress = ConversationsCheck.views(in: root).contains { view in
                     let indicator = view is NSProgressIndicator
                         || (view as? NSAccessibilityProtocol)?.accessibilityRole() == .progressIndicator
-                    return indicator && !view.isHiddenOrHasHiddenAncestor
+                    return indicator && !view.isHidden
                 }
                 let readerSearching = ChatReaderReadiness.activeSearches[model.selectedChatID ?? "", default: 0] > 0
                 let settled = model.selectedChat != nil && !model.isChatLoading
