@@ -25,14 +25,18 @@ struct SwitchCore {
         switch arguments.count {
         case 1 where ["serve", "doctor"].contains(command):
             break
-        case 3 where ["serve", "doctor"].contains(command) && arguments[1] == "--root" && !arguments[2].isEmpty:
+        case 3 where ["serve", "doctor", "seed-synthetic"].contains(command) && arguments[1] == "--root"
+            && !arguments[2].isEmpty:
             environment["AI_MANAGER_ROOT"] = arguments[2]
         default:
-            RPCServer.standardError("Usage: switch-core serve|doctor [--root <path>]")
+            RPCServer.standardError("Usage: switch-core serve|doctor [--root <path>] | seed-synthetic --root <empty folder>")
             exit(2)
         }
         let paths = ManagerPaths.environment(environment)
         if command == "doctor" { exit(Doctor.run(paths: paths, environment: environment)) }
+        if command == "seed-synthetic" {
+            exit(await Seed.run(paths: paths, root: URL(fileURLWithPath: arguments[2], isDirectory: true)))
+        }
 
         // One helper per data folder (two would run two schedulers). The OS drops the lock if the helper dies.
         let helperLock: FileLock?
