@@ -15,8 +15,10 @@ if [[ $STEP == build || $STEP == all ]]; then
   ssh "$HOST" "bash $REMOTE/src/scripts/build.sh $REMOTE/src $REMOTE/build"
 fi
 if [[ $STEP == shots || $STEP == all ]]; then
-  ssh "$HOST" "bash $REMOTE/src/scripts/shots.sh $REMOTE/build/switch $REMOTE/shots"
+  rc=0
+  ssh "$HOST" "bash $REMOTE/src/scripts/shots.sh $REMOTE/build/switch $REMOTE/shots" || rc=$?   # 1: a page failed to load
   mkdir -p "$LOCAL_OUT"
   rsync -a --delete "$HOST:$REMOTE/shots/" "$LOCAL_OUT/qt/"
   bash "$SRC/scripts/compare.sh" "$LOCAL_OUT/qt" "$MAC_CAPTURES" "$LOCAL_OUT/compare"
+  exit $rc
 fi

@@ -7,7 +7,7 @@
 set -uo pipefail
 BIN=${1:?switch binary}
 OUT=${2:?out dir}
-LOCK=${SWITCH_BUILD_LOCK:-/mnt/nvme1/data/switch/port/build.lock}
+LOCK=${SWITCH_BUILD_LOCK:-/mnt/nvme1/data/switch/port/qt.lock}
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 mkdir -p "$OUT/compare"
 INNER=$(mktemp --suffix=.sh)
@@ -29,7 +29,12 @@ exit $rc
 EOF
 export BIN
 
-run() { timeout 300 flock "$LOCK" dbus-run-session -- bash "$INNER" "$@" 2>&1 | grep -E '^SHOT|qml|QML|rror' | head -40; }
+# The app exits 1 when a page or the popover failed to load (FAILED lines); the other captures still run.
+rc=0
+run() {
+  timeout 300 flock "$LOCK" dbus-run-session -- bash "$INNER" "$@" 2>&1 | grep -E '^SHOT|^FAILED|qml|QML|rror' | awk 'NR <= 40'   # not head: closing the pipe early kills the app (SIGPIPE)
+  [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+}
 
 for scale in 1 2; do
   for theme in light dark; do
@@ -40,3 +45,4 @@ for theme in light dark; do
   run 1 "$OUT/compare" --theme "$theme" --content-only --pages settings
   run 1 "$OUT/compare/update" --theme "$theme" --content-only --pages settings --update
 done
+exit $rc

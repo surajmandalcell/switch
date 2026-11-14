@@ -23,6 +23,8 @@ QJsonObject makeError(int code, const QString &kind, const QString &message, boo
 HelperClient::HelperClient(QObject *parent) : QObject(parent) {
   m_restartTimer.setSingleShot(true);
   connect(&m_restartTimer, &QTimer::timeout, this, &HelperClient::launch);
+  // A QML binding only follows a key that existed when it first ran, so every topic starts as undefined.
+  for (const QString &t : Config().topics) m_topics.insert(t, QVariant());
 }
 
 HelperClient::~HelperClient() { stop(); }
@@ -49,6 +51,8 @@ void HelperClient::launch() {
   m_buf.clear();
   m_revs.clear(); // a new helper counts revs from 0 again
   m_stopping = false;
+  m_errTail.clear();
+  m_error.clear();
   m_proc = new QProcess(this);
   m_proc->setProgram(m_config.program);
   m_proc->setArguments({"serve"});
@@ -68,6 +72,8 @@ void HelperClient::launch() {
   connect(m_proc, &QProcess::readyReadStandardError, this, [this] {
     const QByteArray err = m_proc->readAllStandardError();
     qCDebug(lcHelper).noquote() << "helper stderr:" << err.size() << "bytes";
+    const QList<QByteArray> lines = err.trimmed().split('\n');
+    if (!lines.last().isEmpty()) m_errTail = lines.last().trimmed().left(300);
   });
   connect(m_proc, &QProcess::finished, this, &HelperClient::onFinished);
   connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
@@ -169,7 +175,7 @@ qint64 HelperClient::request(const QString &method, const QJsonObject &params, R
     write(QJsonObject{{"jsonrpc", "2.0"}, {"method", "$/cancelRequest"}, {"params", QJsonObject{{"id", id}}}});
     finish(id, {}, makeError(-32007, "timeout", "Switch did not answer in time.", true));
   });
-  p.timer->start(timeoutMs > 0 ? timeoutMs : m_config.requestTimeoutMs);
+  if (timeoutMs != 0) p.timer->start(timeoutMs > 0 ? timeoutMs : m_config.requestTimeoutMs); // 0: no limit (backup.run, cleanup.scan)
   m_pending.insert(id, std::move(p));
   QJsonObject frame{{"jsonrpc", "2.0"}, {"id", id}, {"method", method}};
   if (!params.isEmpty()) frame.insert("params", params);
@@ -191,13 +197,13 @@ void HelperClient::cancel(qint64 id) {
   notify("$/cancelRequest", QJsonObject{{"id", id}});
 }
 
-qint64 HelperClient::call(const QString &method, const QVariantMap &params, const QJSValue &callback) {
+qint64 HelperClient::call(const QString &method, const QVariantMap &params, const QJSValue &callback, int timeoutMs) {
   return request(method, QJsonObject::fromVariantMap(params), [this, callback](const QJsonValue &result, const QJsonObject &error) {
     if (!callback.isCallable() || !m_engine) return;
     QJSValue cb = callback;
     cb.call({m_engine->toScriptValue(result.toVariant()),
              error.isEmpty() ? QJSValue(QJSValue::NullValue) : m_engine->toScriptValue(error.toVariantMap())});
-  });
+  }, timeoutMs);
 }
 
 bool HelperClient::hasMethod(const QString &method) const {
@@ -268,6 +274,22 @@ void HelperClient::failAll(const QString &kind, const QString &message) {
 
 void HelperClient::onFinished() {
   if (m_stopping || m_restartTimer.isActive()) return;
+  // rpc.md: exit 3 = another helper already runs for this data folder, exit 2 = bad arguments. A restart
+  // cannot fix either, so stop with a clear state and the helper's own line instead of looping.
+  const int code = m_proc && m_proc->exitStatus() == QProcess::NormalExit ? m_proc->exitCode() : -1;
+  if (code == 2 || code == 3) {
+    if (m_proc) {
+      const QByteArray rest = m_proc->readAllStandardError().trimmed();
+      if (!rest.isEmpty()) m_errTail = rest.split('\n').last().trimmed().left(300);
+    }
+    m_error = !m_errTail.isEmpty() ? QString::fromUtf8(m_errTail)
+              : code == 3 ? QStringLiteral("Another Switch helper already runs for this data folder.")
+                          : QStringLiteral("The Switch helper refused its arguments.");
+    failAll("unavailable", m_error);
+    qCWarning(lcHelper) << "helper refused to start, exit" << code << "; not restarting";
+    setStatus(code == 3 ? "blocked" : "failed");
+    return;
+  }
   failAll("crashed", "The Switch helper stopped. Restarting it.");
   ++m_restarts;
   setStatus("restarting");

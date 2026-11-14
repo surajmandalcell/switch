@@ -22,7 +22,8 @@ Without `--helper` the app starts `switch-core` from its own folder, never one f
 `HOME=<dir>/home`); automated runs always use it.
 
 From the Mac, `scripts/remote.zsh [build|shots|all]` syncs this folder to the build host
-(`lin1`), builds there under the shared lock, captures, and compares (see Screenshots).
+(`lin1`), builds there under the Qt lock (`/mnt/nvme1/data/switch/port/qt.lock`; the Windows VM and the
+`switch-core` Swift build use `build.lock`), captures, and compares (see Screenshots).
 
 ### Flags
 
@@ -49,7 +50,8 @@ qml/shell/            Main window, Sidebar, PageHeader, TrafficLights, Driver (c
 qml/pages/            one file per page; PlaceholderPage names the spec of a page not built yet
 qml/popover/          tray popover window, outline shape, rows, footer buttons
 assets/               tray template mark, demo.json
-fonts/                Inter (SIL OFL, see fonts/LICENSE.txt)
+fonts/                Inter (SIL OFL, fonts/LICENSE.txt); JetBrains Mono Regular 2.304 for code, paths
+                      and IDs (SIL OFL, fonts/LICENSE-JetBrainsMono.txt)
 tests/                tst_helperclient (the same binary is its own fake helper)
 scripts/              build.sh, shots.sh (build host), compare.sh, remote.zsh (Mac)
 ```
@@ -66,11 +68,12 @@ Switch links Qt under the LGPL v3. CMake enforces these rules and fails the conf
   target pins `QT_QMLCACHEGEN_EXECUTABLE qmlcachegen`, and configure fails if `Qt6::qmlsc` exists.
 - No Qt Graphs, Qt Charts, Quick 3D, Shader Tools, Quick Timeline, Data Visualization or Virtual
   Keyboard on any link line. Charts are our own QML (`Shape`, `Canvas`).
-- No dependency beyond Qt.
+- No dependency beyond Qt. Bundled fonts: Inter and JetBrains Mono, both SIL OFL 1.1; ship their license files.
 
 Linked Qt modules: Core, Gui, Qml, Quick, Widgets (tray menu), GuiPrivate (harness builds only),
 Test (test only). QML modules loaded at run time: QtQuick, QtQuick.Window, QtQuick.Shapes,
-QtQuick.Effects (all part of Qt Declarative, LGPL). A shipping build sets `-DSWITCH_HARNESS=OFF
+QtQuick.Effects (all part of Qt Declarative, LGPL). Image plugin loaded at run time: `qsvg` (Qt Svg, LGPL)
+for the provider icons in `assets/providers/icon/`; a package must ship it. A shipping build sets `-DSWITCH_HARNESS=OFF
 -DSWITCH_TESTS=OFF`.
 
 ## Adding a page
@@ -79,8 +82,10 @@ QtQuick.Effects (all part of Qt Declarative, LGPL). A shipping build sets `-DSWI
 2. Create `qml/pages/<Name>Page.qml`. Its root `Item` has `property alias header: header`, a
    `PageHeader { id: header }` on top and a `ScrollArea` below (see `SettingsPage.qml`).
    Build every control from `qml/components`; add a token to `Theme.qml` only when the spec names it.
-3. In `qml/shell/Main.qml`, map the route to the new component in the page `Loader` and drop the
-   `spec` field of that page entry (that field makes it a placeholder).
+3. In `qml/shell/Main.qml`, map the route to the new file name in the page `Loader` and drop the
+   `spec` field of that page entry (that field makes it a placeholder). Pages, the popover and the Account
+   window load by URL, so a file with an error shows "This page failed to load: <file>:<line>" in its own
+   slot, logs it to stderr, and leaves the rest of the app working.
 4. Read data from `Helper.topics.<topic>` (live, updated on `state.changed`) and call methods with
    `Helper.call(method, params, function (result, error) {})`. Add the topic or reply to
    `assets/demo.json` so `--demo` and the captures show it.
@@ -99,7 +104,13 @@ and error kind only.
 `scripts/shots.sh <binary> <out>` runs on the build host inside a private `kwin_wayland --virtual`
 (own socket and D-Bus session) and writes `<surface>-<theme>@<scale>x.png` for every page, the
 gallery, and the popover (arrow up, expanded, arrow down), Light and Dark, 1x and 2x. A second pass
-writes content-only Settings shots to `compare/` and `compare/update/`.
+writes content-only Settings shots to `compare/` and `compare/update/`. A page or popover that failed to
+load prints `FAILED <page>: <file>:<line>: <error>`; every other surface is still captured, and the run exits 1.
+
+`scripts/build.sh` builds with qmlcachegen, as shipped. qmlcachegen stops at the first QML syntax error and
+has no keep-going flag, so when the build fails, the script builds again with `-DSWITCH_CACHEGEN=OFF`
+(`NO_CACHEGEN`) and only the broken file fails at run time. Qt 6.12 reads `Easing.*` as undefined without
+qmlcachegen, so that fallback build has no easing curves.
 
 `scripts/compare.sh <qt shots> <mac captures> <out>` writes `<name>-side.png` (Qt left, Mac right)
 and `<name>-diff.png`, and prints the share of pixels that differ by more than 3% and the RMSE.

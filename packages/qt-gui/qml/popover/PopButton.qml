@@ -19,7 +19,7 @@ Item {
     radius: 5
     color: m.pressed ? Theme.popButtonPress : Theme.popButtonHover
     opacity: (hh.hovered || m.pressed) && b.enabled ? 1 : 0
-    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   }
   Row {
     id: content

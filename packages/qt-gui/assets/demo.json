@@ -5,33 +5,135 @@
     "accounts": {
       "rows": [
         { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0001", "providerID": "codex", "label": "ada@example", "isDefault": true, "verification": "verifiedWithCodex", "needsSignIn": false, "needsDroidAccess": false, "plan": "Pro",
+          "fetchedAt": "2026-11-14T13:58:00Z", "checkedAt": "2026-11-14T13:58:00Z",
           "windows": [ { "id": "session", "title": "Session", "usedPercent": 62, "resetsAt": "2026-11-14T16:14:00Z", "windowMinutes": 300 },
-                       { "id": "weekly", "title": "Weekly", "usedPercent": 29, "resetsAt": "2026-11-18T20:00:00Z", "windowMinutes": 10080 } ] },
-        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0002", "providerID": "claude-code", "label": "ada@work", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "Max",
-          "windows": [ { "id": "session", "title": "Session", "usedPercent": 38, "resetsAt": "2026-11-14T17:05:00Z", "windowMinutes": 300 },
+                       { "id": "weekly", "title": "Weekly", "usedPercent": 29, "resetsAt": "2026-11-18T20:00:00Z", "windowMinutes": 10080 },
+                       { "id": "spark/primary", "title": "Spark · Session", "usedPercent": 8, "resetsAt": "2026-11-14T17:40:00Z", "windowMinutes": 300 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0004", "providerID": "codex", "label": "grace@example", "isDefault": false, "verification": "verifiedWithCodex", "needsSignIn": false, "needsDroidAccess": false, "plan": "Plus",
+          "fetchedAt": "2026-11-14T13:55:00Z", "checkedAt": "2026-11-14T13:55:00Z",
+          "windows": [ { "id": "session", "title": "Session", "usedPercent": 0, "resetsAt": "2026-11-14T18:55:00Z", "windowMinutes": 300 },
+                       { "id": "weekly", "title": "Weekly", "usedPercent": 100, "resetsAt": "2026-12-13T07:00:00Z", "windowMinutes": 10080 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0005", "providerID": "grok-build", "label": "ada@example", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "SuperGrok",
+          "fetchedAt": "2026-11-14T13:50:00Z", "checkedAt": "2026-11-14T13:50:00Z",
+          "windows": [ { "id": "session", "title": "Session", "usedPercent": 0, "resetsAt": "2026-11-15T02:00:00Z", "windowMinutes": 1440 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0003", "providerID": "droid", "label": "Droid 1 · lin@example", "isDefault": false, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "",
+          "fetchedAt": "2026-11-14T13:40:00Z", "checkedAt": "2026-11-14T13:40:00Z",
+          "windows": [ { "id": "standard", "title": "Standard tokens", "usedPercent": 12, "resetsAt": "2026-12-02T18:00:00Z", "windowMinutes": 43200, "detail": "2.4M / 20M tokens" } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0006", "providerID": "droid", "label": "Droid personal · alan@example", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": true, "plan": "",
+          "windows": [] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0002", "providerID": "claude-code", "label": "alan@example", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "Max",
+          "fetchedAt": "2026-11-14T13:57:00Z", "checkedAt": "2026-11-14T13:57:00Z",
+          "windows": [ { "id": "session", "title": "Session", "usedPercent": 59, "resetsAt": "2026-11-14T15:14:00Z", "windowMinutes": 300 },
                        { "id": "weekly", "title": "Weekly", "usedPercent": 71, "resetsAt": "2026-11-18T16:00:00Z", "windowMinutes": 10080 } ] },
-        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0003", "providerID": "droid", "label": "Droid 1", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "",
-          "windows": [ { "id": "standard", "title": "Standard", "usedPercent": 12, "resetsAt": "2026-12-02T18:00:00Z", "windowMinutes": 43200 } ] }
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0007", "providerID": "copilot", "label": "GitHub Copilot ···lace", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "Pro",
+          "fetchedAt": "2026-11-14T13:45:00Z", "checkedAt": "2026-11-14T13:45:00Z",
+          "windows": [ { "id": "premium", "title": "Premium requests", "usedPercent": 64, "resetsAt": "2026-11-27T02:00:00Z", "windowMinutes": 43200, "detail": "192 / 300 requests" } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0008", "providerID": "zai", "label": "Z Code individual plan", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "Lite",
+          "fetchedAt": "2026-11-14T13:30:00Z", "checkedAt": "2026-11-14T13:30:00Z",
+          "windows": [ { "id": "tokens", "title": "5 hours", "usedPercent": 0 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0009", "providerID": "zai", "label": "OpenCode z.ai coding plan for the platform team in the Zurich office", "isDefault": false, "verification": "imported", "needsSignIn": false, "needsDroidAccess": false, "plan": "Pro",
+          "fetchedAt": "2026-11-14T13:31:00Z", "checkedAt": "2026-11-14T13:31:00Z", "error": "The usage check timed out. Switch will retry later.", "isOutdated": true,
+          "windows": [ { "id": "tokens", "title": "5 hours", "usedPercent": 93, "resetsAt": "2026-11-14T15:20:00Z", "windowMinutes": 300 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c000a", "providerID": "opencodego", "label": "OpenCode Go ···1500", "isDefault": true, "verification": "needsSignIn", "needsSignIn": true, "needsDroidAccess": false, "plan": "",
+          "windows": [] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c000b", "providerID": "gemini-cli", "label": "lovelace@example", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "",
+          "checkedAt": "2026-11-14T13:20:00Z", "error": "The usage check timed out. Switch will retry later.", "windows": [] }
       ]
     },
+    "settings": { "schemaVersion": 1, "values": { "showAccountUsageInMenuBar": true, "menuBarHiddenServices": ["gemini-cli"], "menuBarServiceOrder": [], "menuBarHiddenAccounts": ["0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0004"] } },
     "tray": {
       "groups": [
-        { "id": "codex", "name": "Codex", "accounts": [
-          { "label": "ada@example", "isDefault": true, "shown": 2,
-            "lines": [ { "label": "Session", "used": 62, "reset": "2h 14m" }, { "label": "Weekly", "used": 29, "reset": "4d 6h" },
-                       { "heading": "Spark" }, { "label": "Session", "used": 8, "reset": "3h 40m" }, { "label": "Weekly", "used": 3, "reset": "5d 9h" } ],
-            "token": "412M since reset · ≈$1,648 API", "band": ["Open Codex"] } ] },
-        { "id": "claude-code", "name": "Claude Code", "accounts": [
-          { "label": "ada@work", "isDefault": true, "shown": 2,
-            "lines": [ { "label": "Session", "used": 38, "reset": "3h 05m" }, { "label": "Weekly", "used": 71, "reset": "4d 2h" },
-                       { "heading": "Fable" }, { "label": "Weekly", "used": 22, "reset": "4d 2h" } ],
-            "token": "", "band": ["Open Claude Code"] } ] },
-        { "id": "droid", "name": "Droid", "accounts": [
-          { "label": "Droid 1", "isDefault": true, "shown": 1,
-            "lines": [ { "label": "Standard", "used": 12, "reset": "18d 4h" } ],
-            "token": "", "band": ["Open Droid"] } ] }
+        { "providerID": "codex", "name": "Codex", "showsInTray": true, "rows": [
+          { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0001", "providerID": "codex", "label": "ada@example", "isDefault": true, "isVerified": true, "showsInTray": true,
+            "canExpand": true, "openToolTitle": "Open Codex", "tokens": "412M since reset · ≈$1,648 API",
+            "lines": [ { "label": "Session", "used": 62, "resetText": "2h 14m" }, { "label": "Weekly", "used": 29, "resetText": "4d 6h" } ],
+            "expandedLines": [ { "label": "Session", "used": 62, "resetText": "2h 14m" }, { "label": "Weekly", "used": 29, "resetText": "4d 6h" },
+                               { "label": "Spark", "isHeading": true }, { "label": "Session", "used": 8, "resetText": "3h 40m" }, { "label": "Weekly", "used": 3, "resetText": "5d 9h" } ] } ] },
+        { "providerID": "claude-code", "name": "Claude Code", "showsInTray": true, "rows": [
+          { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0002", "providerID": "claude-code", "label": "alan@example", "isDefault": true, "isVerified": true, "showsInTray": true,
+            "canExpand": true, "openToolTitle": "Open Claude Code", "tokens": "",
+            "lines": [ { "label": "Session", "used": 38, "resetText": "3h 05m" }, { "label": "Weekly", "used": 71, "resetText": "4d 2h" } ],
+            "expandedLines": [ { "label": "Session", "used": 38, "resetText": "3h 05m" }, { "label": "Weekly", "used": 71, "resetText": "4d 2h" },
+                               { "label": "Fable", "isHeading": true }, { "label": "Weekly", "used": 22, "resetText": "4d 2h" } ] } ] },
+        { "providerID": "droid", "name": "Droid", "showsInTray": true, "rows": [
+          { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0003", "providerID": "droid", "label": "Droid 1", "isDefault": true, "isVerified": true, "showsInTray": true,
+            "canExpand": true, "openToolTitle": "Open Droid", "tokens": "",
+            "lines": [ { "label": "Standard", "used": 12, "resetText": "18d 4h" } ],
+            "expandedLines": [ { "label": "Standard", "used": 12, "resetText": "18d 4h" } ] } ] }
       ]
     }
   },
-  "replies": {}
+  "replies": {
+    "providers.list": [
+      { "id": "codex", "displayName": "Codex CLI", "availability": "enabled" }, { "id": "grok-build", "displayName": "Grok Build", "availability": "enabled" },
+      { "id": "droid", "displayName": "Droid", "availability": "enabled" }, { "id": "claude-code", "displayName": "Claude Code", "availability": "enabled" },
+      { "id": "copilot", "displayName": "GitHub Copilot", "availability": "enabled" }, { "id": "zai", "displayName": "z.ai / GLM", "availability": "enabled" },
+      { "id": "opencodego", "displayName": "OpenCode Go", "availability": "enabled" }, { "id": "gemini-cli", "displayName": "Gemini CLI", "availability": "enabled" },
+      { "id": "cursor", "displayName": "Cursor", "availability": "enabled" }, { "id": "openrouter", "displayName": "OpenRouter", "availability": "enabled" },
+      { "id": "deepseek", "displayName": "DeepSeek", "availability": "enabled" }, { "id": "mistral", "displayName": "Mistral", "availability": "enabled" },
+      { "id": "perplexity", "displayName": "Perplexity", "availability": "enabled" }, { "id": "warp", "displayName": "Warp", "availability": "enabled" }
+    ],
+    "accounts.status": {
+      "sharedRoot": "/home/demo/.codex", "pendingRecovery": [], "linkedSettingsDivergences": [],
+      "defaultAccountIDs": { "codex": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0001" },
+      "accounts": [
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0001", "identity": { "providerID": "codex", "email": "ada@example.com", "accountID": "acct-7f3a" }, "isDefault": true, "autoImported": false,
+          "verification": { "state": "verifiedWithCodex" }, "importedAt": "2026-10-02T09:12:00Z", "lastUsedAt": "2026-11-14T12:40:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/codex-accounts/0b1c6a52/auth.json", "source": "/home/demo/.codex/auth.json", "home": "/home/demo/.codex" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0004", "identity": { "providerID": "codex", "email": "grace@example.org" }, "isDefault": false, "autoImported": false,
+          "verification": { "state": "verifiedWithCodex" }, "importedAt": "2026-10-20T16:03:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/codex-accounts/0b1c6a53/auth.json", "source": "/home/demo/Backups/codex-grace/auth.json", "home": "/home/demo/.codex" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0005", "identity": { "providerID": "grok-build", "email": "ada@example.com" }, "isDefault": true, "autoImported": false,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-11-01T08:00:00Z", "lastUsedAt": "2026-11-13T21:10:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/grok-accounts/0b1c6a55/auth.json", "source": "/home/demo/.grok/auth.json", "home": "/home/demo/.grok" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0003", "identity": { "providerID": "droid", "email": "lin@example.net", "accountID": "Droid 1" }, "isDefault": false, "autoImported": true,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-09-14T10:00:00Z", "lastUsedAt": "2026-11-10T09:00:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/droid-accounts/0b1c6a52/auth.v2.file", "source": "/home/demo/.factory/auth.v2.file", "home": "/home/demo/.factory" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0006", "identity": { "providerID": "droid", "email": "alan@example.net", "accountID": "Droid personal" }, "isDefault": true, "autoImported": false,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-10-11T11:00:00Z", "lastUsedAt": "2026-11-14T13:00:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/droid-accounts/0b1c6a56/auth.v2.file", "source": "/home/demo/.factory/auth.v2.file", "home": "/home/demo/.factory" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0002", "identity": { "providerID": "claude-code", "email": "alan@example.net" }, "isDefault": true, "autoImported": false,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-08-30T15:45:00Z", "lastUsedAt": "2026-11-14T13:52:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/claude-profiles/ada-work/.claude.json", "source": "/home/demo/.claude.json", "home": "/home/demo/.local/share/switch/claude-profiles/ada-work" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0007", "identity": { "providerID": "copilot", "userID": "u-adalovelace" }, "isDefault": true, "autoImported": false,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-10-05T07:30:00Z", "lastUsedAt": "2026-10-05T07:30:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/provider-accounts/copilot/0b1c6a57.json", "source": "", "home": "" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0008", "identity": { "providerID": "zai", "accountID": "Z Code individual plan" }, "isDefault": true, "autoImported": true,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-11-02T12:00:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/provider-accounts/zai/0b1c6a58.json", "source": "", "home": "" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0009", "identity": { "providerID": "zai", "accountID": "OpenCode z.ai coding plan for the platform team in the Zurich office" }, "isDefault": false, "autoImported": true,
+          "verification": { "state": "imported" }, "importedAt": "2026-11-02T12:00:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/provider-accounts/zai/0b1c6a59.json", "source": "", "home": "" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c000a", "identity": { "providerID": "opencodego", "userID": "key-00001500" }, "isDefault": true, "autoImported": true,
+          "verification": { "state": "needsSignIn", "detail": "The saved key was rejected." }, "importedAt": "2026-10-28T19:00:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/provider-accounts/opencodego/0b1c6a5a.json", "source": "", "home": "" },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c000b", "identity": { "providerID": "gemini-cli", "email": "lovelace@example.net" }, "isDefault": true, "autoImported": false,
+          "verification": { "state": "verifiedLocally" }, "importedAt": "2026-11-09T10:00:00Z",
+          "credentialFile": "/home/demo/.local/share/switch/provider-accounts/gemini-cli/0b1c6a5b.json", "source": "", "home": "" }
+      ]
+    },
+    "providers.liveIdentity": { "label": "lovelace@example.net", "plan": "standard" },
+    "droid.missions": [
+      { "id": "c41e9a0b-1d2f-4e55-8a01-6b2f0c9d7e11", "missionID": "m-41e9", "state": "running", "workingDirectory": "/home/demo/dev/garden", "createdAt": "2026-11-12T09:30:00Z",
+        "title": "Add a watering schedule", "total": 160, "completed": 131, "cancelled": 26, "owner": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0003" },
+      { "id": "d72b3c90-5e4f-4b1a-9c33-1a2b3c4d5e66", "missionID": "m-72b3", "state": "completed", "workingDirectory": "/home/demo/dev/notes", "createdAt": "2026-10-17T15:00:00Z",
+        "title": "Notes cleanup", "total": 12, "completed": 12, "cancelled": 0 }
+    ],
+    "usage.detail": {
+      "accountID": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0007", "providerID": "copilot",
+      "usage": {
+        "fetchedAt": "2026-11-14T13:45:00Z", "plan": "Pro",
+        "windows": [ { "id": "premium", "title": "Premium requests", "usedPercent": 64, "resetsAt": "2026-11-27T02:00:00Z", "windowMinutes": 43200, "detail": "192 / 300 requests" },
+                     { "id": "chat", "title": "Chat", "usedPercent": 12, "resetsAt": "2026-11-27T02:00:00Z", "windowMinutes": 43200, "detail": "Unlimited" } ],
+        "cost": { "used": 4.2, "limit": 20, "currency": "USD", "period": "November", "resetsAt": "2026-12-01T00:00:00Z" },
+        "sections": [ { "title": "Plan", "rows": [ { "label": "Seat", "value": "Copilot Pro" }, { "label": "Code completions", "value": "Unlimited" }, { "label": "Agent requests", "value": "38 of 50", "progress": 0.76 } ] } ],
+        "charts": [ { "id": "daily", "title": "Daily requests", "unit": "requests", "points": [
+          { "label": "Nov 1", "date": "2026-11-01", "value": 4 }, { "label": "Nov 2", "date": "2026-11-02", "value": 9 }, { "label": "Nov 3", "date": "2026-11-03", "value": 14 },
+          { "label": "Nov 4", "date": "2026-11-04", "value": 11 }, { "label": "Nov 5", "date": "2026-11-05", "value": 6 }, { "label": "Nov 6", "date": "2026-11-06", "value": 18 },
+          { "label": "Nov 7", "date": "2026-11-07", "value": 22 }, { "label": "Nov 8", "date": "2026-11-08", "value": 3 }, { "label": "Nov 9", "date": "2026-11-09", "value": 0 },
+          { "label": "Nov 10", "date": "2026-11-10", "value": 16 }, { "label": "Nov 11", "date": "2026-11-11", "value": 25 }, { "label": "Nov 12", "date": "2026-11-12", "value": 19 },
+          { "label": "Nov 13", "date": "2026-11-13", "value": 30 }, { "label": "Nov 14", "date": "2026-11-14", "value": 15 } ] } ]
+      }
+    }
+  }
 }

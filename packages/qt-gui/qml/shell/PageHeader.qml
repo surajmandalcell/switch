@@ -17,7 +17,8 @@ Item {
     spacing: 8
 
     PushButton { square: true; icon: "plus"; tip: "Add Account"
-                 enabled: !!Helper.topics.app && Helper.topics.app.hasLoaded && !Helper.topics.app.isBusy }
+                 enabled: !!Helper.topics.app && Helper.topics.app.hasLoaded && !Helper.topics.app.isBusy
+                 onClicked: hdr.win.openAccountSheet("add") }
     PushButton {
       id: more
       square: true
@@ -25,6 +26,8 @@ Item {
       tip: "More"
       onClicked: Theme.menu.open(more, ["Refresh All Usage", "Add Account", "Import…", "-", "Settings"], -1, function (i) {
         if (i === 0) hdr.win.refreshAll()
+        else if (i === 1) hdr.win.openAccountSheet("add")
+        else if (i === 2) hdr.win.openAccountSheet("import")
         else if (i === 4) hdr.win.show(2)
       })
     }
@@ -33,6 +36,10 @@ Item {
       placeholder: hdr.placeholder
       text: hdr.win ? hdr.win.searchQuery : ""
       onTextChanged: if (hdr.win) hdr.win.searchQuery = text
+      arrowKeys: !!hdr.win && hdr.win.dropdownPage
+      onInputFocusedChanged: if (hdr.win) hdr.win.searchFocused = inputFocused
+      onMoved: function (d) { hdr.win.searchMove(d) }
+      onAccepted: hdr.win.searchAccept()
     }
   }
 }

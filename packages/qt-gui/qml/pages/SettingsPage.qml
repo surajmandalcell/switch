@@ -1,7 +1,8 @@
 import QtQuick
+import QtQuick.Window
 
-// Settings page (settings.md 2): every card and row with its spec copy. Values are local until the
-// helper's settings topic is wired (settings.get / settings.set); Appearance already drives the theme.
+// Settings page (settings.md 2): every card and row with its spec copy. Each row reads and writes one key
+// through Prefs (the helper's settings topic); Open at Login and the menu shortcut belong to the platform.
 Item {
   id: page
   property alias header: header
@@ -9,7 +10,55 @@ Item {
   property alias swTray: swTray
   property alias segUsage: segUsage
   property alias versionButton: versionButton
-  onVisibleChanged: if (visible) scroll.appear()
+  readonly property bool autoOn: Prefs.value("autoSwitchEnabled") === true
+  onVisibleChanged: if (visible) scroll.appear(); else rec.recording = false
+
+  // Search (shell.md 4.1): a row shows when its index id matches; a card shows when one of its rows does.
+  readonly property var win: Window.window
+  readonly property bool searching: !!win && !win.searchBlank
+  readonly property var hits: { var m = {}; if (win) win.settingsHits.forEach(function (e) { m[e.id] = true }); return m }
+  readonly property var hitAccounts: searching ? win.accountHits : []
+  function shows(id) { return !searching || hits[id] === true }
+  function anyShows(ids) { return ids.some(shows) }
+  // (an inline component cannot see this file's ids, so it reads the window's search state itself)
+  component SRow: SettingsRow {
+    property string sid
+    property var group: []
+    readonly property var w: Window.window
+    function on(id) { return !w || w.searchBlank || w.settingsHits.some(function (e) { return e.id === id }) }
+    visible: on(sid)
+    last: { for (var i = group.length - 1; i >= 0; --i) if (on(group[i])) return group[i] === sid; return false }
+  }
+  readonly property var gGeneral: ["login", "tray", "place", "shortcut", "version"]
+  readonly property var gAppearance: ["appearance", "percent", "reset-times", "hours"]
+  readonly property var gAccounts: ["domain", "hide-email", "privacy", "status", "claude-shell"]
+  readonly property var gAuto: ["auto", "auto-threshold", "auto-clis", "auto-resume"]
+  readonly property var gMenu: ["menu-usage", "menu-one-per-service", "menu-tokens", "menu-refresh"]
+  readonly property var gNotify: ["notify.notifyAlmostOut", "notify.notifyPaceAlerts", "notify.notifyAvailableAgain", "notify.notifySignInAgain"]
+  readonly property var gData: ["data.codex", "data.codex-vault", "data.grok", "data.grok-vault"]
+
+  // A control keeps its binding to the stored value: a pick writes the key, then binds again (the
+  // pending write already shows, so nothing flickers).
+  component PrefSwitch: Switch {
+    property string key
+    objectName: "pref-" + key
+    checked: Prefs.value(key) === true
+    onToggled: function (v) { Prefs.set(key, v); checked = Qt.binding(function () { return Prefs.value(key) === true }) }
+  }
+  component PrefSegmented: Segmented {
+    property string key
+    property var values: []
+    objectName: "pref-" + key
+    current: Math.max(0, values.indexOf(Prefs.value(key)))
+    onPicked: function (i) { Prefs.set(key, values[i]); current = Qt.binding(function () { return Math.max(0, values.indexOf(Prefs.value(key))) }) }
+  }
+  component PrefPopUp: PopUp {
+    property string key
+    property var values: []
+    objectName: "pref-" + key
+    current: Math.max(0, values.indexOf(Prefs.value(key)))
+    onPicked: function (i) { Prefs.set(key, values[i]); current = Qt.binding(function () { return Math.max(0, values.indexOf(Prefs.value(key))) }) }
+  }
 
   PageHeader { id: header; width: parent.width; placeholder: "Search settings…" }
 
@@ -22,150 +71,247 @@ Item {
 
     Card {
       title: "General"
-      SettingsRow {
+      visible: page.anyShows(page.gGeneral)
+      SRow {
+        sid: "login"; group: page.gGeneral
         title: "Open at Login"
-        help: "Open Switch in the menu bar when you sign in."
-        Switch { objectName: "switch-login" }
+        // settings.md 6.1 help lines; Linux and Windows have no approval or not-found state (shell.md 6.4)
+        help: App.loginError !== "" ? "Switch couldn’t update its login item: " + App.loginError
+              : (App.loginEnabled ? "Switch opens in the menu bar when you sign in." : "Open Switch in the menu bar when you sign in.")
+        Switch {
+          objectName: "switch-login"
+          checked: App.loginEnabled
+          onToggled: function (v) { App.loginEnabled = v; checked = Qt.binding(function () { return App.loginEnabled }) }
+        }
       }
-      SettingsRow {
+      SRow {
+        sid: "tray"; group: page.gGeneral
         title: "Minimize to menu bar"
         help: "Hide the window and keep Switch available from its menu-bar icon."
-        Switch { id: swTray }
+        PrefSwitch { id: swTray; key: "minimizeToTray" }
       }
-      SettingsRow {
+      SRow {
+        sid: "place"; group: page.gGeneral
         title: "When Switch opens"
         help: "Choose the page shown when Switch starts."
-        PopUp { options: ["Last place", "Overview"] }
+        PrefPopUp { key: "launchPlace"; values: ["last", "overview"]; options: ["Last place", "Overview"] }
       }
-      SettingsRow {
+      SRow {
+        sid: "shortcut"; group: page.gGeneral
         title: "Menu shortcut"
-        help: "Open or close the menu popover from anywhere. Off until you record one."
+        // shell.md 5.2: without a registration path (no X11 grab or GlobalShortcuts portal yet) the row is off
+        help: App.globalShortcuts ? "Open or close the menu popover from anywhere. Off until you record one."
+                                  : "Global shortcuts need a supported desktop"
+        Txt { visible: rec.hint !== ""; text: rec.hint; role: "secondary"; color: Theme.amber; anchors.verticalCenter: parent.verticalCenter }
         PushButton {
           id: rec
+          // Stored as { key: Qt key code, modifiers: the Carbon mask (Command 256, Shift 512, Option 2048, Control 4096) }
+          readonly property var combo: Prefs.value("globalShortcut") || null
           property bool recording: false
-          property string combo: ""
+          property string hint: ""
+          enabled: App.globalShortcuts
           minWidth: 112 + 24   // shell.md 5.1: the text area is at least 112, plus the 12 + 12 padding
-          text: recording ? "Press a shortcut…" : (combo !== "" ? combo : "Click to record")
+          text: recording ? "Press a shortcut…" : (combo ? page.comboText(combo) : "Click to record")
           prominent: recording
-          textColor: recording ? "white" : (combo !== "" ? Theme.label : Theme.secondary)
-          onClicked: { recording = !recording; if (recording) forceActiveFocus() }
+          textColor: recording ? "white" : (combo ? Theme.label : Theme.secondary)
+          Accessible.name: "Global shortcut"
+          Accessible.description: "Records a shortcut that opens the menu popover from anywhere"
+          onClicked: { recording = !recording; hint = ""; if (recording) forceActiveFocus() }
           Keys.onPressed: function (e) {
             if (!recording) return
             e.accepted = true
             if (e.key === Qt.Key_Escape) { recording = false; return }
+            if (e.key === Qt.Key_Backspace || e.key === Qt.Key_Delete) { Prefs.set("globalShortcut", null); recording = false; return }
+            if (e.key === Qt.Key_Control || e.key === Qt.Key_Alt || e.key === Qt.Key_Meta || e.key === Qt.Key_Shift || e.key === Qt.Key_Super_L) return
             var m = e.modifiers
-            if (!(m & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) return
-            if (e.key === Qt.Key_Control || e.key === Qt.Key_Alt || e.key === Qt.Key_Meta || e.key === Qt.Key_Shift) return
-            combo = ((m & Qt.ControlModifier) ? "⌃" : "") + ((m & Qt.AltModifier) ? "⌥" : "")
-                  + ((m & Qt.ShiftModifier) ? "⇧" : "") + ((m & Qt.MetaModifier) ? "⌘" : "") + String.fromCharCode(e.key).toUpperCase()
+            if (!(m & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) { hint = "Include Ctrl, Alt, or Super."; return }
+            Prefs.set("globalShortcut", { key: e.key, modifiers: ((m & Qt.MetaModifier) ? 256 : 0) | ((m & Qt.ShiftModifier) ? 512 : 0)
+                                                                 | ((m & Qt.AltModifier) ? 2048 : 0) | ((m & Qt.ControlModifier) ? 4096 : 0) })
+            hint = ""
             recording = false
           }
         }
+        IconButton { visible: !!rec.combo && rec.enabled; icon: "xmarkCircle"; glyph: 13; tip: "Clear global shortcut"; onClicked: Prefs.set("globalShortcut", null) }
       }
-      SettingsRow {
-        last: true
+      SRow {
+        sid: "version"; group: page.gGeneral
         title: "Version"
         help: "The installed version of Switch."
-        Txt { role: "secondary"; color: Theme.secondary; text: Qt.application.version || "Unknown"; anchors.verticalCenter: parent.verticalCenter }
+        Txt { role: "secondary"; color: Theme.secondary; anchors.verticalCenter: parent.verticalCenter
+              text: (Helper.server && Helper.server.serverVersion) || Qt.application.version || "Unknown" }
+        // The update check is Mac-only; --update draws the button only to compare with the Mac capture.
         PushButton { id: versionButton; text: "Update available"; visible: App.flag("update") }
       }
     }
 
     Card {
       title: "Appearance"
-      SettingsRow {
+      visible: page.anyShows(page.gAppearance)
+      SRow {
+        sid: "appearance"; group: page.gAppearance
         title: "Appearance"
         help: "Choose the window and menu bar appearance."
-        Segmented {
-          model: ["System", "Light", "Dark"]
-          current: Theme.mode === "system" ? 0 : (Theme.mode === "light" ? 1 : 2)
-          onPicked: function (i) { Theme.mode = ["system", "light", "dark"][i] }
-        }
+        PrefSegmented { key: "windowAppearance"; values: ["system", "light", "dark"]; model: ["System", "Light", "Dark"] }
       }
-      SettingsRow {
+      SRow {
+        sid: "percent"; group: page.gAppearance
         title: "Usage percentage"
         help: "Show the share left or the share used in every usage view."
-        Segmented { id: segUsage; model: ["Left", "Used"]; current: Theme.showUsed ? 1 : 0; onPicked: function (i) { Theme.showUsed = i === 1 } }
+        PrefSegmented { id: segUsage; key: "showUsageAsUsed"; values: [false, true]; model: ["Left", "Used"] }
       }
-      SettingsRow {
+      SRow {
+        sid: "reset-times"; group: page.gAppearance
         title: "Reset times"
         help: "Show a countdown or the exact time. Click any reset text to switch."
-        Segmented { model: ["Countdown", "Exact time"] }
+        PrefSegmented { key: "resetTimesExact"; values: [false, true]; model: ["Countdown", "Exact time"] }
       }
-      SettingsRow {
-        last: true
+      SRow {
+        sid: "hours"; group: page.gAppearance
         title: "Time format"
         help: "Hour style for exact reset times."
-        Segmented { model: ["Auto", "12-hour", "24-hour"] }
+        PrefSegmented { key: "timeFormat"; values: ["auto", "12h", "24h"]; model: ["Auto", "12-hour", "24-hour"] }
       }
     }
 
     Card {
       title: "Accounts"
-      SettingsRow { title: "Show full email addresses"; help: "Show the full address, including the domain ending such as .com or .co.uk."; Switch {} }
-      SettingsRow { title: "Hide email addresses"; help: "Mask account emails everywhere, such as a••••@example."; Switch {} }
-      SettingsRow { title: "Privacy mode"; help: "Show made-up names, such as Jon Doe, instead of account names and emails."; Switch {} }
-      SettingsRow { title: "Check provider status"; help: "Show a dot beside a provider that reports an incident."; Switch { checked: true } }
-      SettingsRow { last: true; title: "Use the selected Claude account in terminals"; help: "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."; Switch {} }
+      visible: page.anyShows(page.gAccounts)
+      SRow { sid: "domain"; group: page.gAccounts; title: "Show full email addresses"; help: "Show the full address, including the domain ending such as .com or .co.uk."; PrefSwitch { key: "showEmailDomains" } }
+      SRow { sid: "hide-email"; group: page.gAccounts; title: "Hide email addresses"; help: "Mask account emails everywhere, such as a••••@example."; PrefSwitch { key: "hideEmailAddresses" } }
+      SRow { sid: "privacy"; group: page.gAccounts; title: "Privacy mode"; help: "Show made-up names, such as Jon Doe, instead of account names and emails."; PrefSwitch { key: "privacyMode" } }
+      SRow { sid: "status"; group: page.gAccounts; title: "Check provider status"; help: "Show a dot beside a provider that reports an incident."; PrefSwitch { key: "checkProviderStatus" } }
+      // shortcut: the helper can read the Claude shell line but not write it yet (helper need: a set method)
+      SRow { sid: "claude-shell"; group: page.gAccounts; title: "Use the selected Claude account in terminals"; help: "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+        Switch {
+          id: shellLine
+          enabled: false
+          Component.onCompleted: if (Helper.hasMethod("claude.shellIntegration.get"))
+            Helper.call("claude.shellIntegration.get", {}, function (r, err) { if (!err) shellLine.checked = r.enabled === true })
+        } }
     }
 
     Card {
       title: "Auto switch"
-      SettingsRow { title: "Switch accounts automatically"; help: "Make the next account in your Accounts order the default when one runs out."; Switch { id: auto } }
-      SettingsRow { title: "Switch when an account has"; help: "Compares the lower of the session and weekly share left."
-        PopUp { enabled: auto.checked; options: ["1% left", "2% left", "5% left", "10% left", "20% left"] } }
-      SettingsRow { title: "Running CLIs"; help: "Reopen Codex and Claude Code in Terminal on the new account once their turn ends."
-        PopUp { enabled: auto.checked; options: ["Restart when idle", "Leave running"] } }
-      SettingsRow { last: true; title: "Resume message"; help: "Sent when a usage limit cut the last turn short."
-        FieldBox { width: 320; placeholder: "No message"; opacity: auto.checked ? 1 : 0.45; enabled: auto.checked
-          text: "Continue. A usage limit cut your last turn short; redo the last step if it did not finish." } }
+      visible: page.anyShows(page.gAuto)
+      SRow { sid: "auto"; group: page.gAuto; title: "Switch accounts automatically"; help: "Make the next account in your Accounts order the default when one runs out."; PrefSwitch { key: "autoSwitchEnabled" } }
+      SRow { sid: "auto-threshold"; group: page.gAuto; title: "Switch when an account has"; help: "Compares the lower of the session and weekly share left."
+        PrefPopUp { enabled: page.autoOn; key: "autoSwitchThreshold"; values: [1, 2, 5, 10, 20]; options: ["1% left", "2% left", "5% left", "10% left", "20% left"] } }
+      SRow { sid: "auto-clis"; group: page.gAuto; title: "Running CLIs"; help: "Reopen Codex and Claude Code in Terminal on the new account once their turn ends."
+        PrefPopUp { enabled: page.autoOn; key: "autoSwitchRunningCLIs"; values: ["restart", "leave"]; options: ["Restart when idle", "Leave running"] } }
+      SRow { sid: "auto-resume"; group: page.gAuto; title: "Resume message"; help: "Sent when a usage limit cut the last turn short."
+        FieldBox {
+          id: resume
+          width: 320
+          placeholder: "No message"
+          enabled: page.autoOn
+          opacity: enabled ? 1 : 0.45
+          text: Prefs.value("autoSwitchResumeMessage")
+          // write on Return or focus loss, not per key: one settings.set per edit
+          Connections {
+            target: resume.input
+            function onEditingFinished() {
+              if (resume.text === Prefs.value("autoSwitchResumeMessage")) return
+              Prefs.set("autoSwitchResumeMessage", resume.text)
+              resume.text = Qt.binding(function () { return Prefs.value("autoSwitchResumeMessage") })
+            }
+          }
+        }
+      }
     }
 
     Card {
       title: "Menu bar"
-      SettingsRow { title: "Show account usage"; help: "Accounts without their own choice show cached usage in Menubar."; Switch { checked: true } }
-      SettingsRow { title: "One account per service"; help: "The menu bar shows the default account of each service, or its first account with usage."; Switch {} }
-      SettingsRow { title: "Token summary"; help: "Choose the period shown beside each account’s usage."
-        PopUp { options: ["Since reset", "Today", "Yesterday", "Weekly", "Monthly", "Yearly"] } }
-      SettingsRow { last: true; title: "Refresh when the menu opens"; help: "Check usage each time the popover opens."; Switch {} }
+      visible: page.anyShows(page.gMenu)
+      SRow { sid: "menu-usage"; group: page.gMenu; title: "Show account usage"; help: "Accounts without their own choice show cached usage in Menubar."; PrefSwitch { key: "showAccountUsageInMenuBar" } }
+      SRow { sid: "menu-one-per-service"; group: page.gMenu; title: "One account per service"; help: "The menu bar shows the default account of each service, or its first account with usage."; PrefSwitch { key: "menuBarOneAccountPerService" } }
+      SRow { sid: "menu-tokens"; group: page.gMenu; title: "Token summary"; help: "Choose the period shown beside each account’s usage."
+        PrefPopUp { key: "menuBarTokenPeriod"; values: ["sinceReset", "today", "yesterday", "weekly", "monthly", "yearly"]
+                    options: ["Since reset", "Today", "Yesterday", "Weekly", "Monthly", "Yearly"] } }
+      SRow { sid: "menu-refresh"; group: page.gMenu; title: "Refresh when the menu opens"; help: "Check usage each time the popover opens."; PrefSwitch { key: "refreshWhenMenuOpens" } }
     }
 
     Card {
       title: "Notifications"
-      SettingsRow { title: "Almost Out"; help: "Alert when a usage window drops below 10% left."; Switch {} }
-      SettingsRow { title: "Pace alerts"; help: "Alert when usage will finish close to the limit or run out before the reset."; Switch {} }
-      SettingsRow { title: "Available again"; help: "Alert when a used-up window resets and the account can be used again."; Switch {} }
-      SettingsRow { last: true; title: "Sign in again"; help: "Alert once when an account needs a new sign-in."; Switch {} }
+      visible: page.anyShows(page.gNotify)
+      SRow { sid: "notify.notifyAlmostOut"; group: page.gNotify; title: "Almost Out"; help: "Alert when a usage window drops below 10% left."; PrefSwitch { key: "notifyAlmostOut" } }
+      SRow { sid: "notify.notifyPaceAlerts"; group: page.gNotify; title: "Pace alerts"; help: "Alert when usage will finish close to the limit or run out before the reset."; PrefSwitch { key: "notifyPaceAlerts" } }
+      SRow { sid: "notify.notifyAvailableAgain"; group: page.gNotify; title: "Available again"; help: "Alert when a used-up window resets and the account can be used again."; PrefSwitch { key: "notifyAvailableAgain" } }
+      SRow { sid: "notify.notifySignInAgain"; group: page.gNotify; title: "Sign in again"; help: "Alert once when an account needs a new sign-in."; PrefSwitch { key: "notifySignInAgain" } }
     }
 
     Card {
       title: "Data locations"
+      visible: page.anyShows(page.gData)
       Repeater {
-        model: [
-          { t: "Codex home", h: "Settings, plugins, conversations, and databases stay here when accounts change.", p: "~/.codex" },
-          { t: "Codex account vault", h: "Private Codex auth.json snapshots.", p: "/switch/codex-accounts" },
-          { t: "Grok Build home", h: "Grok configuration, rules, plugins, sessions, and the active login.", p: "~/.grok" },
-          { t: "Grok Build account vault", h: "Private Grok subscription OAuth snapshots.", p: "/switch/grok-accounts" }
+        id: locations
+        // the helper's app.dataLocations; the demo (no helper) shows the documented defaults
+        readonly property string store: App.homePath + "/.local/share/switch"
+        model: Helper.topics.app && Helper.topics.app.dataLocations ? Helper.topics.app.dataLocations : [
+          { title: "Codex home", detail: "Settings, plugins, conversations, and databases stay here when accounts change.", path: App.homePath + "/.codex" },
+          { title: "Codex account vault", detail: "Private Codex auth.json snapshots.", path: store + "/codex-accounts" },
+          { title: "Grok Build home", detail: "Grok configuration, rules, plugins, sessions, and the active login.", path: App.homePath + "/.grok" },
+          { title: "Grok Build account vault", detail: "Private Grok subscription OAuth snapshots.", path: store + "/grok-accounts" }
         ]
-        delegate: SettingsRow {
-          last: index === 3
-          title: modelData.t
-          help: modelData.h
-          // shortcut: paths are placeholders under the helper's data location until it reports model.paths
-          detail: modelData.p.charAt(0) === "/" ? (Helper.topics.app ? Helper.topics.app.dataLocation : "") + modelData.p : modelData.p
-          PushButton { text: "Reveal"; icon: "folder" }
+        delegate: SRow {
+          id: loc
+          sid: page.gData[index]; group: page.gData
+          title: modelData.title
+          help: modelData.detail
+          detail: modelData.path
+          PushButton { text: "Reveal"; icon: "folder"; onClicked: App.reveal(loc.detail) }
         }
       }
     }
 
     Card {
       title: "Reset"
-      SettingsRow {
-        last: true
+      visible: page.shows("reset")
+      SRow {
+        sid: "reset"; group: ["reset"]
         title: "Reset settings"
         help: "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."
-        PushButton { text: "Reset settings…"; textColor: Theme.red }
+        PushButton {
+          objectName: "reset-settings"
+          text: "Reset settings…"
+          textColor: Theme.red
+          onClicked: Theme.alert.open({ title: "Reset every setting to its default?", message: "Accounts, saved sign-ins, and Open at Login stay as they are.",
+                                        action: "Reset settings", destructive: true, onAccept: function () { rec.recording = false; Prefs.reset() } })
+        }
       }
     }
+
+    // shell.md 4.1 end cards, only while fewer than 3 settings match
+    readonly property bool few: page.searching && page.win.settingsHits.length < 3
+    Card {
+      visible: scroll.few && page.win.settingsHits.length === 0 && page.hitAccounts.length > 0
+      Txt { x: 16; height: 44; color: Theme.secondary; text: "No settings match “" + (page.win ? page.win.searchQuery.trim() : "") + "”." }
+    }
+    MatchCard {
+      visible: scroll.few && page.hitAccounts.length > 0
+      rows: page.hitAccounts
+      names: page.win ? page.win.providerNames : ({})
+      onPicked: function (r) { page.win.pickAccount(r.id) }
+    }
+    Card {
+      visible: scroll.few && page.win.settingsHits.length === 0 && page.hitAccounts.length === 0
+      Column {
+        width: parent.width
+        topPadding: 24
+        bottomPadding: 24
+        spacing: 6
+        Icon { anchors.horizontalCenter: parent.horizontalCenter; name: "search"; size: 13; color: Theme.secondary }
+        Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "section"; text: "No results for “" + (page.win ? page.win.searchQuery.trim() : "") + "”" }
+        Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary; text: "Try a setting such as Appearance, or an account name." }
+      }
+    }
+  }
+
+  // shell.md 5.1 on Linux and Windows: the shortcut as text, modifiers in the Mac order (Control, Option, Shift, Command).
+  function comboText(c) {
+    var m = c.modifiers || 0, names = { 16777220: "Return", 16777217: "Tab", 32: "Space", 16777219: "Backspace", 16777216: "Esc",
+      16777234: "Left", 16777236: "Right", 16777235: "Up", 16777237: "Down", 16777232: "Home", 16777233: "End",
+      16777238: "Page Up", 16777239: "Page Down", 16777223: "Delete" }
+    var k = c.key >= 16777264 && c.key <= 16777275 ? "F" + (c.key - 16777263) : (names[c.key] || (c.key < 0x110000 ? String.fromCharCode(c.key).toUpperCase() : "Key " + c.key))
+    return ((m & 4096) ? "Ctrl+" : "") + ((m & 2048) ? "Alt+" : "") + ((m & 512) ? "Shift+" : "") + ((m & 256) ? "Super+" : "") + k
   }
 }

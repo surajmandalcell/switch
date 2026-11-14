@@ -31,7 +31,7 @@ Item {
       height: parent.height
       radius: 2
       color: Theme.usageColor(bar.provider, bar.used)
-      Behavior on width { NumberAnimation { duration: Theme.dFill; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+      Behavior on width { NumberAnimation { duration: Theme.dFill; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
     }
   }
   Rectangle {
@@ -44,6 +44,6 @@ Item {
   }
 
   NumberAnimation { id: grow; target: bar; property: "progress"; from: 0; to: 1; duration: Theme.motion ? 300 : 0
-                    easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut }
+                    easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut }
   function replay() { grow.restart() }
 }

@@ -20,15 +20,17 @@ class QJSEngine;
 
 class HelperClient : public QObject {
   Q_OBJECT
-  // "stopped", "starting", "ready", "restarting", "demo"
+  // "stopped", "starting", "ready", "restarting", "demo", and two that do not restart (error says why):
+  // "blocked" (exit 3: another helper holds this data folder) and "failed" (exit 2: the helper refused its arguments)
   Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+  Q_PROPERTY(QString error READ error NOTIFY statusChanged)
   Q_PROPERTY(QVariantMap server READ server NOTIFY statusChanged)
   Q_PROPERTY(QQmlPropertyMap *topics READ topics CONSTANT)
 public:
   struct Config {
     QString program;            // absolute path of the bundled switch-core, never looked up on PATH
     QString root;               // test root: sets AI_MANAGER_ROOT=<root>/switch and HOME=<root>/home
-    QStringList topics{"app", "notices", "accounts"};
+    QStringList topics{"app", "notices", "accounts", "settings", "tray", "login", "providerStatus", "activity"};
     int requestTimeoutMs = 65000; // the helper's own limit is 60 s
     int maxBackoffMs = 30000;
   };
@@ -46,12 +48,13 @@ public:
   void notify(const QString &method, const QJsonObject &params = {});
   void cancel(qint64 id);
 
-  // QML: Helper.call("usage.history", {period: "week"}, function (result, error) { ... })
-  Q_INVOKABLE qint64 call(const QString &method, const QVariantMap &params, const QJSValue &callback);
+  // QML: Helper.call("usage.history", {period: "week"}, function (result, error) { ... } [, timeoutMs: 0 = no limit])
+  Q_INVOKABLE qint64 call(const QString &method, const QVariantMap &params, const QJSValue &callback, int timeoutMs = -1);
   Q_INVOKABLE void cancelCall(qint64 id) { cancel(id); }
   Q_INVOKABLE bool hasMethod(const QString &method) const;
 
   QString status() const { return m_status; }
+  QString error() const { return m_error; }
   QVariantMap server() const { return m_server; }
   QQmlPropertyMap *topics() { return &m_topics; }
   qint64 topicRev(const QString &topic) const { return m_revs.value(topic, -1); }
@@ -91,6 +94,8 @@ private:
   QQmlPropertyMap m_topics;
   QVariantMap m_server;
   QString m_status = "stopped";
+  QString m_error;        // the helper's last stderr line when it refused to start
+  QByteArray m_errTail;   // last stderr line, kept only to explain exit 2 or 3; never logged
   QJsonObject m_demoReplies;
   QJSEngine *m_engine = nullptr;
   QTimer m_restartTimer;

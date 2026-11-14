@@ -37,6 +37,12 @@ void Harness::click(QObject *window, qreal x, qreal y) {
   mouse(window, x, y, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
 }
 
+void Harness::rightClick(QObject *window, qreal x, qreal y) {
+  move(window, x, y);
+  mouse(window, x, y, Qt::RightButton, Qt::RightButton, QEvent::MouseButtonPress);
+  mouse(window, x, y, Qt::NoButton, Qt::RightButton, QEvent::MouseButtonRelease);
+}
+
 void Harness::key(QObject *window, int key, int modifiers, const QString &text) {
   auto *w = qobject_cast<QWindow *>(window);
   if (!w) return;

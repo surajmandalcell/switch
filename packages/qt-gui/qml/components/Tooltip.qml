@@ -33,7 +33,7 @@ Item {
     border.color: Theme.separator
     layer.enabled: true
     layer.effect: MultiEffect { shadowEnabled: true; shadowColor: "black"; shadowOpacity: 0.2; shadowBlur: 0.25; shadowVerticalOffset: 2 }
-    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
     Txt { id: label; x: 8; y: 3; role: "secondary"; color: Theme.secondary; text: tip.text }
   }
 }

@@ -27,7 +27,7 @@ Item {
     radius: 6
     color: b.activeFocus && App.keyboardMode ? Theme.focusTint : Theme.rowHover
     opacity: hover.hovered || (b.activeFocus && App.keyboardMode) ? 1 : 0
-    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   }
   Icon {
     anchors.centerIn: parent

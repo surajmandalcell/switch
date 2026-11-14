@@ -1,8 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 
-// The popover outline as one closed path with circular corners (the Mac popover's corner profile fits a
-// circle of radius 16 within 1 px on every row). The arrow's shoulders leave the edge tangentially and meet at a rounded
+// The popover outline as one closed path with circular corners (Theme.popoverRadius, measured). The arrow's shoulders leave the edge tangentially and meet at a rounded
 // tip: each side is one cubic with horizontal tangents at both ends. The bake-off drew straight lines,
 // which met the edge at a hard angle. Drawn for an arrow on top; arrowDown mirrors it vertically.
 Item {

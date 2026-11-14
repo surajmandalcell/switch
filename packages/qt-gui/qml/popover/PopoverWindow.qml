@@ -13,7 +13,27 @@ Window {
   property bool arrowDown: false
   property real arrowX: 180                              // tip x in the 360 body
   property real maxHeight: 100000
-  readonly property var groups: Helper.topics.tray ? Helper.topics.tray.groups : []
+  // The helper's tray topic (rpc.md tray.rows); a fresh tray.rows every 60 s while open keeps countdowns current.
+  property var fresh: null
+  readonly property var groups: view(fresh || Helper.topics.tray)
+  Timer {
+    interval: 60000; repeat: true; running: pop.visible && Helper.hasMethod("tray.rows")
+    onTriggered: Helper.call("tray.rows", {}, function (r, err) { if (!err) pop.fresh = r })
+  }
+  Connections { target: Helper; function onTopicChanged(t) { if (t === "tray") pop.fresh = null } }
+
+  // Wire rows to the row view: collapsed lines first, then the expanded ones; a heading line names a pool.
+  // shortcut: prompt rows (Sign in, Allow access) and the eyes are not drawn yet
+  function view(t) {
+    return (t && t.groups ? t.groups : []).map(function (g) {
+      return { id: g.providerID, name: g.name, accounts: g.rows.map(function (r) {
+        var all = r.canExpand && r.expandedLines ? r.expandedLines : r.lines
+        return { id: r.id, label: r.label, isDefault: r.isDefault, shown: r.lines.length, token: r.tokens || "",
+                 band: r.openToolTitle ? [r.openToolTitle] : [],
+                 lines: all.map(function (l) { return l.isHeading ? { heading: l.label } : { label: l.label, used: l.used, reset: l.resetText || "" } }) }
+      }) }
+    })
+  }
   readonly property int bodyH: Math.max(94, Math.min(maxHeight - arrowH, Math.round(inner.height + 24 + 44)))
 
   width: 360 + 2 * margin
@@ -25,6 +45,7 @@ Window {
   signal openMain()
   signal openSettings()
   signal quit()
+  signal refresh()   // the owner sets refreshing back to false when every reply is in
 
   property int layoutIndex: -1
   property int expandedIndex: -1
@@ -85,7 +106,7 @@ Window {
     }
   }
   NumberAnimation { id: barsIn; target: pop; property: "bars"; from: 0; to: 1; duration: Theme.motion ? 300 : 0
-                    easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut }
+                    easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut }
   function replayBars() { if (Theme.motion) barsIn.restart() }
 
   Shortcut { sequence: "Escape"; onActivated: pop.close() }
@@ -172,7 +193,7 @@ Window {
                   glyph: 11
                   tip: "Hide from menu bar"
                   opacity: gh.hovered ? 1 : 0
-                  Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+                  Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
                 }
               }
               Column {
@@ -215,9 +236,8 @@ Window {
             spin: angle
             enabled: !pop.refreshing
             NumberAnimation on angle { from: 0; to: 360; duration: 800; loops: Animation.Infinite; running: pop.refreshing && Theme.motion }
-            onClicked: { pop.refreshing = true; refreshStop.restart() }
-            // shortcut: the spin ends on a timer until the helper reports usage.refresh completion
-            Timer { id: refreshStop; interval: 1700; onTriggered: { pop.refreshing = false; refreshBtn.angle = 0 } }
+            onClicked: { pop.refreshing = true; pop.refresh() }
+            Connections { target: pop; function onRefreshingChanged() { if (!pop.refreshing) refreshBtn.angle = 0 } }
           }
           PopButton { square: true; icon: "power"; onClicked: pop.quit() }
           PopButton { square: true; icon: "gear"; onClicked: pop.openSettings() }

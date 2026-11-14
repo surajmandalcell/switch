@@ -93,9 +93,19 @@ Item {
         Rectangle { width: tipText.implicitWidth + 16; height: tipText.implicitHeight + 6; radius: 5; color: Theme.solidSurface
           border.width: 0.5; border.color: Theme.separator
           Txt { id: tipText; x: 8; y: 3; role: "secondary"; color: Theme.secondary; text: "Clear search" } } }
+      Line { title: "Alert"; help: "confirmation: app icon, title, message, Cancel and the action (red when destructive)"
+        PushButton { text: "Show alert"; onClicked: Theme.alert.open({ title: "Reset every setting to its default?", message: "Accounts, saved sign-ins, and Open at Login stay as they are.",
+                                                                     action: "Reset settings", destructive: true }) } }
+      Line { title: "Copy path"; help: "click copies; a Copied badge shows for 700 ms"; detail: "/home/demo/.codex" }
       Line { last: true; title: "Hairline and type"; help: "Title 17, Section 13 bold, Body 13, Secondary 11, Caption 10"
         Txt { role: "title"; text: "Title" } Txt { role: "section"; text: "Section" } Txt { text: "Body" }
         Txt { role: "secondary"; color: Theme.secondary; text: "Secondary" } Txt { role: "caption"; color: Theme.secondary; text: "Caption" } }
+    }
+
+    // search result card (shell.md 4.2), as Accounts shows it
+    MatchCard {
+      accounts: false
+      rows: [{ id: "appearance", title: "Appearance", section: "Appearance" }, { id: "hours", title: "Time format", section: "Appearance" }]
     }
   }
 }

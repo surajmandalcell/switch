@@ -1,7 +1,16 @@
 #include "appstate.h"
 
+#include <QClipboard>
+#include <QCoreApplication>
+#include <QDesktopServices>
+#include <QDir>
 #include <QEvent>
+#include <QFileInfo>
 #include <QGuiApplication>
+#include <QSaveFile>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QScreen>
 #include <QWindow>
 #include <QKeyEvent>
@@ -24,6 +33,55 @@ QRect AppState::workArea(QObject *window) const {
   auto *w = qobject_cast<QWindow *>(window);
   QScreen *s = w && w->screen() ? w->screen() : QGuiApplication::primaryScreen();
   return s ? s->availableGeometry() : QRect();
+}
+
+QString AppState::homePath() const { return QDir::homePath(); }
+
+void AppState::copy(const QString &text) const { QGuiApplication::clipboard()->setText(text); }
+
+// settings.md 2.7 Reveal: the file manager at that folder (the Mac selects the item; a plain folder open is
+// what every Linux and Windows file manager supports through one call).
+void AppState::reveal(const QString &path) const { QDesktopServices::openUrl(QUrl::fromLocalFile(path)); }
+
+// shell.md 6.4 for Linux and Windows: an XDG autostart entry or the HKCU Run value, both starting `--background`.
+#ifdef Q_OS_WIN
+static const char *kRunKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+#else
+static QString autostartFile() {
+  return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/autostart/switch.desktop";
+}
+#endif
+
+bool AppState::loginEnabled() const {
+#ifdef Q_OS_WIN
+  return QSettings(kRunKey, QSettings::NativeFormat).contains("Switch");
+#else
+  return QFileInfo::exists(autostartFile());
+#endif
+}
+
+void AppState::setLoginEnabled(bool on) {
+  m_loginError.clear();
+  const QString exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+#ifdef Q_OS_WIN
+  QSettings key(kRunKey, QSettings::NativeFormat);
+  if (on) key.setValue("Switch", "\"" + exe + "\" --background");
+  else key.remove("Switch");
+  key.sync();
+  if (key.status() != QSettings::NoError) m_loginError = "the Run registry key could not be written";
+#else
+  const QString path = autostartFile();
+  if (on) {
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile f(path);
+    const QByteArray body = "[Desktop Entry]\nType=Application\nName=Switch\nExec=\"" + exe.toUtf8() +
+                            "\" --background\nX-GNOME-Autostart-enabled=true\n";
+    if (!f.open(QIODevice::WriteOnly) || f.write(body) != body.size() || !f.commit()) m_loginError = f.errorString();
+  } else if (QFileInfo::exists(path) && !QFile::remove(path)) {
+    m_loginError = "the autostart file could not be removed";
+  }
+#endif
+  emit loginChanged();
 }
 
 bool AppState::eventFilter(QObject *watched, QEvent *event) {

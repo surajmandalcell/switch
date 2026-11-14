@@ -2,6 +2,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFontDatabase>
+#include <QIcon>
 #include <QJsonDocument>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -24,9 +25,16 @@ int main(int argc, char *argv[]) {
   QApplication app(argc, argv);
   app.setApplicationName("Switch");
   app.setApplicationVersion("0.1.0");
+  app.setWindowIcon(QIcon(":/qt/qml/SwitchUI/assets/appicon.png"));
+  // macOS draws text with grayscale antialiasing; an RGB-subpixel fontconfig default would add color fringes.
+  QFont base = QGuiApplication::font();
+  base.setStyleStrategy(QFont::NoSubpixelAntialias);
+  QGuiApplication::setFont(base);
 
   const int fontId = QFontDatabase::addApplicationFont(":/qt/qml/SwitchUI/fonts/InterVariable.ttf");
   const QStringList fams = QFontDatabase::applicationFontFamilies(fontId);
+  // SF Mono stand-in for paths, IDs and code (design-system.md 2.3); Theme.monoFamily names it.
+  QFontDatabase::addApplicationFont(":/qt/qml/SwitchUI/fonts/JetBrainsMono-Regular.ttf");
   AppState state(app.arguments(), fams.isEmpty() ? QString("Sans") : fams.first());
   app.installEventFilter(&state);
 
