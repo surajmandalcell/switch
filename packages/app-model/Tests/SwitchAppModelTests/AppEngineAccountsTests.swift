@@ -123,10 +123,11 @@ final class AppEngineAccountsTests: XCTestCase {
         script.error = .unauthorized("Bad key.")
         let clock = ManualClock()
         let (engine, _) = try await start(script, clock: clock)
+        // The stored verification arrives with the reload that follows the usage result.
+        try await until { await self.row(engine)?.verification == "needsSignIn" }
         var found = await row(engine)
         var row = try XCTUnwrap(found)
         XCTAssertTrue(row.needsSignIn)
-        XCTAssertEqual(row.verification, "needsSignIn")
         XCTAssertTrue(row.windows.isEmpty)
         try await advance(engine, clock, 300)
         try await until { (await self.row(engine))?.checkedAt == clock.now }

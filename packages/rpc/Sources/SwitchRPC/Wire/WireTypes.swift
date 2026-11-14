@@ -1,5 +1,6 @@
 import Foundation
 import AIManagerCore
+import SwitchAppModel
 
 // Outbound shapes. Built from core values the same way the CLI `Safe*` wrappers are:
 // no credential digest, token, cookie, key, or auth-file content. Ids are lowercase UUID strings, paths are plain paths.
@@ -29,6 +30,16 @@ struct AnyEncodable: Encodable {
 
 struct StateParams: Decodable {
     let topics: [String]
+}
+
+struct SettingsGetParams: Decodable {
+    let keys: [String]?
+}
+
+/// `value` null or missing removes the stored value, so the default applies again.
+struct SettingsSetParams: Decodable {
+    let key: String
+    let value: SettingValue?
 }
 
 /// One topic in the `state.subscribe` reply.

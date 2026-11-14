@@ -8,9 +8,9 @@ import SwitchAppModel
 public final class RPCServer: @unchecked Sendable {
     public static let protocolVersion = 1
     /// Bumped when a settings key changes type or meaning; the client then rereads its settings cache.
-    public static let settingsSchemaVersion = 1
+    public static let settingsSchemaVersion = SettingsRegistry.schemaVersion
     public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail",
-                                 "state.subscribe", "state.unsubscribe"]
+                                 "state.subscribe", "state.unsubscribe", "settings.get", "settings.set"]
         + readMethods
     public static let defaultTimeout: TimeInterval = 60
     static let maximumFrame = 16 * 1024 * 1024
@@ -250,6 +250,13 @@ public final class RPCServer: @unchecked Sendable {
             return Dictionary(uniqueKeysWithValues: snapshot.map {
                 ($0.key.rawValue, WireTopicState(rev: $0.value.rev, value: AnyEncodable(value: $0.value.value)))
             })
+        case "settings.get":
+            let keys = (try? params(SettingsGetParams.self, method: method, frame: frame))?.keys
+            return try await engine.settingsValues(keys)
+        case "settings.set":
+            let params = try params(SettingsSetParams.self, method: method, frame: frame)
+            try await engine.setSetting(params.key, params.value)
+            return try await engine.settingsValues([params.key])
         case "state.unsubscribe":
             setSubscribed(try topics(method: method, frame: frame), false)
             return String?.none
@@ -440,6 +447,10 @@ struct RPCError: Error, Encodable {
     /// Core errors carry display text only, the same text the CLI prints.
     static func failed(_ error: Error) -> RPCError {
         if let error = error as? AIManagerError, case .accountNotFound = error { return notFound }
+        if let error = error as? SettingsError {
+            return error == .readOnly ? RPCError(-32007, "failed", error.localizedDescription)
+                : RPCError(-32602, "invalidParams", error.localizedDescription)
+        }
         switch error as? AppEngineError {
         case .busy: return RPCError(-32001, "busy", error.localizedDescription, retryable: true)
         case .unavailable: return RPCError(-32002, "unavailable", error.localizedDescription)

@@ -60,19 +60,26 @@ public actor AppEngine {
     var refreshes: Bool { paths.isolationRoot == nil || refreshesInIsolation }
     func setRefreshesInIsolation(_ value: Bool) { refreshesInIsolation = value }
 
+    // Settings (Settings.swift).
+    let settings: any SettingsStore
+
     /// `manager` is nil when the private data folder cannot open; `app.isUnavailable` is then true.
-    /// `codexCache` is the Codex usage SQLite cache the helper shares with its read methods.
+    /// `codexCache` is the Codex usage SQLite cache the helper shares with its read methods. Without `settings`
+    /// the engine opens `settings.json` at `JSONFileSettingsStore.location`.
     public init(manager: AccountManager?, paths: ManagerPaths, clock: any AppClock = SystemClock(),
-                codexCache: CodexUsageStatisticsCache? = nil) {
+                codexCache: CodexUsageStatisticsCache? = nil, settings: (any SettingsStore)? = nil) {
         self.manager = manager
         self.paths = paths
         self.clock = clock
         self.codexCache = codexCache
+        self.settings = settings ?? JSONFileSettingsStore(url: JSONFileSettingsStore.location(
+            paths: paths, environment: ProcessInfo.processInfo.environment))
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
         app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path)
         slots[.app] = Self.slot(app)
         slots[.notices] = Self.slot(notices)
         slots[.accounts] = Self.slot(AccountsValue())
+        slots[.settings] = Self.slot(Self.settingsValue(self.settings))
     }
 
     /// Loads the accounts and starts the usage timers once, after the client's `initialized`.
@@ -80,6 +87,7 @@ public actor AppEngine {
         guard !started, !stopped else { return }
         started = true
         if manager == nil { setError(Self.unavailableText) }
+        if let notice = (settings as? JSONFileSettingsStore)?.notice { setNotice(notice) }
         await reloadAccounts()
         app.hasLoaded = true
         app.refreshedAt = clock.now
