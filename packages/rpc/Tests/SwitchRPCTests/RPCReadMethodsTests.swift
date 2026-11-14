@@ -239,6 +239,7 @@ extension RPCRuntimeTests {
             "history.detail": #"{"id":"\#(thread)"}"#, "history.export": #"{"id":"\#(thread)"}"#,
             "cleanup.trashList": #"{"sourceID":"\#(source)"}"#, "backup.history": #"{"setID":"\#(set.id.uuidString)"}"#,
             "usage.projectActivity": #"{"day":"2026-11-14"}"#, "usage.day": #"{"day":"2026-11-14"}"#,
+            "providers.liveIdentity": #"{"providerID":"test-rpc"}"#,
         ]
         let frames = RPCServer.readMethods.enumerated().map { number, method in
             #"{"jsonrpc":"2.0","id":\#(number + 1),"method":"\#(method)""# + (params[method].map { #","params":\#($0)}"# } ?? "}")

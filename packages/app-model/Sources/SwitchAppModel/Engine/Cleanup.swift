@@ -68,6 +68,8 @@ extension AppEngine {
                 try await codexCache.removeCleanupSamples(samples)
             }
             if clearIndex { try await index.clearCache() }
+            await self.bumpHistoryVersion()
+            await self.bumpUsageHistoryVersion()
             let notice = Self.cleanupNotice(reviewed?.plan, samples: samples.count, clearIndex: clearIndex)
             await self.setNotice(notice)
             return .done(notice: notice)
@@ -79,6 +81,7 @@ extension AppEngine {
         let source = try await cleanupBatchSource(sourceID, batchID)
         return try await perform(failure: "Couldn’t restore the items.") {
             try await self.requireManager().restoreCleanupTrash(source, batchID)
+            await self.bumpHistoryVersion()
             await self.setNotice("Items restored.")
             return .done(notice: "Items restored.")
         }

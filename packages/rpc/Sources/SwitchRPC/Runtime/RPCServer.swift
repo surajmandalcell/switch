@@ -37,6 +37,11 @@ public final class RPCServer: @unchecked Sendable {
         return encoder
     }()
 
+    /// `initialize` said the client can show notifications, and `notifications.setPermission` said authorized
+    /// (assumed until it says denied). Under `lock`.
+    private var canNotify = false
+    private var notificationsAuthorized = true
+
     /// Test seam: methods tried after the built-in ones. Set before `serve`.
     var extraMethods: [String: @Sendable (Data) async throws -> any Encodable] = [:]
 
@@ -69,6 +74,24 @@ public final class RPCServer: @unchecked Sendable {
             databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
             activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
         engine = AppEngine(manager: manager, paths: paths, clock: clock, codexCache: codexCache)
+    }
+
+    func setNotificationPermission(_ authorized: Bool) {
+        lock.lock()
+        notificationsAuthorized = authorized
+        lock.unlock()
+    }
+
+    private func setNotifications(capable: Bool) {
+        lock.lock()
+        canNotify = capable
+        lock.unlock()
+    }
+
+    private func mayNotify() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return canNotify && notificationsAuthorized
     }
 
     public static func standardError(_ text: String) {
@@ -217,7 +240,7 @@ public final class RPCServer: @unchecked Sendable {
         if method.hasPrefix("settings.") { return "settings" }
         if method.hasPrefix("backup.") { return "backups" }
         if method.hasPrefix("cleanup.") { return "cleanup" }
-        let accounts = ["accounts.", "providers.", "login.", "import.", "droid.", "autoSwitch."]
+        let accounts = ["accounts.", "providers.", "login.", "import.", "droid.", "autoSwitch.", "recovery."]
         let actions = ["usage.refresh", "app.refresh", "tray.opened", "claude.shellIntegration.set"]
         if accounts.contains(where: method.hasPrefix) || actions.contains(method) { return "accounts" }
         return nil
@@ -268,6 +291,10 @@ public final class RPCServer: @unchecked Sendable {
     private func call(_ method: String, frame: Data) async throws -> any Encodable {
         switch method {
         case "initialize":
+            let client = try? params(InitializeParams.self, method: method, frame: frame)
+            setNotifications(capable: client?.capabilities?.notifications ?? false)
+            await engine.setClient(locale: client?.locale, hourCycle: client?.hourCycle)
+            await engine.setHost(self)
             return InitializeResult(
                 protocolVersion: Self.protocolVersion, serverVersion: version,
                 buildNumber: UpdateCheck.buildNumber(version: version) ?? 0, platform: Self.platform,
@@ -327,7 +354,7 @@ public final class RPCServer: @unchecked Sendable {
             return WireUsage(account, usage: try await manager.readProviderUsage(accountID: id))
         }
         if !force, let cached = try? await codexCache?.latest(for: id), let snapshot = cached.snapshot, !cached.isStale {
-            return WireUsage(account, codex: snapshot)
+            return WireUsage(account, codex: snapshot, daily: try? await codexCache?.dailyUsage(for: id))
         }
         let result = await manager.checkAccount(accountID: id)
         guard let snapshot = result.usage else {
@@ -336,7 +363,7 @@ public final class RPCServer: @unchecked Sendable {
                 : RPCError(-32007, "failed", result.verification.detail)
         }
         try? await codexCache?.upsertSuccess(accountID: id, snapshot: snapshot)
-        return WireUsage(account, codex: snapshot)
+        return WireUsage(account, codex: snapshot, daily: try? await codexCache?.dailyUsage(for: id))
     }
 
     func requireManager() throws -> AccountManager {
@@ -457,6 +484,24 @@ enum RPCID: Codable, Hashable, CustomStringConvertible {
 }
 
 /// The request fields every frame is checked for; `params` is decoded later by the method.
+/// The helper side of `AppHost`: a quota alert becomes a `notify.post` notification when the client can show
+/// notifications and has not reported them denied.
+extension RPCServer: AppHost {
+    public func postNotification(_ post: NotificationPost) async -> Bool {
+        guard mayNotify() else { return false }
+        send(notification("notify.post", post))
+        return true
+    }
+}
+
+/// `initialize` params the helper reads (architecture.md 2.3); the rest are for logs and later use.
+private struct InitializeParams: Decodable {
+    struct Capabilities: Decodable { let notifications: Bool? }
+    let locale: String?
+    let hourCycle: String?
+    let capabilities: Capabilities?
+}
+
 private struct Envelope: Decodable {
     var jsonrpc: String?
     var method: String?

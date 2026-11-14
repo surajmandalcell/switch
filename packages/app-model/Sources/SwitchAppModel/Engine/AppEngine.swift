@@ -69,6 +69,34 @@ public actor AppEngine {
     /// The one conversation index for the engine's life. A fresh index per call re-read its whole cache file
     /// (750 ms and about 20 MiB per call for 2000 conversations).
     public nonisolated let chatHistory: ChatHistoryIndex
+    var historyVersion = VersionValue()
+    var usageHistoryVersion = VersionValue()
+    // Side checks (SideChecks.swift): incident dots, Claude and Droid activity, Droid conversation binding.
+    var providerStatus = ProviderStatusValue()
+    var statusPoller = ProviderStatusPoller()
+    var activity = ActivityValue()
+    var droidBinding: DroidSessionBindingReport?
+    var signedIn = ProvidersValue()
+    // Quota alerts (Notifications.swift).
+    /// Weak: the helper's server owns the engine.
+    weak var host: (any AppHost)?
+    var quotaStore: QuotaNotificationStore?
+    var quotaPassScheduled = false
+    /// "12h" or "24h" from the client's `initialize` (its hour cycle, else its locale); used when `timeFormat` is
+    /// "auto". Nil: this process's locale decides, as on the Mac.
+    var clientHourFormat: String?
+
+    /// `initialize` params: `hourCycle` "h12" or "h23" wins; "auto" or none falls back to the `locale`'s clock.
+    public func setClient(locale: String?, hourCycle: String?) {
+        switch hourCycle {
+        case "h12": clientHourFormat = "12h"
+        case "h23": clientHourFormat = "24h"
+        default:
+            clientHourFormat = locale.flatMap {
+                DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: Locale(identifier: $0))
+            }.map { $0.contains("a") ? "12h" : "24h" }
+        }
+    }
 
     /// Isolated runs (tests, demos) read no live usage, as on the Mac. Tests with synthetic providers turn it on.
     var refreshesInIsolation = false
@@ -103,13 +131,18 @@ public actor AppEngine {
         self.settings = settings ?? JSONFileSettingsStore.open(paths: paths, environment: ProcessInfo.processInfo.environment)
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
         app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path,
-                            dataLocations: AppStateValue.dataLocations(paths))
+                            dataLocations: AppStateValue.dataLocations(paths), homes: AppStateValue.homes(paths))
         slots[.app] = Self.slot(app)
         slots[.notices] = Self.slot(notices)
         slots[.accounts] = Self.slot(AccountsValue())
         slots[.settings] = Self.slot(Self.settingsValue(self.settings))
         slots[.tray] = Self.slot(TrayValue())
         slots[.login] = Self.slot(LoginValue())
+        slots[.providers] = Self.slot(ProvidersValue())
+        slots[.providerStatus] = Self.slot(ProviderStatusValue())
+        slots[.activity] = Self.slot(ActivityValue())
+        slots[.historyVersion] = Self.slot(VersionValue())
+        slots[.usageHistoryVersion] = Self.slot(VersionValue())
     }
 
     /// Loads the accounts and starts the usage timers once, after the client's `initialized`.
@@ -177,6 +210,13 @@ public actor AppEngine {
 
     func setNotice(_ text: String?) {
         notices.notice = text
+        publish(.notices, notices)
+    }
+
+    /// `notices.dismiss`: the user closed the red bar (`error`), the notice, or both.
+    public func dismissNotices(error: Bool, notice: Bool) {
+        if error { notices.error = nil }
+        if notice { notices.notice = nil }
         publish(.notices, notices)
     }
 

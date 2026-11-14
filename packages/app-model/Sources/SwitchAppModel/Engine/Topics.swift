@@ -3,7 +3,20 @@ import AIManagerCore
 
 /// State topics (architecture.md 2.7). Each holds one whole value; a change replaces it and bumps `rev` by one.
 public enum Topic: String, CaseIterable, Sendable {
-    case app, notices, accounts, settings, tray, login
+    case app, notices, accounts, settings, tray, login, providers, providerStatus, activity
+    case historyVersion = "history.version", usageHistoryVersion = "usageHistory.version"
+}
+
+/// `history.version`, `usageHistory.version`: a counter that goes up when the data behind `history.list` or
+/// `usage.history` changed, so an open page fetches again.
+public struct VersionValue: Codable, Equatable, Sendable {
+    public var version = 0
+}
+
+/// `providers`: the file-based providers whose own login exists in the user's home (the "signed in on this
+/// computer" marks of the add list), from `providers.detectSignedIn`.
+public struct ProvidersValue: Codable, Equatable, Sendable {
+    public var signedIn: [String] = []
 }
 
 /// `login`: the open sign-in sessions, oldest first. A session leaves once it saved an account or was cancelled.
@@ -31,6 +44,14 @@ public struct AppStateValue: Codable, Equatable, Sendable {
     /// The rows of Settings > Data locations in page order: `data.codex`, `data.codex-vault`, `data.grok`,
     /// `data.grok-vault`, with the Mac titles and help texts.
     public var dataLocations: [DataLocation] = []
+    /// The live tool folders the Accounts page names: `codex` (defaultHome), `grok`, `droid`, and `user` (the home
+    /// they sit in; the root's in a test home).
+    public var homes: [String: String] = [:]
+
+    static func homes(_ paths: ManagerPaths) -> [String: String] {
+        ["codex": paths.defaultHome.path, "grok": paths.grokHome.path, "droid": paths.droidHome.path,
+         "user": paths.userHome.path]
+    }
 
     public struct DataLocation: Codable, Equatable, Sendable {
         public var id: String

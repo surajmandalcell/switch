@@ -3,9 +3,12 @@ import AIManagerCore
 
 /// A dialog the user must accept before the action runs (architecture.md 2.6). The helper adds the token.
 public struct ConfirmationRequest: Codable, Equatable, Sendable {
-    /// What the user allows: `droidRunning`, `droidDuplicate`, `droidSignIn`, `delete`, or `purge`. The helper's
-    /// token carries every kind allowed so far, so a second confirmation keeps the first.
-    public enum Kind: String, Codable, Sendable { case droidRunning, droidDuplicate, droidSignIn, delete, purge }
+    /// What the user allows: `droidRunning`, `droidDuplicate`, `droidSignIn`, `delete`, `purge`, `missionSwitch`
+    /// (switch Droid to a mission's owner), or `missionStart` (a new mission uses the default account's credit).
+    /// The helper's token carries every kind allowed so far, so a second confirmation keeps the first.
+    public enum Kind: String, Codable, Sendable {
+        case droidRunning, droidDuplicate, droidSignIn, delete, purge, missionSwitch, missionStart
+    }
     public var kind: Kind
     public var token: String?
     public var title: String

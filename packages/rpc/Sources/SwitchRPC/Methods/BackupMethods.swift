@@ -3,6 +3,7 @@ import AIManagerCore
 import SwitchAppModel
 
 private struct BackupRunParams: Decodable { let setIDs: [String]? }
+private struct PathParams: Decodable { let path: String }
 
 private struct BackupRestoreParams: Decodable {
     let setID: String
@@ -27,11 +28,21 @@ private struct BackupChangeParams: Decodable {
 /// `backup.restore` have no 60 s limit; `$/cancelRequest` stops a run.
 extension RPCServer {
     static let backupMethods = ["backup.checklist", "backup.run", "backup.restore", "backup.configure", "backup.retire",
-                                "backup.setChecked", "backup.setShared"]
+                                "backup.setChecked", "backup.setShared", "backup.freeSpace"]
 
     /// Nil when `method` is not a backup method.
     func backupMethod(_ method: String, frame: Data) async throws -> (any Encodable)? {
         switch method {
+        case "backup.freeSpace":
+            // The Mac `MaintenanceStore.freeSpace`: the nearest existing folder's volume; null when none answers.
+            let text = try params(PathParams.self, method: method, frame: frame).path
+            guard !text.isEmpty else { throw RPCError(-32602, "invalidParams", "backup.freeSpace needs path.") }
+            var folder = URL(fileURLWithPath: text, isDirectory: true)
+            while !FileManager.default.fileExists(atPath: folder.path), folder.pathComponents.count > 1 {
+                folder.deleteLastPathComponent()
+            }
+            let free = (try? FileManager.default.attributesOfFileSystem(forPath: folder.path))?[.systemFreeSize]
+            return ["bytes": (free as? NSNumber)?.int64Value]
         case "backup.checklist":
             return try await engine.backupChecklist()
         case "backup.run":

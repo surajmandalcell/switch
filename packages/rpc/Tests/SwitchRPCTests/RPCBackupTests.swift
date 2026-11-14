@@ -38,7 +38,12 @@ extension RPCRuntimeTests {
         XCTAssertEqual(((progress.first?["params"] as? [String: Any])?["value"] as? [String: Any])?["setID"] as? String, id)
 
         let history = try await call(session, 3, "backup.history", #"{"setID":"\#(id)"}"#)
-        let snapshot = try XCTUnwrap(((result(history)?["snapshots"] as? [[String: Any]])?.first)?["id"] as? String)
+        let first = try XCTUnwrap((result(history)?["snapshots"] as? [[String: Any]])?.first)
+        let snapshot = try XCTUnwrap(first["id"] as? String)
+        let groups = try XCTUnwrap(first["groups"] as? [[String: Any]])
+        XCTAssertFalse(groups.isEmpty, "the restore sheet's Chosen items")
+        XCTAssertEqual(groups.compactMap { $0["files"] as? Int }.reduce(0, +), first["files"] as? Int)
+        XCTAssertEqual(first["safety"] as? Bool, false)
         let target = root.appending(path: "restored")
         try CoreSupport.privateDirectory(target, fileManager: .default)
         let restored = try await call(session, 4, "backup.restore",

@@ -31,24 +31,28 @@ extension AppEngine {
                 }
                 await self.reloadAccounts()
             }
-            let spec = try await manager.launchSpec(accountID: id)
-            var keys = ["CODEX_HOME", "GROK_HOME", "CLAUDE_CONFIG_DIR", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"]
-            if self.paths.isolationRoot != nil { keys.append("HOME") }
-            let script = TerminalLaunch.script(command: [spec.executable.path] + spec.arguments,
-                                               exports: spec.environment.filter { keys.contains($0.key) },
-                                               workingDirectory: spec.workingDirectory?.path)
-            let file = self.paths.applicationSupport.appending(path: "Launch/open.sh")
-            let notice: String
-            if self.paths.isolationRoot != nil {
-                try TerminalLaunch.write(script, at: file)
-                notice = "Account launch file prepared for isolated validation. Terminal was not opened."
-            } else {
-                do { try await self.openTerminal(script, at: file) } catch { throw Self.terminalError(error, "\(name) opens in a terminal") }
-                notice = "\(name) opened in Terminal."
-            }
+            let notice = try await self.launch(try await manager.launchSpec(accountID: id), file: "open.sh",
+                                               what: "\(name) opens in a terminal", isolated: "Account launch file",
+                                               opened: "\(name) opened in Terminal.")
             await self.setNotice(notice)
             return .done(notice: notice)
         }
+    }
+
+    /// Writes `Launch/<file>` and opens it in a terminal; a test home writes the file and opens nothing.
+    func launch(_ spec: LaunchSpec, file: String, what: String, isolated: String, opened: String) async throws -> String {
+        var keys = ["CODEX_HOME", "GROK_HOME", "CLAUDE_CONFIG_DIR", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"]
+        if paths.isolationRoot != nil { keys.append("HOME") }
+        let script = TerminalLaunch.script(command: [spec.executable.path] + spec.arguments,
+                                           exports: spec.environment.filter { keys.contains($0.key) },
+                                           workingDirectory: spec.workingDirectory?.path)
+        let url = paths.applicationSupport.appending(path: "Launch/\(file)")
+        if paths.isolationRoot != nil {
+            try TerminalLaunch.write(script, at: url)
+            return "\(isolated) prepared for isolated validation. Terminal was not opened."
+        }
+        do { try openTerminal(script, at: url) } catch { throw Self.terminalError(error, what) }
+        return opened
     }
 
     /// Toolbar Refresh (the Mac `refreshAllUsage`): every account's usage now, Codex one at a time. A test home
@@ -60,6 +64,8 @@ extension AppEngine {
             let accounts = await self.status?.accounts ?? []
             for account in accounts where account.identity.providerID == .codex { await self.refreshCodexAccount(account.id) }
             await self.refreshProviderAccounts(accounts.filter { $0.identity.providerID != .codex }.map(\.id), interactive: false)
+            await self.refreshSideChecks(force: true)
+            await self.bumpHistoryVersion()
             return .done()
         }
     }
