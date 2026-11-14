@@ -14,7 +14,7 @@ final class SettingsLinkContractTests: XCTestCase {
             defaultHome: root.appending(path: "default"),
             sharedRoot: root.appending(path: "shared"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         try fileManager.createDirectory(at: paths.sharedRoot, withIntermediateDirectories: true)
@@ -45,7 +45,7 @@ final class SettingsLinkContractTests: XCTestCase {
             reviewedFingerprint: issue.localFingerprint
         )
         XCTAssertEqual(try Data(contentsOf: repaired.backup.appending(path: "\(account.id.uuidString)/config.toml")), localEdit)
-        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: local.path), paths.sharedRoot.appending(path: "config.toml").path)
+        XCTAssertEqual(try Links.destination(of: local, fileManager: fileManager), paths.sharedRoot.appending(path: "config.toml").path)
         let repairedStatus = try await manager.status()
         XCTAssertTrue(repairedStatus.linkedSettingsDivergences.isEmpty)
         _ = try await manager.launchSpec(accountID: account.id)
@@ -119,8 +119,8 @@ final class SettingsLinkContractTests: XCTestCase {
             reviewedFingerprint: issue.localFingerprint
         )
         let preserved = repaired.backup.appending(path: "\(account.id.uuidString)/config.toml")
-        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: preserved.path), "../missing-local-setting")
-        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: local.path), paths.sharedRoot.appending(path: "config.toml").path)
+        XCTAssertEqual(try Links.destination(of: preserved, fileManager: fileManager), "../missing-local-setting")
+        XCTAssertEqual(try Links.destination(of: local, fileManager: fileManager), paths.sharedRoot.appending(path: "config.toml").path)
     }
 
     func testRecoveryRestoresLocalEditAfterInterruptedLinkPublication() async throws {

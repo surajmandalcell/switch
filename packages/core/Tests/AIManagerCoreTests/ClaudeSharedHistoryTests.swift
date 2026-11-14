@@ -17,7 +17,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            claudeExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            claudeExecutable: TestCLI.trueExecutable,
             isolationRoot: root)
         try fileManager.createDirectory(at: userHome, withIntermediateDirectories: true)
     }
@@ -44,7 +44,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
     private func text(_ url: URL) throws -> String { try String(contentsOf: url, encoding: .utf8) }
 
     private func isLink(_ url: URL, to target: URL) -> Bool {
-        (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) == target.path
+        (try? Links.destination(of: url, fileManager: fileManager)) == target.path
     }
 
     // MARK: Shared history
@@ -447,6 +447,9 @@ final class ClaudeSharedHistoryTests: XCTestCase {
     }
 
     func testShellFunctionUsesActiveDirectoryOnlyWhenItExists() throws {
+#if os(Windows)
+        throw XCTSkip("The shell function runs in a POSIX shell.")
+#endif
         let profiles = try makeProfiles()
         try profiles.installShellIntegration()
         let bin = root.appending(path: "bin")
@@ -593,10 +596,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
     // MARK: Terminal probe
 
     private func fakeClaude(_ body: String) throws -> URL {
-        let url = root.appending(path: "fake-claude-\(UUID().uuidString)")
-        try write("#!/bin/sh\n\(body)\n", to: url)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-        return url
+        try TestCLI.write("#!/bin/sh\n\(body)\n", to: root.appending(path: "fake-claude-\(UUID().uuidString)"))
     }
 
     func testProbeTypesUsageParsesPanelAndPassesSafeFlags() async throws {

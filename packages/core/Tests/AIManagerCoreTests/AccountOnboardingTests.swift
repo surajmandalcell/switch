@@ -15,8 +15,8 @@ final class AccountOnboardingTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
-            grokExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
+            grokExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         try fileManager.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
@@ -112,7 +112,7 @@ final class AccountOnboardingTests: XCTestCase {
     }
 
     func testClaudeProfilesKeepIndependentConfigAndDefault() async throws {
-        paths.claudeExecutable = URL(fileURLWithPath: "/usr/bin/true")
+        paths.claudeExecutable = TestCLI.trueExecutable
         let recorder = LoginRunnerRecorder()
         let profiles = try ClaudeCodeProfiles(
             paths: paths, fileManager: fileManager, loginRunner: recorder.runner,
@@ -708,7 +708,7 @@ final class AccountOnboardingTests: XCTestCase {
         let restarted = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         await assertOnboardingThrows(try await restarted.refreshAccounts(includeDiscoveries: false))
         XCTAssertTrue(fileManager.fileExists(atPath: outside.appending(path: "session.json").path))
-        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: staging.path), outside.path)
+        XCTAssertEqual(try Links.destination(of: staging, fileManager: fileManager), outside.path)
     }
 
     func testAdditionalLoginDoesNotReplaceCurrentDefault() async throws {

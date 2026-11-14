@@ -43,8 +43,8 @@ final class GrokUsageRefreshTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
-            grokExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
+            grokExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         try fileManager.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
@@ -296,10 +296,8 @@ final class GrokUsageRefreshTests: XCTestCase {
         try authFile(token: "fresh-access", expires: "2099-01-01T00:00:00Z", user: "first").write(to: fresh)
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fresh.path)
         let body = hang ? "exec sleep 30" : (refreshes ? "cp '\(fresh.path)' \"$GROK_HOME/auth.json\"" : "true")
-        let stub = root.appending(path: "grok-stub.sh")
-        try "#!/bin/bash\n[ \"$1\" = models ] || exit 9\necho run >> '\(count.path)'\n\(body)\n".write(to: stub, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
-        paths.grokExecutable = stub
+        paths.grokExecutable = try TestCLI.write("#!/bin/bash\n[ \"$1\" = models ] || exit 9\necho run >> '\(count.path)'\n\(body)\n",
+                                                 to: root.appending(path: "grok-stub.sh"))
         return (count, fresh)
     }
 
@@ -356,7 +354,7 @@ final class GrokUsageRefreshTests: XCTestCase {
     func testMissingExecutableKeepsTheOldError() async throws {
         let stub = try stubGrok()
         let (manager, first) = try await expiredLive(real: true)
-        try fileManager.removeItem(at: root.appending(path: "grok-stub.sh"))
+        try fileManager.removeItem(at: XCTUnwrap(paths.grokExecutable))
         await assertOldError(manager, first)
         XCTAssertEqual(runs(stub.count), 0)
     }

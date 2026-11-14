@@ -37,7 +37,7 @@ final class RealCopyIntegrationTests: XCTestCase {
             }
         }
         defer { sampler.cancel() }
-        let paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path, "AI_MANAGER_CODEX_EXECUTABLE": "/usr/bin/true"])
+        let paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path, "AI_MANAGER_CODEX_EXECUTABLE": TestCLI.trueExecutable.path])
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let plan = try await manager.planImport(source: source, mode: .full)
         let line = "REAL_COPY_PLAN result elapsed_seconds=\(Int(Date().timeIntervalSince(started))) peak_rss_bytes=\(Self.peakRSS()) manifest=\(plan.manifest.count) conflicts=\(plan.conflicts.count)"
@@ -71,7 +71,7 @@ final class RealCopyIntegrationTests: XCTestCase {
             }
         }
         defer { sampler.cancel() }
-        let paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path, "AI_MANAGER_CODEX_EXECUTABLE": "/usr/bin/true"])
+        let paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path, "AI_MANAGER_CODEX_EXECUTABLE": TestCLI.trueExecutable.path])
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let recovery = try await manager.recover()
         Self.record("REAL_COPY_STAGE after_recovery elapsed_seconds=\(Int(Date().timeIntervalSince(started))) peak_rss_bytes=\(Self.peakRSS())", to: telemetry)

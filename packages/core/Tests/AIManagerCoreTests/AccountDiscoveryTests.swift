@@ -12,9 +12,8 @@ final class AccountDiscoveryTests: XCTestCase {
     override func setUpWithError() throws {
         root = fm.temporaryDirectory.appending(path: "AccountDiscoveryTests-\(UUID().uuidString)")
         try CoreSupport.privateDirectory(root, fileManager: fm)
-        let fake = root.appending(path: "fake-droid")
-        try "#!/bin/sh\ncat \"$(dirname \"$0\")/doctor.json\"\n".write(to: fake, atomically: true, encoding: .utf8)
-        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        let fake = try TestCLI.write("#!/bin/sh\ncat \"$(dirname \"$0\")/doctor.json\"\n",
+                                     to: root.appending(path: "fake-droid"), permissions: 0o700)
         paths = .init(applicationSupport: root.appending(path: "support"),
             credentialStore: root.appending(path: "user/.switch/codex"),
             defaultHome: root.appending(path: "user/.codex"), sharedRoot: root.appending(path: "user/.codex"),

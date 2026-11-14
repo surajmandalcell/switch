@@ -166,13 +166,13 @@ final class ClaudeProbeTextTests: XCTestCase {
         XCTAssertNil(ClaudeUsage.planName(type: nil, tier: "default_claude_max_5x"))
         let script = FileManager.default.temporaryDirectory.appending(path: "claude-status-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: script) }
-        try """
+        let executable = try TestCLI.write("""
         #!/bin/sh
         echo '{"loggedIn":true,"email":"user@example.com","orgName":"Org","subscriptionType":"max"}'
-        """.write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        """, to: script)
+        defer { try? FileManager.default.removeItem(at: executable) }
         let status = try await ClaudeCodeProfiles.cliStatus(
-            .init(executable: script, arguments: ["auth", "status"], environment: [:]))
+            .init(executable: executable, arguments: ["auth", "status"], environment: [:]))
         XCTAssertEqual(status.subscriptionType, "max")
         XCTAssertEqual(status.organization, "Org")
         XCTAssertEqual(status.email, "user@example.com")

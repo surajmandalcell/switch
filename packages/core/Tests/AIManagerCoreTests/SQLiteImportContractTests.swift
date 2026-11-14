@@ -134,7 +134,7 @@ final class SQLiteImportContractTests: XCTestCase {
             defaultHome: root.appending(path: "default-home"),
             sharedRoot: root.appending(path: "shared-root"),
             orcaAccountsRoot: root.appending(path: "orca-accounts"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })

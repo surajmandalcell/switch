@@ -102,7 +102,7 @@ final class CleanupVersionsAndImagesTests: XCTestCase {
         try put(profile, ".claude.json", "login", age: longAgo)
         let paths = ManagerPaths(applicationSupport: root.appending(path: "support"), credentialStore: root.appending(path: "vault"),
             defaultHome: user.appending(path: ".codex"), sharedRoot: user.appending(path: ".codex"),
-            orcaAccountsRoot: root.appending(path: "orca"), codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: root)
+            orcaAccountsRoot: root.appending(path: "orca"), codexExecutable: TestCLI.trueExecutable, isolationRoot: root)
         let account = AccountRecord(id: UUID(), identity: AccountIdentity(providerID: .claudeCode, email: "c@x.test", authMode: .oauth),
             home: profile, source: profile, importedAt: Date(),
             verification: .init(state: .verifiedLocally, checkedAt: Date(), detail: ""), credentialDigest: "d")

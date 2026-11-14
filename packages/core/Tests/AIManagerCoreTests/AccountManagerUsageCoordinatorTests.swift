@@ -18,7 +18,7 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex", directoryHint: .isDirectory),
             sharedRoot: root.appending(path: "user/.codex", directoryHint: .isDirectory),
             orcaAccountsRoot: root.appending(path: "orca", directoryHint: .isDirectory),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         try privateDirectory(paths.defaultHome)

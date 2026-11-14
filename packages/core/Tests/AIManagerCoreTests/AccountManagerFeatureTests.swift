@@ -22,7 +22,7 @@ final class AccountManagerFeatureTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"))
+            codexExecutable: TestCLI.trueExecutable)
         let manager = try AccountManager(paths: paths)
         let zshrc = root.appending(path: "user/.zshrc")
         try Data("export A=1\n".utf8).write(to: zshrc)

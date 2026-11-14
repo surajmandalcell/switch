@@ -121,7 +121,9 @@ final class BackupEngineTests: XCTestCase {
         let snapshot = try await engine.snapshot(makeSet())
         let link = try entry(snapshot, "sessions/out")
         XCTAssertEqual(link.kind, .symlink)
-        XCTAssertEqual(link.linkTarget, outside.path)
+        // The recorded target stays in the platform's own form, so a restore recreates the same link.
+        XCTAssertEqual(link.linkTarget, try fm.destinationOfSymbolicLink(atPath: home.appending(path: "sessions/out").path))
+        XCTAssertEqual(link.linkTarget.map { $0.replacingOccurrences(of: "\\", with: "/") }, outside.path)
         XCTAssertFalse(snapshot.manifest.entries.contains { $0.path.hasSuffix("leak.txt") })
         var info = stat()
         XCTAssertEqual(lstat(snapshot.folder.appending(path: "files/sessions/out").path, &info), 0)
@@ -299,7 +301,7 @@ final class BackupEngineTests: XCTestCase {
         let snapshot = try await engine.snapshot(set)
         var paths = ManagerPaths.environment(["AI_MANAGER_ROOT": root.path,
             "AI_MANAGER_DEFAULT_HOME": home.path])
-        paths.claudeExecutable = URL(fileURLWithPath: "/usr/bin/true")
+        paths.claudeExecutable = TestCLI.trueExecutable
         let profiles = try ClaudeCodeProfiles(paths: paths, fileManager: fm,
             loginRunner: .init(launch: { _, _ in }),
             statusCheck: { _ in .init(loggedIn: true, email: "synthetic@example.test") }, logout: { _ in })
