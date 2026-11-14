@@ -143,15 +143,12 @@ final class RPCRuntimeTests: XCTestCase {
         XCTAssertFalse(everything.contains(digest))
     }
 
-    func testVersionMatchesCLIBuildInfo() throws {
+    /// `scripts/release-macos.sh` reads the version with awk from this exact file and line shape.
+    func testReleaseScriptCanReadTheVersionSource() throws {
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        func version(_ path: String) throws -> String? {
-            let text = try String(contentsOf: repository.appending(path: path), encoding: .utf8)
-            guard let line = text.split(separator: "\n").first(where: { $0.contains("static let version = ") }) else { return nil }
-            return line.split(separator: "\"").dropFirst().first.map(String.init)
-        }
-        let cli = try XCTUnwrap(version("packages/tui/Sources/AIManagerTUI/BuildInfo.swift"))
-        XCTAssertEqual(try version("packages/rpc/Sources/switch-core/SwitchCore.swift"), cli)
+        let text = try String(contentsOf: repository.appending(path: "packages/core/Sources/AIManagerCore/BuildInfo.swift"),
+                              encoding: .utf8)
+        XCTAssertTrue(text.contains("static let version = \"\(AIManagerBuildInfo.version)\""))
     }
 }
