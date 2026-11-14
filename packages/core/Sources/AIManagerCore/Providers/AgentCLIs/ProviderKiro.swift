@@ -5,7 +5,8 @@ extension ProviderCatalog {
     private static let kiroTokens = LiveFile(
         sqlite: kiroDatabase, table: "auth_kv",
         keys: ["kirocli:odic:token", "kirocli:odic:device-registration", "kirocli:social:token"])
-    private static let kiroProfile = LiveFile(sqlite: kiroDatabase, table: "state", keys: ["api.codewhisperer.profile"])
+    // Optional: a Builder ID login can have a token and no stored profile (CodexBar 929c4fe, MIT).
+    private static let kiroProfile = LiveFile(sqlite: kiroDatabase, table: "state", keys: ["api.codewhisperer.profile"], optional: true)
 
     /// Reads Kiro CLI's own rows. Kiro's CLI owns token refresh, so this never refreshes.
     static let agentKiro = ProviderSpec(
@@ -13,32 +14,49 @@ extension ProviderCatalog {
         files: [kiroTokens, kiroProfile],
         dashboard: "https://app.kiro.dev/account/usage",
         identify: { credential in
-            KiroUsage.profileARN(credential.json(kiroProfile.id)).map { CredentialIdentity(key: $0) }
+            if let arn = KiroUsage.profileARN(credential.json(kiroProfile.id)) { return CredentialIdentity(key: arn) }
+            // Without a profile, the device registration names the login and survives token refreshes.
+            guard !KiroUsage.hasProfile(credential.json(kiroProfile.id)),
+                  let client = credential.json(kiroTokens.id).flatMap({ AgentCLIsKit.embedded($0["kirocli:odic:device-registration"])["client_id"].string })
+            else { return nil }
+            return CredentialIdentity(key: "kiro-client-" + CoreSupport.digest(Data(client.utf8)))
         },
-        usage: { credential in
-            guard let token = KiroUsage.accessToken(credential.json(kiroTokens.id)),
-                  let arn = KiroUsage.profileARN(credential.json(kiroProfile.id)) else {
-                throw ProviderError.missingCredential("Sign in with kiro-cli login, then import the sign-in.")
-            }
-            guard let endpoint = KiroUsage.endpoint(arn) else {
-                throw ProviderError.unsupported("Kiro region in this profile is not supported yet.")
-            }
-            let response = try await HTTP.send(
-                endpoint, method: "POST",
-                headers: HTTP.bearer(token).merging([
-                    "Content-Type": "application/x-amz-json-1.0",
-                    "X-Amz-Target": "AmazonCodeWhispererService.GetUsageLimits",
-                ]) { $1 },
-                body: try JSONSerialization.data(withJSONObject: ["profileArn": arn]))
-            if response.status == 401 || response.status == 403 {
-                throw ProviderError.unauthorized("Open Kiro to refresh this sign-in (run kiro-cli whoami).")
-            }
-            try HTTP.check(response)
-            return try KiroUsage.map(response.json())
-        })
+        usage: { try await KiroUsage.fetch($0.json(kiroTokens.id), profile: $0.json(kiroProfile.id)) })
 }
 
 enum KiroUsage {
+    typealias Send = @Sendable (String, [String: String], Data) async throws -> HTTPResponse
+    static let liveSend: Send = { try await HTTP.send($0, method: "POST", headers: $1, body: $2) }
+    private static let defaultEndpoint = "https://codewhisperer.us-east-1.amazonaws.com/"
+
+    static func fetch(_ tokens: JSON?, profile: JSON?, send: Send = liveSend) async throws -> ProviderUsage {
+        let arn = profileARN(profile)
+        // No stored profile: ask the default region with an empty body. A stored but invalid profile fails.
+        guard let token = accessToken(tokens), arn != nil || !hasProfile(profile) else {
+            throw ProviderError.missingCredential("Sign in with kiro-cli login, then import the sign-in.")
+        }
+        guard let url = arn == nil ? defaultEndpoint : arn.flatMap(Self.endpoint) else {
+            throw ProviderError.unsupported("Kiro region in this profile is not supported yet.")
+        }
+        let response = try await send(
+            url,
+            HTTP.bearer(token).merging([
+                "Content-Type": "application/x-amz-json-1.0",
+                "X-Amz-Target": "AmazonCodeWhispererService.GetUsageLimits",
+            ]) { $1 },
+            try JSONSerialization.data(withJSONObject: arn.map { ["profileArn": $0] } ?? [:]))
+        if response.status == 401 || response.status == 403 {
+            throw ProviderError.unauthorized("Open Kiro to refresh this sign-in (run kiro-cli whoami).")
+        }
+        try HTTP.check(response)
+        return try map(response.json())
+    }
+
+    /// True when the profile row exists at all, even if its value is unreadable.
+    static func hasProfile(_ rows: JSON?) -> Bool {
+        (rows?.raw as? [String: Any])?.keys.contains("api.codewhisperer.profile") ?? false
+    }
+
     static func accessToken(_ rows: JSON?) -> String? {
         guard let rows else { return nil }
         return ["kirocli:odic:token", "kirocli:social:token"].lazy
@@ -54,7 +72,7 @@ enum KiroUsage {
         let parts = arn.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 6, parts[1] == "aws", parts[2] == "codewhisperer" else { return nil }
         switch parts[3] {
-        case "us-east-1": return "https://codewhisperer.us-east-1.amazonaws.com/"
+        case "us-east-1": return defaultEndpoint
         case "eu-central-1": return "https://q.eu-central-1.amazonaws.com/"
         default: return nil
         }

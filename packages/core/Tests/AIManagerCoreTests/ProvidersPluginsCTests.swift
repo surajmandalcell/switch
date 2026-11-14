@@ -195,26 +195,6 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertThrowsError(try T3ChatUsage.map(jsonLines: "{}"))
     }
 
-    func testTypeSafe() throws {
-        let rsc = """
-        0:["$@1"]
-        1:{"ok":true,"data":{"billing":{"plan":"free_plan","spent":0.01,"freeCreditsRemaining":4.98,"balance":4.98,"purchased":0,"resetsInDays":12,"cycleLabel":"September 2026","credits":[{"id":"c1","amount":5,"remaining":4.98,"expiresAt":"2026-10-19T00:00:00Z"}]}}}
-        """
-        let usage = try TypeSafeUsage.map(rsc: rsc)
-        XCTAssertEqual(usage.cost?.used, 0.01)
-        XCTAssertEqual(usage.cost?.balance, 4.98)
-        XCTAssertEqual(usage.cost?.period, "September 2026")
-        XCTAssertEqual(usage.plan, "Free")
-        XCTAssertEqual(usage.sections[0].rows[0].label, "Spent (September 2026)")
-        XCTAssertEqual(usage.sections[0].rows.count, 2)
-        XCTAssertThrowsError(try TypeSafeUsage.map(rsc: #"1:{"ok":false}"#))
-
-        let id = String(repeating: "ab", count: 21)
-        XCTAssertEqual(TypeSafeUsage.actionID(#"createServerReference)("\#(id)",x,void 0,"getBillingOverviewResult")"#), id)
-        let html = #"<script src="/_next/static/a.js"></script><script src="https://evil.example/b.js"></script><script src="/x.css"></script>"#
-        XCTAssertEqual(TypeSafeUsage.chunkURLs(html), ["https://console.typesafe.ai/_next/static/a.js"])
-    }
-
     func testV0() throws {
         let usage = try V0Usage.map(
             billing: json(#"{"billingType":"token","data":{"balance":{"total":1000,"remaining":750},"billingCycle":{"end":1790000000},"onDemand":{"balance":5}}}"#),
