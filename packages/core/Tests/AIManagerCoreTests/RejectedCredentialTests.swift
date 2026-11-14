@@ -74,6 +74,18 @@ final class RejectedCredentialTests: XCTestCase {
         XCTAssertEqual(try signInEvents(), 1)
     }
 
+    func testARestartDoesNotAskARejectedProviderAgain() async throws {
+        let server = Server()
+        server.answer = .unauthorized("rejected")
+        let account = try await manager(server).addProviderAccount(providerID: providerID, fields: ["apiKey": "synthetic-key-5"])
+        await assertNeedsSignIn(try manager(server), account.id)
+        XCTAssertEqual(server.calls, 1)
+
+        let restarted = try manager(server)
+        await assertNeedsSignIn(restarted, account.id)
+        XCTAssertEqual(server.calls, 1)
+    }
+
     func testSigningInAgainResumesRefreshes() async throws {
         let server = Server()
         server.answer = .unauthorized("rejected")

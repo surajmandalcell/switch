@@ -1182,8 +1182,10 @@ public actor AccountManager {
     /// credential, or an `interactive` read (an explicit check) asks the provider again.
     public func readProviderUsage(accountID: UUID, interactive: Bool = false) async throws -> ProviderUsage {
         let digest = storeCredentialDigest(accountID)
-        let saved = try? providerStore.accounts().first { $0.id == accountID }?.verification.state
-        if !interactive, let digest, saved == .needsSignIn, rejectedCredentials[accountID] == digest {
+        let verification = try? providerStore.accounts().first { $0.id == accountID }?.verification
+        let saved = verification?.state
+        if !interactive, let digest, saved == .needsSignIn,
+           (rejectedCredentials[accountID] ?? verification?.rejectedCredential) == digest {
             throw ProviderError.unauthorized("The provider rejected this credential. Sign in again or replace it.")
         }
         let probe = HTTPStatusProbe()
@@ -1207,7 +1209,8 @@ public actor AccountManager {
             if let digest, let rejected = error as? ProviderError, rejected.needsSignIn {
                 rejectedCredentials[accountID] = digest
                 try? providerStore.recordCheck(accountID, .init(state: .needsSignIn, checkedAt: Date(),
-                                                                detail: rejected.errorDescription ?? "Sign in again."))
+                                                                detail: rejected.errorDescription ?? "Sign in again.",
+                                                                rejectedCredential: digest))
             }
             eventLog.usageFailed(provider: providerLogID(accountID), account: accountID, error: error, status: probe.status)
             throw error
