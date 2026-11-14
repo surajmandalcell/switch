@@ -209,11 +209,14 @@ public struct VerificationResult: Codable, Equatable, Sendable {
     public var state: VerificationState
     public var checkedAt: Date?
     public var detail: String
+    /// Digest of the credential a provider rejected, so automatic reads skip it after a restart too.
+    public var rejectedCredential: String?
 
-    public init(state: VerificationState, checkedAt: Date? = nil, detail: String) {
+    public init(state: VerificationState, checkedAt: Date? = nil, detail: String, rejectedCredential: String? = nil) {
         self.state = state
         self.checkedAt = checkedAt
         self.detail = detail
+        self.rejectedCredential = rejectedCredential
     }
 }
 
