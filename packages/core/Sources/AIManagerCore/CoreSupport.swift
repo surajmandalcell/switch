@@ -152,7 +152,7 @@ enum CoreSupport {
     }
 
     static func safeRelativePath(_ path: String) -> Bool {
-        !path.isEmpty && !path.hasPrefix("/") && !path.split(separator: "/").contains("..")
+        !path.isEmpty && !isAbsolutePath(path) && !path.split(separator: "/").contains("..")
     }
 
     static func entryExists(_ url: URL) -> Bool {

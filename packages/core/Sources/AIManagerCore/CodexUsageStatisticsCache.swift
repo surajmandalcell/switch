@@ -796,7 +796,7 @@ public actor CodexUsageStatisticsCache {
         guard let activityDatabaseURL else { return }
         let id = "codex:" + (activity.threadID ?? fallbackID)
         let project = activity.project.flatMap {
-            $0.hasPrefix("/") ? URL(fileURLWithPath: $0).standardizedFileURL.path : nil
+            isAbsolutePath($0) ? URL(fileURLWithPath: $0).standardizedFileURL.path : nil
         }
             ?? "Unknown project"
         guard id.utf8.count <= 4_096, project.utf8.count <= 4_096,
@@ -944,7 +944,7 @@ public actor CodexUsageStatisticsCache {
     private static let maximumRequestedAccounts = 512
 
     private static func prepareLocation(_ databaseURL: URL) throws {
-        guard databaseURL.isFileURL, databaseURL.path.hasPrefix("/") else {
+        guard databaseURL.isFileURL, isAbsolutePath(databaseURL.path) else {
             throw CodexUsageStatisticsCacheError.invalidLocation("The usage-cache path must be absolute.")
         }
         let fileManager = FileManager.default

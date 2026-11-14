@@ -264,7 +264,7 @@ public enum RunningCLIs {
               meta["type"] as? String == "session_meta",
               let payload = meta["payload"] as? [String: Any],
               let id = payload["id"] as? String, UUID(uuidString: id) != nil,
-              let cwd = payload["cwd"] as? String, cwd.hasPrefix("/"),
+              let cwd = payload["cwd"] as? String, isAbsolutePath(cwd),
               payload["originator"] as? String != "codex_exec" else { return nil }
         return RunningCLI(pid: pid, tool: .codex, command: command, sessionID: id, cwd: cwd,
                           transcript: url, configDir: nil)
@@ -277,7 +277,7 @@ public enum RunningCLIs {
               let info = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               info["kind"] as? String == "interactive",
               let id = info["sessionId"] as? String, UUID(uuidString: id) != nil,
-              let cwd = info["cwd"] as? String, cwd.hasPrefix("/") else { return nil }
+              let cwd = info["cwd"] as? String, isAbsolutePath(cwd) else { return nil }
         let projects = config.appending(path: "projects", directoryHint: .isDirectory)
         var transcript = projects.appending(path: encodedProjectName(cwd)).appending(path: "\(id).jsonl")
         if !FileManager.default.fileExists(atPath: transcript.path) {

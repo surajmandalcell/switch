@@ -79,7 +79,7 @@ enum CodexWriterProbe {
         guard status == 0 else { throw probeError() }
         return data.split(separator: 0).compactMap { field in
             guard field.first == 110, let path = String(data: field.dropFirst(), encoding: .utf8),
-                  path.hasPrefix("/") else { return nil }
+                  isAbsolutePath(path) else { return nil }
             return URL(fileURLWithPath: path)
         }
 #else
@@ -90,7 +90,7 @@ enum CodexWriterProbe {
             .compactMap { entry in
                 do {
                     let path = try FileManager.default.destinationOfSymbolicLink(atPath: entry.path)
-                    guard path.hasPrefix("/"), !path.hasSuffix(" (deleted)") else { return nil }
+                    guard isAbsolutePath(path), !path.hasSuffix(" (deleted)") else { return nil }
                     return URL(fileURLWithPath: path)
                 } catch {
                     // Descriptors may close during enumeration. Permission failures are unknown.

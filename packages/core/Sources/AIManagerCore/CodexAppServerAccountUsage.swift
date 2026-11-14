@@ -370,7 +370,7 @@ public struct CodexAppServerAccountReader: Sendable {
               limits.maximumLineBytes <= limits.maximumOutputBytes else {
             throw CodexAppServerError.invalidLimits
         }
-        guard source.codexHome.path.hasPrefix("/"), source.authFile.path.hasPrefix("/") else {
+        guard isAbsolutePath(source.codexHome.path), isAbsolutePath(source.authFile.path) else {
             throw CodexAppServerError.invalidSource("Codex app-server paths must be absolute.")
         }
         let expected = source.codexHome.appending(path: "auth.json").standardizedFileURL

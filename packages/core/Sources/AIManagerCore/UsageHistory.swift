@@ -242,7 +242,7 @@ public struct UsageHistorySnapshot: Sendable {
 
     static func projectLabel(_ project: String) -> String {
         let name = URL(fileURLWithPath: project).lastPathComponent
-        return project.hasPrefix("/") && !name.isEmpty ? name : project
+        return isAbsolutePath(project) && !name.isEmpty ? name : project
     }
 
     /// `count` UTC days ending at `end`, oldest first.
