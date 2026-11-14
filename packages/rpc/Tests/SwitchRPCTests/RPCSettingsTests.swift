@@ -55,6 +55,35 @@ extension RPCRuntimeTests {
         try await session.close()
     }
 
+    /// A client that pipelines a write and a read of the same state always reads its own write.
+    func testPipelinedSetThenGetAlwaysReadsTheNewValue() async throws {
+        let session = try session()
+        var lines: [String] = []
+        for round in 0..<200 {
+            lines.append(#"{"jsonrpc":"2.0","id":\#(round * 2),"method":"settings.set","params":{"key":"autoSwitchResumeMessage","value":"m\#(round)"}}"#)
+            lines.append(#"{"jsonrpc":"2.0","id":\#(round * 2 + 1),"method":"settings.get","params":{"keys":["autoSwitchResumeMessage"]}}"#)
+        }
+        lines.forEach(session.send)
+        try await session.wait(30) { $0.filter { $0["id"] != nil }.count == 400 }
+        let frames = session.frames
+        for round in 0..<200 {
+            let value = (result(try reply(frames, round * 2 + 1))?["values"] as? [String: Any])?["autoSwitchResumeMessage"]
+            XCTAssertEqual(value as? String, "m\(round)", "round \(round)")
+        }
+        try await session.close()
+    }
+
+    func testOrderedRequestsDoNotWaitForUnrelatedSlowReads() async throws {
+        let (_, replies) = try await run([
+            #"{"jsonrpc":"2.0","id":1,"method":"test.slow"}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"settings.get"}"#,
+        ], extra: ["test.slow": { _ in try await Task.sleep(nanoseconds: 1_000_000_000); return "slow" }])
+        XCTAssertEqual(replies.map { $0["id"] as? Int }, [2, 1])
+        XCTAssertEqual(RPCServer.orderKey("usage.detail"), nil)
+        XCTAssertEqual(RPCServer.orderKey("usage.history"), nil)
+        XCTAssertEqual(RPCServer.orderKey("accounts.status"), RPCServer.orderKey("accounts.setDefault"))
+    }
+
     func testNewerSettingsFileIsReadOnlyOverRPC() async throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data(#"{"schemaVersion":9,"values":{"privacyMode":true}}"#.utf8).write(to: root.appending(path: "settings.json"))
