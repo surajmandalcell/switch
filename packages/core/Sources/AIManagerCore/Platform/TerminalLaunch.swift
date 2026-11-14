@@ -7,6 +7,8 @@ import Foundation
 public enum TerminalLaunch {
     public enum Failure: Error, Equatable {
         case noEmulator
+        /// The terminal chosen in Settings is not installed.
+        case missing(String)
         case unsupported
     }
 
@@ -33,20 +35,31 @@ public enum TerminalLaunch {
             + ["exec " + command.map(quote).joined(separator: " ")]).joined(separator: "\n") + "\n"
     }
 
-    /// The emulator command that runs `script`, from the first emulator found on `environment`'s PATH.
-    public static func emulatorCommand(script: URL, environment: [String: String]) throws -> [String] {
+    /// The emulators tried in order, each with its own form for "run this program" (gnome-terminal takes it after
+    /// `--`). Settings shows these names.
+    public static let emulators: [(name: String, flags: [String])] = [
+        ("xdg-terminal-exec", []), ("x-terminal-emulator", ["-e"]), ("gnome-terminal", ["--"]), ("konsole", ["-e"]),
+        ("kitty", []), ("alacritty", ["-e"]), ("xterm", ["-e"]),
+    ]
+
+    /// The emulator command that runs `script`. `preferred` (the `terminalEmulator` setting: a name or a path) wins
+    /// and is never replaced by another one; otherwise the first emulator found on `environment`'s PATH.
+    public static func emulatorCommand(script: URL, environment: [String: String], preferred: String? = nil) throws -> [String] {
 #if os(Linux)
         func find(_ name: String) -> String? {
             if name.contains("/") { return FileManager.default.isExecutableFile(atPath: name) ? name : nil }
             return executableCandidates(named: name, environment: environment)
                 .first { FileManager.default.isExecutableFile(atPath: $0.path) }?.path
         }
-        // Each emulator's own form for "run this program"; gnome-terminal takes it after `--`.
-        let terminal = environment["TERMINAL"].flatMap { $0.isEmpty ? nil : ($0, ["-e"]) }
-        let choices: [(String, [String])] = [("xdg-terminal-exec", [])] + (terminal.map { [$0] } ?? []) + [
-            ("x-terminal-emulator", ["-e"]), ("gnome-terminal", ["--"]), ("konsole", ["-e"]), ("kitty", []),
-            ("alacritty", ["-e"]), ("xterm", ["-e"]),
-        ]
+        func flags(_ name: String) -> [String] {
+            emulators.first { $0.name == (name as NSString).lastPathComponent }?.flags ?? ["-e"]
+        }
+        if let preferred, !preferred.isEmpty {
+            guard let program = find(preferred) else { throw Failure.missing(preferred) }
+            return [program] + flags(preferred) + [script.path]
+        }
+        var choices = emulators
+        if let terminal = environment["TERMINAL"], !terminal.isEmpty { choices.insert((terminal, flags(terminal)), at: 1) }
         for (name, flags) in choices {
             if let program = find(name) { return [program] + flags + [script.path] }
         }
@@ -60,9 +73,9 @@ public enum TerminalLaunch {
 
     /// Writes `contents` as an owner-only script at `file` and opens it in a terminal. `environment` is the
     /// helper's; the PATH in it finds the emulator.
-    public static func launch(_ contents: String, at file: URL,
+    public static func launch(_ contents: String, at file: URL, preferred: String? = nil,
                               environment: [String: String] = ProcessInfo.processInfo.environment) throws {
-        let command = try emulatorCommand(script: file, environment: environment)
+        let command = try emulatorCommand(script: file, environment: environment, preferred: preferred)
         try write(contents, at: file)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: command[0])

@@ -191,16 +191,10 @@ extension AppEngine {
                     message = "Sign-in file prepared for isolated validation. Terminal was not opened."
                 } else {
                     do {
-                        try TerminalLaunch.launch(script, at: file)
+                        try await self.openTerminal(script, at: file)
                     } catch {
                         try? await manager.cancelAccountLogin(id: start.session.id)
-                        if error as? TerminalLaunch.Failure == .noEmulator {
-                            throw AIManagerError.operationFailed("\(name) signs in inside a terminal, and Switch found "
-                                + "no terminal app. Install one such as xdg-terminal-exec or xterm, or set TERMINAL.")
-                        }
-                        guard error is TerminalLaunch.Failure else { throw error }
-                        throw AppEngineError.unsupported(
-                            "\(name) signs in inside a terminal, and Switch cannot open a terminal on this system yet.")
+                        throw Self.terminalError(error, "\(name) signs in inside a terminal")
                     }
                     message = provider == .droid
                         ? "Terminal opened. Type /login, finish signing in, then exit Droid. Switch checks this temporary login automatically."
@@ -224,6 +218,26 @@ extension AppEngine {
         return TerminalLaunch.script(command: [spec.executable.path] + spec.arguments,
                                      exports: spec.environment.filter { keys.contains($0.key) },
                                      workingDirectory: spec.workingDirectory?.path)
+    }
+
+    /// Opens a launch script in the terminal the `terminalEmulator` setting names, else the first one found.
+    func openTerminal(_ script: String, at file: URL) throws {
+        let preferred: String? = if case .string(let name) = settings.effective("terminalEmulator") { name } else { nil }
+        try TerminalLaunch.launch(script, at: file, preferred: preferred)
+    }
+
+    /// The text for a terminal that could not open; `what` says why one was needed.
+    static func terminalError(_ error: Error, _ what: String) -> Error {
+        switch error as? TerminalLaunch.Failure {
+        case .noEmulator?:
+            AIManagerError.operationFailed("\(what), and Switch found no terminal app. Install one such as "
+                + "xdg-terminal-exec or xterm, or choose one in Settings.")
+        case .missing(let name)?:
+            AIManagerError.operationFailed("\(what), and the terminal \(name) chosen in Settings is not installed.")
+        case .unsupported?:
+            AppEngineError.unsupported("\(what), and Switch cannot open a terminal on this system yet.")
+        case nil: error
+        }
     }
 
     /// Keeps the `login` topic: an open session replaces its earlier state; a finished or cancelled one leaves.
