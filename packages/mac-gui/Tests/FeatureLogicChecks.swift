@@ -300,6 +300,26 @@ enum FeatureLogicChecks {
         try expect(pass(&store, input([paced(47, now: later)]), all, at: later) == [.cuttingItClose],
                    "A reset did not clear Cutting It Close")
 
+        // A reset that moves forward before the old one passed is the same window: no second alert.
+        store = QuotaNotificationStore()
+        pass(&store, input([paced(20)]))
+        try expect(pass(&store, input([paced(47)])) == [.cuttingItClose], "Rolling window: first alert")
+        let rolled = now.addingTimeInterval(600)
+        let rolling = paced(32, resetsAt: now.addingTimeInterval(150 * 60 + 3_600), now: rolled)
+        try expect(pass(&store, input([rolling]), all, at: rolled).isEmpty, "An early reset move re-alerted")
+        try expect(pass(&store, input([rolling]), all, at: rolled).isEmpty, "A refresh of the same window re-alerted")
+        try expect(store.windows[QuotaNotificationEngine.windowKey(account, "session")]?.firedClose == true,
+                   "An early reset move cleared the fired mark")
+        // An old state file without resetsAt or primed flag still decodes and works.
+        var legacy = try JSONDecoder().decode(QuotaNotificationStore.self, from: Data(
+            #"{"windows":{"\#(account.uuidString)/session":{"firedClose":true,"firedRunOut":false,"bucket":"close","wasUnderTen":false,"wasSpent":false}},"signInAlerted":[]}"#.utf8))
+        try expect(pass(&legacy, input([paced(47)])).isEmpty, "A legacy state raised an alert at launch")
+        // A small drop without a reset keeps Almost Out armed until usage leaves the band.
+        store = QuotaNotificationStore()
+        pass(&store, input([plain(50)]))
+        try expect(pass(&store, input([plain(95)])) == [.almostOut], "Almost Out before the drop")
+        try expect(pass(&store, input([plain(92)])).isEmpty, "A small drop re-alerted")
+
         // Available again: a spent window resets or drops below 100%.
         store = QuotaNotificationStore()
         try expect(pass(&store, input([plain(100)])).isEmpty, "A window primed at 100% alerted")

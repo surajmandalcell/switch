@@ -242,7 +242,9 @@ enum QuotaNotificationEngine {
 
     var resetAdvanced = false
     if let reset = window.resetsAt {
-      if let known = s.resetsAt, reset.timeIntervalSince(known) > resetJitter {
+      // A new window starts only once the old reset has passed; a reset that moves forward earlier
+      // (a rolling window) is the same window, so it keeps its fired marks.
+      if let known = s.resetsAt, known <= now, reset.timeIntervalSince(known) > resetJitter {
         resetAdvanced = true
         s.firedClose = false
         s.firedRunOut = false
