@@ -63,9 +63,11 @@ public struct ManagerPaths: Sendable {
     }
 
     /// `~/Library/Application Support/AI Manager` on macOS; `~/.local/share/switch` on Linux (moved once from
-    /// `AI Manager` by `AppLocations.migrateDataRoot`).
+    /// `AI Manager` by `AppLocations.migrateDataRoot`); `%LOCALAPPDATA%\Switch` on Windows (no earlier install).
     #if os(Linux)
     static let dataFolderName = "switch"
+    #elseif os(Windows)
+    static let dataFolderName = "Switch"
     #else
     static let dataFolderName = "AI Manager"
     #endif
@@ -75,8 +77,15 @@ public struct ManagerPaths: Sendable {
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let factoryHome = ProcessInfo.processInfo.environment["FACTORY_HOME_OVERRIDE"]
             .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).appending(path: ".factory") }
+#if os(Windows)
+        // %LOCALAPPDATA%: secrets and SQLite stay out of the roaming profile (architecture.md section 5).
+        let data = ProcessInfo.processInfo.environment["LOCALAPPDATA"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? home.appending(path: "AppData/Local", directoryHint: .isDirectory)
+#else
+        let data = support
+#endif
         return .init(
-            applicationSupport: support.appending(path: dataFolderName, directoryHint: .isDirectory),
+            applicationSupport: data.appending(path: dataFolderName, directoryHint: .isDirectory),
             credentialStore: home.appending(path: ".switch/codex", directoryHint: .isDirectory),
             defaultHome: home.appending(path: ".codex", directoryHint: .isDirectory),
             sharedRoot: home.appending(path: ".codex", directoryHint: .isDirectory),
