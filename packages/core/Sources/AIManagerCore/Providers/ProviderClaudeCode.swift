@@ -53,11 +53,27 @@ enum ClaudeUsage {
         headers["User-Agent"] = "claude-cli/\(await cliVersion(executable: executable)) (external, cli)"
         // The flag asks for rate limit resets; older accounts answer 400 or 403 without it.
         var response = try await HTTP.send(endpoint + "?cedar_ember=1", headers: headers)
-        if response.status == 400 || response.status == 403 {
+        if response.status == 400 || (response.status == 403 && !isOrganizationPolicy(response)) {
             response = try await HTTP.send(endpoint, headers: headers)
         }
-        try HTTP.check(response)
+        try check(response)
         return map(try response.json(), credentials: credentials)
+    }
+
+    /// A 403 whose body says the organization does not allow OAuth (a lapsed plan or an organization policy).
+    static func isOrganizationPolicy(_ response: HTTPResponse) -> Bool {
+        response.status == 403
+            && (try? response.json())?.at("error.details.error_code").string == "oauth_not_allowed_for_organization"
+    }
+
+    /// `HTTP.check`, except that the organization-policy 403 is a failure with its reason: the token is alive,
+    /// so signing in again would fix nothing.
+    static func check(_ response: HTTPResponse) throws {
+        if isOrganizationPolicy(response) {
+            throw ProviderError.unavailable("Claude says this account's organization does not allow OAuth sign-in "
+                + "(a lapsed plan or an organization policy), so usage cannot be read. Renewing the plan restores it.")
+        }
+        try HTTP.check(response)
     }
 
     private final class Cached: @unchecked Sendable {
@@ -129,9 +145,11 @@ enum ClaudeUsage {
         var cost: UsageCost?
         let extra = json["extra_usage"]
         if extra["is_enabled"].bool == true {
-            // Credits are cents.
-            cost = UsageCost(used: extra["used_credits"].double.map { $0 / 100 },
-                             limit: extra["monthly_limit"].double.flatMap { $0 > 0 ? $0 / 100 : nil },
+            // Credits are minor units: cents unless the account says otherwise (JPY has none).
+            let places = extra["decimal_places"].double.flatMap { $0.isFinite ? Int(min(max($0, 0), 6)) : nil } ?? 2
+            let unit = pow(10.0, Double(places))
+            cost = UsageCost(used: extra["used_credits"].double.map { $0 / unit },
+                             limit: extra["monthly_limit"].double.flatMap { $0 > 0 ? $0 / unit : nil },
                              currency: extra["currency"].string ?? "USD", period: "Monthly")
         }
 
@@ -142,7 +160,11 @@ enum ClaudeUsage {
             if resets["eligible"].bool == true {
                 let open = resets["grants"].array.filter { ($0["ends_at"].date ?? .distantFuture) > now }
                     .filter { ($0["resets_left"].double ?? 0) >= 1 }
-                let count = open.reduce(0) { $0 + Int($1["resets_left"].double ?? 0) }
+                // Int(Double) traps on NaN, infinity and huge values: clamp to a sane count first.
+                let count = open.reduce(0) { total, grant in
+                    let left = grant["resets_left"].double ?? 0
+                    return total + (left.isFinite ? Int(min(max(left, 0), 1_000_000)) : 0)
+                }
                 rows = [UsageRow("Available", "\(count)")]
                 if let next = open.compactMap({ $0["ends_at"].date }).min() {
                     let day = DateFormatter()
@@ -169,6 +191,11 @@ enum ClaudeUsage {
     static func planName(type: String?, tier: String?) -> String? {
         guard let type, !type.isEmpty else { return nil }
         var plan = type.prefix(1).uppercased() + type.dropFirst()
+        // Anthropic renamed Max 20x to Ultra (Oct 2026); the tier string keeps "20x", a new one may say "ultra".
+        let lowerTier = tier?.lowercased() ?? ""
+        if plan == "Ultra" || (plan == "Max" && (lowerTier.contains("ultra") || lowerTier.contains("20x"))) {
+            return "Ultra"
+        }
         if let tier, let multiplier = tier.range(of: #"\d+x"#, options: .regularExpression) {
             plan += " " + tier[multiplier]
         }
@@ -194,15 +221,20 @@ enum ClaudeUsage {
         return line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("no")
     }
 
-    /// True once the panel shows both a Current session and a Current week value, or says why it has none.
+    /// True once the panel is fully drawn: no "Refreshing… Esc to cancel" footer, and either a Current session
+    /// and a Current week value, or any quota row followed by the "What's contributing to your limits usage?"
+    /// section (the last block after the rows, so a weekly-only plan completes too), or it says why it has none.
     static func panelIsComplete(_ text: String) -> Bool { isComplete(rendered: ClaudeTerminalScreen.render(text)) }
 
     static func isComplete(rendered: String) -> Bool {
+        let flat = squash(rendered)
+        if flat.contains("failedtoloadusagedata")
+            || (flat.contains("currentlyusingyoursubscription") && flat.contains("claudecodeusage")) { return true }
+        // Scoped rows are redrawn while the footer says it is refreshing.
+        if flat.contains("refreshingesctocancel") { return false }
         let ids = Set(windows(rendered: rendered, now: Date()).map(\.id))
         if ids.contains("session") && ids.contains("weekly") { return true }
-        let flat = squash(rendered)
-        return flat.contains("failedtoloadusagedata")
-            || (flat.contains("currentlyusingyoursubscription") && flat.contains("claudecodeusage"))
+        return !ids.isEmpty && flat.contains("whatscontributingtoyourlimitsusage")
     }
 
     private struct Label {
@@ -381,21 +413,23 @@ enum ClaudeUsage {
 enum ClaudeUsageProbe {
     /// Opens Claude Code in a pseudo terminal for one config dir, types `/usage`, and parses the panel.
     /// Runs without tools, hooks or MCP servers, in a private empty folder, and always kills the child.
-    /// An attempt that ends without a Session row is repeated once; the second result is kept as is.
+    /// An attempt that ends without a Session row and without a fully drawn panel is repeated once; the second
+    /// result is kept as is. A fully drawn panel without a Session row is a weekly-only plan: kept at once.
     static func run(configDir: URL, executable: URL, environment: [String: String]? = nil,
                     workingDirectory: URL? = nil, timeout: TimeInterval = 25) async throws -> ProviderUsage {
         var first: ProviderUsage?
         do {
-            let usage = try await attempt(configDir: configDir, executable: executable, environment: environment,
-                                          workingDirectory: workingDirectory, timeout: timeout)
-            if usage.windows.contains(where: { $0.id == "session" }) { return usage }
+            let (usage, complete) = try await attempt(configDir: configDir, executable: executable,
+                                                      environment: environment, workingDirectory: workingDirectory,
+                                                      timeout: timeout)
+            if complete || usage.windows.contains(where: { $0.id == "session" }) { return usage }
             first = usage
         } catch let error as ProviderError {
             guard case .unavailable = error, error != silentStart else { throw error }
         }
         do {
             return try await attempt(configDir: configDir, executable: executable, environment: environment,
-                                     workingDirectory: workingDirectory, timeout: timeout)
+                                     workingDirectory: workingDirectory, timeout: timeout).usage
         } catch {
             if let first { return first }
             throw error
@@ -411,7 +445,8 @@ enum ClaudeUsageProbe {
             + "Privacy & Security › Files and Folders.")
 
     private static func attempt(configDir: URL, executable: URL, environment: [String: String]?,
-                                workingDirectory: URL?, timeout: TimeInterval) async throws -> ProviderUsage {
+                                workingDirectory: URL?, timeout: TimeInterval) async throws
+        -> (usage: ProviderUsage, complete: Bool) {
 #if canImport(Darwin)
         let fileManager = FileManager.default
         let directory = workingDirectory
@@ -536,12 +571,13 @@ enum ClaudeUsageProbe {
                 // One Return after the command settles, then at most two retries while no panel shows.
                 let wait: TimeInterval = enters == 0 ? 0.8 : 4
                 if enters < 3, now.timeIntervalSince(lastEnter) >= wait,
-                   enters == 0 || !(flat.contains("currentsession") || flat.contains("loadingusage")) {
+                   enters == 0 || !(flat.contains("currentsession") || flat.contains("currentweek")
+                                    || flat.contains("loadingusage")) {
                     send("\r")
                     enters += 1
                     lastEnter = now
                 }
-                // Stop once both rows show and the screen has been still for a second (model rows
+                // Stop once the panel is fully drawn and the screen has been still for a second (model rows
                 // arrive last); a panel that keeps changing is cut off after 5 seconds.
                 if complete { completeSince = completeSince ?? now } else { completeSince = nil }
                 if let completeSince, now.timeIntervalSince(lastOutput) >= 1 || now.timeIntervalSince(completeSince) >= 5 { break }
@@ -556,7 +592,7 @@ enum ClaudeUsageProbe {
         if received == 0, process.isRunning { throw silentStart }
         guard commandSent else { throw ProviderError.unavailable("Claude Code did not become ready in time.") }
         do {
-            return try ClaudeUsage.parse(rendered: text, now: Date())
+            return (try ClaudeUsage.parse(rendered: text, now: Date()), complete)
         } catch {
             if !complete, process.isRunning { throw ProviderError.unavailable("Claude Code did not show usage in time.") }
             throw error

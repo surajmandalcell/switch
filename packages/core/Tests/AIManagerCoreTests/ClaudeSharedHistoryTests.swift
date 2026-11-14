@@ -504,7 +504,7 @@ final class ClaudeSharedHistoryTests: XCTestCase {
         XCTAssertNotNil(usage.windows[0].resetsAt)
         XCTAssertEqual(usage.cost, UsageCost(used: 5, limit: 10, currency: "USD", period: "Monthly"))
         XCTAssertEqual(usage.sections.first?.rows.first, UsageRow("Available", "3"))
-        XCTAssertEqual(usage.plan, "Max 20x")
+        XCTAssertEqual(usage.plan, "Ultra") // Anthropic renamed Max 20x to Ultra
 
         let ineligible = ClaudeUsage.map(try JSON(data: Data(#"{"cedar_ember":{"eligible":false}}"#.utf8)), credentials: nil)
         XCTAssertEqual(ineligible.sections.first?.rows.first, UsageRow("Available", "0"))
