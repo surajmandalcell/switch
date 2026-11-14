@@ -76,6 +76,10 @@ public actor AppEngine {
     // Cleanup (Cleanup.swift): the last scan's items by id, and the reviewed plan.
     var cleanupScan: (id: UUID, source: CleanupSource, items: [String: CleanupItem])?
     var cleanupPlan: (source: CleanupSource, plan: ConversationCleanupPlan)?
+    // Auto switch (AutoSwitchLoop.swift): providers told "nothing left" this episode, the last failed switch.
+    var autoSwitchNoneLeft = Set<String>()
+    var autoSwitchFailed: [String: String] = [:]
+    var autoSwitching = false
 
     /// `manager` is nil when the private data folder cannot open; `app.isUnavailable` is then true.
     /// `codexCache` is the Codex usage SQLite cache the helper shares with its read methods. Without `settings`

@@ -160,6 +160,7 @@ extension AppEngine {
         }
         codexRefreshing = nil
         await reloadAccounts()
+        await evaluateAutoSwitch()
     }
 
     // MARK: - Other providers (four at once, each with a time limit, never in isolation mode)
@@ -205,6 +206,7 @@ extension AppEngine {
             }
         }
         await reloadAccounts()
+        await evaluateAutoSwitch()
     }
 
     private func applyProviderUsage(_ id: UUID, _ result: Result<ProviderUsage, Error>) {
