@@ -91,6 +91,8 @@ public actor AccountManager {
 
     private let paths: ManagerPaths
     public nonisolated let eventLog: EventLog
+    /// Per store account: the digest of the credential the provider rejected (see `readProviderUsage`).
+    private var rejectedCredentials: [UUID: String] = [:]
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
@@ -1157,7 +1159,15 @@ public actor AccountManager {
 
     /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
     /// accounts only; Codex and Grok registry accounts are never rewritten from here.
+    /// A store account whose credential the provider rejected is saved as `.needsSignIn`. Automatic reads
+    /// with that same credential answer from that state without a request; signing in again, a changed
+    /// credential, or an `interactive` read (an explicit check) asks the provider again.
     public func readProviderUsage(accountID: UUID, interactive: Bool = false) async throws -> ProviderUsage {
+        let digest = storeCredentialDigest(accountID)
+        let saved = try? providerStore.accounts().first { $0.id == accountID }?.verification.state
+        if !interactive, let digest, saved == .needsSignIn, rejectedCredentials[accountID] == digest {
+            throw ProviderError.unauthorized("The provider rejected this credential. Sign in again or replace it.")
+        }
         let probe = HTTPStatusProbe()
         do {
             let usage: ProviderUsage = try await UsageLogContext.$current.withValue(
@@ -1169,11 +1179,30 @@ public actor AccountManager {
                 return usage
             }
             if eventLog.isFailing(accountID) { eventLog.usageRecovered(provider: providerLogID(accountID), account: accountID) }
+            rejectedCredentials[accountID] = nil
+            if saved == .needsSignIn {
+                try? providerStore.recordCheck(accountID, .init(state: .verifiedLocally, checkedAt: Date(),
+                                                                detail: "The provider accepted this account and returned usage."))
+            }
             return usage
         } catch {
+            if let digest, let rejected = error as? ProviderError, rejected.needsSignIn {
+                rejectedCredentials[accountID] = digest
+                try? providerStore.recordCheck(accountID, .init(state: .needsSignIn, checkedAt: Date(),
+                                                                detail: rejected.errorDescription ?? "Sign in again."))
+            }
             eventLog.usageFailed(provider: providerLogID(accountID), account: accountID, error: error, status: probe.status)
             throw error
         }
+    }
+
+    /// Digest of the credential a store account sends now (vault or live files); nil for other accounts.
+    private func storeCredentialDigest(_ accountID: UUID) -> String? {
+        guard (try? providerStore.contains(accountID)) == true,
+              let stored = try? providerStore.credential(for: accountID) else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(stored.credential)).map(CoreSupport.digest)
     }
 
     private func providerLogID(_ accountID: UUID) -> String? {
@@ -1408,7 +1437,7 @@ public actor AccountManager {
     private func checkProviderAccount(_ accountID: UUID) async -> AccountCheckResult {
         let result: VerificationResult
         do {
-            _ = try await readProviderUsage(accountID: accountID)
+            _ = try await readProviderUsage(accountID: accountID, interactive: true)
             result = .init(state: .verifiedLocally, checkedAt: Date(),
                            detail: "The provider accepted this account and returned usage.")
         } catch let error as ProviderError {
