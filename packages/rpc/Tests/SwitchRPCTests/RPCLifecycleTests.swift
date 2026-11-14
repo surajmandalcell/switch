@@ -79,12 +79,23 @@ extension RPCRuntimeTests {
         let sessionID = try XCTUnwrap(login["sessionID"] as? String)
         // The `login` topic lists the open session, and the sign-in script quotes every value.
         try await session.wait { sessions($0)?.map { $0["sessionID"] as? String } == [sessionID] }
+#if os(Windows)
+        let name = "Launch/sign-in.cmd"
+#else
+        let name = "Launch/sign-in.sh"
+#endif
+        // Windows lists the paths with "\".
         let scripts = (FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String] ?? [])
-            .filter { $0.hasSuffix("Launch/sign-in.sh") }
+            .map { $0.replacingOccurrences(of: "\\", with: "/") }.filter { $0.hasSuffix(name) }
         XCTAssertEqual(scripts.count, 1)
-        let script = try String(contentsOf: root.appending(path: scripts[0]), encoding: .utf8)
+        let script = try String(contentsOf: root.appending(path: try XCTUnwrap(scripts.first)), encoding: .utf8)
+#if os(Windows)
+        XCTAssertTrue(script.hasPrefix("@echo off\r\nchcp 65001 >nul\r\nsetlocal DisableDelayedExpansion\r\nset \"FACTORY_API_KEY=\"\r\n"), script)
+        XCTAssertTrue(script.contains("set \"FACTORY_HOME_OVERRIDE="), script)
+#else
         XCTAssertTrue(script.hasPrefix("#!/bin/sh\nset -e\nunset FACTORY_API_KEY "), script)
         XCTAssertTrue(script.contains("export FACTORY_HOME_OVERRIDE='\(root.path)"), script)
+#endif
         XCTAssertFalse(script.contains("PATH="), "only the sign-in variables are exported")
         let cancelled = try await call(session, 4, "login.cancel", #"{"sessionID":"\#(sessionID)"}"#)
         XCTAssertEqual(result(cancelled)?["status"] as? String, "done")
