@@ -132,7 +132,7 @@ extension RPCServer {
 
     /// Two-step confirmation (architecture.md 2.6). A valid `confirm` token grants every kind it carries; a new
     /// confirmation gets a fresh token that carries those kinds plus the new one.
-    private func confirmable(_ method: String, _ frame: Data,
+    func confirmable(_ method: String, _ frame: Data,
                              _ run: (Set<ConfirmationRequest.Kind>) async throws -> ActionResult) async throws -> ActionResult {
         let binding = Self.binding(method, frame)
         let token = (try? params(ConfirmParams.self, method: method, frame: frame))?.confirm

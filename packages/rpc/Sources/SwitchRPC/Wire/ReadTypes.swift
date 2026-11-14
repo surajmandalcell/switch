@@ -164,6 +164,19 @@ struct WireCleanupBatch: Encodable {
         let isDirectory: Bool
         let isRewrite: Bool
         let protectedReason: String?
+
+        init(_ item: CleanupItem) {
+            id = item.id
+            path = item.path
+            companions = item.companions
+            title = item.title
+            project = item.project
+            updatedAt = item.updatedAt
+            bytes = item.bytes
+            isDirectory = item.isDirectory
+            isRewrite = item.isRewrite
+            protectedReason = item.protectedReason
+        }
     }
 
     let id: String
@@ -175,11 +188,51 @@ struct WireCleanupBatch: Encodable {
         id = lower(batch.id)
         createdAt = batch.createdAt
         bytes = batch.bytes
-        items = batch.items.map {
-            Item(id: $0.id, path: $0.path, companions: $0.companions, title: $0.title, project: $0.project,
-                 updatedAt: $0.updatedAt, bytes: $0.bytes, isDirectory: $0.isDirectory, isRewrite: $0.isRewrite,
-                 protectedReason: $0.protectedReason)
+        items = batch.items.map(Item.init)
+    }
+}
+
+/// `cleanup.scan`: the categories of one source, each item with the id `cleanup.review` takes.
+struct WireCleanupScan: Encodable {
+    struct Category: Encodable {
+        let id: String
+        let title: String
+        let detail: String
+        let risk: String
+        let preselected: Bool
+        let byProject: Bool
+        let ageBased: Bool
+        let items: [WireCleanupBatch.Item]
+    }
+
+    let scanID: String
+    let sourceID: String
+    let totalBytes: Int64
+    let untouchedText: String?
+    let categories: [Category]
+
+    init(_ id: UUID, _ scan: CleanupScan) {
+        scanID = lower(id)
+        sourceID = scan.sourceID
+        totalBytes = scan.totalBytes
+        untouchedText = scan.untouchedText
+        categories = scan.categories.map {
+            Category(id: $0.id, title: $0.title, detail: $0.detail, risk: $0.risk.rawValue, preselected: $0.preselected,
+                     byProject: $0.byProject, ageBased: $0.ageBased, items: $0.items.map(WireCleanupBatch.Item.init))
         }
+    }
+}
+
+/// `cleanup.review`: the plan `cleanup.apply` takes.
+struct WireCleanupPlan: Encodable {
+    let planID: String
+    let bytes: Int64
+    let items: [WireCleanupBatch.Item]
+
+    init(_ plan: ConversationCleanupPlan) {
+        planID = lower(plan.id)
+        bytes = plan.bytes
+        items = plan.items.map(WireCleanupBatch.Item.init)
     }
 }
 

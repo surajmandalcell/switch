@@ -11,10 +11,10 @@ public final class RPCServer: @unchecked Sendable {
     public static let settingsSchemaVersion = SettingsRegistry.schemaVersion
     public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail",
                                  "state.subscribe", "state.unsubscribe", "settings.get", "settings.set", "settings.reset"]
-        + readMethods + writeMethods + backupMethods
+        + readMethods + writeMethods + backupMethods + cleanupMethods
     public static let defaultTimeout: TimeInterval = 60
-    /// Methods that may run past `defaultTimeout`, with `$/progress`.
-    static let longMethods: Set<String> = ["backup.run", "backup.restore"]
+    /// Methods that may run past `defaultTimeout`; `$/cancelRequest` stops them.
+    static let longMethods: Set<String> = ["backup.run", "backup.restore", "cleanup.scan"]
     static let maximumFrame = 16 * 1024 * 1024
 
     let manager: AccountManager?
@@ -302,6 +302,7 @@ public final class RPCServer: @unchecked Sendable {
             if let result = try await readMethod(method, frame: frame) { return result }
             if let result = try await writeMethod(method, frame: frame) { return result }
             if let result = try await backupMethod(method, frame: frame) { return result }
+            if let result = try await cleanupMethod(method, frame: frame) { return result }
             guard let extra = extraMethods[method] else {
                 throw RPCError(-32601, "unknownMethod", "Switch has no method '\(method)'.")
             }
