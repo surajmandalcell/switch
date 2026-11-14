@@ -91,6 +91,12 @@ struct AIManagerCLI {
                 else { print("Switch \(AIManagerBuildInfo.version)") }
                 return
             }
+            let log = EventLog.shared(directory: command.paths.applicationSupport.appending(path: "logs", directoryHint: .isDirectory))
+            if command.command == "logs" {
+                print(try logs(command, log: log))
+                return
+            }
+            log.recordStart(event: "cli_start", version: AIManagerBuildInfo.version)
             let manager = try AccountManager(paths: command.paths)
             try await run(command, manager: manager)
         } catch {
@@ -98,6 +104,18 @@ struct AIManagerCLI {
             if case CLIError.exit(let code, _)? = error as? CLIError { exit(code) }
             exit(1)
         }
+    }
+
+    /// `logs [N] [--path]`: the log file's path, or its last N lines (default 50).
+    static func logs(_ input: CommandLineInput, log: EventLog) throws -> String {
+        if input.values.contains("--path") { return log.fileURL.path }
+        let count = input.values.first(where: { !$0.hasPrefix("-") }).map { Int($0) ?? 0 } ?? 50
+        guard count > 0 else {
+            throw CLIError.message("Usage: ai-manager logs [lines] [--path]")
+        }
+        let text = (try? String(contentsOf: log.fileURL, encoding: .utf8)) ?? ""
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).suffix(count)
+        return lines.isEmpty ? "No events yet: \(log.fileURL.path)" : lines.joined(separator: "\n")
     }
 
     static func run(_ input: CommandLineInput, manager: AccountManager) async throws {
@@ -1257,6 +1275,7 @@ struct AIManagerCLI {
 
     Usage:
       ai-manager version [--json]                          Print the CLI version without loading accounts
+      ai-manager logs [lines] [--path]                      Print the event log's last lines (default 50) or its path
       ai-manager providers [--json]
       ai-manager refresh [--yes] [--json]
       ai-manager adopt [--yes] [--json]                     Alias for refresh

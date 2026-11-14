@@ -36,6 +36,8 @@ final class UpdateChecker: ObservableObject {
     state.lastAttempt = now
     Self.store(state)
     let result = await UpdateCheck.fetch(url)
+    let newer = result.info.map { UpdateCheck.isNewer($0, installedVersion: version) } ?? false
+    EventLog.standard.record(.info, area: "update", event: "update_check", message: "counted=\(result.counted) newer=\(newer)")
     guard result.counted else { return }
     UpdateCheck.recordSuccess(&state, now: now, calendar: calendar)
     Self.store(state)
