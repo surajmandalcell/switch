@@ -28,7 +28,15 @@ extension RPCRuntimeTests {
         let doctor = hint.map { #"test "$1" = doctor && printf '%s' '{"results":[{"id":"auth.verify","status":"pass","detail":"authenticated as \#($0) via stored login session"}]}' && exit 0"# + "\n" } ?? ""
         XCTAssertTrue(FileManager.default.createFile(atPath: fake.path, contents: Data("#!/bin/sh\n\(doctor)exit 1\n".utf8),
                                                      attributes: [.posixPermissions: 0o700]))
+#if os(Windows)
+        // Windows runs the sh fake through Git for Windows' bash, the way core's TestCLI does.
+        let launcher = root.appending(path: "fake-droid.cmd")
+        let bash = #"C:\Program Files\Git\bin\bash.exe"#
+        try Data("@\"\(bash)\" \"\(fake.path.replacingOccurrences(of: "\\", with: "/"))\" %*\r\n".utf8).write(to: launcher)
+        paths.droidExecutable = launcher
+#else
         paths.droidExecutable = fake
+#endif
         try CoreSupport.privateDirectory(paths.droidHome, fileManager: .default)
         let login = [Data(count: 16), Data(count: 16), Data("synthetic".utf8)].map { $0.base64EncodedString() }
         try CoreSupport.atomicWrite(Data(login.joined(separator: ":").utf8),
