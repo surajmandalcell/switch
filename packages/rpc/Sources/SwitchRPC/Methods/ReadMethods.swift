@@ -1,13 +1,14 @@
 import Foundation
 import AIManagerCore
+import SwitchAppModel
 
-/// The read-only methods of architecture.md section 2.9 that need only AIManagerCore (no app-engine topics).
+/// The read-only methods of architecture.md section 2.9. `usage.history` and `usage.day` go through the engine.
 extension RPCServer {
     static let readMethods = [
         "providers.list", "accounts.savedAuthPath", "accounts.inspectLinks", "import.discover",
         "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
         "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
-        "usage.projectActivity", "runningCLIs.list",
+        "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day",
     ]
 
     /// Nil when `method` is not a read method.
@@ -78,9 +79,38 @@ extension RPCServer {
         case "runningCLIs.list":
             let claudeConfig = paths.userHome.appending(path: ".claude", directoryHint: .isDirectory)
             return RunningCLIs.find(claudeDefaultConfig: claudeConfig).map(WireRunningCLI.init)
+        case "usage.history":
+            let params = (try? params(UsageHistoryParams.self, method: method, frame: frame)) ?? .init()
+            guard let period = UsagePeriod(rawValue: params.period ?? "week"),
+                  let grouping = UsageGrouping(rawValue: params.grouping ?? "account") else {
+                throw RPCError(-32602, "invalidParams", "period must be week, month, or year; grouping account, model, or project.")
+            }
+            let snapshot = try await engine.usageHistory()
+            return WireUsageHistory(snapshot, summary: snapshot.summary(period: period, grouping: grouping))
+        case "usage.day":
+            let day = try params(DayParams.self, method: method, frame: frame).day
+            let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+            guard parts.map(\.count) == [4, 2, 2], parts.allSatisfy({ $0.allSatisfy(\.isASCII) && Int($0) != nil }) else {
+                throw RPCError(-32602, "invalidParams", "day must be a UTC day such as 2026-11-14.")
+            }
+            let (points, sessions) = try await engine.usageDay(day)
+            return WireUsageDay(day: day, points: points, sessions: sessions.map(WireDaySession.init),
+                                threads: try await linkedThreads(sessions.compactMap(\.threadID)))
         default:
             return nil
         }
+    }
+
+    /// The Conversations threads behind a day's Codex sessions: the newest list first, then a search for older ids.
+    private func linkedThreads(_ ids: [String]) async throws -> [WireThread] {
+        guard !ids.isEmpty else { return [] }
+        let index = chatIndex()
+        var threads: [String: ChatThreadSummary] = [:]
+        for thread in try await index.refresh(query: "").threads { threads[thread.threadID] = thread }
+        for id in ids where threads[id] == nil {
+            if let thread = await index.search(query: id).threads.first(where: { $0.threadID == id }) { threads[id] = thread }
+        }
+        return Set(ids).compactMap { threads[$0] }.sorted { $0.updatedAt > $1.updatedAt }.map(WireThread.init)
     }
 
     // shortcut: a fresh index per call that reloads its cache file, as the CLI does; keep one index for the
@@ -130,3 +160,4 @@ private struct HistoryDetailParams: Decodable {
 private struct SourceParams: Decodable { let sourceID: String }
 private struct SetParams: Decodable { let setID: String }
 private struct DayParams: Decodable { let day: String }
+private struct UsageHistoryParams: Decodable { var period: String? = nil; var grouping: String? = nil }

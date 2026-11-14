@@ -164,6 +164,29 @@ extension RPCRuntimeTests {
         XCTAssertEqual(errorCode(bad), -32602)
     }
 
+    func testUsageHistoryAndDay() async throws {
+        let history = try await object("usage.history", #"{"period":"month","grouping":"model"}"#)
+        let today = try XCTUnwrap(history["today"] as? String)
+        XCTAssertEqual(today.count, 10)
+        XCTAssertNotNil(history["points"] as? [Any])
+        let summary = try XCTUnwrap(history["summary"] as? [String: Any])
+        XCTAssertEqual(summary["period"] as? String, "month")
+        XCTAssertEqual(summary["grouping"] as? String, "model")
+        let weekly = try await object("usage.history")
+        XCTAssertEqual((weekly["summary"] as? [String: Any])?["period"] as? String, "week")
+        let badPeriod = try await call("usage.history", #"{"period":"decade"}"#)
+        XCTAssertEqual(errorCode(badPeriod), -32602)
+
+        let day = try await object("usage.day", #"{"day":"\#(today)"}"#)
+        XCTAssertEqual(day["day"] as? String, today)
+        XCTAssertEqual((day["sessions"] as? [Any])?.count, 0)
+        XCTAssertEqual((day["threads"] as? [Any])?.count, 0)
+        let badDay = try await call("usage.day", #"{"day":"14-11-2026"}"#)
+        XCTAssertEqual(errorCode(badDay), -32602)
+        let noDay = try await call("usage.day")
+        XCTAssertEqual(errorCode(noDay), -32602)
+    }
+
     func testRunningCLIsList() async throws {
         let clis = try await list("runningCLIs.list")
         XCTAssertTrue(clis.allSatisfy { $0["command"] == nil && $0["flags"] == nil })
@@ -185,7 +208,7 @@ extension RPCRuntimeTests {
             "accounts.savedAuthPath": #"{"accountID":"\#(id)"}"#, "accounts.inspectLinks": #"{"accountID":"\#(id)"}"#,
             "history.detail": #"{"id":"\#(thread)"}"#, "history.export": #"{"id":"\#(thread)"}"#,
             "cleanup.trashList": #"{"sourceID":"\#(source)"}"#, "backup.history": #"{"setID":"\#(set.id.uuidString)"}"#,
-            "usage.projectActivity": #"{"day":"2026-11-14"}"#,
+            "usage.projectActivity": #"{"day":"2026-11-14"}"#, "usage.day": #"{"day":"2026-11-14"}"#,
         ]
         let frames = RPCServer.readMethods.enumerated().map { number, method in
             #"{"jsonrpc":"2.0","id":\#(number + 1),"method":"\#(method)""# + (params[method].map { #","params":\#($0)}"# } ?? "}")
