@@ -108,7 +108,7 @@ extension RPCRuntimeTests {
         let folder = root.appending(path: "import-home", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let sources = try await list("import.discover", #"{"folder":"\#(folder.path)"}"#)
-        XCTAssertTrue(sources.allSatisfy { ($0["path"] as? String)?.hasPrefix("/") == true })
+        XCTAssertTrue(sources.allSatisfy { ($0["path"] as? String).map(isAbsolutePath) == true })
     }
 
     func testClaudeShellIntegrationGet() async throws {
