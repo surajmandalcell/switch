@@ -156,6 +156,6 @@ final class ProvidersApisBTests: XCTestCase {
 
     func testCatalogListsAllProviders() {
         XCTAssertEqual(ProviderCatalog.apisB.map(\.id.rawValue),
-                       ["mistral", "groq", "bedrock", "azureopenai", "commandcode", "wayfinder", "ibmbob", "warp", "abliteration", "soniox"])
+                       ["mistral", "groq", "bedrock", "azureopenai", "commandcode", "wayfinder", "ibmbob", "warp", "abliteration", "soniox", "tripo", "siliconflow"])
     }
 }
