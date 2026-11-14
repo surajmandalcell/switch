@@ -6,7 +6,8 @@ import AIManagerCore
 /// plan, so a client sends ids, never file paths; a replaced id is `stale`.
 extension AppEngine {
     /// One scan of a source: file metadata only. Codex also reads its conversation index for titles and dates.
-    public func scanCleanup(sourceID: String) async throws -> (scanID: UUID, scan: CleanupScan) {
+    public func scanCleanup(sourceID: String, progress: (@Sendable (CleanupScanProgress) -> Void)? = nil) async throws
+        -> (scanID: UUID, scan: CleanupScan) {
         let source = try await cleanupSource(sourceID)
         var summaries: [ChatThreadSummary] = []
         if source.tool == .codex {
@@ -15,7 +16,7 @@ extension AppEngine {
             summaries = await index.cleanupSummaries()
         }
         let scan = try await Task.detached(priority: .utility) {
-            try AccountManager.scanCleanup(source, summaries: summaries)
+            try AccountManager.scanCleanup(source, summaries: summaries) { progress?($0) }
         }.value
         let id = UUID()
         cleanupScan = (id, source, Dictionary(scan.categories.flatMap(\.items).map { ($0.id, $0) }) { first, _ in first })

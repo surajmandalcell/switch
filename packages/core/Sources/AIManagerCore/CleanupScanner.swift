@@ -122,6 +122,13 @@ public struct CleanupCategory: Identifiable, Sendable {
     public var protectedItems: [CleanupItem] { items.filter { $0.protectedReason != nil } }
 }
 
+/// What a running cleanup scan found so far.
+public struct CleanupScanProgress: Codable, Equatable, Sendable {
+    public var categories: Int
+    public var items: Int
+    public var bytes: Int64
+}
+
 public struct CleanupScan: Sendable {
     public let sourceID: String
     public let categories: [CleanupCategory]
@@ -225,13 +232,19 @@ struct CleanupScanner {
         #endif
     }
 
-    func scan() throws -> CleanupScan {
+    /// `progress` gets the categories, items, and bytes found so far after each category.
+    func scan(progress: ((CleanupScanProgress) -> Void)? = nil) throws -> CleanupScan {
         var result: [CleanupCategory] = []
+        var found = CleanupScanProgress(categories: 0, items: 0, bytes: 0)
         func add(_ id: String, _ title: String, _ detail: String, risk: CleanupCategory.Risk = .safe,
                  preselected: Bool = false, byProject: Bool = false, ageBased: Bool = true, _ items: [CleanupItem]) {
             guard !items.isEmpty else { return }
             result.append(CleanupCategory(id: id, title: title, detail: detail, risk: risk, preselected: preselected,
                 byProject: byProject, ageBased: ageBased, items: items.sorted { $0.updatedAt > $1.updatedAt }))
+            found.categories += 1
+            found.items += items.count
+            found.bytes += items.reduce(0) { $0 + $1.bytes }
+            progress?(found)
         }
         let logs = "Run logs the tool rewrites. Nothing user-facing is lost."
         let caches = "Downloads and scratch files the tool fetches again."

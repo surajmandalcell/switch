@@ -42,9 +42,12 @@ extension RPCRuntimeTests {
         let target = root.appending(path: "restored")
         try CoreSupport.privateDirectory(target, fileManager: .default)
         let restored = try await call(session, 4, "backup.restore",
-                                      #"{"setID":"\#(id)","snapshotID":"\#(snapshot)","destination":"\#(target.path)"}"#)
+                                      #"{"setID":"\#(id)","snapshotID":"\#(snapshot)","destination":"\#(target.path)","progressToken":7}"#)
         XCTAssertTrue((result(restored)?["notice"] as? String ?? "").hasSuffix(" to restored."), "\(restored)")
         XCTAssertEqual(try String(contentsOf: target.appending(path: "sessions/s1.jsonl"), encoding: .utf8), "synthetic line 1")
+        XCTAssertTrue(session.frames.contains {
+            $0["method"] as? String == "$/progress" && ($0["params"] as? [String: Any])?["token"] as? Int == 7
+        }, "restore sends $/progress")
 
         var codes: [Int?] = []
         for (number, method, params) in [(5, "backup.run", #"{"setIDs":["\#(UUID().uuidString)"]}"#),
