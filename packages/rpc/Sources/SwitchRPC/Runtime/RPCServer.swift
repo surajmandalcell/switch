@@ -11,8 +11,10 @@ public final class RPCServer: @unchecked Sendable {
     public static let settingsSchemaVersion = SettingsRegistry.schemaVersion
     public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail",
                                  "state.subscribe", "state.unsubscribe", "settings.get", "settings.set", "settings.reset"]
-        + readMethods + writeMethods
+        + readMethods + writeMethods + backupMethods
     public static let defaultTimeout: TimeInterval = 60
+    /// Methods that may run past `defaultTimeout`, with `$/progress`.
+    static let longMethods: Set<String> = ["backup.run", "backup.restore"]
     static let maximumFrame = 16 * 1024 * 1024
 
     let manager: AccountManager?
@@ -190,14 +192,15 @@ public final class RPCServer: @unchecked Sendable {
             }
             self.finish(id, request, outcome)
         }
-        let timer = Task {
+        // A long method has no time limit; `$/cancelRequest` stops it.
+        let timer = Self.longMethods.contains(method) ? nil : Task {
             guard (try? await Task.sleep(nanoseconds: UInt64(self.timeout * 1_000_000_000))) != nil else { return }
             self.finish(id, request, .failure(.init(
                 -32007, "failed", "Switch did not finish \(method) within \(Int(self.timeout)) seconds.", retryable: true)))
         }
         lock.lock()
         if let order { tails[order] = work }
-        if pending[id] === request { request.tasks = [work, timer] } else { timer.cancel() }
+        if pending[id] === request { request.tasks = [work] + [timer].compactMap { $0 } } else { timer?.cancel() }
         lock.unlock()
     }
 
@@ -298,6 +301,7 @@ public final class RPCServer: @unchecked Sendable {
         default:
             if let result = try await readMethod(method, frame: frame) { return result }
             if let result = try await writeMethod(method, frame: frame) { return result }
+            if let result = try await backupMethod(method, frame: frame) { return result }
             guard let extra = extraMethods[method] else {
                 throw RPCError(-32601, "unknownMethod", "Switch has no method '\(method)'.")
             }
@@ -375,6 +379,18 @@ public final class RPCServer: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return subscribed.contains(topic)
+    }
+
+    /// `$/progress {token, value}` for a request that sent `progressToken`, at most every 100 ms (architecture.md 2.5).
+    /// Nil when the request sent no token.
+    func progress(_ frame: Data) -> (@Sendable (any Encodable) -> Void)? {
+        guard let token = (try? JSONDecoder().decode(ParamsBox<ProgressTokenParams>.self, from: frame))?.params.progressToken
+        else { return nil }
+        let throttle = ProgressThrottle()
+        return { [weak self] value in
+            guard let self, throttle.due() else { return }
+            self.send(self.notification("$/progress", ProgressParams(token: token, value: AnyEncodable(value: value))))
+        }
     }
 
     private func notification(_ method: String, _ params: some Encodable) -> Data {
@@ -455,6 +471,24 @@ private struct Envelope: Decodable {
 private struct ParamsBox<P: Decodable>: Decodable { let params: P }
 
 private struct CancelParams: Decodable { let id: RPCID }
+private struct ProgressTokenParams: Decodable { let progressToken: RPCID }
+private struct ProgressParams: Encodable {
+    let token: RPCID
+    let value: AnyEncodable
+}
+
+/// The 100 ms throttle of one request's `$/progress`.
+private final class ProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = Date.distantPast
+    func due() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard Date().timeIntervalSince(last) >= 0.1 else { return false }
+        last = Date()
+        return true
+    }
+}
 
 struct RPCError: Error, Encodable {
     struct Detail: Encodable {
@@ -488,6 +522,7 @@ struct RPCError: Error, Encodable {
         case .unavailable: return RPCError(-32002, "unavailable", text)
         case .stale: return RPCError(-32004, "stale", text)
         case .unsupported: return RPCError(-32005, "unsupported", text)
+        case .notFound: return RPCError(-32003, "notFound", text)
         case nil: return RPCError(-32007, "failed", text)
         }
     }
