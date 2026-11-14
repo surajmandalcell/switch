@@ -62,13 +62,21 @@ public struct ManagerPaths: Sendable {
         self.isolationRoot = isolationRoot
     }
 
+    /// `~/Library/Application Support/AI Manager` on macOS; `~/.local/share/switch` on Linux (moved once from
+    /// `AI Manager` by `AppLocations.migrateDataRoot`).
+    #if os(Linux)
+    static let dataFolderName = "switch"
+    #else
+    static let dataFolderName = "AI Manager"
+    #endif
+
     public static func standard(fileManager: FileManager = .default) -> Self {
         let home = fileManager.homeDirectoryForCurrentUser
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let factoryHome = ProcessInfo.processInfo.environment["FACTORY_HOME_OVERRIDE"]
             .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).appending(path: ".factory") }
         return .init(
-            applicationSupport: support.appending(path: "AI Manager", directoryHint: .isDirectory),
+            applicationSupport: support.appending(path: dataFolderName, directoryHint: .isDirectory),
             credentialStore: home.appending(path: ".switch/codex", directoryHint: .isDirectory),
             defaultHome: home.appending(path: ".codex", directoryHint: .isDirectory),
             sharedRoot: home.appending(path: ".codex", directoryHint: .isDirectory),

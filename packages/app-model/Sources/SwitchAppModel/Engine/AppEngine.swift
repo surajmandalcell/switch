@@ -95,8 +95,7 @@ public actor AppEngine {
         self.paths = paths
         self.clock = clock
         self.codexCache = codexCache
-        self.settings = settings ?? JSONFileSettingsStore(url: JSONFileSettingsStore.location(
-            paths: paths, environment: ProcessInfo.processInfo.environment))
+        self.settings = settings ?? JSONFileSettingsStore.open(paths: paths, environment: ProcessInfo.processInfo.environment)
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
         app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path,
                             dataLocations: AppStateValue.dataLocations(paths))
@@ -113,7 +112,7 @@ public actor AppEngine {
         guard !started, !stopped else { return }
         started = true
         if manager == nil { setError(Self.unavailableText) }
-        if let notice = (settings as? JSONFileSettingsStore)?.notice { setNotice(notice) }
+        if let notice = (settings as? JSONFileSettingsStore)?.notice ?? manager?.dataRootNotice { setNotice(notice) }
         await reloadAccounts()
         app.hasLoaded = true
         app.refreshedAt = clock.now
