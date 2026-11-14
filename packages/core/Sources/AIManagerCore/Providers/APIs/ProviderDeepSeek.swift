@@ -172,7 +172,8 @@ enum DeepSeekUsage {
                 guard let time = bucket["time"].int, time >= from, time < to else { continue }
                 let day = dayKey(Date(timeIntervalSince1970: TimeInterval(time)), calendar)
                 for (type, scalar) in bucket["usage"].object {
-                    let value = Int(scalar.double ?? 0)
+                    // Capped so a corrupt bucket can neither trap nor overflow the sums.
+                    let value = min(max(scalar.int ?? 0, 0), 1_000_000_000_000_000)
                     if type.uppercased() == "REQUEST" { dayRequests[day, default: 0] += value }
                     else if categories.contains(type.uppercased()) {
                         dayTokens[day, default: 0] += value
