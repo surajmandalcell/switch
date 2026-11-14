@@ -145,6 +145,87 @@ extension AppEngine {
         }
     }
 
+    // MARK: Checklist changes (BackupChecklist rules, shared with the Mac app and the CLI)
+
+    /// The CLI `backup configure` and the Mac folder pick: every checked tool moves to `destination`, then
+    /// `sourceID` is checked there. Shared values left out keep the checked sets' current ones.
+    public func configureBackup(sourceID: String, destination: URL, schedule: BackupSchedule?, keep: Int?,
+                                includeLogins: Bool?, promptsOnly: Bool?) async throws -> BackupChecklistValue {
+        let source = try await backupSource(sourceID)
+        if let keep, keep <= 0 { throw AIManagerError.invalidSource("Keep at least one snapshot.") }
+        return try await changeSets { sets in
+            var shared = BackupChecklist.derivedShared(sets.filter { !$0.retired }) ?? SharedBackupSettings()
+            shared.schedule = schedule ?? shared.schedule
+            shared.keep = keep ?? shared.keep
+            shared.includeLogins = includeLogins ?? shared.includeLogins
+            shared.promptsOnly = promptsOnly ?? shared.promptsOnly
+            let moved = BackupChecklist.move(sets, to: destination)
+            return BackupChecklist.share(shared, to: BackupChecklist.check(moved, source: source, destination: destination,
+                                                                          shared: shared))
+        }
+    }
+
+    /// The Mac checklist toggle. Checking needs the shared folder (a checked tool's); unchecking retires the set,
+    /// and its snapshots stay in History.
+    public func setBackupChecked(sourceID: String, checked: Bool) async throws -> BackupChecklistValue {
+        let source = try await backupSource(sourceID)
+        return try await changeSets { sets in
+            guard checked else { return BackupChecklist.retire(sets, tool: source.id) }
+            let active = sets.filter { !$0.retired }
+            guard let folder = active.first?.destination else {
+                throw AIManagerError.invalidSource("Choose a backup folder first.")
+            }
+            if active.contains(where: { $0.source.id == source.id }) { return sets }
+            return BackupChecklist.check(sets, source: source, destination: folder,
+                                         shared: BackupChecklist.derivedShared(active) ?? SharedBackupSettings())
+        }
+    }
+
+    /// The CLI `backup retire`: stops backups for a tool. Existing snapshots stay available.
+    public func retireBackup(tool: String) async throws -> BackupChecklistValue {
+        try await changeSets { sets in
+            guard sets.contains(where: { $0.toolKey == tool && !$0.retired }) else {
+                throw AppEngineError.notFound("No checked tool has that ID.")
+            }
+            return BackupChecklist.retire(sets, tool: tool)
+        }
+    }
+
+    /// The Mac shared settings: one change for every checked tool at once.
+    public func setBackupShared(schedule: BackupSchedule?, keep: Int?, includeLogins: Bool?, promptsOnly: Bool?)
+        async throws -> BackupChecklistValue {
+        if let keep, keep <= 0 { throw AIManagerError.invalidSource("Keep at least one snapshot.") }
+        return try await changeSets { sets in
+            guard var shared = BackupChecklist.derivedShared(sets.filter { !$0.retired }) else {
+                throw AIManagerError.invalidSource("Check a tool on the Backup checklist first.")
+            }
+            shared.schedule = schedule ?? shared.schedule
+            shared.keep = keep ?? shared.keep
+            shared.includeLogins = includeLogins ?? shared.includeLogins
+            shared.promptsOnly = promptsOnly ?? shared.promptsOnly
+            return BackupChecklist.share(shared, to: sets)
+        }
+    }
+
+    /// Saves the sets `change` returns (fail closed: nothing changes when the save fails) and returns the checklist.
+    private func changeSets(_ change: ([BackupSet]) throws -> [BackupSet]) async throws -> BackupChecklistValue {
+        let backups = BackupEngine(applicationSupport: paths.applicationSupport)
+        do {
+            try await backups.saveSets(try change(try await backups.sets()))
+        } catch {
+            setError(describe(error))
+            throw error
+        }
+        return try await backupChecklist()
+    }
+
+    private func backupSource(_ id: String) async throws -> CleanupSource {
+        guard let source = try await checklistSources().first(where: { $0.id == id }) else {
+            throw AppEngineError.notFound("No backup source has that ID.")
+        }
+        return source
+    }
+
     /// The tools on the Backup checklist, each once (a Claude Code profile is part of the Claude Code row).
     private func checklistSources() async throws -> [CleanupSource] {
         if status == nil { await reloadAccounts() }

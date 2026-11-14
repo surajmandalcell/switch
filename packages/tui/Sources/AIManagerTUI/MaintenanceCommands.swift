@@ -262,7 +262,7 @@ enum MaintenanceCommands {
             await report(sets, input: input, lines: setLines(sets))
         case "configure":
             let source = try await Self.source(arguments.dropFirst().first, input: input, manager: manager)
-            guard let service = source.backupService else { throw CLIError.message("This source does not support backups.") }
+            guard source.backupService != nil else { throw CLIError.message("This source does not support backups.") }
             guard let path = input.option("--destination"), !path.isEmpty else {
                 throw CLIError.message("Enter --destination with an existing backup folder.")
             }
@@ -273,25 +273,14 @@ enum MaintenanceCommands {
             }
             let keepValue = input.option("--keep") ?? String(sets.first(where: { !$0.retired })?.keep ?? 10)
             guard let keep = Int(keepValue), keep > 0 else { throw CLIError.message("Retention must be a positive integer.") }
-            let contents = BackupChecklist.contents(for: source)
             let active = sets.filter { !$0.retired }
             let includeLogins = input.values.contains("--include-logins") ? true
                 : input.values.contains("--exclude-logins") ? false : !active.isEmpty && active.allSatisfy(\.includeLogins)
             let promptsOnly = input.values.contains("--prompts-only") ? true
                 : input.values.contains("--full-content") ? false : !active.isEmpty && active.allSatisfy(\.promptsOnly)
+            let shared = SharedBackupSettings(schedule: schedule, keep: keep, includeLogins: includeLogins, promptsOnly: promptsOnly)
             sets = BackupChecklist.move(sets, to: destination)
-            let existing = sets.firstIndex { !$0.retired && $0.source.id == source.id }
-                ?? sets.firstIndex { $0.retired && $0.source.id == source.id && BackupChecklist.sameFolder($0.destination, destination) }
-            let set = BackupSet(id: existing.map { sets[$0].id } ?? UUID(), name: existing.map { sets[$0].name } ?? source.title,
-                source: BackupSource(id: source.id, service: service, home: source.home),
-                items: contents.items, destination: destination,
-                includeLogins: includeLogins, schedule: schedule, keep: keep,
-                profiles: contents.profiles, promptsOnly: promptsOnly)
-            if let existing { sets[existing] = set } else { sets.append(set) }
-            for index in sets.indices where !sets[index].retired {
-                sets[index].schedule = schedule; sets[index].keep = keep
-                sets[index].includeLogins = set.includeLogins; sets[index].promptsOnly = set.promptsOnly
-            }
+            sets = BackupChecklist.share(shared, to: BackupChecklist.check(sets, source: source, destination: destination, shared: shared))
             try AIManagerCLI.confirm(input, "Save the backup checklist and shared folder, schedule, and retention? Existing snapshots stay available.")
             try await engine.saveSets(sets)
             await report(sets, input: input, lines: setLines(sets))

@@ -31,15 +31,6 @@ struct BackupHistoryRow: Identifiable {
   var id: String { self.set.id.uuidString + snapshot.id }
 }
 
-/// The schedule, snapshot count, and login choice that every checked tool shares.
-struct SharedBackupSettings: Codable, Equatable {
-  var schedule: BackupSchedule = .off
-  var keep = 10
-  var includeLogins = false
-  var promptsOnly: Bool? = nil
-  static let key = "backupShared"
-}
-
 /// Maintenance's state: the sources, the chosen source, backup sets, snapshots, the schedule, and
 /// the running backup. File work runs in `BackupEngine` off the main actor.
 @MainActor
@@ -253,21 +244,10 @@ final class MaintenanceStore: ObservableObject {
     UserDefaults.standard.set(try? JSONEncoder().encode(next), forKey: SharedBackupSettings.key)
   }
 
-  /// The shared values of the checked sets: schedule and count of the first, login files On only if every set has them.
-  static func derivedShared(_ checked: [BackupSet]) -> SharedBackupSettings? {
-    guard let first = checked.first else { return nil }
-    return SharedBackupSettings(schedule: first.schedule, keep: first.keep, includeLogins: checked.allSatisfy(\.includeLogins),
-      promptsOnly: checked.allSatisfy(\.promptsOnly))
-  }
+  static func derivedShared(_ checked: [BackupSet]) -> SharedBackupSettings? { BackupChecklist.derivedShared(checked) }
 
   static func applying(_ settings: SharedBackupSettings, to sets: [BackupSet]) -> [BackupSet] {
-    sets.map { set in
-      guard !set.retired else { return set }
-      var copy = set
-      copy.schedule = settings.schedule; copy.keep = settings.keep; copy.includeLogins = settings.includeLogins
-      copy.promptsOnly = settings.promptsOnly == true
-      return copy
-    }
+    BackupChecklist.share(settings, to: sets)
   }
 
   /// Claude Code's set follows its accounts: a new Claude Code profile joins it, a removed one leaves it.
@@ -291,34 +271,9 @@ final class MaintenanceStore: ObservableObject {
   /// A set that was unchecked in the same folder comes back instead, so its snapshots stay in one history.
   @discardableResult
   func createSet(for source: CleanupSource, destination: URL) async -> BackupSet? {
-    guard let service = source.backupService else { return nil }
-    let contents = BackupChecklist.contents(for: source)
-    var next = sets
-    if let back = next.firstIndex(where: {
-      $0.retired && $0.source.id == source.id && BackupChecklist.sameFolder($0.destination, destination)
-    }) {
-      next[back].retired = false
-      next[back].items = contents.items
-      next[back].profiles = contents.profiles
-      next[back].source.home = source.home
-    } else {
-      next.append(BackupSet(
-        name: Self.setName(source), source: BackupSource(id: source.id, service: service, home: source.home),
-        items: contents.items, destination: destination, includeLogins: shared.includeLogins,
-        schedule: shared.schedule, keep: shared.keep, profiles: contents.profiles))
-    }
-    if let index = next.firstIndex(where: { $0.source.id == source.id && !$0.retired }) {
-      next[index].schedule = shared.schedule
-      next[index].keep = shared.keep
-      next[index].includeLogins = shared.includeLogins
-      next[index].promptsOnly = shared.promptsOnly == true
-    }
-    await save(next)
+    guard source.backupService != nil else { return nil }
+    await save(BackupChecklist.check(sets, source: source, destination: destination, shared: shared))
     return set(for: source)
-  }
-
-  static func setName(_ source: CleanupSource) -> String {
-    source.accountID == nil ? source.title : "\(source.title) \(source.accountID!.uuidString.prefix(8))"
   }
 
   func update(_ set: BackupSet) async {
