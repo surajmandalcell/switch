@@ -2,7 +2,12 @@ import Foundation
 
 /// State topics (architecture.md 2.7). Each holds one whole value; a change replaces it and bumps `rev` by one.
 public enum Topic: String, CaseIterable, Sendable {
-    case app, notices, accounts, settings, tray
+    case app, notices, accounts, settings, tray, login
+}
+
+/// `login`: the open sign-in sessions, oldest first. A session leaves once it saved an account or was cancelled.
+public struct LoginValue: Codable, Equatable, Sendable {
+    public var sessions: [LoginStatus] = []
 }
 
 public typealias TopicValue = Encodable & Sendable

@@ -63,6 +63,12 @@ extension RPCRuntimeTests {
         let saved = try await manager.status().accounts.first?.identity.accountID
         XCTAssertEqual(saved, "Work")
 
+        func sessions(_ frames: [[String: Any]]) -> [[String: Any]]? {
+            (changes(frames, "login").last?["value"] as? [String: Any])?["sessions"] as? [[String: Any]]
+        }
+        session.send(#"{"jsonrpc":"2.0","id":20,"method":"state.subscribe","params":{"topics":["login"]}}"#)
+        try await session.wait { $0.contains { $0["id"] as? Int == 20 } }
+
         // Signing in to a saved Droid account asks first; in a test home no terminal opens.
         let asked = try await call(session, 2, "login.start", #"{"accountID":"\#(id)"}"#)
         XCTAssertEqual((result(asked)?["confirmation"] as? [String: Any])?["kind"] as? String, "droidSignIn")
@@ -71,8 +77,18 @@ extension RPCRuntimeTests {
         XCTAssertEqual(login["state"] as? String, "waitingForLogin")
         XCTAssertEqual(login["message"] as? String, "Sign-in file prepared for isolated validation. Terminal was not opened.")
         let sessionID = try XCTUnwrap(login["sessionID"] as? String)
+        // The `login` topic lists the open session, and the sign-in script quotes every value.
+        try await session.wait { sessions($0)?.map { $0["sessionID"] as? String } == [sessionID] }
+        let scripts = (FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String] ?? [])
+            .filter { $0.hasSuffix("Launch/sign-in.sh") }
+        XCTAssertEqual(scripts.count, 1)
+        let script = try String(contentsOf: root.appending(path: scripts[0]), encoding: .utf8)
+        XCTAssertTrue(script.hasPrefix("#!/bin/sh\nset -e\nunset FACTORY_API_KEY "), script)
+        XCTAssertTrue(script.contains("export FACTORY_HOME_OVERRIDE='\(root.path)"), script)
+        XCTAssertFalse(script.contains("PATH="), "only the sign-in variables are exported")
         let cancelled = try await call(session, 4, "login.cancel", #"{"sessionID":"\#(sessionID)"}"#)
         XCTAssertEqual(result(cancelled)?["status"] as? String, "done")
+        try await session.wait { sessions($0)?.isEmpty == true }
         let unknown = try await call(session, 5, "login.check", #"{"sessionID":"\#(UUID().uuidString)"}"#)
         XCTAssertEqual(errorCode(unknown), -32007)
         let bad = try await call(session, 6, "login.cancel", #"{"sessionID":"nope"}"#)

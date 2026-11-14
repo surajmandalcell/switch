@@ -76,6 +76,8 @@ public actor AppEngine {
     let settings: any SettingsStore
     // Account lifecycle (Lifecycle.swift): the one import plan under review.
     var importPlan: ImportPlan?
+    // The open sign-in sessions (`login` topic).
+    var logins: [LoginStatus] = []
     // Cleanup (Cleanup.swift): the last scan's items by id, and the reviewed plan.
     var cleanupScan: (id: UUID, source: CleanupSource, items: [String: CleanupItem])?
     var cleanupPlan: (source: CleanupSource, plan: ConversationCleanupPlan)?
@@ -102,6 +104,7 @@ public actor AppEngine {
         slots[.accounts] = Self.slot(AccountsValue())
         slots[.settings] = Self.slot(Self.settingsValue(self.settings))
         slots[.tray] = Self.slot(TrayValue())
+        slots[.login] = Self.slot(LoginValue())
     }
 
     /// Loads the accounts and starts the usage timers once, after the client's `initialized`.
