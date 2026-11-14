@@ -29,6 +29,12 @@ extension ProviderCatalog {
             if china, let balance = try? await HTTP.json("https://www.bigmodel.cn/api/biz/account/query-customer-account-report", headers: headers) {
                 ZaiUsage.addBalance(balance, to: &usage)
             }
+            // Banked Session and Weekly resets of a personal global plan; optional like the rest.
+            if !china, query.isEmpty,
+               let list = try? await HTTP.json("https://api.z.ai/api/biz/customer-package-reset/list?targetType=PERSONAL", headers: headers),
+               let section = ZaiUsage.resets(list) {
+                usage.sections.append(section)
+            }
             // Optional token analytics per model (hourly for today, daily for 30 days); a failure hides them.
             let team = query.isEmpty ? "" : "&type=3"
             for (days, title) in [(1, "Hourly tokens"), (30, "Daily tokens")] {
@@ -60,6 +66,10 @@ enum ZaiUsage {
 
     static func map(_ json: JSON, now: Date = Date()) throws -> ProviderUsage {
         guard json["success"].bool == true, json["code"].int == 200 else {
+            // z.ai answers a revoked key with HTTP 200 and `code` 401 in the body (openusage a67a7835).
+            if json["code"].int == 401 {
+                throw ProviderError.unauthorized("The provider rejected this credential. Sign in again or replace it.")
+            }
             if (json["msg"].string ?? "").lowercased().contains("coding plan") {
                 UsageLogContext.current.map { $0.log.record(.warn, area: "usage", event: "zai_no_active_plan", provider: "zai", account: $0.account,
                     message: "code=\(json["code"].int.map(String.init) ?? "-") msg=\(json["msg"].string ?? "")", dedupe: true) }
@@ -170,6 +180,34 @@ enum ZaiUsage {
     private static func amount(_ limit: Limit, unit: String) -> String? {
         guard let usage = limit.usage, usage > 0, let used = limit.current else { return nil }
         return "\(Fmt.number(used)) / \(Fmt.number(usage)) \(unit)"
+    }
+
+    /// Available, unexpired banked resets per window from `/api/biz/customer-package-reset/list`
+    /// (openusage d4fcdeee), with the earliest expiry. Nil when there are none or the list failed.
+    static func resets(_ json: JSON, now: Date = Date()) -> UsageSection? {
+        guard json["success"].bool == true else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d, HH:mm"
+        let rows = [("Session", "fiveHourResets"), ("Weekly", "weekResets")].compactMap { title, key -> UsageRow? in
+            let expiries = json.at("data.\(key)").array
+                .filter { $0["available"].bool == true }
+                .compactMap { $0["expireTime"].string.flatMap(resetExpiry) }
+                .filter { $0 > now }.sorted()
+            guard let next = expiries.first else { return nil }
+            return UsageRow(title, "\(expiries.count) available, next expires \(formatter.string(from: next))")
+        }
+        return rows.isEmpty ? nil : UsageSection("Limit resets", rows)
+    }
+
+    /// z.ai writes reset expiries as `yyyy-MM-dd HH:mm:ss` wall-clock time in UTC+8.
+    static func resetExpiry(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        guard let date = formatter.date(from: text), formatter.string(from: date) == text else { return nil }
+        return date
     }
 
     /// China pay-as-you-go balance in yuan.
