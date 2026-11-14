@@ -1,5 +1,6 @@
 import Foundation
 import AIManagerCore
+import SwitchAppModel
 import SwitchRPC
 
 #if canImport(Darwin)
@@ -10,19 +11,27 @@ import CRT
 import Glibc
 #endif
 
-/// `switch-core serve`: the helper the Linux and Windows apps start. It exits 0 when stdin closes.
+/// `switch-core serve [--root <path>]`: the helper the Linux and Windows apps start. It exits 0 when stdin closes.
+/// `--root` means the same as `AI_MANAGER_ROOT`: every data folder and home lives under that path.
 @main
 struct SwitchCore {
     static func main() async {
-        guard CommandLine.arguments.dropFirst().elementsEqual(["serve"]) else {
-            RPCServer.standardError("Usage: switch-core serve")
+        var environment = ProcessInfo.processInfo.environment
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        switch arguments.count {
+        case 1 where arguments[0] == "serve":
+            break
+        case 3 where arguments[0] == "serve" && arguments[1] == "--root" && !arguments[2].isEmpty:
+            environment["AI_MANAGER_ROOT"] = arguments[2]
+        default:
+            RPCServer.standardError("Usage: switch-core serve [--root <path>]")
             exit(2)
         }
         let output = protocolOutput()
-        let paths = ManagerPaths.environment()
+        let paths = ManagerPaths.environment(environment)
         let manager: AccountManager?
         do {
-            manager = try AccountManager(paths: paths)
+            manager = try AppEngine.makeManager(paths: paths)
         } catch {
             RPCServer.standardError("switch-core: the data folder is unavailable: \(error.localizedDescription)")
             manager = nil
