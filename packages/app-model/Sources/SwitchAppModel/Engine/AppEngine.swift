@@ -73,6 +73,9 @@ public actor AppEngine {
     let settings: any SettingsStore
     // Account lifecycle (Lifecycle.swift): the one import plan under review.
     var importPlan: ImportPlan?
+    // Cleanup (Cleanup.swift): the last scan's items by id, and the reviewed plan.
+    var cleanupScan: (id: UUID, source: CleanupSource, items: [String: CleanupItem])?
+    var cleanupPlan: (source: CleanupSource, plan: ConversationCleanupPlan)?
 
     /// `manager` is nil when the private data folder cannot open; `app.isUnavailable` is then true.
     /// `codexCache` is the Codex usage SQLite cache the helper shares with its read methods. Without `settings`
