@@ -550,7 +550,8 @@ public enum HTTP {
         }
     }
 
-    /// Sends one request and requires 2xx. Maps 401/403 to `unauthorized` and 429 to `rateLimited`.
+    /// Sends one request and requires 2xx. Maps 401/403 to `unauthorized`, and 429 or a 403 with a
+    /// rate-limit header to `rateLimited`.
     public static func json(_ url: String, method: String = "GET", headers: [String: String] = [:],
                             body: Data? = nil) async throws -> JSON {
         let response = try await send(url, method: method, headers: headers, body: body)
@@ -567,15 +568,35 @@ public enum HTTP {
     public static func check(_ response: HTTPResponse) throws {
         switch response.status {
         case 200..<300: return
+        case 403 where isRateLimited(response.headers), 429:
+            let wait = retryDelay(response.headers).map { max(1, Int((min($0, 86_400) / 60).rounded(.up))) }
+            throw ProviderError.rateLimited("The provider is rate limiting usage checks. "
+                + (wait.map { "Try again in about \($0) minute\($0 == 1 ? "" : "s")." } ?? "Switch will retry later."))
         case 401, 403:
             throw ProviderError.unauthorized("The provider rejected this credential. Sign in again or replace it.")
-        case 429:
-            throw ProviderError.rateLimited("The provider is rate limiting usage checks. Switch will retry later.")
         case 500...:
             throw ProviderError.unavailable("The provider is unavailable (HTTP \(response.status)).")
         default:
             throw ProviderError.http(response.status, "")
         }
+    }
+
+    /// A 403 is a rate limit, not a rejected key, when it says when to retry or that nothing remains.
+    static func isRateLimited(_ headers: [String: String]) -> Bool {
+        headers["retry-after"] != nil
+            || ["x-ratelimit-remaining", "x-ratelimit-remaining-requests", "x-ratelimit-remaining-tokens", "ratelimit-remaining"]
+                .contains { headers[$0]?.trimmingCharacters(in: .whitespaces) == "0" }
+    }
+
+    /// Seconds until `Retry-After` (delay seconds or an HTTP date) allows another request.
+    static func retryDelay(_ headers: [String: String], now: Date = Date()) -> TimeInterval? {
+        guard let value = headers["retry-after"]?.trimmingCharacters(in: .whitespaces) else { return nil }
+        if let seconds = Int(value) { return seconds >= 0 ? TimeInterval(seconds) : nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: value).map { max(0, $0.timeIntervalSince(now)) }
     }
 
     /// Loopback, RFC 1918 and `.local` hosts, where self-hosted gateways may use plain HTTP.
@@ -654,7 +675,7 @@ public struct JSON: @unchecked Sendable {
         default: nil
         }
     }
-    public var int: Int? { double.flatMap { $0.isFinite ? Int($0) : nil } }
+    public var int: Int? { double.flatMap(Fmt.int) }
     public var bool: Bool? {
         switch raw {
         case let value as Bool: value
@@ -672,6 +693,11 @@ public struct JSON: @unchecked Sendable {
 // MARK: - Formatting and parsing helpers
 
 public enum Fmt {
+    /// `Int(value)` without its trap: nil for NaN, infinity and anything outside Int's range.
+    public static func int(_ value: Double) -> Int? {
+        value.isFinite && value >= -9_223_372_036_854_775_808.0 && value < 9_223_372_036_854_775_808.0 ? Int(value) : nil
+    }
+
     public static func number(_ value: Double, digits: Int = 0) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
