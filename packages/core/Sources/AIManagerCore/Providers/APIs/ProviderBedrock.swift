@@ -23,32 +23,7 @@ extension ProviderCatalog {
             let secret = try credential.require("secretAccessKey")
             let token = credential["sessionToken"]
             let now = Date()
-            let (start, end) = BedrockUsage.monthToDate(now)
-            var pages: [JSON] = []
-            var next: String?
-            repeat {
-                var body: [String: Any] = [
-                    "TimePeriod": ["Start": start, "End": end], "Granularity": "DAILY",
-                    "Metrics": ["UnblendedCost"], "GroupBy": [["Type": "DIMENSION", "Key": "SERVICE"]],
-                ]
-                if let next { body["NextPageToken"] = next }
-                let data = try JSONSerialization.data(withJSONObject: body)
-                let headers = BedrockSigV4.sign(
-                    method: "POST", host: "ce.us-east-1.amazonaws.com", path: "/", query: "",
-                    headers: ["content-type": "application/x-amz-json-1.1",
-                              "x-amz-target": "AWSInsightsIndexService.GetCostAndUsage"],
-                    body: data, accessKeyID: keyID, secretKey: secret, sessionToken: token,
-                    region: "us-east-1", service: "ce", date: now)
-                let response = try await HTTP.send("https://ce.us-east-1.amazonaws.com/", method: "POST",
-                                                   headers: headers, body: data)
-                if response.status == 400, response.text.contains("DataUnavailableException") {
-                    throw ProviderError.unavailable("AWS Cost Explorer data is not available yet. Try again later.")
-                }
-                try HTTP.check(response)
-                let page = try response.json()
-                pages.append(page)
-                next = page["NextPageToken"].string
-            } while next != nil && pages.count < 10
+            let pages = try await BedrockUsage.costPages(keyID: keyID, secret: secret, token: token, now: now)
             // CloudWatch is optional: a missing permission or region keeps the Cost Explorer numbers.
             var activity: BedrockActivity?
             do {
@@ -68,9 +43,75 @@ struct BedrockActivity: Equatable {
     let requests: Int
 }
 
+/// Cost Explorer bills every request, so the month-to-date pages are reused for 6 hours.
+/// Memory only. Keyed by a hash of the credentials and the date range, so a changed key, secret, token or day
+/// misses; the credentials themselves are never kept.
+final class BedrockCostCache: @unchecked Sendable {
+    static let shared = BedrockCostCache()
+    static let ttl: TimeInterval = 6 * 3600
+    private static let capacity = 4
+    private let lock = NSLock()
+    private var entries: [String: (pages: [JSON], storedAt: Date)] = [:]
+
+    static func fingerprint(_ parts: [String]) -> String {
+        SHA256.hash(data: Data(parts.joined(separator: "\u{0}").utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func pages(_ key: String, now: Date) -> [JSON]? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = entries[key], entry.storedAt <= now, now.timeIntervalSince(entry.storedAt) < Self.ttl else { return nil }
+        return entry.pages
+    }
+
+    func store(_ pages: [JSON], key: String, now: Date) {
+        lock.lock(); defer { lock.unlock() }
+        entries[key] = (pages, now)
+        while entries.count > Self.capacity, let oldest = entries.min(by: { $0.value.storedAt < $1.value.storedAt }) {
+            entries[oldest.key] = nil
+        }
+    }
+}
+
 enum BedrockUsage {
     /// Rolling window of the CloudWatch Claude totals.
     static let lookbackDays = 14
+
+    typealias Send = @Sendable (String, [String: String], Data) async throws -> HTTPResponse
+    static let liveSend: Send = { try await HTTP.send($0, method: "POST", headers: $1, body: $2) }
+
+    /// Month-to-date Cost Explorer pages (up to 10 requests), served from `cache` inside its 6 hour window.
+    static func costPages(keyID: String, secret: String, token: String?, now: Date, send: Send = liveSend,
+                          cache: BedrockCostCache = .shared) async throws -> [JSON] {
+        let (start, end) = monthToDate(now)
+        let key = BedrockCostCache.fingerprint([keyID, secret, token ?? "", start, end])
+        if let cached = cache.pages(key, now: now) { return cached }
+        var pages: [JSON] = []
+        var next: String?
+        repeat {
+            var body: [String: Any] = [
+                "TimePeriod": ["Start": start, "End": end], "Granularity": "DAILY",
+                "Metrics": ["UnblendedCost"], "GroupBy": [["Type": "DIMENSION", "Key": "SERVICE"]],
+            ]
+            if let next { body["NextPageToken"] = next }
+            let data = try JSONSerialization.data(withJSONObject: body)
+            let headers = BedrockSigV4.sign(
+                method: "POST", host: "ce.us-east-1.amazonaws.com", path: "/", query: "",
+                headers: ["content-type": "application/x-amz-json-1.1",
+                          "x-amz-target": "AWSInsightsIndexService.GetCostAndUsage"],
+                body: data, accessKeyID: keyID, secretKey: secret, sessionToken: token,
+                region: "us-east-1", service: "ce", date: now)
+            let response = try await send("https://ce.us-east-1.amazonaws.com/", headers, data)
+            if response.status == 400, response.text.contains("DataUnavailableException") {
+                throw ProviderError.unavailable("AWS Cost Explorer data is not available yet. Try again later.")
+            }
+            try HTTP.check(response)
+            let page = try response.json()
+            pages.append(page)
+            next = page["NextPageToken"].string
+        } while next != nil && pages.count < 10
+        cache.store(pages, key: key, now: now)
+        return pages
+    }
 
     /// CloudWatch endpoint host for a region; nil when the region name is malformed.
     static func monitoringHost(_ region: String) -> String? {
