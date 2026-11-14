@@ -47,6 +47,8 @@ public final class RPCServer: @unchecked Sendable {
     }
 
     private var pending: [RPCID: Pending] = [:]
+    /// The last started request of each order key (`orderKey`), under `lock`.
+    private var tails: [String: Task<Void, Never>] = [:]
     private let unanswered = DispatchGroup()
     private let writeLock = NSLock()
     private var write: @Sendable (Data) -> Void = { _ in }
@@ -171,8 +173,13 @@ public final class RPCServer: @unchecked Sendable {
         }
         pending[id] = request
         unanswered.enter()
+        let order = Self.orderKey(method)
+        let previous = order.flatMap { tails[$0] }
         lock.unlock()
         let work = Task {
+            // Same-state requests take effect in arrival order: wait for the one before, even if it was cancelled.
+            await previous?.value
+            guard !Task.isCancelled else { return }
             let outcome: Result<any Encodable, RPCError>
             do {
                 outcome = .success(try await self.call(method, frame: frame))
@@ -189,8 +196,20 @@ public final class RPCServer: @unchecked Sendable {
                 -32007, "failed", "Switch did not finish \(method) within \(Int(self.timeout)) seconds.", retryable: true)))
         }
         lock.lock()
+        if let order { tails[order] = work }
         if pending[id] === request { request.tasks = [work, timer] } else { timer.cancel() }
         lock.unlock()
+    }
+
+    /// Requests with the same key run one at a time in arrival order, so a client reads its own earlier write.
+    /// Nil: the request runs at once beside the others (slow reads such as `usage.detail` and `usage.history`).
+    static func orderKey(_ method: String) -> String? {
+        if method.hasPrefix("settings.") { return "settings" }
+        if method.hasPrefix("backup.") { return "backups" }
+        if method.hasPrefix("cleanup.") { return "cleanup" }
+        let accounts = ["accounts.", "providers.", "login.", "import.", "droid.", "autoSwitch."]
+        if accounts.contains(where: method.hasPrefix) || method == "usage.refresh" { return "accounts" }
+        return nil
     }
 
     /// `$/cancelRequest`: the request gets -32800 now; its work is cancelled and any later result is dropped.
