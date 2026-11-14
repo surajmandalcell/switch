@@ -76,8 +76,18 @@ var targets: [Target] = [
         path: "packages/core/Tests/AIManagerCoreTests"
     ),
     .target(
-        name: "SwitchRPC",
+        name: "SwitchAppModel",
         dependencies: ["AIManagerCore"],
+        path: "packages/app-model/Sources/SwitchAppModel"
+    ),
+    .testTarget(
+        name: "SwitchAppModelTests",
+        dependencies: ["SwitchAppModel", "AIManagerCore"],
+        path: "packages/app-model/Tests/SwitchAppModelTests"
+    ),
+    .target(
+        name: "SwitchRPC",
+        dependencies: ["SwitchAppModel", "AIManagerCore"],
         path: "packages/rpc/Sources/SwitchRPC"
     ),
     .executableTarget(
@@ -87,7 +97,7 @@ var targets: [Target] = [
     ),
     .testTarget(
         name: "SwitchRPCTests",
-        dependencies: ["SwitchRPC", "AIManagerCore"],
+        dependencies: ["SwitchRPC", "SwitchAppModel", "AIManagerCore"],
         path: "packages/rpc/Tests/SwitchRPCTests"
     ),
     sqliteTarget,

@@ -1,18 +1,25 @@
 import Foundation
 import AIManagerCore
+import SwitchAppModel
 
 /// `switch-core serve`: JSON-RPC 2.0 over stdio, one object per line (specs/port/architecture.md section 2).
 /// Requests run concurrently; each reply carries its request's id. Replies and errors carry no token, key, cookie,
 /// or password; the log line holds method, id, time, and outcome only.
 public final class RPCServer: @unchecked Sendable {
     public static let protocolVersion = 1
-    public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail"]
+    /// Bumped when a settings key changes type or meaning; the client then rereads its settings cache.
+    public static let settingsSchemaVersion = 1
+    public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail",
+                                 "state.subscribe", "state.unsubscribe"]
         + readMethods
     public static let defaultTimeout: TimeInterval = 60
     static let maximumFrame = 16 * 1024 * 1024
 
     let manager: AccountManager?
     let paths: ManagerPaths
+    let engine: AppEngine
+    /// Topics this client subscribed to; only their changes are sent.
+    private var subscribed: Set<Topic> = []
     private let version: String
     private let log: (String) -> Void
     private let timeout: TimeInterval
@@ -43,7 +50,7 @@ public final class RPCServer: @unchecked Sendable {
 
     /// `manager` is nil when the private data folder cannot open; core methods then answer `unavailable`.
     public init(manager: AccountManager?, paths: ManagerPaths, version: String,
-                timeout: TimeInterval = RPCServer.defaultTimeout,
+                timeout: TimeInterval = RPCServer.defaultTimeout, clock: any AppClock = SystemClock(),
                 log: @escaping (String) -> Void = RPCServer.standardError) {
         self.manager = manager
         self.paths = paths
@@ -53,6 +60,7 @@ public final class RPCServer: @unchecked Sendable {
         codexCache = try? CodexUsageStatisticsCache(
             databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
             activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
+        engine = AppEngine(manager: manager, paths: paths, clock: clock)
     }
 
     public static func standardError(_ text: String) {
@@ -63,6 +71,13 @@ public final class RPCServer: @unchecked Sendable {
     /// A bad frame gets an error reply and reading goes on.
     public func serve(input: FileHandle, write: @escaping @Sendable (Data) -> Void) async {
         self.write = write
+        let notifier = Task {
+            for await change in engine.changes where isSubscribed(change.topic) {
+                send(notification("state.changed", WireTopicChange(
+                    topic: change.topic.rawValue, rev: change.rev, value: AnyEncodable(value: change.value))))
+            }
+        }
+        defer { notifier.cancel() }
         reading: for await frame in Self.frames(input) {
             switch frame {
             case .tooLarge:
@@ -72,6 +87,7 @@ public final class RPCServer: @unchecked Sendable {
             }
         }
         await allAnswered()
+        await engine.stop()
     }
 
     // MARK: - Framing
@@ -125,10 +141,12 @@ public final class RPCServer: @unchecked Sendable {
             if method == "$/cancelRequest", let target = try? JSONDecoder().decode(ParamsBox<CancelParams>.self, from: line) {
                 cancel(target.params.id)
             }
+            if method == "initialized" { await engine.start() }
             return false
         }
         if method == "shutdown" {
             await allAnswered()
+            await engine.stop()
             log("rpc shutdown id=\(id) 0ms ok")
             send(reply(id, .success(String?.none)))
             return true
@@ -216,9 +234,24 @@ public final class RPCServer: @unchecked Sendable {
     private func call(_ method: String, frame: Data) async throws -> any Encodable {
         switch method {
         case "initialize":
-            return InitializeResult(protocolVersion: Self.protocolVersion, serverVersion: version,
-                                    platform: Self.platform, methods: Self.methods)
+            return InitializeResult(
+                protocolVersion: Self.protocolVersion, serverVersion: version,
+                buildNumber: UpdateCheck.buildNumber(version: version) ?? 0, platform: Self.platform,
+                methods: Self.methods, topics: Topic.allCases.map(\.rawValue),
+                settingsSchemaVersion: Self.settingsSchemaVersion,
+                features: .init(autoSwitchRestart: false, claudeUsageProbe: false))
         case "initialized":
+            await engine.start()
+            return String?.none
+        case "state.subscribe":
+            let topics = try topics(method: method, frame: frame)
+            setSubscribed(topics, true)
+            let snapshot = await engine.snapshot(topics)
+            return Dictionary(uniqueKeysWithValues: snapshot.map {
+                ($0.key.rawValue, WireTopicState(rev: $0.value.rev, value: AnyEncodable(value: $0.value.value)))
+            })
+        case "state.unsubscribe":
+            setSubscribed(try topics(method: method, frame: frame), false)
             return String?.none
         case "accounts.status":
             return WireStatus(try await requireManager().status())
@@ -282,6 +315,32 @@ public final class RPCServer: @unchecked Sendable {
         } catch {
             throw RPCError(-32602, "invalidParams", "The params do not fit \(method).")
         }
+    }
+
+    private func topics(method: String, frame: Data) throws -> [Topic] {
+        let names = try params(StateParams.self, method: method, frame: frame).topics
+        return try names.map { name in
+            guard let topic = Topic(rawValue: name) else {
+                throw RPCError(-32602, "invalidParams", "Switch has no topic '\(name)'.")
+            }
+            return topic
+        }
+    }
+
+    private func setSubscribed(_ topics: [Topic], _ on: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        if on { subscribed.formUnion(topics) } else { subscribed.subtract(topics) }
+    }
+
+    private func isSubscribed(_ topic: Topic) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return subscribed.contains(topic)
+    }
+
+    private func notification(_ method: String, _ params: some Encodable) -> Data {
+        (try? encoder.encode(Notification(method: method, params: params))) ?? Data()
     }
 
     private func reply(_ id: RPCID, _ outcome: Result<any Encodable, RPCError>) -> Data {
@@ -381,8 +440,18 @@ struct RPCError: Error, Encodable {
     /// Core errors carry display text only, the same text the CLI prints.
     static func failed(_ error: Error) -> RPCError {
         if let error = error as? AIManagerError, case .accountNotFound = error { return notFound }
-        return RPCError(-32007, "failed", error.localizedDescription)
+        switch error as? AppEngineError {
+        case .busy: return RPCError(-32001, "busy", error.localizedDescription, retryable: true)
+        case .unavailable: return RPCError(-32002, "unavailable", error.localizedDescription)
+        case nil: return RPCError(-32007, "failed", error.localizedDescription)
+        }
     }
+}
+
+private struct Notification<P: Encodable>: Encodable {
+    let jsonrpc = "2.0"
+    let method: String
+    let params: P
 }
 
 private struct Reply: Encodable {
