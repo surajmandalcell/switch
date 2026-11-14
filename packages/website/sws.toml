@@ -4,6 +4,7 @@ port = 8080
 root = "/public"
 log-level = "warn"
 compression = true
+compression-level = "fastest"
 compression-static = false
 cache-control-headers = false
 security-headers = true
