@@ -93,6 +93,8 @@ public actor AccountManager {
     public nonisolated let eventLog: EventLog
     /// Per store account: the digest of the credential the provider rejected (see `readProviderUsage`).
     private var rejectedCredentials: [UUID: String] = [:]
+    /// Last ChatGPT daily-report read per Codex account: when, the last good charts, and whether it failed.
+    private var codexHistory: [UUID: (attemptedAt: Date, charts: [UsageChart]?, failed: Bool)] = [:]
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
@@ -1004,22 +1006,38 @@ public actor AccountManager {
     public func readCodexAccountUsage(
         accountID: UUID,
         reader: CodexAppServerAccountReader = .init(),
-        limits: CodexAppServerLimits = .init()
+        limits: CodexAppServerLimits = .init(),
+        now: Date = Date()
     ) async throws -> CodexAccountUsageSnapshot {
         let lease = try lock.withLock {
             try prepareUsageRead(accountID: accountID)
         }
         defer { removeUsageRead(lease) }
 
+        // ChatGPT's daily reports change slowly: read them at most once an hour per account.
+        let last = codexHistory[accountID]
+        let due = last.map { now.timeIntervalSince($0.attemptedAt) >= 3_600 || now < $0.attemptedAt } ?? true
         let snapshot = try await reader.read(
             executable: lease.executable,
             source: lease.source,
-            limits: limits
+            limits: limits,
+            history: due
         )
         try lock.withLock {
             try validateUsageRead(lease)
         }
-        return snapshot
+        guard due else { return snapshot.replacing(extras: snapshot.extras, charts: last?.charts) }
+        if let charts = snapshot.charts {
+            codexHistory[accountID] = (now, charts, false)
+            return snapshot
+        }
+        // A failed history read never fails the usage read: log it once and keep the last good charts.
+        if last == nil || last?.failed == false {
+            eventLog.record(.warn, area: "usage", event: "history_failed", provider: ProviderID.codex.rawValue,
+                            account: accountID, dedupe: true)
+        }
+        codexHistory[accountID] = (now, last?.charts, true)
+        return snapshot.replacing(extras: snapshot.extras, charts: last?.charts)
     }
 
     // MARK: Generic providers

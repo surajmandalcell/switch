@@ -287,6 +287,8 @@ public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
     public let fetchedAt: Date
     /// ChatGPT backend extras; nil when the token was expired or the calls failed.
     public let extras: CodexWhamExtras?
+    /// Daily tokens, turns and credits from ChatGPT's reports; nil when not read.
+    public let charts: [UsageChart]?
 
     public init(
         account: CodexAccountDetailsSnapshot?,
@@ -295,8 +297,10 @@ public struct CodexAccountUsageSnapshot: Sendable, Equatable, Codable {
         usage: CodexUsageSummarySnapshot?,
         dailyUsage: [CodexDailyUsageSnapshot],
         fetchedAt: Date,
-        extras: CodexWhamExtras? = nil
+        extras: CodexWhamExtras? = nil,
+        charts: [UsageChart]? = nil
     ) {
+        self.charts = charts
         self.account = account
         self.requiresOpenAIAuthentication = requiresOpenAIAuthentication
         self.rateLimits = rateLimits
@@ -328,7 +332,8 @@ public struct CodexAppServerAccountReader: Sendable {
     public func read(
         executable: URL,
         source: CodexAppServerSource,
-        limits: CodexAppServerLimits = .init()
+        limits: CodexAppServerLimits = .init(),
+        history: Bool = false
     ) async throws -> CodexAccountUsageSnapshot {
         try Self.validate(source: source, limits: limits)
         let launch = CodexAppServerLaunch(
@@ -340,15 +345,10 @@ public struct CodexAppServerAccountReader: Sendable {
         let records = try await transport.performAccountRead(launch: launch, limits: limits)
         let snapshot = try Self.decode(records: records, fetchedAt: now())
         // Read after the app-server exits so a token it refreshed in this private copy is used.
-        guard let extras = await extras?.fetch(authFile: source.authFile, now: now()) else { return snapshot }
-        return CodexAccountUsageSnapshot(
-            account: snapshot.account,
-            requiresOpenAIAuthentication: snapshot.requiresOpenAIAuthentication,
-            rateLimits: snapshot.rateLimits,
-            usage: snapshot.usage,
-            dailyUsage: snapshot.dailyUsage,
-            fetchedAt: snapshot.fetchedAt,
-            extras: extras)
+        let (client, authFile, at) = (extras, source.authFile, now())
+        async let fetched = client?.fetch(authFile: authFile, now: at)
+        async let charts = history ? client?.fetchHistory(authFile: authFile, now: at) : nil
+        return snapshot.replacing(extras: await fetched, charts: await charts)
     }
 
     static func scrubbedEnvironment(_ source: [String: String], codexHome: URL) -> [String: String] {

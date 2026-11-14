@@ -554,7 +554,7 @@ enum LimitsCommands {
                              sections: [UsageSection(nil, snapshot.factRows)],
                              plan: CodexPlanNames.display(snapshot.account?.plan),
                              email: snapshot.account?.email ?? account.identity.email,
-                             fetchedAt: snapshot.fetchedAt).sanitized()
+                             fetchedAt: snapshot.fetchedAt, charts: snapshot.charts ?? []).sanitized()
     }
 
     /// At most `concurrency` fetches at once, each cut off after `timeout` seconds. Results keep input order.

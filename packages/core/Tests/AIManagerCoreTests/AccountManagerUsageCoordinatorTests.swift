@@ -442,21 +442,61 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         XCTAssertNil(result.usage)
     }
 
+    func testDailyHistoryIsReadHourlyKeptOnFailureAndStoredWithTheSnapshot() async throws {
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
+        let account = try await importAccount("history", manager: manager, jwtAccess: true)
+        let wham = FakeWham()
+        let reader = CodexAppServerAccountReader(transport: UsageTransport(), environment: { [:] },
+                                                 extras: CodexWhamClient { try await wham.send($0, $1) })
+        let start = Date()
+        func read(_ offset: TimeInterval) async throws -> CodexAccountUsageSnapshot {
+            try await manager.readCodexAccountUsage(accountID: account.id, reader: reader, now: start.addingTimeInterval(offset))
+        }
+
+        let first = try await read(0)
+        let charts = try XCTUnwrap(first.charts)
+        XCTAssertEqual(charts.map(\.id), ["daily-tokens", "daily-turns", "daily-credits"])
+        XCTAssertEqual(wham.historyCalls, 2, "counts plus credit events")
+
+        // Within the hour: no new report request, the same charts.
+        let again = try await read(1_800)
+        XCTAssertEqual(again.charts, charts)
+        XCTAssertEqual(wham.historyCalls, 2)
+
+        // Reports fail after the hour: the usage read still works and keeps the last good charts, logged once.
+        wham.fail = true
+        let failed = try await read(3_700)
+        XCTAssertEqual(failed.charts, charts)
+        XCTAssertEqual(wham.historyCalls, 4)
+        _ = try await read(7_400)
+        XCTAssertEqual(wham.historyCalls, 6)
+        manager.eventLog.flush()
+        let log = try String(contentsOf: manager.eventLog.fileURL, encoding: .utf8)
+        XCTAssertEqual(log.components(separatedBy: "history_failed").count - 1, 1)
+
+        // The charts live in the existing snapshot store and survive a reload.
+        let cache = try CodexUsageStatisticsCache(databaseURL: root.appending(path: "usage.sqlite"))
+        try await cache.upsertSuccess(accountID: account.id, snapshot: failed)
+        let stored = try await cache.history(for: account.id).first
+        XCTAssertEqual(stored?.charts, charts)
+    }
+
     private func importAndSelect(_ name: String, manager: AccountManager) async throws -> AccountRecord {
         let account = try await importAccount(name, manager: manager)
         _ = try await manager.switchDefault(to: account.id)
         return account
     }
 
-    private func importAccount(_ name: String, manager: AccountManager) async throws -> AccountRecord {
+    private func importAccount(_ name: String, manager: AccountManager, jwtAccess: Bool = false) async throws -> AccountRecord {
         let source = root.appending(path: "source-\(name)", directoryHint: .isDirectory)
         try privateDirectory(source)
-        try privateWrite(try authData(account: name, marker: "initial"), to: source.appending(path: "auth.json"))
+        try privateWrite(try authData(account: name, marker: "initial", jwtAccess: jwtAccess),
+                         to: source.appending(path: "auth.json"))
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         return try await manager.importAccount(plan: plan).account
     }
 
-    private func authData(account: String, marker: String) throws -> Data {
+    private func authData(account: String, marker: String, jwtAccess: Bool = false) throws -> Data {
         let claims = try JSONSerialization.data(withJSONObject: [
             "email": "\(account)@example.test",
             "chatgpt_user_id": "user-\(account)",
@@ -470,7 +510,8 @@ final class AccountManagerUsageCoordinatorTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: [
             "tokens": [
                 "id_token": "header.\(payload).signature",
-                "access_token": "synthetic-access-\(marker)",
+                // An unexpired synthetic JWT lets the ChatGPT backend reads run against a fake client.
+                "access_token": jwtAccess ? "e30.eyJleHAiOjQxMDI0NDQ4MDB9.\(marker)" : "synthetic-access-\(marker)",
                 "refresh_token": "synthetic-refresh-\(marker)",
                 "account_id": "account-\(account)",
             ],
@@ -589,6 +630,29 @@ private actor UsageTransportGate {
     func resume() {
         readContinuation?.resume()
         readContinuation = nil
+    }
+}
+
+/// ChatGPT backend stand-in: daily reports succeed until `fail` is set; other wham calls answer 404.
+private final class FakeWham: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private var failing = false
+
+    var historyCalls: Int { lock.withLock { calls } }
+    var fail: Bool {
+        get { lock.withLock { failing } }
+        set { lock.withLock { failing = newValue } }
+    }
+
+    func send(_ url: String, _ headers: [String: String]) async throws -> HTTPResponse {
+        let counts = url.contains("daily-workspace-usage-counts")
+        guard counts || url.contains("credit-usage-events") else { return HTTPResponse(status: 404, data: Data(), headers: [:]) }
+        let failing = lock.withLock { calls += 1; return self.failing }
+        if failing { return HTTPResponse(status: 500, data: Data(), headers: [:]) }
+        let body = counts ? #"{"data":[{"date":"2026-10-30","totals":{"turns":3,"text_total_tokens":100}}]}"#
+            : #"{"data":[{"date":"2026-10-30","credit_amount":5}]}"#
+        return HTTPResponse(status: 200, data: Data(body.utf8), headers: [:])
     }
 }
 
