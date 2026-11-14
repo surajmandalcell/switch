@@ -96,6 +96,13 @@ extension AppEngine {
         if let codexCache, let cached = try? await codexCache.latest(for: ids) {
             codexUsage = Dictionary(uniqueKeysWithValues: cached.map { ($0.accountID, $0) })
         }
+        if let codexCache {
+            var daily: [UUID: [CodexDailyUsageSnapshot]] = [:]
+            for account in status?.accounts ?? [] where account.identity.providerID == .codex {
+                daily[account.id] = try? await codexCache.dailyUsage(for: account.id)
+            }
+            codexDaily = daily
+        }
         providerUsage = providerUsage.filter { ids.contains($0.key) }
         publishAccounts()
     }
@@ -128,6 +135,7 @@ extension AppEngine {
                 checkedAt: isCodex ? codex?.lastAttemptAt : provider?.checkedAt)
         }
         publish(.accounts, AccountsValue(rows: rows))
+        publishTray()
     }
 
     // MARK: - Codex usage (one account at a time, never in isolation mode)
@@ -238,6 +246,7 @@ extension AppEngine {
         timers.append(repeating(every: CodexUsagePolicy.interval) { await $0.refreshCodexUsage(onCadence: true) })
         timers.append(repeating(every: ProviderUsagePolicy.interval) { await $0.refreshProviderUsage(onCadence: true) })
         timers.append(Task { [weak self] in
+            await self?.loadAPIPrice()
             await self?.refreshProviderUsage(onCadence: false)
             await self?.refreshCodexUsage(onCadence: false)
         })

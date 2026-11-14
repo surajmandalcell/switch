@@ -59,6 +59,9 @@ public actor AppEngine {
     var codexUsage: [UUID: CachedCodexAccountUsage] = [:]
     var codexRefreshing: UUID?
     var providerUsage: [UUID: ProviderUsageState] = [:]
+    // Tray (Tray/TrayTopic.swift): Codex daily token rows and the configured model's API price.
+    var codexDaily: [UUID: [CodexDailyUsageSnapshot]] = [:]
+    var apiPrice: CodexAPIPrice?
     // Overview history (History.swift).
     var history: UsageHistorySnapshot?
     var historyEngine: UsageHistory?
@@ -98,6 +101,7 @@ public actor AppEngine {
         slots[.notices] = Self.slot(notices)
         slots[.accounts] = Self.slot(AccountsValue())
         slots[.settings] = Self.slot(Self.settingsValue(self.settings))
+        slots[.tray] = Self.slot(TrayValue())
     }
 
     /// Loads the accounts and starts the usage timers once, after the client's `initialized`.

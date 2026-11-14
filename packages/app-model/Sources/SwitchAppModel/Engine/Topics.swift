@@ -2,7 +2,7 @@ import Foundation
 
 /// State topics (architecture.md 2.7). Each holds one whole value; a change replaces it and bumps `rev` by one.
 public enum Topic: String, CaseIterable, Sendable {
-    case app, notices, accounts, settings
+    case app, notices, accounts, settings, tray
 }
 
 public typealias TopicValue = Encodable & Sendable

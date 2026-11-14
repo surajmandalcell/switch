@@ -74,7 +74,7 @@ final class RPCRuntimeTests: XCTestCase {
         XCTAssertTrue(["macos", "linux", "windows"].contains(value["platform"] as? String ?? ""))
         XCTAssertEqual(value["methods"] as? [String], RPCServer.methods)
         XCTAssertEqual(value["buildNumber"] as? Int, 0)
-        XCTAssertEqual(value["topics"] as? [String], ["app", "notices", "accounts", "settings"])
+        XCTAssertEqual(value["topics"] as? [String], ["app", "notices", "accounts", "settings", "tray"])
         XCTAssertEqual(value["settingsSchemaVersion"] as? Int, 1)
         let features = try XCTUnwrap(value["features"] as? [String: Bool])
         XCTAssertEqual(features, ["autoSwitchRestart": false, "claudeUsageProbe": false])

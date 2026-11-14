@@ -68,6 +68,26 @@ extension RPCRuntimeTests {
         XCTAssertEqual(hotkey.map { $0["title"] as? String }, [SettingsCopy.menuShortcut])
     }
 
+    /// `tray.rows` answers the `tray` topic shape and carries no secret. The synthetic provider has no usage in a
+    /// test home, so its row stays out of the popover (as on the Mac); AppEngineTrayTests covers filled rows.
+    func testTrayRowsAndTopic() async throws {
+        let manager = try manager()
+        _ = try await manager.addProviderAccount(providerID: provider, fields: ["apiKey": canary])
+        let session = try session(manager: manager)
+        session.send(#"{"jsonrpc":"2.0","id":1,"method":"state.subscribe","params":{"topics":["tray","accounts"]}}"#)
+        session.send(#"{"jsonrpc":"2.0","method":"initialized"}"#)
+        try await session.wait { !self.rows($0).isEmpty }
+        let snapshot = try XCTUnwrap(result(try reply(session.frames, 1))?["tray"] as? [String: Any])
+        XCTAssertEqual(snapshot["rev"] as? Int, 0)
+        let reply = try await call(session, 2, "tray.rows", "{}")
+        let value = try XCTUnwrap(result(reply))
+        XCTAssertEqual((value["groups"] as? [Any])?.count, 0)
+        XCTAssertEqual((value["status"] as? [Any])?.count, 0)
+        XCTAssertNotNil(value["tooltip"] as? String)
+        try await session.close()
+        XCTAssertFalse(session.raw.contains(canary))
+    }
+
     func testAccountsSavedAuthPath() async throws {
         let manager = try manager()
         let account = try await manager.addProviderAccount(providerID: provider, fields: ["apiKey": canary])
