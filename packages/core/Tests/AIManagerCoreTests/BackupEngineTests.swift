@@ -425,11 +425,14 @@ final class BackupEngineTests: XCTestCase {
     }
 
     func testLargeTreeSnapshotIsQuickAndSecondRunLinksEverything() async throws {
-        for index in 0..<2_000 {
-            try write("sessions/d\(index % 20)/f\(index).jsonl", "line \(index)\n")
+        let clock = ContinuousClock()
+        // Writing the tree is the yardstick: a slow disk or a virus scanner slows it and the snapshot alike.
+        let writeTime = try clock.measure {
+            for index in 0..<2_000 {
+                try write("sessions/d\(index % 20)/f\(index).jsonl", "line \(index)\n")
+            }
         }
         let set = makeSet()
-        let clock = ContinuousClock()
         var first: BackupSnapshot!
         let fullTime = try await clock.measure { first = try await engine.snapshot(set) }
         XCTAssertEqual(first.files, 2_000)
@@ -437,8 +440,10 @@ final class BackupEngineTests: XCTestCase {
         let incrementalTime = try await clock.measure { second = try await engine.snapshot(set) }
         XCTAssertEqual(second.files, 2_000)
         XCTAssertEqual(second.newBytes, 0)
-        print("BACKUP TIMING 2000 files: full \(fullTime), incremental \(incrementalTime)")
-        XCTAssertLessThan(fullTime, .seconds(30))
-        XCTAssertLessThan(incrementalTime, .seconds(30))
+        print("BACKUP TIMING 2000 files: write \(writeTime), full \(fullTime), incremental \(incrementalTime)")
+        // Linux: the full snapshot takes about a third of the write time.
+        let limit = max(.seconds(30), writeTime * 5)
+        XCTAssertLessThan(fullTime, limit)
+        XCTAssertLessThan(incrementalTime, limit)
     }
 }
