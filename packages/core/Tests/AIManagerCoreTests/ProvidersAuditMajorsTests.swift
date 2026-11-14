@@ -439,7 +439,9 @@ final class ProvidersAuditMajorsTests: XCTestCase {
         """)
         let usage = try AntigravityCLIUsage.map(assist: json("{}"), summary: summary, models: nil, claims: nil)
         XCTAssertEqual(usage.windows.map(\.detail), ["Not started", nil, nil])
-        XCTAssertEqual(usage.windows.map(\.usedPercent), [0, 10, 60])
+        for (window, expected) in zip(usage.windows, [0.0, 10, 60]) {
+            XCTAssertEqual(window.usedPercent ?? -1, expected, accuracy: 1e-9)
+        }
     }
 
     func testAntigravityUnmeasuredSummaryFallsBackToModelQuotas() throws {
