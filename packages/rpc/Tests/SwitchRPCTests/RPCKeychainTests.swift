@@ -20,7 +20,8 @@ extension RPCRuntimeTests {
     }
 
     /// A Droid account whose login is in the Keychain form, so reading its usage needs the Keychain key.
-    func droidManager(_ trap: KeychainTrap) async throws -> (AccountManager, UUID) {
+    /// `running` lists a Factory app process on that login.
+    func droidManager(_ trap: KeychainTrap, running: Bool = false) async throws -> (AccountManager, UUID) {
         let fake = root.appending(path: "fake-droid")
         try CoreSupport.privateDirectory(root, fileManager: .default)
         XCTAssertTrue(FileManager.default.createFile(atPath: fake.path, contents: Data("#!/bin/sh\nexit 1\n".utf8),
@@ -30,7 +31,11 @@ extension RPCRuntimeTests {
         let login = [Data(count: 16), Data(count: 16), Data("synthetic".utf8)].map { $0.base64EncodedString() }
         try CoreSupport.atomicWrite(Data(login.joined(separator: ":").utf8),
                                     to: paths.droidHome.appending(path: "auth.v2.loginkeychain"), fileManager: .default)
-        let manager = try AppEngine.makeManager(paths: paths, keychain: trap, writerCheck: { _ in .inactive })
+        let processes = running ? [DroidProcess(pid: 42, bundleID: "com.electron.factory", home: paths.droidHome)] : []
+        let manager = running
+            ? try AccountManager(paths: paths, writerCheck: { _ in .inactive }, droidProcessLister: { processes },
+                                 droidLoginReader: DroidLoginReader(keyProvider: UserActionKeyProvider(base: trap)))
+            : try AppEngine.makeManager(paths: paths, keychain: trap, writerCheck: { _ in .inactive })
         let account = try await manager.importDroidAccount(name: "Personal")
         return (manager, account.id)
     }

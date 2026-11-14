@@ -117,8 +117,9 @@ public actor AppEngine {
 
     /// Runs one user action at a time. A second action while one runs throws `busy`. A failure sets
     /// `notices.error` to "failure detail recovery", as the Mac `perform` does, and is rethrown.
-    public func perform(failure: String? = nil, recovery: String? = nil,
-                        _ operation: @Sendable () async throws -> Void) async throws {
+    @discardableResult
+    public func perform<Result: Sendable>(failure: String? = nil, recovery: String? = nil,
+                                          _ operation: @Sendable () async throws -> Result) async throws -> Result {
         guard manager != nil else {
             setError(Self.unavailableText)
             throw AppEngineError.unavailable
@@ -127,16 +128,16 @@ public actor AppEngine {
         app.isBusy = true
         publish(.app, app)
         setError(nil)
-        do {
-            try await operation()
-        } catch {
-            setError([failure, error.localizedDescription, recovery].compactMap { $0 }.joined(separator: " "))
+        defer {
             app.isBusy = false
             publish(.app, app)
+        }
+        do {
+            return try await operation()
+        } catch {
+            setError([failure, error.localizedDescription, recovery].compactMap { $0 }.joined(separator: " "))
             throw error
         }
-        app.isBusy = false
-        publish(.app, app)
     }
 
     func setError(_ text: String?) {
