@@ -214,8 +214,9 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
             return (nil, nil)
         }
 #if os(Windows)
-        // windows-port: stub (PseudoTerminal, cut from version 1)
-        throw PlatformError.unsupported("private sign-in terminal")
+        // A pipe has no console, so nothing echoes the typed secret; stdout and stderr already go nowhere.
+        let pipe = Pipe()
+        return (pipe.fileHandleForWriting, pipe.fileHandleForReading)
 #else
         var master: Int32 = -1
         var slave: Int32 = -1

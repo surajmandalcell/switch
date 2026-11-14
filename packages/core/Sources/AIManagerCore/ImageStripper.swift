@@ -169,8 +169,11 @@ enum ImageStripper {
             let saved = try run(source, output: output)
             try output.synchronize()
             #if os(Windows)
-            // windows-port: stub (P4) - copying mode and times needs the file handle API
-            throw PlatformError.unsupported("copying file mode and times")
+            // The copy sits in the chat's folder and inherits its access; only an owner-only chat needs more.
+            if info.st_mode & 0o077 == 0 { try WindowsFiles.makePrivate(path: temporary.path) }
+            guard WindowsFiles.setTimes(output._handle, access: info.st_atim, modified: info.st_mtim) else {
+                throw AIManagerError.sourceChanged
+            }
             #else
             guard fchmod(output.fileDescriptor, info.st_mode & 0o7777) == 0 else { throw AIManagerError.sourceChanged }
             #if canImport(Darwin)

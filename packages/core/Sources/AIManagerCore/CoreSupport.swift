@@ -87,8 +87,7 @@ enum CoreSupport {
 
     static func privateDirectory(_ url: URL, fileManager: FileManager) throws {
 #if os(Windows)
-        // windows-port: stub (P1) - posixPermissions does nothing on Windows; wait for owner-only ACLs
-        throw PlatformError.unsupported("private directory")
+        try WindowsFiles.privateDirectory(url)
 #else
         if entryExists(url),
            (try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
@@ -105,8 +104,9 @@ enum CoreSupport {
 
     static func atomicWrite(_ data: Data, to destination: URL, permissions: Int = 0o600, fileManager: FileManager) throws {
 #if os(Windows)
-        // windows-port: stub (P1) - posixPermissions does nothing on Windows; wait for owner-only ACLs
-        throw PlatformError.unsupported("private file write")
+        // Always owner-only: Windows has no group or other bits to honour `permissions` with.
+        try privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
+        try WindowsFiles.writePrivate(data, to: destination)
 #else
         try privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
         let temporary = destination.deletingLastPathComponent().appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
@@ -132,8 +132,7 @@ enum CoreSupport {
 
     static func exchange(_ first: URL, _ second: URL) throws {
 #if os(Windows)
-        // windows-port: stub (P2)
-        throw PlatformError.unsupported("atomic directory swap")
+        try WindowsFiles.exchange(first, second)
 #else
 #if os(Linux)
         let result = first.path.withCString { stagedPath in
@@ -157,13 +156,8 @@ enum CoreSupport {
     }
 
     static func entryExists(_ url: URL) -> Bool {
-#if os(Windows)
-        // windows-port: stub (P4) - existence only; the link and owner checks that follow still fail closed
-        return (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
-#else
         var info = stat()
         return lstat(url.path, &info) == 0
-#endif
     }
 }
 

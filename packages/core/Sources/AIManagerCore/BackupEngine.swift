@@ -317,8 +317,18 @@ private enum BackupIO {
     // realpath on the longest existing prefix; the missing tail is appended unchanged.
     static func real(_ url: URL) -> URL {
 #if os(Windows)
-        // windows-port: stub (P8) - no link resolution; the loop below would never reach "/"
-        return url
+        var existing = url.path
+        var tail: [String] = []
+        while true {
+            if let resolved = realpath(existing, nil) {
+                defer { free(resolved) }
+                return tail.reduce(URL(fileURLWithPath: String(cString: resolved))) { $0.appending(path: $1) }
+            }
+            let parent = (existing as NSString).deletingLastPathComponent
+            guard !parent.isEmpty, parent.count < existing.count else { return url } // a drive root ends the walk
+            tail.insert((existing as NSString).lastPathComponent, at: 0)
+            existing = parent
+        }
 #else
         var existing = url.path
         var tail: [String] = []
@@ -336,8 +346,16 @@ private enum BackupIO {
     // Not standardizedFileURL: it would strip /private and hide the /var link.
     static func noLinks(_ url: URL, leafMayBeLink: Bool) throws {
 #if os(Windows)
-        // windows-port: stub (P5) - an unchecked ancestor must not pass
-        throw PlatformError.unsupported("symbolic link check")
+        // lstat reports junctions and symbolic links as S_IFLNK; the walk ends at the drive root.
+        var cursor = url.path
+        if leafMayBeLink { cursor = (cursor as NSString).deletingLastPathComponent }
+        while !cursor.isEmpty {
+            var info = stat()
+            if lstat(cursor, &info) == 0, info.st_mode & S_IFMT == S_IFLNK { throw BackupError.unsafe("symbolic link ancestor") }
+            let parent = (cursor as NSString).deletingLastPathComponent
+            guard parent.count < cursor.count else { break }
+            cursor = parent
+        }
 #else
         var cursor = URL(fileURLWithPath: url.path)
         if leafMayBeLink { cursor.deleteLastPathComponent() }

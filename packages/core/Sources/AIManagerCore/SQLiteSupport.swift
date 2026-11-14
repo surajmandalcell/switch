@@ -74,8 +74,16 @@ enum SQLiteSupport {
 
     static func snapshot(source: URL, destination: URL) throws {
 #if os(Windows)
-        // windows-port: stub (P1) - the copy would keep inherited access rights
-        throw PlatformError.unsupported("private database snapshot")
+        // The empty owner-only file comes first, so the snapshot never exists with inherited access rights.
+        try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: .default)
+        if CoreSupport.entryExists(destination) { try FileManager.default.removeItem(at: destination) }
+        try WindowsFiles.createEmptyPrivateFile(destination)
+        do {
+            try performSnapshot(source: source, destination: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
 #else
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }

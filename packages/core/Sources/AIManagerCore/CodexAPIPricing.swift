@@ -136,8 +136,7 @@ public actor CodexAPIPricingResolver {
 
     private func store(_ data: Data) throws {
 #if os(Windows)
-        // windows-port: stub (P1) - posixPermissions does nothing on Windows; the caller skips with try?
-        throw PlatformError.unsupported("private cache write")
+        try CoreSupport.atomicWrite(data, to: cacheURL, fileManager: .default)
 #else
         let directory = cacheURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
