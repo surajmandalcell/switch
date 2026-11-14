@@ -48,7 +48,7 @@ final class SettingsStoreTests: XCTestCase {
         let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
         XCTAssertEqual(mode, 0o600)
         #endif
-        try store.remove("privacyMode")
+        try store.remove(["privacyMode"])
         XCTAssertEqual(store.effective("privacyMode"), .bool(false))
     }
 
@@ -103,6 +103,43 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertNotNil(store.notice)
         XCTAssertThrowsError(try store.set("privacyMode", .bool(false))) { XCTAssertEqual($0 as? SettingsError, .readOnly) }
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), text)
+    }
+
+    func engine(_ store: any SettingsStore) -> AppEngine {
+        let paths = ManagerPaths(applicationSupport: root.appending(path: "support"),
+                                 credentialStore: root.appending(path: "user/.switch/codex"),
+                                 defaultHome: root.appending(path: "user/.codex"), sharedRoot: root.appending(path: "user/.codex"),
+                                 orcaAccountsRoot: root.appending(path: "orca"), isolationRoot: root)
+        return AppEngine(manager: nil, paths: paths, clock: ManualClock(), settings: store)
+    }
+
+    func testResetRemovesTheSettingsGroupOnly() async throws {
+        try write(#"{"schemaVersion":1,"values":{"futureKey":1,"privacyMode":true,"lastPage":"overview","#
+            + #""hiddenUsageRows.ABC":"session","showAccountUsageInMenuBar.account.ABC":false,"checkProviderStatus":false}}"#)
+        let store = JSONFileSettingsStore(url: url)
+        let engine = engine(store)
+        try await engine.resetSettings()
+        XCTAssertEqual(store.storedKeys, ["futureKey", "lastPage"], "kept keys and unknown keys stay")
+        XCTAssertEqual(store.effective("checkProviderStatus"), .bool(true))
+        try await engine.resetSettings(.kept)
+        XCTAssertEqual(store.storedKeys, ["futureKey"])
+    }
+
+    func testErrorTextsFollowPrivacyMode() async throws {
+        let store = JSONFileSettingsStore(url: url)
+        let engine = engine(store)
+        let confirm = DroidAccountError.confirmSignIn("Alice Work")
+        let mismatch = AIManagerError.signInIdentityMismatch(signedIn: "ada@mail.co.uk", target: "org-7")
+        XCTAssertEqual(engine.describe(confirm), confirm.localizedDescription)
+        XCTAssertEqual(engine.describe(mismatch), mismatch.localizedDescription, "the Mac shows full text without privacy")
+        try store.set("privacyMode", .bool(true))
+        XCTAssertFalse(engine.describe(confirm).contains("Alice"))
+        XCTAssertTrue(engine.describe(confirm).contains(PrivacyText.fakeName(seed: "Alice Work")))
+        let masked = engine.describe(mismatch)
+        XCTAssertFalse(masked.contains("ada@") || masked.contains("org-7"), masked)
+        try store.set("privacyMode", .bool(false))
+        try store.set("hideEmailAddresses", .bool(true))
+        XCTAssertTrue(engine.describe(mismatch).contains("a••••@mail"))
     }
 
     func testEngineTopicFollowsWrites() async throws {

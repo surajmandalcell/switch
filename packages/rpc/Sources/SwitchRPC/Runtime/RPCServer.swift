@@ -10,7 +10,7 @@ public final class RPCServer: @unchecked Sendable {
     /// Bumped when a settings key changes type or meaning; the client then rereads its settings cache.
     public static let settingsSchemaVersion = SettingsRegistry.schemaVersion
     public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail",
-                                 "state.subscribe", "state.unsubscribe", "settings.get", "settings.set"]
+                                 "state.subscribe", "state.unsubscribe", "settings.get", "settings.set", "settings.reset"]
         + readMethods + writeMethods
     public static let defaultTimeout: TimeInterval = 60
     static let maximumFrame = 16 * 1024 * 1024
@@ -186,7 +186,7 @@ public final class RPCServer: @unchecked Sendable {
             } catch let error as RPCError {
                 outcome = .failure(error)
             } catch {
-                outcome = .failure(.failed(error))
+                outcome = .failure(.failed(error, text: self.engine.describe(error)))
             }
             self.finish(id, request, outcome)
         }
@@ -280,6 +280,13 @@ public final class RPCServer: @unchecked Sendable {
             let params = try params(SettingsSetParams.self, method: method, frame: frame)
             try await engine.setSetting(params.key, params.value)
             return try await engine.settingsValues([params.key])
+        case "settings.reset":
+            let name = (try? params(SettingsResetParams.self, method: method, frame: frame))?.group ?? "settings"
+            guard let group = SettingKey.ResetGroup(rawValue: name) else {
+                throw RPCError(-32602, "invalidParams", "group must be settings or kept.")
+            }
+            try await engine.resetSettings(group)
+            return try await engine.settingsValues(nil)
         case "state.unsubscribe":
             setSubscribed(try topics(method: method, frame: frame), false)
             return String?.none
@@ -469,16 +476,17 @@ struct RPCError: Error, Encodable {
     static let cancelled = RPCError(-32800, "cancelled", "The request was cancelled.")
 
     /// Core errors carry display text only, the same text the CLI prints.
-    static func failed(_ error: Error) -> RPCError {
+    /// `text`: the privacy-masked message (`AppEngine.describe`); the plain description when nil.
+    static func failed(_ error: Error, text: String? = nil) -> RPCError {
+        let text = text ?? error.localizedDescription
         if let error = error as? AIManagerError, case .accountNotFound = error { return notFound }
         if let error = error as? SettingsError {
-            return error == .readOnly ? RPCError(-32007, "failed", error.localizedDescription)
-                : RPCError(-32602, "invalidParams", error.localizedDescription)
+            return error == .readOnly ? RPCError(-32007, "failed", text) : RPCError(-32602, "invalidParams", text)
         }
         switch error as? AppEngineError {
-        case .busy: return RPCError(-32001, "busy", error.localizedDescription, retryable: true)
-        case .unavailable: return RPCError(-32002, "unavailable", error.localizedDescription)
-        case nil: return RPCError(-32007, "failed", error.localizedDescription)
+        case .busy: return RPCError(-32001, "busy", text, retryable: true)
+        case .unavailable: return RPCError(-32002, "unavailable", text)
+        case nil: return RPCError(-32007, "failed", text)
         }
     }
 }

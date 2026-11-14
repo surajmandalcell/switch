@@ -22,7 +22,10 @@ public enum SettingsError: Error, Equatable, LocalizedError {
 public protocol SettingsStore: AnyObject, Sendable {
     func value(_ key: String) -> SettingValue?
     func set(_ key: String, _ value: SettingValue) throws
-    func remove(_ key: String) throws
+    /// Removes every key in one write.
+    func remove(_ keys: [String]) throws
+    /// Every stored key, known or not.
+    var storedKeys: [String] { get }
     func keys(prefix: String) -> [String]
     /// The key of every write made through this store. One consumer.
     var changes: AsyncStream<String> { get }
@@ -94,20 +97,22 @@ public final class JSONFileSettingsStore: SettingsStore, @unchecked Sendable {
 
     public func set(_ key: String, _ value: SettingValue) throws {
         try SettingsRegistry.validate(key, value)
-        try write(key) { $0[key] = value }
+        try write([key]) { $0[key] = value }
     }
 
-    public func remove(_ key: String) throws {
-        try write(key) { $0[key] = nil }
+    public func remove(_ keys: [String]) throws {
+        try write(keys) { values in keys.forEach { values[$0] = nil } }
     }
 
-    public func keys(prefix: String) -> [String] {
+    public func keys(prefix: String) -> [String] { storedKeys.filter { $0.hasPrefix(prefix) } }
+
+    public var storedKeys: [String] {
         lock.lock()
         defer { lock.unlock() }
-        return values.keys.filter { $0.hasPrefix(prefix) }.sorted()
+        return values.keys.sorted()
     }
 
-    private func write(_ key: String, _ change: (inout [String: SettingValue]) -> Void) throws {
+    private func write(_ keys: [String], _ change: (inout [String: SettingValue]) -> Void) throws {
         lock.lock()
         defer { lock.unlock() }
         guard !readOnly else { throw SettingsError.readOnly }
@@ -124,7 +129,7 @@ public final class JSONFileSettingsStore: SettingsStore, @unchecked Sendable {
         try data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         values = next
-        continuation.yield(key)
+        keys.forEach { continuation.yield($0) }
     }
 
     /// Renames a corrupt file to `settings.corrupt-<unix seconds>.json`, keeping the newest 3, and starts empty.

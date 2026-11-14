@@ -36,6 +36,10 @@ struct SettingsGetParams: Decodable {
     let keys: [String]?
 }
 
+struct SettingsResetParams: Decodable {
+    let group: String?
+}
+
 /// `value` null or missing removes the stored value, so the default applies again.
 struct SettingsSetParams: Decodable {
     let key: String
