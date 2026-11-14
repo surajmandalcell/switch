@@ -722,8 +722,11 @@ struct ProviderAccountStore {
     /// Temp file in the same directory, then rename. Existing parent directories keep their mode.
     private func replaceFile(_ url: URL, with data: Data, mode: Int) throws {
 #if os(Windows)
-        // windows-port: stub (P1) - posixPermissions does nothing on Windows; wait for owner-only ACLs
-        throw PlatformError.unsupported("private file replace")
+        // Owner-only whatever `mode` says; missing folders are created owner-only, existing ones keep their access.
+        let target = url.resolvingSymlinksInPath()
+        let directory = target.deletingLastPathComponent()
+        if !CoreSupport.entryExists(directory) { try CoreSupport.privateDirectory(directory, fileManager: fileManager) }
+        try WindowsFiles.writePrivate(data, to: target)
 #else
         let target = url.resolvingSymlinksInPath()
         let directory = target.deletingLastPathComponent()

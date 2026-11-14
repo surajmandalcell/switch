@@ -547,7 +547,8 @@ public struct ProcessCodexAppServerRPCTransport: CodexAppServerRPCTransport {
 
         let deadline = Date().addingTimeInterval(limits.timeout)
 #if os(Windows)
-        let readerDescriptor: Int32 = -1 // windows-port: stub (P6) - the read fails at once, loudly
+        let readerDescriptor = WindowsFiles.descriptor(duplicating: output.fileHandleForReading._handle)
+        defer { if readerDescriptor >= 0 { _close(readerDescriptor) } }
 #else
         let readerDescriptor = output.fileHandleForReading.fileDescriptor
 #endif

@@ -215,7 +215,7 @@ public actor ClaudePricingSource {
 
     private func store(_ data: Data) {
 #if os(Windows)
-        return // windows-port: stub (P1) - no private cache write until owner-only ACLs exist
+        try? CoreSupport.atomicWrite(data, to: cacheURL, fileManager: .default)
 #else
         try? FileManager.default.createDirectory(
             at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true,
@@ -712,7 +712,8 @@ public actor ClaudeCostScanner {
 
     private func saveCache(_ cache: CacheFile) {
 #if os(Windows)
-        return // windows-port: stub (P1) - no private cache write until owner-only ACLs exist
+        guard let data = try? JSONEncoder().encode(cache) else { return }
+        try? CoreSupport.atomicWrite(data, to: cacheURL, fileManager: .default)
 #else
         guard let data = try? JSONEncoder().encode(cache) else { return }
         try? FileManager.default.createDirectory(
