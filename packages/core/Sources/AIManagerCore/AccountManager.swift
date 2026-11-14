@@ -2250,13 +2250,16 @@ extension AccountManager {
         guard CoreSupport.entryExists(url) else { return .init(completedLoginDigest: nil) }
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         guard descriptor >= 0 else { throw AIManagerError.unsafePath("Droid conversation state is not a safe regular file.") }
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close() }
+        // fstat before FileHandle: on Windows, FileHandle(fileDescriptor:closeOnDealloc: true) duplicates the
+        // handle and closes the fd, and a later _get_osfhandle on that fd ends the process with no message.
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
               info.st_uid == getuid(), info.st_nlink == 1, info.st_mode & 0o077 == 0, info.st_size <= 1024 else {
+            close(descriptor)
             throw AIManagerError.unsafePath("Droid conversation state is not a safe private file.")
         }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
         let data = try handle.read(upToCount: 1025) ?? Data()
         guard data.count <= 1024 else { throw AIManagerError.sourceChanged }
         let state = try decoder.decode(DroidBindingState.self, from: data)
