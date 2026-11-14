@@ -1,5 +1,21 @@
 import Foundation
 
+/// The Backup settings every checked tool shares. The Mac app keeps a copy under `key` in its preferences.
+public struct SharedBackupSettings: Codable, Equatable, Sendable {
+    public var schedule: BackupSchedule = .off
+    public var keep = 10
+    public var includeLogins = false
+    public var promptsOnly: Bool? = nil
+    public static let key = "backupShared"
+
+    public init(schedule: BackupSchedule = .off, keep: Int = 10, includeLogins: Bool = false, promptsOnly: Bool? = nil) {
+        self.schedule = schedule
+        self.keep = keep
+        self.includeLogins = includeLogins
+        self.promptsOnly = promptsOnly
+    }
+}
+
 /// The Backup checklist's rules, as pure functions over the saved sets. The store saves what they return.
 /// A tool is checked while it has an active (not retired) set. Unchecking or moving the shared folder
 /// retires a set instead of deleting it, so its snapshots stay in History and can be restored.
@@ -89,6 +105,57 @@ public enum BackupChecklist {
             next.schedule = .off
             return next
         }
+    }
+
+    /// Checks a tool: its active set gets the tool's current contents; else a set that was unchecked in the same
+    /// folder comes back, so its snapshots stay in one history; else a new set. The set gets the shared settings.
+    /// A source without a backup service changes nothing.
+    public static func check(_ sets: [BackupSet], source: CleanupSource, destination: URL,
+                             shared: SharedBackupSettings) -> [BackupSet] {
+        guard let service = source.backupService else { return sets }
+        let contents = contents(for: source)
+        var next = sets
+        if let index = next.firstIndex(where: { !$0.retired && $0.source.id == source.id })
+            ?? next.firstIndex(where: { $0.retired && $0.source.id == source.id && sameFolder($0.destination, destination) }) {
+            next[index].retired = false
+            next[index].items = contents.items
+            next[index].profiles = contents.profiles
+            next[index].source.home = source.home
+        } else {
+            next.append(BackupSet(
+                name: setName(source), source: BackupSource(id: source.id, service: service, home: source.home),
+                items: contents.items, destination: destination, profiles: contents.profiles))
+        }
+        let index = next.firstIndex { $0.source.id == source.id && !$0.retired }!
+        next[index] = share(shared, to: [next[index]])[0]
+        return next
+    }
+
+    /// A shared setting applies to every checked tool at once; retired sets keep theirs.
+    public static func share(_ settings: SharedBackupSettings, to sets: [BackupSet]) -> [BackupSet] {
+        sets.map { set in
+            guard !set.retired else { return set }
+            var copy = set
+            copy.schedule = settings.schedule
+            copy.keep = settings.keep
+            copy.includeLogins = settings.includeLogins
+            copy.promptsOnly = settings.promptsOnly == true
+            return copy
+        }
+    }
+
+    /// The shared values of the checked sets: schedule and count of the first, login files On only if every set
+    /// has them, so one shared toggle never reads Off while a set still copies login files.
+    public static func derivedShared(_ checked: [BackupSet]) -> SharedBackupSettings? {
+        guard let first = checked.first else { return nil }
+        return SharedBackupSettings(schedule: first.schedule, keep: first.keep,
+                                    includeLogins: checked.allSatisfy(\.includeLogins),
+                                    promptsOnly: checked.allSatisfy(\.promptsOnly))
+    }
+
+    /// A tool's set name; an account's own profile adds the account's id prefix.
+    public static func setName(_ source: CleanupSource) -> String {
+        source.accountID.map { "\(source.title) \($0.uuidString.prefix(8))" } ?? source.title
     }
 
     public static func sameFolder(_ first: URL, _ second: URL) -> Bool {
