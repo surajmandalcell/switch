@@ -155,22 +155,32 @@ enum ImageStripper {
         return value
     }
 
+    /// Test hook: runs once the stripped bytes are in `temporary`, before its times are set.
+    nonisolated(unsafe) static var afterWrite: ((URL) -> Void)?
+
     /// Writes the stripped copy of `source` to `temporary` with the same permissions and times.
     /// Returns the bytes saved; the caller removes `temporary` when that is zero.
     static func rewrite(_ source: URL, to temporary: URL) throws -> Int64 {
         var info = stat()
         guard lstat(source.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw AIManagerError.sourceChanged }
-        guard FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw AIManagerError.operationFailed("Cleanup could not write next to the chat.")
-        }
+        #if os(Windows)
+        // An owner-only chat gets an owner-only copy before the first byte is written; any other chat's copy
+        // inherits the access of the folder it shares with the chat. No access change happens after a write.
+        let ownerOnly = info.st_mode & 0o077 == 0
+        if ownerOnly { try WindowsFiles.createEmptyPrivateFile(temporary) }
+        let created = ownerOnly
+            || FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        #else
+        let created = FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        #endif
+        guard created else { throw AIManagerError.operationFailed("Cleanup could not write next to the chat.") }
         do {
             let output = try FileHandle(forWritingTo: temporary)
             defer { try? output.close() }
             let saved = try run(source, output: output)
+            afterWrite?(temporary)
             try output.synchronize()
             #if os(Windows)
-            // The copy sits in the chat's folder and inherits its access; only an owner-only chat needs more.
-            if info.st_mode & 0o077 == 0 { try WindowsFiles.makePrivate(path: temporary.path) }
             guard WindowsFiles.setTimes(output._handle, access: info.st_atim, modified: info.st_mtim) else {
                 throw AIManagerError.sourceChanged
             }

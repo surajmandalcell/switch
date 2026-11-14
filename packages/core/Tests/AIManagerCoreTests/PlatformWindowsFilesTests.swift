@@ -69,6 +69,22 @@ final class PlatformWindowsFilesTests: XCTestCase {
         XCTAssertEqual(leftovers, [])
     }
 
+    func testStrippedCopyOfAPrivateChatIsOwnerOnlyBeforeItsFirstByte() throws {
+        let chat = root.appending(path: "chats/session.jsonl")
+        try CoreSupport.atomicWrite(Data("{\"type\":\"message\",\"text\":\"synthetic\"}\n".utf8), to: chat, fileManager: .default)
+        let temporary = chat.deletingLastPathComponent().appending(path: ".session.jsonl.strip.tmp")
+        var checked = false
+        ImageStripper.afterWrite = { url in
+            checked = true
+            XCTAssertGreaterThan((try? Data(contentsOf: url))?.count ?? 0, 0)
+            XCTAssertTrue((try? self.onlyUserEntries(url)) == true, "content exists before the copy is owner-only")
+        }
+        defer { ImageStripper.afterWrite = nil }
+        _ = try ImageStripper.rewrite(chat, to: temporary)
+        XCTAssertTrue(checked)
+        XCTAssertTrue(try onlyUserEntries(temporary))
+    }
+
     func testPrivateWritePastMaxPath() throws {
         let folder = root.appending(path: String(repeating: "deep-folder-name/", count: 16))
         let file = folder.appending(path: "auth.json")
