@@ -92,6 +92,8 @@ public enum SettingsRegistry {
                 choices: strings(CodexTokenPeriod.allCases.map(\.rawValue))),
             key("chat.messageFilterMask", .int, .int(ChatMessageFilter.all.rawValue)),
             key("minimizeToTray", .bool, .bool(false)),
+            // Linux and Windows: the terminal program for sign-ins and Open; empty picks the first one found.
+            key("terminalEmulator", .string, .string("")),
             key("showAccountUsageInMenuBar", .bool, .bool(true)),
             key("menuBarTokenPeriod", .string, .string("sinceReset"),
                 choices: strings(["sinceReset", "today", "yesterday", "weekly", "monthly", "yearly"])),

@@ -72,6 +72,14 @@ final class PlatformTerminalLaunchTests: XCTestCase {
         XCTAssertEqual(try command(["TERMINAL": "missing"]).first, folder.appending(path: "x-terminal-emulator").path)
         try add("xdg-terminal-exec")
         XCTAssertEqual(try command(["TERMINAL": "foot"]), [folder.appending(path: "xdg-terminal-exec").path, script.path])
+        // The Settings choice wins, keeps its own flags, and is never swapped for another terminal.
+        XCTAssertEqual(try TerminalLaunch.emulatorCommand(script: script, environment: environment, preferred: "kitty"),
+                       [folder.appending(path: "kitty").path, script.path])
+        XCTAssertEqual(try TerminalLaunch.emulatorCommand(script: script, environment: environment, preferred: "foot"),
+                       [folder.appending(path: "foot").path, "-e", script.path])
+        XCTAssertThrowsError(try TerminalLaunch.emulatorCommand(script: script, environment: environment, preferred: "wezterm")) {
+            XCTAssertEqual($0 as? TerminalLaunch.Failure, .missing("wezterm"))
+        }
 #else
         try add("xterm")
         XCTAssertThrowsError(try command()) { XCTAssertEqual($0 as? TerminalLaunch.Failure, .unsupported) }
