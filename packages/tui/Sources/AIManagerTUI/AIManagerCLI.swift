@@ -921,10 +921,6 @@ struct AIManagerCLI {
 
     /// Reads one line with terminal echo off.
     private static func readSecret(_ prompt: String) -> String? {
-#if os(Windows)
-        // windows-port: stub (console, cut from version 1) - echo cannot be turned off, so never read a secret
-        return nil
-#else
         print(prompt, terminator: " ")
         fflush(stdout)
         var original = termios()
@@ -932,7 +928,8 @@ struct AIManagerCLI {
         if attached {
             var quiet = original
             quiet.c_lflag &= ~tcflag_t(ECHO)
-            tcsetattr(STDIN_FILENO, TCSANOW, &quiet)
+            // A terminal that keeps echo on would show the secret, so read nothing.
+            guard tcsetattr(STDIN_FILENO, TCSANOW, &quiet) == 0 else { print(""); return nil }
         }
         defer {
             if attached {
@@ -942,7 +939,6 @@ struct AIManagerCLI {
             }
         }
         return readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
-#endif
     }
 
     private static func chooseLoginSession(
