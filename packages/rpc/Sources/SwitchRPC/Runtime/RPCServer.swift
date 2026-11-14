@@ -2,21 +2,20 @@ import Foundation
 import AIManagerCore
 
 /// `switch-core serve`: JSON-RPC 2.0 over stdio, one object per line (specs/port/architecture.md section 2).
-/// Replies and errors carry no token, key, cookie, or password; the log line holds method, id, time, and outcome only.
-// shortcut: requests run one at a time in arrival order, so a slow provider blocks the next request;
-// run each request in its own Task when `$/cancelRequest` and progress land (plan unit R1).
-public final class RPCServer {
+/// Requests run concurrently; each reply carries its request's id. Replies and errors carry no token, key, cookie,
+/// or password; the log line holds method, id, time, and outcome only.
+public final class RPCServer: @unchecked Sendable {
     public static let protocolVersion = 1
-    public static let methods = ["initialize", "initialized", "shutdown", "accounts.status", "usage.detail"]
+    public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail"]
+    public static let defaultTimeout: TimeInterval = 60
     static let maximumFrame = 16 * 1024 * 1024
 
-    private let manager: AccountManager?
-    private let paths: ManagerPaths
+    let manager: AccountManager?
+    let paths: ManagerPaths
     private let version: String
     private let log: (String) -> Void
-    private lazy var codexCache: CodexUsageStatisticsCache? = try? CodexUsageStatisticsCache(
-        databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
-        activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
+    private let timeout: TimeInterval
+    let codexCache: CodexUsageStatisticsCache?
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -24,78 +23,191 @@ public final class RPCServer {
         return encoder
     }()
 
-    /// True after `shutdown`; `serve` then stops reading.
-    public private(set) var isShutDown = false
+    /// Test seam: methods tried after the built-in ones. Set before `serve`.
+    var extraMethods: [String: @Sendable (Data) async throws -> any Encodable] = [:]
+
+    /// Requests without a reply yet, by id. Whoever removes the entry first (work, timer, or cancel) sends the reply.
+    private final class Pending {
+        let method: String
+        let started = Date()
+        var tasks: [Task<Void, Never>] = []
+        init(method: String) { self.method = method }
+    }
+
+    private let lock = NSLock()
+    private var pending: [RPCID: Pending] = [:]
+    private let unanswered = DispatchGroup()
+    private let writeLock = NSLock()
+    private var write: @Sendable (Data) -> Void = { _ in }
 
     /// `manager` is nil when the private data folder cannot open; core methods then answer `unavailable`.
     public init(manager: AccountManager?, paths: ManagerPaths, version: String,
+                timeout: TimeInterval = RPCServer.defaultTimeout,
                 log: @escaping (String) -> Void = RPCServer.standardError) {
         self.manager = manager
         self.paths = paths
         self.version = version
+        self.timeout = timeout
         self.log = log
+        codexCache = try? CodexUsageStatisticsCache(
+            databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
+            activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
     }
 
     public static func standardError(_ text: String) {
         FileHandle.standardError.write(Data((text + "\n").utf8))
     }
 
-    /// Reads frames until end of input or `shutdown`. A bad frame gets an error reply and reading goes on.
-    public func serve(input: FileHandle, write: (Data) -> Void) async {
-        var buffer = Data()
-        var skipping = false
-        func emit(_ reply: Data?) { if let reply { write(reply + [0x0A]) } }
-        while !isShutDown {
-            let chunk = input.availableData
-            if chunk.isEmpty { break }
-            buffer.append(chunk)
-            while !isShutDown, let newline = buffer.firstIndex(of: 0x0A) {
-                let line = Data(buffer[buffer.startIndex..<newline])
-                buffer.removeSubrange(buffer.startIndex...newline)
-                if skipping { skipping = false } else { emit(await handle(line)) }
-            }
-            if buffer.count > Self.maximumFrame {
-                buffer.removeAll()
-                skipping = true
-                emit(reply(.null, .failure(.init(-32600, "invalidRequest", "The frame is larger than 16 MiB."))))
+    /// Reads frames until end of input or `shutdown`, then waits until every request has its reply.
+    /// A bad frame gets an error reply and reading goes on.
+    public func serve(input: FileHandle, write: @escaping @Sendable (Data) -> Void) async {
+        self.write = write
+        reading: for await frame in Self.frames(input) {
+            switch frame {
+            case .tooLarge:
+                send(reply(.null, .failure(.init(-32600, "invalidRequest", "The frame is larger than 16 MiB."))))
+            case .line(let line):
+                if await receive(line) { break reading }
             }
         }
-        if !isShutDown, !skipping, !buffer.isEmpty { emit(await handle(buffer)) }
+        await allAnswered()
     }
 
-    /// One frame in, the reply frame out (without the newline), or nil for a notification or a blank line.
-    public func handle(_ frame: Data) async -> Data? {
+    // MARK: - Framing
+
+    private enum Frame { case line(Data), tooLarge }
+
+    /// Lines from `input`. The blocking read runs on its own thread, not on a thread of the shared async pool.
+    private static func frames(_ input: FileHandle) -> AsyncStream<Frame> {
+        AsyncStream { continuation in
+            Thread {
+                var buffer = Data()
+                var skipping = false
+                while case let chunk = input.availableData, !chunk.isEmpty {
+                    buffer.append(chunk)
+                    while let newline = buffer.firstIndex(of: 0x0A) {
+                        let line = Data(buffer[buffer.startIndex..<newline])
+                        buffer.removeSubrange(buffer.startIndex...newline)
+                        if skipping { skipping = false } else { continuation.yield(.line(line)) }
+                    }
+                    if buffer.count > maximumFrame {
+                        buffer.removeAll()
+                        skipping = true
+                        continuation.yield(.tooLarge)
+                    }
+                }
+                if !skipping, !buffer.isEmpty { continuation.yield(.line(buffer)) }
+                continuation.finish()
+            }.start()
+        }
+    }
+
+    /// Handles one frame. Returns true after `shutdown`, when reading must stop.
+    private func receive(_ frame: Data) async -> Bool {
         var line = frame
         if line.last == 0x0D { line.removeLast() }
-        if line.allSatisfy({ $0 == 0x20 || $0 == 0x09 }) { return nil }
+        if line.allSatisfy({ $0 == 0x20 || $0 == 0x09 }) { return false }
         guard (try? JSONSerialization.jsonObject(with: line, options: .fragmentsAllowed)) != nil else {
-            return reply(.null, .failure(.init(-32700, "parse", "The frame is not valid JSON.")))
+            send(reply(.null, .failure(.init(-32700, "parse", "The frame is not valid JSON."))))
+            return false
         }
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
-            return reply(.null, .failure(.init(-32600, "invalidRequest", "The frame must be a JSON-RPC 2.0 object.")))
+            send(reply(.null, .failure(.init(-32600, "invalidRequest", "The frame must be a JSON-RPC 2.0 object."))))
+            return false
         }
         guard envelope.jsonrpc == "2.0", let method = envelope.method, envelope.idIsValid else {
-            return reply(envelope.id ?? .null,
-                         .failure(.init(-32600, "invalidRequest", "The frame must be a JSON-RPC 2.0 request.")))
+            send(reply(envelope.id ?? .null,
+                       .failure(.init(-32600, "invalidRequest", "The frame must be a JSON-RPC 2.0 request."))))
+            return false
         }
-        guard envelope.hasID, let id = envelope.id else { return nil }
-        let started = Date()
-        let outcome: Result<any Encodable, RPCError>
-        do {
-            outcome = .success(try await call(method, frame: line))
-        } catch let error as RPCError {
-            outcome = .failure(error)
-        } catch {
-            outcome = .failure(.failed(error))
+        guard envelope.hasID, let id = envelope.id else {
+            if method == "$/cancelRequest", let target = try? JSONDecoder().decode(ParamsBox<CancelParams>.self, from: line) {
+                cancel(target.params.id)
+            }
+            return false
         }
-        let milliseconds = Int(Date().timeIntervalSince(started) * 1_000)
-        let result: String
+        if method == "shutdown" {
+            await allAnswered()
+            log("rpc shutdown id=\(id) 0ms ok")
+            send(reply(id, .success(String?.none)))
+            return true
+        }
+        start(id, method, line)
+        return false
+    }
+
+    // MARK: - Request lifetime
+
+    private func start(_ id: RPCID, _ method: String, _ frame: Data) {
+        let request = Pending(method: method)
+        lock.lock()
+        guard pending[id] == nil else {
+            lock.unlock()
+            send(reply(id, .failure(.init(-32600, "invalidRequest", "Request id \(id) is already waiting for a reply."))))
+            return
+        }
+        pending[id] = request
+        unanswered.enter()
+        lock.unlock()
+        let work = Task {
+            let outcome: Result<any Encodable, RPCError>
+            do {
+                outcome = .success(try await self.call(method, frame: frame))
+            } catch let error as RPCError {
+                outcome = .failure(error)
+            } catch {
+                outcome = .failure(.failed(error))
+            }
+            self.finish(id, request, outcome)
+        }
+        let timer = Task {
+            guard (try? await Task.sleep(nanoseconds: UInt64(self.timeout * 1_000_000_000))) != nil else { return }
+            self.finish(id, request, .failure(.init(
+                -32007, "failed", "Switch did not finish \(method) within \(Int(self.timeout)) seconds.", retryable: true)))
+        }
+        lock.lock()
+        if pending[id] === request { request.tasks = [work, timer] } else { timer.cancel() }
+        lock.unlock()
+    }
+
+    /// `$/cancelRequest`: the request gets -32800 now; its work is cancelled and any later result is dropped.
+    private func cancel(_ id: RPCID) {
+        lock.lock()
+        let request = pending[id]
+        lock.unlock()
+        if let request { finish(id, request, .failure(.cancelled)) }
+    }
+
+    /// Sends the reply once per request: the first of work, timer, or cancel wins.
+    private func finish(_ id: RPCID, _ request: Pending, _ outcome: Result<any Encodable, RPCError>) {
+        lock.lock()
+        guard pending[id] === request else {
+            lock.unlock()
+            return
+        }
+        pending[id] = nil
+        let tasks = request.tasks
+        lock.unlock()
+        tasks.forEach { $0.cancel() }
+        let milliseconds = Int(Date().timeIntervalSince(request.started) * 1_000)
         switch outcome {
-        case .success: result = "ok"
-        case .failure(let error): result = "\(error.code) \(error.data.kind)"
+        case .success: log("rpc \(request.method) id=\(id) \(milliseconds)ms ok")
+        case .failure(let error): log("rpc \(request.method) id=\(id) \(milliseconds)ms \(error.code) \(error.data.kind)")
         }
-        log("rpc \(method) id=\(id) \(milliseconds)ms \(result)")
-        return reply(id, outcome)
+        send(reply(id, outcome))
+        unanswered.leave()
+    }
+
+    private func allAnswered() async {
+        await withCheckedContinuation { continuation in
+            unanswered.notify(queue: .global()) { continuation.resume() }
+        }
+    }
+
+    private func send(_ frame: Data) {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        write(frame + [0x0A])
     }
 
     // MARK: - Methods
@@ -107,29 +219,24 @@ public final class RPCServer {
                                     platform: Self.platform, methods: Self.methods)
         case "initialized":
             return String?.none
-        case "shutdown":
-            isShutDown = true
-            return String?.none
         case "accounts.status":
             return WireStatus(try await requireManager().status())
         case "usage.detail":
             let params = try params(UsageDetailParams.self, method: method, frame: frame)
-            guard let id = UUID(uuidString: params.accountID) else {
-                throw RPCError(-32602, "invalidParams", "accountID must be an account UUID.")
-            }
-            return try await usageDetail(id, force: params.force ?? false)
+            return try await usageDetail(try accountID(params.accountID), force: params.force ?? false)
         default:
-            throw RPCError(-32601, "unknownMethod", "Switch has no method '\(method)'.")
+            guard let extra = extraMethods[method] else {
+                throw RPCError(-32601, "unknownMethod", "Switch has no method '\(method)'.")
+            }
+            return try await extra(frame)
         }
     }
 
     /// Codex: the cached app-server snapshot unless it is stale or `force`; then a live check, as `ai-manager usage` does.
     /// Every other provider: one read through its `ProviderSpec`.
     private func usageDetail(_ id: UUID, force: Bool) async throws -> WireUsage {
+        let account = try await account(id)
         let manager = try requireManager()
-        guard let account = try await manager.status().accounts.first(where: { $0.id == id }) else {
-            throw RPCError.notFound
-        }
         guard account.identity.providerID == .codex else {
             return WireUsage(account, usage: try await manager.readProviderUsage(accountID: id))
         }
@@ -146,14 +253,28 @@ public final class RPCServer {
         return WireUsage(account, codex: snapshot)
     }
 
-    private func requireManager() throws -> AccountManager {
+    func requireManager() throws -> AccountManager {
         guard let manager else {
             throw RPCError(-32002, "unavailable", "Switch cannot open its private data folder.")
         }
         return manager
     }
 
-    private func params<P: Decodable>(_ type: P.Type, method: String, frame: Data) throws -> P {
+    func account(_ id: UUID) async throws -> AccountRecord {
+        guard let account = try await requireManager().status().accounts.first(where: { $0.id == id }) else {
+            throw RPCError.notFound
+        }
+        return account
+    }
+
+    func accountID(_ text: String) throws -> UUID {
+        guard let id = UUID(uuidString: text) else {
+            throw RPCError(-32602, "invalidParams", "accountID must be an account UUID.")
+        }
+        return id
+    }
+
+    func params<P: Decodable>(_ type: P.Type, method: String, frame: Data) throws -> P {
         do {
             return try JSONDecoder().decode(ParamsBox<P>.self, from: frame).params
         } catch {
@@ -181,7 +302,7 @@ public final class RPCServer {
 // MARK: - Framing types
 
 /// A request id: a number, a string, or null. Echoed exactly in the reply.
-enum RPCID: Codable, Equatable, CustomStringConvertible {
+enum RPCID: Codable, Hashable, CustomStringConvertible {
     case number(Int)
     case string(String)
     case null
@@ -234,6 +355,8 @@ private struct Envelope: Decodable {
 
 private struct ParamsBox<P: Decodable>: Decodable { let params: P }
 
+private struct CancelParams: Decodable { let id: RPCID }
+
 struct RPCError: Error, Encodable {
     struct Detail: Encodable {
         let kind: String
@@ -251,6 +374,7 @@ struct RPCError: Error, Encodable {
     }
 
     static let notFound = RPCError(-32003, "notFound", "No saved account has that ID.")
+    static let cancelled = RPCError(-32800, "cancelled", "The request was cancelled.")
 
     /// Core errors carry display text only, the same text the CLI prints.
     static func failed(_ error: Error) -> RPCError {
