@@ -13,7 +13,15 @@ app_path="$build_path/mac-gui-acceptance/Switch Mac GUI Acceptance.app"
 executable="$app_path/Contents/MacOS/AIManagerMacGUIAcceptance"
 mkdir -p "$build_path"
 test_root="$(mktemp -d "$build_path/switch-mac-gui-contract.XXXXXX")"
-trap 'rm -rf "$test_root"' EXIT
+acceptance_domain=''
+cleanup() {
+  rm -rf "$test_root"
+  if [[ -n "$acceptance_domain" ]]; then
+    "$repo_root/scripts/remove-mac-gui-acceptance-prefs.sh" "$acceptance_domain" || true
+  fi
+}
+# EXIT also runs after a failed check (set -e or an explicit exit 1).
+trap cleanup EXIT
 # Removed test defaults suites still leave an empty plist (cfprefsd writes it later); clear old ones.
 find "$HOME/Library/Preferences" -maxdepth 1 -name 'switch-*-????????-????-????-????-????????????.plist' -mmin +10 -delete 2>/dev/null || true
 
@@ -103,6 +111,7 @@ if ! rg -q 'AIMSidebar\(' "$window_source" || ! rg -q 'NSVisualEffectView' "$par
 fi
 
 "$repo_root/scripts/build-mac-gui-acceptance.sh"
+acceptance_domain="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$app_path/Contents/Info.plist")"
 
 run_root="$test_root/service-interaction"
 mkdir -p "$run_root/home" "$run_root/codex-home" "$run_root/manager" "$run_root/tmp" "$run_root/artifacts"
