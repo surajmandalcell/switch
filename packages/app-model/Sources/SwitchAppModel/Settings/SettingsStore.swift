@@ -121,6 +121,9 @@ public final class JSONFileSettingsStore: SettingsStore, @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(Envelope(schemaVersion: SettingsRegistry.schemaVersion, values: next))
+        #if os(Windows)
+        try PrivateFiles.write(data, to: url)
+        #else
         // shortcut: POSIX owner-only modes, the folder is 0700 so the moment before chmod is private too; use
         // PrivateFiles (owner-only ACL on Windows) when Platform/ exposes it to this target (plan unit P1).
         let folder = url.deletingLastPathComponent()
@@ -128,6 +131,7 @@ public final class JSONFileSettingsStore: SettingsStore, @unchecked Sendable {
                                                 attributes: [.posixPermissions: 0o700])
         try data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        #endif
         values = next
         keys.forEach { continuation.yield($0) }
     }
