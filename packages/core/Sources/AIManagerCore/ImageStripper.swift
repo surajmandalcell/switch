@@ -1,6 +1,8 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -166,6 +168,10 @@ enum ImageStripper {
             defer { try? output.close() }
             let saved = try run(source, output: output)
             try output.synchronize()
+            #if os(Windows)
+            // windows-port: stub (P4) - copying mode and times needs the file handle API
+            throw PlatformError.unsupported("copying file mode and times")
+            #else
             guard fchmod(output.fileDescriptor, info.st_mode & 0o7777) == 0 else { throw AIManagerError.sourceChanged }
             #if canImport(Darwin)
             var times = [info.st_atimespec, info.st_mtimespec]
@@ -173,6 +179,7 @@ enum ImageStripper {
             var times = [info.st_atim, info.st_mtim]
             #endif
             guard futimens(output.fileDescriptor, &times) == 0 else { throw AIManagerError.sourceChanged }
+            #endif
             return saved
         } catch {
             try? FileManager.default.removeItem(at: temporary)

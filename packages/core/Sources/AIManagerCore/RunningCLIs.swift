@@ -377,6 +377,9 @@ public enum RunningCLIs {
         }
         guard let argv = strings("cmdline"), !argv.isEmpty, let env = strings("environ") else { return nil }
         return (argv, env)
+        #elseif os(Windows)
+        // windows-port: stub (P7)
+        return nil
         #else
         var limit: Int32 = 0
         var limitSize = MemoryLayout<Int32>.size

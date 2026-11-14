@@ -2,6 +2,8 @@ import CSQLite
 import Foundation
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -719,6 +721,10 @@ struct ProviderAccountStore {
 
     /// Temp file in the same directory, then rename. Existing parent directories keep their mode.
     private func replaceFile(_ url: URL, with data: Data, mode: Int) throws {
+#if os(Windows)
+        // windows-port: stub (P1) - posixPermissions does nothing on Windows; wait for owner-only ACLs
+        throw PlatformError.unsupported("private file replace")
+#else
         let target = url.resolvingSymlinksInPath()
         let directory = target.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -734,6 +740,7 @@ struct ProviderAccountStore {
             try? fileManager.removeItem(at: temporary)
             throw error
         }
+#endif
     }
 
     // MARK: SQLite rows

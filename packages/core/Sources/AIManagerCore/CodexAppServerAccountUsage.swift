@@ -2,6 +2,8 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -544,8 +546,13 @@ public struct ProcessCodexAppServerRPCTransport: CodexAppServerRPCTransport {
         }
 
         let deadline = Date().addingTimeInterval(limits.timeout)
+#if os(Windows)
+        let readerDescriptor: Int32 = -1 // windows-port: stub (P6) - the read fails at once, loudly
+#else
+        let readerDescriptor = output.fileHandleForReading.fileDescriptor
+#endif
         let reader = BoundedJSONLReader(
-            descriptor: output.fileHandleForReading.fileDescriptor,
+            descriptor: readerDescriptor,
             maximumTotalBytes: limits.maximumOutputBytes,
             maximumLineBytes: limits.maximumLineBytes
         )
@@ -658,7 +665,7 @@ private final class ProcessBox: @unchecked Sendable {
         let process = self.process
         lock.unlock()
         guard let process, process.isRunning else { return }
-        kill(process.processIdentifier, SIGTERM)
+        process.terminate()
         usleep(100_000)
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
     }

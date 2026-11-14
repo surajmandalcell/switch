@@ -135,6 +135,10 @@ public actor CodexAPIPricingResolver {
     }
 
     private func store(_ data: Data) throws {
+#if os(Windows)
+        // windows-port: stub (P1) - posixPermissions does nothing on Windows; the caller skips with try?
+        throw PlatformError.unsupported("private cache write")
+#else
         let directory = cacheURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true,
@@ -142,5 +146,6 @@ public actor CodexAPIPricingResolver {
         try data.write(to: cacheURL, options: .atomic)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600], ofItemAtPath: cacheURL.path)
+#endif
     }
 }
