@@ -6,11 +6,17 @@ public enum AppEngineError: Error, Equatable, LocalizedError {
     case busy
     /// The private data folder could not open.
     case unavailable
+    /// A plan or flow id that was replaced, discarded, or never existed (-32004).
+    case stale
+    /// Not available on this platform in this version (-32005).
+    case unsupported(String)
 
     public var errorDescription: String? {
         switch self {
         case .busy: "Switch is busy with another action."
         case .unavailable: AppEngine.unavailableText
+        case .stale: "That plan expired or was replaced. Review it again."
+        case .unsupported(let reason): reason
         }
     }
 }
@@ -62,6 +68,8 @@ public actor AppEngine {
 
     // Settings (Settings.swift).
     let settings: any SettingsStore
+    // Account lifecycle (Lifecycle.swift): the one import plan under review.
+    var importPlan: ImportPlan?
 
     /// `manager` is nil when the private data folder cannot open; `app.isUnavailable` is then true.
     /// `codexCache` is the Codex usage SQLite cache the helper shares with its read methods. Without `settings`
