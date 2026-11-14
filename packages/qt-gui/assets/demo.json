@@ -1,0 +1,37 @@
+{
+  "topics": {
+    "app": { "hasLoaded": true, "isUnavailable": false, "isBusy": false, "refreshedAt": "2026-11-14T14:00:00Z", "dataLocation": "/home/demo/.local/share/switch" },
+    "notices": {},
+    "accounts": {
+      "rows": [
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0001", "providerID": "codex", "label": "ada@example", "isDefault": true, "verification": "verifiedWithCodex", "needsSignIn": false, "needsDroidAccess": false, "plan": "Pro",
+          "windows": [ { "id": "session", "title": "Session", "usedPercent": 62, "resetsAt": "2026-11-14T16:14:00Z", "windowMinutes": 300 },
+                       { "id": "weekly", "title": "Weekly", "usedPercent": 29, "resetsAt": "2026-11-18T20:00:00Z", "windowMinutes": 10080 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0002", "providerID": "claude-code", "label": "ada@work", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "Max",
+          "windows": [ { "id": "session", "title": "Session", "usedPercent": 38, "resetsAt": "2026-11-14T17:05:00Z", "windowMinutes": 300 },
+                       { "id": "weekly", "title": "Weekly", "usedPercent": 71, "resetsAt": "2026-11-18T16:00:00Z", "windowMinutes": 10080 } ] },
+        { "id": "0b1c6a52-7a0e-4d3c-9a51-0f6f1d3c0003", "providerID": "droid", "label": "Droid 1", "isDefault": true, "verification": "verifiedLocally", "needsSignIn": false, "needsDroidAccess": false, "plan": "",
+          "windows": [ { "id": "standard", "title": "Standard", "usedPercent": 12, "resetsAt": "2026-12-02T18:00:00Z", "windowMinutes": 43200 } ] }
+      ]
+    },
+    "tray": {
+      "groups": [
+        { "id": "codex", "name": "Codex", "accounts": [
+          { "label": "ada@example", "isDefault": true, "shown": 2,
+            "lines": [ { "label": "Session", "used": 62, "reset": "2h 14m" }, { "label": "Weekly", "used": 29, "reset": "4d 6h" },
+                       { "heading": "Spark" }, { "label": "Session", "used": 8, "reset": "3h 40m" }, { "label": "Weekly", "used": 3, "reset": "5d 9h" } ],
+            "token": "412M since reset · ≈$1,648 API", "band": ["Open Codex"] } ] },
+        { "id": "claude-code", "name": "Claude Code", "accounts": [
+          { "label": "ada@work", "isDefault": true, "shown": 2,
+            "lines": [ { "label": "Session", "used": 38, "reset": "3h 05m" }, { "label": "Weekly", "used": 71, "reset": "4d 2h" },
+                       { "heading": "Fable" }, { "label": "Weekly", "used": 22, "reset": "4d 2h" } ],
+            "token": "", "band": ["Open Claude Code"] } ] },
+        { "id": "droid", "name": "Droid", "accounts": [
+          { "label": "Droid 1", "isDefault": true, "shown": 1,
+            "lines": [ { "label": "Standard", "used": 12, "reset": "18d 4h" } ],
+            "token": "", "band": ["Open Droid"] } ] }
+      ]
+    }
+  },
+  "replies": {}
+}
