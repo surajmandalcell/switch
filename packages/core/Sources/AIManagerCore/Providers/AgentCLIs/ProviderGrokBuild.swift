@@ -268,7 +268,7 @@ enum GrokBuildUsage {
             // inputTokens already includes cache reads and writes; reasoning is a subset of output.
             let tokens = max(0, model["inputTokens"].double ?? 0) + max(0, model["outputTokens"].double ?? 0)
             return MajorsSpend.Entry(date: date, cost: ticks.flatMap { $0 >= 0 ? $0 / 10_000_000_000 : nil },
-                                     tokens: Int(min(tokens, 1e15)), model: name,
+                                     tokens: Fmt.clampedInt(tokens, 0...1_000_000_000_000_000), model: name,
                                      key: eventID.map { "\($0)\0\(name)" })
         }
     }
@@ -347,7 +347,7 @@ enum GrokBuildUsage {
             if let title {
                 windows.append(UsageWindow(
                     id: title.lowercased(), title: title, usedPercent: percent,
-                    resetsAt: end, windowMinutes: Int(end.timeIntervalSince(start) / 60)))
+                    resetsAt: end, windowMinutes: Fmt.int(end.timeIntervalSince(start) / 60)))
             }
         }
         // The cap and the used amount are cents, like prepaidBalance.

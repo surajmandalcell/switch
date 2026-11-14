@@ -60,7 +60,7 @@ enum FactoryUsage {
             }
         } else if let usage = legacy?["usage"], usage.exists {
             let start = usage["startDate"].date, end = usage["endDate"].date
-            let minutes = start.flatMap { s in end.map { Int($0.timeIntervalSince(s) / 60) } }.flatMap { $0 > 0 ? $0 : nil }
+            let minutes = start.flatMap { s in end.flatMap { Fmt.int($0.timeIntervalSince(s) / 60) } }.flatMap { $0 > 0 ? $0 : nil }
             for (id, title) in [("standard", "Standard"), ("premium", "Premium")] where usage[id].exists {
                 let pool = usage[id]
                 let tokens = pool["userTokens"].double ?? 0

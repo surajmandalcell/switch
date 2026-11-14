@@ -83,7 +83,7 @@ public enum UsagePace {
             return .healthy(projectedFraction: fraction)
         case .onTrack:
             if used / limit < 0.05 { return band }
-            let spare = Int(((1 - fraction) * 100).rounded())
+            let spare = Fmt.int(((1 - fraction) * 100).rounded()) ?? 0
             return spare < 1 ? .runningOut(eta: nil, projectedFraction: nil)
                 : .closeToLimit(label: "~\(spare)% spare", projectedFraction: fraction)
         case .behind:
@@ -115,12 +115,12 @@ public enum UsagePace {
     public static func tooltip(_ state: MeterState) -> String? {
         switch state {
         case .healthy(let fraction):
-            return "~\(Int(((1 - fraction) * 100).rounded()))% left at reset"
+            return "~\(Fmt.int(((1 - fraction) * 100).rounded()) ?? 0)% left at reset"
         case .closeToLimit(_, let fraction):
-            return "~\(Int((fraction * 100).rounded()))% used at reset"
+            return "~\(Fmt.int((fraction * 100).rounded()) ?? 0)% used at reset"
         case .runningOut(_, let fraction):
             guard let fraction, fraction > 1 else { return "~100% used at reset" }
-            return "~\(max(1, Int(((fraction - 1) * 100).rounded())))% over limit at reset"
+            return "~\(max(1, Fmt.int(((fraction - 1) * 100).rounded()) ?? 1))% over limit at reset"
         case .spent:
             return "Limit reached"
         case .noData, .level:
@@ -140,7 +140,7 @@ public enum UsagePace {
     }
 
     public static func duration(_ seconds: TimeInterval) -> String {
-        let minutes = max(Int(seconds / 60), 0)
+        let minutes = max(Fmt.int(seconds / 60) ?? 0, 0)
         let (days, hours, rest) = (minutes / 1440, minutes % 1440 / 60, minutes % 60)
         if days > 0 { return "\(days)d \(hours)h" }
         if hours > 0 { return "\(hours)h \(rest)m" }

@@ -49,7 +49,7 @@ enum NeuralwattUsage {
         if let included, let consumed,
            let window = UsageWindow.amounts(
                id: "subscription", title: "Subscription", used: consumed, limit: included, resetsAt: end,
-               windowMinutes: end.flatMap { e in start.map { max(1, Int(e.timeIntervalSince($0) / 60)) } },
+               windowMinutes: end.flatMap { e in start.flatMap { Fmt.int(e.timeIntervalSince($0) / 60).map { max(1, $0) } } },
                unit: "kWh") {
             windows.append(window)
         }

@@ -714,6 +714,13 @@ public enum Fmt {
         value.isFinite && value >= -9_223_372_036_854_775_808.0 && value < 9_223_372_036_854_775_808.0 ? Int(value) : nil
     }
 
+    /// `Int(min(max(value, lower), upper))` without its traps: NaN reads as `lower`.
+    public static func clampedInt(_ value: Double, _ range: ClosedRange<Int>) -> Int {
+        if value.isNaN || value <= Double(range.lowerBound) { return range.lowerBound }
+        if value >= Double(range.upperBound) { return range.upperBound }
+        return Int(value)
+    }
+
     public static func number(_ value: Double, digits: Int = 0) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -761,8 +768,10 @@ public enum Fmt {
     }
 
     public static func epoch(_ value: Double) -> Date? {
-        guard value > 0, value.isFinite else { return nil }
-        return Date(timeIntervalSince1970: value > 100_000_000_000 ? value / 1000 : value)
+        let seconds = value > 100_000_000_000 ? value / 1000 : value
+        // Seconds above 1e11 read as milliseconds; past 9999-12-31 neither form is a real date.
+        guard value > 0, value.isFinite, seconds < 253_402_300_800 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 
     public static func iso(_ text: String) -> Date? {

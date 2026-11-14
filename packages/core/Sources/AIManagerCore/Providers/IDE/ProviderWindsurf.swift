@@ -186,8 +186,8 @@ enum WindsurfProto {
                 for case (1, .varint(let seconds)) in try fields(stamp) {
                     status.planEnd = Date(timeIntervalSince1970: TimeInterval(seconds))
                 }
-            case (14, .varint(let v)): status.dailyRemaining = Int(v)
-            case (15, .varint(let v)): status.weeklyRemaining = Int(v)
+            case (14, .varint(let v)): status.dailyRemaining = Int(clamping: v)
+            case (15, .varint(let v)): status.weeklyRemaining = Int(clamping: v)
             case (17, .varint(let v)): status.dailyReset = Date(timeIntervalSince1970: TimeInterval(v))
             case (18, .varint(let v)): status.weeklyReset = Date(timeIntervalSince1970: TimeInterval(v))
             default: break

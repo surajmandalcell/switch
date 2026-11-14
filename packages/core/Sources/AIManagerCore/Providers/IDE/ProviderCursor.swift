@@ -140,7 +140,7 @@ enum CursorUsage {
             let usage = event["tokenUsage"]
             let tokens = ["inputTokens", "outputTokens", "cacheWriteTokens", "cacheReadTokens"]
                 .reduce(0.0) { $0 + max(0, usage[$1].double ?? 0) }
-            return Event(date: date, tokens: Int(min(tokens, 1e15)), cents: usage["totalCents"].double.flatMap { $0 >= 0 ? $0 : nil })
+            return Event(date: date, tokens: Fmt.clampedInt(tokens, 0...1_000_000_000_000_000), cents: usage["totalCents"].double.flatMap { $0 >= 0 ? $0 : nil })
         }
     }
 
@@ -339,7 +339,7 @@ enum CursorUsage {
         var reset = end
         var minutes = 43_200
         if let start, let end, end > start {
-            minutes = Int(end.timeIntervalSince(start) / 60)
+            minutes = Fmt.int(end.timeIntervalSince(start) / 60) ?? minutes
         } else {
             reset = requests?["startOfMonth"].date.map { $0.addingTimeInterval(43_200 * 60) }
         }
@@ -410,7 +410,7 @@ enum CursorUsage {
     }
 
     private static func cycle(start: Double?, end: Double?) -> (Date?, Int) {
-        let minutes = start.flatMap { s in end.map { Int(($0 - s) / 60_000) } }.flatMap { $0 > 0 ? $0 : nil } ?? 43_200
+        let minutes = start.flatMap { s in end.flatMap { Fmt.int(($0 - s) / 60_000) } }.flatMap { $0 > 0 ? $0 : nil } ?? 43_200
         return (end.flatMap(Fmt.epoch), minutes)
     }
 

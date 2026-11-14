@@ -29,7 +29,8 @@ extension ProviderCatalog {
                     let fresh = try await IDEAuth.googleRefresh(clientID: client.id, clientSecret: client.secret,
                                                                 refreshToken: refresh)
                     file["access_token"] = fresh.accessToken
-                    file["expiry_date"] = Int(Date().addingTimeInterval(fresh.expiresIn).timeIntervalSince1970 * 1000)
+                    // A bogus expires_in must not trap; the CLI then sees an expired token and refreshes again.
+                    file["expiry_date"] = Fmt.int(Date().addingTimeInterval(fresh.expiresIn).timeIntervalSince1970 * 1000) ?? 0
                     if let idToken = fresh.idToken { file["id_token"] = idToken }
                     changed = true
                     return fresh.accessToken
