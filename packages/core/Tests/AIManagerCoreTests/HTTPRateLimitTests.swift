@@ -30,6 +30,25 @@ final class HTTPRateLimitTests: XCTestCase {
         XCTAssertEqual(error(401, ["retry-after": "60"])?.needsSignIn, true)
     }
 
+    func testAutomaticRefreshWaitsForTheRetryTime() {
+        let failed = Date(timeIntervalSince1970: 1_800_000_000)
+        func due(_ error: ProviderError?, after seconds: TimeInterval) -> Bool {
+            ProviderRefreshPolicy.isDue(lastError: error, failedAt: failed, now: failed + seconds, cooldown: 300)
+        }
+        let limited = error(429, ["retry-after": "7200"])
+        if case .rateLimited(_, let retryAfter)? = limited { XCTAssertEqual(retryAfter, 7200) } else { XCTFail("\(String(describing: limited))") }
+        XCTAssertFalse(due(limited, after: 7199))
+        XCTAssertTrue(due(limited, after: 7200))
+        // A short Retry-After never shortens the normal cooldown; other errors use the cooldown only.
+        XCTAssertFalse(due(error(429, ["retry-after": "10"]), after: 299))
+        XCTAssertTrue(due(error(429), after: 300))
+        XCTAssertTrue(due(.unavailable("down"), after: 300))
+        XCTAssertTrue(due(nil, after: 300))
+        // A huge Retry-After is capped at one day.
+        XCTAssertTrue(due(.rateLimited("x", retryAfter: 1e300), after: 86_400))
+        XCTAssertTrue(due(.rateLimited("x", retryAfter: .nan), after: 300))
+    }
+
     func testRateLimitMessageNamesTheRetryTime() {
         XCTAssertEqual(error(429, ["retry-after": "120"])?.errorDescription,
                        "The provider is rate limiting usage checks. Try again in about 2 minutes.")

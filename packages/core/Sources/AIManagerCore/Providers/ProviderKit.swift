@@ -453,7 +453,8 @@ public struct ProviderSpec: Sendable, Identifiable {
 public enum ProviderError: LocalizedError, Equatable, Sendable {
     case missingCredential(String)
     case unauthorized(String)
-    case rateLimited(String)
+    /// `retryAfter`: seconds the provider asked to wait, when it said so.
+    case rateLimited(String, retryAfter: TimeInterval? = nil)
     case unavailable(String)
     case http(Int, String)
     case parse(String)
@@ -462,7 +463,7 @@ public enum ProviderError: LocalizedError, Equatable, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .missingCredential(let text), .unauthorized(let text), .rateLimited(let text),
+        case .missingCredential(let text), .unauthorized(let text), .rateLimited(let text, _),
              .unavailable(let text), .parse(let text), .network(let text), .unsupported(let text):
             text.printable
         case .http(let code, let text):
@@ -476,6 +477,19 @@ public enum ProviderError: LocalizedError, Equatable, Sendable {
         case .unauthorized, .missingCredential: true
         default: false
         }
+    }
+}
+
+/// When an automatic usage refresh may ask a provider again after a failed check.
+public enum ProviderRefreshPolicy {
+    /// A Retry-After longer than this is treated as this long, so a bad header cannot stop refreshes for good.
+    public static let maxRetryAfter: TimeInterval = 86_400
+
+    /// True when `now` is past both the normal `cooldown` and any wait a rate limit asked for.
+    public static func isDue(lastError: ProviderError?, failedAt: Date, now: Date, cooldown: TimeInterval) -> Bool {
+        var wait = cooldown
+        if case .rateLimited(_, let retryAfter?)? = lastError, retryAfter.isFinite { wait = max(wait, min(retryAfter, maxRetryAfter)) }
+        return now.timeIntervalSince(failedAt) >= wait
     }
 }
 
@@ -569,9 +583,11 @@ public enum HTTP {
         switch response.status {
         case 200..<300: return
         case 403 where isRateLimited(response.headers), 429:
-            let wait = retryDelay(response.headers).map { max(1, Int((min($0, 86_400) / 60).rounded(.up))) }
+            let delay = retryDelay(response.headers).map { min($0, ProviderRefreshPolicy.maxRetryAfter) }
+            let wait = delay.map { max(1, Int(($0 / 60).rounded(.up))) }
             throw ProviderError.rateLimited("The provider is rate limiting usage checks. "
-                + (wait.map { "Try again in about \($0) minute\($0 == 1 ? "" : "s")." } ?? "Switch will retry later."))
+                + (wait.map { "Try again in about \($0) minute\($0 == 1 ? "" : "s")." } ?? "Switch will retry later."),
+                retryAfter: delay)
         case 401, 403:
             throw ProviderError.unauthorized("The provider rejected this credential. Sign in again or replace it.")
         case 500...:
