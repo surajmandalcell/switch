@@ -44,24 +44,42 @@ public actor AppEngine {
     private var stopped = false
     var timers: [Task<Void, Never>] = []
 
+    // Accounts and usage (Accounts.swift).
+    let codexCache: CodexUsageStatisticsCache?
+    var status: ManagerStatus?
+    var codexUsage: [UUID: CachedCodexAccountUsage] = [:]
+    var codexRefreshing: UUID?
+    var providerUsage: [UUID: ProviderUsageState] = [:]
+    /// Isolated runs (tests, demos) read no live usage, as on the Mac. Tests with synthetic providers turn it on.
+    var refreshesInIsolation = false
+    var refreshes: Bool { paths.isolationRoot == nil || refreshesInIsolation }
+    func setRefreshesInIsolation(_ value: Bool) { refreshesInIsolation = value }
+
     /// `manager` is nil when the private data folder cannot open; `app.isUnavailable` is then true.
-    public init(manager: AccountManager?, paths: ManagerPaths, clock: any AppClock = SystemClock()) {
+    /// `codexCache` is the Codex usage SQLite cache the helper shares with its read methods.
+    public init(manager: AccountManager?, paths: ManagerPaths, clock: any AppClock = SystemClock(),
+                codexCache: CodexUsageStatisticsCache? = nil) {
         self.manager = manager
         self.paths = paths
         self.clock = clock
+        self.codexCache = codexCache
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
         app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path)
         slots[.app] = Self.slot(app)
         slots[.notices] = Self.slot(notices)
+        slots[.accounts] = Self.slot(AccountsValue())
     }
 
-    /// Starts the schedulers once, after the client's `initialized`.
+    /// Loads the accounts and starts the usage timers once, after the client's `initialized`.
     public func start() async {
         guard !started, !stopped else { return }
         started = true
         if manager == nil { setError(Self.unavailableText) }
+        await reloadAccounts()
         app.hasLoaded = true
+        app.refreshedAt = clock.now
         publish(.app, app)
+        if manager != nil { startUsageTimers() }
     }
 
     /// Cancels every timer and ends `changes`.
@@ -150,8 +168,12 @@ public actor AppEngine {
         continuation.yield(TopicChange(topic: topic, rev: slot.rev, value: pending.value))
     }
 
+    /// Test seam: the newest value of `topic`, committed or still inside its 100 ms window.
+    func latest(_ topic: Topic) -> (any TopicValue)? { slots[topic].map { $0.pending?.value ?? $0.value } }
+
     /// Test seam: a flush timer for `topic` has not fired yet.
     func isFlushScheduled(_ topic: Topic) -> Bool { slots[topic]?.flushScheduled ?? false }
+    var scheduledFlushes: Int { slots.values.filter(\.flushScheduled).count }
 
     private static func slot(_ value: any TopicValue) -> Slot {
         Slot(value: value, bytes: (try? encoder.encode(value)) ?? Data())

@@ -60,7 +60,7 @@ public final class RPCServer: @unchecked Sendable {
         codexCache = try? CodexUsageStatisticsCache(
             databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
             activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
-        engine = AppEngine(manager: manager, paths: paths, clock: clock)
+        engine = AppEngine(manager: manager, paths: paths, clock: clock, codexCache: codexCache)
     }
 
     public static func standardError(_ text: String) {
