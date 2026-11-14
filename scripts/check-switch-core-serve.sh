@@ -42,3 +42,9 @@ kill -TERM "$first"
 wait "$first"
 exec 3>&-
 echo "switch-core serve: a second helper is refused; SIGTERM exits 0"
+
+# doctor: every check passes on a fresh root and the exit code says so.
+# A build host has no terminal emulator, so TERMINAL names a program that exists.
+HOME="$root/home" TERMINAL=/bin/true "$binary" doctor --root "$root/switch" > "$root/doctor" || { cat "$root/doctor"; exit 1; }
+grep -q '^result      all checks passed' "$root/doctor"
+echo "switch-core doctor: all checks passed"
