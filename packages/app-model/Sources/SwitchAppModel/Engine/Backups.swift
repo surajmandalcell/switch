@@ -108,7 +108,8 @@ extension AppEngine {
     /// Restores a snapshot (all of it, or `items` with their descendants) in place, after a safety snapshot, or into
     /// `destination`. Login files come back only with `includeLogins`, as the CLI asks.
     public func restoreBackup(setID: UUID, snapshotID: String, items: [String], destination: URL?,
-                              includeLogins: Bool) async throws -> ActionResult {
+                              includeLogins: Bool, progress: (@Sendable (BackupRunProgress) -> Void)? = nil)
+        async throws -> ActionResult {
         let manager = try requireManager()
         let backups = BackupEngine(applicationSupport: paths.applicationSupport)
         guard var set = try await backups.sets().first(where: { $0.id == setID }) else {
@@ -130,7 +131,11 @@ extension AppEngine {
         }
         set.includeLogins = includeLogins
         do {
-            let result = try await manager.restoreBackup(snapshot, set: set, items: items.isEmpty ? nil : items, to: destination)
+            let id = setID.uuidString.lowercased()
+            let result = try await manager.restoreBackup(snapshot, set: set, items: items.isEmpty ? nil : items,
+                                                         to: destination) { value in
+                progress?(BackupRunProgress(setID: id, index: 0, count: 1, files: value.files, bytes: value.bytes))
+            }
             let notice = "Restored \(result.restored) files" + (destination.map { " to \($0.lastPathComponent)" } ?? "") + "."
             setNotice(notice)
             return .done(notice: notice)

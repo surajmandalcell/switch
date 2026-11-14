@@ -32,7 +32,7 @@ extension RPCServer {
             return try await engine.restoreBackup(
                 setID: try setID(params.setID), snapshotID: params.snapshotID, items: params.items ?? [],
                 destination: params.destination.map { URL(fileURLWithPath: $0, isDirectory: true) },
-                includeLogins: params.includeLogins ?? false)
+                includeLogins: params.includeLogins ?? false) { [progress = progress(frame)] in progress?($0) }
         default:
             return nil
         }

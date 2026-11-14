@@ -23,7 +23,10 @@ extension RPCRuntimeTests {
 
         /// Scans, reviews every old version, and moves them to the trash. Returns the trash batch id.
         func trashOldVersions(_ id: Int) async throws -> String {
-            let scanned = try await call(session, id, "cleanup.scan", #"{"sourceID":"codex"}"#)
+            let scanned = try await call(session, id, "cleanup.scan", #"{"sourceID":"codex","progressToken":"scan-\#(id)"}"#)
+            XCTAssertTrue(session.frames.contains {
+                $0["method"] as? String == "$/progress" && ($0["params"] as? [String: Any])?["token"] as? String == "scan-\(id)"
+            }, "scan sends $/progress")
             let scan = try XCTUnwrap(result(scanned))
             let versions = try XCTUnwrap((scan["categories"] as? [[String: Any]])?.first { $0["id"] as? String == "versions" })
             let items = (versions["items"] as? [[String: Any]] ?? []).filter { $0["protectedReason"] == nil }

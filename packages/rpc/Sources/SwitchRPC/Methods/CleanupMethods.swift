@@ -26,7 +26,9 @@ extension RPCServer {
     func cleanupMethod(_ method: String, frame: Data) async throws -> (any Encodable)? {
         switch method {
         case "cleanup.scan":
-            let result = try await engine.scanCleanup(sourceID: try params(ScanParams.self, method: method, frame: frame).sourceID)
+            let progress = progress(frame)
+            let result = try await engine.scanCleanup(
+                sourceID: try params(ScanParams.self, method: method, frame: frame).sourceID) { progress?($0) }
             return WireCleanupScan(result.scanID, result.scan)
         case "cleanup.review":
             let params = try params(ReviewParams.self, method: method, frame: frame)

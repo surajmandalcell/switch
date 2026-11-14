@@ -222,8 +222,9 @@ public actor AccountManager {
     }
 
     /// Scans one source. It reads only metadata and runs without the manager lock.
-    public static func scanCleanup(_ source: CleanupSource, summaries: [ChatThreadSummary] = []) throws -> CleanupScan {
-        try CleanupScanner(source: source, summaries: summaries).scan()
+    public static func scanCleanup(_ source: CleanupSource, summaries: [ChatThreadSummary] = [],
+                                   progress: ((CleanupScanProgress) -> Void)? = nil) throws -> CleanupScan {
+        try CleanupScanner(source: source, summaries: summaries).scan(progress: progress)
     }
 
     public func reviewCleanup(_ source: CleanupSource, _ items: [CleanupItem]) throws -> ConversationCleanupPlan {
@@ -266,7 +267,8 @@ public actor AccountManager {
         _ snapshot: BackupSnapshot,
         set: BackupSet,
         items: [String]? = nil,
-        to destination: URL? = nil
+        to destination: URL? = nil,
+        progress: (@Sendable (BackupProgress) -> Void)? = nil
     ) async throws -> BackupRestoreResult {
         try await lock.withAsyncLock {
             try ensureNoRecovery()
@@ -303,7 +305,7 @@ public actor AccountManager {
                 }
             }
             return try await BackupEngine(applicationSupport: paths.applicationSupport)
-                .restore(snapshot, set: set, items: items, to: destination)
+                .restore(snapshot, set: set, items: items, to: destination, progress: progress)
         }
     }
 
