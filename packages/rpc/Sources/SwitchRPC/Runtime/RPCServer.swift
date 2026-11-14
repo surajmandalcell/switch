@@ -7,6 +7,7 @@ import AIManagerCore
 public final class RPCServer: @unchecked Sendable {
     public static let protocolVersion = 1
     public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail"]
+        + readMethods
     public static let defaultTimeout: TimeInterval = 60
     static let maximumFrame = 16 * 1024 * 1024
 
@@ -225,6 +226,7 @@ public final class RPCServer: @unchecked Sendable {
             let params = try params(UsageDetailParams.self, method: method, frame: frame)
             return try await usageDetail(try accountID(params.accountID), force: params.force ?? false)
         default:
+            if let result = try await readMethod(method, frame: frame) { return result }
             guard let extra = extraMethods[method] else {
                 throw RPCError(-32601, "unknownMethod", "Switch has no method '\(method)'.")
             }
