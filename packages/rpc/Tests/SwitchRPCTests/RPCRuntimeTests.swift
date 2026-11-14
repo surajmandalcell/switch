@@ -5,11 +5,11 @@ import XCTest
 
 /// Drives `RPCServer.serve` through an in-memory pipe with synthetic accounts in a temporary home.
 final class RPCRuntimeTests: XCTestCase {
-    private var root: URL!
-    private var paths: ManagerPaths!
-    private var logLines: [String] = []
-    private let canary = "sk-canary-\(UUID().uuidString)"
-    private let provider = ProviderID(rawValue: "test-rpc")
+    var root: URL!
+    var paths: ManagerPaths!
+    var logLines: [String] = []
+    let canary = "sk-canary-\(UUID().uuidString)"
+    let provider = ProviderID(rawValue: "test-rpc")
 
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory.appending(path: "RPCRuntimeTests-\(UUID().uuidString)")
@@ -22,7 +22,7 @@ final class RPCRuntimeTests: XCTestCase {
 
     override func tearDownWithError() throws { if let root { try? FileManager.default.removeItem(at: root) } }
 
-    private func manager() throws -> AccountManager {
+    func manager() throws -> AccountManager {
         let usage = ProviderUsage(windows: [UsageWindow(id: "session", title: "Session", usedPercent: 40)],
                                   plan: "Pro", email: "rpc@example.test")
         let spec = ProviderSpec(id: provider.rawValue, name: "RPC Test", style: .secret,
@@ -39,7 +39,7 @@ final class RPCRuntimeTests: XCTestCase {
 
     /// Writes the lines into a pipe, closes it, serves to the end, and returns each reply as a JSON object,
     /// in the order the server wrote them.
-    private func run(_ lines: [String], manager: AccountManager? = nil, timeout: TimeInterval = RPCServer.defaultTimeout,
+    func run(_ lines: [String], manager: AccountManager? = nil, timeout: TimeInterval = RPCServer.defaultTimeout,
                      extra: [String: @Sendable (Data) async throws -> any Encodable] = [:])
         async throws -> (raw: [String], replies: [[String: Any]]) {
         let logLock = NSLock()
@@ -56,10 +56,10 @@ final class RPCRuntimeTests: XCTestCase {
         return (raw, replies)
     }
 
-    private func errorCode(_ reply: [String: Any]) -> Int? { (reply["error"] as? [String: Any])?["code"] as? Int }
-    private func result(_ reply: [String: Any]) -> [String: Any]? { reply["result"] as? [String: Any] }
+    func errorCode(_ reply: [String: Any]) -> Int? { (reply["error"] as? [String: Any])?["code"] as? Int }
+    func result(_ reply: [String: Any]) -> [String: Any]? { reply["result"] as? [String: Any] }
     /// Replies arrive in completion order, so tests look them up by id.
-    private func reply(_ replies: [[String: Any]], _ id: Int) throws -> [String: Any] {
+    func reply(_ replies: [[String: Any]], _ id: Int) throws -> [String: Any] {
         try XCTUnwrap(replies.first { $0["id"] as? Int == id }, "no reply for id \(id)")
     }
 

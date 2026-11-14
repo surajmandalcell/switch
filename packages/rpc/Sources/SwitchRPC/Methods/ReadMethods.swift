@@ -1,0 +1,132 @@
+import Foundation
+import AIManagerCore
+
+/// The read-only methods of architecture.md section 2.9 that need only AIManagerCore (no app-engine topics).
+extension RPCServer {
+    static let readMethods = [
+        "providers.list", "accounts.savedAuthPath", "accounts.inspectLinks", "import.discover",
+        "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
+        "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
+        "usage.projectActivity", "runningCLIs.list",
+    ]
+
+    /// Nil when `method` is not a read method.
+    func readMethod(_ method: String, frame: Data) async throws -> (any Encodable)? {
+        switch method {
+        case "providers.list":
+            return AccountManager.providerCatalog
+        case "accounts.savedAuthPath":
+            let params = try params(AccountParams.self, method: method, frame: frame)
+            return ["path": try await account(try accountID(params.accountID)).credentialFile.path]
+        case "accounts.inspectLinks":
+            let params = try? params(OptionalAccountParams.self, method: method, frame: frame)
+            let filter = try params?.accountID.map(accountID)
+            return try await requireManager().status().linkedSettingsDivergences
+                .filter { filter == nil || $0.accountID == filter }.map(WireDivergence.init)
+        case "import.discover":
+            let folder = (try? params(FolderParams.self, method: method, frame: frame))?.folder
+            return try await requireManager().discover(explicit: folder.map { URL(fileURLWithPath: $0) })
+                .map(WireDiscoveredSource.init)
+        case "claude.shellIntegration.get":
+            return ["enabled": try await requireManager().claudeShellIntegrationInstalled()]
+        case "droid.missions":
+            return try await requireManager().droidMissions().map(WireMission.init)
+        case "history.list":
+            let params = (try? params(HistoryListParams.self, method: method, frame: frame)) ?? .init()
+            let limit = params.limit ?? 100
+            guard (1...1_000).contains(limit) else { throw RPCError(-32602, "invalidParams", "limit must be 1 to 1000.") }
+            return WireThreadList(try await chatIndex().refresh(query: params.query ?? "", limit: limit))
+        case "history.detail":
+            let params = try params(HistoryDetailParams.self, method: method, frame: frame)
+            let limit = params.limit ?? 100
+            guard (1...200).contains(limit) else { throw RPCError(-32602, "invalidParams", "limit must be 1 to 200.") }
+            return WireThreadDetail(try await threadDetail(params.id, offset: params.offset ?? 0, limit: limit,
+                                                          query: params.query ?? "", role: params.role))
+        case "history.export":
+            let params = try params(HistoryDetailParams.self, method: method, frame: frame)
+            var text: [String] = []
+            var offset: Int? = 0
+            while let next = offset {
+                let detail = try await threadDetail(params.id, offset: next, limit: 200, query: params.query ?? "",
+                                                    role: params.role)
+                text.append(ChatTranscriptExport.text(for: detail.messages))
+                offset = detail.nextOffset
+            }
+            return ["text": text.joined(separator: "\n")]
+        case "cleanup.sources":
+            return try await cleanupSources().map(WireCleanupSource.init)
+        case "cleanup.trashList":
+            let params = try params(SourceParams.self, method: method, frame: frame)
+            guard let source = try await cleanupSources().first(where: { $0.id == params.sourceID }) else {
+                throw RPCError(-32003, "notFound", "No cleanup source has that ID.")
+            }
+            return try await requireManager().cleanupTrash(source).map(WireCleanupBatch.init)
+        case "cleanup.samples":
+            return try await requireCodexCache().cleanupSamples().map(WireUsageSample.init)
+        case "backup.list":
+            return try await BackupEngine(applicationSupport: paths.applicationSupport).sets().map(WireBackupSet.init)
+        case "backup.history":
+            let params = try params(SetParams.self, method: method, frame: frame)
+            let engine = BackupEngine(applicationSupport: paths.applicationSupport)
+            guard let set = try await engine.sets().first(where: { $0.id.uuidString.lowercased() == params.setID.lowercased() }) else {
+                throw RPCError(-32003, "notFound", "No backup set has that ID.")
+            }
+            return WireBackupStatus(try await engine.status(for: set))
+        case "usage.projectActivity":
+            let params = try params(DayParams.self, method: method, frame: frame)
+            return try await requireCodexCache().projectActivity(on: params.day).map(WireProjectActivity.init)
+        case "runningCLIs.list":
+            let claudeConfig = paths.userHome.appending(path: ".claude", directoryHint: .isDirectory)
+            return RunningCLIs.find(claudeDefaultConfig: claudeConfig).map(WireRunningCLI.init)
+        default:
+            return nil
+        }
+    }
+
+    // shortcut: a fresh index per call that reloads its cache file, as the CLI does; keep one index for the
+    // helper's life when the history engine area lands (plan unit G4).
+    private func chatIndex() -> ChatHistoryIndex {
+        ChatHistoryIndex(home: paths.sharedRoot,
+                         cacheFile: paths.applicationSupport.appending(path: "cache/chat-history-v1.json"))
+    }
+
+    private func threadDetail(_ id: String, offset: Int, limit: Int, query: String, role: String?) async throws
+        -> ChatThreadDetail {
+        let roles: [String: ChatMessageFilter] = ["all": .all, "prompts": .prompts, "responses": .responses,
+                                                  "tools": .tools, "other": .other]
+        guard let filter = roles[role ?? "all"] else {
+            throw RPCError(-32602, "invalidParams", "role must be all, prompts, responses, tools, or other.")
+        }
+        let index = chatIndex()
+        _ = try await index.refresh(limit: 1)
+        guard let detail = try await index.detail(for: id, offset: max(0, offset), limit: limit, query: query,
+                                                  filter: filter) else {
+            throw RPCError(-32003, "notFound", "No conversation has that ID.")
+        }
+        return detail
+    }
+
+    private func cleanupSources() async throws -> [CleanupSource] {
+        CleanupSources.make(paths: paths, accounts: try await requireManager().status().accounts)
+    }
+
+    private func requireCodexCache() throws -> CodexUsageStatisticsCache {
+        guard let codexCache else { throw RPCError(-32002, "unavailable", "Switch cannot open its usage cache.") }
+        return codexCache
+    }
+}
+
+private struct AccountParams: Decodable { let accountID: String }
+private struct OptionalAccountParams: Decodable { let accountID: String? }
+private struct FolderParams: Decodable { let folder: String? }
+private struct HistoryListParams: Decodable { var query: String? = nil; var limit: Int? = nil }
+private struct HistoryDetailParams: Decodable {
+    let id: String
+    let offset: Int?
+    let limit: Int?
+    let query: String?
+    let role: String?
+}
+private struct SourceParams: Decodable { let sourceID: String }
+private struct SetParams: Decodable { let setID: String }
+private struct DayParams: Decodable { let day: String }
