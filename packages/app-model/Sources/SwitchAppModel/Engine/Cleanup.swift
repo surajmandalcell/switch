@@ -120,12 +120,7 @@ extension AppEngine {
         return source
     }
 
-    // shortcut: a fresh index per call that reloads its cache file, as the CLI does; keep one index for the
-    // helper's life when the history engine area lands (plan unit G4).
-    private func chatIndex() -> ChatHistoryIndex {
-        ChatHistoryIndex(home: paths.sharedRoot,
-                         cacheFile: paths.applicationSupport.appending(path: "cache/chat-history-v1.json"))
-    }
+    private func chatIndex() -> ChatHistoryIndex { chatHistory }
 
     /// The Mac `cleanupNotice`.
     static func cleanupNotice(_ plan: ConversationCleanupPlan?, samples: Int, clearIndex: Bool) -> String {

@@ -122,12 +122,7 @@ extension RPCServer {
         return Set(ids).compactMap { threads[$0] }.sorted { $0.updatedAt > $1.updatedAt }.map(WireThread.init)
     }
 
-    // shortcut: a fresh index per call that reloads its cache file, as the CLI does; keep one index for the
-    // helper's life when the history engine area lands (plan unit G4).
-    private func chatIndex() -> ChatHistoryIndex {
-        ChatHistoryIndex(home: paths.sharedRoot,
-                         cacheFile: paths.applicationSupport.appending(path: "cache/chat-history-v1.json"))
-    }
+    private func chatIndex() -> ChatHistoryIndex { engine.chatHistory }
 
     private func threadDetail(_ id: String, offset: Int, limit: Int, query: String, role: String?) async throws
         -> ChatThreadDetail {

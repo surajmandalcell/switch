@@ -66,6 +66,9 @@ public actor AppEngine {
     var history: UsageHistorySnapshot?
     var historyEngine: UsageHistory?
     var historyLoadedAt: Date?
+    /// The one conversation index for the engine's life. A fresh index per call re-read its whole cache file
+    /// (750 ms and about 20 MiB per call for 2000 conversations).
+    public nonisolated let chatHistory: ChatHistoryIndex
 
     /// Isolated runs (tests, demos) read no live usage, as on the Mac. Tests with synthetic providers turn it on.
     var refreshesInIsolation = false
@@ -95,6 +98,8 @@ public actor AppEngine {
         self.paths = paths
         self.clock = clock
         self.codexCache = codexCache
+        chatHistory = ChatHistoryIndex(home: paths.sharedRoot,
+                                       cacheFile: paths.applicationSupport.appending(path: "cache/chat-history-v1.json"))
         self.settings = settings ?? JSONFileSettingsStore.open(paths: paths, environment: ProcessInfo.processInfo.environment)
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
         app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path,
