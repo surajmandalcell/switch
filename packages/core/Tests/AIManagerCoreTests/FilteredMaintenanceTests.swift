@@ -67,7 +67,7 @@ final class FilteredMaintenanceTests: XCTestCase {
         XCTAssertEqual(conversations.filter(ConversationCleanupFilter(olderThan: old).matches).count, 0, "Before is exclusive")
         let paths = ManagerPaths(applicationSupport: root.appending(path: "support"), credentialStore: root.appending(path: "vault"),
             defaultHome: home, sharedRoot: home, orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: root)
+            codexExecutable: TestCLI.trueExecutable, isolationRoot: root)
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let plan = try await manager.reviewCleanup(source(), selected)
         XCTAssertEqual(plan.items.count, 1)

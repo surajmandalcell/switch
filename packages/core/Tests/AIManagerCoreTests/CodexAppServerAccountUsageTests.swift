@@ -251,7 +251,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
         let reader = CodexAppServerAccountReader(
             environment: {
                 [
-                    "PATH": "/usr/bin:/bin",
+                    "PATH": TestCLI.searchPath,
                     "SWITCH_TEST_TRANSCRIPT": transcript.path,
                     "OPENAI_API_KEY": "must-not-leak",
                 ]
@@ -280,7 +280,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
     func testProcessTransportEnforcesTimeoutAndOutputBounds() async throws {
         let slow = try syntheticServer("exec sleep 2")
         await XCTAssertThrowsErrorAsync(
-            try await CodexAppServerAccountReader(environment: { ["PATH": "/usr/bin:/bin"] }).read(
+            try await CodexAppServerAccountReader(environment: { ["PATH": TestCLI.searchPath] }).read(
                 executable: slow,
                 source: source,
                 limits: .init(timeout: 0.1, maximumOutputBytes: 1_024, maximumLineBytes: 512)
@@ -296,7 +296,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
             """
         )
         await XCTAssertThrowsErrorAsync(
-            try await CodexAppServerAccountReader(environment: { ["PATH": "/usr/bin:/bin"] }).read(
+            try await CodexAppServerAccountReader(environment: { ["PATH": TestCLI.searchPath] }).read(
                 executable: noisy,
                 source: source,
                 limits: .init(timeout: 1, maximumOutputBytes: 512, maximumLineBytes: 512)
@@ -308,7 +308,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
 
     func testCancellingReadTerminatesTheChildPromptly() async throws {
         let slow = try syntheticServer("exec sleep 10")
-        let reader = CodexAppServerAccountReader(environment: { ["PATH": "/usr/bin:/bin"] })
+        let reader = CodexAppServerAccountReader(environment: { ["PATH": TestCLI.searchPath] })
         let started = Date()
         let task = Task {
             try await reader.read(
@@ -339,10 +339,8 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
     }
 
     private func syntheticServer(_ body: String) throws -> URL {
-        let executable = root.appending(path: "synthetic-codex-\(UUID().uuidString).sh")
-        try Data(("#!/bin/sh\n" + body + "\n").utf8).write(to: executable)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        return executable
+        try TestCLI.write("#!/bin/sh\n" + body + "\n", to: root.appending(path: "synthetic-codex-\(UUID().uuidString).sh"),
+                          permissions: 0o700)
     }
 }
 

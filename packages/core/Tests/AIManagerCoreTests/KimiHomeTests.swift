@@ -75,7 +75,7 @@ final class KimiHomeTests: XCTestCase {
             files: [LiveFile(".kimi-code/credentials/kimi-code.json", homeEnv: "TEST_KIMI_ROOT",
                              homeEnvSubpath: "credentials/kimi-code.json")],
             login: ["true"], usage: { _ in ProviderUsage() })
-        let store = try ProviderAccountStore(paths: paths, environment: ["PATH": "/usr/bin:/bin"], specs: [valid])
+        let store = try ProviderAccountStore(paths: paths, environment: ["PATH": TestCLI.searchPath], specs: [valid])
         let start = try store.startLogin(valid.id)
         let staging = try XCTUnwrap(start.launchSpec.environment["HOME"])
         XCTAssertEqual(start.launchSpec.environment["TEST_KIMI_ROOT"], staging + "/.kimi-code")

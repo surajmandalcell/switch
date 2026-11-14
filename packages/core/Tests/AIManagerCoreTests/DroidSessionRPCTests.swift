@@ -62,7 +62,6 @@ final class DroidSessionRPCTests: XCTestCase {
         let home = root.appending(path: "home/.factory")
         let cwd = root.appending(path: "project")
         let settings = root.appending(path: "settings.json")
-        let executable = root.appending(path: "fake-droid")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: settings)
@@ -74,8 +73,7 @@ final class DroidSessionRPCTests: XCTestCase {
         printf '{"type":"response","jsonrpc":"2.0","id":"%s","result":{"sessionId":"%s"}}\n' "$request_id" "$session_id"
         IFS= read -r ignored
         """#
-        try Data(script.utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let executable = try TestCLI.write(script, to: root.appending(path: "fake-droid"), permissions: 0o700)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let started = Date()

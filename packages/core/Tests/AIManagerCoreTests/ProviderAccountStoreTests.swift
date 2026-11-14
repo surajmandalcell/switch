@@ -26,8 +26,8 @@ final class ProviderAccountStoreTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
-            grokExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
+            grokExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         try fileManager.createDirectory(at: userHome, withIntermediateDirectories: true)
@@ -82,7 +82,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     }
 
     private func makeStore(_ specs: [ProviderSpec], environment: [String: String] = [:]) throws -> ProviderAccountStore {
-        try ProviderAccountStore(paths: paths, environment: ["PATH": "/usr/bin:/bin"].merging(environment) { $1 },
+        try ProviderAccountStore(paths: paths, environment: ["PATH": TestCLI.searchPath].merging(environment) { $1 },
                                  specs: specs)
     }
 
@@ -401,7 +401,7 @@ final class ProviderAccountStoreTests: XCTestCase {
         let start = try store.startLogin(provider)
         let home = URL(fileURLWithPath: try XCTUnwrap(start.launchSpec.environment["HOME"]))
 
-        XCTAssertEqual(start.launchSpec.executable.path, "/usr/bin/true")
+        XCTAssertEqual(start.launchSpec.executable.path, TestCLI.trueExecutable.path)
         XCTAssertEqual(start.launchSpec.environment["SSH_TTY"], "1")
         XCTAssertEqual(start.launchSpec.environment["TESTCLI_HOME"], home.appending(path: ".testcli").path)
         XCTAssertTrue(fileManager.fileExists(atPath: home.appending(path: ".testcli").path))
@@ -715,7 +715,7 @@ final class ProviderAccountStoreTests: XCTestCase {
 
         XCTAssertThrowsError(try store.makeDefault(second.id))
 
-        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: optional.path), foreign.path)
+        XCTAssertEqual(try Links.destination(of: optional, fileManager: fileManager), foreign.path)
         XCTAssertEqual(try Data(contentsOf: foreign), foreignBytes)
         XCTAssertEqual(try mode(foreign), foreignMode)
         XCTAssertEqual(try authObject()["id"] as? String, "A")

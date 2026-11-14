@@ -55,7 +55,6 @@ final class DroidAccountTests: XCTestCase {
             ?? ProcessInfo.processInfo.environment["TMPDIR"] ?? fm.temporaryDirectory.path
         root = URL(fileURLWithPath: scratch).appending(path: "switch/DroidAccountTests-\(UUID().uuidString)")
         try CoreSupport.privateDirectory(root, fileManager: fm)
-        let fake = root.appending(path: "fake-droid")
         // Opaque synthetic bytes only. This executable cannot call Droid or the Keychain.
         let script = """
         #!/bin/sh
@@ -77,10 +76,8 @@ final class DroidAccountTests: XCTestCase {
         mkdir -p "$FACTORY_HOME_OVERRIDE/.factory"
         printf 'synthetic-login-B' > "$FACTORY_HOME_OVERRIDE/.factory/auth.v2.loginkeychain"
         """
-        try script.write(to: fake, atomically: true, encoding: .utf8)
-        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
-        let bundled = root.appending(path: "bundled-droid")
-        try fm.copyItem(at: fake, to: bundled)
+        let fake = try TestCLI.write(script, to: root.appending(path: "fake-droid"), permissions: 0o700)
+        try TestCLI.write(script, to: root.appending(path: "bundled-droid"), permissions: 0o700)
         paths = .init(applicationSupport: root.appending(path: "support"),
             credentialStore: root.appending(path: "user/.switch/codex"),
             defaultHome: root.appending(path: "user/.codex"), sharedRoot: root.appending(path: "user/.codex"),
@@ -686,10 +683,9 @@ final class DroidAccountTests: XCTestCase {
         let original = try writeConversation()
         let originalBytes = try Data(contentsOf: original)
         let marker = paths.droidHome.deletingLastPathComponent().appending(path: "resume-launch-marker")
-        let fake = try XCTUnwrap(paths.droidExecutable)
-        try "#!/bin/sh\nprintf launched > \"$FACTORY_HOME_OVERRIDE/resume-launch-marker\"\n"
-            .write(to: fake, atomically: true, encoding: .utf8)
-        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        // Rewrites the script behind the executable the manager already holds.
+        try TestCLI.write("#!/bin/sh\nprintf launched > \"$FACTORY_HOME_OVERRIDE/resume-launch-marker\"\n",
+                          to: root.appending(path: "fake-droid"), permissions: 0o700)
         let id = original.deletingPathExtension().lastPathComponent
 
         for arguments in [["--resume", id], ["--resume=\(id)"]] {

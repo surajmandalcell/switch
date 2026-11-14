@@ -210,7 +210,7 @@ final class OpenCodeCleanupTests: XCTestCase {
         try files.createDirectory(at: source.userHome.appending(path: ".copilot"), withIntermediateDirectories: true)
         let paths = ManagerPaths(applicationSupport: root.appending(path: "support"), credentialStore: root.appending(path: "vault"),
             defaultHome: source.userHome.appending(path: ".codex"), sharedRoot: source.userHome.appending(path: ".codex"),
-            orcaAccountsRoot: root.appending(path: "orca"), codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: source.userHome)
+            orcaAccountsRoot: root.appending(path: "orca"), codexExecutable: TestCLI.trueExecutable, isolationRoot: source.userHome)
         let sources = CleanupSources.make(paths: paths, accounts: [])
         XCTAssertEqual(sources.first { $0.tool == .opencode }?.backupService, .opencode)
         XCTAssertEqual(sources.first { $0.tool == .copilot }?.backupService, .copilot)

@@ -17,7 +17,7 @@ final class ConversationCleanupTests: XCTestCase {
         user = root.appending(path: "user")
         paths = .init(applicationSupport: root.appending(path: "support"),
             credentialStore: root.appending(path: "vault"), defaultHome: home, sharedRoot: home,
-            orcaAccountsRoot: root.appending(path: "orca"), codexExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: root)
+            orcaAccountsRoot: root.appending(path: "orca"), codexExecutable: TestCLI.trueExecutable, isolationRoot: root)
         try CoreSupport.privateDirectory(home, fileManager: files)
         try CoreSupport.privateDirectory(user, fileManager: files)
     }

@@ -115,7 +115,7 @@ final class UsageHistoryRetentionTests: XCTestCase {
                                  defaultHome: root.appending(path: "user/.codex"),
                                  sharedRoot: root.appending(path: "user/.codex"),
                                  orcaAccountsRoot: root.appending(path: "orca"),
-                                 claudeExecutable: URL(fileURLWithPath: "/usr/bin/true"), isolationRoot: root)
+                                 claudeExecutable: TestCLI.trueExecutable, isolationRoot: root)
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let profiles = try ClaudeCodeProfiles(paths: paths, fileManager: fileManager,
                                               loginRunner: .init(launch: { _, _ in }),

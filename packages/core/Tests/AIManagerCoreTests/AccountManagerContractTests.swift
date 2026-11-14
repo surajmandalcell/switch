@@ -31,7 +31,7 @@ final class AccountManagerContractTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true")
+            codexExecutable: TestCLI.trueExecutable
         )
         try fm.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
     }
@@ -947,7 +947,7 @@ final class AccountManagerContractTests: XCTestCase {
 
     func testEnvironmentRootIsolatesEveryDiscoveryAndLaunchPath() async throws {
         let isolated = root.appending(path: "isolated")
-        let derived = ManagerPaths.environment(["AI_MANAGER_ROOT": isolated.path, "AI_MANAGER_CODEX_EXECUTABLE": "/usr/bin/true"])
+        let derived = ManagerPaths.environment(["AI_MANAGER_ROOT": isolated.path, "AI_MANAGER_CODEX_EXECUTABLE": TestCLI.trueExecutable.path])
         XCTAssertEqual(derived.defaultHome.standardizedFileURL.path, isolated.appending(path: "default-home").path)
         XCTAssertEqual(derived.sharedRoot.standardizedFileURL.path, derived.defaultHome.standardizedFileURL.path)
         XCTAssertEqual(derived.orcaAccountsRoot.standardizedFileURL.path, isolated.appending(path: "orca-accounts").path)
@@ -991,7 +991,7 @@ final class AccountManagerContractTests: XCTestCase {
 
     func testContainedIsolationRootStillRefusesActiveWriter() async throws {
         let isolated = root.appending(path: "isolated")
-        let isolatedPaths = ManagerPaths.environment(["AI_MANAGER_ROOT": isolated.path, "AI_MANAGER_CODEX_EXECUTABLE": "/usr/bin/true"])
+        let isolatedPaths = ManagerPaths.environment(["AI_MANAGER_ROOT": isolated.path, "AI_MANAGER_CODEX_EXECUTABLE": TestCLI.trueExecutable.path])
         let source = isolated.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
         let manager = try AccountManager(paths: isolatedPaths, writerCheck: { _ in .active })
@@ -1749,10 +1749,8 @@ final class AccountManagerContractTests: XCTestCase {
     func testLocalVerificationIsBoundedAndPersistsResult() async throws {
         let source = root.appending(path: "source")
         try writeAuth(home: source, account: "account", workspace: "workspace")
-        let hanging = root.appending(path: "hanging-codex")
-        try Data("#!/bin/sh\nwhile :; do :; done\n".utf8).write(to: hanging)
-        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hanging.path)
-        paths.codexExecutable = hanging
+        paths.codexExecutable = try TestCLI.write("#!/bin/sh\nexec sleep 60\n",
+                                                  to: root.appending(path: "hanging-codex"), permissions: 0o700)
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, verificationTimeout: 0.1)
         let plan = try await manager.planImport(source: source, mode: .authOnly)
         let account = try await manager.importAccount(plan: plan).account
@@ -1866,7 +1864,7 @@ final class AccountManagerContractTests: XCTestCase {
             let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
             if values.isSymbolicLink == true {
                 let target = try fm.destinationOfSymbolicLink(atPath: url.path)
-                let resolved = target.hasPrefix("/") ? URL(fileURLWithPath: target) : url.deletingLastPathComponent().appending(path: target)
+                let resolved = isAbsolutePath(target) ? URL(fileURLWithPath: target) : url.deletingLastPathComponent().appending(path: target)
                 try update(resolved, relative: relative)
             } else {
                 hasher.update(data: Data(relative.utf8))

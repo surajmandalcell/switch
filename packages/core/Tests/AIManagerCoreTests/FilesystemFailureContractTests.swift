@@ -22,7 +22,7 @@ final class FilesystemFailureContractTests: XCTestCase {
             defaultHome: root.appending(path: "default"),
             sharedRoot: root.appending(path: "shared"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            codexExecutable: TestCLI.trueExecutable,
             isolationRoot: root
         )
         try fileManager.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
