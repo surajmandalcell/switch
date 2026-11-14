@@ -59,7 +59,7 @@ var targets: [Target] = [
     ),
     .executableTarget(
         name: "AIManagerTUI",
-        dependencies: ["AIManagerCore"],
+        dependencies: ["AIManagerCore", "SwitchAppModel"],
         path: "packages/tui/Sources/AIManagerTUI"
     ),
     .testTarget(
