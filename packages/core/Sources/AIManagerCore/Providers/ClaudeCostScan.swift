@@ -214,11 +214,15 @@ public actor ClaudePricingSource {
     }
 
     private func store(_ data: Data) {
+#if os(Windows)
+        return // windows-port: stub (P1) - no private cache write until owner-only ACLs exist
+#else
         try? FileManager.default.createDirectory(
             at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         guard (try? data.write(to: cacheURL, options: .atomic)) != nil else { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cacheURL.path)
+#endif
     }
 }
 
@@ -707,12 +711,16 @@ public actor ClaudeCostScanner {
     }
 
     private func saveCache(_ cache: CacheFile) {
+#if os(Windows)
+        return // windows-port: stub (P1) - no private cache write until owner-only ACLs exist
+#else
         guard let data = try? JSONEncoder().encode(cache) else { return }
         try? FileManager.default.createDirectory(
             at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         guard (try? data.write(to: cacheURL, options: .atomic)) != nil else { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cacheURL.path)
+#endif
     }
 
     // MARK: Dedup and aggregation

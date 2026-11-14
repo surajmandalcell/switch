@@ -2,6 +2,8 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -211,6 +213,10 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         guard spec.environment["GROK_HOME"] != nil, spec.arguments == ["login", "--oauth"] else {
             return (nil, nil)
         }
+#if os(Windows)
+        // windows-port: stub (PseudoTerminal, cut from version 1)
+        throw PlatformError.unsupported("private sign-in terminal")
+#else
         var master: Int32 = -1
         var slave: Int32 = -1
         guard openpty(&master, &slave, nil, nil, nil) == 0 else {
@@ -225,6 +231,7 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
             FileHandle(fileDescriptor: master, closeOnDealloc: true),
             FileHandle(fileDescriptor: slave, closeOnDealloc: true)
         )
+#endif
     }
 }
 

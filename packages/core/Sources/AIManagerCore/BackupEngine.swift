@@ -1,6 +1,8 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -314,6 +316,10 @@ private enum BackupIO {
     // Check every ancestor, including broken links. Traversal never crosses a link.
     // realpath on the longest existing prefix; the missing tail is appended unchanged.
     static func real(_ url: URL) -> URL {
+#if os(Windows)
+        // windows-port: stub (P8) - no link resolution; the loop below would never reach "/"
+        return url
+#else
         var existing = url.path
         var tail: [String] = []
         while existing != "/" {
@@ -325,9 +331,14 @@ private enum BackupIO {
             existing = (existing as NSString).deletingLastPathComponent
         }
         return url
+#endif
     }
     // Not standardizedFileURL: it would strip /private and hide the /var link.
     static func noLinks(_ url: URL, leafMayBeLink: Bool) throws {
+#if os(Windows)
+        // windows-port: stub (P5) - an unchecked ancestor must not pass
+        throw PlatformError.unsupported("symbolic link check")
+#else
         var cursor = URL(fileURLWithPath: url.path)
         if leafMayBeLink { cursor.deleteLastPathComponent() }
         while cursor.path != "/" {
@@ -335,6 +346,7 @@ private enum BackupIO {
             if lstat(cursor.path, &info) == 0, info.st_mode & S_IFMT == S_IFLNK { throw BackupError.unsafe("symbolic link ancestor") }
             cursor.deleteLastPathComponent()
         }
+#endif
     }
     static func metadata(_ url: URL) throws -> stat {
         var info = stat()

@@ -7,6 +7,19 @@ let sqliteTarget = Target.systemLibrary(
     name: "CSQLite",
     path: "packages/core/Sources/CSQLite"
 )
+#elseif os(Windows)
+// No system SQLite on Windows: a vendored amalgamation, published under the same module name.
+let sqliteTarget = Target.target(
+    name: "CSQLite",
+    path: "packages/core/Sources/CSQLiteBundled",
+    exclude: ["README.md"],
+    sources: ["sqlite3.c"],
+    publicHeadersPath: "include",
+    cSettings: [
+        .define("SQLITE_THREADSAFE", to: "1"),
+        .define("SQLITE_OMIT_LOAD_EXTENSION"),
+    ]
+)
 #else
 let sqliteTarget = Target.systemLibrary(
     name: "CSQLite",
@@ -35,7 +48,7 @@ var targets: [Target] = [
             .product(
                 name: "Crypto",
                 package: "swift-crypto",
-                condition: .when(platforms: [.linux])
+                condition: .when(platforms: [.linux, .windows])
             ),
         ],
         path: "packages/core/Sources/AIManagerCore"
@@ -53,7 +66,7 @@ var targets: [Target] = [
             .product(
                 name: "Crypto",
                 package: "swift-crypto",
-                condition: .when(platforms: [.linux])
+                condition: .when(platforms: [.linux, .windows])
             ),
         ],
         path: "packages/core/Tests/AIManagerCoreTests"

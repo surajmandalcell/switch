@@ -3,6 +3,8 @@ import AIManagerCore
 
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -901,6 +903,10 @@ struct AIManagerCLI {
 
     /// Reads one line with terminal echo off.
     private static func readSecret(_ prompt: String) -> String? {
+#if os(Windows)
+        // windows-port: stub (console, cut from version 1) - echo cannot be turned off, so never read a secret
+        return nil
+#else
         print(prompt, terminator: " ")
         fflush(stdout)
         var original = termios()
@@ -918,6 +924,7 @@ struct AIManagerCLI {
             }
         }
         return readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+#endif
     }
 
     private static func chooseLoginSession(
@@ -1865,6 +1872,8 @@ private final class TerminalInput {
             var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
             #if canImport(Darwin)
             let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            #elseif os(Windows)
+            let ready = poll(&descriptor, 1, timeoutMilliseconds)
             #else
             let ready = Glibc.poll(&descriptor, 1, timeoutMilliseconds)
             #endif
@@ -1874,6 +1883,8 @@ private final class TerminalInput {
         let count = withUnsafeMutableBytes(of: &byte) { buffer in
             #if canImport(Darwin)
             Darwin.read(STDIN_FILENO, buffer.baseAddress, 1)
+            #elseif os(Windows)
+            read(STDIN_FILENO, buffer.baseAddress, 1)
             #else
             Glibc.read(STDIN_FILENO, buffer.baseAddress, 1)
             #endif

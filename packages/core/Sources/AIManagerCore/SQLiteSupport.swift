@@ -73,6 +73,10 @@ enum SQLiteSupport {
     }
 
     static func snapshot(source: URL, destination: URL) throws {
+#if os(Windows)
+        // windows-port: stub (P1) - the copy would keep inherited access rights
+        throw PlatformError.unsupported("private database snapshot")
+#else
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
         do {
@@ -81,6 +85,7 @@ enum SQLiteSupport {
             try? FileManager.default.removeItem(at: destination)
             throw error
         }
+#endif
     }
 
     private static func performSnapshot(source: URL, destination: URL) throws {
