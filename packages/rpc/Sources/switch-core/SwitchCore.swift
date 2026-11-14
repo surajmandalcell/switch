@@ -7,6 +7,7 @@ import SwitchRPC
 import Darwin
 #elseif os(Windows)
 import CRT
+import WinSDK
 #else
 import Glibc
 #endif
@@ -88,9 +89,20 @@ struct SwitchCore {
     /// process that inherits stdout cannot write into the protocol stream.
     private static func protocolOutput() -> FileHandle {
         #if os(Windows)
-        // shortcut: stdout is not moved on Windows yet, so an inheriting child could write into the stream;
-        // move it with SetStdHandle when the Windows helper is packaged (plan unit K1).
-        return .standardOutput
+        // A private, non-inheritable copy of the stdout handle; then the CRT fd 1 and the process's standard
+        // output handle (what child processes inherit) both point at stderr.
+        let current = GetCurrentProcess()
+        var copy: HANDLE?
+        guard let out = GetStdHandle(STD_OUTPUT_HANDLE), out != INVALID_HANDLE_VALUE,
+              DuplicateHandle(current, out, current, &copy, 0, false, DWORD(DUPLICATE_SAME_ACCESS)), let copy
+        else { return .standardOutput }
+        let descriptor = _open_osfhandle(Int(bitPattern: copy), _O_BINARY)
+        guard descriptor >= 0 else { CloseHandle(copy); return .standardOutput }
+        guard _dup2(2, 1) == 0, SetStdHandle(STD_OUTPUT_HANDLE, GetStdHandle(STD_ERROR_HANDLE)) else {
+            _close(descriptor)
+            return .standardOutput
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         #else
         let copy = dup(STDOUT_FILENO)
         guard copy >= 0, dup2(STDERR_FILENO, STDOUT_FILENO) >= 0 else { return .standardOutput }
