@@ -9,14 +9,20 @@ extension RPCServer {
         "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
         "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
         "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day", "autoSwitch.preview",
-        "app.searchIndex", "tray.rows",
+        "app.searchIndex", "tray.rows", "usage.cacheSizes", "providers.liveIdentity",
     ]
 
     /// Nil when `method` is not a read method.
     func readMethod(_ method: String, frame: Data) async throws -> (any Encodable)? {
         switch method {
         case "providers.list":
-            return AccountManager.providerCatalog
+            let signedIn = Set(await engine.detectSignedIn().signedIn)
+            return AccountManager.providerCatalog.map { WireProvider($0, signedIn: signedIn) }
+        case "providers.liveIdentity":
+            // The add sheet's "Signed in as": the login in the user's home, with the privacy settings applied.
+            let id = try params(ProviderOnlyParams.self, method: method, frame: frame).providerID
+            _ = try requireManager()
+            return await engine.liveIdentity(ProviderID(rawValue: id)) ?? ["label": nil, "plan": nil]
         case "tray.rows":
             // The `tray` topic value with reset texts computed now (the popover's 60 s countdown tick).
             return await engine.trayValue()
@@ -39,24 +45,27 @@ extension RPCServer {
             return ["enabled": try await requireManager().claudeShellIntegrationInstalled()]
         case "droid.missions":
             return try await requireManager().droidMissions().map(WireMission.init)
+        case "usage.cacheSizes": return await engine.cacheSizes()
         case "history.list":
             let params = (try? params(HistoryListParams.self, method: method, frame: frame)) ?? .init()
             let limit = params.limit ?? 100
             guard (1...1_000).contains(limit) else { throw RPCError(-32602, "invalidParams", "limit must be 1 to 1000.") }
-            return WireThreadList(try await chatIndex().refresh(query: params.query ?? "", limit: limit))
+            let snapshot = try await chatIndex().refresh(query: params.query ?? "", limit: limit)
+            // The client's last revision still holds: answer without the threads.
+            return WireThreadList(snapshot, unchanged: params.libraryRevision == snapshot.libraryRevision)
         case "history.detail":
             let params = try params(HistoryDetailParams.self, method: method, frame: frame)
             let limit = params.limit ?? 100
             guard (1...200).contains(limit) else { throw RPCError(-32602, "invalidParams", "limit must be 1 to 200.") }
             return WireThreadDetail(try await threadDetail(params.id, offset: params.offset ?? 0, limit: limit,
-                                                          query: params.query ?? "", role: params.role))
+                                                          query: params.query ?? "", role: params.role, roles: params.roles))
         case "history.export":
             let params = try params(HistoryDetailParams.self, method: method, frame: frame)
             var text: [String] = []
             var offset: Int? = 0
             while let next = offset {
                 let detail = try await threadDetail(params.id, offset: next, limit: 200, query: params.query ?? "",
-                                                    role: params.role)
+                                                    role: params.role, roles: params.roles)
                 text.append(ChatTranscriptExport.text(for: detail.messages))
                 offset = detail.nextOffset
             }
@@ -93,7 +102,8 @@ extension RPCServer {
                 throw RPCError(-32602, "invalidParams", "period must be week, month, or year; grouping account, model, or project.")
             }
             let snapshot = try await engine.usageHistory()
-            return WireUsageHistory(snapshot, summary: snapshot.summary(period: period, grouping: grouping))
+            return WireUsageHistory(snapshot, summary: snapshot.summary(period: period, grouping: grouping),
+                                    points: params.points ?? true)
         case "usage.day":
             let day = try params(DayParams.self, method: method, frame: frame).day
             let parts = day.split(separator: "-", omittingEmptySubsequences: false)
@@ -124,11 +134,15 @@ extension RPCServer {
 
     private func chatIndex() -> ChatHistoryIndex { engine.chatHistory }
 
-    private func threadDetail(_ id: String, offset: Int, limit: Int, query: String, role: String?) async throws
-        -> ChatThreadDetail {
+    /// `roles` is the Mac filter mask (1 prompts, 2 responses, 4 tools, 8 other); it wins over the single `role`.
+    private func threadDetail(_ id: String, offset: Int, limit: Int, query: String, role: String?, roles mask: Int?)
+        async throws -> ChatThreadDetail {
         let roles: [String: ChatMessageFilter] = ["all": .all, "prompts": .prompts, "responses": .responses,
                                                   "tools": .tools, "other": .other]
-        guard let filter = roles[role ?? "all"] else {
+        if let mask, !(1...15).contains(mask) {
+            throw RPCError(-32602, "invalidParams", "roles must be a mask from 1 to 15.")
+        }
+        guard let filter = mask.map(ChatMessageFilter.init(rawValue:)) ?? roles[role ?? "all"] else {
             throw RPCError(-32602, "invalidParams", "role must be all, prompts, responses, tools, or other.")
         }
         let index = chatIndex()
@@ -154,15 +168,27 @@ private struct AccountParams: Decodable { let accountID: String }
 private struct OptionalAccountParams: Decodable { let accountID: String? }
 private struct FolderParams: Decodable { let folder: String? }
 private struct QueryParams: Decodable { let query: String? }
-private struct HistoryListParams: Decodable { var query: String? = nil; var limit: Int? = nil }
+private struct ProviderOnlyParams: Decodable { let providerID: String }
+private struct HistoryListParams: Decodable {
+    var query: String? = nil
+    var limit: Int? = nil
+    /// The `libraryRevision` of the client's last reply for the same query and limit.
+    var libraryRevision: UInt64? = nil
+}
 private struct HistoryDetailParams: Decodable {
     let id: String
     let offset: Int?
     let limit: Int?
     let query: String?
     let role: String?
+    let roles: Int?
 }
 private struct SourceParams: Decodable { let sourceID: String }
 private struct SetParams: Decodable { let setID: String }
 private struct DayParams: Decodable { let day: String }
-private struct UsageHistoryParams: Decodable { var period: String? = nil; var grouping: String? = nil }
+private struct UsageHistoryParams: Decodable {
+    var period: String? = nil
+    var grouping: String? = nil
+    /// false leaves out `points` (a year of rows) when the page only needs the summary.
+    var points: Bool? = nil
+}

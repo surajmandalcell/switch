@@ -129,12 +129,15 @@ struct WireDivergence: Encodable {
     let relativePath: String
     let localPath: String
     let intendedTarget: String
+    /// A digest of the changed entry; `accounts.repairLink` sends it back so a newer change is not overwritten.
+    let fingerprint: String
 
     init(_ divergence: LinkedSettingsDivergence) {
         accountID = divergence.accountID.uuidString.lowercased()
         relativePath = divergence.relativePath
         localPath = divergence.localPath.path
         intendedTarget = divergence.intendedTarget.path
+        fingerprint = divergence.localFingerprint
     }
 }
 
@@ -144,11 +147,15 @@ struct WireUsage: Encodable {
     let providerID: String
     let usage: ProviderUsage?
     let codex: CodexAccountUsageSnapshot?
+    /// Codex only: every cached day (the activity heatmap), merged across checks, oldest first.
+    let daily: [CodexDailyUsageSnapshot]?
 
-    init(_ account: AccountRecord, usage: ProviderUsage? = nil, codex: CodexAccountUsageSnapshot? = nil) {
+    init(_ account: AccountRecord, usage: ProviderUsage? = nil, codex: CodexAccountUsageSnapshot? = nil,
+         daily: [CodexDailyUsageSnapshot]? = nil) {
         accountID = account.id.uuidString.lowercased()
         providerID = account.identity.providerID.rawValue
         self.usage = usage
         self.codex = codex
+        self.daily = daily
     }
 }

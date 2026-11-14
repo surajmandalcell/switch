@@ -20,10 +20,23 @@ public struct AccountRow: Codable, Equatable, Sendable {
     public var isRefreshing: Bool
     public var fetchedAt: Date?
     public var checkedAt: Date?
+    /// `noPlan` when the provider answered that the account has no plan; else absent.
+    public var availability: String?
+    /// The unmasked label, only for Copy Name and the account search (the Mac `realAccountLabel`). Never show it.
+    public var realLabel: String
 }
 
 public struct AccountsValue: Codable, Equatable, Sendable {
     public var rows: [AccountRow] = []
+    /// Interrupted operations. While one is pending, account actions fail until `recovery.recover` finishes it;
+    /// a conflicted one needs `recovery.resolve`.
+    public var pendingRecovery: [PendingRecovery] = []
+
+    public struct PendingRecovery: Codable, Equatable, Sendable {
+        public var id: String
+        public var kind: String
+        public var conflicted: Bool
+    }
 }
 
 public enum AccountPresentation {
@@ -132,10 +145,16 @@ extension AppEngine {
                 isOutdated: isCodex ? (codex?.snapshot != nil && codex?.failure != nil) : provider?.isOutdated ?? false,
                 isRefreshing: isCodex ? codexRefreshing == account.id : provider?.isRefreshing ?? false,
                 fetchedAt: isCodex ? codex?.fetchedAt : provider?.usage?.fetchedAt,
-                checkedAt: isCodex ? codex?.lastAttemptAt : provider?.checkedAt)
+                checkedAt: isCodex ? codex?.lastAttemptAt : provider?.checkedAt,
+                availability: isCodex ? nil : provider?.usage?.availability?.rawValue,
+                realLabel: AccountPresentation.label(account.identity))
         }
-        publish(.accounts, AccountsValue(rows: rows))
+        let pending = status.pendingRecovery.map {
+            AccountsValue.PendingRecovery(id: $0.id.uuidString.lowercased(), kind: $0.kind, conflicted: $0.phase == .conflicted)
+        }
+        publish(.accounts, AccountsValue(rows: rows, pendingRecovery: pending))
         publishTray()
+        scheduleQuotaPass()
     }
 
     // MARK: - Codex usage (one account at a time, never in isolation mode)
@@ -167,6 +186,7 @@ extension AppEngine {
             try? await codexCache?.recordFailure(accountID: id, failure: .unavailable)
         }
         codexRefreshing = nil
+        bumpUsageHistoryVersion()
         await reloadAccounts()
         await evaluateAutoSwitch()
     }
@@ -180,6 +200,7 @@ extension AppEngine {
             .filter { ProviderUsagePolicy.isDue(providerUsage[$0], onCadence: onCadence, now: now) }
         // Not interactive: a credential the provider already rejected is not sent again.
         await refreshProviderAccounts(ids, interactive: false)
+        await refreshSideChecks()
     }
 
     /// Reads usage for `requested` (skipping any read already running). `interactive` only for a user action:
@@ -213,6 +234,7 @@ extension AppEngine {
                 if let next = pending.popFirst() { launch(next) }
             }
         }
+        bumpUsageHistoryVersion()
         await reloadAccounts()
         await evaluateAutoSwitch()
     }

@@ -54,6 +54,22 @@ private struct UsageKeyParams: Decodable {
     let accountID: String
     let key: SecretString?
 }
+private struct ResolveParams: Decodable {
+    let operationID: String
+    let choice: RecoveryConflictChoice
+}
+private struct RepairParams: Decodable {
+    let accountID: String
+    let relativePath: String
+    let fingerprint: String
+}
+private struct MissionParams: Decodable {
+    let missionID: String
+    let accountID: String?
+}
+private struct ForceParams: Decodable { let force: Bool? }
+private struct PermissionParams: Decodable { let status: String }
+private struct DismissParams: Decodable { let which: String? }
 
 /// User actions of architecture.md section 2.9. Each goes through the engine's action lane (`-32001` while another
 /// runs) and replies `{status, notice?, error?, confirmation?, accountID?, login?, plan?}`.
@@ -64,7 +80,10 @@ extension RPCServer {
         "login.start", "login.check", "login.submitCode", "login.cancel",
         "import.plan", "import.reviewExternal", "import.commit", "import.discard",
         "accounts.open", "accounts.reorder", "app.refresh", "tray.opened", "claude.shellIntegration.set",
-        "droid.setUsageKey",
+        "droid.setUsageKey", "recovery.recover", "recovery.resolve", "accounts.repairLink", "usage.clearCache",
+        "history.reindex", "history.clearIndex", "providerStatus.refresh", "activity.refresh", "droid.setMissionOwner",
+        "droid.resumeMission", "droid.startMissionHere", "droid.refreshConversations", "providers.detectSignedIn",
+        "notifications.setPermission", "notices.dismiss",
     ]
     static let confirmationLifetime: TimeInterval = 120
 
@@ -85,6 +104,56 @@ extension RPCServer {
         case "droid.setUsageKey":
             let params = try params(UsageKeyParams.self, method: method, frame: frame)
             return try await engine.setDroidUsageKey(try accountID(params.accountID), key: params.key?.value ?? "")
+        case "recovery.recover":
+            return try await confirmable(method, frame) { try await self.engine.recover(confirmed: $0) }
+        case "recovery.resolve":
+            let params = try params(ResolveParams.self, method: method, frame: frame)
+            guard let id = UUID(uuidString: params.operationID) else {
+                throw RPCError(-32602, "invalidParams", "operationID must be a pending recovery id.")
+            }
+            return try await confirmable(method, frame) {
+                try await self.engine.resolveRecovery(id, choice: params.choice, confirmed: $0)
+            }
+        case "accounts.repairLink":
+            let params = try params(RepairParams.self, method: method, frame: frame)
+            return try await engine.repairLink(try accountID(params.accountID), relativePath: params.relativePath,
+                                               fingerprint: params.fingerprint)
+        case "usage.clearCache": return try await engine.clearUsageCache()
+        case "history.reindex": return try await engine.reindexHistory()
+        case "history.clearIndex": return try await engine.clearHistoryIndex()
+        case "providerStatus.refresh": return await engine.refreshProviderStatusNow()
+        case "activity.refresh":
+            await engine.refreshActivity(force: (try? params(ForceParams.self, method: method, frame: frame))?.force ?? false)
+            return await engine.activityValue()
+        case "droid.setMissionOwner", "droid.resumeMission", "droid.startMissionHere":
+            let params = try params(MissionParams.self, method: method, frame: frame)
+            switch method {
+            case "droid.setMissionOwner":
+                guard let owner = params.accountID else { throw RPCError(-32602, "invalidParams", "Name the accountID.") }
+                return try await engine.setMissionOwner(params.missionID, accountID: try accountID(owner))
+            case "droid.resumeMission":
+                return try await confirmable(method, frame) { try await self.engine.resumeMission(params.missionID, confirmed: $0) }
+            default:
+                return try await confirmable(method, frame) { try await self.engine.startMissionHere(params.missionID, confirmed: $0) }
+            }
+        case "droid.refreshConversations":
+            // Nil (no Droid account, or nothing to do) answers as an empty report.
+            return await engine.refreshDroidConversations() ?? DroidSessionBindingReport()
+        case "providers.detectSignedIn": return await engine.detectSignedIn()
+        case "notifications.setPermission":
+            let status = try params(PermissionParams.self, method: method, frame: frame).status
+            guard ["authorized", "denied"].contains(status) else {
+                throw RPCError(-32602, "invalidParams", "status must be authorized or denied.")
+            }
+            setNotificationPermission(status == "authorized")
+            return ActionResult.done()
+        case "notices.dismiss":
+            let which = (try? params(DismissParams.self, method: method, frame: frame))?.which
+            guard [nil, "error", "notice"].contains(which) else {
+                throw RPCError(-32602, "invalidParams", "which must be error or notice, or absent for both.")
+            }
+            await engine.dismissNotices(error: which != "notice", notice: which != "error")
+            return ActionResult.done()
         case "accounts.setDefault", "accounts.check", "usage.refresh", "accounts.rename", "accounts.delete":
             let params = try params(AccountActionParams.self, method: method, frame: frame)
             let id = try accountID(params.accountID)

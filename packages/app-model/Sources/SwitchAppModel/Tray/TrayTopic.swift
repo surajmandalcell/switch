@@ -88,7 +88,8 @@ extension AppEngine {
             return items.compactMap { if case .string(let text) = $0 { text } else { nil } }
         }
         let showsUsed = bool("showUsageAsUsed"), exact = bool("resetTimesExact")
-        let hourFormat: String = if case .string(let text) = settings.effective("timeFormat") { text } else { "auto" }
+        var hourFormat: String = if case .string(let text) = settings.effective("timeFormat") { text } else { "auto" }
+        if hourFormat == "auto", let clientHourFormat { hourFormat = clientHourFormat }
         let period: String = if case .string(let text) = settings.effective("menuBarTokenPeriod") { text } else { "sinceReset" }
         let order = strings("menuBarServiceOrder").map(ProviderID.init(rawValue:))
         let hiddenServices = Set(strings("menuBarHiddenServices").map(ProviderID.init(rawValue:)))

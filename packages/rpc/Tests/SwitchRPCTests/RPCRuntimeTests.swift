@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import AIManagerCore
+import SwitchAppModel
 @testable import SwitchRPC
 
 /// Drives `RPCServer.serve` through an in-memory pipe with synthetic accounts in a temporary home.
@@ -74,7 +75,7 @@ final class RPCRuntimeTests: XCTestCase {
         XCTAssertTrue(["macos", "linux", "windows"].contains(value["platform"] as? String ?? ""))
         XCTAssertEqual(value["methods"] as? [String], RPCServer.methods)
         XCTAssertEqual(value["buildNumber"] as? Int, 0)
-        XCTAssertEqual(value["topics"] as? [String], ["app", "notices", "accounts", "settings", "tray", "login"])
+        XCTAssertEqual(value["topics"] as? [String], Topic.allCases.map(\.rawValue))
         XCTAssertEqual(value["settingsSchemaVersion"] as? Int, 1)
         let features = try XCTUnwrap(value["features"] as? [String: Bool])
         XCTAssertEqual(features, ["autoSwitchRestart": false, "claudeUsageProbe": false])

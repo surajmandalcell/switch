@@ -1,5 +1,6 @@
 import Foundation
 import AIManagerCore
+import SwitchAppModel
 
 // Outbound shapes for the read methods. Same rules as WireTypes.swift: no secret fields, lowercase UUID strings,
 // plain paths. A running CLI's command line is left out: it can hold a key passed as an argument.
@@ -25,6 +26,45 @@ struct WireDiscoveredSource: Encodable {
         settings = source.settings
         history = source.history
         inspectionError = source.inspectionError
+    }
+}
+
+/// `providers.list`: the catalog row plus what the add-account flow needs from the spec.
+struct WireProvider: Encodable {
+    struct Field: Encodable {
+        let key: String
+        let title: String
+        let secure: Bool
+        let optional: Bool
+        let placeholder: String?
+    }
+
+    let id: String
+    let displayName: String
+    let availability: ProviderAvailability
+    let unavailableReason: String?
+    /// `secret` (typed fields), `files` (a CLI login on disk), or absent for the built-in sign-ins.
+    let style: String?
+    let fields: [Field]
+    /// The command that signs in, such as `["codebuff", "login"]`.
+    let login: [String]?
+    let dashboard: String?
+    /// The provider's own login exists in the user's home (`providers.detectSignedIn`).
+    let signedIn: Bool
+
+    init(_ descriptor: ProviderDescriptor, signedIn: Set<String>) {
+        let spec = ProviderCatalog.spec(descriptor.id)
+        id = descriptor.id.rawValue
+        displayName = descriptor.displayName
+        availability = descriptor.availability
+        unavailableReason = descriptor.unavailableReason
+        style = spec.map { "\($0.style)" }
+        fields = spec?.fields.map {
+            Field(key: $0.key, title: $0.title, secure: $0.secure, optional: $0.optional, placeholder: $0.placeholder)
+        } ?? []
+        login = spec?.login
+        dashboard = spec?.dashboard?.absoluteString
+        self.signedIn = signedIn.contains(descriptor.id.rawValue)
     }
 }
 
@@ -94,9 +134,15 @@ struct WireThreadList: Encodable {
     let matching: Int
     let skippedFiles: Int
     let unreadableRecords: Int
+    /// Rises when the conversation library changed; send it back as `libraryRevision` to skip an unchanged list.
+    let libraryRevision: UInt64
+    /// True when the request's `libraryRevision` is current: `threads` is then empty, keep the last list.
+    let unchanged: Bool
 
-    init(_ snapshot: ChatHistorySnapshot) {
-        threads = snapshot.threads.map(WireThread.init)
+    init(_ snapshot: ChatHistorySnapshot, unchanged: Bool = false) {
+        threads = unchanged ? [] : snapshot.threads.map(WireThread.init)
+        libraryRevision = snapshot.libraryRevision
+        self.unchanged = unchanged
         total = snapshot.totalThreadCount
         matching = snapshot.matchingThreadCount
         skippedFiles = snapshot.skippedFileCount
@@ -111,6 +157,8 @@ struct WireThreadDetail: Encodable {
         let text: String
         let timestamp: Date?
         let model: String?
+        /// The text split into Markdown blocks (`ChatBlock`); `text` stays for copy and search.
+        let blocks: [ChatBlock]
     }
 
     let thread: WireThread
@@ -122,7 +170,8 @@ struct WireThreadDetail: Encodable {
     init(_ detail: ChatThreadDetail) {
         thread = WireThread(detail.thread)
         messages = detail.messages.map {
-            Message(id: $0.id, role: $0.role.rawValue, text: $0.text, timestamp: $0.timestamp, model: $0.model)
+            Message(id: $0.id, role: $0.role.rawValue, text: $0.text, timestamp: $0.timestamp, model: $0.model,
+                    blocks: ChatBlock.parse($0))
         }
         omitted = detail.omittedMessageCount
         matching = detail.matchingMessageCount
@@ -291,6 +340,17 @@ struct WireBackupStatus: Encodable {
         let totalBytes: Int64
         let newBytes: Int64
         let state: String
+        /// The restore sheet's "Chosen items": one group per top-level entry, by name.
+        let groups: [Group]
+        /// A protected copy taken before a restore.
+        let safety: Bool
+        let promptsOnly: Bool
+    }
+
+    struct Group: Encodable {
+        let id: String
+        let files: Int
+        let bytes: Int64
     }
 
     let state: String
@@ -307,8 +367,14 @@ struct WireBackupStatus: Encodable {
         nextDue = status.nextDue
         lastError = status.lastError
         snapshots = status.snapshots.map {
-            Snapshot(id: $0.id, folder: $0.folder.path, date: $0.date, files: $0.files, totalBytes: $0.totalBytes,
-                     newBytes: $0.newBytes, state: $0.state)
+            // The Mac `RestoreSheet.groups`.
+            let groups = Dictionary(grouping: $0.manifest.entries) { String($0.path.split(separator: "/").first ?? "") }
+                .filter { !$0.key.isEmpty }.sorted { $0.key < $1.key }
+                .map { Group(id: $0.key, files: $0.value.filter { $0.kind == .file }.count,
+                             bytes: $0.value.reduce(0) { $0 + $1.size }) }
+            return Snapshot(id: $0.id, folder: $0.folder.path, date: $0.date, files: $0.files, totalBytes: $0.totalBytes,
+                            newBytes: $0.newBytes, state: $0.state, groups: groups, safety: $0.manifest.safety,
+                            promptsOnly: $0.manifest.promptsOnly == true)
         }
     }
 }
@@ -346,13 +412,14 @@ struct WireRunningCLI: Encodable {
 struct WireUsageHistory: Encodable {
     let today: String
     let unavailableSources: [String]
-    let points: [UsageHistoryPoint]
+    /// Absent when the request said `points: false`.
+    let points: [UsageHistoryPoint]?
     let summary: UsageSummary
 
-    init(_ snapshot: UsageHistorySnapshot, summary: UsageSummary) {
+    init(_ snapshot: UsageHistorySnapshot, summary: UsageSummary, points: Bool) {
         today = snapshot.today
         unavailableSources = snapshot.unavailableSources
-        points = snapshot.points
+        self.points = points ? snapshot.points : nil
         self.summary = summary
     }
 }
