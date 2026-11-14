@@ -184,18 +184,58 @@ extension AppEngine {
             }
             var message = "Finish signing in to \(name), then return here and choose Check Now."
             if start.opensInTerminal {
-                guard self.paths.isolationRoot != nil else {
-                    try? await manager.cancelAccountLogin(id: start.session.id)
-                    throw AppEngineError.unsupported(
-                        "\(name) signs in inside a terminal, and Switch cannot open a terminal on this system yet.")
+                let script = Self.signInScript(start.launchSpec, provider)
+                let file = self.paths.applicationSupport.appending(path: "Launch/sign-in.sh")
+                if self.paths.isolationRoot != nil {
+                    try TerminalLaunch.write(script, at: file)
+                    message = "Sign-in file prepared for isolated validation. Terminal was not opened."
+                } else {
+                    do {
+                        try TerminalLaunch.launch(script, at: file)
+                    } catch {
+                        try? await manager.cancelAccountLogin(id: start.session.id)
+                        if error as? TerminalLaunch.Failure == .noEmulator {
+                            throw AIManagerError.operationFailed("\(name) signs in inside a terminal, and Switch found "
+                                + "no terminal app. Install one such as xdg-terminal-exec or xterm, or set TERMINAL.")
+                        }
+                        guard error is TerminalLaunch.Failure else { throw error }
+                        throw AppEngineError.unsupported(
+                            "\(name) signs in inside a terminal, and Switch cannot open a terminal on this system yet.")
+                    }
+                    message = provider == .droid
+                        ? "Terminal opened. Type /login, finish signing in, then exit Droid. Switch checks this temporary login automatically."
+                        : "Terminal opened. Finish signing in to \(name) there, then return here and choose Check Now."
                 }
-                message = "Sign-in file prepared for isolated validation. Terminal was not opened."
             }
             var result = ActionResult.done()
-            result.login = LoginStatus(sessionID: start.session.id.uuidString.lowercased(), providerID: provider.rawValue,
-                                       state: AccountLoginState.waitingForLogin.rawValue, message: message)
+            let login = LoginStatus(sessionID: start.session.id.uuidString.lowercased(), providerID: provider.rawValue,
+                                    state: AccountLoginState.waitingForLogin.rawValue, message: message)
+            result.login = login
+            await self.trackLogin(login)
             return result
         }
+    }
+
+    /// The Mac sign-in launch file as a `/bin/sh` script: only the sign-in variables of `spec` are exported.
+    static func signInScript(_ spec: LaunchSpec, _ provider: ProviderID) -> String {
+        let catalog = ProviderCatalog.spec(provider)
+        let keys = ["HOME", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"]
+            + (catalog?.files.compactMap(\.homeEnv) ?? []) + (catalog?.loginEnv.keys.sorted() ?? [])
+        return TerminalLaunch.script(command: [spec.executable.path] + spec.arguments,
+                                     exports: spec.environment.filter { keys.contains($0.key) },
+                                     workingDirectory: spec.workingDirectory?.path)
+    }
+
+    /// Keeps the `login` topic: an open session replaces its earlier state; a finished or cancelled one leaves.
+    func trackLogin(_ login: LoginStatus?, removing id: String? = nil) {
+        let id = login?.sessionID ?? id
+        let index = logins.firstIndex { $0.sessionID == id }
+        if let login, login.state != AccountLoginState.completed.rawValue {
+            if let index { logins[index] = login } else { logins.append(login) }
+        } else if let index {
+            logins.remove(at: index)
+        }
+        publish(.login, LoginValue(sessions: logins))
     }
 
     /// Check Now: saves the account once the login finished. Droid may ask twice (running, then duplicate).
@@ -219,6 +259,7 @@ extension AppEngine {
             result.login = LoginStatus(sessionID: sessionID.uuidString.lowercased(),
                                        providerID: check.session.providerID.rawValue,
                                        state: check.state.rawValue, message: self.masked(check.message))
+            await self.trackLogin(check.account == nil ? result.login : nil, removing: sessionID.uuidString.lowercased())
             guard let account = check.account else { return result }
             if account.identity.providerID == .droid, let droidAPIKey, !droidAPIKey.isEmpty {
                 try await manager.setDroidUsageAPIKey(accountID: account.id, apiKey: droidAPIKey)
@@ -253,6 +294,7 @@ extension AppEngine {
             result.login = LoginStatus(sessionID: sessionID.uuidString.lowercased(), providerID: ProviderID.grokBuild.rawValue,
                                        state: AccountLoginState.waitingForLogin.rawValue,
                                        message: "Authorization code submitted. Waiting for Grok to finish signing in.")
+            await self.trackLogin(result.login)
             return result
         }
     }
@@ -260,6 +302,7 @@ extension AppEngine {
     public func cancelLogin(_ sessionID: UUID) async throws -> ActionResult {
         try await perform(failure: "Couldn’t cancel sign-in.", recovery: "Refresh and retry from the pending sign-in.") {
             try await self.requireManager().cancelAccountLogin(id: sessionID)
+            await self.trackLogin(nil, removing: sessionID.uuidString.lowercased())
             return .done()
         }
     }
