@@ -212,7 +212,7 @@ public struct CodexWhamExtras: Sendable, Equatable, Codable {
                 if let status = credit["status"].string, status != "available" { return nil }
                 return Fmt.date(credit["expires_at"].raw)
             }
-            credits = CodexResetCredits(count: Int(count), expiries: expiries)
+            credits = CodexResetCredits(count: Fmt.clampedInt(count, 0...Int.max), expiries: expiries)
         }
 
         let limit = [
@@ -251,13 +251,13 @@ public struct CodexWhamExtras: Sendable, Equatable, Codable {
 
     private static func additionalBucket(_ entry: JSON, now: Date) -> CodexRateLimitBucketSnapshot? {
         func window(_ json: JSON) -> CodexRateLimitWindowSnapshot? {
-            guard let used = json["used_percent"].double else { return nil }
+            guard let used = json["used_percent"].double.flatMap({ Fmt.int($0.rounded()) }) else { return nil }
             let seconds = json["limit_window_seconds"].double
             let reset = json["reset_at"].double.flatMap(Fmt.epoch)
                 ?? json["reset_after_seconds"].double.map { now.addingTimeInterval($0) }
             return CodexRateLimitWindowSnapshot(
-                usedPercent: Int(used.rounded()),
-                windowDurationMinutes: seconds.flatMap { $0 > 0 ? Int64($0 / 60) : nil },
+                usedPercent: used,
+                windowDurationMinutes: seconds.flatMap { $0 > 0 ? Fmt.int($0 / 60).map(Int64.init) : nil },
                 resetsAt: reset)
         }
         let primary = window(entry["rate_limit"]["primary_window"])
@@ -269,11 +269,60 @@ public struct CodexWhamExtras: Sendable, Equatable, Codable {
     }
 }
 
+/// ChatGPT's daily Codex reports, the ones the Codex client's Analytics view reads (after openusage
+/// 53d04144). Days are UTC `yyyy-MM-dd`. A report with any malformed record is rejected whole, so a day
+/// never shows a partial total.
+public enum CodexUsageReports {
+    /// `analytics/daily-workspace-usage-counts`: turns (required) and text tokens (optional) per day.
+    static func counts(_ json: JSON) -> (turns: [String: Double], tokens: [String: Double])? {
+        guard let records = json["data"].raw as? [Any] else { return nil }
+        var turns: [String: Double] = [:], tokens: [String: Double] = [:]
+        for record in records.map(JSON.init) {
+            let totals = record["totals"]
+            guard let day = date(record), let count = totals["turns"].double, count >= 0, count.isFinite else { return nil }
+            turns[day, default: 0] += count
+            let raw = totals["text_total_tokens"].raw
+            if raw != nil, !(raw is NSNull) {
+                guard let value = totals["text_total_tokens"].double, value >= 0, value.isFinite else { return nil }
+                tokens[day, default: 0] += value
+            }
+        }
+        return (turns, tokens)
+    }
+
+    /// `usage/credit-usage-events` (personal plans): credits charged, summed per day. A refund is negative.
+    static func creditEvents(_ json: JSON) -> [String: Double]? {
+        guard let records = json["data"].raw as? [Any] else { return nil }
+        var credits: [String: Double] = [:]
+        for record in records.map(JSON.init) {
+            guard let day = date(record), let amount = record["credit_amount"].double, amount.isFinite else { return nil }
+            credits[day, default: 0] += amount
+        }
+        return credits
+    }
+
+    /// Daily tokens, turns and credits for the last 30 UTC days up to `now`; nil when either report is malformed.
+    public static func charts(counts: JSON, credits: JSON, now: Date) -> [UsageChart]? {
+        guard let counted = self.counts(counts), let charged = creditEvents(credits) else { return nil }
+        let fill = (days: 30, endingAt: now)
+        return [UsageChart.daily(id: "daily-tokens", title: "Daily tokens", unit: "tokens", values: counted.tokens, fill: fill),
+                UsageChart.daily(id: "daily-turns", title: "Daily turns", unit: "turns", values: counted.turns, fill: fill),
+                UsageChart.daily(id: "daily-credits", title: "Daily credits", unit: "credits", values: charged, fill: fill)]
+            .compactMap { $0 }
+    }
+
+    private static func date(_ record: JSON) -> String? {
+        record["date"].string.flatMap { $0.count >= 10 ? String($0.prefix(10)) : nil }
+    }
+}
+
 /// Reads the ChatGPT backend extras with the access token of a private auth file. Read only: an
 /// expired token skips the extras, because the app-server path owns token refresh.
 public struct CodexWhamClient: Sendable {
     static let usageURL = "https://chatgpt.com/backend-api/wham/usage"
     static let resetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+    static let countsURL = "https://chatgpt.com/backend-api/wham/analytics/daily-workspace-usage-counts"
+    static let creditEventsURL = "https://chatgpt.com/backend-api/wham/usage/credit-usage-events"
 
     private let send: @Sendable (String, [String: String]) async throws -> HTTPResponse
 
@@ -284,6 +333,34 @@ public struct CodexWhamClient: Sendable {
     }
 
     public func fetch(authFile: URL, now: Date) async -> CodexWhamExtras? {
+        guard let headers = Self.headers(authFile: authFile, now: now) else { return nil }
+        let creditHeaders = headers.merging(["OpenAI-Beta": "codex-1", "originator": "Codex Desktop"]) { $1 }
+        async let usage = bounded(CodexWhamClient.usageURL, headers)
+        async let credits = bounded(CodexWhamClient.resetCreditsURL, creditHeaders)
+        return CodexWhamExtras.parse(usage: await usage, resetCredits: await credits, now: now)
+    }
+
+    /// Daily tokens, turns and credits for the last 30 UTC days; nil when either report fails or is malformed.
+    // shortcut: personal plans only (credit-usage-events); team and enterprise plans use other credit reports,
+    // add them when a Codex account on such a plan needs the credits chart.
+    public func fetchHistory(authFile: URL, now: Date) async -> [UsageChart]? {
+        guard let headers = Self.headers(authFile: authFile, now: now) else { return nil }
+        let day = ISO8601DateFormatter()
+        day.formatOptions = [.withFullDate]
+        let start = day.string(from: now.addingTimeInterval(-29 * 86_400)), end = day.string(from: now)
+        let query = "?start_date=\(start)&end_date=\(end)&group_by=day&workspace_user=true"
+        async let counts = bounded(CodexWhamClient.countsURL + query, headers)
+        async let credits = bounded(CodexWhamClient.creditEventsURL, headers)
+        func body(_ response: HTTPResponse?) -> JSON? {
+            guard let response, (200..<300).contains(response.status) else { return nil }
+            return try? response.json()
+        }
+        guard let countsBody = body(await counts), let creditsBody = body(await credits) else { return nil }
+        return CodexUsageReports.charts(counts: countsBody, credits: creditsBody, now: now)
+    }
+
+    /// Bearer and account headers from an unexpired access token; nil otherwise.
+    private static func headers(authFile: URL, now: Date) -> [String: String]? {
         guard let size = (try? authFile.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
               size <= CoreSupport.maxAuthBytes,
               let data = try? Data(contentsOf: authFile),
@@ -292,13 +369,9 @@ public struct CodexWhamClient: Sendable {
               let expiry = Fmt.jwtClaims(token)?["exp"].double.flatMap(Fmt.epoch),
               expiry > now.addingTimeInterval(30)
         else { return nil }
-        var base = ["Authorization": "Bearer \(token)"]
-        if let account = auth["tokens"]["account_id"].string { base["ChatGPT-Account-Id"] = account }
-        let headers = base
-        let creditHeaders = base.merging(["OpenAI-Beta": "codex-1", "originator": "Codex Desktop"]) { $1 }
-        async let usage = bounded(CodexWhamClient.usageURL, headers)
-        async let credits = bounded(CodexWhamClient.resetCreditsURL, creditHeaders)
-        return CodexWhamExtras.parse(usage: await usage, resetCredits: await credits, now: now)
+        var headers = ["Authorization": "Bearer \(token)"]
+        if let account = auth["tokens"]["account_id"].string { headers["ChatGPT-Account-Id"] = account }
+        return headers
     }
 
     /// One request, abandoned after 10 seconds; any failure reads as no data.

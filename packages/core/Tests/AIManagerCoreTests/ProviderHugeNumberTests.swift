@@ -47,7 +47,87 @@ final class ProviderHugeNumberTests: XCTestCase {
         {"weekly_weighted_used":"50","weekly_weighted_limit":"100","weekly_resets_at":1790000000,
          "window_duration_secs":@,"window_weighted_used":"10","window_weighted_limit":"100","window_resets_at":1781000000}
         """#, { MuseUsage.webQuota($0, now: now) as Any }),
+        ("Cursor", #"""
+        {"billingCycleStart":@,"billingCycleEnd":@,"enabled":true,
+         "planUsage":{"limit":@,"remaining":@,"totalSpend":@,"totalPercentUsed":@,"autoPercentUsed":@,"apiPercentUsed":@},
+         "spendLimitUsage":{"limitType":"individual","individualLimit":@,"individualRemaining":@,"individualUsed":@}}
+        """#, { try CursorUsage.map(usage: $0, plan: nil, credits: nil, membership: "pro", email: nil) }),
+        ("Cursor events", #"""
+        {"usageEventsDisplay":[{"timestamp":"1780000000000","tokenUsage":{"inputTokens":@,"outputTokens":@,"cacheWriteTokens":@,"cacheReadTokens":@,"totalCents":@}}]}
+        """#, { CursorUsage.parseEvents($0) }),
+        ("Synthetic", #"""
+        {"rollingFiveHourLimit":{"limit":@,"used":@,"window":"%h","windowMinutes":@},
+         "weeklyTokenLimit":{"percentRemaining":@,"windowDays":@}}
+        """#, { try SyntheticUsage.map($0) }),
+        ("Abacus", #"{"success":true,"result":{"totalComputePoints":@,"computePointsLeft":@}}"#, { try AbacusUsage.map($0) }),
+        ("Neuralwatt", #"""
+        {"balance":{"credits_remaining_usd":@,"total_credits_usd":@,"credits_used_usd":@},
+         "subscription":{"plan":"pro","kwh_included":@,"kwh_used":@,"current_period_start":@,"current_period_end":@}}
+        """#, { try NeuralwattUsage.map($0) }),
+        ("Aixy", #"""
+        {"object":"key.usage","currency":"USD","budgets":[{"id":"b","scope":"project","interval":"weekly","enforcement":"hard",
+         "limit_usd":@,"spend_usd":@,"remaining_usd":@,"starts_at":@,"resets_at":@}]}
+        """#, { try AixyUsage.map($0) }),
+        ("Factory legacy", #"""
+        {"usage":{"startDate":@,"endDate":@,"standard":{"userTokens":@,"totalAllowance":@,"usedRatio":@}}}
+        """#, { try FactoryUsage.map(me: JSON(nil), billing: nil, legacy: $0, now: now) }),
+        ("Ollama", #"""
+        {"included":{"session":{"remaining_percent":@},"weekly":{"remaining_percent":@},"allowance_usd":@,"balance_usd":@,
+         "period":{"from":@,"until":@}},"purchased":{"balance_usd":@}}
+        """#, { try OllamaUsage.map(balance: $0, usage: nil, account: nil) }),
+        ("Openrouter activity", #"""
+        [{"date":"2026-05-31","model":"m","prompt_tokens":@,"completion_tokens":@,"requests":@,"usage":@}]
+        """#, { OpenRouterUsage.activitySection(rows: $0.array, now: now) as Any }),
+        ("Codex wham extras", #"""
+        {"rate_limit_reset_credits":{"available_count":@,"credits":[{"expires_at":@}]},
+         "spend_control":{"individual_limit":{"limit":@,"used":@,"remaining_percent":@,"resets_at":@}},
+         "additional_rate_limits":[{"metered_feature":"spark","rate_limit":{"primary_window":{"used_percent":@,
+           "limit_window_seconds":@,"reset_at":@,"reset_after_seconds":@}}}],"credits":{"balance":@}}
+        """#, { CodexWhamExtras.parse(usage: HTTPResponse(status: 200, data: try JSONSerialization.data(withJSONObject: $0.raw ?? [:]),
+                                                           headers: [:]), resetCredits: nil, now: now) as Any }),
+        ("z.ai model usage", #"""
+        {"success":true,"data":{"modelDataList":[{"modelName":"m","tokensUsage":[@,@]}]}}
+        """#, { ZaiUsage.modelUsage($0, title: "t") as Any }),
     ]
+
+    func testAmpHugeRenewalAndRatesNeverTrap() throws {
+        for value in ["1e300", String(repeating: "9", count: 400), "0"] {
+            let text = """
+            Amp Standard Tier: agent usage $1 of $20 remaining (5%) - resets upon renewal in \(value) days
+            Amp Free: $1/$\(value) remaining (replenishes +$\(value)/hour)
+            """
+            _ = try? AmpUsage.map(displayText: text, now: Self.now)
+        }
+    }
+
+    func testEpochRejectsValuesThatAreNoRealDate() {
+        XCTAssertEqual(Fmt.epoch(1_700_000_000), Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertEqual(Fmt.epoch(1_700_000_000_000), Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertEqual(Fmt.epoch(253_402_300_799_000), Date(timeIntervalSince1970: 253_402_300_799))
+        for value in [1e300, 253_402_300_800_000, 1.7e18, Double.infinity, Double.nan, 0, -5] {
+            XCTAssertNil(Fmt.epoch(value), "\(value)")
+        }
+        XCTAssertNil(JSON("1e300").date)
+    }
+
+    func testClampedIntMapsNaNAndOverflowIntoTheRange() {
+        XCTAssertEqual(Fmt.clampedInt(.nan, 0...10), 0)
+        XCTAssertEqual(Fmt.clampedInt(.infinity, 0...10), 10)
+        XCTAssertEqual(Fmt.clampedInt(-.infinity, 0...10), 0)
+        XCTAssertEqual(Fmt.clampedInt(1e300, 0...1_000_000_000_000_000), 1_000_000_000_000_000)
+        XCTAssertEqual(Fmt.clampedInt(7.9, 0...10), 7)
+        XCTAssertEqual(Fmt.clampedInt(1e300, Int.min...Int.max), Int.max)
+    }
+
+    func testUsagePaceTextNeverTraps() {
+        for value in [1e300, -1e300, Double.nan, Double.infinity] {
+            _ = UsagePace.tooltip(.healthy(projectedFraction: value))
+            _ = UsagePace.tooltip(.closeToLimit(label: "x", projectedFraction: value))
+            _ = UsagePace.tooltip(.runningOut(eta: value, projectedFraction: value))
+            _ = UsagePace.label(.runningOut(eta: value, projectedFraction: nil))
+            _ = UsagePace.duration(value)
+        }
+    }
 
     func testHugeNaNAndInfiniteNumbersNeverTrap() throws {
         var runs = 0

@@ -118,7 +118,7 @@ enum SyntheticUsage {
                               (["windowHours", "window_hours", "periodHours", "period_hours"], 60),
                               (["windowDays", "window_days", "periodDays", "period_days"], 1440),
                               (["windowSeconds", "window_seconds", "periodSeconds", "period_seconds"], 1.0 / 60)] {
-            if let value = number(json, keys) { return Int((value * scale).rounded()) }
+            if let value = number(json, keys) { return Fmt.int((value * scale).rounded()) }
         }
         // Text such as "5h", "30 min" or "7 days".
         guard let text = first(json, ["window", "windowLabel", "window_label", "period", "periodLabel", "period_label"])?
@@ -130,7 +130,7 @@ enum SyntheticUsage {
         guard let amount = Double(body[..<unitStart]) else { return nil }
         let unit = body[unitStart...]
         let scale: Double = unit.hasPrefix("m") ? 1 : unit.hasPrefix("h") ? 60 : 1440
-        return Int((amount * scale).rounded())
+        return Fmt.int((amount * scale).rounded())
     }
 
     /// "5 hours window" for a quota that reports no reset time.

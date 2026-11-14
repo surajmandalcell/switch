@@ -25,7 +25,7 @@ enum AbacusUsage {
         let resetsAt = info?["nextBillingDate"].date
         var minutes = 30 * 24 * 60
         if let resetsAt, let start = Calendar.current.date(byAdding: .month, value: -1, to: resetsAt) {
-            minutes = max(1, Int(resetsAt.timeIntervalSince(start) / 60))
+            minutes = max(1, Fmt.int(resetsAt.timeIntervalSince(start) / 60) ?? minutes)
         }
         let used = total - left
         let window = UsageWindow(id: "credits", title: "Credits", usedPercent: total > 0 ? used / total * 100 : 0,

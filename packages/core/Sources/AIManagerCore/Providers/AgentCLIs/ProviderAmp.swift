@@ -42,16 +42,16 @@ enum AmpUsage {
             + #"\s+remaining\b([^\r\n]*?)resets\s+upon\s+renewal\s+in\s+([0-9][0-9,]*)\s+(days?|months?)\b"#)
         if let tier, let remaining = number(tier[1]), let limit = number(tier[2]), limit > 0 {
             let period = period(in: tier[3])
-            let reset = period?.end ?? number(tier[4]).flatMap { renewal(Int($0), tier[5], now) }
+            let reset = period?.end ?? number(tier[4]).flatMap { renewal($0, tier[5], now) }
             plan = tier[0]
             windows.append(UsageWindow(id: "agent", title: "Agent usage", usedPercent: (limit - remaining) / limit * 100,
-                                       resetsAt: reset, windowMinutes: period.map { Int($0.end.timeIntervalSince($0.start) / 60) },
+                                       resetsAt: reset, windowMinutes: period.flatMap { Fmt.int($0.end.timeIntervalSince($0.start) / 60) },
                                        detail: "\(Fmt.money(limit - remaining)) / \(Fmt.money(limit))"))
             allowances.append(UsageRow("Agent", Fmt.money(remaining)))
             if let orb = captures(tier[3], #"(?i)\borb\s+usage\s+"# + amount + #"h\s+of\s+"# + amount + #"h\s+a1\.small\s+orb\s+hours\s+remaining\b"#),
                let orbRemaining = number(orb[0]), let orbLimit = number(orb[1]), orbLimit > 0 {
                 windows.append(UsageWindow(id: "orb", title: "Orb usage", usedPercent: (orbLimit - orbRemaining) / orbLimit * 100,
-                                           resetsAt: reset, windowMinutes: period.map { Int($0.end.timeIntervalSince($0.start) / 60) },
+                                           resetsAt: reset, windowMinutes: period.flatMap { Fmt.int($0.end.timeIntervalSince($0.start) / 60) },
                                            detail: "\(orbRemaining > 0 && orbRemaining < 1 ? "< 1" : Fmt.number(orbRemaining.rounded(.down)))h of \(Fmt.number(orbLimit))h left"))
                 allowances.append(UsageRow("Orb", "\(orbRemaining > 0 && orbRemaining < 1 ? "< 1" : Fmt.number(orbRemaining.rounded(.down)))h a1.small-equivalent"))
             }
@@ -61,11 +61,11 @@ enum AmpUsage {
             if let sub = captures(text, #"(?im)^\s*Subscription\s+(.+?):"# + suffix)
                 ?? captures(text, #"(?im)^\s*Amp\s+(.+?)\s+Subscription:"# + suffix),
                let other = number(sub[1]), let orb = number(sub[2]) {
-                let reset = number(sub[3]).flatMap { renewal(Int($0), sub[4], now) }
+                let reset = number(sub[3]).flatMap { renewal($0, sub[4], now) }
                 plan = sub[0]
                 // The legacy text names only the days to renewal, so the cycle is one calendar month before it.
                 let cycle = reset.flatMap { end in
-                    Calendar(identifier: .gregorian).date(byAdding: .month, value: -1, to: end).map { Int(end.timeIntervalSince($0) / 60) }
+                    Calendar(identifier: .gregorian).date(byAdding: .month, value: -1, to: end).flatMap { Fmt.int(end.timeIntervalSince($0) / 60) }
                 }
                 windows.append(UsageWindow(id: "other", title: "Other usage", usedPercent: 100 - other, resetsAt: reset, windowMinutes: cycle))
                 windows.append(UsageWindow(id: "orb", title: "Orb usage", usedPercent: 100 - orb, resetsAt: reset, windowMinutes: cycle))
@@ -81,7 +81,7 @@ enum AmpUsage {
             let used = max(0, quota - remaining)
             free = UsageWindow(id: "free", title: "Free tier", usedPercent: used / quota * 100,
                                resetsAt: hourly > 0 ? now.addingTimeInterval(used / hourly * 3600) : nil,
-                               windowMinutes: hourly > 0 ? Int(max(1, (quota / hourly).rounded()) * 60) : nil,
+                               windowMinutes: hourly > 0 ? Fmt.int(max(1, (quota / hourly).rounded()) * 60) : nil,
                                detail: "\(Fmt.money(remaining)) of \(Fmt.money(quota)) left")
         } else if let freePercent, let remaining = number(freePercent[0]) {
             var zone = Calendar(identifier: .gregorian)
@@ -130,7 +130,10 @@ enum AmpUsage {
         return (start, end)
     }
 
-    private static func renewal(_ value: Int, _ unit: String, _ now: Date) -> Date? {
-        Calendar(identifier: .gregorian).date(byAdding: unit.lowercased().hasPrefix("month") ? .month : .day, value: value, to: now)
+    /// A renewal more than about 10 years out is not a real date, so it reads as unknown.
+    private static func renewal(_ value: Double, _ unit: String, _ now: Date) -> Date? {
+        let month = unit.lowercased().hasPrefix("month")
+        guard let count = Fmt.int(value), (0...(month ? 120 : 3_660)).contains(count) else { return nil }
+        return Calendar(identifier: .gregorian).date(byAdding: month ? .month : .day, value: count, to: now)
     }
 }

@@ -36,7 +36,7 @@ enum AixyUsage {
 
         var percent: Double { used.map { $0 / limit * 100 } ?? 0 }
         var window: UsageWindow {
-            let minutes = startsAt.flatMap { start in resetsAt.map { Int($0.timeIntervalSince(start) / 60) } }
+            let minutes = startsAt.flatMap { start in resetsAt.flatMap { Fmt.int($0.timeIntervalSince(start) / 60) } }
             return UsageWindow(id: "aixy-\(id)", title: title, usedPercent: known ? percent : nil, resetsAt: resetsAt,
                                windowMinutes: minutes.flatMap { $0 > 0 ? $0 : nil },
                                detail: known ? "\(Fmt.money(remaining ?? 0)) remaining" : "Unavailable")

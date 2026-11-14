@@ -153,7 +153,7 @@ enum OpenCodeGoUsage {
                     guard ms > 0 else { continue }
                     entries.append(MajorsSpend.Entry(
                         date: Date(timeIntervalSince1970: ms / 1000), cost: max(0, sqlite3_column_double(statement, 2)),
-                        tokens: Int(min(max(sqlite3_column_double(statement, 3), 0), 1e15))))
+                        tokens: Fmt.clampedInt(sqlite3_column_double(statement, 3), 0...1_000_000_000_000_000)))
                 }
             }
         }

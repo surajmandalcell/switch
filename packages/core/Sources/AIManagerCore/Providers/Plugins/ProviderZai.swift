@@ -172,7 +172,7 @@ enum ZaiUsage {
         guard json["success"].bool == true else { return nil }
         let totals = json.at("data.modelDataList").array.compactMap { model -> (String, Int)? in
             let sum = model["tokensUsage"].array.reduce(0.0) { $0 + max(0, $1.double ?? 0) }
-            return sum > 0 ? (model["modelName"].string ?? "Unknown", Int(min(sum, 1e15))) : nil
+            return sum > 0 ? (model["modelName"].string ?? "Unknown", Fmt.clampedInt(sum, 0...1_000_000_000_000_000)) : nil
         }.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }
         return totals.isEmpty ? nil : UsageSection(title, totals.prefix(20).map { UsageRow($0.0, MajorsSpend.compact($0.1)) })
     }

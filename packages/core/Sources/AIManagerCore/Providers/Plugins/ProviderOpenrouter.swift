@@ -73,7 +73,7 @@ enum OpenRouterUsage {
             if let model, !model.isEmpty { models.insert(model) }
         }
         let section = UsageSection("Activity (last 30 completed UTC days)", [
-            UsageRow("Tokens", MajorsSpend.compact(Int(min(tokens, 1e15)))), UsageRow("Requests", Fmt.number(requests)),
+            UsageRow("Tokens", MajorsSpend.compact(Fmt.clampedInt(tokens, 0...1_000_000_000_000_000))), UsageRow("Requests", Fmt.number(requests)),
             UsageRow("Models", String(models.count)), UsageRow("Spend", dollars(spend)),
         ])
         let chart = UsageChart.daily(id: "activity-spend", title: "Daily spend", unit: "USD", values: byDay,
