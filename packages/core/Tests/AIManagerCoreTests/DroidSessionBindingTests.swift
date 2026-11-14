@@ -3,6 +3,8 @@ import XCTest
 @testable import AIManagerCore
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -25,7 +27,11 @@ final class DroidSessionBindingTests: XCTestCase {
         let before = try Data(contentsOf: path)
         try CoreSupport.privateDirectory(state, fileManager: fm)
         let journal = state.appending(path: "pending.json")
+#if os(Windows)
+        throw XCTSkip("Windows has no FIFOs.")
+#else
         XCTAssertEqual(mkfifo(journal.path, mode_t(0o600)), 0)
+#endif
 
         XCTAssertThrowsError(try bind())
 

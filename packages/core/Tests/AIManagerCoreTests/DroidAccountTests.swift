@@ -8,6 +8,8 @@ import Crypto
 #endif
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -619,6 +621,7 @@ final class DroidAccountTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: outside), outsideBytes)
         XCTAssertEqual(try Data(contentsOf: live), before)
+#if !os(Windows) // Windows has no FIFOs
         try fm.removeItem(at: state)
         XCTAssertEqual(mkfifo(state.path, mode_t(0o600)), 0)
         do { _ = try await manager.refreshDroidConversationBinding(); XCTFail("Expected a FIFO state file to fail without waiting for a writer") }
@@ -626,6 +629,7 @@ final class DroidAccountTests: XCTestCase {
             guard case .unsafePath = error else { return XCTFail("Unexpected error: \(error)") }
         }
         XCTAssertEqual(try Data(contentsOf: live), before)
+#endif
     }
 
     func testConversationStateFailureAfterAuthCommitStillReportsTheSelectedAccount() async throws {

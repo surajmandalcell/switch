@@ -145,7 +145,11 @@ final class BackupEngineTests: XCTestCase {
 
     func testSpecialFilesAreSkippedSilently() async throws {
         try write("sessions/a.jsonl", "a")
+#if os(Windows)
+        throw XCTSkip("Windows has no FIFOs.")
+#else
         XCTAssertEqual(mkfifo(home.appending(path: "sessions/pipe").path, 0o600), 0)
+#endif
         let snapshot = try await engine.snapshot(makeSet())
         XCTAssertFalse(snapshot.manifest.entries.contains { $0.path.hasSuffix("pipe") })
         XCTAssertTrue(snapshot.manifest.skipped.isEmpty)
