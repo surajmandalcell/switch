@@ -10,9 +10,12 @@ public enum AppEngineError: Error, Equatable, LocalizedError {
     case stale
     /// Not available on this platform in this version (-32005).
     case unsupported(String)
+    /// No backup set, snapshot, or cleanup batch has that id (-32003).
+    case notFound(String)
 
     public var errorDescription: String? {
         switch self {
+        case .notFound(let text): text
         case .busy: "Switch is busy with another action."
         case .unavailable: AppEngine.unavailableText
         case .stale: "That plan expired or was replaced. Review it again."
