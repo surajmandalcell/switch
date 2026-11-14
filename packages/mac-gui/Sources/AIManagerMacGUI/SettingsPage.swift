@@ -2,6 +2,7 @@ import AIManagerCore
 import AppKit
 import ServiceManagement
 import SwiftUI
+import SwitchAppModel
 
 struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel

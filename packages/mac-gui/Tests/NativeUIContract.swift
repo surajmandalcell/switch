@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import CoreServices
 import SwiftUI
+import SwitchAppModel
 
 struct AIManagerNativeViewSnapshot: Codable {
   let path: String

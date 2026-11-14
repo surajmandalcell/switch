@@ -72,11 +72,17 @@ swiftc -disable-sandbox -parse-as-library -emit-library -static -emit-module -mo
   -target "$(uname -m)-apple-macos14.0" -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "${core_sources[@]}" -emit-module-path "$products/AIManagerCore.swiftmodule" -o "$products/libAIManagerCore.a"
+model_sources=()
+while IFS= read -r source; do model_sources+=("$source"); done < <(rg --files "$repo_root/packages/app-model/Sources/SwitchAppModel" -g '*.swift' | sort)
+swiftc -disable-sandbox -parse-as-library -emit-library -static -emit-module -module-name SwitchAppModel \
+  -target "$(uname -m)-apple-macos14.0" -I "$products" \
+  -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
+  "${model_sources[@]}" -emit-module-path "$products/SwitchAppModel.swiftmodule" -o "$products/libSwitchAppModel.a"
 sources=()
 for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
   [[ "$(basename "$source")" == AIManagerApp.swift ]] || sources+=("$source")
 done
-flags+=(-I "$products" -L "$products" -lAIManagerCore -lsqlite3
+flags+=(-I "$products" -L "$products" -lAIManagerCore -lSwitchAppModel -lsqlite3
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap")
 
 run_root="$AI_MANAGER_BUILD_PATH/ui-lint-run"

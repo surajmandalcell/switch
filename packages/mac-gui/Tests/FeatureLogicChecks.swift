@@ -1,5 +1,6 @@
 import AIManagerCore
 import Foundation
+import SwitchAppModel
 
 // Model checks for the Foundation-only feature logic: quota notifications, provider status
 // polling, Claude activity, and email masking. Synthetic data and temporary folders only.
@@ -113,6 +114,10 @@ enum FeatureLogicChecks {
         let notify = SettingsSearch.search("notify")
         try expect(notify.count == 4 && notify.allSatisfy { $0.section == SettingsCopy.notificationsTitle },
                    "\"notify\" does not find the 4 notification rows: \(notify.map(\.title))")
+        try expect(SettingsCopy.notificationRows.map(\.key) == [QuotaNotificationSettings.almostOutKey, QuotaNotificationSettings.paceKey,
+                                                              QuotaNotificationSettings.availableAgainKey,
+                                                              QuotaNotificationSettings.signInAgainKey],
+                   "Shared notification rows drifted from the Mac preference keys")
         let general = SettingsSearch.search("general")
         try expect(general.count == 5 && general.allSatisfy { $0.section == "General" },
                    "\"general\" does not find every General row: \(general.map(\.title))")

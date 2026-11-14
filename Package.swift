@@ -34,6 +34,10 @@ var products: [Product] = [
         name: "AIManagerCore",
         targets: ["AIManagerCore"]
     ),
+    .library(
+        name: "SwitchAppModel",
+        targets: ["SwitchAppModel"]
+    ),
     .executable(
         name: "ai-manager",
         targets: ["AIManagerTUI"]
@@ -113,7 +117,7 @@ products.append(
 targets.append(
     .executableTarget(
         name: "AIManagerMacGUI",
-        dependencies: ["AIManagerCore"],
+        dependencies: ["AIManagerCore", "SwitchAppModel"],
         path: "packages/mac-gui/Sources/AIManagerMacGUI"
     )
 )
