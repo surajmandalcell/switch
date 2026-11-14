@@ -38,6 +38,10 @@ var products: [Product] = [
         name: "ai-manager",
         targets: ["AIManagerTUI"]
     ),
+    .executable(
+        name: "switch-core",
+        targets: ["SwitchCoreCLI"]
+    ),
 ]
 
 var targets: [Target] = [
@@ -70,6 +74,21 @@ var targets: [Target] = [
             ),
         ],
         path: "packages/core/Tests/AIManagerCoreTests"
+    ),
+    .target(
+        name: "SwitchRPC",
+        dependencies: ["AIManagerCore"],
+        path: "packages/rpc/Sources/SwitchRPC"
+    ),
+    .executableTarget(
+        name: "SwitchCoreCLI",
+        dependencies: ["SwitchRPC", "AIManagerCore"],
+        path: "packages/rpc/Sources/switch-core"
+    ),
+    .testTarget(
+        name: "SwitchRPCTests",
+        dependencies: ["SwitchRPC", "AIManagerCore"],
+        path: "packages/rpc/Tests/SwitchRPCTests"
     ),
     sqliteTarget,
 ]
