@@ -5,10 +5,43 @@ import AIManagerCore
 // no credential digest, token, cookie, key, or auth-file content. Ids are lowercase UUID strings, paths are plain paths.
 
 struct InitializeResult: Encodable {
+    struct Features: Encodable {
+        let autoSwitchRestart: Bool
+        let claudeUsageProbe: Bool
+    }
+
     let protocolVersion: Int
     let serverVersion: String
+    /// major * 1,000,000 + minor * 1,000 + patch; 0 when the version is not three numbers.
+    let buildNumber: Int
     let platform: String
     let methods: [String]
+    let topics: [String]
+    let settingsSchemaVersion: Int
+    let features: Features
+}
+
+/// Embeds any encodable value, such as a topic value, in a reply.
+struct AnyEncodable: Encodable {
+    let value: any Encodable
+    func encode(to encoder: Encoder) throws { try value.encode(to: encoder) }
+}
+
+struct StateParams: Decodable {
+    let topics: [String]
+}
+
+/// One topic in the `state.subscribe` reply.
+struct WireTopicState: Encodable {
+    let rev: Int
+    let value: AnyEncodable
+}
+
+/// `state.changed` params.
+struct WireTopicChange: Encodable {
+    let topic: String
+    let rev: Int
+    let value: AnyEncodable
 }
 
 struct UsageDetailParams: Decodable {

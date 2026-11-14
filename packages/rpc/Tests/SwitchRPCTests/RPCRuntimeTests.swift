@@ -40,10 +40,10 @@ final class RPCRuntimeTests: XCTestCase {
     /// Writes the lines into a pipe, closes it, serves to the end, and returns each reply as a JSON object,
     /// in the order the server wrote them.
     func run(_ lines: [String], manager: AccountManager? = nil, timeout: TimeInterval = RPCServer.defaultTimeout,
-                     extra: [String: @Sendable (Data) async throws -> any Encodable] = [:])
+             version: String = "test-version", extra: [String: @Sendable (Data) async throws -> any Encodable] = [:])
         async throws -> (raw: [String], replies: [[String: Any]]) {
         let logLock = NSLock()
-        let server = RPCServer(manager: try manager ?? self.manager(), paths: paths, version: "test-version",
+        let server = RPCServer(manager: try manager ?? self.manager(), paths: paths, version: version,
                                timeout: timeout, log: { line in logLock.lock(); self.logLines.append(line); logLock.unlock() })
         server.extraMethods = extra
         let pipe = Pipe()
@@ -73,6 +73,13 @@ final class RPCRuntimeTests: XCTestCase {
         XCTAssertEqual(value["serverVersion"] as? String, "test-version")
         XCTAssertTrue(["macos", "linux", "windows"].contains(value["platform"] as? String ?? ""))
         XCTAssertEqual(value["methods"] as? [String], RPCServer.methods)
+        XCTAssertEqual(value["buildNumber"] as? Int, 0)
+        XCTAssertEqual(value["topics"] as? [String], ["app", "notices"])
+        XCTAssertEqual(value["settingsSchemaVersion"] as? Int, 1)
+        let features = try XCTUnwrap(value["features"] as? [String: Bool])
+        XCTAssertEqual(features, ["autoSwitchRestart": false, "claudeUsageProbe": false])
+        let (_, released) = try await run([#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#], version: "3.9.5")
+        XCTAssertEqual(result(released[0])?["buildNumber"] as? Int, 3_009_005)
     }
 
     func testUnknownMethodEchoesStringID() async throws {
