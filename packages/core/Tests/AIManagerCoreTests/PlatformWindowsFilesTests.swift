@@ -203,6 +203,53 @@ final class PlatformWindowsFilesTests: XCTestCase {
         XCTAssertEqual(errno, ESRCH)
     }
 
+    func testTwoArgumentOpenReadsLongPathsAndLetsTheFileBeDeletedWhileOpen() throws {
+        // Several folders: one name may not pass 255 characters, but the whole path passes MAX_PATH (260).
+        let deep = root.appending(path: Array(repeating: String(repeating: "long-folder-name-", count: 4), count: 5).joined(separator: "/"))
+        let file = deep.appending(path: "pending.json")
+        XCTAssertGreaterThan(file.path.utf16.count, 300)
+        try CoreSupport.atomicWrite(Data("{}".utf8), to: file, fileManager: .default)
+        let descriptor = AIManagerCore.open(file.path, O_RDONLY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(descriptor, 0, "errno \(errno)")
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        XCTAssertEqual(try CoreSupport.digest(file: file), CoreSupport.digest(Data("{}".utf8)))
+        XCTAssertEqual(unlink(file.path), 0, "errno \(errno)")
+        XCTAssertFalse(CoreSupport.entryExists(file))
+    }
+
+    func testKillNeverSignalsGroupsOrSystemProcesses() {
+        // Probes only (signal 0), so a broken guard cannot end a system process here.
+        for pid: Int32 in [-1, -4321, 0, 4] {
+            XCTAssertEqual(AIManagerCore.kill(pid, 0), -1, "pid \(pid)")
+            XCTAssertEqual(errno, EINVAL, "pid \(pid)")
+        }
+    }
+
+    func testStoppingACmdWrapperEndsTheProgramItStarted() throws {
+        let pidFile = root.appending(path: "grandchild.pid")
+        // bash starts a long sleep, writes its Windows process id, and waits: the shape of an npm .cmd running node.
+        let wrapper = try TestCLI.write(
+            "#!/bin/bash\nsleep 300 &\ncat /proc/$!/winpid > '\(pidFile.path)'\nwait\n", to: root.appending(path: "tool"))
+        let process = Process()
+        process.executableURL = wrapper
+        process.standardOutput = Pipe()
+        try ChildProcess.run(process)
+        let deadline = Date().addingTimeInterval(20)
+        var grandchild: DWORD = 0
+        while grandchild == 0, Date() < deadline {
+            grandchild = DWORD((try? String(contentsOf: pidFile, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
+            if grandchild == 0 { Thread.sleep(forTimeInterval: 0.1) }
+        }
+        XCTAssertNotEqual(grandchild, 0, "the wrapper never started its program")
+        let sleeper = try XCTUnwrap(OpenProcess(DWORD(SYNCHRONIZE), false, grandchild))
+        defer { CloseHandle(sleeper) }
+        process.terminate()
+        process.waitUntilExit()
+        XCTAssertEqual(WaitForSingleObject(sleeper, 5_000), 0, "the program the wrapper started is still running")
+    }
+
     func testPollAndReadFollowAPipeToEndOfFile() throws {
         let pipe = Pipe()
         let descriptor = WindowsFiles.descriptor(duplicating: pipe.fileHandleForReading._handle)

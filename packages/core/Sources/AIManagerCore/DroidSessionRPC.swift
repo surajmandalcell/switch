@@ -95,7 +95,7 @@ public struct DroidSessionRPC: Sendable {
         process.terminationHandler = { _ in collector.processEnded() }
 
         do {
-            try process.run()
+            try ChildProcess.run(process)
         } catch {
             output.fileHandleForReading.readabilityHandler = nil
             errors.fileHandleForReading.readabilityHandler = nil

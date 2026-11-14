@@ -28,11 +28,16 @@ final class CodexWriterProbeTests: XCTestCase {
         XCTAssertEqual(flock(fd, LOCK_EX | LOCK_NB), 0)
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.executableURL = TestCLI.sleepExecutable
         process.arguments = ["30"]
         process.standardInput = handle
         try process.run()
+#if os(Windows)
+        // A LockFileEx lock ends when the handle that took it closes, not when the child's copy does; keep it.
+        defer { try? handle.close() }
+#else
         try handle.close()
+#endif
         defer { if process.isRunning { process.terminate() }; process.waitUntilExit() }
         let pids = [process.processIdentifier]
 
@@ -49,7 +54,7 @@ final class CodexWriterProbeTests: XCTestCase {
         XCTAssertEqual(CodexWriterProbe.check(home: shared, pids: pids), .active)
 
         let unknown = Process()
-        unknown.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        unknown.executableURL = TestCLI.sleepExecutable
         unknown.arguments = ["30"]
         try unknown.run()
         defer { if unknown.isRunning { unknown.terminate() }; unknown.waitUntilExit() }
@@ -69,7 +74,7 @@ final class CodexWriterProbeTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.executableURL = TestCLI.sleepExecutable
         process.arguments = ["30"]
         try process.run()
         defer { if process.isRunning { process.terminate() }; process.waitUntilExit() }

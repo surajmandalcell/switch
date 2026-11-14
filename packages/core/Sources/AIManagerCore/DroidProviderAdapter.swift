@@ -82,7 +82,7 @@ struct DroidProviderAdapter {
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = handle
             process.standardError = FileHandle.nullDevice
-            try process.run()
+            try ChildProcess.run(process)
             let deadline = Date().addingTimeInterval(10)
             while process.isRunning, Date() < deadline {
                 let size = (try? fileManager.attributesOfItem(atPath: output.path)[.size] as? NSNumber)?.intValue ?? 0
@@ -164,7 +164,7 @@ struct DroidProviderAdapter {
         process.arguments = ["-axo", "pid=,comm="]
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        try process.run()
+        try ChildProcess.run(process)
         let deadline = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + 3, execute: deadline)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()

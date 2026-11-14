@@ -8,8 +8,10 @@ enum TestCLI {
     static let trueExecutable = URL(fileURLWithPath: #"C:\Program Files\Git\usr\bin\true.exe"#)
     /// A PATH that holds `true` and the other basic tools.
     static let searchPath = #"C:\Program Files\Git\usr\bin"#
+    static let sleepExecutable = URL(fileURLWithPath: #"C:\Program Files\Git\usr\bin\sleep.exe"#)
 #else
     static let trueExecutable = URL(fileURLWithPath: "/usr/bin/true")
+    static let sleepExecutable = URL(fileURLWithPath: "/bin/sleep")
     static let searchPath = "/usr/bin:/bin"
 #endif
 
@@ -28,6 +30,22 @@ enum TestCLI {
 #else
         try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
         return url
+#endif
+    }
+
+    /// Lets other users read `url`: POSIX mode 0o644; Windows an Everyone read entry, since a mode change does not
+    /// touch the access list there.
+    static func shareWithOthers(_ url: URL) throws {
+#if os(Windows)
+        let icacls = Process()
+        icacls.executableURL = URL(fileURLWithPath: #"C:\Windows\System32\icacls.exe"#)
+        icacls.arguments = [url.withUnsafeFileSystemRepresentation { String(cString: $0!) }, "/grant", "*S-1-1-0:R"]
+        icacls.standardOutput = FileHandle.nullDevice
+        try icacls.run()
+        icacls.waitUntilExit()
+        guard icacls.terminationStatus == 0 else { throw CocoaError(.fileWriteNoPermission) }
+#else
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
 #endif
     }
 }

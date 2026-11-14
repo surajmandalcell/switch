@@ -88,7 +88,7 @@ enum PiUsage {
     static func sessionDirectories(environment: [String: String] = ProcessInfo.processInfo.environment,
                                    home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
         func path(_ name: String) -> String? { environment[name].flatMap { $0.isEmpty ? nil : $0 } }
-        let config = home.appending(path: path("PI_CONFIG_DIR").flatMap { $0.hasPrefix("/") ? nil : $0 } ?? ".omp")
+        let config = home.appending(path: path("PI_CONFIG_DIR").flatMap { isAbsolutePath($0) ? nil : $0 } ?? ".omp")
         let share = path("XDG_DATA_HOME").map { URL(fileURLWithPath: $0) } ?? home.appending(path: ".local/share")
         let profile = (path("OMP_PROFILE") ?? path("PI_PROFILE")).flatMap {
             $0 != "default" && $0.range(of: #"^[a-z0-9][a-z0-9._-]{0,63}$"#, options: .regularExpression) != nil ? $0 : nil

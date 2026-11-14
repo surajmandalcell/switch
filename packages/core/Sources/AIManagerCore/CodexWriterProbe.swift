@@ -11,6 +11,15 @@ import Glibc
 /// Uses Codex's lifetime arg0 lock, never process environments or credential contents.
 enum CodexWriterProbe {
     static func check(home: URL) -> WriterState {
+#if os(Windows)
+        // The native Codex program is "codex.exe" or, under npm, "codex-<target>.exe" started by node.
+        guard let processes = WindowsProcesses.snapshot() else { return .unknown }
+        let pids = processes.filter {
+            let name = $0.name.lowercased()
+            return name == "codex.exe" || (name.hasPrefix("codex-") && name.hasSuffix(".exe"))
+        }.map(\.pid)
+        return pids.isEmpty ? .inactive : check(home: home, pids: pids)
+#else
         do {
             let (status, data) = try output("/usr/bin/pgrep", ["-x", "codex"])
             if status == 1, data.isEmpty { return .inactive }
@@ -20,6 +29,7 @@ enum CodexWriterProbe {
             guard !pids.isEmpty, pids.count == tokens.count else { return .unknown }
             return check(home: home, pids: pids)
         } catch { return .unknown }
+#endif
     }
 
     static func check(home: URL, pids: [Int32]) -> WriterState {
@@ -82,6 +92,8 @@ enum CodexWriterProbe {
                   isAbsolutePath(path) else { return nil }
             return URL(fileURLWithPath: path)
         }
+#elseif os(Windows)
+        return try WindowsProcesses.openPaths(pid: pid)
 #else
         let root = URL(fileURLWithPath: "/proc/\(pid)/fd")
         let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
@@ -109,7 +121,7 @@ enum CodexWriterProbe {
         process.arguments = arguments
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        try process.run()
+        try ChildProcess.run(process)
         var data = Data()
         do {
             while let chunk = try pipe.fileHandleForReading.read(upToCount: 64 * 1_024), !chunk.isEmpty {

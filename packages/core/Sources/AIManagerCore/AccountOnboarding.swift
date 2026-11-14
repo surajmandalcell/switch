@@ -167,7 +167,7 @@ private final class FoundationLoginProcesses: @unchecked Sendable {
         processes[id] = RunningLogin(process: process, input: input)
         lock.unlock()
         do {
-            try process.run()
+            try ChildProcess.run(process)
             try? childInput?.close()
         } catch {
             lock.lock()

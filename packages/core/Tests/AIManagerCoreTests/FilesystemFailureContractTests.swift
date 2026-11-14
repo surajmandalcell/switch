@@ -44,7 +44,7 @@ final class FilesystemFailureContractTests: XCTestCase {
         defer { _ = chmod(source.path, S_IRWXU) }
 
         errno = 0
-        let descriptor = open(auth.path, O_RDONLY)
+        let descriptor = open(auth.path, O_RDONLY, mode_t(0)) // typed mode: only the Windows shim takes a mode_t
         if descriptor >= 0 {
             close(descriptor)
             XCTFail("The synthetic denied source remained readable; EACCES could not be simulated")

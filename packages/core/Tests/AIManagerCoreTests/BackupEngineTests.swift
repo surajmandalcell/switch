@@ -138,7 +138,12 @@ final class BackupEngineTests: XCTestCase {
         let snapshot = try await engine.snapshot(set)
         func mode(_ url: URL) throws -> Int { (try fm.attributesOfItem(atPath: url.path)[.posixPermissions] as! NSNumber).intValue }
         XCTAssertEqual(try mode(snapshot.folder.appending(path: "files/sessions/private.jsonl")), 0o600)
+#if os(Windows)
+        // A copy takes the private snapshot folder's access list, so a shared file is stored owner-only.
+        XCTAssertEqual(try mode(snapshot.folder.appending(path: "files/config.toml")), 0o600)
+#else
         XCTAssertEqual(try mode(snapshot.folder.appending(path: "files/config.toml")), 0o644)
+#endif
         XCTAssertEqual(try mode(snapshot.folder), 0o700)
         XCTAssertEqual(try mode(dest.appending(path: "Switch Backups/Codex")), 0o700)
         let second = try await engine.snapshot(set)
@@ -346,9 +351,15 @@ final class BackupEngineTests: XCTestCase {
     }
 
     func testMissingVolumeWaitsAndCreatesNothing() async throws {
+#if os(Windows)
+        let volume = try XCTUnwrap("ZYXWVUTSRQPONMLKJIHGF".map { "\($0):" }.first { !fm.fileExists(atPath: $0 + "\\") })
+        let volumeRoot = volume + "\\"
+#else
         let volume = "SwitchMissingDrive-\(UUID().uuidString)"
+        let volumeRoot = "/Volumes/\(volume)"
+#endif
         var set = makeSet()
-        set.destination = URL(fileURLWithPath: "/Volumes/\(volume)/Backups")
+        set.destination = URL(fileURLWithPath: volumeRoot).appending(path: "Backups")
         try write("config.toml", "x")
         let status = try await engine.status(for: set)
         XCTAssertEqual(status.state, .waiting(volume))
@@ -359,7 +370,7 @@ final class BackupEngineTests: XCTestCase {
             XCTAssertEqual(name, volume)
             XCTAssertTrue(BackupError.waiting(name).localizedDescription.contains("Waiting for \(volume)"))
         }
-        XCTAssertFalse(fm.fileExists(atPath: "/Volumes/\(volume)"))
+        XCTAssertFalse(fm.fileExists(atPath: volumeRoot))
         let again = try await engine.status(for: set)
         XCTAssertNotNil(again.lastError)
     }

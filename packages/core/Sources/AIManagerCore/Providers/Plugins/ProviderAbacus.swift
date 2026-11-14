@@ -24,7 +24,10 @@ enum AbacusUsage {
         let info = (try? billing.map(unwrap)) ?? nil
         let resetsAt = info?["nextBillingDate"].date
         var minutes = 30 * 24 * 60
-        if let resetsAt, let start = Calendar.current.date(byAdding: .month, value: -1, to: resetsAt) {
+        // The billing date is UTC; the local calendar would count the wrong month west of UTC (31 days for June).
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        if let resetsAt, let start = utc.date(byAdding: .month, value: -1, to: resetsAt) {
             minutes = max(1, Fmt.int(resetsAt.timeIntervalSince(start) / 60) ?? minutes)
         }
         let used = total - left

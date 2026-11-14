@@ -135,7 +135,7 @@ final class ConversationCleanupTests: XCTestCase {
         try files.createSymbolicLink(at: linked, withDestinationURL: original)
         XCTAssertEqual(try scan().categories.flatMap(\.items).count, 1, "A symbolic link must not be listed")
         try files.removeItem(at: linked)
-        try files.linkItem(at: original, to: linked)
+        try Links.hardLink(at: linked, to: original, fileManager: files)
         let hardLinked = try scan().categories.flatMap(\.items)
         XCTAssertEqual(hardLinked.count, 2)
         XCTAssertTrue(hardLinked.allSatisfy { $0.protectedReason != nil })
@@ -150,7 +150,7 @@ final class ConversationCleanupTests: XCTestCase {
         _ = try transcript("sessions/2026/review.jsonl", source: ["subagent": ["other": "guardian"]])
         let spawned = try transcript("sessions/2026/spawned.jsonl", source: ["subagent": ["thread_spawn": ["depth": 1]]])
         let shared = try transcript("sessions/2026/shared.jsonl")
-        try files.linkItem(at: shared, to: root.appending(path: "other-app-link.jsonl"))
+        try Links.hardLink(at: root.appending(path: "other-app-link.jsonl"), to: shared, fileManager: files)
         let result = try scan()
         let chats = try XCTUnwrap(category(result, "conversations"))
         let agents = try XCTUnwrap(category(result, "agents"))
@@ -238,7 +238,8 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertFalse(grokItems.contains { $0.path.contains("sqlite") || $0.path.contains("auth") })
 
         let opencode = root.appending(path: "opencode")
-        try put(opencode, "opencode.db")
+        // Empty: SQLite's Unix layer reads a 1-byte file as empty, but on Windows "x" is a damaged database.
+        try put(opencode, "opencode.db", "")
         try put(opencode, "auth.json")
         try put(opencode, "log/opencode.log")
         let opencodePaths = try scan(.opencode, home: opencode).categories.flatMap(\.items).map(\.path)

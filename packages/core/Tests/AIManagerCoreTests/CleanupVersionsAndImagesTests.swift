@@ -180,6 +180,11 @@ final class CleanupVersionsAndImagesTests: XCTestCase {
         let original = codexLines()
         try write(original, to: transcript)
         let before = try Data(contentsOf: transcript)
+        var written = stat()
+        XCTAssertEqual(lstat(transcript.path, &written), 0)
+#if !os(Windows)
+        XCTAssertEqual(written.st_mode & 0o7777, 0o640) // Windows reports only owner-only (0o600) or shared (0o666)
+#endif
         let found = try scan(.codex, home: codex)
         let images = try XCTUnwrap(category(found, "images"))
         XCTAssertFalse(images.preselected)
@@ -209,7 +214,7 @@ final class CleanupVersionsAndImagesTests: XCTestCase {
 
         var info = stat()
         XCTAssertEqual(lstat(transcript.path, &info), 0)
-        XCTAssertEqual(info.st_mode & 0o7777, 0o640, "Permissions stay")
+        XCTAssertEqual(info.st_mode & 0o7777, written.st_mode & 0o7777, "Permissions stay")
         XCTAssertEqual(CleanupScanner.modified(info), longAgo.timeIntervalSince1970, accuracy: 0.001, "The modified time stays")
         XCTAssertFalse(files.fileExists(atPath: transcript.deletingLastPathComponent().appending(path: ".chat.jsonl.switch-tmp").path))
 

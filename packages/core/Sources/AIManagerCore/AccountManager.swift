@@ -1391,7 +1391,7 @@ public actor AccountManager {
         // waitUntilExit on a worker thread can miss that exit and block forever.
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             process.terminationHandler = { _ in done.resume() }
-            do { try process.run() } catch {
+            do { try ChildProcess.run(process) } catch {
                 process.terminationHandler = nil
                 done.resume()
                 return
@@ -1702,7 +1702,7 @@ public actor AccountManager {
             _ = try claudeProfiles.makeDefault(accountID)
             let process = configuredProcess(try claudeProfiles.launchSpec(
                 accountID, arguments: arguments, workingDirectory: workingDirectory))
-            try process.run()
+            try ChildProcess.run(process)
             process.waitUntilExit()
             return process.terminationStatus
         }
@@ -1745,7 +1745,7 @@ public actor AccountManager {
                     workingDirectory: workingDirectory
                 )
             )
-            try process.run()
+            try ChildProcess.run(process)
             do {
                 try faultInjector(.afterProcessStart)
             } catch {
@@ -1838,7 +1838,7 @@ public actor AccountManager {
     @discardableResult
     public func run(_ spec: LaunchSpec) async throws -> Int32 {
         let process = configuredProcess(spec)
-        try process.run()
+        try ChildProcess.run(process)
         process.waitUntilExit()
         return process.terminationStatus
     }
@@ -2881,7 +2881,7 @@ extension AccountManager {
             visited += 1
             if visited > 500_000 { break }
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            if values?.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+            if values?.isSymbolicLink == true { enumerator.skipLinkDescendants(); continue }
             if values?.isRegularFile == true, url.pathExtension == "jsonl" { count += 1 }
         }
         return count
@@ -3929,7 +3929,7 @@ extension AccountManager {
             count += 1
             guard count <= 500_000 else { throw AIManagerError.invalidSource("A settings tree exceeds the inspection limit.") }
             if try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
-                enumerator.skipDescendants()
+                enumerator.skipLinkDescendants()
                 guard let target = lexicalLinkTarget(url) else { throw AIManagerError.unsafePath("broken symbolic link") }
                 if !CoreSupport.isContained(target, by: sourceRoot) { return target }
             }
@@ -4109,7 +4109,7 @@ extension AccountManager {
                     throw AIManagerError.invalidSource("History exceeds the 500,000-entry inspection limit.")
                 }
                 let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+                if values.isSymbolicLink == true { enumerator.skipLinkDescendants(); continue }
                 guard values.isRegularFile == true else { continue }
                 hasher.update(data: Data(url.path.dropFirst(source.path.count).utf8))
                 let handle = try FileHandle(forReadingFrom: url)
@@ -4186,7 +4186,7 @@ extension AccountManager {
                 throw AIManagerError.invalidSource("History exceeds the 500,000-entry inspection limit.")
             }
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+            if values.isSymbolicLink == true { enumerator.skipLinkDescendants(); continue }
             guard values.isRegularFile == true, url.pathExtension == "jsonl" else { continue }
             do {
                 result.append(try transcriptInfo(url, archived: archived))
@@ -4328,7 +4328,7 @@ extension AccountManager {
                 throw AIManagerError.invalidSource("History exceeds the 500,000-entry inspection limit.")
             }
             let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+            if values.isSymbolicLink == true { enumerator.skipLinkDescendants(); continue }
             guard values.isRegularFile == true, source.pathExtension != "jsonl" else { continue }
             let base = sourceRoot.standardizedFileURL.pathComponents
             let components = source.standardizedFileURL.pathComponents

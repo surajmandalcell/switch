@@ -94,7 +94,17 @@ func getuid() -> uid_t { WindowsFiles.currentUserID }
 
 /// O_CREAT with a mode that has no group or other bits creates the file owner-only from the first byte.
 /// O_NOFOLLOW refuses links with ELOOP. Handles are never inherited, so O_CLOEXEC always holds.
+/// The two-argument form must exist here too: without it, `open(path, flags)` binds to the Swift CRT overlay's
+/// `_open`, which has no FILE_SHARE_DELETE, no long paths, and reads O_CLOEXEC (0x20000) as _O_U16TEXT.
+func open(_ path: UnsafePointer<CChar>, _ flags: Int32) -> Int32 {
+    openFile(path, flags, 0)
+}
+
 func open(_ path: UnsafePointer<CChar>, _ flags: Int32, _ mode: mode_t = 0) -> Int32 {
+    openFile(path, flags, mode)
+}
+
+private func openFile(_ path: UnsafePointer<CChar>, _ flags: Int32, _ mode: mode_t) -> Int32 {
     let native = WindowsFiles.native(String(cString: path))
     var access: DWORD = DWORD(READ_CONTROL)
     switch flags & (O_RDONLY | O_WRONLY | O_RDWR) {
@@ -151,6 +161,8 @@ func flock(_ descriptor: Int32, _ operation: Int32) -> Int32 {
 /// so callers that send SIGTERM and then SIGKILL get the hard stop at the first step.
 @discardableResult
 func kill(_ pid: Int32, _ signal: Int32) -> Int32 {
+    // 0, -1 and negative pids mean groups or every process on POSIX; 0 to 4 are the idle and System processes.
+    guard pid > 4 else { return fail(-1, EINVAL) }
     let rights = DWORD(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION) | (signal == 0 ? 0 : DWORD(PROCESS_TERMINATE))
     guard let process = OpenProcess(rights, false, DWORD(bitPattern: pid)) else {
         return fail(-1, GetLastError() == DWORD(ERROR_ACCESS_DENIED) ? EPERM : ESRCH)
@@ -217,6 +229,28 @@ func read(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer, _ count: Int) 
 /// volume and keeps the source's access list.
 func rename(_ source: UnsafePointer<CChar>, _ destination: UnsafePointer<CChar>) -> Int32 {
     WindowsFiles.move(String(cString: source), String(cString: destination), replacing: true)
+        ? 0 : fail(-1, WindowsFiles.errnoFromLastError())
+}
+
+/// POSIX `unlink`: the name goes at once, even while another handle that allows delete still has the file open
+/// (the UCRT one leaves a delete-pending name or refuses). Never follows a link and refuses folders.
+func unlink(_ path: UnsafePointer<CChar>) -> Int32 {
+    let native = WindowsFiles.native(String(cString: path))
+    guard let handle = WindowsFiles.openHandle(native, access: DWORD(DELETE) | DWORD(FILE_READ_ATTRIBUTES), followLinks: false) else {
+        return fail(-1, WindowsFiles.errnoFromLastError())
+    }
+    defer { CloseHandle(handle) }
+    var file = BY_HANDLE_FILE_INFORMATION()
+    guard GetFileInformationByHandle(handle, &file) else { return fail(-1, WindowsFiles.errnoFromLastError()) }
+    if file.dwFileAttributes & DWORD(FILE_ATTRIBUTE_DIRECTORY) != 0,
+       !WindowsFiles.isLink(handle, attributes: file.dwFileAttributes) { return fail(-1, EPERM) }
+    // FILE_DISPOSITION_FLAG_DELETE | POSIX_SEMANTICS | IGNORE_READONLY_ATTRIBUTE (Windows 10 1809 and later).
+    var posix = FILE_DISPOSITION_INFO_EX(Flags: 0x1 | 0x2 | 0x10)
+    if SetFileInformationByHandle(handle, FileDispositionInfoEx, &posix, DWORD(MemoryLayout<FILE_DISPOSITION_INFO_EX>.size)) {
+        return 0
+    }
+    var legacy: UInt8 = 1 // FILE_DISPOSITION_INFO { BOOLEAN DeleteFile }; the field name clashes with the DeleteFile macro
+    return SetFileInformationByHandle(handle, FileDispositionInfo, &legacy, 1)
         ? 0 : fail(-1, WindowsFiles.errnoFromLastError())
 }
 

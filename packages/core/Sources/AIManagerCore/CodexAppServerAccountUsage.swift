@@ -537,7 +537,7 @@ public struct ProcessCodexAppServerRPCTransport: CodexAppServerRPCTransport {
             try? input.fileHandleForWriting.close()
             processBox.stop()
         }
-        do { try process.run() } catch {
+        do { try ChildProcess.run(process) } catch {
             throw CodexAppServerError.launchFailed("Could not start Codex app-server: \(error.localizedDescription)")
         }
         if processBox.isCancelled {

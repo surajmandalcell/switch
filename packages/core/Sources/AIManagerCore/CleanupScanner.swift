@@ -763,7 +763,7 @@ enum ToolWriterProbe {
         process.arguments = arguments
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
+        do { try ChildProcess.run(process) } catch { return nil }
         let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
         return (process.terminationStatus, data)

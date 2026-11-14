@@ -34,6 +34,16 @@ func executableCandidates(named name: String, environment: [String: String]) -> 
 #endif
 }
 
+extension FileManager.DirectoryEnumerator {
+    /// Does not descend into the link just returned. On Windows Foundation never descends into a link (reparse
+    /// point), and its `skipDescendants` stops all descent for the rest of the walk, so there it does nothing.
+    func skipLinkDescendants() {
+#if !os(Windows)
+        skipDescendants()
+#endif
+    }
+}
+
 enum Links {
     /// Creates a symbolic link at `link` that points to the absolute `target`.
     /// Windows: Foundation reads "C:/..." as a relative target and joins it under the link's folder, so the link is
@@ -49,6 +59,19 @@ enum Links {
         guard made != 0 else { throw WindowsFiles.lastError("Creating a symbolic link", link.path) }
 #else
         try fileManager.createSymbolicLink(at: link, withDestinationURL: target)
+#endif
+    }
+
+    /// Makes `link` a second name (hard link) for the existing file `file`.
+    /// Windows: Foundation's `linkItem` copies the file there, so this calls `CreateHardLinkW`.
+    static func hardLink(at link: URL, to file: URL, fileManager: FileManager) throws {
+#if os(Windows)
+        let made = WindowsFiles.withWin32Path(WindowsFiles.native(link.path)) { to in
+            WindowsFiles.withWin32Path(WindowsFiles.native(file.path)) { from in CreateHardLinkW(to, from, nil) }
+        }
+        guard made else { throw WindowsFiles.lastError("Creating a hard link", link.path) }
+#else
+        try fileManager.linkItem(at: file, to: link)
 #endif
     }
 

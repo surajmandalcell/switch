@@ -421,7 +421,7 @@ struct ClaudeCodeProfiles {
                 process.standardOutput = captureOutput ? output : FileHandle.nullDevice
                 process.standardError = FileHandle.nullDevice
                 do {
-                    try process.run()
+                    try ChildProcess.run(process)
                     let deadline = Date().addingTimeInterval(10)
                     while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
                     if process.isRunning {
