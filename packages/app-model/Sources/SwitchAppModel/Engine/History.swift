@@ -2,8 +2,8 @@ import Foundation
 import AIManagerCore
 
 public enum UsageHistorySourceList {
-    // shortcut: written from the Mac AccountViewModel.loadUsageHistory source list; LimitsCommands.history (CLI) and
-    // loadUsageHistory keep their own copies until the Mac app adopts SwitchAppModel and the CLI calls this.
+    // shortcut: written from the Mac AccountViewModel.loadUsageHistory source list, which keeps its own copy until
+    // the Mac app adopts SwitchAppModel. The CLI `history` command calls this.
     /// The Overview sources: the Codex activity ledger and provider charts always; Claude, Grok, and Droid logs only
     /// outside a test home. Providers with a transcript scanner are never counted again from their charts.
     public static func make(paths: ManagerPaths, accounts: [AccountRecord], historyAccounts: [HistoricalUsageAccount],

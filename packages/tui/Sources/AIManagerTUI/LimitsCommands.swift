@@ -1,5 +1,6 @@
 import Foundation
 import AIManagerCore
+import SwitchAppModel
 
 #if canImport(Darwin)
 import Darwin
@@ -239,22 +240,10 @@ enum LimitsCommands {
             throw CLIError.exit(2, "Group must be account, model, or project.")
         }
         let accounts = try await manager.status().accounts
-        let historyAccounts = try await manager.usageHistoryAccounts()
-        let support = input.paths.applicationSupport
-        let pricing = ClaudePricingSource(cacheURL: support.appending(path: "cache/model-pricing.json"))
-        let owners: [String: [String]] = Dictionary(grouping: historyAccounts, by: { $0.providerID.rawValue })
-            .mapValues { $0.map { $0.id.uuidString.lowercased() } }
-        let sources = UsageHistorySources(
-            ledger: codexCache(input.paths),
-            claude: ClaudeCostScanner(roots: ClaudeCostScanner.defaultRoots(
-                environment: input.paths.isolationRoot == nil ? ProcessInfo.processInfo.environment : [:],
-                home: input.paths.userHome), cacheURL: support.appending(path: "cache/claude-history.json"),
-                                      pricing: pricing.loader()),
-            claudeHomes: UsageHistory.claudeProfileHomes(accounts: accounts),
-            grokSessions: input.paths.grokHome.appending(path: "sessions"),
-            droidSessions: DroidUsage.sessionsFolder(droidHome: input.paths.droidHome),
-            accounts: owners,
-            pricing: pricing.loader())
+        // No provider charts, as before: the CLI has no provider usage in memory.
+        let sources = UsageHistorySourceList.make(
+            paths: input.paths, accounts: accounts, historyAccounts: try await manager.usageHistoryAccounts(),
+            ledger: codexCache(input.paths), providerUsage: [:])
         let summary = await UsageHistory(sources: sources).snapshot().summary(period: period, grouping: grouping)
         if input.json {
             let encoder = JSONEncoder()
