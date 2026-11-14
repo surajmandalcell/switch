@@ -48,6 +48,8 @@ final class ClaudeProbeTextTests: XCTestCase {
         let rendered = ClaudeTerminalScreen.render(String(decoding: ClaudeUsagePanelFixture.bytes, as: UTF8.self))
         XCTAssertTrue(rendered.contains("  Current session\n"))
         XCTAssertTrue(ClaudeUsage.isComplete(rendered: rendered))
+        XCTAssertTrue(ClaudeUsage.squash(rendered).contains("whatscontributingtoyourlimitsusage"))
+        XCTAssertFalse(ClaudeUsage.squash(rendered).contains("refreshing"))
         let usage = try ClaudeUsage.parse(rendered: rendered, now: now)
         XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly", "weekly-fable"])
         XCTAssertEqual(usage.windows.map(\.title), ["Session", "Weekly", "Weekly Fable"])
@@ -104,11 +106,44 @@ final class ClaudeProbeTextTests: XCTestCase {
 
     // MARK: Panel content
 
-    func testPanelNeedsBothSessionAndWeeklyBeforeItIsComplete() {
-        let weeklyOnly = "Current week (all models)\n██  73% used\nResets Oct 11 at 1:30am (UTC)"
-        XCTAssertFalse(ClaudeUsage.panelIsComplete(weeklyOnly))
-        XCTAssertTrue(ClaudeUsage.panelIsComplete("Current session\n 9% used\nResets 5pm (UTC)\n" + weeklyOnly))
+    func testPanelCompletesOnSessionPlusWeeklyOrOnTheFullyDrawnPanel() throws {
+        let weekly = "Current week (all models)\n██  73% used\nResets Oct 11 at 1:30am (UTC)"
+        let insights = "\nWhat's contributing to your limits usage?\nScanning local sessions…"
+        // Half drawn: a header only, or a weekly row whose panel has not finished.
+        XCTAssertFalse(ClaudeUsage.panelIsComplete("Claude Code v2.1.296\nUsage"))
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(weekly))
+        // Weekly-only plan: complete as soon as the panel is drawn, with the right values.
+        XCTAssertTrue(ClaudeUsage.panelIsComplete(weekly + insights))
+        let usage = try ClaudeUsage.parseUsageText(weekly + insights, now: now)
+        XCTAssertEqual(usage.windows.map(\.id), ["weekly"])
+        XCTAssertEqual(usage.windows.map(\.usedPercent), [73])
+        // Session plus weekly completes as before, with or without the insights block.
+        let both = "Current session\n 9% used\nResets 5pm (UTC)\n" + weekly
+        XCTAssertTrue(ClaudeUsage.panelIsComplete(both))
+        XCTAssertTrue(ClaudeUsage.panelIsComplete(both + insights))
+        XCTAssertEqual(try ClaudeUsage.parseUsageText(both, now: now).windows.map(\.usedPercent), [9, 73])
         XCTAssertTrue(ClaudeUsage.panelIsComplete("Failed to load usage data"))
+        // The insights block alone, with no quota row, is not a usage panel.
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(insights))
+    }
+
+    func testPanelWaitsForTheRefreshingFooterToClear() throws {
+        let rows = "Current session\n9% used\nCurrent week (all models)\n67% used\n"
+        let insights = "What's contributing to your limits usage?\nScanning local sessions…\n"
+        let first = "\u{1B}[H" + (rows + insights + "Refreshing…\nEsc to cancel").replacingOccurrences(of: "\n", with: "\r\n")
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(first))
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(first.replacingOccurrences(of: "Refreshing…", with: "Refreshing...")))
+        // A weekly-only panel waits too.
+        let weeklyOnly = "Current week (all models)\n67% used\n" + insights + "Refreshing…  Esc to cancel"
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(weeklyOnly))
+        // The redraw clears the screen, adds the scoped row, and drops the footer.
+        let final = "\u{1B}[H\u{1B}[J" + (rows + "Current week (Example Model)\n42% used\n" + insights + "Esc to cancel")
+            .replacingOccurrences(of: "\n", with: "\r\n")
+        let redrawn = first + final
+        XCTAssertTrue(ClaudeUsage.panelIsComplete(redrawn))
+        let usage = try ClaudeUsage.parseUsageText(redrawn, now: now)
+        XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly", "weekly-example-model"])
+        XCTAssertEqual(usage.windows.map(\.usedPercent), [9, 67, 42])
     }
 
     func testUsageCreditsStateAndAmountsAreKept() throws {
