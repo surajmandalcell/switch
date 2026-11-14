@@ -9,7 +9,7 @@ extension RPCServer {
         "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
         "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
         "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day", "autoSwitch.preview",
-        "app.searchIndex",
+        "app.searchIndex", "tray.rows",
     ]
 
     /// Nil when `method` is not a read method.
@@ -17,6 +17,9 @@ extension RPCServer {
         switch method {
         case "providers.list":
             return AccountManager.providerCatalog
+        case "tray.rows":
+            // The `tray` topic value with reset texts computed now (the popover's 60 s countdown tick).
+            return await engine.trayValue()
         case "app.searchIndex":
             // Every Settings row in page order, or the rows that match `query`, best first (the Mac toolbar search).
             return SettingsSearch.search((try? params(QueryParams.self, method: method, frame: frame))?.query ?? "")
