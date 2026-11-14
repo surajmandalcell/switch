@@ -8,6 +8,9 @@ import CRT
 #else
 import Glibc
 #endif
+#if !os(macOS)
+import SwitchAppModel
+#endif
 
 private enum TerminalKey {
     case up
@@ -373,7 +376,7 @@ struct AIManagerCLI {
     }
 
     static func interactive(_ manager: AccountManager, paths: ManagerPaths) async throws {
-        let menu = TerminalMenu()
+        let menu = TerminalMenu(paths: paths)
         var pendingSessions = try await menu.loading("Loading accounts") {
             try await manager.refreshAccounts(includeDiscoveries: false).pendingLoginSessions
         }
@@ -1350,16 +1353,21 @@ private struct TerminalMenu {
     private let width = 72
     private let reset = "\u{1B}[0m"
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        let appDefaults = UserDefaults(suiteName: "com.mandalsuraj.ai-manager")
+    init(paths: ManagerPaths, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        #if os(macOS)
+        let storedUsed = UserDefaults(suiteName: "com.mandalsuraj.ai-manager")?.bool(forKey: "showUsageAsUsed")
+        #else
+        // Linux and Windows keep the app's settings in the JSON settings store, not UserDefaults.
+        let storedUsed: Bool? = JSONFileSettingsStore.open(paths: paths, environment: environment)
+            .effective("showUsageAsUsed") == .bool(true)
+        #endif
         let attached = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
         usesStyles = environment["AI_MANAGER_TUI_STYLE"] == "always"
             || (attached && environment["NO_COLOR"] == nil && environment["TERM"] != "dumb")
         clearsScreen = attached
         animatesLoader = attached || environment["AI_MANAGER_TUI_SPINNER"] == "always"
         showsUsed = environment["AI_MANAGER_TUI_PERCENTAGE"].map { $0 == "used" }
-            ?? appDefaults?.bool(forKey: "showUsageAsUsed")
-            ?? false
+            ?? storedUsed ?? false
     }
 
     func loading<T>(_ message: String, operation: () async throws -> T) async throws -> T {
