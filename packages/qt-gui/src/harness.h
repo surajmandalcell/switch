@@ -12,6 +12,7 @@ public:
   Q_INVOKABLE QString shot(QObject *window, const QString &name);
   Q_INVOKABLE void move(QObject *window, qreal x, qreal y);
   Q_INVOKABLE void click(QObject *window, qreal x, qreal y);
+  Q_INVOKABLE void rightClick(QObject *window, qreal x, qreal y);
   Q_INVOKABLE void key(QObject *window, int key, int modifiers = 0, const QString &text = QString());
   Q_INVOKABLE void log(const QString &line) const;
   Q_INVOKABLE void quit(int code = 0);

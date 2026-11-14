@@ -14,7 +14,7 @@ Rectangle {
   radius: 10
   color: Theme.card
   border.width: Theme.hair
-  border.color: Theme.cardBorder
+  border.color: Qt.tint(Theme.card, Theme.cardBorder)   // Mac draws the border over the card fill, not the page
   width: parent ? parent.width : 400
   height: headH + bodyCol.height + bottomInset
 

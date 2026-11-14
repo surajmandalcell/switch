@@ -24,7 +24,7 @@ Item {
     color: sw.checked ? Theme.accent : Theme.switchOff
     border.width: Theme.hair
     border.color: Theme.controlBorder
-    Behavior on color { ColorAnimation { duration: Theme.dState; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+    Behavior on color { ColorAnimation { duration: Theme.dState; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
 
     // controlShadow: black 6%, blur 0.5, y 0.5, Light only
     Rectangle { x: knob.x - 0.25; y: knob.y + 0.5; width: 18.5; height: 18.5; radius: 9.25; color: Theme.controlShadow }
@@ -36,7 +36,7 @@ Item {
       y: 2
       x: sw.checked ? track.width - 20 : 2
       color: "white"
-      Behavior on x { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.dState; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+      Behavior on x { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.dState; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
     }
   }
   FocusFill { radius: height / 2 }

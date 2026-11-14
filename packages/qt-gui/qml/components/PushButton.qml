@@ -29,7 +29,7 @@ Item {
   Keys.onReturnPressed: clicked()
 
   scale: pressed && enabled && !Theme.reduceMotion ? 0.97 : 1
-  Behavior on scale { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+  Behavior on scale { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   readonly property real dim: enabled ? 1 : 0.45
 
   Rectangle {
@@ -37,13 +37,13 @@ Item {
     radius: 6
     opacity: b.dim
     color: b.prominent ? (b.pressed ? Theme.rgba(Theme.accent, 0.8) : Theme.accent) : (b.pressed ? Theme.controlPressed : Theme.controlFill)
-    Behavior on color { ColorAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+    Behavior on color { ColorAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
     Rectangle {
       anchors.fill: parent
       radius: 6
       color: b.prominent ? Theme.w(0.14) : Theme.rowHover
       opacity: hover.hovered && b.enabled && !b.pressed ? 1 : 0
-      Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+      Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
     }
     Rectangle {
       anchors.fill: parent

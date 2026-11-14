@@ -44,9 +44,33 @@ Item {
         width: parent.width
         role: "secondary"
         color: Theme.secondary
-        font.family: "monospace"
+        font.family: Theme.monoFamily
         text: row.detail
         elide: Text.ElideMiddle
+        // settings.md 2.7: a click copies the path and a "Copied" badge shows for 700 ms
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: "Copy path: " + row.detail
+        Keys.onReturnPressed: copyPath()
+        Keys.onSpacePressed: copyPath()
+        function copyPath() { App.copy(row.detail); copied.opacity = 1; copiedTimer.restart() }
+        ToolTipArea { text: "Click to copy " + row.detail }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: parent.copyPath() }
+        Timer { id: copiedTimer; interval: 700; onTriggered: copied.opacity = 0 }
+        Rectangle {
+          id: copied
+          opacity: 0
+          Behavior on opacity { NumberAnimation { duration: Theme.motion ? 80 : 0 } }
+          x: Math.min(parent.width, parent.contentWidth) - width
+          y: -height - 2
+          width: copiedText.width + 12
+          height: 18
+          radius: 5
+          color: Theme.solidSurface
+          border.width: Theme.hair
+          border.color: Theme.popoverBorder
+          Txt { id: copiedText; anchors.centerIn: parent; role: "caption"; text: "Copied" }
+        }
       }
     }
     Row {

@@ -40,8 +40,10 @@ if [[ $STEP == build || $STEP == all ]]; then
   in_box "bash /w/src/scripts/build.sh /w/src /w/build"
 fi
 if [[ $STEP == shots || $STEP == all ]]; then
-  in_box "bash /w/src/scripts/shots.sh /w/build/switch /w/shots"
+  rc=0
+  in_box "bash /w/src/scripts/shots.sh /w/build/switch /w/shots" || rc=$?   # 1: a page failed to load; the rest are captured
   mkdir -p "$LOCAL_OUT"
   rsync -a --delete "$HOST:$REMOTE/shots/" "$LOCAL_OUT/qt/"
   bash "$SRC/scripts/compare.sh" "$LOCAL_OUT/qt" "$MAC_CAPTURES" "$LOCAL_OUT/compare"
+  exit $rc
 fi

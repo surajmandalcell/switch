@@ -8,6 +8,11 @@ Rectangle {
   property string placeholder: "Search accounts and settings…"
   property string hint: "Ctrl K"
   signal escaped()
+  // shell.md 4.3: on drop-down pages Up and Down move the result highlight instead of the caret
+  property bool arrowKeys: false
+  readonly property bool inputFocused: input.activeFocus
+  signal moved(int delta)
+  signal accepted()
   width: 300
   height: 28
   radius: 6
@@ -44,12 +49,16 @@ Rectangle {
     font.letterSpacing: -0.006 * 13 * Theme.fontScale
     font.hintingPreference: Font.PreferNoHinting
     Keys.onEscapePressed: { text = ""; focus = false; field.escaped() }
+    Keys.onUpPressed: function (e) { e.accepted = field.arrowKeys; if (field.arrowKeys) field.moved(-1) }
+    Keys.onDownPressed: function (e) { e.accepted = field.arrowKeys; if (field.arrowKeys) field.moved(1) }
+    Keys.onReturnPressed: field.accepted()
+    Keys.onEnterPressed: field.accepted()
     // The Mac prompt measures near the label tone (black about 75% / white about 76%), not secondary.
     Txt { visible: input.text === ""; text: field.placeholder; color: Theme.ink(0.9); anchors.verticalCenter: parent.verticalCenter }
   }
   Rectangle {
     id: hintBox
-    visible: input.text === ""
+    visible: input.text === "" && field.hint !== ""
     x: parent.width - 8 - width
     anchors.verticalCenter: parent.verticalCenter
     width: hintText.implicitWidth + 12

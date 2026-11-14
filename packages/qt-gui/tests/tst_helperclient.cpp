@@ -41,7 +41,7 @@ void handle(const QJsonObject &f) {
   else if (m == "fast") reply(id, QString("fast"));
   else if (m == "gap") { appRev += 5; changed(true); reply(id, QJsonValue()); }
   else if (m == "stats") reply(id, QJsonObject{{"subscribes", subscribes}});
-  else if (m == "crash") std::_Exit(3); // like a crash: no static destructors (exit() can hang on the reader thread)
+  else if (m == "crash") std::_Exit(70); // like a crash: no static destructors (exit() can hang on the reader thread); not 2 or 3, which mean "refused"
   else if (m == "$/cancelRequest")
     send({{"jsonrpc", "2.0"}, {"id", f.value("params").toObject().value("id")},
           {"error", QJsonObject{{"code", -32800}, {"message", "The request was cancelled."},
@@ -50,6 +50,10 @@ void handle(const QJsonObject &f) {
 }
 
 int run(int argc, char **argv) {
+  if (qEnvironmentVariableIsSet("FAKE_HELPER_LOCKED")) { // rpc.md: a second serve on a held root
+    std::cerr << "another Switch helper already runs for /fake/root" << std::endl;
+    return 3;
+  }
   QCoreApplication app(argc, argv);
   std::thread([] {
     std::string line;
@@ -139,6 +143,22 @@ private slots:
     QCOMPARE(call("fast").value("result").toString(), QString("fast"));
   }
 
+  // Exit 3 (another helper holds the root) stops with "blocked" and the helper's line, never a restart loop.
+  void lockedRootBlocks() {
+    qputenv("FAKE_HELPER_LOCKED", "1");
+    HelperClient h;
+    HelperClient::Config cfg;
+    cfg.program = QCoreApplication::applicationFilePath();
+    cfg.maxBackoffMs = 50;
+    h.start(cfg);
+    qunsetenv("FAKE_HELPER_LOCKED");
+    QTRY_COMPARE(h.status(), QString("blocked"));
+    QCOMPARE(h.error(), QString("another Switch helper already runs for /fake/root"));
+    QTest::qWait(300);
+    QCOMPARE(h.restarts(), 0);
+    QCOMPARE(h.status(), QString("blocked"));
+  }
+
   // Against the real helper: SWITCH_CORE=<switch-core> runs it in a fresh temporary root (never the
   // user's data) and prints the four exchanges as a transcript. Skipped without SWITCH_CORE.
   void realHelper() {
@@ -173,6 +193,12 @@ private slots:
       show("<-", method, out);
       QVERIFY(out.contains("result"));
     }
+    // A second helper on the same root is refused (helper.lock): the client shows "blocked", no restart loop.
+    HelperClient second;
+    second.start(cfg);
+    QTRY_COMPARE_WITH_TIMEOUT(second.status(), QString("blocked"), 20000);
+    show("<-", "second helper", second.error());
+    QCOMPARE(second.restarts(), 0);
     h.stop();
   }
 };

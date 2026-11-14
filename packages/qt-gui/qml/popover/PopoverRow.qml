@@ -27,7 +27,7 @@ Item {
     radius: 6
     color: Theme.popoverHover
     opacity: hh.hovered ? 1 : 0
-    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+    Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   }
   HoverHandler { id: hh }
   MouseArea { x: -4; width: 344; height: parent.height + 4; onClicked: row.toggle() }
@@ -44,7 +44,7 @@ Item {
       width: 18
       height: 18
       opacity: hh.hovered ? 1 : 0
-      Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+      Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
       Icon { anchors.centerIn: parent; name: "eye"; size: 12; color: Theme.secondary }
     }
   }

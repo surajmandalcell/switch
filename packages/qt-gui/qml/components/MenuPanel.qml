@@ -16,21 +16,25 @@ Item {
   readonly property real sepH: 10
   readonly property real pad: 5
   readonly property real panelW: Math.max(150, (anchorItem ? anchorItem.width + 20 : 0), widest + 28 + 16)
-  readonly property real panelH: pad * 2 + top(options.length)
+  readonly property real panelH: pad * 2 + rowTop(options.length)
   property real widest: 0
 
   visible: false
   anchors.fill: parent
   z: 100
 
-  function top(i) { var y = 0; for (var k = 0; k < i; ++k) y += options[k] === "-" ? sepH : itemH; return y }
+  function rowTop(i) { var y = 0; for (var k = 0; k < i; ++k) y += options[k] === "-" ? sepH : itemH; return y }
+  // An option may also be { text, enabled, checked }: a disabled item is dimmed and skipped.
+  function lab(o) { return typeof o === "object" && o !== null ? o.text : o }
+  function on(i) { var o = options[i]; return o !== "-" && !(typeof o === "object" && o !== null && o.enabled === false) }
   function step(d) {
     var i = hot
-    do { i += d } while (i >= 0 && i < options.length && options[i] === "-")
+    do { i += d } while (i >= 0 && i < options.length && !on(i))
     if (i >= 0 && i < options.length) hot = i
   }
   function open(anchor, opts, cur, cb) {
     anchorItem = anchor
+    widest = 0
     options = opts
     current = cur
     callback = cb
@@ -38,13 +42,13 @@ Item {
     var p = anchor.mapToItem(root, 0, 0)
     panel.x = Math.max(8, Math.min(root.width - panelW - 8, p.x - 10))
     // the chosen item sits over the button, as a macOS pop-up does; a plain menu opens below
-    var y = cur >= 0 ? p.y + anchor.height / 2 - (pad + top(cur) + itemH / 2) : p.y + anchor.height + 4
+    var y = cur >= 0 ? p.y + anchor.height / 2 - (pad + rowTop(cur) + itemH / 2) : p.y + anchor.height + 4
     panel.y = Math.max(8, Math.min(root.height - panelH - 8, y))
     visible = true
     panel.forceActiveFocus()
   }
   function close() { visible = false; if (anchorItem) anchorItem.forceActiveFocus() }
-  function choose(i) { var cb = callback; close(); if (cb && i >= 0) cb(i) }
+  function choose(i) { if (i >= 0 && !on(i)) return; var cb = callback; close(); if (cb && i >= 0) cb(i) }
 
   MouseArea { anchors.fill: parent; onPressed: root.close() }
 
@@ -74,18 +78,24 @@ Item {
         model: root.options
         delegate: Item {
           readonly property bool sep: modelData === "-"
-          readonly property bool hot: root.hot === index
+          readonly property bool live: root.on(index)
+          readonly property bool hot: root.hot === index && live
           width: panel.width
           height: sep ? root.sepH : root.itemH
           Component.onCompleted: if (!sep) root.widest = Math.max(root.widest, label.implicitWidth)
           Rectangle { visible: parent.sep; x: 10; width: parent.width - 20; y: 5; height: Theme.hair; color: Theme.separator }
           Rectangle { x: root.pad; width: parent.width - root.pad * 2; height: parent.height; radius: 5; color: Theme.accent; visible: parent.hot && !parent.sep }
-          Icon { x: 11; anchors.verticalCenter: parent.verticalCenter; name: "check"; size: 12; visible: index === root.current
-                 color: parent.hot ? "white" : Theme.label }
-          Txt { id: label; visible: !parent.sep; x: 28; anchors.verticalCenter: parent.verticalCenter; text: modelData; color: parent.hot ? "white" : Theme.label }
+          // An option { icon } shows that icon where the check mark goes when it is not checked.
+          readonly property bool checkedRow: index === root.current || (typeof modelData === "object" && modelData !== null && modelData.checked === true)
+          readonly property string rowIcon: typeof modelData === "object" && modelData !== null && modelData.icon ? modelData.icon : ""
+          Icon { x: 11; anchors.verticalCenter: parent.verticalCenter; name: parent.checkedRow ? "check" : parent.rowIcon; size: 12
+                 visible: parent.checkedRow || parent.rowIcon !== ""
+                 color: parent.hot ? "white" : (parent.live ? Theme.label : Theme.tertiary) }
+          Txt { id: label; visible: !parent.sep; x: 28; anchors.verticalCenter: parent.verticalCenter; text: root.lab(modelData)
+                color: parent.hot ? "white" : (parent.live ? Theme.label : Theme.tertiary) }
           MouseArea {
             anchors.fill: parent
-            enabled: !parent.sep
+            enabled: !parent.sep && parent.live
             hoverEnabled: true
             onEntered: root.hot = index
             onClicked: root.choose(index)

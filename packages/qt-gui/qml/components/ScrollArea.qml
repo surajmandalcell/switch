@@ -19,7 +19,7 @@ Item {
   // 3.4 "appear": cards fade in from 0.4 on the first show; they never move.
   function appear() { if (!appeared) { appeared = true; appearAnim.restart() } }
   NumberAnimation { id: appearAnim; target: col; property: "opacity"; from: 0.4; to: 1; duration: Theme.dAppear
-                    easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut }
+                    easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut }
 
   function scrollTo(y) { flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, y)) }
 

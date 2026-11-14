@@ -44,7 +44,9 @@ foreach(f ${QML_SRC})
   get_filename_component(n ${f} NAME)
   set_source_files_properties(${f} PROPERTIES QT_RESOURCE_ALIAS ${n})
 endforeach()
-set_source_files_properties(qml/components/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/Theme.qml qml/components/Prefs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# Provider marks copied from the Mac resources (assets/providers/brand/BRAND-SOURCES.md has sources and licenses).
+file(GLOB_RECURSE PROVIDER_ASSETS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS assets/providers/*.png assets/providers/*.svg)
 
 qt_add_executable(switch
   src/main.cpp
@@ -57,15 +59,27 @@ if(SWITCH_HARNESS)
   target_compile_definitions(switch PRIVATE SWITCH_HARNESS)
 endif()
 
+# qmlcachegen stops the whole build at the first QML syntax error and has no keep-going flag. When a build
+# fails, scripts/build.sh builds again with this OFF, so a broken file fails only its own page at run time.
+option(SWITCH_CACHEGEN "Compile QML ahead of time with qmlcachegen" ON)
+set(SWITCH_QML_CACHEGEN)
+if(NOT SWITCH_CACHEGEN)
+  set(SWITCH_QML_CACHEGEN NO_CACHEGEN)
+endif()
+
 qt_add_qml_module(switch
   URI SwitchUI
   VERSION 1.0
+  ${SWITCH_QML_CACHEGEN}
   QML_FILES ${QML_SRC}
   RESOURCES
     fonts/InterVariable.ttf
+    fonts/JetBrainsMono-Regular.ttf
     assets/tray.png
     assets/tray@2x.png
+    assets/appicon.png
     assets/demo.json
+    ${PROVIDER_ASSETS}
 )
 # Pin the cache compiler: qmlcachegen (Qt tools), never qmlsc.
 set_target_properties(switch PROPERTIES QT_QMLCACHEGEN_EXECUTABLE qmlcachegen)

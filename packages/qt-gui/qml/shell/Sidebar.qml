@@ -47,7 +47,7 @@ Item {
           color: r.activeFocus && App.keyboardMode && !r.selected ? Theme.focusTint : Theme.rowHover
           opacity: hh.hovered || (r.activeFocus && App.keyboardMode) ? 1 : 0
           visible: !r.selected
-          Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.BezierCurve; easing.bezierCurve: Theme.easeOut } }
+          Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
         }
         // selection is set instantly (no fade), so the old row never stays lit for a frame
         Rectangle { anchors.fill: parent; radius: 8; color: Theme.sidebarSelection; visible: r.selected }

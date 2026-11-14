@@ -9,6 +9,11 @@ class AppState : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString fontFamily MEMBER m_fontFamily CONSTANT)
   Q_PROPERTY(bool keyboardMode READ keyboardMode NOTIFY keyboardModeChanged)
+  Q_PROPERTY(bool loginEnabled READ loginEnabled WRITE setLoginEnabled NOTIFY loginChanged)
+  Q_PROPERTY(QString loginError READ loginError NOTIFY loginChanged)
+  Q_PROPERTY(QString homePath READ homePath CONSTANT)
+  // shortcut: no global-shortcut registration yet (X11 grab or the GlobalShortcuts portal); the row stays off
+  Q_PROPERTY(bool globalShortcuts READ globalShortcuts CONSTANT)
 public:
   AppState(QStringList args, QString fontFamily, QObject *parent = nullptr);
   Q_INVOKABLE QString arg(const QString &name, const QString &def = QString()) const;
@@ -16,9 +21,18 @@ public:
   // Usable area (no panels or taskbar) of the screen that holds `window`, in logical pixels.
   Q_INVOKABLE QRect workArea(QObject *window) const;
   bool keyboardMode() const { return m_keyboardMode; }
+  Q_INVOKABLE void copy(const QString &text) const;
+  Q_INVOKABLE void reveal(const QString &path) const;
+  // Open at Login (shell.md 6.4): status is whether the autostart entry exists; there is no approval state.
+  bool loginEnabled() const;
+  void setLoginEnabled(bool on);
+  QString loginError() const { return m_loginError; }
+  QString homePath() const;
+  bool globalShortcuts() const { return false; }
 
 signals:
   void keyboardModeChanged();
+  void loginChanged();
 
 protected:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -27,4 +41,5 @@ private:
   QStringList m_args;
   QString m_fontFamily;
   bool m_keyboardMode = false;
+  QString m_loginError;
 };

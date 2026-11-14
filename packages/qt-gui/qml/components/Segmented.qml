@@ -31,7 +31,7 @@ Item {
     width: pw.value
     color: Theme.segmentSelected
     border.width: Theme.hair
-    border.color: Theme.controlBorder
+    border.color: Qt.tint(Theme.segmentSelected, Theme.controlBorder)   // over the pill's own fill, as on the Mac
     FocusFill { radius: 5; visible: seg.activeFocus && App.keyboardMode }
   }
   SpringValue { id: px }
