@@ -27,19 +27,19 @@ public struct AccountsValue: Codable, Equatable, Sendable {
 }
 
 public enum AccountPresentation {
-    // shortcut: the label is the real one (privacy off, hide off, domains on, settings.md 5.5) and no row is hidden,
-    // apply privacy mode and hiddenUsageRows.<uuid> when the settings store reaches the engine (E1, E3).
-    public static func label(_ identity: AccountIdentity) -> String {
-        let provider = identity.providerID
-        if provider == .droid, let accountID = identity.accountID {
-            return identity.email.map { "\(accountID) · \($0)" } ?? accountID
-        }
-        if let email = identity.email, !email.isEmpty { return email }
-        if let accountID = identity.accountID, !accountID.isEmpty { return accountID }
-        if let userID = identity.userID, !userID.isEmpty, provider != .codex {
-            return "\(providerName(provider)) ···\(userID.suffix(4))"
-        }
-        return "Unresolved account"
+    /// The account label with the privacy settings applied (settings.md 5.5); `.real` gives the real text.
+    public static func label(_ identity: AccountIdentity, _ privacy: PrivacySettings = .real) -> String {
+        PrivacyText.label(identity, privacy)
+    }
+
+    /// Window ids hidden on one account (`hiddenUsageRows.<UUID>`, newline-joined). The Mac writes the uppercase
+    /// UUID; the lowercase form a protocol client would write is read too.
+    static func hiddenRows(_ id: UUID, _ store: any SettingsStore) -> Set<String> {
+        let keys = Set(["hiddenUsageRows.\(id.uuidString)", "hiddenUsageRows.\(id.uuidString.lowercased())"])
+        return Set(keys.flatMap { key -> [String] in
+            guard case .string(let text) = store.value(key) else { return [] }
+            return text.split(separator: "\n").map(String.init)
+        })
     }
 
     /// The Mac `guiName`: the catalog name ("OpenRouter") except for the four built-in tools.
@@ -102,6 +102,7 @@ extension AppEngine {
 
     func publishAccounts() {
         guard let status else { return }
+        let privacy = PrivacySettings(settings)
         let rows = status.accounts.map { account -> AccountRow in
             let codex = codexUsage[account.id]
             let provider = providerUsage[account.id]
@@ -110,15 +111,17 @@ extension AppEngine {
             return AccountRow(
                 id: account.id.uuidString.lowercased(),
                 providerID: account.identity.providerID.rawValue,
-                label: AccountPresentation.label(account.identity),
+                label: AccountPresentation.label(account.identity, privacy),
                 isDefault: status.defaultAccountIDs[account.identity.providerID.rawValue] == account.id,
                 verification: account.verification.state.rawValue,
-                verificationDetail: account.verification.detail,
+                verificationDetail: PrivacyText.display(account.verification.detail, privacy),
                 needsSignIn: needsSignIn,
                 needsDroidAccess: provider?.needsKeychainAccess ?? false,
                 plan: isCodex ? codex?.snapshot?.account?.plan : provider?.usage?.plan,
-                windows: AccountPresentation.windows(account, codex: codex?.snapshot, provider: provider),
-                error: isCodex ? codex?.failureMessage ?? codex?.failure?.message : provider?.error,
+                windows: AccountPresentation.windows(account, codex: codex?.snapshot, provider: provider,
+                                                     hidden: AccountPresentation.hiddenRows(account.id, settings)),
+                error: (isCodex ? codex?.failureMessage ?? codex?.failure?.message : provider?.error)
+                    .map { PrivacyText.display($0, privacy) },
                 isOutdated: isCodex ? (codex?.snapshot != nil && codex?.failure != nil) : provider?.isOutdated ?? false,
                 isRefreshing: isCodex ? codexRefreshing == account.id : provider?.isRefreshing ?? false,
                 fetchedAt: isCodex ? codex?.fetchedAt : provider?.usage?.fetchedAt,

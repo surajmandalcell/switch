@@ -187,6 +187,45 @@ final class AppEngineAccountsTests: XCTestCase {
         XCTAssertTrue(AccountPresentation.windows(signedOut, codex: snapshot, provider: nil).isEmpty)
     }
 
+    func testPrivacyAndHiddenRowsReachTheRowAtOnce() async throws {
+        let (engine, id) = try await start(Script(), clock: ManualClock())
+        let real = await row(engine)?.label
+        XCTAssertTrue(real?.contains("···") == true, "the secret account shows its key tail: \(real ?? "")")
+        try await engine.setSetting("privacyMode", .bool(true))
+        var found = await row(engine)
+        XCTAssertNotEqual(found?.label, real)
+        XCTAssertFalse(found?.label.contains("···") ?? true, "privacy mode shows a made-up name")
+        XCTAssertEqual(found?.windows.map(\.id), ["session"])
+        try await engine.setSetting("hiddenUsageRows.\(id.uuidString)", .string("session\nweekly"))
+        found = await row(engine)
+        XCTAssertEqual(found?.windows, [])
+        try await engine.setSetting("hiddenUsageRows.\(id.uuidString)", nil)
+        try await engine.setSetting("hiddenUsageRows.\(id.uuidString.lowercased())", .string("other"))
+        found = await row(engine)
+        XCTAssertEqual(found?.windows.map(\.id), ["session"])
+        await engine.stop()
+    }
+
+    func testPrivacyTextMatchesTheSpecTable() {
+        let email = "ada@mail.co.uk"
+        XCTAssertEqual(PrivacyText.display(email, .init()), "ada@mail")
+        XCTAssertEqual(PrivacyText.display(email, .real), email)
+        XCTAssertEqual(PrivacyText.display(email, .init(hideEmails: true)), "a••••@mail")
+        XCTAssertEqual(PrivacyText.display(email, .init(hideEmails: true, showDomains: true)), "a••••@mail.co.uk")
+        let fake = PrivacyText.display("Signed in as \(email).", .init(privacyMode: true))
+        XCTAssertEqual(fake, "Signed in as \(PrivacyText.fakeEmail(seed: email)).")
+        XCTAssertTrue(fake.hasSuffix("@example.com."))
+        XCTAssertEqual(["ada@example.com", "user@sub.example.org", "user@co.uk", "user@localhost"].map(PrivacyText.abbreviated),
+                       ["ada@example", "user@sub.example", "user@co", "user@localhost"])
+        XCTAssertEqual(PrivacyText.mask("alice@"), "a••••@")
+        XCTAssertEqual(PrivacyText.fakeName(seed: "org-1"), PrivacyText.fakeName(seed: "org-1"))
+        let droid = AccountIdentity(providerID: .droid, email: "d@example.test", accountID: "org-1", authMode: .apiKey)
+        XCTAssertEqual(AccountPresentation.label(droid, .init(privacyMode: true)),
+                       "\(PrivacyText.fakeName(seed: "org-1")) · \(PrivacyText.fakeEmail(seed: "org-1"))")
+        XCTAssertEqual(AccountPresentation.label(droid, .init(hideEmails: true)), "org-1 · d••••@example",
+                       "an account id without @ is not masked, as on the Mac")
+    }
+
     func testLabelRules() {
         XCTAssertEqual(AccountPresentation.label(.init(email: "a@example.test", authMode: .chatGPT)), "a@example.test")
         XCTAssertEqual(AccountPresentation.label(.init(providerID: .droid, email: "d@example.test", accountID: "org-1",
