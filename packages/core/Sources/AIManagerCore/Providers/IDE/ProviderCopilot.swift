@@ -8,10 +8,11 @@ extension ProviderCatalog {
         dashboard: "https://github.com/settings/copilot", statusPage: "https://www.githubstatus.com",
         identify: { credential in CopilotUsage.identity(credential.json(copilotApps.id)) },
         usage: { credential in
-            guard let token = CopilotUsage.entry(credential.json(copilotApps.id))?["oauth_token"].string else {
+            guard let login = CopilotUsage.login(credential.json(copilotApps.id)),
+                  let token = login.entry["oauth_token"].string else {
                 throw ProviderError.missingCredential("Sign in to GitHub Copilot in your editor first.")
             }
-            let body = try await HTTP.json("https://api.github.com/copilot_internal/user", headers: [
+            let body = try await HTTP.json(CopilotUsage.apiURL(login.host, "/copilot_internal/user"), headers: [
                 "Authorization": "token \(token)",
                 "Editor-Version": "vscode/1.96.2", "Editor-Plugin-Version": "copilot-chat/0.26.7",
                 "User-Agent": "GitHubCopilotChat/0.26.7", "X-Github-Api-Version": "2025-04-01",
@@ -19,7 +20,7 @@ extension ProviderCatalog {
             var usage = try CopilotUsage.map(body)
             // An org-managed seat has no per-seat quota; its usage lives in the organization's billing.
             if CopilotUsage.isOrgManaged(body, usage) {
-                usage.sections += await CopilotUsage.orgBilling(token: token)
+                usage.sections += await CopilotUsage.orgBilling(token: token, host: login.host)
             }
             return usage
         })
@@ -47,12 +48,12 @@ enum CopilotUsage {
 
     /// Org Credits and Org Spend for the first organization whose billing shows Copilot AI credits.
     /// Only org owners and billing managers can read billing; everyone else gets no extra rows.
-    static func orgBilling(token: String) async -> [UsageSection] {
+    static func orgBilling(token: String, host: String = "github.com") async -> [UsageSection] {
         let headers = billingHeaders.merging(["Authorization": "token \(token)"]) { $1 }
         let memory = AgentCLIsKit.fingerprint(token)
         func summary(_ org: String) async -> (section: UsageSection?, transient: Bool) {
             guard let slug = org.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                  let response = try? await HTTP.send("https://api.github.com/orgs/\(slug)/settings/billing/usage/summary",
+                  let response = try? await HTTP.send(apiURL(host, "/orgs/\(slug)/settings/billing/usage/summary"),
                                                       headers: headers) else { return (nil, true) }
             if response.status == 429 || response.status >= 500 { return (nil, true) }
             guard response.status == 200, let json = try? response.json() else { return (nil, false) }
@@ -64,7 +65,7 @@ enum CopilotUsage {
             if found.transient { return [] }
             rememberedOrgs.set(memory, nil)
         }
-        guard let response = try? await HTTP.send("https://api.github.com/user/orgs?per_page=100", headers: headers),
+        guard let response = try? await HTTP.send(apiURL(host, "/user/orgs?per_page=100"), headers: headers),
               response.status == 200, let list = try? response.json() else { return [] }
         // ponytail: probes at most 10 organizations per refresh until one answers; remembered per token.
         // Raise the cap or add an organization field if a user's billing org sits past the tenth.
@@ -92,16 +93,39 @@ enum CopilotUsage {
         ])
     }
 
-    /// The first github.com entry of apps.json. Keys read `github.com` or `github.com:<appId>`; other
-    /// hosts are skipped so an enterprise token never goes to api.github.com.
-    static func entry(_ apps: JSON?) -> JSON? {
-        apps?.object.sorted { $0.key < $1.key }
-            .first { ($0.key == "github.com" || $0.key.hasPrefix("github.com:")) && $0.value["oauth_token"].string != nil }?.value
+    /// A host Switch may send a token to: github.com, or one GitHub Enterprise Cloud tenant `<name>.ghe.com`
+    /// (a single lowercase label, so `a.b.ghe.com` and look-alike suffixes never match).
+    static func isKnownHost(_ host: String) -> Bool {
+        if host == "github.com" { return true }
+        guard host.hasSuffix(".ghe.com") else { return false }
+        let name = host.dropLast(".ghe.com".count)
+        return !name.isEmpty && !name.hasPrefix("-") && !name.hasSuffix("-")
+            && name.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
     }
 
+    /// GitHub's API lives on `api.` of the account's own host: api.github.com, or api.<name>.ghe.com.
+    static func apiURL(_ host: String, _ path: String) -> String { "https://api.\(host)\(path)" }
+
+    /// The account in apps.json and the one host its token belongs to. Keys read `<host>` or `<host>:<appId>`.
+    /// github.com wins over a GHE.com tenant; any other host is skipped, so a token never goes to a
+    /// host it was not issued by.
+    static func login(_ apps: JSON?) -> (host: String, entry: JSON)? {
+        let found = (apps?.object ?? [:]).compactMap { key, value -> (String, JSON, String)? in
+            let host = String(key.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)[0])
+            guard isKnownHost(host), value["oauth_token"].string != nil else { return nil }
+            return (host, value, key)
+        }
+        .sorted { ($0.0 == "github.com") != ($1.0 == "github.com") ? $0.0 == "github.com" : $0.2 < $1.2 }
+        return found.first.map { (host: $0.0, entry: $0.1) }
+    }
+
+    static func entry(_ apps: JSON?) -> JSON? { login(apps)?.entry }
+
     static func identity(_ apps: JSON?) -> CredentialIdentity? {
-        guard let entry = entry(apps) else { return nil }
-        if let user = entry["user"].string { return CredentialIdentity(key: "github:\(user.lowercased())") }
+        guard let (host, entry) = login(apps) else { return nil }
+        if let user = entry["user"].string {
+            return CredentialIdentity(key: host == "github.com" ? "github:\(user.lowercased())" : "github:\(host):\(user.lowercased())")
+        }
         // Never keep part of the token itself in the account index.
         return entry["oauth_token"].string.map { CredentialIdentity(key: "token:\(AgentCLIsKit.fingerprint($0))") }
     }
