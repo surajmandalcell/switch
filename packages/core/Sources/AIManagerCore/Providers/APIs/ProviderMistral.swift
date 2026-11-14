@@ -18,12 +18,12 @@ extension ProviderCatalog {
             let parts = utc.dateComponents([.year, .month], from: now)
             var usageHeaders = headers
             usageHeaders["Referer"] = "https://admin.mistral.ai/organization/usage"
-            let usage = try await HTTP.json(
+            let usage = try await MistralUsage.json(
                 "https://admin.mistral.ai/api/billing/v2/usage?month=\(parts.month ?? 1)&year=\(parts.year ?? 2026)",
                 headers: usageHeaders)
             var creditHeaders = headers
             creditHeaders["Referer"] = "https://admin.mistral.ai/organization/billing"
-            let credits = try? await HTTP.json("https://admin.mistral.ai/api/billing/credits", headers: creditHeaders)
+            let credits = try? await MistralUsage.json("https://admin.mistral.ai/api/billing/credits", headers: creditHeaders)
             var pageHeaders = headers
             pageHeaders["Accept"] = "text/html"
             pageHeaders["Referer"] = "https://admin.mistral.ai/subscription"
@@ -35,7 +35,7 @@ extension ProviderCatalog {
                !(html.map { MistralUsage.budgets(html: $0)["vibe_budget"] != nil } ?? false) {
                 let sessions = cookie.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
                     .filter { $0.hasPrefix("ory_session_") }
-                vibe = try? await HTTP.json(MistralUsage.vibeURL, headers: [
+                vibe = try? await MistralUsage.json(MistralUsage.vibeURL, headers: [
                     "Accept": "*/*", "X-CSRFToken": csrf,
                     "Cookie": (["csrftoken=\(csrf)"] + sessions).joined(separator: "; "),
                 ])
@@ -45,6 +45,23 @@ extension ProviderCatalog {
 }
 
 enum MistralUsage {
+    typealias Send = @Sendable (String, [String: String]) async throws -> HTTPResponse
+    static let liveSend: Send = { try await HTTP.send($0, headers: $1) }
+
+    /// GET JSON. An expired session answers 3xx to the auth.mistral.ai login flow; the shared client declines
+    /// that cross-host redirect, so it arrives here and means "sign in again", not an API failure.
+    static func json(_ url: String, headers: [String: String], send: Send = liveSend) async throws -> JSON {
+        let response = try await send(url, headers)
+        if (300...399).contains(response.status), let location = response.headers["location"],
+           let target = URL(string: location, relativeTo: URL(string: url))?.absoluteURL,
+           target.scheme == "https", target.host?.lowercased() == "auth.mistral.ai",
+           target.path == "/self-service/login" || target.path.hasPrefix("/self-service/login/") {
+            throw ProviderError.unauthorized("Mistral session expired. Paste a fresh Cookie header.")
+        }
+        try HTTP.check(response)
+        return try response.json()
+    }
+
     /// `usage` is the v2 billing JSON; `credits` and `subscriptionHTML` are best effort.
     static let vibeURL = "https://console.mistral.ai/api-ui/trpc/billing.vibeUsage?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%2C%22v%22%3A1%7D%7D%7D"
 

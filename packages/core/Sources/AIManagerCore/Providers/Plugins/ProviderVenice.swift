@@ -25,7 +25,14 @@ enum VeniceUsage {
         var used = 100.0
         var text = "No Venice API balance available"
         if !canConsume {
-            text = "Balance unavailable for API calls"
+            // Keep the fetched balance visible (as a plain amount, not "remaining"); the full bar still marks it blocked.
+            if let usd, currency == "USD" || diem == nil {
+                text = Fmt.money(usd)
+            } else if let diem {
+                text = String(format: "DIEM %.2f", diem)
+            } else {
+                text = "Balance unavailable for API calls"
+            }
         } else if currency == "USD", let usd, usd > 0 {
             used = 0; text = money(usd)
         } else if currency != "USD", let diem, let allocation, allocation > 0 {
