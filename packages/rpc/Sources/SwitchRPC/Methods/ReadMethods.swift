@@ -9,6 +9,7 @@ extension RPCServer {
         "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
         "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
         "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day", "autoSwitch.preview",
+        "app.searchIndex",
     ]
 
     /// Nil when `method` is not a read method.
@@ -16,6 +17,9 @@ extension RPCServer {
         switch method {
         case "providers.list":
             return AccountManager.providerCatalog
+        case "app.searchIndex":
+            // Every Settings row in page order, or the rows that match `query`, best first (the Mac toolbar search).
+            return SettingsSearch.search((try? params(QueryParams.self, method: method, frame: frame))?.query ?? "")
         case "accounts.savedAuthPath":
             let params = try params(AccountParams.self, method: method, frame: frame)
             return ["path": try await account(try accountID(params.accountID)).credentialFile.path]
@@ -151,6 +155,7 @@ extension RPCServer {
 private struct AccountParams: Decodable { let accountID: String }
 private struct OptionalAccountParams: Decodable { let accountID: String? }
 private struct FolderParams: Decodable { let folder: String? }
+private struct QueryParams: Decodable { let query: String? }
 private struct HistoryListParams: Decodable { var query: String? = nil; var limit: Int? = nil }
 private struct HistoryDetailParams: Decodable {
     let id: String

@@ -1,23 +1,23 @@
 import Foundation
 
-// Foundation-only search logic: the Settings index the toolbar search reads, and the Settings
-// strings it shares with the page. The production check compiles this file with the model files.
+// Foundation-only search logic: the Settings index the toolbar search reads (`app.searchIndex`), and the
+// Settings strings it shares with the Mac page. Moved from the Mac app (plan E2).
 
 /// The Settings rows the toolbar search finds. Every row of `SettingsPage` has one entry; the page
 /// shows a row only when its id matches. A term must appear in the section, title, help, or keywords.
-enum SettingsSearch {
-  struct Entry: Equatable, Identifiable {
-    let id: String
-    let section: String
-    let title: String
-    let help: String
+public enum SettingsSearch {
+  public struct Entry: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let section: String
+    public let title: String
+    public let help: String
     /// Synonyms people type, such as "dark" for Appearance or "hotkey" for Menu shortcut.
-    let keywords: String
+    public let keywords: String
   }
 
-  static let notificationKeywords = "alert notify notification banner"
+  public static let notificationKeywords = "alert notify notification banner"
 
-  static let entries: [Entry] = {
+  public static let entries: [Entry] = {
     let c = SettingsCopy.self
     var list: [Entry] = [
       Entry(id: "login", section: "General", title: "Open at Login",
@@ -87,17 +87,17 @@ enum SettingsSearch {
   }()
 
   /// Lowercase and without accents, so "Éclair" and "eclair" meet.
-  static func fold(_ text: String) -> String {
+  public static func fold(_ text: String) -> String {
     text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
   }
 
-  static func terms(_ query: String) -> [String] {
+  public static func terms(_ query: String) -> [String] {
     fold(query).split(whereSeparator: { $0.isWhitespace }).map(String.init)
   }
 
   /// The entries that match every term, best first: a title that starts with the query, then a
   /// title that contains every term, then the rest. Ties keep the page order.
-  static func search(_ query: String) -> [Entry] {
+  public static func search(_ query: String) -> [Entry] {
     let terms = terms(query)
     guard !terms.isEmpty else { return entries }
     let whole = terms.joined(separator: " ")
@@ -113,71 +113,70 @@ enum SettingsSearch {
   }
 
   /// Ids of the rows to show, or nil to show every row (an empty query).
-  static func visibleIDs(_ query: String) -> Set<String>? {
+  public static func visibleIDs(_ query: String) -> Set<String>? {
     terms(query).isEmpty ? nil : Set(search(query).map(\.id))
   }
 }
 
 /// Which Settings rows and sections a query leaves in the page.
-struct SettingsFilter {
+public struct SettingsFilter {
   private let ids: Set<String>?
   private let sections: Set<String>
 
-  init(_ query: String) {
+  public init(_ query: String) {
     let visible = SettingsSearch.visibleIDs(query)
     ids = visible
     sections = Set(SettingsSearch.entries.filter { visible?.contains($0.id) ?? true }.map(\.section))
   }
 
-  func shows(_ id: String) -> Bool { ids?.contains(id) ?? true }
-  func shows(section: String) -> Bool { sections.contains(section) }
+  public func shows(_ id: String) -> Bool { ids?.contains(id) ?? true }
+  public func shows(section: String) -> Bool { sections.contains(section) }
   /// True for an empty query: every row shows, and so does the preview-only demo card.
-  var showsAll: Bool { ids == nil }
+  public var showsAll: Bool { ids == nil }
 }
 
 /// Titles and help text of the Settings rows that features add, shared with the GUI contract.
-enum SettingsCopy {
-  static let checkProviderStatus = "Check provider status"
-  static let checkProviderStatusHelp = "Show a dot beside a provider that reports an incident."
-  static let claudeShell = "Use the selected Claude account in terminals"
-  static let claudeShellHelp =
+public enum SettingsCopy {
+  public static let checkProviderStatus = "Check provider status"
+  public static let checkProviderStatusHelp = "Show a dot beside a provider that reports an incident."
+  public static let claudeShell = "Use the selected Claude account in terminals"
+  public static let claudeShellHelp =
     "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
-  static let autoSwitch = "Switch accounts automatically"
-  static let autoSwitchHelp = "Make the next account in your Accounts order the default when one runs out."
-  static let autoSwitchThreshold = "Switch when an account has"
-  static let autoSwitchThresholdHelp = "Compares the lower of the session and weekly share left."
-  static let autoSwitchRunningCLIs = "Running CLIs"
-  static let autoSwitchRunningCLIsHelp =
+  public static let autoSwitch = "Switch accounts automatically"
+  public static let autoSwitchHelp = "Make the next account in your Accounts order the default when one runs out."
+  public static let autoSwitchThreshold = "Switch when an account has"
+  public static let autoSwitchThresholdHelp = "Compares the lower of the session and weekly share left."
+  public static let autoSwitchRunningCLIs = "Running CLIs"
+  public static let autoSwitchRunningCLIsHelp =
     "Reopen Codex and Claude Code in Terminal on the new account once their turn ends."
-  static let autoSwitchResume = "Resume message"
-  static let autoSwitchResumeHelp = "Sent when a usage limit cut the last turn short."
-  static let hideEmails = "Hide email addresses"
-  static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example."
-  static let privacyMode = "Privacy mode"
-  static let privacyModeHelp = "Show made-up names, such as Jon Doe, instead of account names and emails."
-  static let resetTimes = "Reset times"
-  static let resetTimesHelp = "Show a countdown or the exact time. Click any reset text to switch."
-  static let timeFormat = "Time format"
-  static let timeFormatHelp = "Hour style for exact reset times."
-  static let menuShortcut = "Menu shortcut"
-  static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
-  static let version = "Version"
-  static let versionHelp = "The installed version of Switch."
-  static let refreshOnOpen = "Refresh when the menu opens"
-  static let refreshOnOpenHelp = "Check usage each time the popover opens."
-  static let onePerService = "One account per service"
-  static let onePerServiceHelp = "The menu bar shows the default account of each service, or its first account with usage."
-  static let resetSettings = "Reset settings"
-  static let resetSettingsHelp =
+  public static let autoSwitchResume = "Resume message"
+  public static let autoSwitchResumeHelp = "Sent when a usage limit cut the last turn short."
+  public static let hideEmails = "Hide email addresses"
+  public static let hideEmailsHelp = "Mask account emails everywhere, such as a••••@example."
+  public static let privacyMode = "Privacy mode"
+  public static let privacyModeHelp = "Show made-up names, such as Jon Doe, instead of account names and emails."
+  public static let resetTimes = "Reset times"
+  public static let resetTimesHelp = "Show a countdown or the exact time. Click any reset text to switch."
+  public static let timeFormat = "Time format"
+  public static let timeFormatHelp = "Hour style for exact reset times."
+  public static let menuShortcut = "Menu shortcut"
+  public static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
+  public static let version = "Version"
+  public static let versionHelp = "The installed version of Switch."
+  public static let refreshOnOpen = "Refresh when the menu opens"
+  public static let refreshOnOpenHelp = "Check usage each time the popover opens."
+  public static let onePerService = "One account per service"
+  public static let onePerServiceHelp = "The menu bar shows the default account of each service, or its first account with usage."
+  public static let resetSettings = "Reset settings"
+  public static let resetSettingsHelp =
     "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."
-  static let notificationsTitle = "Notifications"
-  /// Title, help text, and the UserDefaults key of each toggle. All off by default.
-  static let notificationRows: [(title: String, help: String, key: String)] = [
-    ("Almost Out", "Alert when a usage window drops below 10% left.", QuotaNotificationSettings.almostOutKey),
-    ("Pace alerts", "Alert when usage will finish close to the limit or run out before the reset.",
-     QuotaNotificationSettings.paceKey),
-    ("Available again", "Alert when a used-up window resets and the account can be used again.",
-     QuotaNotificationSettings.availableAgainKey),
-    ("Sign in again", "Alert once when an account needs a new sign-in.", QuotaNotificationSettings.signInAgainKey),
+  public static let notificationsTitle = "Notifications"
+  /// Title, help text, and the settings key of each toggle (the Mac `QuotaNotificationSettings` keys). All off by
+  /// default.
+  public static let notificationRows: [(title: String, help: String, key: String)] = [
+    ("Almost Out", "Alert when a usage window drops below 10% left.", "notifyAlmostOut"),
+    ("Pace alerts", "Alert when usage will finish close to the limit or run out before the reset.", "notifyPaceAlerts"),
+    ("Available again", "Alert when a used-up window resets and the account can be used again.", "notifyAvailableAgain"),
+    ("Sign in again", "Alert once when an account needs a new sign-in.", "notifySignInAgain"),
   ]
 }

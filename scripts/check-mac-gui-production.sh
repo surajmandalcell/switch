@@ -15,6 +15,7 @@ export SWIFTPM_MODULECACHE_OVERRIDE="$build_path/module-cache/swiftpm"
 mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
 
 swift build --disable-sandbox --build-path "$build_path" --configuration debug --product AIManagerCore
+swift build --disable-sandbox --build-path "$build_path" --configuration debug --product SwitchAppModel
 products_path="$(swift build --disable-sandbox --build-path "$build_path" --configuration debug --show-bin-path)"
 
 swiftc \
@@ -23,6 +24,7 @@ swiftc \
   -I "$products_path" \
   -L "$products_path" \
   -lAIManagerCore \
+  -lSwitchAppModel \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ChatHistoryMonitor.swift" \
@@ -30,7 +32,6 @@ swiftc \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderUsageStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ProviderChoices.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/QuotaNotificationLogic.swift" \
-  "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AppSearch.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/ClaudeActivity.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/MaintenanceStore.swift" \
   "$repo_root/packages/mac-gui/Sources/AIManagerMacGUI/AccountViewModel.swift" \

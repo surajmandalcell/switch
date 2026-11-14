@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import AIManagerCore
 @testable import SwitchRPC
+import SwitchAppModel
 
 /// One test per read method, on synthetic data in the temporary home of `RPCRuntimeTests`.
 extension RPCRuntimeTests {
@@ -56,6 +57,15 @@ extension RPCRuntimeTests {
     func testProvidersList() async throws {
         let providers = try await list("providers.list")
         XCTAssertTrue(providers.contains { $0["id"] as? String == "codex" && $0["displayName"] != nil })
+    }
+
+    func testAppSearchIndex() async throws {
+        let all = try await list("app.searchIndex")
+        XCTAssertEqual(all.count, SettingsSearch.entries.count)
+        XCTAssertEqual(all.first?["id"] as? String, "login")
+        XCTAssertNotNil(all.first?["keywords"] as? String)
+        let hotkey = try await list("app.searchIndex", #"{"query":"hotkey"}"#)
+        XCTAssertEqual(hotkey.map { $0["title"] as? String }, [SettingsCopy.menuShortcut])
     }
 
     func testAccountsSavedAuthPath() async throws {

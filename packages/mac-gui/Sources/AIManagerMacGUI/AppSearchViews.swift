@@ -1,6 +1,7 @@
 import AIManagerCore
 import AppKit
 import SwiftUI
+import SwitchAppModel
 
 // The toolbar search, beyond the Accounts list: result cards for the other kind (Settings on
 // Accounts, Accounts on Settings), and the drop-down under the field on the other pages.

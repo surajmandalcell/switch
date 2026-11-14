@@ -58,6 +58,7 @@ swift build \
   --build-path "$build_path" \
   --configuration debug \
   --product AIManagerCore
+swift build --disable-sandbox --build-path "$build_path" --configuration debug --product SwitchAppModel
 products_path="$(swift build --disable-sandbox --build-path "$build_path" --configuration debug --show-bin-path)"
 
 rm -rf "$app_path"
@@ -74,6 +75,7 @@ swiftc \
   -I "$products_path" \
   -L "$products_path" \
   -lAIManagerCore \
+  -lSwitchAppModel \
   -lsqlite3 \
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap" \
   "${mac_gui_sources[@]}" \

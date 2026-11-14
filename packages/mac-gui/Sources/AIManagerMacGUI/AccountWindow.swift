@@ -3,6 +3,7 @@ import AppKit
 import CoreServices
 import ServiceManagement
 import SwiftUI
+import SwitchAppModel
 
 enum AIManagerLaunchContext {
   static func shouldShowMainWindow(
