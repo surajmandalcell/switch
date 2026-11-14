@@ -694,9 +694,9 @@ final class ProvidersAuditPluginsTests: XCTestCase {
 
     func testTypeSafe() throws {
         let credits = (1...30).map { #"{"amount":10,"remaining":\#($0),"expiresAt":"2026-10-15T12:00:00Z"}"# }.joined(separator: ",")
-        let line = #"1:{"ok":true,"data":{"billing":{"spent":4.5,"balance":20,"cycleLabel":"Oct","plan":"free_plan","credits":["#
-            + credits + "]}}}"
-        let usage = try TypeSafeUsage.map(rsc: line)
+        let line = #"{"billing":{"spent":4.5,"balance":20,"cycleLabel":"Oct","plan":"free_plan","credits":["#
+            + credits + "]}}"
+        let usage = try TypeSafeUsage.map(json(line))
         let list = try section(usage, "Billing").rows
         XCTAssertEqual(list[0], UsageRow("Spent (Oct)", "$4.50"))
         XCTAssertEqual(list[1], UsageRow("Credit", "1 of 10, expires Oct 15"))

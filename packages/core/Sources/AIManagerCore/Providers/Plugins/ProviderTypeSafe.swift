@@ -1,83 +1,66 @@
 import Foundation
 
 extension ProviderCatalog {
-    /// Reads the billing page through the same Next.js server action the web console calls.
-    /// ponytail: the action id is scraped from the page's JS chunks, so a console redeploy can break it; swap in a billing API if TypeSafe publishes one.
-    /// It is cached in the credential and rediscovered once on a 404.
+    /// Reads the billing overview JSON the web console calls (CodexBar b22cdc2, d1f1f2b; MIT).
     static let typesafe = ProviderSpec(
         id: "typesafe", name: "TypeSafe",
-        fields: [.cookie("Cookie header from console.typesafe.ai/settings/billing"),
-                 CredentialField("actionID", "Billing action id", optional: true, placeholder: "Found automatically")],
+        fields: [.cookie("Cookie header from console.typesafe.ai/billing")],
         dashboard: "https://console.typesafe.ai/usage",
-        fetch: { credential in
-            let cookie = try credential.require("cookie")
-            let url = "https://console.typesafe.ai/settings/billing"
-            func post(_ id: String) async throws -> HTTPResponse {
-                try await HTTP.send(url, method: "POST", headers: [
-                    "Cookie": cookie, "Origin": "https://console.typesafe.ai", "Next-Action": id, "Accept": "text/x-component",
-                ], body: Data("[]".utf8))
-            }
-            func discover() async throws -> String {
-                let page = try await HTTP.send(url, headers: ["Cookie": cookie, "Accept": "text/html"])
-                try TypeSafeUsage.check(page)
-                for chunk in TypeSafeUsage.chunkURLs(page.text) {
-                    guard let script = try? await HTTP.send(chunk), script.status == 200,
-                          let id = TypeSafeUsage.actionID(script.text) else { continue }
-                    return id
-                }
-                throw ProviderError.parse("TypeSafe billing page format changed: action id not found.")
-            }
-            var updated = credential
-            var id = credential["actionID"]
-            if id == nil { id = try await discover() }
-            var response = try await post(id!)
-            if response.status == 404, response.headers["x-nextjs-action-not-found"] == "1" {
-                id = try await discover()
-                response = try await post(id!)
-            }
-            try TypeSafeUsage.check(response)
-            updated.fields["actionID"] = id
-            return FetchResult(try TypeSafeUsage.map(rsc: response.text), updated: updated)
-        })
+        usage: { try await TypeSafeUsage.fetch(cookie: $0.require("cookie")) })
 }
 
 enum TypeSafeUsage {
-    /// A redirect or the login page means the session expired.
+    typealias Send = @Sendable (String, [String: String]) async throws -> HTTPResponse
+    static let liveSend: Send = { try await HTTP.send($0, headers: $1) }
+
+    static let overviewFailure = "TypeSafe billing overview could not be read. Open https://console.typesafe.ai/billing to check access; if the page opens, report the integration failure."
+    private static let expired = ProviderError.unauthorized("TypeSafe session expired. Paste a fresh Cookie header.")
+
+    static func fetch(cookie: String, send: Send = liveSend) async throws -> ProviderUsage {
+        // Cloudflare blocks the default agent, and the API refuses requests that do not look same-origin.
+        let response = try await send("https://console.typesafe.ai/api/billing/overview", [
+            "Cookie": cookie, "Accept": "application/json",
+            "Origin": "https://console.typesafe.ai", "Referer": "https://console.typesafe.ai/billing",
+            "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        ])
+        try check(response)
+        // A signed-out console can answer with an HTML login page instead of JSON.
+        let body = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.hasPrefix("<") {
+            if body.range(of: #"login|sign[-\s]?in|\(auth\)"#, options: [.regularExpression, .caseInsensitive]) != nil { throw expired }
+            throw ProviderError.http(response.status, overviewFailure)
+        }
+        guard let json = try? JSON(data: Data(body.utf8)) else { throw ProviderError.parse(overviewFailure) }
+        return try map(json)
+    }
+
+    /// 401 and 403 mean a signed-out session, except the explicit cross-origin refusal. A redirect means
+    /// a signed-out session only when it goes to a login route or off typesafe.ai.
     static func check(_ response: HTTPResponse) throws {
-        try HTTP.check(response)
-        if response.text.range(of: #"\\?"\(auth\)\\?",\{\\?"children\\?":\[\\?"login"#, options: .regularExpression) != nil {
-            throw ProviderError.unauthorized("TypeSafe session expired. Paste a fresh Cookie header.")
+        if response.status == 403, response.text.range(of: "cross-origin request refused", options: .caseInsensitive) != nil {
+            throw ProviderError.http(403, overviewFailure)
         }
-    }
-
-    static func chunkURLs(_ html: String) -> [String] {
-        let origin = "https://console.typesafe.ai"
-        var urls: [String] = []
-        for source in matches(#"<script\b[^>]*\bsrc=["']([^"']+)["']"#, html) {
-            let full = source.hasPrefix("/") ? origin + source : source
-            if full.hasPrefix(origin + "/"), full.range(of: #"\.js(?:$|\?)"#, options: .regularExpression) != nil, !urls.contains(full) {
-                urls.append(full)
-            }
+        if (300..<400).contains(response.status) {
+            if loginRedirect(response.headers["location"]) { throw expired }
+            throw ProviderError.http(response.status, overviewFailure)
         }
-        return Array(urls.prefix(60))
+        do { try HTTP.check(response) } catch let error as ProviderError where error.needsSignIn { throw expired }
     }
 
-    static func actionID(_ script: String) -> String? {
-        matches(#""([0-9a-f]{40,})"[^)]{0,150}"getBillingOverviewResult""#, script).first
+    static func loginRedirect(_ location: String?) -> Bool {
+        guard let target = location?.trimmingCharacters(in: .whitespaces), !target.isEmpty else { return false }
+        let login = target.range(of: #"(?:^|[/?#])(?:login|sign-?in|auth|oauth|sso)(?:[/?#]|$)"#,
+                                 options: [.regularExpression, .caseInsensitive]) != nil
+        guard target.range(of: #"^(?:https?:)?//"#, options: [.regularExpression, .caseInsensitive]) != nil else { return login }
+        let host = URL(string: target.hasPrefix("//") ? "https:" + target : target)?.host?.lowercased() ?? ""
+        return !(host == "typesafe.ai" || host.hasSuffix(".typesafe.ai")) || login
     }
 
-    /// The server action answers with React Server Component lines such as `1:{"ok":true,...}`.
-    static func map(rsc: String) throws -> ProviderUsage {
-        let result = rsc.split(whereSeparator: \.isNewline).lazy.compactMap { line -> JSON? in
-            guard let colon = line.firstIndex(of: ":"),
-                  let json = try? JSON(data: Data(line[line.index(after: colon)...].utf8)), json["ok"].exists else { return nil }
-            return json
-        }.first
-        guard let result else { throw ProviderError.parse("TypeSafe billing response format changed: missing result.") }
-        guard result["ok"].bool == true else { throw ProviderError.http(0, "TypeSafe billing request failed.") }
-        let billing = result.at("data.billing")
+    static func map(_ json: JSON) throws -> ProviderUsage {
+        let billing = json["billing"]
         guard let spent = billing["spent"].double, let balance = billing["balance"].double else {
-            throw ProviderError.parse("TypeSafe billing response format changed: missing billing numbers.")
+            throw ProviderError.parse(overviewFailure)
         }
         let cycle = billing["cycleLabel"].string
         let plan = billing["plan"].string.map { $0 == "free_plan" ? "Free" : $0.split(whereSeparator: { "_-".contains($0) }).map(\.capitalized).joined(separator: " ") }
@@ -97,12 +80,5 @@ enum TypeSafeUsage {
             rows += credits
         }
         return ProviderUsage(cost: UsageCost(used: spent, balance: balance, period: cycle), sections: [UsageSection("Billing", rows)], plan: plan)
-    }
-
-    private static func matches(_ pattern: String, _ text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
-        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
-            Range($0.range(at: 1), in: text).map { String(text[$0]) }
-        }
     }
 }

@@ -30,15 +30,20 @@ enum SyntheticUsage {
         let root = json.raw is [Any] ? JSON(["quotas": json.raw as Any]) : json
         guard root.raw is [String: Any] else { throw ProviderError.parse("Failed to parse Synthetic response: expected an object or array.") }
         let data = root["data"]
+        // New plans only enforce weekly credits (CodexBar a20e95e, MIT): percent values are already 0-100,
+        // and the five-hour counter is retired.
+        let planWeekly = [root["planWeeklyLimit"], data["planWeeklyLimit"]].first(where: isQuota)
+            .flatMap { parse($0, id: "weekly", title: "Weekly quota", percentagePoints: true) }
         let slots: [(String, String, [JSON])] = [
-            ("session", "Five-hour quota", [root["rollingFiveHourLimit"], data["rollingFiveHourLimit"]]),
-            ("weekly", "Weekly tokens", [root["weeklyTokenLimit"], data["weeklyTokenLimit"]]),
+            ("session", "Five-hour quota", planWeekly == nil ? [root["rollingFiveHourLimit"], data["rollingFiveHourLimit"]] : []),
+            ("weekly", "Weekly tokens", planWeekly == nil ? [root["weeklyTokenLimit"], data["weeklyTokenLimit"]] : []),
             ("search", "Search hourly", [root.at("search.hourly"), data.at("search.hourly")]),
         ]
         var quotas: [Quota] = []
-        let named = slots.map { id, title, candidates in
+        var named = slots.map { id, title, candidates in
             candidates.first(where: isQuota).flatMap { parse($0, id: id, title: title) }
         }
+        if let planWeekly { named.insert(planWeekly, at: 1) }
         if named.contains(where: { $0 != nil }) {
             quotas = named.compactMap { $0 }
         } else {
@@ -72,8 +77,8 @@ enum SyntheticUsage {
         return isQuota(json) ? [json] : object.keys.sorted().flatMap { collect(json[$0]) }
     }
 
-    private static func parse(_ json: JSON, id: String, title: String) -> Quota? {
-        func normalized(_ value: Double?) -> Double? { value.map { $0 <= 1 ? $0 * 100 : $0 } }
+    private static func parse(_ json: JSON, id: String, title: String, percentagePoints: Bool = false) -> Quota? {
+        func normalized(_ value: Double?) -> Double? { percentagePoints ? value : value.map { $0 <= 1 ? $0 * 100 : $0 } }
         var used = normalized(number(json, percentUsed))
         if used == nil, let left = normalized(number(json, percentRemaining)) { used = 100 - left }
         var amount: String?
@@ -90,7 +95,8 @@ enum SyntheticUsage {
         guard let percent = used else { return nil }
         let reset = resets.lazy.compactMap { json[$0].date }.first
         let span = minutes(json)
-        let tick = normalized(number(json, ["tickPercent", "tick_percent", "nextTickPercent", "next_tick_percent"]))
+        let tick = number(json, ["nextRegenPercent", "next_regen_percent"])
+            ?? normalized(number(json, ["tickPercent", "tick_percent", "nextTickPercent", "next_tick_percent"]))
         let detail = [amount, reset == nil ? windowDescription(span) : nil,
                       tick.map { "Next regen \(Fmt.number($0, digits: 1))%" }].compactMap { $0 }.joined(separator: " · ")
         let window = UsageWindow(id: id, title: title, usedPercent: percent, resetsAt: reset, windowMinutes: span,
