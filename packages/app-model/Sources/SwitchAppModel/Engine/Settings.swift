@@ -43,5 +43,7 @@ extension AppEngine {
             throw SettingsError.readOnly
         }
         publish(.settings, Self.settingsValue(settings))
+        // Privacy and hidden rows change the account rows; an unchanged row set publishes nothing.
+        publishAccounts()
     }
 }
