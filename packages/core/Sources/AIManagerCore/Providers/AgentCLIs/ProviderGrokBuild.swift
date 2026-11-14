@@ -350,9 +350,10 @@ enum GrokBuildUsage {
                     resetsAt: end, windowMinutes: Int(end.timeIntervalSince(start) / 60)))
             }
         }
-        var rows = [UsageRow("Pay as you go", cap > 0 ? "\(Fmt.number(cap)) credit cap" : "Disabled")]
+        // The cap and the used amount are cents, like prepaidBalance.
+        var rows = [UsageRow("Pay as you go", cap > 0 ? "\(Fmt.money(cap / 100)) cap" : "Disabled")]
         if cap > 0, let used = config.at("onDemandUsed.val").double {
-            rows.append(UsageRow("On-demand used", Fmt.number(used), progress: used / cap))
+            rows.append(UsageRow("On-demand used", Fmt.money(used / 100), progress: used / cap))
         }
         let prepaid = config.at("prepaidBalance.val").double ?? 0
         return ProviderUsage(windows: windows, cost: prepaid > 0 ? UsageCost(balance: prepaid / 100) : nil,
