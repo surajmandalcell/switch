@@ -98,7 +98,8 @@ public actor AppEngine {
         self.settings = settings ?? JSONFileSettingsStore(url: JSONFileSettingsStore.location(
             paths: paths, environment: ProcessInfo.processInfo.environment))
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
-        app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path)
+        app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path,
+                            dataLocations: AppStateValue.dataLocations(paths))
         slots[.app] = Self.slot(app)
         slots[.notices] = Self.slot(notices)
         slots[.accounts] = Self.slot(AccountsValue())

@@ -73,6 +73,11 @@ extension RPCRuntimeTests {
         XCTAssertEqual(app["rev"] as? Int, 0)
         XCTAssertEqual((app["value"] as? [String: Any])?["hasLoaded"] as? Bool, false)
         XCTAssertEqual((app["value"] as? [String: Any])?["dataLocation"] as? String, paths.applicationSupport.path)
+        let locations = (app["value"] as? [String: Any])?["dataLocations"] as? [[String: Any]] ?? []
+        XCTAssertEqual(locations.map { $0["id"] as? String }, ["data.codex", "data.codex-vault", "data.grok", "data.grok-vault"])
+        XCTAssertEqual(locations.map { $0["path"] as? String },
+                       [paths.defaultHome, paths.credentialStore, paths.grokHome, paths.grokCredentialStore].map(\.path))
+        XCTAssertEqual(locations.first?["title"] as? String, "Codex home")
         XCTAssertEqual((snapshot["notices"] as? [String: Any])?["rev"] as? Int, 0)
 
         session.send(#"{"jsonrpc":"2.0","method":"initialized"}"#)
