@@ -152,6 +152,15 @@ extension CodexAccountUsageSnapshot {
     }
 }
 
+extension CodexAccountUsageSnapshot {
+    /// This snapshot with other backend extras and daily charts.
+    func replacing(extras: CodexWhamExtras?, charts: [UsageChart]?) -> CodexAccountUsageSnapshot {
+        CodexAccountUsageSnapshot(
+            account: account, requiresOpenAIAuthentication: requiresOpenAIAuthentication, rateLimits: rateLimits,
+            usage: usage, dailyUsage: dailyUsage, fetchedAt: fetchedAt, extras: extras, charts: charts)
+    }
+}
+
 public struct CodexMonthlyCredits: Sendable, Equatable, Codable {
     public let limit: Double
     public let used: Double
