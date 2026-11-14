@@ -1,0 +1,112 @@
+import Foundation
+import AIManagerCore
+
+/// A dialog the user must accept before the action runs (architecture.md 2.6). The helper adds the token.
+public struct ConfirmationRequest: Codable, Equatable, Sendable {
+    public var token: String?
+    public var title: String
+    public var message: String
+    public var action: String
+}
+
+/// The reply of a user action (architecture.md 2.2).
+public struct ActionResult: Codable, Equatable, Sendable {
+    public enum Status: String, Codable, Sendable { case done, needsConfirmation }
+    public var status: Status
+    public var notice: String?
+    /// A check that ran and found a problem: the red-bar text. The action itself did not fail.
+    public var error: String?
+    public var confirmation: ConfirmationRequest?
+
+    public static func done(notice: String? = nil, error: String? = nil) -> ActionResult {
+        ActionResult(status: .done, notice: notice, error: error)
+    }
+}
+
+/// User actions. Each runs in the action lane, calls the AccountManager API the Mac app calls, and copies its
+/// failure to `notices`, as `AccountViewModel` does.
+extension AppEngine {
+    /// The Mac `switchDefault`. A running Factory app needs a confirmation first; `confirmed` skips it.
+    public func setDefault(_ id: UUID, confirmed: Bool = false) async throws -> ActionResult {
+        let manager = manager
+        return try await perform(failure: "Couldn’t change the default account.",
+                                 recovery: "Resolve any item in Backup, then try again.") {
+            guard let manager else { throw AppEngineError.unavailable }
+            let providerID = try await self.account(id).identity.providerID
+            let result: SwitchResult
+            do {
+                result = try await manager.switchDefault(to: id, allowRunningDroid: confirmed)
+            } catch let error as DroidAccountError {
+                guard case .running = error else { throw error }
+                return ActionResult(status: .needsConfirmation, confirmation: ConfirmationRequest(
+                    title: "Droid is running", message: error.localizedDescription, action: "Switch"))
+            }
+            await self.reloadAccounts()
+            let notice = Self.switchNotice(providerID, result)
+            await self.setNotice(notice)
+            return .done(notice: notice)
+        }
+    }
+
+    /// The Mac `checkAccount`: verify the saved files (and Codex usage). A failed check goes to the red bar.
+    public func checkAccount(_ id: UUID) async throws -> ActionResult {
+        let manager = manager
+        return try await perform(failure: "Couldn’t check the account files.", recovery: "Try the check again.") {
+            guard let manager else { throw AppEngineError.unavailable }
+            _ = try await self.account(id)
+            let result = await manager.checkAccount(accountID: id)
+            if let usage = result.usage { try await self.codexCache?.upsertSuccess(accountID: id, snapshot: usage) }
+            await self.reloadAccounts()
+            switch result.verification.state {
+            case .verifiedLocally, .verifiedWithCodex:
+                await self.setNotice("Account checked.")
+                return .done(notice: "Account checked.")
+            default:
+                await self.setError(result.verification.detail)
+                return .done(error: result.verification.detail)
+            }
+        }
+    }
+
+    /// Refreshes one account's usage now, ignoring age and cooldown. A user action, so the read is interactive:
+    /// a rejected key is sent again and the Droid key may come from the login Keychain. The result lands on the
+    /// row; a test home without `setRefreshesInIsolation` reads nothing, as on the Mac.
+    public func refreshUsage(_ id: UUID) async throws -> ActionResult {
+        try await perform {
+            let providerID = try await self.account(id).identity.providerID
+            guard await self.refreshes else { return .done() }
+            if providerID == .codex {
+                await self.refreshCodexAccount(id)
+            } else {
+                await self.refreshProviderAccounts([id], interactive: true)
+            }
+            return .done()
+        }
+    }
+
+    /// The saved account, loading the list first when `initialized` has not run yet.
+    func account(_ id: UUID) async throws -> AccountRecord {
+        if status == nil { await reloadAccounts() }
+        guard let account = status?.accounts.first(where: { $0.id == id }) else { throw AIManagerError.accountNotFound }
+        return account
+    }
+
+    /// The notice the Mac shows after a switch (`AccountViewModel.switchDefault`).
+    static func switchNotice(_ providerID: ProviderID, _ result: SwitchResult) -> String {
+        let name = AccountPresentation.providerName(providerID)
+        let count = result.droidSessionBinding.map { $0.updatedCount + $0.unchangedCount } ?? 0
+        let updated = "\(count) \(count == 1 ? "conversation" : "conversations") ready to resume."
+        if let binding = result.droidSessionBinding, binding.pending {
+            return "Account switched. Conversation updates are pending and will retry automatically. \(binding.warnings.joined(separator: " "))"
+        }
+        if let binding = result.droidSessionBinding, !binding.warnings.isEmpty {
+            return "Account switched. \(updated) \(binding.warnings.joined(separator: " "))"
+        }
+        if ProviderCatalog.spec(providerID)?.style == .secret { return "\(name) usage checks will use this account." }
+        if ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(providerID) {
+            return "\(name) sign-in files updated. Reopen the tool to load this account."
+        }
+        return count > 0 ? "New \(name) sessions will use this account. \(updated)"
+            : "New \(name) sessions will use this account."
+    }
+}

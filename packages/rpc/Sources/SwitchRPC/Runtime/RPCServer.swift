@@ -11,7 +11,7 @@ public final class RPCServer: @unchecked Sendable {
     public static let settingsSchemaVersion = SettingsRegistry.schemaVersion
     public static let methods = ["initialize", "initialized", "shutdown", "$/cancelRequest", "accounts.status", "usage.detail",
                                  "state.subscribe", "state.unsubscribe", "settings.get", "settings.set"]
-        + readMethods
+        + readMethods + writeMethods
     public static let defaultTimeout: TimeInterval = 60
     static let maximumFrame = 16 * 1024 * 1024
 
@@ -24,6 +24,10 @@ public final class RPCServer: @unchecked Sendable {
     private let log: (String) -> Void
     private let timeout: TimeInterval
     let codexCache: CodexUsageStatisticsCache?
+    let clock: any AppClock
+    /// Open confirmation tokens (WriteMethods.swift), under `lock`.
+    var confirmations: [String: (binding: String, expires: Date)] = [:]
+    let lock = NSLock()
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -42,7 +46,6 @@ public final class RPCServer: @unchecked Sendable {
         init(method: String) { self.method = method }
     }
 
-    private let lock = NSLock()
     private var pending: [RPCID: Pending] = [:]
     private let unanswered = DispatchGroup()
     private let writeLock = NSLock()
@@ -57,6 +60,7 @@ public final class RPCServer: @unchecked Sendable {
         self.version = version
         self.timeout = timeout
         self.log = log
+        self.clock = clock
         codexCache = try? CodexUsageStatisticsCache(
             databaseURL: paths.applicationSupport.appending(path: "cache/account-usage.sqlite"),
             activityDatabaseURL: paths.applicationSupport.appending(path: "activity/daily.sqlite"))
@@ -267,6 +271,7 @@ public final class RPCServer: @unchecked Sendable {
             return try await usageDetail(try accountID(params.accountID), force: params.force ?? false)
         default:
             if let result = try await readMethod(method, frame: frame) { return result }
+            if let result = try await writeMethod(method, frame: frame) { return result }
             guard let extra = extraMethods[method] else {
                 throw RPCError(-32601, "unknownMethod", "Switch has no method '\(method)'.")
             }

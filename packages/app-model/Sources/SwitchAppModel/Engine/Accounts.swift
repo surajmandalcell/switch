@@ -37,11 +37,15 @@ public enum AccountPresentation {
         if let email = identity.email, !email.isEmpty { return email }
         if let accountID = identity.accountID, !accountID.isEmpty { return accountID }
         if let userID = identity.userID, !userID.isEmpty, provider != .codex {
-            let name = [ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(provider)
-                ? provider.displayName : (ProviderCatalog.spec(provider)?.name ?? provider.displayName)
-            return "\(name) ···\(userID.suffix(4))"
+            return "\(providerName(provider)) ···\(userID.suffix(4))"
         }
         return "Unresolved account"
+    }
+
+    /// The Mac `guiName`: the catalog name ("OpenRouter") except for the four built-in tools.
+    public static func providerName(_ provider: ProviderID) -> String {
+        [ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(provider)
+            ? provider.displayName : (ProviderCatalog.spec(provider)?.name ?? provider.displayName)
     }
 
     // shortcut: written from view-model.md 1.1 beside AccountViewModel.makeAccountWindows, delete that copy when the
@@ -135,29 +139,42 @@ extension AppEngine {
                                           failedAt: cached.failure == nil ? nil : cached.lastAttemptAt,
                                           onCadence: onCadence, now: now)
         }
-        for account in due {
-            codexRefreshing = account.id
-            publishAccounts()
-            let result = await manager.checkAccount(accountID: account.id)
-            if result.verification.state == .needsSignIn {
-                try? await codexCache?.recordFailure(accountID: account.id, failure: .authenticationRequired)
-            } else if let snapshot = result.usage {
-                try? await codexCache?.upsertSuccess(accountID: account.id, snapshot: snapshot)
-            } else {
-                try? await codexCache?.recordFailure(accountID: account.id, failure: .unavailable)
-            }
-            codexRefreshing = nil
-            await reloadAccounts()
+        for account in due { await refreshCodexAccount(account.id) }
+    }
+
+    /// One live Codex check, stored in the Codex usage cache. Does nothing while another Codex check runs.
+    func refreshCodexAccount(_ id: UUID) async {
+        guard codexRefreshing == nil, let manager else { return }
+        codexRefreshing = id
+        publishAccounts()
+        let result = await manager.checkAccount(accountID: id)
+        if result.verification.state == .needsSignIn {
+            try? await codexCache?.recordFailure(accountID: id, failure: .authenticationRequired)
+        } else if let snapshot = result.usage {
+            try? await codexCache?.upsertSuccess(accountID: id, snapshot: snapshot)
+        } else {
+            try? await codexCache?.recordFailure(accountID: id, failure: .unavailable)
         }
+        codexRefreshing = nil
+        await reloadAccounts()
     }
 
     // MARK: - Other providers (four at once, each with a time limit, never in isolation mode)
 
     func refreshProviderUsage(onCadence: Bool) async {
-        guard refreshes, let manager, let status else { return }
+        guard refreshes, let status else { return }
         let now = clock.now
         let ids = status.accounts.filter { $0.identity.providerID != .codex }.map(\.id)
             .filter { ProviderUsagePolicy.isDue(providerUsage[$0], onCadence: onCadence, now: now) }
+        // Not interactive: a credential the provider already rejected is not sent again.
+        await refreshProviderAccounts(ids, interactive: false)
+    }
+
+    /// Reads usage for `requested` (skipping any read already running). `interactive` only for a user action:
+    /// it sends a rejected credential again and may read the login Keychain.
+    func refreshProviderAccounts(_ requested: [UUID], interactive: Bool) async {
+        guard let manager else { return }
+        let ids = requested.filter { providerUsage[$0]?.isRefreshing != true }
         guard !ids.isEmpty else { return }
         for id in ids { providerUsage[id, default: ProviderUsageState()].isRefreshing = true }
         publishAccounts()
@@ -167,10 +184,9 @@ extension AppEngine {
             func launch(_ id: UUID) {
                 group.addTask {
                     do {
-                        // Not interactive: a credential the provider already rejected is not sent again.
                         return (id, .success(try await ProviderUsagePolicy.withTimeout(
                             ProviderUsagePolicy.fetchTimeout, clock: clock) {
-                                try await manager.readProviderUsage(accountID: id, interactive: false)
+                                try await manager.readProviderUsage(accountID: id, interactive: interactive)
                             }))
                     } catch {
                         return (id, .failure(error))
