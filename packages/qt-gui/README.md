@@ -103,3 +103,26 @@ writes content-only Settings shots to `compare/` and `compare/update/`.
 
 `scripts/compare.sh <qt shots> <mac captures> <out>` writes `<name>-side.png` (Qt left, Mac right)
 and `<name>-diff.png`, and prints the share of pixels that differ by more than 3% and the RMSE.
+
+## Second build host (oci2)
+
+`oci2` (arm64, 4 cores, idle) builds and captures in the `switch-qt:tw` container (`scripts/oci/Dockerfile`):
+openSUSE Tumbleweed with the same Qt 6.12.0 and KWin 6.8.2 as lin1. Every worker has its own folders and lock,
+so nothing queues. From the Mac:
+
+```sh
+packages/qt-gui/scripts/remote-oci.zsh <worker> [build|shots|all|clean]   # default all
+```
+
+- On oci2: `/mnt/sdb/data/switch/qt/<worker>/` holds `src`, `build` and `shots`. On the Mac:
+  `.../switch/qt-gui/shots/<worker>/qt` (PNGs) and `.../shots/<worker>/compare` (Settings against the Mac).
+- Times: full build 2 min (3 at once: 5.5 min each), a one-file change 12 s, all captures 1 min.
+- Real helper: `/mnt/sdb/data/switch/qt/helper` holds a Linux arm64 `switch-core` (with its Swift libraries in
+  `lib/`), mounted read-only at `/opt/helper`. The client test also runs `realHelper` against it; the app takes
+  `--helper /opt/helper/switch-core --root <temporary folder>`.
+- Differences from lin1: arm64, and Mesa on oci2's render node (`/dev/dri/renderD128`, passed into the container;
+  without it `kwin_wayland` quits and a resized popover keeps its old size). The same commit's captures match
+  lin1's in size, with at most 0.21% of pixels different (glyph edges).
+- Cleanup: `remote-oci.zsh <worker> clean` deletes `/mnt/sdb/data/switch/qt/<worker>` (about 40-90 MB each).
+  The image takes 1.9 GB on oci2's system disk. To refresh Tumbleweed, rebuild it with the command at the top of
+  the Dockerfile, check `qtpaths6 --qt-version` against lin1, and remove the old image by its ID.
