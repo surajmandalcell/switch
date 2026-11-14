@@ -41,8 +41,10 @@ extension ProviderCatalog {
                         throw ProviderError.unauthorized("Sign in with the agy command again. This sign-in cannot read quota.")
                     }
                     let body: [String: Any] = IDEAuth.project(assist).map { ["project": $0] } ?? [:]
-                    let summary = try? await IDEAuth.cloudCode(
-                        "retrieveUserQuotaSummary", token: token, body: body, userAgent: agent)
+                    let summary = await AntigravityCLIUsage.quotaSummary { host in
+                        try await IDEAuth.cloudCode(
+                            "retrieveUserQuotaSummary", token: token, body: body, userAgent: agent, host: host)
+                    }
                     if let summary, AntigravityCLIUsage.hasMeasured(summary) { return (assist, summary, nil) }
                     // No measured bucket (older build or unmeasured summary): read the per-model quotas.
                     let models = try await IDEAuth.cloudCode(
@@ -65,14 +67,43 @@ enum AntigravityCLIUsage {
     private static let consumerClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
     static let metadata = ["ideType": "ANTIGRAVITY", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"]
 
-    /// Quota needs the Hub client family (CodexBar).
+    /// The hub client identity exposes the separate Argon quota; the IDE identity omits it (OpenUsage e1ffa571).
     static let userAgent: String = {
         #if arch(arm64)
-        "antigravity/hub/2.9.1 darwin/arm64"
+        "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64)"
         #else
-        "antigravity/hub/2.9.1 darwin/amd64"
+        "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=amd64)"
         #endif
     }()
+
+    /// The daily host holds the active counters; production can return untouched windows (OpenUsage ee981593).
+    static let quotaHosts = ["https://daily-cloudcode-pa.googleapis.com", "https://cloudcode-pa.googleapis.com"]
+
+    /// Asks the daily host, and production too when the daily answer lacks a pool bucket or fails.
+    /// A bucket the daily host reports wins. Nil when no host answered.
+    static func quotaSummary(_ fetch: (String) async throws -> JSON) async -> JSON? {
+        var answers: [JSON] = []
+        for host in quotaHosts {
+            guard let answer = try? await fetch(host) else { continue }
+            answers.append(answer)
+            if isComplete(answer) { break }
+        }
+        let summaries = answers.filter(hasSummary)
+        guard summaries.count > 1 else { return summaries.first ?? answers.first }
+        // Keep one Argon group: a second one would make its weekly bucket ambiguous.
+        var merged: [Any] = []
+        var argonSeen = false
+        for summary in summaries {
+            let list = groups(summary).array
+            merged += list.filter { !(argonSeen && isArgonGroup($0)) }.compactMap(\.raw)
+            argonSeen = argonSeen || list.contains(where: isArgonGroup)
+        }
+        return JSON(["groups": merged])
+    }
+
+    private static func isComplete(_ summary: JSON) -> Bool {
+        summaryWindows(summary).filter { $0.id != "argon-weekly" }.count == knownBuckets.count
+    }
 
     /// The summary wraps its groups in `response` when read from the local server, and not on Cloud Code.
     private static func groups(_ summary: JSON) -> JSON {
@@ -98,26 +129,51 @@ enum AntigravityCLIUsage {
                              email: claims?["email"].string)
     }
 
+    private static let knownBuckets: [(bucket: String, id: String, title: String, minutes: Int)] = [
+        ("gemini-5h", "session", "Gemini 5-hour", 300), ("gemini-weekly", "weekly", "Gemini weekly", 10080),
+        ("3p-5h", "claude-session", "Claude 5-hour", 300), ("3p-weekly", "claude-weekly", "Claude weekly", 10080),
+    ]
+    private static let argonGroup = "Gemini 4 Argon"
+
+    private static func isArgonGroup(_ group: JSON) -> Bool { group["displayName"].string == argonGroup }
+
+    private static func fraction(_ bucket: JSON) -> Double? {
+        bucket["remainingFraction"].double ?? bucket.at("remaining.remainingFraction").double
+    }
+
+    private static func used(_ fraction: Double) -> Double { (1 - min(max(fraction, 0), 1)) * 100 }
+
     private static func summaryWindows(_ summary: JSON) -> [UsageWindow] {
-        let known: [(bucket: String, id: String, title: String, minutes: Int)] = [
-            ("gemini-5h", "session", "Gemini 5-hour", 300), ("gemini-weekly", "weekly", "Gemini weekly", 10080),
-            ("3p-5h", "claude-session", "Claude 5-hour", 300), ("3p-weekly", "claude-weekly", "Claude weekly", 10080),
-        ]
+        let all = groups(summary).array
         var found: [String: JSON] = [:]
-        for bucket in groups(summary).array.flatMap({ $0["buckets"].array }) {
+        // The Argon group is read below; its bucket must never take a shared pool's id.
+        for bucket in all.filter({ !isArgonGroup($0) }).flatMap({ $0["buckets"].array }) {
             // Exact ids only: a new bucket must never join a pool by its display name.
             guard let id = bucket["bucketId"].string ?? bucket["id"].string, found[id] == nil,
-                  (bucket["remainingFraction"].double ?? bucket.at("remaining.remainingFraction").double) != nil
+                  fraction(bucket) != nil
             else { continue }
             found[id] = bucket
         }
-        return known.compactMap { entry in
-            guard let bucket = found[entry.bucket],
-                  let fraction = bucket["remainingFraction"].double ?? bucket.at("remaining.remainingFraction").double
-            else { return nil }
-            return pool(id: entry.id, title: entry.title, used: ((1 - min(max(fraction, 0), 1)) * 100).rounded(),
+        var windows = knownBuckets.compactMap { entry -> UsageWindow? in
+            guard let bucket = found[entry.bucket], let left = fraction(bucket) else { return nil }
+            return pool(id: entry.id, title: entry.title, used: used(left),
                         reset: bucket["resetTime"].date, minutes: entry.minutes)
         }
+        if let argon = argonWindow(all) { windows.insert(argon, at: windows.firstIndex { $0.id.hasPrefix("claude") } ?? windows.endIndex) }
+        return windows
+    }
+
+    /// The separate Gemini 4 Argon weekly quota: one unambiguous, enabled weekly bucket with its own id.
+    private static func argonWindow(_ groups: [JSON]) -> UsageWindow? {
+        let weekly = groups.filter(isArgonGroup).flatMap { $0["buckets"].array }.filter { $0["window"].string == "weekly" }
+        guard weekly.count == 1, let bucket = weekly.first,
+              let id = (bucket["bucketId"].string ?? bucket["id"].string), !id.isEmpty,
+              !knownBuckets.contains(where: { $0.bucket == id }),
+              // A malformed flag cannot establish access.
+              !(bucket["disabled"].exists && bucket["disabled"].bool == nil), bucket["disabled"].bool != true,
+              let left = fraction(bucket) else { return nil }
+        return pool(id: "argon-weekly", title: "Gemini 4 Argon weekly", used: used(left),
+                    reset: bucket["resetTime"].date, minutes: 10080)
     }
 
     /// A 5-hour pool with no usage has not started its window yet; the reset then only restates the window.
@@ -132,6 +188,8 @@ enum AntigravityCLIUsage {
         for (key, model) in models["models"].object where model["isInternal"].bool != true {
             guard let fraction = model.at("quotaInfo.remainingFraction").double else { continue }
             let label = (model["displayName"].string ?? model["label"].string ?? key).lowercased()
+            // Legacy quota carries no pool or period for Argon; it must not join the Gemini 5-hour pool.
+            if key == "MODEL_PLACEHOLDER_M421" || label.hasPrefix("gemini 4 argon") { continue }
             let pool = label.contains("gemini") ? "session" : "claude-session"
             if let seen = pools[pool], seen.fraction <= fraction { continue }
             pools[pool] = (fraction, model.at("quotaInfo.resetTime").date)

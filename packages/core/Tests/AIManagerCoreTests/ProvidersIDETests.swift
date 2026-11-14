@@ -89,7 +89,9 @@ final class ProvidersIDETests: XCTestCase {
         let assist = try json(#"{"paidTier":{"name":"Google AI Pro"},"currentTier":{"id":"standard-tier"}}"#)
         let usage = try AntigravityCLIUsage.map(assist: assist, summary: summary, models: nil, claims: nil)
         XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly", "claude-session", "claude-weekly"])
-        XCTAssertEqual(usage.windows.map(\.usedPercent), [25, 10, 60, 0])
+        for (window, expected) in zip(usage.windows, [25.0, 10, 60, 0]) {
+            XCTAssertEqual(window.usedPercent ?? -1, expected, accuracy: 1e-9)
+        }
         XCTAssertEqual(usage.windows[0].windowMinutes, 300)
         XCTAssertEqual(usage.windows[1].windowMinutes, 10_080)
         XCTAssertEqual(usage.windows[0].resetsAt, Fmt.iso("2026-07-02T16:00:00Z"))

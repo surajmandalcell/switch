@@ -217,9 +217,18 @@ enum IDEAuth {
             headers: ["Content-Type": "application/x-www-form-urlencoded"],
             body: HTTP.form(["client_id": clientID, "client_secret": clientSecret,
                              "refresh_token": refreshToken, "grant_type": "refresh_token"]))
-        if (400...401).contains(response.status) {
-            if (try? response.json())?["error"].string == "invalid_client" { throw RefreshFailure.invalidClient }
-            throw ProviderError.unauthorized("This Google sign-in expired. Sign in again.")
+        return try refreshed(response)
+    }
+
+    /// Only a refused refresh token (`invalid_grant`) is an expired sign-in. Any other 400, 401, or 403
+    /// is a failed renewal that the next check retries (OpenUsage f9bb8bbc).
+    static func refreshed(_ response: HTTPResponse) throws -> Refreshed {
+        if [400, 401, 403].contains(response.status) {
+            switch (try? response.json())?["error"].string {
+            case "invalid_client": throw RefreshFailure.invalidClient
+            case "invalid_grant": throw ProviderError.unauthorized("This Google sign-in expired. Sign in again.")
+            default: throw ProviderError.http(response.status, "Google could not renew this sign-in. Switch will retry later.")
+            }
         }
         try HTTP.check(response)
         let json = try response.json()
@@ -228,10 +237,10 @@ enum IDEAuth {
     }
 
     static func cloudCode(_ method: String, token: String, body: [String: Any],
-                          userAgent: String? = nil) async throws -> JSON {
+                          userAgent: String? = nil, host: String = "https://cloudcode-pa.googleapis.com") async throws -> JSON {
         var headers = HTTP.bearer(token)
         if let userAgent { headers["User-Agent"] = userAgent }
-        let response = try await HTTP.send("https://cloudcode-pa.googleapis.com/v1internal:\(method)", method: "POST",
+        let response = try await HTTP.send("\(host)/v1internal:\(method)", method: "POST",
                                            headers: headers, body: try JSONSerialization.data(withJSONObject: body))
         if response.status == 403, response.text.contains("UNSUPPORTED_CLIENT") || response.text.contains("SUBSCRIPTION_REQUIRED") {
             throw ProviderError.unavailable("Google does not serve this client for this account. Use Antigravity for personal accounts.")
