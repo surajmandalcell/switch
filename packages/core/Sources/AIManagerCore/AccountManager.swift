@@ -20,6 +20,8 @@ public enum FaultPoint: Sendable, Equatable { case duringHistoryCopy, afterTempo
 public actor AccountManager {
     public typealias WriterCheck = @Sendable (URL) async -> WriterState
     public typealias CapacityCheck = @Sendable (URL) -> Int64?
+    /// Set when an old and a new data folder both exist (architecture.md section 5); the app shows it once.
+    public nonisolated let dataRootNotice: String?
 
     private struct Registry: Codable {
         var accounts: [AccountRecord] = []
@@ -124,6 +126,8 @@ public actor AccountManager {
     }
 
     public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init(), droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)? = nil) throws {
+        // First, before anything creates the new data folder.
+        self.dataRootNotice = try AppLocations.migrateDataRoot(paths)
         self.paths = paths
         self.eventLog = .shared(directory: paths.applicationSupport.appending(path: "logs", directoryHint: .isDirectory))
         self.fileManager = fileManager

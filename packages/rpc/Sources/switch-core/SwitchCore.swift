@@ -33,6 +33,8 @@ struct SwitchCore {
         // One helper per data folder (two would run two schedulers). The OS drops the lock if the helper dies.
         let helperLock: FileLock?
         do {
+            // The data folder move runs before the lock file creates the new folder.
+            _ = try AppLocations.migrateDataRoot(paths)
             helperLock = try FileLock(at: paths.applicationSupport.appending(path: "helper.lock"))
         } catch {
             RPCServer.standardError("switch-core: the data folder is unavailable: \(error.localizedDescription)")
