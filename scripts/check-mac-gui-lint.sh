@@ -92,9 +92,9 @@ install -m 0644 "$repo_root/packaging/macos/Info.plist" "$app/Contents/Info.plis
 /usr/bin/plutil -replace CFBundleIdentifier -string com.mandalsuraj.switch.ui-lint "$app/Contents/Info.plist"
 status=0
 for appearance in light dark; do
-  for page in overview accounts conversations maintenance cleanup settings; do
+  for page in overview accounts conversations maintenance cleanup settings settings-update; do
     args=()
-    case "$page" in accounts) args=(--accounts);; conversations) args=(--history);; maintenance) args=(--backup);; cleanup) args=(--cleanup);; settings) args=(--settings);; esac
+    case "$page" in accounts) args=(--accounts);; conversations) args=(--history);; maintenance) args=(--backup);; cleanup) args=(--cleanup);; settings) args=(--settings);; settings-update) args=(--settings --update-available);; esac
     run_offscreen env HOME="$run_root/home" CFFIXED_USER_HOME="$run_root/home" \
       CODEX_HOME="$run_root/codex" CLAUDE_CONFIG_DIR="$run_root/claude" GROK_HOME="$run_root/grok" \
       AI_MANAGER_ROOT="$run_root/manager" AI_MANAGER_ORCA_ACCOUNTS_ROOT="$run_root/manager/orca-accounts" \

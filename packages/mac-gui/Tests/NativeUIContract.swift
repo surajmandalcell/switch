@@ -844,6 +844,103 @@ enum AIManagerNativeContract {
     return failures
   }
 
+  /// Settings > General > Version: the installed version on the right and, only with a newer build, an
+  /// "Update available" button in the same row. Both states, Light and Dark: the value and button sit on
+  /// the row's center line and end where the other General controls end. Measures the lint frames.
+  @MainActor static func updateRowFailures() -> [String] {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+      if !condition() { failures.append(message) }
+    }
+    func frame(_ item: [String: Any]) -> CGRect {
+      let f = item["frame"] as? [String: Any] ?? [:]
+      func number(_ key: String) -> CGFloat { (f[key] as? NSNumber).map { CGFloat(truncating: $0) } ?? .nan }
+      return CGRect(x: number("x"), y: number("y"), width: number("width"), height: number("height"))
+    }
+    let model = AccountViewModel(scenario: .demo)
+    let previous = UpdateChecker.shared.available
+    let wasRecording = uiLintRecording(true)
+    defer {
+      UpdateChecker.shared.showForPreview(previous)
+      uiLintRecording(wasRecording)
+      UILintStore.shared.items.removeAll()
+      UILintStore.shared.colors.removeAll()
+    }
+    for dark in [false, true] {
+      for update in [false, true] {
+        let name = "\(dark ? "Dark" : "Light") \(update ? "with" : "without") an update"
+        UpdateChecker.shared.showForPreview(update ? UpdateChecker.previewInfo : nil)
+        let size = NSSize(width: 900, height: 1900)
+        let host = NSHostingView(rootView: AnyView(SettingsPage(model: model)
+          .frame(width: size.width, height: size.height).background(AIMTheme.page)))
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        // Items of the live window and of earlier hosts keep their ids; this host adds new ones. The live
+        // window's Settings page redraws when the update state changes, so let it settle first.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let known = Set(UILintStore.shared.items.keys)
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        // Wait until the recorded frames stop changing (the first host of a run lays out slowly).
+        var signature = ""
+        for pass in 0..<20 {
+          RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+          host.layoutSubtreeIfNeeded()
+          let now = UILintStore.shared.items.filter { !known.contains($0.key) }.map { "\(frame($0.value))" }.sorted().joined()
+          if now == signature, pass >= 5 { break }
+          signature = now
+        }
+        let items = UILintStore.shared.items.filter { !known.contains($0.key) }.map(\.value)
+        let tagged = items.filter { ($0["tags"] as? [[String: Any]] ?? []).contains { $0["group"] as? String == "version-value" } }
+        // Earlier layout passes of this host can leave extra rows; the rightmost is the settled one.
+        // The live window's page (wider than this 900 pt host) can add rows too; leave those out.
+        guard let row = tagged.map(frame).filter({ $0.maxX <= size.width }).max(by: { $0.maxX < $1.maxX }) else {
+          failures.append("\(name): no Version row measured (\(items.count) items)")
+          continue
+        }
+        func isControl(_ item: [String: Any]) -> Bool { item["kind"] as? String == "control" }
+        func isText(_ item: [String: Any]) -> Bool { item["kind"] as? String == "text" }
+        // The button is a control inside the value group; the toggles and pop-ups of the rows above end at one edge.
+        var buttons: [CGRect] = []
+        for control in items.filter(isControl).map(frame) where row.insetBy(dx: -1, dy: -1).contains(control) && !buttons.contains(control) {
+          buttons.append(control)
+        }
+        expect(buttons.count == (update ? 1 : 0), "\(name): \(buttons.count) Update available buttons in the Version row")
+        let peers = items.filter {
+          isControl($0) && frame($0).maxX <= size.width && frame($0).maxY <= row.minY + 1
+            && row.minY - frame($0).maxY < 160 && frame($0).minX > row.minX - 400
+        }.map(frame)
+        expect(peers.count >= 1, "\(name): found \(peers.count) controls in the General rows above Version")
+        let peerEnd = peers.map(\.maxX).max() ?? .nan
+        expect(abs(peerEnd - row.maxX) <= 1, "\(name): the Version row ends at \(row.maxX), the General controls at \(peerEnd)")
+        // Center line: the value sits as far from its row's help line as every control above sits from its own.
+        // Help lines are drawn by SettingsPage; the live window's own sidebar and bar texts stay out.
+        let allHelps = items.filter { isText($0) && ($0["source"] as? String ?? "").contains("SettingsPage.swift") }
+          .map(frame).filter { $0.maxX < row.minX }
+        let leftEdge = allHelps.map(\.minX).min() ?? 0
+        let helps = allHelps.filter { abs($0.minX - leftEdge) <= 1 }
+        func offset(_ control: CGRect) -> CGFloat? {
+          helps.filter { $0.maxX < control.minX && $0.midY > control.midY && $0.midY - control.midY < 25 }
+            .min { $0.midY < $1.midY }.map { control.midY - $0.midY }
+        }
+        let own = offset(row)
+        expect(own != nil, "\(name): the Version row has no help line")
+        for peer in peers where abs(peer.maxX - peerEnd) <= 1 {
+          if let own, let other = offset(peer) {
+            expect(abs(own - other) <= 2, "\(name): the Version row is off the center line other General rows use (\(own) vs \(other))")
+          }
+        }
+        if let button = buttons.first {
+          expect(abs(button.midY - row.midY) <= 1.5, "\(name): the button is off the row center line (\(button.midY) vs \(row.midY))")
+          expect(abs(button.maxX - row.maxX) <= 1, "\(name): the button does not end the row (\(button.maxX) vs \(row.maxX))")
+        }
+      }
+    }
+    return failures
+  }
+
   /// Settings rows for notifications, status checks, Claude terminals and privacy, the provider
   /// status dot, and the Claude activity section.
   @MainActor static func featureUIFailures() -> [String] {

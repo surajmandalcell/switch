@@ -28,6 +28,8 @@ enum SettingsSearch {
             help: "Choose the page shown when Switch starts.", keywords: "startup launch home last page"),
       Entry(id: "shortcut", section: "General", title: c.menuShortcut, help: c.menuShortcutHelp,
             keywords: "hotkey keyboard key global"),
+      Entry(id: "version", section: "General", title: c.version, help: c.versionHelp,
+            keywords: "update upgrade release build about"),
       Entry(id: "appearance", section: "Appearance", title: "Appearance",
             help: "Choose the window and menu bar appearance.", keywords: "theme dark light mode system"),
       Entry(id: "percent", section: "Appearance", title: "Usage percentage",
@@ -159,6 +161,8 @@ enum SettingsCopy {
   static let timeFormatHelp = "Hour style for exact reset times."
   static let menuShortcut = "Menu shortcut"
   static let menuShortcutHelp = "Open or close the menu popover from anywhere. Off until you record one."
+  static let version = "Version"
+  static let versionHelp = "The installed version of Switch."
   static let refreshOnOpen = "Refresh when the menu opens"
   static let refreshOnOpenHelp = "Check usage each time the popover opens."
   static let onePerService = "One account per service"
