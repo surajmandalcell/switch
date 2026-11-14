@@ -127,6 +127,27 @@ extension RPCRuntimeTests {
         try await session.close()
     }
 
+    /// The accounts topic carries the presented row and never the key or its digest.
+    func testAccountsTopicSendsRowsWithoutSecrets() async throws {
+        let manager = try manager()
+        let account = try await manager.addProviderAccount(providerID: provider, fields: ["apiKey": canary])
+        let digest = try await manager.status().accounts[0].credentialDigest
+        let session = try session(manager: manager)
+        session.send(#"{"jsonrpc":"2.0","id":1,"method":"state.subscribe","params":{"topics":["accounts"]}}"#)
+        session.send(#"{"jsonrpc":"2.0","method":"initialized"}"#)
+        try await session.wait { !self.changes($0, "accounts").isEmpty }
+        try await session.close()
+        let rows = try XCTUnwrap((changes(session.frames, "accounts")[0]["value"] as? [String: Any])?["rows"]
+            as? [[String: Any]])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0]["id"] as? String, account.id.uuidString.lowercased())
+        XCTAssertEqual(rows[0]["providerID"] as? String, "test-rpc")
+        XCTAssertEqual(rows[0]["isDefault"] as? Bool, true)
+        XCTAssertFalse(session.raw.contains(canary))
+        XCTAssertFalse(session.raw.contains("sk-canary"))
+        XCTAssertFalse(session.raw.contains(digest))
+    }
+
     func testEngineErrorsMapToRPCCodes() {
         XCTAssertEqual(RPCError.failed(AppEngineError.busy).code, -32001)
         XCTAssertEqual(RPCError.failed(AppEngineError.busy).data.retryable, true)
