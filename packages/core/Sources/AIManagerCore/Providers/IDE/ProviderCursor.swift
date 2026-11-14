@@ -27,18 +27,13 @@ extension ProviderCatalog {
                         "https://api2.cursor.sh/oauth/token", method: "POST",
                         body: try JSONSerialization.data(withJSONObject: [
                             "grant_type": "refresh_token", "client_id": CursorUsage.clientID, "refresh_token": refresh]))
-                    if (400...401).contains(response.status) { throw ProviderError.unauthorized("Sign in to Cursor again.") }
-                    try HTTP.check(response)
-                    let json = try response.json()
-                    guard let access = json["access_token"].string else {
-                        throw ProviderError.parse("Cursor returned no access token.")
-                    }
-                    rows[CursorUsage.accessKey] = access
-                    if let rotated = json["refresh_token"].string { rows[CursorUsage.refreshKey] = rotated }
+                    let renewed = try CursorUsage.renewal(response)
+                    rows[CursorUsage.accessKey] = renewed.access
+                    if let rotated = renewed.refresh { rows[CursorUsage.refreshKey] = rotated }
                     changed = true
-                    return access
+                    return renewed.access
                 },
-                call: { token in try await CursorUsage.load(token: token) })
+                call: { token in try await CursorUsage.load(token: token, membership: rows["cursorAuth/stripeMembershipType"]) })
             let mapped = try CursorUsage.map(
                 usage: fetched.usage, plan: fetched.plan, credits: fetched.credits,
                 membership: rows["cursorAuth/stripeMembershipType"], email: rows["cursorAuth/cachedEmail"],
@@ -60,6 +55,22 @@ enum CursorUsage {
                        "cursorAuth/cachedSignUpType"]
 
     // MARK: Requests
+
+    /// Reads the token endpoint's reply. Only a refused refresh token (`invalid_grant`, or `shouldLogout`) is an
+    /// expired sign-in; any other 400, 401 or 403 is a failure the next refresh retries.
+    static func renewal(_ response: HTTPResponse) throws -> (access: String, refresh: String?) {
+        let body = try? response.json()
+        let refused = [400, 401, 403].contains(response.status) && body?["error"].string == "invalid_grant"
+        if refused || body?["shouldLogout"].bool == true { throw ProviderError.unauthorized("Sign in to Cursor again.") }
+        if [400, 401, 403].contains(response.status) {
+            throw ProviderError.http(response.status, "Cursor could not renew this sign-in. Switch will retry later.")
+        }
+        try HTTP.check(response)
+        guard let access = body?["access_token"].string, !access.isEmpty else {
+            throw ProviderError.parse("Cursor returned no access token.")
+        }
+        return (access, body?["refresh_token"].string)
+    }
 
     static func rpc(_ method: String, token: String) async throws -> JSON {
         try await HTTP.json("https://api2.cursor.sh/aiserver.v1.DashboardService/\(method)", method: "POST",
@@ -84,7 +95,7 @@ enum CursorUsage {
     }
 
     /// The primary usage call must succeed; every other call only adds rows and may fail alone.
-    static func load(token: String) async throws -> Fetched {
+    static func load(token: String, membership: String? = nil) async throws -> Fetched {
         async let plan = try? rpc("GetPlanInfo", token: token)
         async let credits = try? rpc("GetCreditGrantsBalance", token: token)
         async let grokBot = try? rpc("GetSandUsageStatus", token: token)
@@ -94,12 +105,14 @@ enum CursorUsage {
         let cookie = ["Cookie": session.cookie]
         async let stripe = try? HTTP.json("https://cursor.com/api/auth/stripe", headers: cookie)
         async let spend = spendSection(cookie: cookie)
+        // The summary names the seat's membership (GetPlanInfo can say Pro for a Team or Enterprise seat).
+        fetched.summary = try? await HTTP.json("https://cursor.com/api/usage-summary", headers: cookie)
         let planName = fetched.plan?.at("planInfo.planName").string
-        let fallback = wantsFallback(usage: usage, planName: planName, planInfoUnavailable: fetched.plan == nil)
+        let fallback = wantsFallback(
+            usage: usage, planName: seatPlan(planName, membership: seatMembership(summary: fetched.summary, local: membership)),
+            planInfoUnavailable: fetched.plan == nil)
         if fallback || Facts(usage).wantsGenericRequestFallback {
-            async let requests = try? HTTP.json("https://cursor.com/api/usage?user=\(session.userID)", headers: cookie)
-            fetched.requests = await requests
-            if fallback { fetched.summary = try? await HTTP.json("https://cursor.com/api/usage-summary", headers: cookie) }
+            fetched.requests = try? await HTTP.json("https://cursor.com/api/usage?user=\(session.userID)", headers: cookie)
         }
         fetched.stripeCents = stripeCents(await stripe)
         fetched.spend = await spend
@@ -204,6 +217,28 @@ enum CursorUsage {
         var wantsGenericRequestFallback: Bool { enabled && hasPlanUsage && limit == nil && totalPercent == nil && !hasPools }
     }
 
+    static let orgMemberships: Set<String> = ["enterprise", "team"]
+
+    /// The seat's membership: usage-summary names it, the local database row is the fallback.
+    static func seatMembership(summary: JSON?, local: String?) -> String? {
+        (summary?["membershipType"].string ?? local)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The plan name that routes the fetch: an Enterprise or Team membership beats GetPlanInfo's name.
+    static func seatPlan(_ planName: String?, membership: String?) -> String? {
+        membership.flatMap { orgMemberships.contains($0) ? $0 : nil } ?? planName
+    }
+
+    /// The plan shown: an Enterprise or Team membership replaces a missing or Pro plan name; any other name stays.
+    static func resolvedPlanName(_ planName: String?, membership: String?) -> String? {
+        let name = planName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if let membership, orgMemberships.contains(membership), ["", "pro", "pro plan"].contains(name) {
+            return membership
+        }
+        return planName ?? membership
+    }
+
     /// True when Enterprise or team accounts must be read from the REST usage and usage-summary calls.
     static func wantsFallback(usage: JSON, planName: String?, planInfoUnavailable: Bool) -> Bool {
         let facts = Facts(usage)
@@ -219,9 +254,12 @@ enum CursorUsage {
     static func map(usage: JSON, plan planInfo: JSON?, credits: JSON?, membership: String?, email: String?,
                     grokBot: JSON? = nil, stripeCents: Double = 0, requests: JSON? = nil, summary: JSON? = nil,
                     spend: MajorsSpend.Report? = nil) throws -> ProviderUsage {
+        let seat = seatMembership(summary: summary, local: membership)
+        let routedPlan = seatPlan(planInfo?.at("planInfo.planName").string, membership: seat)
+        let routed = wantsFallback(usage: usage, planName: routedPlan, planInfoUnavailable: planInfo == nil)
         guard usage["enabled"].bool != false, usage["planUsage"].exists else {
             // A fallback account can have no plan usage at all; the summary may still read.
-            if usage["enabled"].bool != false, requests != nil || summary != nil {
+            if usage["enabled"].bool != false, requests != nil || (summary != nil && routed) {
                 return try fallback(usage: usage, planInfo: planInfo, credits: credits, membership: membership,
                                     email: email, grokBot: grokBot, stripeCents: stripeCents, requests: requests,
                                     summary: summary, spend: spend)
@@ -230,8 +268,7 @@ enum CursorUsage {
         }
         let facts = Facts(usage)
         let name = planInfo?.at("planInfo.planName").string ?? membership
-        if wantsFallback(usage: usage, planName: planInfo?.at("planInfo.planName").string, planInfoUnavailable: planInfo == nil)
-            || (facts.wantsGenericRequestFallback && requests != nil) {
+        if routed || (facts.wantsGenericRequestFallback && requests != nil) {
             if let mapped = try? fallback(usage: usage, planInfo: planInfo, credits: credits, membership: membership,
                                           email: email, grokBot: grokBot, stripeCents: stripeCents,
                                           requests: requests, summary: summary, spend: spend) {
@@ -265,15 +302,31 @@ enum CursorUsage {
         if let api { windows.append(window("api", "Other models", api)) }
         windows += grokBotWindow(grokBot).map { [$0] } ?? []
 
-        let onDemandLimit = limitUsage["individualLimit"].double ?? limitUsage["pooledLimit"].double ?? 0
-        let onDemandLeft = limitUsage["individualRemaining"].double ?? limitUsage["pooledRemaining"].double ?? 0
-        let reported = ["individualUsed", "pooledUsed", "totalSpend"].compactMap { limitUsage[$0].double }
-        let onDemand = reported.first { $0 > 0 } ?? max(0, onDemandLimit - onDemandLeft)
+        // Spend and cap come from one budget: a personal cap pairs with the member's own spend, the team
+        // pool with the pool's. The team pool's spend is never shown against a personal cap.
+        let hasTeamSpend = facts.teamByShape || (limitUsage["pooledUsed"].double ?? 0) > 0
+        let budget: (limit: Double, spent: [String], remaining: String?)
+        if let individualLimit = limitUsage["individualLimit"].double {
+            budget = (individualLimit, hasTeamSpend ? ["individualUsed"] : ["individualUsed", "totalSpend"], "individualRemaining")
+        } else if let pooled = limitUsage["pooledLimit"].double, pooled > 0 {
+            budget = (pooled, ["pooledUsed"], "pooledRemaining")
+        } else {
+            budget = (0, ["individualUsed", "pooledUsed", "totalSpend"], nil)
+        }
+        var onDemandLimit = budget.limit
+        let reported = budget.spent.compactMap { limitUsage[$0].double }
+        var onDemand = reported.first { $0 > 0 }
+            ?? budget.remaining.flatMap { limitUsage[$0].double }.map { max(0, onDemandLimit - $0) } ?? 0
+        // An Enterprise or Team seat can report no on-demand budget here; usage-summary still has it.
+        if onDemandLimit == 0, onDemand == 0, Self.orgMemberships.contains(seat ?? "") || facts.teamByShape,
+           let bucket = summaryOnDemand(summary) {
+            (onDemand, onDemandLimit) = (bucket.used, bucket.limit ?? 0)
+        }
         let credit = creditsCents(credits, stripe: stripeCents)
         return ProviderUsage(
             windows: windows,
             cost: cost(used: onDemand, limit: onDemandLimit, creditCents: credit, reset: reset),
-            sections: [spend?.section].compactMap { $0 }, plan: self.plan(name), email: email,
+            sections: [spend?.section].compactMap { $0 }, plan: self.plan(resolvedPlanName(name, membership: seat)), email: email,
             charts: [spend?.chart].compactMap { $0 })
     }
 
@@ -289,11 +342,6 @@ enum CursorUsage {
             minutes = Int(end.timeIntervalSince(start) / 60)
         } else {
             reset = requests?["startOfMonth"].date.map { $0.addingTimeInterval(43_200 * 60) }
-        }
-        func dollars(_ bucket: JSON) -> (used: Double, limit: Double)? {
-            guard bucket["enabled"].bool != false, let limit = bucket["limit"].double, limit > 0 else { return nil }
-            let used = bucket["used"].double.flatMap { $0 > 0 ? $0 : nil } ?? max(0, limit - (bucket["remaining"].double ?? limit))
-            return (max(0, used), limit)
         }
         let individual = summary?["individualUsage"] ?? JSON(nil), team = summary?["teamUsage"] ?? JSON(nil)
         var windows: [UsageWindow] = []
@@ -330,23 +378,35 @@ enum CursorUsage {
                 }
             }
         }
-        // The dashboard's On-Demand card is user scoped; the team bucket is the fallback.
-        var onDemand: (used: Double, limit: Double?)?
-        for bucket in [individual["onDemand"], team["onDemand"]] where bucket["enabled"].bool != false {
-            if let meter = dollars(bucket) { onDemand = (meter.used, meter.limit); break }
-            if let used = bucket["used"].double, used > 0 { onDemand = (used, nil); break }
-        }
+        let onDemand = summaryOnDemand(summary)
         windows += grokBotWindow(grokBot).map { [$0] } ?? []
         guard !windows.isEmpty || onDemand != nil else {
             throw ProviderError.unavailable("Cursor request-based usage data unavailable. Try again later.")
         }
-        let name = planInfo?.at("planInfo.planName").string ?? summary?["membershipType"].string ?? membership
+        let name = resolvedPlanName(planInfo?.at("planInfo.planName").string,
+                                    membership: seatMembership(summary: summary, local: membership))
         return ProviderUsage(
             windows: windows,
             cost: cost(used: onDemand?.used ?? 0, limit: onDemand?.limit ?? 0, creditCents: creditsCents(credits, stripe: stripeCents),
                        reset: reset),
             sections: [spend?.section].compactMap { $0 }, plan: plan(name), email: email,
             charts: [spend?.chart].compactMap { $0 })
+    }
+
+    private static func dollars(_ bucket: JSON) -> (used: Double, limit: Double)? {
+        guard bucket["enabled"].bool != false, let limit = bucket["limit"].double, limit > 0 else { return nil }
+        let used = bucket["used"].double.flatMap { $0 > 0 ? $0 : nil } ?? max(0, limit - (bucket["remaining"].double ?? limit))
+        return (max(0, used), limit)
+    }
+
+    /// The dashboard's On-Demand card is user scoped; the team bucket is the fallback.
+    private static func summaryOnDemand(_ summary: JSON?) -> (used: Double, limit: Double?)? {
+        for bucket in [summary?.at("individualUsage.onDemand"), summary?.at("teamUsage.onDemand")].compactMap({ $0 })
+        where bucket["enabled"].bool != false {
+            if let meter = dollars(bucket) { return (meter.used, meter.limit) }
+            if let used = bucket["used"].double, used > 0 { return (used, nil) }
+        }
+        return nil
     }
 
     private static func cycle(start: Double?, end: Double?) -> (Date?, Int) {
