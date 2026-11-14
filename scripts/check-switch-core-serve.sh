@@ -23,3 +23,22 @@ jq -e -s --arg root "$root/switch" 'sort_by(.id) | length == 3
   and .[1].id == 2 and .[1].result.accounts == [] and (.[1].result.sharedRoot | startswith($root))
   and .[2].id == 3 and (.[2] | has("result")) and .[2].result == null' "$root/out" > /dev/null
 echo "switch-core serve: 3 frames in, 3 replies out, data under --root, exit 0"
+
+# The request log holds the methods, never the params.
+grep -q 'rpc accounts.status id=2' "$root/switch/application-support/logs/helper.log"
+
+# One helper per data root; SIGTERM stops the first one cleanly (exit 0).
+mkfifo "$root/fifo"
+HOME="$root/home" "$binary" serve --root "$root/switch" < "$root/fifo" > /dev/null 2>&1 &
+first=$!
+exec 3> "$root/fifo"
+for _ in $(seq 50); do [ -f "$root/switch/application-support/helper.lock" ] && break; sleep 0.1; done
+sleep 0.5
+if HOME="$root/home" "$binary" serve --root "$root/switch" < /dev/null 2> "$root/err2"; then
+  echo "a second helper started for the same root" >&2; exit 1
+fi
+grep -q 'another Switch helper already runs' "$root/err2"
+kill -TERM "$first"
+wait "$first"
+exec 3>&-
+echo "switch-core serve: a second helper is refused; SIGTERM exits 0"

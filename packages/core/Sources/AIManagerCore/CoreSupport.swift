@@ -192,6 +192,9 @@ final class OperationLock: @unchecked Sendable {
 
     deinit { close(descriptor) }
 
+    /// Takes the lock until this object goes away (or the process exits); false when another holder has it.
+    func hold() -> Bool { flock(descriptor, LOCK_EX | LOCK_NB) == 0 }
+
     func withLock<T>(_ operation: () throws -> T) throws -> T {
         if OperationLockTaskContext.heldTokens.contains(token) { return try operation() }
         guard !isHeld else { throw AIManagerError.operationFailed("Another Switch process is changing accounts.") }

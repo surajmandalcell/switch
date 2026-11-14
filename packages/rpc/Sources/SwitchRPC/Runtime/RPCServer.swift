@@ -98,6 +98,13 @@ public final class RPCServer: @unchecked Sendable {
         await engine.stop()
     }
 
+    /// SIGTERM: the same clean stop as end of input. Running requests get their replies, then the engine stops.
+    public func terminate() async {
+        await allAnswered()
+        await engine.stop()
+        log("rpc terminate ok")
+    }
+
     // MARK: - Framing
 
     private enum Frame { case line(Data), tooLarge }
