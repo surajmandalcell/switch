@@ -8,7 +8,7 @@ extension RPCServer {
         "providers.list", "accounts.savedAuthPath", "accounts.inspectLinks", "import.discover",
         "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
         "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
-        "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day",
+        "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day", "autoSwitch.preview",
     ]
 
     /// Nil when `method` is not a read method.
@@ -96,6 +96,8 @@ extension RPCServer {
             let (points, sessions) = try await engine.usageDay(day)
             return WireUsageDay(day: day, points: points, sessions: sessions.map(WireDaySession.init),
                                 threads: try await linkedThreads(sessions.compactMap(\.threadID)))
+        case "autoSwitch.preview":
+            return await engine.autoSwitchPreview()
         default:
             return nil
         }
