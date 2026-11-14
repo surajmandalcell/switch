@@ -10,12 +10,6 @@ import CRT
 import Glibc
 #endif
 
-// shortcut: a copy of `AIManagerBuildInfo.version` (packages/tui/.../BuildInfo.swift), kept equal by
-// `RPCRuntimeTests.testVersionMatchesCLIBuildInfo`; move that enum into AIManagerCore when the TUI file is free.
-enum SwitchCoreBuildInfo {
-    static let version = "3.9.5"
-}
-
 /// `switch-core serve`: the helper the Linux and Windows apps start. It exits 0 when stdin closes.
 @main
 struct SwitchCore {
@@ -33,7 +27,7 @@ struct SwitchCore {
             RPCServer.standardError("switch-core: the data folder is unavailable: \(error.localizedDescription)")
             manager = nil
         }
-        let server = RPCServer(manager: manager, paths: paths, version: SwitchCoreBuildInfo.version)
+        let server = RPCServer(manager: manager, paths: paths, version: AIManagerBuildInfo.version)
         await server.serve(input: .standardInput) { output.write($0) }
         exit(0)
     }
