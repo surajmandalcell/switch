@@ -163,14 +163,14 @@ enum MiniMaxUsage {
         if let remainingPercent {
             // A boost multiplies the nominal 100 quota; permille spelling varies between responses.
             let boost = item["\(prefix)_boost_permill"].double ?? item["\(prefix)_boost_permille"].double ?? 0
-            lane.limit = boost > 0 ? max(1, Int((boost / 10).rounded())) : 100
+            lane.limit = boost > 0 ? max(1, Fmt.int((boost / 10).rounded()) ?? 100) : 100
             lane.percent = min(100, max(0, 100 - remainingPercent))
-            lane.usage = Int((lane.percent * Double(lane.limit) / 100).rounded())
+            lane.usage = Fmt.int((lane.percent * Double(lane.limit) / 100).rounded()) ?? 0
         } else if let total = item["current_\(prefix)_total_count"].double, total > 0,
                   let remaining = item["current_\(prefix)_usage_count"].double {
             let used = max(0, total - remaining)
-            lane.limit = Int(total)
-            lane.usage = Int(used)
+            lane.limit = Fmt.int(total) ?? 0
+            lane.usage = Fmt.int(used) ?? 0
             lane.percent = min(100, used / total * 100)
         } else {
             return nil
@@ -266,7 +266,7 @@ enum MiniMaxUsage {
         var rows: [UsageRow] = []
         if ordered.contains(where: { $0.unlimited }) { rows.append(UsageRow("Weekly", "Unlimited")) }
         for (index, lane) in ordered.enumerated() where !lane.isText && !lane.unlimited && !(promoted && index == 0) {
-            rows.append(UsageRow(lane.label, "\(Int(lane.percent.rounded()))% used", progress: lane.percent / 100))
+            rows.append(UsageRow(lane.label, "\(Fmt.int(lane.percent.rounded()) ?? 0)% used", progress: lane.percent / 100))
         }
         if let points { rows.append(UsageRow("Points", Fmt.number(points))) }
 
@@ -286,10 +286,10 @@ enum MiniMaxUsage {
         guard let reset = lane.resetsAt, reset > now else { return "\(lane.windowType): \(lane.timeRange)" }
         let seconds = reset.timeIntervalSince(now)
         func plural(_ n: Int, _ unit: String) -> String { "Resets in \(n) \(unit)\(n == 1 ? "" : "s")" }
-        if seconds < 60 { return "Resets in \(Int(seconds)) seconds" }
-        if seconds < 3600 { return plural(Int(seconds / 60), "minute") }
-        if seconds < 86400 { return plural(Int(seconds / 3600), "hour") }
-        return plural(Int(seconds / 86400), "day")
+        if seconds < 60 { return "Resets in \(Fmt.int(seconds) ?? 0) seconds" }
+        if seconds < 3600 { return plural(Fmt.int(seconds / 60) ?? 0, "minute") }
+        if seconds < 86400 { return plural(Fmt.int(seconds / 3600) ?? 0, "hour") }
+        return plural(Fmt.int(seconds / 86400) ?? 0, "day")
     }
 
     // MARK: Legacy `data.services` shape
@@ -305,7 +305,7 @@ enum MiniMaxUsage {
         let percent = min(100, max(0, item["percent"].double ?? usage / limit * 100))
         return Lane(label: name, name: name, isText: name == "Text Generation" || lower == "general",
                     weekly: window.lowercased() == "weekly", windowType: window, timeRange: range,
-                    usage: Int(usage), limit: Int(limit), percent: percent, unlimited: false,
+                    usage: Fmt.int(usage) ?? 0, limit: Fmt.int(limit) ?? 0, percent: percent, unlimited: false,
                     resetsAt: legacyReset(range: range, window: window, now: now))
     }
 

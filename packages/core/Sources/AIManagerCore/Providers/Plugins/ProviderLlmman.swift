@@ -28,7 +28,7 @@ extension ProviderCatalog {
 enum LlmmanUsage {
     /// Decimal units, as llmman's own list and ps print them.
     private static func size(_ value: Double) -> String {
-        if value < 1e3 { return "\(Int(value)) B" }
+        if value < 1e3 { return "\(Fmt.int(value) ?? 0) B" }
         let (unit, scale) = value >= 1e9 ? ("GB", 1e9) : value >= 1e6 ? ("MB", 1e6) : ("kB", 1e3)
         return String(format: "%.1f %@", value / scale, unit)
     }

@@ -24,7 +24,8 @@ extension ProviderCatalog {
 
 enum RaycastUsage {
     private static func amount(_ value: Double) -> String {
-        value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+        if value == value.rounded(), let whole = Fmt.int(value) { return String(whole) }
+        return String(format: "%.2f", value)
             .replacingOccurrences(of: "0+$", with: "", options: .regularExpression)
     }
 
