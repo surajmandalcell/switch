@@ -425,4 +425,43 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         XCTAssertEqual(mapped.plan, "Pro")
         XCTAssertThrowsError(try OllamaUsage.map(json("{}"), account: nil))
     }
+
+    /// Day buckets as `/api/usage?range=30d&group_by=model` returns them (openusage d72e8107 fixture shape):
+    /// tokens are input plus output (cached input is part of input), spend is `usage_usd`.
+    func testOllamaDailyHistoryCharts() throws {
+        func bucket(_ from: String, _ until: String, _ usd: String = "0.25", requests: String = "4") -> String {
+            #"{"from":"\#(from)","until":"\#(until)","request_count":\#(requests),"usage_usd":\#(usd),"input_tokens":3000,"#
+                + #""cached_input_tokens":1000,"output_tokens":300,"groups":[{"model":"glm-5.3-flash","request_count":3}]}"#
+        }
+        func reply(_ buckets: String...) -> String {
+            #"{"range":"30d","granularity":"day","group_by":"model","totals":{"request_count":0},"buckets":[\#(buckets.joined(separator: ","))]}"#
+        }
+        let good = reply(bucket("2026-10-29T00:00:00Z", "2026-10-30T00:00:00Z"),
+                         bucket("2026-10-30T00:00:00Z", "2026-10-30T20:30:00Z", "0.5"))
+        let charts = try XCTUnwrap(OllamaUsage.daily(json(good)))
+        XCTAssertEqual(charts.map(\.id), ["daily-tokens", "daily-cost"])
+        XCTAssertEqual(charts[0].points.map(\.value), [3_300, 3_300])
+        XCTAssertEqual(charts[0].points.map(\.label), ["Oct 29", "Oct 30"])
+        XCTAssertEqual(charts[1].unit, "USD")
+        XCTAssertEqual(charts[1].total, 0.75, accuracy: 1e-9)
+        let balance = try json(#"{"included":{"balance_usd":72.5,"allowance_usd":100}}"#)
+        XCTAssertEqual(try OllamaUsage.map(balance: balance, usage: nil, account: nil, history: json(good)).charts.count, 2)
+        XCTAssertEqual(try OllamaUsage.map(balance: balance, usage: nil, account: nil, history: json("{}")).charts, [])
+
+        // One bad bucket rejects the whole read, so a chart never shows a partial total.
+        for bad in [reply(bucket("2026-10-29T00:00:00Z", "2026-10-30T00:00:00Z", "-1")),
+                    reply(bucket("2026-10-29T00:00:00+04:00", "2026-10-29T20:00:00Z")),
+                    reply(bucket("2026-10-29T12:00:00Z", "2026-10-30T00:00:00Z")),
+                    reply(bucket("2026-10-29T00:00:00Z", "2026-10-31T00:00:00Z")),
+                    reply(bucket("2026-10-29T00:00:00Z", "2026-10-30T00:00:00Z", requests: "null")),
+                    good.replacingOccurrences(of: #""granularity":"day""#, with: #""granularity":"hour""#)] {
+            XCTAssertNil(OllamaUsage.daily(try json(bad)), bad)
+        }
+    }
+
+    func testOllamaSignsTheHistoryQuery() throws {
+        XCTAssertEqual(OllamaUsage.requestURI("/api/usage", query: OllamaUsage.dailyQuery, ts: 1_700_000_000),
+                       "/api/usage?group_by=model&range=30d&ts=1700000000")
+        XCTAssertEqual(OllamaUsage.requestURI("/api/me", query: nil, ts: 5), "/api/me?ts=5")
+    }
 }

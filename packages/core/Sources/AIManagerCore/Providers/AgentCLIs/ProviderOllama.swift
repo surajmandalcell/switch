@@ -25,20 +25,23 @@ extension ProviderCatalog {
             let now = Int(Date().timeIntervalSince1970)
             async let account = try? OllamaUsage.send(key, "POST", "/api/me", ts: now)
             async let activity = try? OllamaUsage.send(key, "GET", "/api/usage", ts: now)
+            // The day-bucket reply drops `activity` and `limits`, so it is a separate, optional read.
+            async let days = try? OllamaUsage.send(key, "GET", "/api/usage", query: OllamaUsage.dailyQuery, ts: now)
             // /api/balance is the documented source (monthly credits, legacy session and weekly limits,
             // purchased credits). /api/usage adds the four-week spend and is the fallback.
             let balance = try await OllamaUsage.send(key, "GET", "/api/balance", ts: now)
             let me = await account.flatMap { $0.status == 200 ? try? $0.json() : nil }
             let spend = await activity.flatMap { $0.status == 200 ? try? $0.json() : nil }
+            let history = await days.flatMap { $0.status == 200 ? try? $0.json() : nil }
             if balance.status == 401 || balance.status == 403 {
                 throw ProviderError.unauthorized("Not signed in to Ollama Cloud. Run ollama signin.")
             }
             if (200..<300).contains(balance.status), let json = try? balance.json(),
                json["included"].exists || json["purchased"].exists {
-                return try OllamaUsage.map(balance: json, usage: spend, account: me)
+                return try OllamaUsage.map(balance: json, usage: spend, account: me, history: history)
             }
             guard let spend else { try HTTP.check(balance); throw ProviderError.parse("Ollama returned no usage limits.") }
-            return try OllamaUsage.map(spend, account: me)
+            return try OllamaUsage.map(spend, account: me, history: history)
         })
 }
 
@@ -55,9 +58,16 @@ enum OllamaUsage {
         return "\(key.publicKeyBase64):\(signature.base64EncodedString())"
     }
 
+    /// Day buckets for the last 30 days, in the sorted key order Ollama's own client signs (`ts` last).
+    static let dailyQuery = "group_by=model&range=30d"
+
+    static func requestURI(_ path: String, query: String?, ts: Int) -> String {
+        "\(path)?\(query.map { "\($0)&" } ?? "")ts=\(ts)"
+    }
+
     /// The signature covers the exact URI sent, including the `ts` query that stops replay.
-    static func send(_ key: Key, _ method: String, _ path: String, ts: Int) async throws -> HTTPResponse {
-        let uri = "\(path)?ts=\(ts)"
+    static func send(_ key: Key, _ method: String, _ path: String, query: String? = nil, ts: Int) async throws -> HTTPResponse {
+        let uri = requestURI(path, query: query, ts: ts)
         return try await HTTP.send("https://ollama.com\(uri)", method: method,
                                    headers: ["Authorization": try authorization(key, method: method, requestURI: uri)])
     }
@@ -65,7 +75,31 @@ enum OllamaUsage {
     /// Current plans carry a monthly dollar allowance; legacy plans keep session and weekly limits as
     /// percent REMAINING. `purchased.balance_usd` is the extra credit used after the allowance runs out.
     /// `usage` (`/api/usage`) only adds the four-week spend and fills limits that `balance` lacks.
-    static func map(balance: JSON, usage: JSON?, account: JSON?) throws -> ProviderUsage {
+    /// Daily tokens and spend from `/api/usage?range=30d&group_by=model`. Nil when the reply is not day
+    /// buckets or any bucket is malformed, so a chart never shows a partial total. Tokens are input plus
+    /// output (cached input is already part of input). Plans that report request counts only give no chart.
+    static func daily(_ usage: JSON) -> [UsageChart]? {
+        guard usage["granularity"].string == "day" else { return nil }
+        let day = ISO8601DateFormatter()
+        day.formatOptions = [.withFullDate]
+        var tokens: [String: Double] = [:], spend: [String: Double] = [:]
+        for bucket in usage["buckets"].array {
+            guard let from = bucket["from"].string.flatMap(Fmt.iso), let until = bucket["until"].string.flatMap(Fmt.iso),
+                  from.timeIntervalSince1970.truncatingRemainder(dividingBy: 86_400) == 0,
+                  until > from, until.timeIntervalSince(from) <= 86_400,
+                  let requests = bucket["request_count"].double, requests >= 0 else { return nil }
+            let values = ["usage_usd", "input_tokens", "output_tokens"].map { bucket[$0].double ?? 0 }
+            guard values.allSatisfy({ $0 >= 0 && $0.isFinite }) else { return nil }
+            let key = day.string(from: from)
+            spend[key, default: 0] += values[0]
+            tokens[key, default: 0] += values[1] + values[2]
+        }
+        return [UsageChart.daily(id: "daily-tokens", title: "Daily tokens", unit: "tokens", values: tokens),
+                UsageChart.daily(id: "daily-cost", title: "Daily spend", unit: "USD", values: spend)]
+            .compactMap { $0 }.filter { $0.total > 0 }
+    }
+
+    static func map(balance: JSON, usage: JSON?, account: JSON?, history: JSON? = nil) throws -> ProviderUsage {
         let included = balance["included"]
         var windows: [UsageWindow] = []
         for (id, title, minutes) in [("session", "Session", 300), ("weekly", "Weekly", 10_080)] {
@@ -79,7 +113,7 @@ enum OllamaUsage {
         if let allowance = included["allowance_usd"].double, allowance > 0, let left = included["balance_usd"].double {
             let used = min(allowance, max(0, allowance - left))
             let from = included.at("period.from").date, until = included.at("period.until").date
-            let minutes = from.flatMap { start in until.map { Int($0.timeIntervalSince(start) / 60) } }.flatMap { $0 > 0 ? $0 : nil }
+            let minutes = from.flatMap { start in until.flatMap { Fmt.int($0.timeIntervalSince(start) / 60) } }.flatMap { $0 > 0 ? $0 : nil }
             var monthly = UsageWindow.amounts(id: "monthly", title: "Monthly", used: used, limit: allowance,
                                               resetsAt: until, windowMinutes: minutes ?? 43_200)
             monthly?.detail = "\(Fmt.money(used)) / \(Fmt.money(allowance))"
@@ -95,10 +129,11 @@ enum OllamaUsage {
         }
         let plan = (account?["Plan"].string ?? account?["plan"].string)?.capitalized
         return ProviderUsage(windows: windows, cost: cost, sections: sections, plan: plan,
-                             email: account?["Email"].string ?? account?["email"].string)
+                             email: account?["Email"].string ?? account?["email"].string,
+                             charts: history.flatMap(daily) ?? [])
     }
 
-    static func map(_ usage: JSON, account: JSON?) throws -> ProviderUsage {
+    static func map(_ usage: JSON, account: JSON?, history: JSON? = nil) throws -> ProviderUsage {
         let limits = usage["limits"]
         guard limits.exists else { throw ProviderError.parse("Ollama returned no usage limits.") }
         // `usage` is a fraction of the plan allowance. The API sends no reset time, so none is shown.
@@ -112,7 +147,8 @@ enum OllamaUsage {
         guard !windows.isEmpty || spend != nil else { throw ProviderError.parse("Ollama returned no usage limits.") }
         let plan = (account?["Plan"].string ?? account?["plan"].string)?.capitalized
         return ProviderUsage(windows: windows, cost: spend.map { UsageCost(used: $0, period: "Last 4 weeks") },
-                             plan: plan, email: account?["Email"].string ?? account?["email"].string)
+                             plan: plan, email: account?["Email"].string ?? account?["email"].string,
+                             charts: history.flatMap(daily) ?? [])
     }
 
     // MARK: OpenSSH key container
