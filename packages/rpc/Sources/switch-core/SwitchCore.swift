@@ -12,23 +12,26 @@ import Glibc
 #endif
 
 /// `switch-core serve [--root <path>]`: the helper the Linux and Windows apps start. It exits 0 when stdin closes
-/// or on SIGTERM, after the running requests have their replies. `--root` means the same as `AI_MANAGER_ROOT`:
-/// every data folder and home lives under that path.
+/// or on SIGTERM, after the running requests have their replies. `switch-core doctor [--root <path>]`: the
+/// self-test for packagers and support. `--root` means the same as `AI_MANAGER_ROOT`: every data folder and home
+/// lives under that path.
 @main
 struct SwitchCore {
     static func main() async {
         var environment = ProcessInfo.processInfo.environment
         let arguments = Array(CommandLine.arguments.dropFirst())
+        let command = arguments.first ?? ""
         switch arguments.count {
-        case 1 where arguments[0] == "serve":
+        case 1 where ["serve", "doctor"].contains(command):
             break
-        case 3 where arguments[0] == "serve" && arguments[1] == "--root" && !arguments[2].isEmpty:
+        case 3 where ["serve", "doctor"].contains(command) && arguments[1] == "--root" && !arguments[2].isEmpty:
             environment["AI_MANAGER_ROOT"] = arguments[2]
         default:
-            RPCServer.standardError("Usage: switch-core serve [--root <path>]")
+            RPCServer.standardError("Usage: switch-core serve|doctor [--root <path>]")
             exit(2)
         }
         let paths = ManagerPaths.environment(environment)
+        if command == "doctor" { exit(Doctor.run(paths: paths, environment: environment)) }
 
         // One helper per data folder (two would run two schedulers). The OS drops the lock if the helper dies.
         let helperLock: FileLock?
