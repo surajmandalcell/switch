@@ -48,7 +48,8 @@ public enum UpdateCheck {
 
     /// Due after 6 hours since the last attempt, or on the first attempt of a new local day.
     public static func isDue(state: UpdateCheckState, now: Date, calendar: Calendar) -> Bool {
-        guard let last = state.lastAttempt else { return true }
+        // A last attempt in the future means the clock moved back: check now.
+        guard let last = state.lastAttempt, last <= now else { return true }
         return now.timeIntervalSince(last) >= minimumInterval || !calendar.isDate(last, inSameDayAs: now)
     }
 
@@ -92,13 +93,17 @@ public enum UpdateCheck {
         return try? JSONDecoder().decode(UpdateInfo.self, from: data)
     }
 
-    /// One check with an 8 second limit. Nil on any error, so the caller stays silent. HTTP.session
-    /// takes no cookies and follows redirects only within the host.
+    /// One check with an 8 second limit. `counted` is true on any 2xx reply (the server has counted
+    /// d and m by then, even when the body is bad); `info` is the decoded body. Nothing on any error,
+    /// so the caller stays silent. HTTP.session takes no cookies and follows redirects only within
+    /// the host. A fixed Accept-Language keeps the user's locale out of the request.
     public static func fetch(
         _ url: URL,
-        send: @escaping @Sendable (String) async throws -> HTTPResponse = { try await HTTP.send($0) }
-    ) async -> UpdateInfo? {
-        guard url.scheme == "https" else { return nil }
+        send: @escaping @Sendable (String) async throws -> HTTPResponse = {
+            try await HTTP.send($0, headers: ["Accept-Language": "en"])
+        }
+    ) async -> (counted: Bool, info: UpdateInfo?) {
+        guard url.scheme == "https" else { return (false, nil) }
         let response = try? await withThrowingTaskGroup(of: HTTPResponse.self) { group in
             group.addTask { try await send(url.absoluteString) }
             group.addTask {
@@ -108,7 +113,8 @@ public enum UpdateCheck {
             defer { group.cancelAll() }
             return try await group.next()!
         }
-        return response.flatMap { parse(status: $0.status, data: $0.data) }
+        guard let response else { return (false, nil) }
+        return ((200..<300).contains(response.status), parse(status: response.status, data: response.data))
     }
 
     private static func keys(now: Date, calendar: Calendar) -> (day: String, month: String) {
