@@ -172,6 +172,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         menuController.install()
         if AIManagerLaunchContext.shouldShowMainWindow() { presentWindow() }
         Task { await model.load() }
+        UpdateChecker.shared.start()
     }
 
     /// The main window and its pages exist only while it is shown: closing it, or hiding it to the

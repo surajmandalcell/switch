@@ -407,6 +407,9 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
         }
         AIMNativeFocusPolicy.install()
         AIManagerBrand.installApplicationIcon()
+        if CommandLine.arguments.contains("--update-available") {
+            UpdateChecker.shared.showForPreview(UpdateChecker.previewInfo)
+        }
         if let mode = AcceptanceConfiguration.persistedAppearanceMode {
             priorAppearanceMode = UserDefaults.standard.object(forKey: "windowAppearance")
             UserDefaults.standard.set(mode, forKey: "windowAppearance")
@@ -649,8 +652,10 @@ private final class AcceptanceAppDelegate: NSObject, NSApplicationDelegate {
             }
             try? await Task.sleep(for: .milliseconds(220))
             // The Cleanup tab lints as its own page, named "cleanup".
-            let page = CommandLine.arguments.contains("--cleanup")
+            var page = CommandLine.arguments.contains("--cleanup")
                 ? "cleanup" : AIManagerPage.allCases[AcceptanceConfiguration.initialPageIndex].rawValue.lowercased()
+            // Settings with a newer build available lints as its own page, "settings-update".
+            if CommandLine.arguments.contains("--update-available") { page += "-update" }
             let appearance = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
             if let mismatch = AcceptanceConfiguration.pageMismatch() {
                 FileHandle.standardError.write(Data("UI_LINT_WRONG_PAGE: \(mismatch)\n".utf8))
@@ -1171,6 +1176,7 @@ private func checkWindowContract(receipts: AcceptanceReceipts, stage: String) {
     failures.append(contentsOf: AIManagerNativeContract.chatPresentationFailures())
     failures.append(contentsOf: AIManagerNativeContract.providerUIFailures())
     failures.append(contentsOf: AIManagerNativeContract.featureUIFailures())
+    failures.append(contentsOf: AIManagerNativeContract.updateRowFailures())
     failures.append(contentsOf: MainActor.assumeIsolated { PrivacyModeCheck.failures() })
     if let mode = AcceptanceConfiguration.persistedAppearanceMode {
         expect(

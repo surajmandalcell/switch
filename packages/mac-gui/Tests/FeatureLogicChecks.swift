@@ -114,7 +114,7 @@ enum FeatureLogicChecks {
         try expect(notify.count == 4 && notify.allSatisfy { $0.section == SettingsCopy.notificationsTitle },
                    "\"notify\" does not find the 4 notification rows: \(notify.map(\.title))")
         let general = SettingsSearch.search("general")
-        try expect(general.count == 4 && general.allSatisfy { $0.section == "General" },
+        try expect(general.count == 5 && general.allSatisfy { $0.section == "General" },
                    "\"general\" does not find every General row: \(general.map(\.title))")
         try expect(titles("zzzq").isEmpty, "\"zzzq\" found a setting")
         try expect(!titles("demo").contains(SettingsCopy.privacyMode), "\"demo\" found Privacy mode")

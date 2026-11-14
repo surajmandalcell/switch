@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SettingsPage: View {
   @ObservedObject var model: AccountViewModel
+  @ObservedObject private var updates = UpdateChecker.shared
   @StateObject private var launchAtLogin = LaunchAtLoginSettings()
   @StateObject private var notificationPermission = QuotaNotificationPermission()
   @AppStorage(ProviderStatusPoller.enabledKey) private var checkProviderStatus = true
@@ -69,6 +70,21 @@ struct SettingsPage: View {
             } label: {
               Text(SettingsCopy.menuShortcut)
               settingDetail(SettingsCopy.menuShortcutHelp)
+            }
+          }
+          if filter.shows("version") {
+            LabeledContent {
+              HStack(spacing: AIMTheme.rowSpacing) {
+                Text(UpdateChecker.installedVersion.isEmpty ? "Unknown" : UpdateChecker.installedVersion)
+                  .aimText(.secondary)
+                if updates.available != nil {
+                  AIMButton(title: "Update available", action: updates.openDownload)
+                }
+              }
+              .uiLint(.align("version-value", .end))
+            } label: {
+              Text(SettingsCopy.version)
+              settingDetail(SettingsCopy.versionHelp)
             }
           }
         }
