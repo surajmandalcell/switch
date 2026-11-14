@@ -50,6 +50,11 @@ public actor AppEngine {
     var codexUsage: [UUID: CachedCodexAccountUsage] = [:]
     var codexRefreshing: UUID?
     var providerUsage: [UUID: ProviderUsageState] = [:]
+    // Overview history (History.swift).
+    var history: UsageHistorySnapshot?
+    var historyEngine: UsageHistory?
+    var historyLoadedAt: Date?
+
     /// Isolated runs (tests, demos) read no live usage, as on the Mac. Tests with synthetic providers turn it on.
     var refreshesInIsolation = false
     var refreshes: Bool { paths.isolationRoot == nil || refreshesInIsolation }

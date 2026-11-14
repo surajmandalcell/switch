@@ -287,3 +287,51 @@ struct WireRunningCLI: Encodable {
         cwd = cli.cwd
     }
 }
+
+/// `usage.history`: the Overview snapshot (one point per day, service, account, model, and project for the last
+/// year) and the summary series for the asked period and grouping.
+struct WireUsageHistory: Encodable {
+    let today: String
+    let unavailableSources: [String]
+    let points: [UsageHistoryPoint]
+    let summary: UsageSummary
+
+    init(_ snapshot: UsageHistorySnapshot, summary: UsageSummary) {
+        today = snapshot.today
+        unavailableSources = snapshot.unavailableSources
+        points = snapshot.points
+        self.summary = summary
+    }
+}
+
+struct WireDaySession: Encodable {
+    let id: String
+    let service: String
+    let accountID: String?
+    let threadID: String?
+    let project: String
+    let model: String?
+    let start: Date?
+    let tokens: Int64
+    let costUSD: Double?
+
+    init(_ session: UsageDaySession) {
+        id = session.id
+        service = session.service
+        accountID = session.accountID
+        threadID = session.threadID
+        project = session.project
+        model = session.model
+        start = session.start
+        tokens = session.tokens
+        costUSD = session.costUSD
+    }
+}
+
+/// `usage.day`: the day sheet's points, sessions, and the Conversations threads its Codex sessions link to.
+struct WireUsageDay: Encodable {
+    let day: String
+    let points: [UsageHistoryPoint]
+    let sessions: [WireDaySession]
+    let threads: [WireThread]
+}
