@@ -227,6 +227,8 @@ actor ProviderStatusPoller {
 struct ProviderUsageState: Equatable, Sendable {
   var usage: ProviderUsage?
   var error: String?
+  /// The provider error behind `error`, so the cadence can honor a rate limit's retry time.
+  var providerError: ProviderError?
   var needsSignIn = false
   var needsKeychainAccess = false
   /// End of the latest attempt, successful or not.
@@ -248,7 +250,8 @@ enum ProviderUsagePolicy {
     guard let state else { return true }
     if state.isRefreshing { return false }
     if state.error != nil, let checkedAt = state.checkedAt,
-       now.timeIntervalSince(checkedAt) < failureCooldown { return false }
+       !ProviderRefreshPolicy.isDue(lastError: state.providerError, failedAt: checkedAt, now: now,
+                                    cooldown: failureCooldown) { return false }
     if onCadence { return true }
     guard let fetchedAt = state.usage?.fetchedAt else { return true }
     return now.timeIntervalSince(fetchedAt) >= interval

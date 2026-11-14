@@ -2196,11 +2196,13 @@ final class AccountViewModel: ObservableObject {
         case .success(let usage):
             state.usage = usage
             state.error = nil
+            state.providerError = nil
             state.needsSignIn = false
             state.needsKeychainAccess = false
         case .failure(let error):
             let failure = ProviderUsagePolicy.failure(error)
             state.error = failure.message
+            state.providerError = error as? ProviderError
             state.needsSignIn = failure.needsSignIn
             state.needsKeychainAccess = error as? DroidLoginError == .needsKeychainAccess
             // Stale numbers never sit beside a sign-in request.
