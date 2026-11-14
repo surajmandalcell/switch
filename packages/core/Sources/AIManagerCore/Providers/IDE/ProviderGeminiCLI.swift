@@ -134,10 +134,11 @@ enum GeminiCLIUsage {
             return client
         }
         var roots: [String] = []
-        let bins = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+        let bins = executableCandidates(named: "gemini", environment: env)
             + ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.local/bin"]
-        for dir in bins {
-            let bin = URL(fileURLWithPath: dir).appendingPathComponent("gemini").resolvingSymlinksInPath()
+                .map { URL(fileURLWithPath: $0).appendingPathComponent("gemini") }
+        for candidate in bins {
+            let bin = candidate.resolvingSymlinksInPath()
             if FileManager.default.fileExists(atPath: bin.path), let root = packageRoot(above: bin) { roots.append(root) }
         }
         for prefix in ["/opt/homebrew", "/usr/local", "\(home)/.npm-global"] {

@@ -265,8 +265,13 @@ final class RunningCLIProcessTests: XCTestCase {
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory.appending(path: "running-cli-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root.appending(path: "bin"), withIntermediateDirectories: true)
+#if os(Windows)
+        // A copy of Git's sleep.exe named codex.exe; its runtime DLL comes from Git's folder on PATH.
+        try FileManager.default.copyItem(at: TestCLI.sleepExecutable, to: root.appending(path: "bin/codex.exe"))
+#else
         try FileManager.default.createSymbolicLink(
             at: root.appending(path: "bin/codex"), withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+#endif
     }
 
     override func tearDown() {
@@ -284,28 +289,47 @@ final class RunningCLIProcessTests: XCTestCase {
         let meta = #"{"type":"session_meta","payload":{"id":"\#(sessionID)","cwd":"\#(root.path)","originator":"\#(originator)"}}"#
         try (meta + "\n" + #"{"type":"event_msg","payload":{"type":"task_started"}}"# + "\n")
             .write(to: rollout, atomically: true, encoding: .utf8)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", #"exec 3<"$1"; exec "$2" 600"#, "sh", rollout.path, root.appending(path: "bin/codex").path]
-        // No inherited pipes: a child that outlives a killed test run must not hold the runner's output open.
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        child = process
-        let pid = process.processIdentifier
-        let deadline = Date().addingTimeInterval(5)
-        while RunningCLIs.commandLine(pid: pid)?.hasSuffix("/bin/codex 600") != true {
-            XCTAssertLessThan(Date(), deadline, "the fake codex never started")
-            if Date() >= deadline { throw CocoaError(.fileReadUnknown) }
-            Thread.sleep(forTimeInterval: 0.05)
-        }
+        let pid = try launchFakeCodex(holding: rollout)
         let found = RunningCLIs.find(claudeDefaultConfig: root, requireTTY: false).filter { $0.pid == pid }
         var cli = try XCTUnwrap(found.first)
         // The child's argv is `codex 600`: a bare value cannot be carried over.
         XCTAssertNil(cli.flags)
         cli.flags = []
         return (cli, rollout)
+    }
+
+    /// Starts a `codex` child that sleeps with `rollout` open, and waits until its command line shows.
+    private func launchFakeCodex(holding rollout: URL) throws -> Int32 {
+        let process = Process()
+#if os(Windows)
+        // The fake codex holds the rollout open as its standard input.
+        process.executableURL = root.appending(path: "bin/codex.exe")
+        process.arguments = ["600"]
+        let held = try FileHandle(forReadingFrom: rollout)
+        process.standardInput = held
+        let started = "/bin/codex.exe 600"
+#else
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", #"exec 3<"$1"; exec "$2" 600"#, "sh", rollout.path, root.appending(path: "bin/codex").path]
+        // No inherited pipes: a child that outlives a killed test run must not hold the runner's output open.
+        process.standardInput = FileHandle.nullDevice
+        let started = "/bin/codex 600"
+#endif
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+#if os(Windows)
+        try held.close()
+#endif
+        child = process
+        let pid = process.processIdentifier
+        let deadline = Date().addingTimeInterval(5)
+        while RunningCLIs.commandLine(pid: pid)?.replacingOccurrences(of: "\\", with: "/").hasSuffix(started) != true {
+            XCTAssertLessThan(Date(), deadline, "the fake codex never started")
+            if Date() >= deadline { throw CocoaError(.fileReadUnknown) }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return pid
     }
 
     private func append(_ lines: [String], to url: URL) throws {
@@ -358,20 +382,7 @@ final class RunningCLIProcessTests: XCTestCase {
         let rollout = folder.appending(path: "rollout-2026-10-15T00-00-00-\(sessionID).jsonl")
         try (#"{"type":"session_meta","payload":{"id":"\#(sessionID)","cwd":"/w","originator":"codex_exec"}}"# + "\n")
             .write(to: rollout, atomically: true, encoding: .utf8)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", #"exec 3<"$1"; exec "$2" 600"#, "sh", rollout.path, root.appending(path: "bin/codex").path]
-        // No inherited pipes: a child that outlives a killed test run must not hold the runner's output open.
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        child = process
-        let pid = process.processIdentifier
-        let deadline = Date().addingTimeInterval(5)
-        while RunningCLIs.commandLine(pid: pid)?.hasSuffix("/bin/codex 600") != true, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
+        let pid = try launchFakeCodex(holding: rollout)
         XCTAssertTrue(RunningCLIs.find(claudeDefaultConfig: root, requireTTY: false).filter { $0.pid == pid }.isEmpty)
         // A real run always has a terminal; the fake one has none, so the default filter skips it too.
         XCTAssertTrue(RunningCLIs.find(claudeDefaultConfig: root).filter { $0.pid == pid }.isEmpty)

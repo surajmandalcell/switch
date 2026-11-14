@@ -351,7 +351,8 @@ final class ProvidersAgentCLIsTests: XCTestCase {
     }
 
     func testPiScanSkipsOldFiles() throws {
-        let directory = URL(fileURLWithPath: "/tmp/pi-test-\(UUID().uuidString)")
+        // The temporary folder, not "/tmp": Foundation on Windows cannot enumerate a path with no drive letter.
+        let directory = FileManager.default.temporaryDirectory.appending(path: "pi-test-\(UUID().uuidString)")
         let session = directory.appending(path: "--project--")
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }

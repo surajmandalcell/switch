@@ -135,7 +135,7 @@ final class OpenCodeCleanupTests: XCTestCase {
         try sql("UPDATE part SET data = '{\"type\":\"text\",\"text\":\"Changed prompt\"}' WHERE id = 'prt_delete'")
         XCTAssertThrowsError(try cleanup.moveToTrash(plan))
         XCTAssertEqual(try count("session"), 5)
-        try files.linkItem(at: database, to: home.appending(path: "linked.db"))
+        try Links.hardLink(at: home.appending(path: "linked.db"), to: database, fileManager: files)
         XCTAssertThrowsError(try cleanup.review([item]))
     }
 

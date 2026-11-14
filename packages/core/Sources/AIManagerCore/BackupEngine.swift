@@ -388,12 +388,20 @@ private enum BackupIO {
             && a.st_mode == b.st_mode && modified(a) == modified(b) && sameChange
     }
     static func missingVolume(_ destination: URL) -> String? {
+#if os(Windows)
+        // A drive letter is the volume: "E:" while that drive is not connected.
+        let native = WindowsFiles.native(destination.path)
+        let drive = String(native.prefix(2))
+        if drive.count == 2, drive.last == ":", !fm.fileExists(atPath: drive + "\\") { return drive }
+        return nil
+#else
         let parts = destination.standardizedFileURL.pathComponents
         if parts.count > 2, parts[1] == "Volumes" {
             let volume = URL(fileURLWithPath: "/Volumes/\(parts[2])")
             if !fm.fileExists(atPath: volume.path) { return parts[2] }
         }
         return nil
+#endif
     }
     static func missingDestination(_ destination: URL) -> String? {
         if let volume = missingVolume(destination) { return volume }
@@ -536,7 +544,7 @@ private enum BackupIO {
                             let stored = try metadata(priorFile)
                             guard stored.st_mode & S_IFMT == S_IFREG, stored.st_size == prior.size,
                                   UInt32(stored.st_mode & 0o7777) == prior.mode else { throw BackupError.changed(path) }
-                            try fm.linkItem(at: priorFile, to: target)
+                            try Links.hardLink(at: target, to: priorFile, fileManager: fm)
                             hash = prior.sha256
                         } else {
                             try fm.copyItem(at: source, to: target)
@@ -584,7 +592,7 @@ private enum BackupIO {
                     try noLinks(file, leafMayBeLink: false)
                     guard try metadata(file).st_mode & S_IFMT == S_IFREG,
                           try CoreSupport.digest(file: file) == hash else { throw BackupError.changed(path) }
-                    try fm.linkItem(at: file, to: target)
+                    try Links.hardLink(at: target, to: file, fileManager: fm)
                 } else {
                     try CoreSupport.atomicWrite(data, to: target, fileManager: fm)
                     manifest.newBytes += Int64(data.count)

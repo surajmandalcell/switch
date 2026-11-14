@@ -216,7 +216,7 @@ final class CodexAppServerAccountUsageTests: XCTestCase {
             )
         }
 
-        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: source.authFile.path)
+        try TestCLI.shareWithOthers(source.authFile)
         await XCTAssertThrowsErrorAsync(
             try await reader.read(executable: URL(fileURLWithPath: "/synthetic/codex"), source: source)
         ) { error in

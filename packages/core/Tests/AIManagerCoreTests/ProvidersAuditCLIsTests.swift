@@ -207,7 +207,8 @@ final class ProvidersAuditCLIsTests: XCTestCase {
     }
 
     func testPiScanReadsEveryRootAndSplitsByModel() throws {
-        let base = URL(fileURLWithPath: "/tmp/pi-audit-\(UUID().uuidString)")
+        // The temporary folder, not "/tmp": Foundation on Windows cannot enumerate a path with no drive letter.
+        let base = FileManager.default.temporaryDirectory.appending(path: "pi-audit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: base) }
         let stamp = ISO8601DateFormatter().string(from: Date())
         func write(_ root: String, _ id: String, _ model: String) throws {

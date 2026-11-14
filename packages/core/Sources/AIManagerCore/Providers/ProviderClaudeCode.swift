@@ -98,7 +98,7 @@ enum ClaudeUsage {
                 process.standardOutput = output
                 process.standardError = FileHandle.nullDevice
                 process.standardInput = FileHandle.nullDevice
-                guard (try? process.run()) != nil else { return continuation.resume(returning: nil) }
+                guard (try? ChildProcess.run(process)) != nil else { return continuation.resume(returning: nil) }
                 let deadline = Date().addingTimeInterval(3)
                 while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
                 if process.isRunning {
@@ -476,7 +476,7 @@ enum ClaudeUsageProbe {
         process.standardInput = terminal
         process.standardOutput = terminal
         process.standardError = terminal
-        do { try process.run() } catch {
+        do { try ChildProcess.run(process) } catch {
             close(primary)
             close(secondary)
             throw ProviderError.unavailable("Claude Code could not be started.")

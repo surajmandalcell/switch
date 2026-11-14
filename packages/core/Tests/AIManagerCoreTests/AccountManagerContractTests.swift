@@ -250,7 +250,7 @@ final class AccountManagerContractTests: XCTestCase {
     func testRegistryLoadCannotRunOutsideOperationLock() async throws {
         let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive })
         let lockPath = paths.applicationSupport.appending(path: "manager.lock").path
-        let descriptor = open(lockPath, O_RDWR | O_CLOEXEC)
+        let descriptor = open(lockPath, O_RDWR | O_CLOEXEC, mode_t(0))
         XCTAssertGreaterThanOrEqual(descriptor, 0)
         guard descriptor >= 0 else { return }
         defer { close(descriptor) }
@@ -558,7 +558,8 @@ final class AccountManagerContractTests: XCTestCase {
             writerCheck: { _ in .inactive },
             faultInjector: { point in
                 guard point == .afterProcessStart else { return }
-                let descriptor = open(lockPath, O_RDWR | O_CLOEXEC)
+                // A typed mode: on Windows the CRT overlay also has `open`, and only the shim takes a `mode_t`.
+                let descriptor = open(lockPath, O_RDWR | O_CLOEXEC, mode_t(0))
                 guard descriptor >= 0 else {
                     throw AIManagerError.operationFailed("Could not inspect the launch lock.")
                 }
@@ -698,7 +699,7 @@ final class AccountManagerContractTests: XCTestCase {
         _ = try await manager.switchDefault(to: account.id)
         let target = root.appending(path: "hard-linked-auth.json")
         try fm.moveItem(at: account.credentialFile, to: target)
-        try fm.linkItem(at: target, to: account.credentialFile)
+        try Links.hardLink(at: account.credentialFile, to: target, fileManager: fm)
 
         await XCTAssertThrowsErrorAsync(try await manager.launchSpec(accountID: account.id)) { error in
             XCTAssertEqual(error as? AIManagerError, .credentialConflict)

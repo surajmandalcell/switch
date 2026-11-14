@@ -71,7 +71,10 @@ enum CoreSupport {
     }
 
     static func digest(file url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
+        // open(), not FileHandle(forReadingFrom:): Foundation on Windows cannot open a path over 260 characters.
+        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+        guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         var hasher = SHA256()
         while true {

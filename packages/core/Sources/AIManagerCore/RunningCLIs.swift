@@ -196,9 +196,23 @@ public enum RunningCLIs {
     /// Codex or Claude Code, when the command line is an interactive run of one. Runs that
     /// print and exit (`codex exec`, `claude -p`) and helper commands are not.
     static func interactiveTool(of command: String) -> CLITool? {
-        let args = command.split(separator: " ").map(String.init)
-        guard let first = args.first else { return nil }
+        interactiveTool(argv: command.split(separator: " ").map(String.init))
+    }
+
+    static func interactiveTool(argv: [String]) -> CLITool? {
+#if os(Windows)
+        // "C:\nodejs\node.exe" "C:\npm\node_modules\@openai\codex\bin\codex.js": compare names without the extension.
+        let args = argv.map { $0.replacingOccurrences(of: "\\", with: "/") }
+        func base(_ path: String) -> String {
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            let lowered = name.lowercased()
+            return [".exe", ".cmd", ".js"].first(where: lowered.hasSuffix).map { String(name.dropLast($0.count)) } ?? name
+        }
+#else
+        let args = argv
         func base(_ path: String) -> String { URL(fileURLWithPath: path).lastPathComponent }
+#endif
+        guard let first = args.first else { return nil }
         var program = first
         var rest = Array(args.dropFirst())
         if base(first) == "node", let script = rest.first {
@@ -227,12 +241,8 @@ public enum RunningCLIs {
         claudeConfigFilter: (String) -> Bool = { _ in true }
     ) -> [RunningCLI] {
         var found: [RunningCLI] = []
-        for row in run("/bin/ps", ["-axww", "-o", "pid=,tty=,command="]).split(separator: "\n") {
-            let parts = row.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
-            guard parts.count == 3, let pid = Int32(parts[0]), pid != getpid() else { continue }
-            if requireTTY, parts[1] == "??" || parts[1] == "?" { continue }
-            let command = String(parts[2]).trimmingCharacters(in: .whitespaces)
-            guard let tool = interactiveTool(of: command) else { continue }
+        for (pid, command, argv) in processes(requireTTY: requireTTY) where pid != getpid() {
+            guard let tool = interactiveTool(argv: argv) else { continue }
             let args = procArgs(pid: pid)
             switch tool {
             case .codex:
@@ -248,6 +258,23 @@ public enum RunningCLIs {
             }
         }
         return found
+    }
+
+    /// Each process id with its command line and arguments; with `requireTTY`, only processes that have a terminal.
+    private static func processes(requireTTY: Bool) -> [(pid: Int32, command: String, argv: [String])] {
+#if os(Windows)
+        // shortcut: Windows has no tty to read, so `requireTTY` keeps every process; the tool and session checks
+        // that follow still drop helpers and print-and-exit runs.
+        return WindowsProcesses.list().map { ($0.pid, $0.argv.joined(separator: " "), $0.argv) }
+#else
+        run("/bin/ps", ["-axww", "-o", "pid=,tty=,command="]).split(separator: "\n").compactMap { row in
+            let parts = row.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard parts.count == 3, let pid = Int32(parts[0]) else { return nil }
+            if requireTTY, parts[1] == "??" || parts[1] == "?" { return nil }
+            let command = String(parts[2]).trimmingCharacters(in: .whitespaces)
+            return (pid, command, command.split(separator: " ").map(String.init))
+        }
+#endif
     }
 
     /// Codex keeps its rollout open; its first line holds the session id and cwd.
@@ -378,8 +405,9 @@ public enum RunningCLIs {
         guard let argv = strings("cmdline"), !argv.isEmpty, let env = strings("environ") else { return nil }
         return (argv, env)
         #elseif os(Windows)
-        // windows-port: stub (P7)
-        return nil
+        guard let argv = WindowsProcesses.arguments(pid: pid), !argv.isEmpty,
+              let env = WindowsProcesses.environment(pid: pid) else { return nil }
+        return (argv, env)
         #else
         var limit: Int32 = 0
         var limitSize = MemoryLayout<Int32>.size
@@ -441,10 +469,14 @@ public enum RunningCLIs {
 
     /// The command line of a live process; nil when it is gone or a zombie.
     static func commandLine(pid: Int32) -> String? {
+#if os(Windows)
+        return WindowsProcesses.arguments(pid: pid)?.joined(separator: " ")
+#else
         let text = run("/bin/ps", ["-ww", "-p", String(pid), "-o", "stat=,command="])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let space = text.firstIndex(of: " "), !text[..<space].hasPrefix("Z") else { return nil }
         return String(text[text.index(after: space)...]).trimmingCharacters(in: .whitespaces)
+#endif
     }
 
     private static func run(_ path: String, _ arguments: [String]) -> String {
@@ -454,7 +486,7 @@ public enum RunningCLIs {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return "" }
+        do { try ChildProcess.run(process) } catch { return "" }
         // End of output means the command exited. No waitUntilExit: its run loop can stall under load.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         return String(decoding: data, as: UTF8.self)

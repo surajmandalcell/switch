@@ -82,7 +82,12 @@ final class DroidSessionBindingTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: path), Data(String(decoding: before, as: UTF8.self)
             .replacingOccurrences(of: "\"source\"", with: "\"target\"").utf8))
         XCTAssertEqual(try Data(contentsOf: settings), settingsBytes)
+        #if os(Windows)
+        // Windows has no group bits to keep: the rewritten session is owner-only.
+        XCTAssertEqual(try XCTUnwrap(fm.attributesOfItem(atPath: path.path)[.posixPermissions] as? Int) & 0o077, 0)
+        #else
         XCTAssertEqual(try fm.attributesOfItem(atPath: path.path)[.posixPermissions] as? Int, 0o640)
+        #endif
         XCTAssertEqual(try fm.attributesOfItem(atPath: path.path)[.modificationDate] as? Date, modified)
         #if os(macOS)
         XCTAssertEqual(try fm.attributesOfItem(atPath: path.path)[.creationDate] as? Date, created)
