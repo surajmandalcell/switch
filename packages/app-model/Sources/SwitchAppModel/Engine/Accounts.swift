@@ -89,7 +89,7 @@ extension AppEngine {
         do {
             status = try await manager.status()
         } catch {
-            setError("Couldn’t load accounts. \(error.localizedDescription)")
+            setError("Couldn’t load accounts. \(describe(error))")
             return
         }
         let ids = status?.accounts.map(\.id) ?? []
