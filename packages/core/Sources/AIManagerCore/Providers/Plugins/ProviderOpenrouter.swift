@@ -20,7 +20,9 @@ extension ProviderCatalog {
             }
             let credits = await load("credits"), key = await load("key")
             if credits == nil && key == nil, let firstError { throw firstError }
-            var usage = try OpenRouterUsage.map(credits: credits, key: key)
+            // A management key never runs inference, so its own period spend is $0: sum the keys it lists.
+            let keys = key?.at("data.is_management_key").bool == true ? await OpenRouterUsage.listedKeys(headers: headers) : nil
+            var usage = try OpenRouterUsage.map(credits: credits, key: key, keys: keys)
             // Activity needs a management key: the one pasted here, or the main key when it is one.
             let manager = credential["managementKey"] ?? (key?.at("data.is_management_key").bool == true ? credential["apiKey"] : nil)
             if let manager, let activity = await OpenRouterUsage.activity(token: manager) {
@@ -81,8 +83,23 @@ enum OpenRouterUsage {
 
     private static func dollars(_ value: Double) -> String { Fmt.money(max(0, value)) }
 
-    /// `credits` and `key` are the raw `{ "data": ... }` payloads; either may be nil.
-    static func map(credits: JSON?, key: JSON?) throws -> ProviderUsage {
+    /// Every key the management key lists, disabled and expired ones included: what they spent is still this
+    /// period's spend. Nil when a page fails or the 50-page cap is hit, since a partial sum would understate it.
+    static func listedKeys(headers: [String: String]) async -> [JSON]? {
+        var all: [JSON] = []
+        for page in 0..<50 {
+            let url = "https://openrouter.ai/api/v1/keys?include_disabled=true&include_expired=true&offset=\(page * 100)"
+            guard let reply = try? await HTTP.json(url, headers: headers) else { return nil }
+            let keys = reply["data"].array
+            all += keys
+            if keys.count < 100 { return all }
+        }
+        return nil
+    }
+
+    /// `credits` and `key` are the raw `{ "data": ... }` payloads; either may be nil. `keys` are the entries of
+    /// `/keys`; a management key takes its Today, This week and This month from their sum, or shows none without them.
+    static func map(credits: JSON?, key: JSON?, keys: [JSON]? = nil) throws -> ProviderUsage {
         let credit = credits?["data"], keyData = key?["data"]
         var windows: [UsageWindow] = []
         var rows: [UsageRow] = []
@@ -110,8 +127,13 @@ enum OpenRouterUsage {
             rows.append(UsageRow("Remaining", dollars(total - spent)))
         }
         if let keyData {
+            let management = keyData["is_management_key"].bool == true
             for (label, field) in [("Today", "usage_daily"), ("This week", "usage_weekly"), ("This month", "usage_monthly")] {
-                if let value = keyData[field].double { rows.append(UsageRow(label, dollars(value))) }
+                if management {
+                    if let keys { rows.append(UsageRow(label, dollars(keys.reduce(0) { $0 + max(0, $1[field].double ?? 0) }))) }
+                } else if let value = keyData[field].double {
+                    rows.append(UsageRow(label, dollars(value)))
+                }
             }
         }
         if !rows.isEmpty { sections.append(UsageSection("Spend", rows)) }

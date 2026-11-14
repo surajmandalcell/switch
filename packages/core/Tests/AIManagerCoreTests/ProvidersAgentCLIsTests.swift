@@ -37,7 +37,7 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         XCTAssertEqual(usage.windows.first?.usedPercent, 99)
         XCTAssertEqual(usage.windows.first?.windowMinutes, 10080)
         XCTAssertNotNil(usage.windows.first?.resetsAt)
-        XCTAssertEqual(usage.sections[0].rows[0].value, "2,500 credit cap")
+        XCTAssertEqual(usage.sections[0].rows[0].value, "$25.00 cap")
         XCTAssertEqual(usage.cost?.balance ?? 0, 14.46, accuracy: 1e-9)
         XCTAssertEqual(usage.plan, "SuperGrok Heavy")
         // A valid period without a measured percentage leaves usage unknown.
