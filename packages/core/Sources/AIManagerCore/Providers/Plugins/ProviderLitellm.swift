@@ -179,8 +179,8 @@ enum LiteLLMUsage {
         }
         let rows = totals.sorted { $0.value[2] != $1.value[2] ? $0.value[2] > $1.value[2] : $0.key < $1.key }
             .prefix(20).map { name, sum in
-                PluginFmt.row(name, "\(Int(sum[2])) tokens · \(Int(sum[3])) requests",
-                              "Input \(Int(sum[0])) · Output \(Int(sum[1]))")
+                let n = sum.map { Fmt.int($0) ?? 0 }
+                return PluginFmt.row(name, "\(n[2]) tokens · \(n[3]) requests", "Input \(n[0]) · Output \(n[1])")
             }
         return rows.isEmpty ? nil : UsageSection("Model activity · 30d UTC", rows)
     }

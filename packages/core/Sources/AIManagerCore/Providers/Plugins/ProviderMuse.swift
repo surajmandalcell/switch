@@ -139,7 +139,7 @@ enum MuseUsage {
         let active = windowReset.map { $0 > now } ?? false
         if !active { primary = 0 }
         return (UsageWindow(id: "session", title: "5 hours", usedPercent: primary, resetsAt: active ? windowReset : nil,
-                            windowMinutes: Int((seconds / 60).rounded())),
+                            windowMinutes: Fmt.int((seconds / 60).rounded())),
                 UsageWindow(id: "weekly", title: "Weekly", usedPercent: weekly, resetsAt: weeklyReset,
                             windowMinutes: 10080))
     }

@@ -92,7 +92,7 @@ enum ZoomMateUsage {
             let remaining = end - now.timeIntervalSince1970 * 1000
             if duration > 0, remaining > 0, remaining <= duration, !(remaining == duration && usedPercent > 0) {
                 let delta = usedPercent - (1 - remaining / duration) * 100
-                let amount = Int(abs(delta).rounded())
+                let amount = Fmt.int(abs(delta).rounded()) ?? 0
                 rows.append(UsageRow("Pace", abs(delta) <= 2 ? "On track"
                                      : delta > 0 ? "\(amount)% ahead of budget" : "\(amount)% behind budget"))
             }

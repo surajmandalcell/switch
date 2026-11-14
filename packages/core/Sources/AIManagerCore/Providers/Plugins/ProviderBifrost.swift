@@ -59,7 +59,7 @@ enum BifrostUsage {
             let elapsed = max(0, (now.timeIntervalSince1970 - start) / seconds).rounded(.down)
             resetsAt = Date(timeIntervalSince1970: start + (elapsed + 1) * seconds)
         }
-        let minutes = seconds.map { Int($0 / 60) } ?? 0
+        let minutes = seconds.flatMap { Fmt.int($0 / 60) } ?? 0
         return Timing(label: reset.flatMap { labels[$0] }, windowMinutes: fixed && minutes > 0 ? minutes : nil,
                       resetsAt: resetsAt, seconds: seconds)
     }
@@ -171,7 +171,7 @@ enum BifrostUsage {
         let first = budgets.first { $0.scope.id.isEmpty }
         let models = (first?.models ?? []).map {
             (raw: $0["model"].string ?? "Model", provider: $0["provider"].string, cost: $0["total_cost"].double,
-             tokens: $0["total_tokens"].double.map { Int($0) })
+             tokens: $0["total_tokens"].int)
         }.filter { ($0.cost ?? 0) != 0 || ($0.tokens ?? 0) != 0 }
             .sorted {
                 if ($0.cost ?? 0) != ($1.cost ?? 0) { return ($0.cost ?? 0) > ($1.cost ?? 0) }

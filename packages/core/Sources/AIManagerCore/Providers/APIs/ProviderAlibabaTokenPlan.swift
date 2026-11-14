@@ -74,7 +74,7 @@ enum OneConsole {
         }
     }
 
-    static func int(_ value: Any?) -> Int? { double(value).flatMap { $0.isFinite ? Int($0) : nil } }
+    static func int(_ value: Any?) -> Int? { double(value).flatMap(Fmt.int) }
 
     static func bool(_ value: Any?) -> Bool? {
         switch value {
