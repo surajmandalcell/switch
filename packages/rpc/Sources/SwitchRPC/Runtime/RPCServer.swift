@@ -218,7 +218,8 @@ public final class RPCServer: @unchecked Sendable {
         if method.hasPrefix("backup.") { return "backups" }
         if method.hasPrefix("cleanup.") { return "cleanup" }
         let accounts = ["accounts.", "providers.", "login.", "import.", "droid.", "autoSwitch."]
-        if accounts.contains(where: method.hasPrefix) || method == "usage.refresh" { return "accounts" }
+        let actions = ["usage.refresh", "app.refresh", "tray.opened", "claude.shellIntegration.set"]
+        if accounts.contains(where: method.hasPrefix) || actions.contains(method) { return "accounts" }
         return nil
     }
 

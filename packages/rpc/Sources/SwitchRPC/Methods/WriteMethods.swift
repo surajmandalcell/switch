@@ -47,6 +47,13 @@ private struct ImportParams: Decodable {
 }
 
 private struct ConfirmParams: Decodable { let confirm: String? }
+private struct ReorderParams: Decodable { let accountIDs: [String] }
+private struct EnabledParams: Decodable { let enabled: Bool }
+/// `key` null or empty removes the saved key.
+private struct UsageKeyParams: Decodable {
+    let accountID: String
+    let key: SecretString?
+}
 
 /// User actions of architecture.md section 2.9. Each goes through the engine's action lane (`-32001` while another
 /// runs) and replies `{status, notice?, error?, confirmation?, accountID?, login?, plan?}`.
@@ -56,6 +63,8 @@ extension RPCServer {
         "providers.add", "providers.importLive", "droid.import",
         "login.start", "login.check", "login.submitCode", "login.cancel",
         "import.plan", "import.reviewExternal", "import.commit", "import.discard",
+        "accounts.open", "accounts.reorder", "app.refresh", "tray.opened", "claude.shellIntegration.set",
+        "droid.setUsageKey",
     ]
     static let confirmationLifetime: TimeInterval = 120
 
@@ -63,6 +72,19 @@ extension RPCServer {
     func writeMethod(_ method: String, frame: Data) async throws -> (any Encodable)? {
         guard Self.writeMethods.contains(method) else { return nil }
         switch method {
+        case "accounts.open":
+            let id = try accountID(try params(AccountActionParams.self, method: method, frame: frame).accountID)
+            return try await confirmable(method, frame) { try await self.engine.openAccount(id, confirmed: $0) }
+        case "accounts.reorder":
+            let ids = try params(ReorderParams.self, method: method, frame: frame).accountIDs.map(accountID)
+            return try await engine.reorderAccounts(ids)
+        case "app.refresh": return try await engine.refreshAll()
+        case "tray.opened": return try await engine.trayOpened()
+        case "claude.shellIntegration.set":
+            return try await engine.setClaudeShellIntegration(try params(EnabledParams.self, method: method, frame: frame).enabled)
+        case "droid.setUsageKey":
+            let params = try params(UsageKeyParams.self, method: method, frame: frame)
+            return try await engine.setDroidUsageKey(try accountID(params.accountID), key: params.key?.value ?? "")
         case "accounts.setDefault", "accounts.check", "usage.refresh", "accounts.rename", "accounts.delete":
             let params = try params(AccountActionParams.self, method: method, frame: frame)
             let id = try accountID(params.accountID)
