@@ -25,13 +25,22 @@ public enum AppLocations {
             return "Switch uses its data folder \(new.path). The older folder \(old.path) was left as it is; "
                 + "remove it once you no longer need it."
         }
-        guard let lock = try FileLock(at: old.appending(path: "manager.lock")) else {
-            throw AIManagerError.operationFailed(
-                "Another Switch process is using \(old.path). Quit it, then start Switch again to move its data.")
+        func locked(_ body: () throws -> Void) throws {
+            guard let lock = try FileLock(at: old.appending(path: "manager.lock")) else {
+                throw AIManagerError.operationFailed(
+                    "Another Switch process is using \(old.path). Quit it, then start Switch again to move its data.")
+            }
+            try withExtendedLifetime(lock) { try body() }
         }
-        try Data(old.path.utf8).write(to: old.appending(path: "migrated-from"), options: .atomic)
+        func mark() throws { try Data(old.path.utf8).write(to: old.appending(path: "migrated-from"), options: .atomic) }
+#if os(Windows)
+        // Windows cannot rename a folder while a handle inside it is open, so the lock goes first. A process that
+        // opens anything in the folder meanwhile makes the rename fail, and nothing moves.
+        try locked(mark)
         try FileManager.default.moveItem(at: old, to: new)
-        withExtendedLifetime(lock) {}
+#else
+        try locked { try mark(); try FileManager.default.moveItem(at: old, to: new) }
+#endif
         return nil
     }
 }
