@@ -543,6 +543,7 @@ public enum HTTP {
             for (key, value) in http?.allHeaderFields ?? [:] {
                 fields[String(describing: key).lowercased()] = String(describing: value)
             }
+            if let code = http?.statusCode, !(200..<300).contains(code) { UsageLogContext.current?.probe.note(code) }
             return .init(status: http?.statusCode ?? 0, data: data, headers: fields)
         } catch {
             throw ProviderError.network("The provider could not be reached. Check the network and try again.")

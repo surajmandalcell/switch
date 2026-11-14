@@ -61,6 +61,8 @@ enum ZaiUsage {
     static func map(_ json: JSON, now: Date = Date()) throws -> ProviderUsage {
         guard json["success"].bool == true, json["code"].int == 200 else {
             if (json["msg"].string ?? "").lowercased().contains("coding plan") {
+                UsageLogContext.current.map { $0.log.record(.warn, area: "usage", event: "zai_no_active_plan", provider: "zai", account: $0.account,
+                    message: "code=\(json["code"].int.map(String.init) ?? "-") msg=\(json["msg"].string ?? "")", dedupe: true) }
                 throw ProviderError.unsupported("No active GLM Coding Plan on this account.")
             }
             throw ProviderError.parse("z.ai returned an error instead of quota data.")

@@ -15,6 +15,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var autoSwitch: AutoSwitchController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        EventLog.standard.recordStart(event: "app_start", version: UpdateChecker.installedVersion)
         AIMNativeFocusPolicy.install()
         NSApp.disableRelaunchOnLogin()
         AIManagerBrand.installApplicationIcon()

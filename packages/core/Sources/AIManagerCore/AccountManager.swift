@@ -90,6 +90,7 @@ public actor AccountManager {
     }
 
     private let paths: ManagerPaths
+    public nonisolated let eventLog: EventLog
     private let fileManager: FileManager
     private let provider: CodexProviderAdapter
     private let grokProvider: GrokProviderAdapter
@@ -120,6 +121,7 @@ public actor AccountManager {
 
     public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init(), droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)? = nil) throws {
         self.paths = paths
+        self.eventLog = .shared(directory: paths.applicationSupport.appending(path: "logs", directoryHint: .isDirectory))
         self.fileManager = fileManager
         self.provider = CodexProviderAdapter(fileManager: fileManager)
         self.grokProvider = GrokProviderAdapter(fileManager: fileManager)
@@ -778,13 +780,15 @@ public actor AccountManager {
         guard try reviewedDataDigest(
             source: plan.source, mode: plan.mode, authDigest: current.digest,
             manifest: plan.manifest) == plan.reviewedDataDigest else { throw AIManagerError.sourceChanged }
-        return try await lock.withAsyncLock {
+        return try await eventLog.transaction("import") {
+        try await lock.withAsyncLock {
             try ensureNoRecovery()
             if plan.mode == .full {
                 try await ensureWritersInactive([plan.source, paths.sharedRoot])
             }
             return try performImport(
                 plan: plan, auth: current.data, decisions: decisions, setsDefaultAccount: false)
+        }
         }
     }
 
@@ -808,6 +812,7 @@ public actor AccountManager {
     }
 
     public func switchDefault(to accountID: UUID, allowRunningDroid: Bool = false) async throws -> SwitchResult {
+        try await eventLog.transaction("switch") {
         if try providerStore.contains(accountID) { return try providerStore.makeDefault(accountID) }
         if try claudeProfiles.accounts().contains(where: { $0.id == accountID }) {
             return try claudeProfiles.makeDefault(accountID)
@@ -828,6 +833,7 @@ public actor AccountManager {
             try provider.validateManagedCredential(selected)
             return try performSwitch(to: accountID)
         }
+        }
     }
 
     /// Deletes the account and remembers its identity so discovery never imports it again.
@@ -835,12 +841,14 @@ public actor AccountManager {
         accountID: UUID,
         replacementDefaultAccountID: UUID? = nil
     ) async throws -> AccountDeletionResult {
+        try await eventLog.transaction("delete") {
         try await retainUsageBeforeDeletion(accountID)
         let keys = try removalKeys(of: accountID)
         let result = try await removeAccount(accountID: accountID, replacementDefaultAccountID: replacementDefaultAccountID)
         forgetLogins(keys)
         droidProbe = nil
         return result
+        }
     }
 
     private func removeAccount(
@@ -1150,10 +1158,28 @@ public actor AccountManager {
     /// Reads usage through the provider's `ProviderSpec`. Refreshed credentials are saved for store
     /// accounts only; Codex and Grok registry accounts are never rewritten from here.
     public func readProviderUsage(accountID: UUID, interactive: Bool = false) async throws -> ProviderUsage {
-        let fetched = try await fetchProviderUsage(accountID: accountID, interactive: interactive)
-        let usage = fetched.usage.sanitized()
-        try await retainProviderUsage(account: .init(id: accountID, providerID: fetched.providerID), usage: usage)
-        return usage
+        let probe = HTTPStatusProbe()
+        do {
+            let usage: ProviderUsage = try await UsageLogContext.$current.withValue(
+                .init(log: eventLog, account: accountID, probe: probe)
+            ) {
+                let fetched = try await fetchProviderUsage(accountID: accountID, interactive: interactive)
+                let usage = fetched.usage.sanitized()
+                try await retainProviderUsage(account: .init(id: accountID, providerID: fetched.providerID), usage: usage)
+                return usage
+            }
+            if eventLog.isFailing(accountID) { eventLog.usageRecovered(provider: providerLogID(accountID), account: accountID) }
+            return usage
+        } catch {
+            eventLog.usageFailed(provider: providerLogID(accountID), account: accountID, error: error, status: probe.status)
+            throw error
+        }
+    }
+
+    private func providerLogID(_ accountID: UUID) -> String? {
+        (try? providerStore.spec(forAccount: accountID).id.rawValue)
+            ?? (try? loadRegistry().accounts.first { $0.id == accountID }?.identity.providerID.rawValue)
+            ?? ((try? claudeProfiles.accounts().contains { $0.id == accountID }) == true ? ProviderID.claudeCode.rawValue : nil)
     }
 
     private func usageHistoryCache() throws -> CodexUsageStatisticsCache {
@@ -1493,6 +1519,9 @@ public actor AccountManager {
                 expected: account,
                 authoritativeEmail: email
             )
+            if result.state != .needsSignIn, eventLog.isFailing(accountID) {
+                eventLog.usageRecovered(provider: providerLogID(accountID), account: accountID)
+            }
             return .init(
                 verification: result,
                 usage: result.state == .needsSignIn ? nil : snapshot
@@ -1509,6 +1538,7 @@ public actor AccountManager {
                 try? recordAccountCheck(result, accountID: accountID, expected: account)
                 return .init(verification: result)
             }
+            eventLog.usageFailed(provider: provider.id.rawValue, account: accountID, error: error, status: nil)
             let detail = error as? AIManagerError == .cliNotFound
                 ? "The saved auth.json passed local checks. Codex CLI was not found, so account and usage checks were unavailable."
                 : "The saved auth.json passed local checks. Codex account and usage checks were unavailable."
@@ -1774,6 +1804,7 @@ public actor AccountManager {
     }
 
     public func recover(allowRunningDroid: Bool = false) async throws -> [RecoveryResult] {
+        try await eventLog.transaction("rollback") {
         try await lock.withAsyncLock {
             let reviewed = try pendingOperations()
             if reviewed.contains(where: touchesDroidLive) {
@@ -1797,6 +1828,7 @@ public actor AccountManager {
                 }
                 return try recoverOperation(operation)
             }
+        }
         }
     }
 
@@ -2673,6 +2705,10 @@ extension AccountManager {
         expected: AccountRecord?,
         authoritativeEmail: String? = nil
     ) throws {
+        if result.state == .needsSignIn {
+            eventLog.record(.warn, area: "auth", event: "sign_in_required", provider: providerLogID(accountID),
+                            account: accountID, dedupe: true)
+        }
         try lock.withLock {
             var registry = try loadRegistry()
             guard let index = registry.accounts.firstIndex(where: { $0.id == accountID }) else {
