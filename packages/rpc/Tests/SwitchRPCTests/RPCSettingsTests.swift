@@ -84,6 +84,20 @@ extension RPCRuntimeTests {
         XCTAssertEqual(RPCServer.orderKey("accounts.status"), RPCServer.orderKey("accounts.setDefault"))
     }
 
+    func testSettingsResetByGroup() async throws {
+        let session = try session()
+        session.send(#"{"jsonrpc":"2.0","id":1,"method":"settings.set","params":{"key":"timeFormat","value":"24h"}}"#)
+        session.send(#"{"jsonrpc":"2.0","id":2,"method":"settings.set","params":{"key":"lastPage","value":"overview"}}"#)
+        session.send(#"{"jsonrpc":"2.0","id":3,"method":"settings.reset"}"#)
+        session.send(#"{"jsonrpc":"2.0","id":4,"method":"settings.reset","params":{"group":"everything"}}"#)
+        try await session.wait { $0.filter { $0["id"] != nil }.count == 4 }
+        let values = try XCTUnwrap(result(try reply(session.frames, 3))?["values"] as? [String: Any])
+        XCTAssertEqual(values["timeFormat"] as? String, "auto")
+        XCTAssertEqual(values["lastPage"] as? String, "overview")
+        XCTAssertEqual(errorCode(try reply(session.frames, 4)), -32602)
+        try await session.close()
+    }
+
     func testNewerSettingsFileIsReadOnlyOverRPC() async throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data(#"{"schemaVersion":9,"values":{"privacyMode":true}}"#.utf8).write(to: root.appending(path: "settings.json"))

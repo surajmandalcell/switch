@@ -135,7 +135,7 @@ public actor AppEngine {
         do {
             return try await operation()
         } catch {
-            setError([failure, error.localizedDescription, recovery].compactMap { $0 }.joined(separator: " "))
+            setError([failure, describe(error), recovery].compactMap { $0 }.joined(separator: " "))
             throw error
         }
     }

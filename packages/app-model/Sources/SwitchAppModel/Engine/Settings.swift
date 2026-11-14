@@ -1,4 +1,5 @@
 import Foundation
+import AIManagerCore
 
 /// `settings` topic: the effective value of every key that has one (stored, else the registry default), plus every
 /// stored per-account key.
@@ -36,14 +37,61 @@ extension AppEngine {
         do {
             if let value { try settings.set(key, value) } else {
                 guard SettingsRegistry.entry(key) != nil else { throw SettingsError.unknownKey(key) }
-                try settings.remove(key)
+                try settings.remove([key])
             }
         } catch SettingsError.readOnly {
             setNotice(SettingsError.readOnly.localizedDescription)
             throw SettingsError.readOnly
         }
+        settingsChanged()
+    }
+
+    /// Reset settings (settings.md 2.8): removes every stored key of `group`, per-account keys included, in one write.
+    /// The `settings` group is what the Mac Reset button removes; accounts and the `kept` keys stay.
+    public func resetSettings(_ group: SettingKey.ResetGroup = .settings) throws {
+        let keys = settings.storedKeys.filter { SettingsRegistry.entry($0)?.resetGroup == group }
+        do {
+            try settings.remove(keys)
+        } catch SettingsError.readOnly {
+            setNotice(SettingsError.readOnly.localizedDescription)
+            throw SettingsError.readOnly
+        }
+        settingsChanged()
+    }
+
+    private func settingsChanged() {
         publish(.settings, Self.settingsValue(settings))
         // Privacy and hidden rows change the account rows; an unchanged row set publishes nothing.
         publishAccounts()
+    }
+
+    /// The error text the user sees: with privacy mode on, names in Droid and sign-in errors are made up, as the Mac
+    /// `privacyDescription` does.
+    public nonisolated func describe(_ error: Error) -> String {
+        let privacy = PrivacySettings(settings)
+        var text = error.localizedDescription
+        if privacy.privacyMode {
+            func label(_ value: String) -> String {
+                value.contains("@") ? PrivacyText.display(value, privacy) : PrivacyText.fakeName(seed: value)
+            }
+            switch error {
+            case DroidAccountError.confirmSignIn(let name):
+                text = DroidAccountError.confirmSignIn(PrivacyText.fakeName(seed: name)).localizedDescription
+            case DroidAccountError.duplicateIdentity(let name, let hint):
+                text = DroidAccountError.duplicateIdentity(name: PrivacyText.fakeName(seed: name),
+                                                           hint: PrivacyText.display(hint, privacy)).localizedDescription
+            case AIManagerError.signInIdentityMismatch(let signedIn, let target):
+                text = AIManagerError.signInIdentityMismatch(signedIn: label(signedIn), target: label(target))
+                    .localizedDescription
+            default: break
+            }
+        }
+        return masked(text)
+    }
+
+    /// Beyond the Mac: any email in an error or notice is hidden when privacy or Hide email addresses is on.
+    public nonisolated func masked(_ text: String) -> String {
+        let privacy = PrivacySettings(settings)
+        return privacy.privacyMode || privacy.hideEmails ? PrivacyText.display(text, privacy) : text
     }
 }

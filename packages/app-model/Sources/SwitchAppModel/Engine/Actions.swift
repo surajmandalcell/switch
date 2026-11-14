@@ -42,7 +42,11 @@ extension AppEngine {
                     title: "Droid is running", message: error.localizedDescription, action: "Switch"))
             }
             await self.reloadAccounts()
-            let notice = Self.switchNotice(providerID, result)
+            var notice = Self.switchNotice(providerID, result)
+            // The Mac posts this as its own notification; the helper has no notify.post yet, so it joins the notice.
+            if providerID == .droid, let missions = await self.unfinishedMissionsNotice(result, manager) {
+                notice += " " + missions
+            }
             await self.setNotice(notice)
             return .done(notice: notice)
         }
@@ -62,8 +66,9 @@ extension AppEngine {
                 await self.setNotice("Account checked.")
                 return .done(notice: "Account checked.")
             default:
-                await self.setError(result.verification.detail)
-                return .done(error: result.verification.detail)
+                let detail = self.masked(result.verification.detail)
+                await self.setError(detail)
+                return .done(error: detail)
             }
         }
     }
@@ -82,6 +87,15 @@ extension AppEngine {
             }
             return .done()
         }
+    }
+
+    /// Leaving a Droid account that owns unfinished missions: "2 unfinished Droid missions stay with <label>." The
+    /// missions stay with it (Mac `announceUnfinishedMissions`).
+    func unfinishedMissionsNotice(_ result: SwitchResult, _ manager: AccountManager) async -> String? {
+        guard let previous = status?.accounts.first(where: { $0.id == result.previousAccountID }),
+              let count = try? await manager.unfinishedDroidMissions(after: result), count > 0 else { return nil }
+        return DroidMissionReader.unfinishedNotice(
+            count: count, owner: AccountPresentation.label(previous.identity, PrivacySettings(settings)))
     }
 
     /// The saved account, loading the list first when `initialized` has not run yet.
