@@ -1782,7 +1782,7 @@ public actor AccountManager {
 
             let temporary = issue.localPath.deletingLastPathComponent().appending(path: ".\(issue.localPath.lastPathComponent).\(operationID.uuidString).link")
             if CoreSupport.entryExists(temporary) { try fileManager.removeItem(at: temporary) }
-            try fileManager.createSymbolicLink(at: temporary, withDestinationURL: issue.intendedTarget)
+            try Links.create(at: temporary, to: issue.intendedTarget, fileManager: fileManager)
             guard try linkedSettingFingerprint(issue.localPath) == reviewedFingerprint else {
                 try? fileManager.removeItem(at: temporary)
                 throw AIManagerError.sourceChanged
@@ -2070,8 +2070,7 @@ extension AccountManager {
     private func resolveDroidExecutable() -> URL? {
         if let explicit = paths.droidExecutable { return validatedExecutable(explicit) }
         guard paths.isolationRoot == nil else { return nil }
-        let candidates = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
-            .map { URL(fileURLWithPath: String($0)).appending(path: "droid") }
+        let candidates = executableCandidates(named: "droid", environment: ProcessInfo.processInfo.environment)
             + [paths.userHome.appending(path: ".local/bin/droid"), URL(fileURLWithPath: "/Applications/Factory.app/Contents/Resources/bin/droid")]
         return candidates.compactMap(validatedExecutable).first
     }
@@ -3205,7 +3204,7 @@ extension AccountManager {
             }
             if fileManager.fileExists(atPath: target.path) {
                 let link = staging.appending(path: entry)
-                if !CoreSupport.entryExists(link) { try fileManager.createSymbolicLink(at: link, withDestinationURL: target) }
+                if !CoreSupport.entryExists(link) { try Links.create(at: link, to: target, fileManager: fileManager) }
             }
         }
         operation.phase = .staged
@@ -3241,7 +3240,7 @@ extension AccountManager {
                 )
                 if let linkedDigest, try treeDigest(source) != linkedDigest { throw AIManagerError.sourceChanged }
                 if !CoreSupport.entryExists(staging.appending(path: setting)) {
-                    try fileManager.createSymbolicLink(at: staging.appending(path: setting), withDestinationURL: destination)
+                    try Links.create(at: staging.appending(path: setting), to: destination, fileManager: fileManager)
                 }
             }
             try faultInjector(.duringHistoryCopy)
@@ -3785,7 +3784,7 @@ extension AccountManager {
         for entry in CoreSupport.settings + CoreSupport.sharedHistoryEntries {
             let target = paths.sharedRoot.appending(path: entry)
             guard fileManager.fileExists(atPath: target.path) else { continue }
-            try fileManager.createSymbolicLink(at: home.appending(path: entry), withDestinationURL: target)
+            try Links.create(at: home.appending(path: entry), to: target, fileManager: fileManager)
         }
     }
 
@@ -3801,11 +3800,7 @@ extension AccountManager {
             return executable
         }
         if paths.isolationRoot != nil { return nil }
-        var candidates: [URL] = []
-        for directory in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") {
-            candidates.append(
-                URL(fileURLWithPath: String(directory)).appending(path: "codex"))
-        }
+        var candidates = executableCandidates(named: "codex", environment: ProcessInfo.processInfo.environment)
         let userHome = fileManager.homeDirectoryForCurrentUser
         candidates += [
             userHome.appending(path: ".local/bin/codex"),
@@ -3830,9 +3825,7 @@ extension AccountManager {
             return executable
         }
         if paths.isolationRoot != nil { return nil }
-        var candidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":")
-            .map { URL(fileURLWithPath: String($0)).appending(path: "grok") }
+        var candidates = executableCandidates(named: "grok", environment: ProcessInfo.processInfo.environment)
         let userHome = fileManager.homeDirectoryForCurrentUser
         candidates += [
             userHome.appending(path: ".local/bin/grok"),
@@ -3863,7 +3856,7 @@ extension AccountManager {
 
     private func lexicalLinkTarget(_ link: URL) -> URL? {
         guard let raw = try? fileManager.destinationOfSymbolicLink(atPath: link.path) else { return nil }
-        if raw.hasPrefix("/") { return URL(fileURLWithPath: raw).standardizedFileURL }
+        if isAbsolutePath(raw) { return URL(fileURLWithPath: raw).standardizedFileURL }
         return link.deletingLastPathComponent().appending(path: raw).standardizedFileURL
     }
 

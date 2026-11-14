@@ -448,12 +448,13 @@ struct ProviderAccountStore {
             let url = URL(fileURLWithPath: command)
             return usable(url) ? url : nil
         }
-        let directories = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + [
+        let directories = [
             paths.userHome.appending(path: ".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin",
             paths.userHome.appending(path: ".npm-global/bin").path,
             paths.userHome.appending(path: ".bun/bin").path,
         ]
-        return directories.map { URL(fileURLWithPath: $0).appending(path: command) }.first(where: usable)
+        return (executableCandidates(named: command, environment: environment)
+            + directories.map { URL(fileURLWithPath: $0).appending(path: command) }).first(where: usable)
     }
 
     // MARK: Index and vault

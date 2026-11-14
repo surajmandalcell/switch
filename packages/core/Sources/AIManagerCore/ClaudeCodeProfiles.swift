@@ -358,8 +358,7 @@ struct ClaudeCodeProfiles {
     private func executable() -> URL? {
         var candidates = [paths.claudeExecutable].compactMap { $0 }
         if paths.isolationRoot == nil {
-            candidates += (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
-                .map { URL(fileURLWithPath: String($0)).appending(path: "claude") }
+            candidates += executableCandidates(named: "claude", environment: ProcessInfo.processInfo.environment)
             candidates += [
                 fileManager.homeDirectoryForCurrentUser.appending(path: ".local/bin/claude"),
                 URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
@@ -499,7 +498,7 @@ extension ClaudeCodeProfiles {
         let target = sharedHome.appending(path: item)
         let local = config.appending(path: item)
         let isFile = Self.sharedFiles.contains(item)
-        if let destination = try? fileManager.destinationOfSymbolicLink(atPath: local.path) {
+        if let destination = try? Links.destination(of: local, fileManager: fileManager) {
             if destination == target.path { return }
             try fileManager.removeItem(at: local) // a wrong link holds no data
         } else if CoreSupport.entryExists(local) {
@@ -509,7 +508,7 @@ extension ClaudeCodeProfiles {
             try fileManager.createDirectory(at: target, withIntermediateDirectories: true,
                                             attributes: [.posixPermissions: 0o700])
         }
-        try fileManager.createSymbolicLink(atPath: local.path, withDestinationPath: target.path)
+        try Links.create(at: local, to: target, fileManager: fileManager)
     }
 
     /// Backs the real item up, merges it into the shared home without overwriting, then removes it.
