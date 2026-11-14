@@ -64,6 +64,7 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertFalse(UpdateCheck.isDue(state: state, now: last.addingTimeInterval(5 * 3600 + 3599), calendar: calendar))
         XCTAssertTrue(UpdateCheck.isDue(state: state, now: last.addingTimeInterval(6 * 3600), calendar: calendar))
         XCTAssertTrue(UpdateCheck.isDue(state: state, now: date("2026-11-15T00:30:00Z"), calendar: calendar))
+        XCTAssertTrue(UpdateCheck.isDue(state: state, now: last.addingTimeInterval(-3600), calendar: calendar))  // clock moved back
     }
 
     func testNewerAndDownloadURL() {
@@ -89,16 +90,24 @@ final class UpdateCheckTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "https://apps.mandalsuraj.com/v1/switch/latest?platform=macos"))
         let sample = body
         let found = await UpdateCheck.fetch(url) { _ in .init(status: 200, data: Data(sample.utf8), headers: [:]) }
-        XCTAssertEqual(found?.version, "3.10.0")
+        XCTAssertTrue(found.counted)
+        XCTAssertEqual(found.info?.version, "3.10.0")
         let missing = await UpdateCheck.fetch(url) { _ in
             .init(status: 404, data: Data(#"{"error":"No release published"}"#.utf8), headers: [:])
         }
-        XCTAssertNil(missing)
+        XCTAssertFalse(missing.counted)
+        XCTAssertNil(missing.info)
         let failed = await UpdateCheck.fetch(url) { _ in throw ProviderError.network("down") }
-        XCTAssertNil(failed)
+        XCTAssertFalse(failed.counted)
+        XCTAssertNil(failed.info)
+        // The server counts any 2xx, so a bad body still records the day and month, and shows no update.
+        let garbled = await UpdateCheck.fetch(url) { _ in .init(status: 200, data: Data("<html>".utf8), headers: [:]) }
+        XCTAssertTrue(garbled.counted)
+        XCTAssertNil(garbled.info)
         let plain = await UpdateCheck.fetch(try XCTUnwrap(URL(string: "http://apps.mandalsuraj.com/x"))) { _ in
             .init(status: 200, data: Data(sample.utf8), headers: [:])
         }
-        XCTAssertNil(plain)
+        XCTAssertFalse(plain.counted)
+        XCTAssertNil(plain.info)
     }
 }
