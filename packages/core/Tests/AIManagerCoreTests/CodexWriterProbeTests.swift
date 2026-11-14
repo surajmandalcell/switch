@@ -4,6 +4,8 @@ import XCTest
 
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -20,7 +22,7 @@ final class CodexWriterProbeTests: XCTestCase {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         let path = helpers.appending(path: ".lock")
-        let fd = open(path.path, O_CREAT | O_RDWR, 0o600)
+        let fd = open(path.path, O_CREAT | O_RDWR, mode_t(0o600))
         XCTAssertGreaterThanOrEqual(fd, 0)
         guard fd >= 0 else { return }
         XCTAssertEqual(flock(fd, LOCK_EX | LOCK_NB), 0)

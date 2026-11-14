@@ -11,6 +11,8 @@ import Crypto
 
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -119,11 +121,14 @@ final class RealCopyIntegrationTests: XCTestCase {
     }
 
     nonisolated private static func peakRSS() -> Int {
+#if os(Windows)
+        return -1 // only printed; Windows has no getrusage
+#elseif os(Linux)
         var usage = rusage()
-#if os(Linux)
         return getrusage(__rusage_who_t(RUSAGE_SELF.rawValue), &usage) == 0
             ? usage.ru_maxrss * 1_024 : -1
 #else
+        var usage = rusage()
         return getrusage(RUSAGE_SELF, &usage) == 0 ? usage.ru_maxrss : -1
 #endif
     }

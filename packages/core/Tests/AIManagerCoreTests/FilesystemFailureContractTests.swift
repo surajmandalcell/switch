@@ -4,6 +4,8 @@ import XCTest
 
 #if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #else
 import Glibc
 #endif
@@ -35,6 +37,9 @@ final class FilesystemFailureContractTests: XCTestCase {
         let source = root.appending(path: "denied-source")
         try writeAuth(home: source, account: "denied")
         let auth = source.appending(path: "auth.json")
+#if os(Windows)
+        throw XCTSkip("chmod cannot deny reads on Windows.")
+#endif
         XCTAssertEqual(chmod(source.path, 0), 0)
         defer { _ = chmod(source.path, S_IRWXU) }
 
