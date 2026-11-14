@@ -3,10 +3,34 @@ import AIManagerCore
 
 /// A dialog the user must accept before the action runs (architecture.md 2.6). The helper adds the token.
 public struct ConfirmationRequest: Codable, Equatable, Sendable {
+    /// What the user allows: `droidRunning`, `droidDuplicate`, `droidSignIn`, or `delete`. The helper's token
+    /// carries every kind allowed so far, so a second confirmation keeps the first.
+    public enum Kind: String, Codable, Sendable { case droidRunning, droidDuplicate, droidSignIn, delete }
+    public var kind: Kind
     public var token: String?
     public var title: String
     public var message: String
     public var action: String
+
+    static func droid(_ error: DroidAccountError, _ text: String) -> ConfirmationRequest? {
+        switch error {
+        case .running: ConfirmationRequest(kind: .droidRunning, title: "Droid is running", message: text, action: "Switch")
+        case .duplicateIdentity: ConfirmationRequest(kind: .droidDuplicate, title: "Add this Droid account again?",
+                                                     message: text, action: "Add anyway")
+        case .confirmSignIn: ConfirmationRequest(kind: .droidSignIn, title: "Sign in to this Droid account?",
+                                                 message: text, action: "Sign in")
+        default: nil
+        }
+    }
+}
+
+/// A sign-in session after `login.start`, `login.check`, or `login.submitCode`.
+public struct LoginStatus: Codable, Equatable, Sendable {
+    public var sessionID: String
+    public var providerID: String
+    /// `waitingForLogin`, `needsAttention`, `credentialChoiceRequired`, or `completed`.
+    public var state: String
+    public var message: String
 }
 
 /// The reply of a user action (architecture.md 2.2).
@@ -17,17 +41,25 @@ public struct ActionResult: Codable, Equatable, Sendable {
     /// A check that ran and found a problem: the red-bar text. The action itself did not fail.
     public var error: String?
     public var confirmation: ConfirmationRequest?
+    /// The account the action saved.
+    public var accountID: String?
+    public var login: LoginStatus?
+    public var plan: ImportPlanSummary?
 
     public static func done(notice: String? = nil, error: String? = nil) -> ActionResult {
         ActionResult(status: .done, notice: notice, error: error)
     }
+
+    static func confirm(_ request: ConfirmationRequest) -> ActionResult {
+        ActionResult(status: .needsConfirmation, confirmation: request)
+    }
 }
 
 /// User actions. Each runs in the action lane, calls the AccountManager API the Mac app calls, and copies its
-/// failure to `notices`, as `AccountViewModel` does.
+/// failure to `notices`, as `AccountViewModel` does. `confirmed` holds the kinds the user already allowed.
 extension AppEngine {
-    /// The Mac `switchDefault`. A running Factory app needs a confirmation first; `confirmed` skips it.
-    public func setDefault(_ id: UUID, confirmed: Bool = false) async throws -> ActionResult {
+    /// The Mac `switchDefault`. A running Factory app needs a confirmation first.
+    public func setDefault(_ id: UUID, confirmed: Set<ConfirmationRequest.Kind> = []) async throws -> ActionResult {
         let manager = manager
         return try await perform(failure: "Couldn’t change the default account.",
                                  recovery: "Resolve any item in Backup, then try again.") {
@@ -35,11 +67,12 @@ extension AppEngine {
             let providerID = try await self.account(id).identity.providerID
             let result: SwitchResult
             do {
-                result = try await manager.switchDefault(to: id, allowRunningDroid: confirmed)
+                result = try await manager.switchDefault(to: id, allowRunningDroid: confirmed.contains(.droidRunning))
             } catch let error as DroidAccountError {
-                guard case .running = error else { throw error }
-                return ActionResult(status: .needsConfirmation, confirmation: ConfirmationRequest(
-                    title: "Droid is running", message: error.localizedDescription, action: "Switch"))
+                guard case .running = error, let request = ConfirmationRequest.droid(error, self.describe(error)) else {
+                    throw error
+                }
+                return .confirm(request)
             }
             await self.reloadAccounts()
             var notice = Self.switchNotice(providerID, result)

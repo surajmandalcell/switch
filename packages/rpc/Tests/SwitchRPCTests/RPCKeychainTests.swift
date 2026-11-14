@@ -21,10 +21,12 @@ extension RPCRuntimeTests {
 
     /// A Droid account whose login is in the Keychain form, so reading its usage needs the Keychain key.
     /// `running` lists a Factory app process on that login.
-    func droidManager(_ trap: KeychainTrap, running: Bool = false) async throws -> (AccountManager, UUID) {
+    /// `hint` makes the fake `droid doctor` report that masked email, so a second import of the login is a duplicate.
+    func droidManager(_ trap: KeychainTrap, running: Bool = false, hint: String? = nil) async throws -> (AccountManager, UUID) {
         let fake = root.appending(path: "fake-droid")
         try CoreSupport.privateDirectory(root, fileManager: .default)
-        XCTAssertTrue(FileManager.default.createFile(atPath: fake.path, contents: Data("#!/bin/sh\nexit 1\n".utf8),
+        let doctor = hint.map { #"test "$1" = doctor && printf '%s' '{"results":[{"id":"auth.verify","status":"pass","detail":"authenticated as \#($0) via stored login session"}]}' && exit 0"# + "\n" } ?? ""
+        XCTAssertTrue(FileManager.default.createFile(atPath: fake.path, contents: Data("#!/bin/sh\n\(doctor)exit 1\n".utf8),
                                                      attributes: [.posixPermissions: 0o700]))
         paths.droidExecutable = fake
         try CoreSupport.privateDirectory(paths.droidHome, fileManager: .default)

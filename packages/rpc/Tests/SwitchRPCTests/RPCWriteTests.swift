@@ -74,10 +74,11 @@ extension RPCRuntimeTests {
         let gate = Gate()
         let held = Task { try await engine.perform { await gate.wait() } }
         while !(await engine.app.isBusy) { await Task.yield() }
-        for (number, method) in RPCServer.writeMethods.enumerated() {
-            session.send(#"{"jsonrpc":"2.0","id":\#(number + 1),"method":"\#(method)","params":{"accountID":"\#(id)"}}"#)
+        let methods = ["accounts.setDefault", "accounts.check", "usage.refresh", "accounts.rename", "accounts.delete"]
+        for (number, method) in methods.enumerated() {
+            session.send(#"{"jsonrpc":"2.0","id":\#(number + 1),"method":"\#(method)","params":{"accountID":"\#(id)","name":"A"}}"#)
         }
-        try await session.wait { $0.count == RPCServer.writeMethods.count }
+        try await session.wait { $0.count == methods.count }
         for reply in session.frames {
             XCTAssertEqual(errorCode(reply), -32001)
             XCTAssertEqual(((reply["error"] as? [String: Any])?["data"] as? [String: Any])?["retryable"] as? Bool, true)

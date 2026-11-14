@@ -26,7 +26,7 @@ public final class RPCServer: @unchecked Sendable {
     let codexCache: CodexUsageStatisticsCache?
     let clock: any AppClock
     /// Open confirmation tokens (WriteMethods.swift), under `lock`.
-    var confirmations: [String: (binding: String, expires: Date)] = [:]
+    var confirmations: [String: (binding: Int, grants: Set<ConfirmationRequest.Kind>, expires: Date)] = [:]
     let lock = NSLock()
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -486,6 +486,8 @@ struct RPCError: Error, Encodable {
         switch error as? AppEngineError {
         case .busy: return RPCError(-32001, "busy", text, retryable: true)
         case .unavailable: return RPCError(-32002, "unavailable", text)
+        case .stale: return RPCError(-32004, "stale", text)
+        case .unsupported: return RPCError(-32005, "unsupported", text)
         case nil: return RPCError(-32007, "failed", text)
         }
     }
