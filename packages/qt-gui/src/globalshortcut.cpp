@@ -22,6 +22,10 @@
 #include <cstdlib>
 #include <xcb/xcb.h>
 #endif
+#ifdef Q_OS_WIN
+#include <QCoreApplication>
+#include <windows.h>
+#endif
 
 Q_LOGGING_CATEGORY(lcShortcut, "switch.shortcut")
 
@@ -82,6 +86,21 @@ int GlobalShortcut::qtKey(int code) {
   return 0;
 }
 
+uint GlobalShortcut::windowsVk(int key) {
+  if ((key >= Qt::Key_A && key <= Qt::Key_Z) || (key >= Qt::Key_0 && key <= Qt::Key_9)) return key;   // VK_A.., VK_0..
+  if (key >= Qt::Key_F1 && key <= Qt::Key_F24) return 0x70 + (key - Qt::Key_F1);                      // VK_F1..
+  static const QHash<int, uint> vks = {
+      {Qt::Key_Return, 0x0D}, {Qt::Key_Tab, 0x09}, {Qt::Key_Space, 0x20}, {Qt::Key_Backspace, 0x08},
+      {Qt::Key_Escape, 0x1B}, {Qt::Key_Insert, 0x2D}, {Qt::Key_Delete, 0x2E}, {Qt::Key_Home, 0x24},
+      {Qt::Key_End, 0x23}, {Qt::Key_PageUp, 0x21}, {Qt::Key_PageDown, 0x22}, {Qt::Key_Left, 0x25},
+      {Qt::Key_Up, 0x26}, {Qt::Key_Right, 0x27}, {Qt::Key_Down, 0x28},
+      // VK_OEM_* on the US layout
+      {Qt::Key_Semicolon, 0xBA}, {Qt::Key_Equal, 0xBB}, {Qt::Key_Comma, 0xBC}, {Qt::Key_Minus, 0xBD},
+      {Qt::Key_Period, 0xBE}, {Qt::Key_Slash, 0xBF}, {Qt::Key_QuoteLeft, 0xC0}, {Qt::Key_BracketLeft, 0xDB},
+      {Qt::Key_Backslash, 0xDC}, {Qt::Key_BracketRight, 0xDD}, {Qt::Key_Apostrophe, 0xDE}};
+  return vks.value(key);
+}
+
 uint GlobalShortcut::keysym(int key) {
   if (key >= Qt::Key_A && key <= Qt::Key_Z) return key + 0x20;   // lower-case Latin keysyms
   if (key >= 0x20 && key < 0x7f) return key;                     // digits and ASCII punctuation
@@ -138,9 +157,53 @@ void GlobalShortcut::writeAppImageEntry() {
   else qCWarning(lcShortcut) << "AppImage desktop entry not written:" << f.errorString();
 }
 
-#ifndef SWITCH_DBUS
-// shortcut: no registration off Linux (Windows wants RegisterHotKey, shell.md 5.2); the row stays off there.
-GlobalShortcut::GlobalShortcut(QObject *parent) : QObject(parent) {}
+#if defined(Q_OS_WIN)
+// settings.md 8.4 Windows: RegisterHotKey with no window, so WM_HOTKEY arrives on the GUI thread's queue,
+// where Qt's event dispatcher hands it to this filter. A combo another app holds fails = refusal.
+static const int kHotKeyId = 0x5357;   // "SW"
+
+GlobalShortcut::GlobalShortcut(QObject *parent) : QObject(parent) {
+  QCoreApplication::instance()->installNativeEventFilter(this);
+  m_available = true;
+}
+
+GlobalShortcut::~GlobalShortcut() {
+  if (m_registered) UnregisterHotKey(nullptr, kHotKeyId);
+  if (QCoreApplication::instance()) QCoreApplication::instance()->removeNativeEventFilter(this);
+}
+
+void GlobalShortcut::apply(const QVariant &combo) {
+  const int key = keyOf(combo);
+  const int mods = key ? combo.toMap().value("modifiers").toInt() : 0;
+  if (key == m_key && mods == m_mods) return;
+  m_key = key;
+  m_mods = mods;
+  if (m_registered) UnregisterHotKey(nullptr, kHotKeyId);
+  m_registered = false;
+  const UINT vk = windowsVk(key);
+  if (!vk) return;
+  const UINT wmods = MOD_NOREPEAT | ((mods & 4096) ? MOD_CONTROL : 0) | ((mods & 2048) ? MOD_ALT : 0) |
+                     ((mods & 512) ? MOD_SHIFT : 0) | ((mods & 256) ? MOD_WIN : 0);
+  m_registered = RegisterHotKey(nullptr, kHotKeyId, wmods, vk);
+  if (!m_registered) {
+    qCWarning(lcShortcut) << "RegisterHotKey refused, error" << GetLastError();
+    m_key = m_mods = 0;   // stored as none (Main.qml), so the same combo can be tried again
+    emit refused();
+    return;
+  }
+  qCInfo(lcShortcut) << "registered hot key vk" << vk << "modifiers" << wmods;
+}
+
+bool GlobalShortcut::nativeEventFilter(const QByteArray &type, void *message, qintptr *) {
+  if (type != "windows_generic_MSG") return false;
+  const MSG *msg = static_cast<const MSG *>(message);
+  if (msg->message != WM_HOTKEY || msg->wParam != kHotKeyId) return false;
+  qCInfo(lcShortcut) << "activated";
+  emit activated();
+  return true;
+}
+#elif !defined(SWITCH_DBUS)
+GlobalShortcut::GlobalShortcut(QObject *parent) : QObject(parent) {}   // no registration path on this platform
 GlobalShortcut::~GlobalShortcut() = default;
 void GlobalShortcut::apply(const QVariant &) {}
 #else

@@ -156,7 +156,6 @@ taskbar (`Tray::Tray`), `WIN32_EXECUTABLE` for shipping builds (`CMakeLists.txt`
 - Helper stop (`HelperClient::stop`): closes stdin, then `kill` (TerminateProcess) after 2 s; check the helper exits 0 and no console window flashes at start.
 - Single instance: not built on any platform; Windows wants a named mutex plus a pipe to show the first window (shell.md 1.5).
 - Notifications: none in the GUI yet; Windows wants a silent toast with a registered AppUserModelID (shell.md 6.4).
-- Global shortcut: `GlobalShortcut` (Linux: the XDG GlobalShortcuts portal) is off on Windows; Windows wants `RegisterHotKey` (shell.md 5); key text says "Super" (`SettingsPage.qml` `comboText`).
 - Terminal emulator setting (rpc.md `terminalEmulator`): no UI yet; decide whether Windows shows it (Windows Terminal or console).
 - Windows paths in QML: `AccFact.isPath` and `AccDailyCard` test for a leading `/`; `AddAccountSheet` splits on `/`; the demo data locations in `SettingsPage.qml` are XDG paths.
 - Copy: "~/.zshrc", "Terminal" and "Super" are Mac or Linux words (shell.md 4, Search.js, SettingsPage.qml).
