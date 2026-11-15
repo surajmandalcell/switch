@@ -49,6 +49,14 @@ public enum SettingsSearch {
             keywords: "incident outage"),
       Entry(id: "claude-shell", section: "Accounts", title: c.claudeShell, help: c.claudeShellHelp,
             keywords: "terminal zsh shell"),
+    ]
+    #if !os(macOS)
+    // Linux and Windows pick the terminal for sign-ins (rpc.md terminalEmulator); the Mac has no such row.
+    list.append(Entry(id: "terminal", section: "Accounts", title: "Terminal app",
+                      help: "Opens sign-ins and tools. Empty uses the first one found.",
+                      keywords: "terminal emulator console konsole gnome-terminal wt"))
+    #endif
+    list += [
       Entry(id: "auto", section: "Auto switch", title: c.autoSwitch, help: c.autoSwitchHelp,
             keywords: "automatic rotate limit"),
       Entry(id: "auto-threshold", section: "Auto switch", title: c.autoSwitchThreshold,
