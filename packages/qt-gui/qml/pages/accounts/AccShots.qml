@@ -92,8 +92,12 @@ Item {
     q = q.concat(secret(key, "real-secret-saved"), secret(key, "real-secret-duplicate"), secret("x", "real-secret-rejected"))
     q = q.concat([
       function () { sheet.hide(); page.openSheet("add") }, 900,
-      function () { sheet.selID = s.filesP.id; sheet.cont() }, 3000, function () { state("files"); shot(sheet, "real-files") },
+      function () { sheet.selID = s.filesP.id; sheet.cont() }, 3000,
+      function () { state("files"); Harness.log("PATHS " + JSON.stringify(s.filesP.credentialPaths)); shot(sheet, "real-files") },
       function () { sheet.startLogin({ providerID: s.filesP.id }) }, 5000, function () { state("files-login"); shot(sheet, "real-files-noemulator") },
+      // a built-in CLI that the container lacks: the error names the CLI check
+      function () { sheet.hide(); page.openSheet("add") }, 900,
+      function () { sheet.selID = "codex"; sheet.cont() }, 5000, function () { state("codex-login"); shot(sheet, "real-codex-nocli") },
       function () { sheet.hide(); page.openSheet("add") }, 900,
       function () { sheet.selID = "droid"; sheet.cont() }, 400, function () { shot(sheet, "real-droid") },
       function () { sheet.setField("key", "fk-synthetic-000000000000000000000000"); sheet.save() }, 8000,
@@ -103,7 +107,8 @@ Item {
                       Harness.log("RAW " + JSON.stringify(r) + " isArray=" + Array.isArray(r) + " err=" + JSON.stringify(e)) })
                     sheet.discover(App.arg("codex-home", "")) }, 4000,
       function () { state("import-folder"); Harness.log("SOURCES " + JSON.stringify(sheet.sources)); shot(sheet, "real-import-folder") },
-      function () { sheet.review() }, 4000, function () { state("import-review"); shot(sheet, "real-import-review") },
+      function () { sheet.review() }, 4000,
+      function () { state("import-review"); Harness.log("FILELIST " + JSON.stringify(sheet.plan && sheet.plan.fileList)); shot(sheet, "real-import-review") },
       function () { sheet.commit() }, 5000, function () { state("import-done"); Harness.log("RESULT " + JSON.stringify(sheet.result)); shot(sheet, "real-import-done") },
       function () { sheet.dismiss() }, 1500, function () { shot(win, "real-after") },
       function () { Harness.quit(0) }])
@@ -174,7 +179,10 @@ Item {
     q = q.concat(detail("02", "accounts-claude-activity"))
     q = q.concat([function () { page.scroll.scrollTo(page.table.height + 600) }, 300, function () { shot(win, "accounts-repair") }])
     q = q.concat(detail("06", "accounts-droid-activity"))
-    q = q.concat([function () { page.scroll.scrollTo(page.table.height + 700) }, 300, function () { shot(win, "accounts-droid-key") },
+    q = q.concat([function () { page.scroll.scrollTo(page.table.height + 700) }, 300, function () { shot(win, "accounts-droid-key") }])
+    // hasUsageKey: 06 has no key (Remove key off), 03 has one (Remove key on)
+    q = q.concat(detail("03", "accounts-droid-03"))
+    q = q.concat([function () { page.scroll.scrollTo(page.table.height + 700) }, 300, function () { shot(win, "accounts-droid-key-saved") },
       function () { page.divergences = []; page.topicOverride = ({}) }, 200])
     q = q.concat(keySteps())
     q = q.concat([

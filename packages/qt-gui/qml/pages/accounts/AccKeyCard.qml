@@ -6,9 +6,7 @@ Card {
   id: card
   property var ctl
   property var row
-  // shortcut: the helper does not report key presence yet (needs `hasUsageKey` on Droid rows); until then
-  // Remove key stays enabled, and removing a key that is not there is harmless
-  readonly property bool hasKey: row.hasUsageKey === undefined ? true : row.hasUsageKey === true
+  readonly property bool hasKey: row.hasUsageKey === true
   title: "Factory usage key"
 
   AccSecRow {

@@ -133,9 +133,9 @@ Item {
     s.push(function () { Harness.log("EDGE ready-to-remove listed=" + (edgeId("Edge: removed") !== "")) })
     s.push(4000)
     s.push(function () { p.selectChat(edgeId("Edge: removed")) })
-    s.push(2000)
-    s.push(function () { Harness.log("EDGE removed detail=" + !!p.detail + " error=" + JSON.stringify(p.listError)); shot("history-edge-removed"); p.listSig = ""; p.refreshList() })
-    s.push(2000)
+    s.push(waitFor(function () { return p.listError !== "" || !!p.detail }, 30000))
+    s.push(function () { Harness.log("EDGE removed detail=" + !!p.detail + " header=" + JSON.stringify(p.summary ? p.summary.title : "") + " error=" + JSON.stringify(p.listError)); shot("history-edge-removed") })
+    s.push(3000)
     s.push(function () { Harness.log("EDGE removed after refresh total=" + p.total + " listed=" + (edgeId("Edge: removed") !== "") + " selected=" + JSON.stringify(p.selectedID.split("/").pop())) })
   }
 

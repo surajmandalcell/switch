@@ -150,7 +150,7 @@ Window {
     var name = pname, id = providerID
     if (kind === "secret")
       call("providers.add", { providerID: id, fields: fields }, function (d) { return "Couldn’t save the account. " + d + " Check the credentials and try again." },
-           function (r) { sh.finish(r.accountID, name + " account was saved.") })
+           function (r) { sh.finish(r.accountID, r.notice || name + " account was saved.") })   // notice: "already added as …"
     else if (kind === "files")
       call("providers.importLive", { providerID: id }, function (d) { return "Couldn’t import the current sign-in. " + d + " Sign in with the official app or CLI, then try again." },
            function (r) { sh.finish(r.accountID, "") })
@@ -395,7 +395,7 @@ Window {
                 anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
-                Badge { visible: parent.parent.signedIn; text: "Signed in on this Mac"; dot: Theme.green }
+                Badge { visible: parent.parent.signedIn; text: "Signed in on this computer"; dot: Theme.green }
                 Badge { visible: !parent.parent.ok; text: "WIP"; dot: Theme.secondary }
               }
               MouseArea {
@@ -509,7 +509,7 @@ Window {
         Column {
           anchors.verticalCenter: parent.verticalCenter
           Txt { role: "section"; text: "Add a " + sh.pname + " account" }
-          Txt { role: "secondary"; color: Theme.secondary; text: "Switch keeps these values in a private file on this Mac and uses them only to read usage." }
+          Txt { role: "secondary"; color: Theme.secondary; text: "Switch keeps these values in a private file on this computer and uses them only to read usage." }
         }
       }
       Repeater {
@@ -554,7 +554,6 @@ Window {
           }
         }
       }
-      // shortcut: no "Read from <first credential file>" row; providers.list has no credential paths yet
       Notice {
         visible: !files.reading
         warn: !files.found
@@ -563,6 +562,8 @@ Window {
                           : (files.hasLogin ? "Sign in with " + sh.pname + ", or choose Sign in another account to do it from Switch."
                                             : "Sign in with the official app, then return here.")
       }
+      AccFact { visible: value !== ""; ctl: sh.ctl; label: "Read from"
+                value: ((sh.catalogEntry(sh.providerID) || {}).credentialPaths || [])[0] || "" }
     }
   }
 
@@ -685,9 +686,17 @@ Window {
           }
         }
       }
-      // shortcut: import.plan gives `files` as a count only, so the manifest list is not drawn; add a file list to the plan to draw it
       SheetSection {
         heading: "Manifest · " + (parent.p.files || 0) + " selected"
+        Repeater {
+          model: parent.parent.p.fileList || []
+          delegate: Row {
+            width: parent.width
+            spacing: 8
+            Icon { name: "check"; size: 12; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
+            AccFact { ctl: sh.ctl; width: parent.width - 20; label: ""; value: modelData.relativePath }
+          }
+        }
       }
     }
   }

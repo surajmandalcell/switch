@@ -273,7 +273,8 @@ Item {
       Harness.log("LIVE " + what + " trash=" + c.trash.length + " cats=" + (c.scan ? c.scan.categories.length : -1)
                   + " sets=" + b.sets.length + " history=" + b.history.length + " folder=" + b.folder
                   + " checked=" + b.checkedRows.map(function (r) { return r.sourceID }).join(",") + " shared=" + JSON.stringify(b.shared)
-                  + " running=" + JSON.stringify(b.running)
+                  + " running=" + JSON.stringify(b.running) + " free=" + b.free + " caches=" + JSON.stringify(c.cacheSizes)
+                  + " groups=" + (b.history[0] ? JSON.stringify(b.history[0].snapshot.groups) : "none")
                   + " error=" + JSON.stringify(c.error) + " bar=" + JSON.stringify(page.barError)) } }
     var selectAll = function () {
       var next = {}
@@ -287,7 +288,7 @@ Item {
     var idle = function () { return !c.loading && !c.modelBusy }
     var steps = [
       until("scan", function () { return !!c.scan && idle() }), log("scanned"), shot("cleanup"),
-      function () { c.range = "All time"; Harness.log("LIVE a"); selectAll(); Harness.log("LIVE b"); c.makeReview(); Harness.log("LIVE c") }, until("review", function () { return !!c.review }), bottom, 300, log("reviewed"), shot("review"),
+      function () { c.range = "All time"; selectAll(); c.makeReview() }, until("review", function () { return !!c.review }), bottom, 300, log("reviewed"), shot("review"),
       function () { c.confirmApply() }, until("alert", function () { return Theme.alert.visible }), shot("alert"),
       function () { Theme.alert.accept() }, until("apply", function () { return idle() && c.trash.length > 0 }), bottom, 300, log("applied"), shot("trash"),
       function () { c.restoreBatch(c.trash[0]) }, until("restore", function () { return idle() && c.trash.length === 0 }), bottom, 300, log("restored"), shot("restored"),
@@ -301,6 +302,11 @@ Item {
       function () { b.backUpNow() }, until("backup", function () { return !b.running && b.history.length > 0 }, 60000), 500, log("backed-up"), shot("backup-done"),
       function () { var h = b.history[0]; if (h) b.restoreRequest = { snapshot: h.snapshot, set: h.set, title: h.title } }, 800, shot("restore-sheet"),
       function () { if (b.restoreRequest) b.restore(b.restoreRequest, null, App.arg("restoreTo", "")) }, until("restore", function () { return !b.restoring }, 60000), 500, log("restore"), shot("backup-restored"),
+      // restore of chosen items: the first group of the snapshot only, into its own folder
+      function () { var h = b.history[0], g = h && h.snapshot.groups
+                    if (g && g.length) b.restore({ snapshot: h.snapshot, set: h.set }, [g[0].id], App.arg("restoreTo", "") + "/chosen")
+                    else Harness.log("LIVE no groups on the snapshot") },
+      until("restore chosen", function () { return !b.restoring }, 60000), log("restore-chosen"),
       // shared settings, one change each, read back from the helper's checklist
       function () { b.setShared("schedule", "daily") }, until("schedule", function () { return b.shared.schedule === "daily" }),
       function () { b.setShared("keep", 5) }, until("keep", function () { return b.shared.keep === 5 }),
@@ -314,7 +320,7 @@ Item {
       function () { b.cancelBackup() }, until("cancel", function () { return !b.running }), 1000, log("cancelled"), shot("backup-cancelled"),
       function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked")
     ]
-    // The queue stays in this closure: a var property converts the array and loses the wait objects.
+    // A small sequencer of its own: the Driver knows only numbers and functions, these steps also wait on conditions.
     var i = 0, deadline = 0
     var next = function () {
       while (i < steps.length) {
@@ -324,23 +330,20 @@ Item {
           if (!deadline) deadline = Date.now() + s.ms
           var ok = false
           try { ok = s.cond() } catch (e) { Harness.log("LIVE wait error " + s.name + " " + e) }
-          if (!ok && Date.now() < deadline && (Date.now() % 2000) < 200) Harness.log("LIVE wait " + s.name)
           if (!ok && Date.now() < deadline) { liveTimer.interval = 200; liveTimer.start(); return }
           if (!ok) Harness.log("LIVE timeout waiting for " + s.name)
           deadline = 0; i++
           continue
         }
         i++
-        Harness.log("LIVE step " + i)
         try { s() } catch (e) { Harness.log("LIVE step error " + e) }
       }
       Harness.log("LIVE done")
       Harness.quit(0)
     }
-    return [function () { Harness.log("LIVE start " + steps.length); page.liveTick = next; next() }, 600000]
+    return [function () { page.liveTick = next; next() }, 600000]
   }
   property var liveTick: null
-  Connections { target: Qt.application; function onAboutToQuit() { Harness.log("LIVE aboutToQuit win=" + (page.Window.window ? page.Window.window.visible : "none")) } }
   Timer { id: liveTimer; onTriggered: page.liveTick() }
 
   function focusName(w) { var a = w.activeFocusItem; return a ? String(a).split("(")[0] + " '" + (a.text || a.label || a.objectName || "") + "' activeFocus=" + a.activeFocus + " keyboardMode=" + App.keyboardMode : "none" }

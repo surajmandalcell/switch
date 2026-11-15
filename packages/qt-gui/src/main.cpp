@@ -26,13 +26,17 @@ int main(int argc, char *argv[]) {
   if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND")) QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 #endif
 
+  // The app id (packaging/linux/com.mandalsuraj.Switch.desktop): the Wayland app_id and Qt's own portal
+  // registration use it, so set it before the application starts the platform.
+  QGuiApplication::setDesktopFileName("com.mandalsuraj.Switch");
   QApplication app(argc, argv);
   app.setApplicationName("Switch");
   app.setApplicationVersion("0.1.0");
   app.setWindowIcon(QIcon(":/qt/qml/SwitchUI/assets/appicon.png"));
   // macOS draws text with grayscale antialiasing; an RGB-subpixel fontconfig default would add color fringes.
   QFont base = QGuiApplication::font();
-  base.setStyleStrategy(QFont::NoSubpixelAntialias);
+  // Typo metrics keep a line with a fallback script (Noto Sans Arabic has a tall hhea ascent) on its baseline.
+  base.setStyleStrategy(QFont::StyleStrategy(QFont::NoSubpixelAntialias | QFont::PreferTypoLineMetrics));
   QGuiApplication::setFont(base);
 
   const int fontId = QFontDatabase::addApplicationFont(":/qt/qml/SwitchUI/fonts/InterVariable.ttf");

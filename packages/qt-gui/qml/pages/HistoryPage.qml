@@ -50,7 +50,8 @@ Item {
   property bool selecting: false
   property int delegatesMade: 0          // test hook: thread rows and message rows created so far
 
-  readonly property var summary: detail ? detail.thread : (threadIndex[selectedID] || null)
+  property bool openFailed: false        // the selected chat could not open: the header shows nothing for it
+  readonly property var summary: detail ? detail.thread : (openFailed ? null : (threadIndex[selectedID] || null))
   readonly property string trimmedQuery: messageQuery.trim()
 
   // ---- saved state (history.md 8.3) -------------------------------------------------------------------
@@ -241,6 +242,7 @@ Item {
     if (selectedID && detail) saveAnchor()
     selecting = true
     selectedID = id
+    openFailed = false
     save("chat.selectedID", id)
     detail = null
     messages = []
@@ -272,7 +274,11 @@ Item {
       searching = false
       if (err) {
         listError = "The selected chat could not open. " + (err.message || "")
-        if (!append) { detail = null; msgModel.clear() }
+        if (!append) {
+          detail = null; msgModel.clear(); openFailed = true
+          // the transcript is gone (-32003): read the list again now, so its row goes away too
+          if (err.code === -32003) { listSig = ""; refreshList() }
+        }
         return
       }
       var got = r.messages

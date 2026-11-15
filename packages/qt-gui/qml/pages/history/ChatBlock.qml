@@ -20,8 +20,9 @@ Loader {
     Item {
       width: bl.width
       height: qt.height
-      Rectangle { width: 2; height: parent.height; color: Theme.separator }
-      ChatText { id: qt; x: 11; width: parent.width - 11; color: Theme.secondary; html: bl.block.html }
+      // a right-to-left quote mirrors: bar on the right
+      Rectangle { x: qt.rtl ? parent.width - 2 : 0; width: 2; height: parent.height; color: Theme.separator }
+      ChatText { id: qt; x: rtl ? 0 : 11; width: parent.width - 11; color: Theme.secondary; html: bl.block.html }
     }
   }
 
@@ -35,8 +36,8 @@ Loader {
         Item {
           width: bl.width
           height: ut.height
-          Txt { id: dotT; text: "•"; height: 20 }
-          ChatText { id: ut; x: dotT.width + 8; width: parent.width - x; html: modelData }
+          Txt { id: dotT; x: ut.rtl ? parent.width - width : 0; text: "•"; height: 20 }
+          ChatText { id: ut; x: rtl ? 0 : dotT.width + 8; width: parent.width - dotT.width - 8; html: modelData }
         }
       }
     }
@@ -53,11 +54,12 @@ Loader {
           width: bl.width
           height: Math.max(24, ot.y + ot.height)
           Rectangle {
+            x: ot.rtl ? parent.width - 24 : 0
             width: 24; height: 24; radius: 4; color: Theme.tileFill
             Txt { anchors.centerIn: parent; tabular: true; text: (index + 1) + "." }
           }
           // first baselines line up: the badge text centers at 12, the first 20 pt text line at 10
-          ChatText { id: ot; x: 24 + 8; y: 2; width: parent.width - x; html: modelData }
+          ChatText { id: ot; x: rtl ? 0 : 24 + 8; y: 2; width: parent.width - 24 - 8; html: modelData }
         }
       }
     }

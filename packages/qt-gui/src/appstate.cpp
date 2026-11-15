@@ -54,16 +54,6 @@ static const char *kRunKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\C
 static QString autostartFile() {
   return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/autostart/switch.desktop";
 }
-// Desktop Entry spec "The Exec key": quote the path, backslash-escape " ` $ \ inside the quotes, then escape
-// each backslash again for the string value, and double % (a field code otherwise).
-static QByteArray execQuoted(QString path) {
-  QString q;
-  for (QChar c : path) {
-    if (c == '"' || c == '`' || c == '$' || c == '\\') q += '\\';
-    q += c == '%' ? QString("%%") : QString(c);
-  }
-  return "\"" + q.replace("\\", "\\\\").toUtf8() + "\"";
-}
 #endif
 
 bool AppState::loginEnabled() const {
@@ -92,7 +82,7 @@ void AppState::setLoginEnabled(bool on) {
   if (on) {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QSaveFile f(path);
-    const QByteArray body = "[Desktop Entry]\nType=Application\nName=Switch\nExec=" + execQuoted(target) +
+    const QByteArray body = "[Desktop Entry]\nType=Application\nName=Switch\nExec=" + GlobalShortcut::desktopExec(target) +
                             " --background\nX-GNOME-Autostart-enabled=true\n";
     if (!f.open(QIODevice::WriteOnly) || f.write(body) != body.size() || !f.commit()) m_loginError = f.errorString();
   } else if (QFileInfo::exists(path) && !QFile::remove(path)) {

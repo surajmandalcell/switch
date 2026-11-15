@@ -29,6 +29,13 @@ ARG UID=1002
 ARG GID=1002
 RUN echo "builder:x:${GID}:" >> /etc/group && echo "builder:x:${UID}:${GID}::/tmp:/bin/bash" >> /etc/passwd
 
+# Arabic and Hebrew fallbacks for right-to-left captures (History edge case). A layer of its own, so adding
+# it reuses the cached Qt layers above instead of pulling newer rolling packages.
+RUN zypper --non-interactive refresh \
+ && zypper --non-interactive install --no-recommends google-noto-sans-arabic-fonts google-noto-sans-hebrew-fonts \
+ && zypper --non-interactive clean --all \
+ && rm -rf /var/log/zypp* /var/cache/zypp
+
 # Qt logs to journald when stderr is not a terminal; the container has none, so QML errors would vanish.
 ENV XDG_RUNTIME_DIR=/tmp/xdg QT_QPA_PLATFORM=wayland QT_FORCE_STDERR_LOGGING=1 LANG=C.UTF-8
 WORKDIR /work
