@@ -197,6 +197,20 @@ Item {
                 + " rows=" + trayRows().map(function (r) { return r.id.slice(0, 8) + (r.isDefault ? "*" : "") + (r.showsInTray ? "" : "(hidden)")
                                                             + (r.prompt ? "[" + r.promptButton + "]" : "") }).join(","))
   }
+  function importHome(folder) {
+    Helper.call("import.plan", { source: folder, mode: "authOnly" }, function (r, e) {
+      if (e || !r) { Harness.log("ACT import.plan error " + (e ? e.code + " " + e.message : "")); return }
+      var plan = r.plan || r
+      Helper.call("import.commit", { planID: plan.planID }, function (r2, e2) { Harness.log("ACT import.commit " + (e2 ? "error " + e2.code + " " + e2.message : "ok")) })
+    })
+  }
+  // --script import --homes <a,b,...>: saves synthetic Codex homes into the root, one every 2.5 s, then quits
+  function importOnly() {
+    var homes = App.arg("homes", "").split(","), s = [2500]
+    homes.forEach(function (h) { s.push(function () { importHome(h) }, 2500) })
+    s.push(function () { Harness.quit(0) })
+    run(s)
+  }
   function popClick(name) {
     var it = win.popover ? find(win.popover.contentItem, name) : null
     if (!it || !it.visible) { Harness.log("ACT MISSING " + name); return }
@@ -209,13 +223,6 @@ Item {
                           for (var i = 0; i < r.length; ++i) if (!r[i].isDefault && !r[i].prompt) other = r[i].id }
     function open() { win.popoverClosedAt = 0; if (!win.popover || !win.popover.visible) win.togglePopover(anchor(false)) }
     function stored(k) { return JSON.stringify(Prefs.stored[k] || []) }
-    function importHome(folder) {
-      Helper.call("import.plan", { source: folder, mode: "authOnly" }, function (r, e) {
-        if (e || !r) { Harness.log("ACT import.plan error " + (e ? e.code + " " + e.message : "")); return }
-        var plan = r.plan || r
-        Helper.call("import.commit", { planID: plan.planID }, function (r2, e2) { Harness.log("ACT import.commit " + (e2 ? "error " + e2.code + " " + e2.message : "ok")) })
-      })
-    }
     // three homes: --homes a,b,c; the container script marks the third one signed out once it is saved
     var homes = App.arg("homes", "").split(",")
     run([2500, function () { importHome(homes[0]) }, 2500, function () { importHome(homes[1]) }, 2500, function () { importHome(homes[2]) },
@@ -274,6 +281,7 @@ Item {
     if (Harness && script === "states") return states()
     if (Harness && script === "a11y") return a11y()
     if (Harness && script === "popactions") return popActions()
+    if (Harness && script === "import") return importOnly()
     if (!Harness || script !== "shots") return
     var s = [1200]
     var only = App.arg("pages", "")   // comma list of page titles; no popover when set
@@ -302,6 +310,16 @@ Item {
     s.push(function () { win.popoverClosedAt = 0; win.togglePopover(anchor(true)) })
     s.push(900)
     s.push(function () { shot(win.popover, "popover-bottom") })
+    // --parity: also global search (drop-down on Overview, filtered Settings) and the Add Account window
+    if (App.flag("parity")) {
+      s.push(function () { win.popover.close(); win.show(0); win.searchQuery = "codex"; win.searchFocused = true }, 700,
+             function () { shot(win, "search-overview") },
+             function () { win.searchFocused = false; win.searchQuery = ""; win.show(2); win.searchQuery = "time" }, 700,
+             function () { shot(win, "search-settings") },
+             function () { win.searchQuery = ""; win.beginAddAccount() }, 1200,
+             function () { var a = win.showPage("Accounts"); if (a && a.sheet && a.sheet.visible) shot(a.sheet, "add-account")
+                           else { failed.push("add-account"); Harness.log("FAILED add-account") } })
+    }
     s.push(done)
     run(s)
   }
