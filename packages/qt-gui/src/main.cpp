@@ -21,6 +21,8 @@
 int main(int argc, char *argv[]) {
   // One logical DPI everywhere, so a QML pointSize of px * 0.75 is exactly px logical pixels.
   qputenv("QT_FONT_DPI", "96");
+  // The only Quick Controls in the app are the non-native folder dialog's; the packages ship only the Basic style.
+  if (!qEnvironmentVariableIsSet("QT_QUICK_CONTROLS_STYLE")) qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
 #ifndef Q_OS_WIN
   // Windows keeps Qt's default Direct3D 11, which also runs (WARP) where no OpenGL driver is installed.
   if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND")) QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
@@ -35,8 +37,7 @@ int main(int argc, char *argv[]) {
   app.setWindowIcon(QIcon(":/qt/qml/SwitchUI/assets/appicon.png"));
   // macOS draws text with grayscale antialiasing; an RGB-subpixel fontconfig default would add color fringes.
   QFont base = QGuiApplication::font();
-  // Typo metrics keep a line with a fallback script (Noto Sans Arabic has a tall hhea ascent) on its baseline.
-  base.setStyleStrategy(QFont::StyleStrategy(QFont::NoSubpixelAntialias | QFont::PreferTypoLineMetrics));
+  base.setStyleStrategy(QFont::NoSubpixelAntialias);
   QGuiApplication::setFont(base);
 
   const int fontId = QFontDatabase::addApplicationFont(":/qt/qml/SwitchUI/fonts/InterVariable.ttf");

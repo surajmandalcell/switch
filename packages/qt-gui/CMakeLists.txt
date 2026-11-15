@@ -65,6 +65,10 @@ endif()
 if(NOT SWITCH_HARNESS)
   set_target_properties(switch PROPERTIES WIN32_EXECUTABLE ON)
 endif()
+# Windows: the app icon Explorer, the taskbar, and the Start menu show (packaging/windows/switch.ico).
+if(WIN32)
+  target_sources(switch PRIVATE packaging/windows/switch.rc)
+endif()
 
 # qmlcachegen stops the whole build at the first QML syntax error and has no keep-going flag. When a build
 # fails, scripts/build.sh builds again with this OFF, so a broken file fails only its own page at run time.
