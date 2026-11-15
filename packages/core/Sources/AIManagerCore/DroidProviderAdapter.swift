@@ -159,6 +159,11 @@ struct DroidProviderAdapter {
 
     static func processes() throws -> [DroidProcess] {
         // Read executable names only, never process environments or credential-bearing arguments.
+#if os(Windows)
+        // No /bin/ps: the Toolhelp snapshot names "droid.exe". An unreadable list blocks the switch, like a ps failure.
+        guard let processes = WindowsProcesses.snapshot() else { throw AIManagerError.writerStateUnknown }
+        return processes.filter { $0.name.lowercased() == "droid.exe" }.map { DroidProcess(pid: $0.pid) }
+#else
         let process = Process(), pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-axo", "pid=,comm="]
@@ -182,5 +187,6 @@ struct DroidProviderAdapter {
             .map { DroidProcess(pid: $0.processIdentifier, bundleID: $0.bundleIdentifier) }
         #endif
         return result
+#endif
     }
 }
