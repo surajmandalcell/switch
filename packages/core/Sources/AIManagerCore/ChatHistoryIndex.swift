@@ -372,6 +372,9 @@ public actor ChatHistoryIndex {
     private struct ThreadMetadataSignature: Sendable, Equatable {
         let database: FileSignature?
         let writeAheadLog: FileSignature?
+        /// SQLite's file change counter: two writes inside one clock tick (about 16 ms on Windows) keep the size
+        /// and the modification time, but each committed write moves this counter.
+        let changeCounter: Data?
     }
 
     private struct ParseJob: Sendable {
@@ -994,7 +997,16 @@ public actor ChatHistoryIndex {
         let database = home.appending(path: "state_5.sqlite")
         return ThreadMetadataSignature(
             database: fileSignature(at: database),
-            writeAheadLog: fileSignature(at: URL(fileURLWithPath: database.path + "-wal")))
+            writeAheadLog: fileSignature(at: URL(fileURLWithPath: database.path + "-wal")),
+            changeCounter: changeCounter(of: database))
+    }
+
+    /// Bytes 24-27 of the SQLite header; nil when the file cannot be read.
+    private static func changeCounter(of database: URL) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: database) else { return nil }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: 24)) != nil, let bytes = try? handle.read(upToCount: 4), bytes.count == 4 else { return nil }
+        return bytes
     }
 
     private static func fileSignature(at url: URL) -> FileSignature? {
