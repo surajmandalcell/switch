@@ -31,8 +31,8 @@ Item {
       if (ls[i].label !== undefined) p.push(ls[i].label + " " + Theme.shownPercent(ls[i].used) + "% " + (Theme.showUsed ? "used" : "left"))
     return p.join(", ")
   }
-  Accessible.expandable: !!acct.canExpand
-  Accessible.expanded: expansion > 0
+  // Accessible.expandable and .expanded need Qt 6.11; the app builds on 6.8+, so the state goes in the description
+  Accessible.description: acct.canExpand ? (expansion > 0 ? "Expanded" : "Collapsed") : ""
   Accessible.onPressAction: if (acct.canExpand) toggle()
   Keys.onSpacePressed: if (acct.canExpand) toggle()
   Keys.onReturnPressed: if (acct.canExpand) toggle()

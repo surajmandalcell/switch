@@ -1,9 +1,12 @@
 #pragma once
 // The menu shortcut (shell.md 5.2, settings.md 8.4): one system-wide shortcut that toggles the tray popover.
 // Linux registers it through the XDG GlobalShortcuts portal, else with an X11 key grab (X11 or XWayland);
-// elsewhere `available` stays false.
+// Windows through RegisterHotKey (WM_HOTKEY on the GUI thread's queue).
 #include <QObject>
 #include <QVariant>
+#ifdef Q_OS_WIN
+#include <QAbstractNativeEventFilter>
+#endif
 #ifdef SWITCH_DBUS
 #include <QDBusMessage>
 #include <QHash>
@@ -13,7 +16,11 @@
 struct xcb_connection_t;
 #endif
 
-class GlobalShortcut : public QObject {
+class GlobalShortcut : public QObject
+#ifdef Q_OS_WIN
+    , public QAbstractNativeEventFilter
+#endif
+{
   Q_OBJECT
 public:
   explicit GlobalShortcut(QObject *parent = nullptr);
@@ -29,6 +36,8 @@ public:
   static int qtKey(int macKeyCode);
   // The X11 keysym for a Qt key (0 when none).
   static uint keysym(int qtKey);
+  // The Windows virtual-key code (VK_*, US layout) for a Qt key (0 when none).
+  static uint windowsVk(int qtKey);
   // A program path as a quoted Exec value (Desktop Entry spec "The Exec key").
   static QByteArray desktopExec(const QString &path);
   // In an AppImage: the user's desktop entry under the app id with Exec at $APPIMAGE, rewritten when the
@@ -67,6 +76,13 @@ private:
   uint m_keycode = 0;      // grabbed key, 0 when none
   uint m_xmods = 0;
   uint m_lastRelease = 0;  // auto-repeat sends a release and a press with the same time
+#endif
+#ifdef Q_OS_WIN
+public:
+  bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
+
+private:
+  bool m_registered = false;
 #endif
 
 private:

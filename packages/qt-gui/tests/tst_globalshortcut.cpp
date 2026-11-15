@@ -54,6 +54,7 @@ private slots:
       QCOMPARE(GlobalShortcut::qtKey(code), key);
       QVERIFY(!GlobalShortcut::xdgTrigger(key, 4096).isEmpty());
       QVERIFY(GlobalShortcut::keysym(key) != 0);
+      QVERIFY(GlobalShortcut::windowsVk(key) != 0);
     }
     QCOMPARE(codes.size(), 82);
   }
@@ -62,6 +63,14 @@ private slots:
     QCOMPARE(GlobalShortcut::desktopExec("/opt/Switch/bin/switch"), QByteArray("\"/opt/Switch/bin/switch\""));
     QCOMPARE(GlobalShortcut::desktopExec("/opt/My Apps/a\"b$c%d\\e"),
              QByteArray("\"/opt/My Apps/a\\\\\"b\\\\$c%%d\\\\\\\\e\""));
+  }
+  void windowsVks() {
+    QCOMPARE(GlobalShortcut::windowsVk(Qt::Key_S), 0x53u);
+    QCOMPARE(GlobalShortcut::windowsVk(Qt::Key_7), 0x37u);
+    QCOMPARE(GlobalShortcut::windowsVk(Qt::Key_F12), 0x7Bu);
+    QCOMPARE(GlobalShortcut::windowsVk(Qt::Key_Slash), 0xBFu);
+    QCOMPARE(GlobalShortcut::windowsVk(Qt::Key_Down), 0x28u);
+    QCOMPARE(GlobalShortcut::windowsVk(Qt::Key_VolumeUp), 0u);
   }
   void keysyms() {
     QCOMPARE(GlobalShortcut::keysym(Qt::Key_S), 0x73u);
