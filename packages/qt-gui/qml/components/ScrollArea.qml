@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 
 // A page scroll view with the thin custom bar of 4.20: no track, hidden at rest.
 Item {
@@ -22,6 +23,20 @@ Item {
                     easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut }
 
   function scrollTo(y) { flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, y)) }
+
+  // Tab to a control below or above the visible part scrolls it into view (keyboard mode only).
+  Connections {
+    target: sa.Window.window
+    function onActiveFocusItemChanged() {
+      var it = sa.Window.activeFocusItem
+      if (!it || !App.keyboardMode || !sa.visible) return
+      for (var p = it; p && p !== flick.contentItem; p = p.parent) {}
+      if (!p) return
+      var y = it.mapToItem(flick.contentItem, 0, 0).y
+      if (y - 12 < flick.contentY) sa.scrollTo(y - 12)
+      else if (y + it.height + 12 > flick.contentY + flick.height) sa.scrollTo(y + it.height + 12 - flick.height)
+    }
+  }
 
   Flickable {
     id: flick
@@ -74,6 +89,7 @@ Item {
       anchors.fill: parent
       hoverEnabled: true
       acceptedButtons: Qt.LeftButton
+      Accessible.ignored: true   // pointer-only scroll bar; keyboard focus scrolls the page itself
       onPressed: function (m) {
         // a click on the track jumps so the knob centers on the click
         sa.scrollTo((m.y - gutterItem.knobH / 2 - 1) / (gutterItem.track - gutterItem.knobH) * gutterItem.range)

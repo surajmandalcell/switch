@@ -220,6 +220,7 @@ Window {
                     readonly property int ri: pop.base(grp.gi) + index
                     acct: modelData
                     provider: grp.group.id
+                    service: grp.group.name
                     reveal: pop.amount(ri)
                     expansion: pop.layoutIndex === ri ? 1 : 0
                     barProgress: pop.bars
@@ -251,14 +252,15 @@ Window {
             property real angle: 0
             square: true
             icon: "refresh"
+            name: "Refresh usage"
             spin: angle
             enabled: !pop.refreshing
             NumberAnimation on angle { from: 0; to: 360; duration: 800; loops: Animation.Infinite; running: pop.refreshing && Theme.motion }
             onClicked: { pop.refreshing = true; pop.refresh() }
             Connections { target: pop; function onRefreshingChanged() { if (!pop.refreshing) refreshBtn.angle = 0 } }
           }
-          PopButton { square: true; icon: "power"; onClicked: pop.quit() }
-          PopButton { square: true; icon: "gear"; onClicked: pop.openSettings() }
+          PopButton { square: true; icon: "power"; name: "Quit Switch"; onClicked: pop.quit() }
+          PopButton { square: true; icon: "gear"; name: "Settings"; onClicked: pop.openSettings() }
         }
       }
     }

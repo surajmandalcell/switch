@@ -18,6 +18,10 @@ Item {
   Accessible.role: Accessible.CheckBox
   Accessible.name: text
   Accessible.checked: checked
+  Accessible.checkable: true
+  Accessible.checkStateMixed: mixed
+  Accessible.onToggleAction: flip()
+  Accessible.onPressAction: flip()
   Keys.onSpacePressed: flip()
   function flip() { checked = !checked; mixed = false; toggled(checked) }
 

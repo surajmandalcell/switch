@@ -15,8 +15,10 @@ Item {
   width: strip.width + 4
   activeFocusOnTab: enabled
   opacity: enabled ? 1 : 0.45
-  Accessible.role: Accessible.PageTabList
+  // a radio group (VoiceOver isSelected on the Mac): the focused group names its choice, each segment is a radio
+  Accessible.role: Accessible.Grouping
   Accessible.name: name
+  Accessible.description: model[current] || ""
   Keys.onLeftPressed: choose(Math.max(0, current - 1))
   Keys.onRightPressed: choose(Math.min(model.length - 1, current + 1))
   function choose(i) { if (i !== current) { current = i; picked(i) } }
@@ -58,9 +60,12 @@ Item {
       delegate: Item {
         width: seg.segmentWidth > 0 ? seg.segmentWidth : content.width + 24
         height: 24
-        Accessible.role: Accessible.PageTab
+        Accessible.role: Accessible.RadioButton
         Accessible.name: modelData
+        Accessible.checkable: true
+        Accessible.checked: index === seg.current
         Accessible.selected: index === seg.current
+        Accessible.onPressAction: if (seg.enabled) seg.choose(index)
         Row {
           id: content
           anchors.centerIn: parent

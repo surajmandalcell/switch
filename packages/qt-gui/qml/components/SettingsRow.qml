@@ -19,6 +19,14 @@ Item {
   height: (last ? 8 + contentH + 14 : Math.max(36, 8 + contentH + 8)) + sep
   Accessible.role: Accessible.Grouping
   Accessible.name: title
+  Accessible.description: help
+  // A control without its own name (Switch, Segmented, PopUp, FieldBox) takes the row title as its accessible name.
+  Component.onCompleted: {
+    for (var i = 0; i < ctl.children.length; ++i) {
+      var c = ctl.children[i]
+      if (typeof c.name === "string" && c.name === "" && "activeFocusOnTab" in c) c.name = Qt.binding(function () { return row.title })
+    }
+  }
 
   Item {
     y: 8
@@ -54,6 +62,8 @@ Item {
         activeFocusOnTab: true
         Accessible.role: Accessible.Button
         Accessible.name: "Copy path: " + row.detail
+        Accessible.onPressAction: copyPath()
+        FocusFill { anchors.fill: undefined; x: -3; width: Math.min(parent.width, parent.contentWidth) + 6; height: parent.height; radius: 3 }
         Keys.onReturnPressed: copyPath()
         Keys.onSpacePressed: copyPath()
         function copyPath() { App.copy(row.detail); copied.opacity = 1; copiedTimer.restart() }

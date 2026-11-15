@@ -261,6 +261,15 @@ Window {
     id: shell
     anchors.fill: parent
 
+    // Declared before the page so Tab runs sidebar, then header, then page (they never overlap: paint is the same)
+    Sidebar {
+      id: sidebar
+      height: parent.height
+      pages: win.pages
+      current: win.pageIndex
+      onSelect: function (i) { win.show(i) }
+    }
+
     // page region: page color; the window clips its right corners to the window radius
     Item {
       id: pageHost
@@ -299,19 +308,12 @@ Window {
       }
     }
 
-    Sidebar {
-      id: sidebar
-      height: parent.height
-      pages: win.pages
-      current: win.pageIndex
-      onSelect: function (i) { win.show(i) }
-    }
-
     // window drag on the 52 pt bar, behind every control
     MouseArea {
       width: parent.width
       height: 52
       z: -1
+      Accessible.ignored: true
       onPressed: win.startSystemMove()
       onDoubleClicked: win.zoom()
     }
@@ -330,6 +332,7 @@ Window {
       width: parent.width
       height: 5
       cursorShape: Qt.SizeVerCursor
+      Accessible.ignored: true
       onPressed: win.startSystemResize(Qt.BottomEdge)
     }
 

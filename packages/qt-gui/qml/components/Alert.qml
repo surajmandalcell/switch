@@ -17,7 +17,7 @@ Item {
   // spec.field (a string) adds one text field, pre-filled; onAccept then gets its text (Rename).
   function accept() { var f = spec.onAccept; close(); if (f) f(field.text) }
 
-  MouseArea { anchors.fill: parent; hoverEnabled: true; onWheel: function (w) { w.accepted = true } }
+  MouseArea { anchors.fill: parent; hoverEnabled: true; onWheel: function (w) { w.accepted = true }; Accessible.ignored: true }
 
   Item {
     id: panel
@@ -39,6 +39,7 @@ Item {
     Keys.onBacktabPressed: cycle(-1)
     Accessible.role: Accessible.AlertMessage
     Accessible.name: root.spec.title || ""
+    Accessible.description: root.spec.message || ""
 
     Rectangle {
       anchors.fill: parent
@@ -56,13 +57,14 @@ Item {
       y: 16
       width: parent.width - 32
       spacing: 0
-      Image { source: "assets/appicon.png"; width: 64; height: 64; sourceSize: Qt.size(128, 128); anchors.horizontalCenter: parent.horizontalCenter }
+      Image { source: "assets/appicon.png"; width: 64; height: 64; sourceSize: Qt.size(128, 128); anchors.horizontalCenter: parent.horizontalCenter; Accessible.ignored: true }
       Item { width: 1; height: 10 }
       Txt { width: parent.width; text: root.spec.title || ""; role: "section"; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap }
       Item { width: 1; height: 6 }
       Txt { width: parent.width; visible: text !== ""; role: "secondary"; text: root.spec.message || ""; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap }
       Item { width: 1; height: root.spec.field !== undefined ? 12 : 0 }
       FieldBox { id: field; visible: root.spec.field !== undefined; width: parent.width; placeholder: root.spec.fieldLabel || ""
+                 name: root.spec.fieldLabel || root.spec.title || ""
                  text: root.spec.field !== undefined ? root.spec.field : "" }
       Item { width: 1; height: 16 }
       Row {

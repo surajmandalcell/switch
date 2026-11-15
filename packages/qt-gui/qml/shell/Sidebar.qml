@@ -35,6 +35,7 @@ Item {
         Accessible.role: Accessible.ListItem
         Accessible.name: modelData.title
         Accessible.selected: selected
+        Accessible.onPressAction: sb.select(index)
         objectName: "sidebar-" + modelData.route
         Keys.onSpacePressed: sb.select(index)
         Keys.onReturnPressed: sb.select(index)

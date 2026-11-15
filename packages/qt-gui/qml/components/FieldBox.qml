@@ -7,6 +7,7 @@ Rectangle {
   property string placeholder: ""
   property alias input: input
   property bool secure: false
+  property string name: ""   // accessible name; the placeholder when empty (SettingsRow fills in its title)
   height: 28
   radius: 6
   color: Theme.controlFill
@@ -40,7 +41,9 @@ Rectangle {
     font.variableAxes: ({ "wght": 400 })
     font.letterSpacing: -0.006 * 13 * Theme.fontScale
     font.hintingPreference: Font.PreferNoHinting
-    Accessible.name: f.placeholder
+    Accessible.role: Accessible.EditableText
+    Accessible.name: f.name !== "" ? f.name : f.placeholder
+    Accessible.passwordEdit: f.secure
     Txt { visible: input.text === ""; text: f.placeholder; color: Theme.secondary; anchors.verticalCenter: parent.verticalCenter }
   }
   MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.IBeamCursor }

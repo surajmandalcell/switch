@@ -18,6 +18,7 @@ Rectangle {
   height: size
   radius: size * 0.22
   color: brand ? brand.tile : Theme.ink(0.08)
+  Accessible.ignored: true   // the provider name always sits beside the tile
 
   Item {
     anchors.fill: parent

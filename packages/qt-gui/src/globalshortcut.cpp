@@ -56,6 +56,7 @@ static const char *kService = "org.freedesktop.portal.Desktop";
 static const char *kPath = "/org/freedesktop/portal/desktop";
 static const char *kIface = "org.freedesktop.portal.GlobalShortcuts";
 static const char *kId = "menu";
+static const char *kAppId = "com.mandalsuraj.Switch";
 
 struct PortalShortcut {
   QString id;
@@ -88,14 +89,14 @@ GlobalShortcut::GlobalShortcut(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, kConn);
   if (!bus.isConnected()) return;
   bus.connect(kService, kPath, kIface, "Activated", this, SLOT(onActivated(QDBusMessage)));
-  // A host (non-sandboxed) app names its app id before any other portal call, so the desktop can show and keep
-  // the binding under "switch" (packaging/linux/switch.desktop). Older portals lack the registry; that is fine.
+  // A host (non-sandboxed) app names its app id before any other portal call; GlobalShortcuts refuses a host app
+  // without one ("An app id is required"). The id must be reverse-DNS and match the installed <id>.desktop file.
   auto reg = QDBusMessage::createMethodCall(kService, kPath, "org.freedesktop.host.portal.Registry", "Register");
-  reg.setArguments({QString("switch"), QVariantMap()});
+  reg.setArguments({QString(kAppId), QVariantMap()});
   auto *w = new QDBusPendingCallWatcher(bus.asyncCall(reg), this);
   connect(w, &QDBusPendingCallWatcher::finished, this, [this, bus](QDBusPendingCallWatcher *w) {
     w->deleteLater();
-    if (w->isError()) qCInfo(lcShortcut) << "app id not registered:" << w->error().name();
+    if (w->isError()) qCInfo(lcShortcut) << "app id not registered:" << w->error().message();
     auto get = QDBusMessage::createMethodCall(kService, kPath, "org.freedesktop.DBus.Properties", "Get");
     get.setArguments({QString(kIface), QString("version")});
     auto *v = new QDBusPendingCallWatcher(bus.asyncCall(get), this);

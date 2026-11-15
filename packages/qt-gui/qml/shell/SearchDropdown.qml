@@ -61,6 +61,7 @@ Item {
             role: "caption"; wght: 600; color: Theme.secondary
             text: firstAccount ? "Accounts" : "Settings"
             Accessible.role: Accessible.Heading
+            Accessible.name: text
           }
           Rectangle {
             width: col.width
@@ -69,6 +70,10 @@ Item {
             color: win.searchHot === index ? Theme.rowHighlight : "transparent"
             Accessible.role: Accessible.ListItem
             Accessible.selected: win.searchHot === index
+            Accessible.name: modelData.kind === "all" ? "Show all " + modelData.count + " in Accounts"
+                             : modelData.kind === "account" ? modelData.item.label + ", " + (win.providerNames[modelData.item.providerID] || modelData.item.providerID)
+                             : modelData.item.title + ", " + modelData.item.section
+            Accessible.onPressAction: win.searchChoose(modelData)
             Row {
               x: 8
               spacing: 8

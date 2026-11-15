@@ -8,6 +8,9 @@ Item {
   property string placeholder: "Search accounts and settings…"
   readonly property var win: Window.window
   height: 52
+  objectName: "page-header"
+  Accessible.role: Accessible.ToolBar
+  Accessible.name: "Toolbar"
   function focusSearch() { search.focusInput() }
 
   Row {
@@ -24,6 +27,7 @@ Item {
       square: true
       icon: "ellipsis"
       tip: "More"
+      Accessible.role: Accessible.ButtonMenu
       onClicked: Theme.menu.open(more, ["Refresh All Usage", "Add Account", "Import…", "-", "Settings"], -1, function (i) {
         if (i === 0) hdr.win.refreshAll()
         else if (i === 1) hdr.win.openAccountSheet("add")
