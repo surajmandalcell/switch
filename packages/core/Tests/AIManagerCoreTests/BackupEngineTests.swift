@@ -441,8 +441,9 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(second.files, 2_000)
         XCTAssertEqual(second.newBytes, 0)
         print("BACKUP TIMING 2000 files: write \(writeTime), full \(fullTime), incremental \(incrementalTime)")
-        // Linux: the full snapshot takes about a third of the write time.
-        let limit = max(.seconds(30), writeTime * 5)
+        // The full snapshot takes about a third of the write time on Linux and four times it on a Windows VM
+        // (access lists and the virus scanner).
+        let limit = max(.seconds(30), writeTime * 10)
         XCTAssertLessThan(fullTime, limit)
         XCTAssertLessThan(incrementalTime, limit)
     }
