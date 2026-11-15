@@ -36,18 +36,55 @@ $env:QT_LOGGING_RULES = "switch.helper.info=true"
 $p = Start-Process -FilePath "$app\switch.exe" -ArgumentList "--root", "`"$work\app-root`"" -PassThru -NoNewWindow `
   -RedirectStandardError "$work\app.err" -RedirectStandardOutput "$work\app.out"
 Start-Sleep -Seconds 20
-$helper = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)" | Where-Object Name -eq "switch-core.exe"
+# Get-Process, not WMI: a standard user may not query WMI.
+$helper = Get-Process switch-core -ErrorAction SilentlyContinue | Where-Object Path -eq "$app\switch-core.exe"
 $running = -not $p.HasExited
 if ($running) { Stop-Process -Id $p.Id -Force; $p.WaitForExit() }
 Start-Sleep -Seconds 2
 $ok = @(Select-String -Path "$work\app.err" -Pattern '^switch\.helper: rpc .* ok$').Count
-"running after 20 s: $running; helper: $($helper.ExecutablePath); rpc answers ok: $ok"
-if (-not $running -or -not $helper -or $helper.ExecutablePath -ne "$app\switch-core.exe" -or $ok -lt 3) {
+"running after 20 s: $running; helper: $($helper.Path); rpc answers ok: $ok"
+if (-not $running -or -not $helper -or $ok -lt 3) {
   Get-Content "$work\app.err" | Select-Object -Last 15
   $failed++
 }
-$left = Get-CimInstance Win32_Process -Filter "Name='switch-core.exe'" | Where-Object { $_.ExecutablePath -like "$app\*" }
-if ($left) { "helper still running after the app stopped"; $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; $failed++ }
+$left = Get-Process switch-core -ErrorAction SilentlyContinue | Where-Object Path -like "$app\*"
+if ($left) { "helper still running after the app stopped"; $left | Stop-Process -Force; $failed++ }
+
+# Every page in demo mode: a missing QML module or plugin fails that page's Loader, and the app logs it.
+$bad = 'failed to load|is not installed|Cannot load library|plugin cannot be loaded'
+foreach ($page in "Overview", "Accounts", "Settings", "Maintenance", "History") {
+  $p = Start-Process -FilePath "$app\switch.exe" -ArgumentList "--demo", "--page", $page -PassThru -NoNewWindow `
+    -RedirectStandardError "$work\page.err" -RedirectStandardOutput "$work\page.out"
+  Start-Sleep -Seconds 8
+  $running = -not $p.HasExited
+  if ($running) { Stop-Process -Id $p.Id -Force; $p.WaitForExit() }
+  $errors = @(Select-String -Path "$work\page.err" -Pattern $bad)
+  "page ${page}: running $running, load errors $($errors.Count)"
+  if (-not $running -or $errors) { $errors | Select-Object -First 5 | ForEach-Object { "  $($_.Line)" }; $failed++ }
+}
+
+# The folder dialog's non-native form (the offscreen platform has no native one) loads Quick Controls, which the
+# package trims to Basic. Qt's qml tool goes into the test copy so it sees only the package's modules.
+if (-not $InPlace) {
+  Copy-Item "$Qt\bin\qml.exe" $app
+  Set-Content "$work\dialog.qml" @'
+import QtQuick
+import QtQuick.Dialogs
+Window {
+  width: 800; height: 600; visible: true
+  FolderDialog { id: dialog; title: "probe" }
+  Timer { interval: 300; running: true; onTriggered: dialog.open() }
+  Timer { interval: 3000; running: true; onTriggered: { console.log("DIALOG visible=" + dialog.visible); Qt.quit() } }
+}
+'@
+  $env:QT_QUICK_CONTROLS_STYLE = "Basic"
+  $p = Start-Process -FilePath "$app\qml.exe" -ArgumentList "`"$work\dialog.qml`"" -PassThru -NoNewWindow -Wait `
+    -RedirectStandardError "$work\dialog.err" -RedirectStandardOutput "$work\dialog.out"
+  $shown = Select-String -Path "$work\dialog.err", "$work\dialog.out" -Pattern 'DIALOG visible=true' -Quiet
+  $errors = @(Select-String -Path "$work\dialog.err" -Pattern $bad)
+  "folder dialog (Basic): shown $shown, load errors $($errors.Count)"
+  if (-not $shown -or $errors) { Get-Content "$work\dialog.err" | Select-Object -Last 8; $failed++ }
+}
 
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 if ($failed) { "check FAILED ($failed)"; exit 1 }

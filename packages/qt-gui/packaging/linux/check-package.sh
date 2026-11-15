@@ -40,4 +40,31 @@ else
   echo "exit $s (124 = still running after 10 s, the expected result)"
   [ "$s" = 124 ] || rc=1
 fi
+
+# Every page in demo mode: a missing QML module or plugin fails that page's Loader, and the app logs it.
+BAD='failed to load|is not installed|Cannot load library|plugin cannot be loaded'
+for page in Overview Accounts Settings Maintenance History; do
+  timeout 8 "$APP/bin/switch" --demo --page "$page" > "$T/page.log" 2>&1
+  s=$?
+  n=$(grep -cE "$BAD" "$T/page.log")
+  echo "page $page: exit $s (124 = running), load errors $n"
+  [ "$s" = 124 ] && [ "$n" = 0 ] || { grep -E "$BAD" "$T/page.log" | head -5; rc=1; }
+done
+
+# The folder dialog's non-native form (offscreen has no native one) loads Quick Controls, which the package
+# trims to Basic. QML_TOOL is Qt's qml binary; in bin/ it uses the package's qt.conf, libraries, and modules.
+if [ -n "${QML_TOOL:-}" ]; then
+  cp "$QML_TOOL" "$APP/bin/qml"
+  printf '%s\n' 'import QtQuick' 'import QtQuick.Dialogs' 'Window {' '  width: 800; height: 600; visible: true' \
+    '  FolderDialog { id: dialog; title: "probe" }' '  Timer { interval: 300; running: true; onTriggered: dialog.open() }' \
+    '  Timer { interval: 3000; running: true; onTriggered: { console.log("DIALOG visible=" + dialog.visible); Qt.quit() } }' \
+    '}' > "$T/dialog.qml"
+  QT_QUICK_CONTROLS_STYLE=Basic timeout 20 "$APP/bin/qml" "$T/dialog.qml" > "$T/dialog.log" 2>&1
+  rm "$APP/bin/qml"
+  if grep -q 'DIALOG visible=true' "$T/dialog.log" && ! grep -qE "$BAD" "$T/dialog.log"; then
+    echo "folder dialog (Basic): shown"
+  else
+    echo "folder dialog (Basic): FAILED"; tail -8 "$T/dialog.log"; rc=1
+  fi
+fi
 exit $rc

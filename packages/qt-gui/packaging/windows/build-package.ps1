@@ -46,6 +46,15 @@ $ErrorActionPreference = "Continue"
 $ErrorActionPreference = "Stop"
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
 
+# Quick Controls styles: the app selects Basic (main.cpp), and QtQuick.Controls lists every other style as an
+# optional import, so only Basic and the shared impl stay. The Windows style's NativeStyle module goes with it.
+$controls = Join-Path $Out "qml\QtQuick\Controls"
+foreach ($style in Get-ChildItem $controls -Directory | Where-Object { $_.Name -notin @("Basic", "impl") }) {
+  Remove-Item -Recurse -Force $style.FullName
+  Get-ChildItem $Out -File -Filter "Qt6QuickControls2$($style.Name)*.dll" | Remove-Item -Force
+}
+Remove-Item -Recurse -Force (Join-Path $Out "qml\QtQuick\NativeStyle") -ErrorAction SilentlyContinue
+
 # Only the Swift runtime DLLs switch-core.exe needs: follow imports until no new one appears.
 $queue = @((Join-Path $Out "switch-core.exe"))
 $copied = @{}

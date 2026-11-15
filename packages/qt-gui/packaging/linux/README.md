@@ -65,9 +65,10 @@ the loader), `libstdc++`, `libgcc_s`, `libGL`, `libEGL`, `libX11`, `libX11-xcb`,
 (Qt), and `libcurl`, `libsqlite3` (`switch-core`). The oldest supported host is glibc 2.39 with
 GLIBCXX 3.4.32 (Ubuntu 24.04, Fedora 40, Debian 13).
 
-Sizes (MB): app folder 242 = Qt 88 (libraries, plugins, QML) + Qt ICU 38 + Swift 53 (`switch-core`
-is 15 of it) + Swift ICU 39 + the app binary and the rest. AppImage 72, tar.gz 79. The six Quick
-Controls styles (about 27 MB) come in through `QtQuick.Dialogs`; only Basic is used.
+Sizes (MB): app folder 219 = Qt 65 (libraries, plugins, QML) + Qt ICU 38 + Swift 53 (`switch-core`
+is 15 of it) + Swift ICU 39 + the app binary and the rest. AppImage 67, tar.gz 73. Quick Controls
+come in only through `QtQuick.Dialogs` (the non-native folder dialog); the app selects the Basic style
+(`main.cpp`), so the package keeps only Basic. The other styles were 23 MB of the folder.
 
 ICU data, not applied:
 - Qt ICU (`libicudata.so.73`, about 30 MB of the 38): Qt uses ICU for collation, locale names,
