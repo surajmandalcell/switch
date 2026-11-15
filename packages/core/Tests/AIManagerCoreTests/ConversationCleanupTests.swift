@@ -88,6 +88,11 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(RunningProcesses.lines(argv: [#"C:\Users\a\.codex\bin\codex.exe"#, "--home", #"C:\Users\a\.codex"#]),
                        ["C:/Users/a/.codex/bin/codex.exe", "C:/Users/a/.codex/bin/codex.exe --home C:/Users/a/.codex"])
         XCTAssertEqual(RunningProcesses.lines(argv: []), [])
+        // A Windows home that differs only in letter case is still in use; POSIX paths keep their case.
+        let line = "C:/Users/A/.Codex/bin/codex.exe --home C:/Users/A/.Codex"
+        XCTAssertTrue(CleanupScanner.line(line, uses: "c:/users/a/.codex", ignoringCase: true))
+        XCTAssertFalse(CleanupScanner.line(line, uses: "c:/users/a/.codex", ignoringCase: false))
+        XCTAssertFalse(CleanupScanner.line(line, uses: "c:/users/a/.grok", ignoringCase: true))
     }
 
     func testTrashReopenRestorePermanentRemovalAndRetainedActivity() async throws {
