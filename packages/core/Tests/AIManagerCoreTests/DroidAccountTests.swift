@@ -205,7 +205,12 @@ final class DroidAccountTests: XCTestCase {
     func testLiveHomeImportPrefersBundledDroidButStagingKeepsResolved() async throws {
         try doctor("s***@gmail.com")
         let bundled = root.appending(path: "bundled-droid")
+#if os(Windows)
+        // TestCLI's runnable launcher; the script itself (what the invocation file records) is not an executable.
+        paths.droidBundledExecutable = root.appending(path: "bundled-droid.cmd")
+#else
         paths.droidBundledExecutable = bundled
+#endif
         let manager = try manager()
         let account = try await manager.importDroidAccount(name: "Personal")
         func executable() throws -> String { String(try String(contentsOf: root.appending(path: "doctor-invocation"), encoding: .utf8).split(separator: "\n")[2]) }
