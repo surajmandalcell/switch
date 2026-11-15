@@ -316,7 +316,7 @@ Item {
       function () { b.setShared("includeLogins", false) }, until("logins off", function () { return b.shared.includeLogins === false }),
       // a second tool with large files, then Cancel in the middle of the run
       function () { b.setChecked(row("claude"), true) }, until("claude on", function () { return b.checkedSets.length === 2 }), log("claude-checked"),
-      function () { b.backUpNow() }, until("progress", function () { return !!b.running && b.running.bytes > 0 }, 60000), log("running"), shot("backup-running"),
+      function () { b.backUpNow() }, until("progress", function () { return !!b.running && b.running.index === b.running.count - 1 && b.running.bytes > 0 }, 60000), log("running"), shot("backup-running"),
       function () { b.cancelBackup() }, until("cancel", function () { return !b.running }), 1000, log("cancelled"), shot("backup-cancelled"),
       function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked")
     ]

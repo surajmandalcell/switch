@@ -14,9 +14,12 @@ Item {
 
   onTextChanged: {
     if (text === shown) return
+    var first = shown === ""
     old.text = shown
     cur.text = text
     shown = text
+    // A first value (data just loaded) appears at once, as SwiftUI shows a view's first content; no motion skips too.
+    if (first || !Theme.motion || Theme.reduceMotion) { anim.stop(); cur.y = 0; cur.opacity = 1; old.opacity = 0; return }
     anim.restart()
   }
   Txt { id: cur; role: r.role; tabular: r.tabular; color: r.color; text: r.text }
