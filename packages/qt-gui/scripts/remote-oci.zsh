@@ -27,7 +27,8 @@ fi
 # keeps its old size), so the host's render node goes in. Its own output still fails to draw; the
 # captures do not use it (Harness grabs each window).
 in_box() {
-  ssh "$HOST" "docker run --rm --init --user \$(id -u):\$(id -g) --memory 6g --log-driver local --log-opt max-size=5m \
+  # -n and the keepalive stop ssh from staying open after the container exits
+  ssh -n -o ServerAliveInterval=30 -o ServerAliveCountMax=4 "$HOST" "docker run --rm --init --user \$(id -u):\$(id -g) --memory 6g --log-driver local --log-opt max-size=5m \
     --device /dev/dri/renderD128 --group-add \$(getent group render | cut -d: -f3) \
     -v /mnt/sdb/data/switch/qt/helper:/opt/helper:ro -e SWITCH_CORE=/opt/helper/switch-core \
     -e HOME=/tmp -e JOBS=3 -e SWITCH_BUILD_LOCK=/w/qt.lock -v $REMOTE:/w -w /w $IMAGE \

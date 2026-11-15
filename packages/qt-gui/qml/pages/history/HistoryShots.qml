@@ -128,7 +128,7 @@ Item {
     openEdge(s, p, "Edge: broken")
     s.push(function () { Harness.log("EDGE broken messages=" + p.messages.length + " warning=" + JSON.stringify(p.warningText)); shot("history-edge-broken") })
     openEdge(s, p, "Edge: right to left")
-    s.push(function () { Harness.log("EDGE rtl messages=" + p.messages.length); shot("history-edge-rtl") })
+    s.push(function () { Harness.log("EDGE rtl messages=" + p.messages.length + " titleDrop=" + p.titleSel.parent.drop + " baseline=" + p.titleSel.parent.baselineOffset); shot("history-edge-rtl") })
     // real.sh deletes the transcript when it sees this line, then the open chat is reloaded
     s.push(function () { Harness.log("EDGE ready-to-remove listed=" + (edgeId("Edge: removed") !== "")) })
     s.push(4000)

@@ -543,7 +543,7 @@ Item {
           spacing: 2
           // Selectable title (Mac: one line, tail ellipsis, textSelection): the elided label at rest, the full
           // text in a read-only field once a press or Tab gives it focus, so a drag can select past the ellipsis.
-          Txt {
+          ChatTitle {
             id: titleT
             width: parent.width
             role: "section"

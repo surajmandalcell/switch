@@ -168,7 +168,7 @@ Window {
     p.rowAction.connect(function (name, acct, provider) {
       var row = { id: acct.id, providerID: provider, label: acct.label }
       // the outcome only (no reply data), so a capture run can prove the action
-      function result(r, e) { win.lastPopAction = name + (e ? " error " + (e.data && e.data.kind || e.code) : (r && r.error ? " failed" : " ok")) }
+      function result(r, e) { win.lastPopAction = name + (e ? " error " + (e.data && e.data.kind || e.code) + ": " + e.message : (r && r.error ? " failed: " + r.error : " ok")) }
       if (name === "Switch")
         Helper.call("accounts.setDefault", { accountID: acct.id }, function (r, e) { result(r, e); if (!e && !(r && r.error)) p.close() })
       else if (name === "Sign in") { p.close(); var a = win.showPage("Accounts"); if (a && a.signIn) a.signIn(row); result(null, null) }
