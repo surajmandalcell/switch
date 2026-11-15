@@ -62,6 +62,10 @@ void HelperClient::launch() {
     QDir().mkpath(m_config.root + "/home");
     env.insert("AI_MANAGER_ROOT", m_config.root + "/switch");
     env.insert("HOME", m_config.root + "/home");
+#ifdef Q_OS_WIN
+    // architecture.md data folders: Windows test isolation also sets USERPROFILE (the vault and tool homes).
+    env.insert("USERPROFILE", QDir::toNativeSeparators(m_config.root + "/home"));
+#endif
     // An inherited XDG_* path would lead the helper back into the real profile.
     for (const char *k : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"}) env.remove(k);
     // AI_MANAGER_ROOT is what `serve --root` sets; the variable also works with helpers older than --root.
@@ -129,7 +133,8 @@ void HelperClient::startDemo(const QJsonObject &demo) {
   const QJsonObject topics = demo.value("topics").toObject();
   for (auto it = topics.begin(); it != topics.end(); ++it) applyTopic(it.key(), 0, it.value());
   m_demoReplies = demo.value("replies").toObject();
-  m_server = QVariantMap{{"methods", QVariantList()}, {"topics", QVariant(topics.keys())}};
+  // A method with a demo reply counts as present, so hasMethod gates behave as with a real helper.
+  m_server = QVariantMap{{"methods", QVariant(m_demoReplies.keys())}, {"topics", QVariant(topics.keys())}};
   setStatus("demo");
 }
 
@@ -201,7 +206,8 @@ qint64 HelperClient::call(const QString &method, const QVariantMap &params, cons
   return request(method, QJsonObject::fromVariantMap(params), [this, callback](const QJsonValue &result, const QJsonObject &error) {
     if (!callback.isCallable() || !m_engine) return;
     QJSValue cb = callback;
-    cb.call({m_engine->toScriptValue(result.toVariant()),
+    // the QJsonValue itself, not toVariant(): a QVariantList arrives as a sequence that fails Array.isArray
+    cb.call({m_engine->toScriptValue(result),
              error.isEmpty() ? QJSValue(QJSValue::NullValue) : m_engine->toScriptValue(error.toVariantMap())});
   }, timeoutMs);
 }

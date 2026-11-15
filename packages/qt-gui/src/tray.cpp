@@ -8,6 +8,7 @@
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QSettings>
 #include <QSystemTrayIcon>
 
 namespace {
@@ -35,6 +36,12 @@ Tray::Tray(QObject *parent) : QObject(parent) {
   connect(m_icon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason r) {
     if (r == QSystemTrayIcon::Trigger) emit toggleRequested(iconRect());
   });
+#ifdef Q_OS_WIN
+  // The taskbar follows the system mode, not the app mode; dark (0, or no value on Windows 10) needs a white mark.
+  // shortcut: read once at start, so a later taskbar mode change keeps the old tone until restart.
+  m_dark = QSettings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     QSettings::NativeFormat).value("SystemUsesLightTheme", 0).toInt() == 0;
+#endif
   updateIcon();
   m_icon->show();
 }
@@ -56,6 +63,10 @@ void Tray::setTooltip(const QString &text) {
   if (!m_icon || text == m_icon->toolTip()) return;
   m_icon->setToolTip(text);
   emit tooltipChanged();
+}
+
+void Tray::showMessage(const QString &title, const QString &text) {
+  if (m_icon && m_icon->supportsMessages()) m_icon->showMessage(title, text, QSystemTrayIcon::NoIcon);
 }
 
 QRect Tray::iconRect() const {

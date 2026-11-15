@@ -99,7 +99,7 @@ Item {
       SRow {
         sid: "shortcut"; group: page.gGeneral
         title: "Menu shortcut"
-        // shell.md 5.2: without a registration path (no X11 grab or GlobalShortcuts portal yet) the row is off
+        // shell.md 5.2: without the GlobalShortcuts portal (or off Linux) the row is off
         help: App.globalShortcuts ? "Open or close the menu popover from anywhere. Off until you record one."
                                   : "Global shortcuts need a supported desktop"
         Txt { visible: rec.hint !== ""; text: rec.hint; role: "secondary"; color: Theme.amber; anchors.verticalCenter: parent.verticalCenter }
@@ -117,6 +117,8 @@ Item {
           Accessible.name: "Global shortcut"
           Accessible.description: "Records a shortcut that opens the menu popover from anywhere"
           onClicked: { recording = !recording; hint = ""; if (recording) forceActiveFocus() }
+          // shell.md 5.1 Refused, reworded for Linux; Main.qml clears the stored combo.
+          Connections { target: App; function onShortcutRefused() { rec.hint = "The desktop or another app already uses this shortcut." } }
           Keys.onPressed: function (e) {
             if (!recording) return
             e.accepted = true
@@ -180,13 +182,28 @@ Item {
       SRow { sid: "hide-email"; group: page.gAccounts; title: "Hide email addresses"; help: "Mask account emails everywhere, such as a••••@example."; PrefSwitch { key: "hideEmailAddresses" } }
       SRow { sid: "privacy"; group: page.gAccounts; title: "Privacy mode"; help: "Show made-up names, such as Jon Doe, instead of account names and emails."; PrefSwitch { key: "privacyMode" } }
       SRow { sid: "status"; group: page.gAccounts; title: "Check provider status"; help: "Show a dot beside a provider that reports an incident."; PrefSwitch { key: "checkProviderStatus" } }
-      // shortcut: the helper can read the Claude shell line but not write it yet (helper need: a set method)
-      SRow { sid: "claude-shell"; group: page.gAccounts; title: "Use the selected Claude account in terminals"; help: "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+      // settings.md claude-shell: the switch shows the marked line's presence; a toggle sets it, then re-reads it.
+      // On failure a red line under the help says "Couldn’t update the shell setup. <error>".
+      SRow { sid: "claude-shell"; group: page.gAccounts; title: "Use the selected Claude account in terminals"
+        help: "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+        error: shellLine.error
         Switch {
           id: shellLine
-          enabled: false
-          Component.onCompleted: if (Helper.hasMethod("claude.shellIntegration.get"))
-            Helper.call("claude.shellIntegration.get", {}, function (r, err) { if (!err) shellLine.checked = r.enabled === true })
+          objectName: "pref-claudeShell"
+          property string error: ""
+          enabled: Helper.hasMethod("claude.shellIntegration.set")
+          function read() {
+            if (Helper.hasMethod("claude.shellIntegration.get"))
+              Helper.call("claude.shellIntegration.get", {}, function (r, err) { if (!err) shellLine.checked = r.enabled === true })
+          }
+          Component.onCompleted: read()
+          onToggled: function (on) {
+            error = ""
+            Helper.call("claude.shellIntegration.set", { enabled: on }, function (r, err) {
+              if (err) shellLine.error = "Couldn’t update the shell setup. " + (err.message || "")
+              shellLine.read()
+            })
+          }
         } }
     }
 

@@ -103,7 +103,13 @@ Window {
     err = ""
     Helper.call(method, params, function (r, e) {
       sh.working = false
-      if (e) { if (!(e.data && e.data.kind === "busy")) sh.err = failText(e.message); return }
+      if (e) {
+        if (e.data && e.data.kind === "busy") return
+        sh.err = failText(e.message)
+        // the sheet shows this failure, so the page's red bar must not repeat it
+        Helper.call("notices.dismiss", { which: "error" }, function () {})
+        return
+      }
       if (r && r.status === "needsConfirmation" && r.confirmation) {
         var c = r.confirmation
         alert.open({ title: c.title, message: c.message, action: c.action,
@@ -132,10 +138,11 @@ Window {
     providerID = p.id
     if (p.id === "codex" || p.id === "grok-build" || p.id === "claude-code") startLogin({ providerID: p.id })
     else if (p.id === "droid") {
-      kind = "droid"; step = 2
       var n = 0
       ctl.allRows.forEach(function (r) { if (r.providerID === "droid") ++n })
+      // fields first: the page reads them once when it loads
       fields = { name: ctl.pref("privacyMode", false) ? "" : "Droid " + (n + 1), key: "" }
+      kind = "droid"; step = 2
     } else { kind = p.fields && p.fields.length ? "secret" : "files"; fields = ({}); step = 2 }
   }
   function back() { err = ""; if (login) { Helper.call("login.cancel", { sessionID: login.sessionID }, function () {}); login = null } if (boundID) { hide(); return } step = 1; kind = "" }
@@ -162,7 +169,7 @@ Window {
   function discover(folder) {
     call("import.discover", folder ? { folder: folder } : {}, function (d) { return d }, function (r) {
       sh.sources = Array.isArray(r) ? r : []
-      var ok = sh.sources.filter(function (s) { return s.support === "chatgpt" || s.support === "chatGPTAccount" })
+      var ok = sh.sources.filter(function (s) { return s.support === "supportedChatGPT" })
       if (ok.length && sh.sourceID === "") sh.sourceID = ok[0].id
     })
   }
@@ -173,7 +180,7 @@ Window {
          function (r) { sh.plan = r.plan || r; sh.decisions = ({}); sh.step = 2 })
   }
   function commit() {
-    call("import.commit", { planID: plan.planID, decisions: decisions }, function (d) { return d }, function (r) { sh.result = r; sh.plan = null; sh.step = 3 })
+    call("import.commit", { planID: plan.planID, decisions: decisions }, function (d) { return d }, function (r) { sh.result = r; sh.plan = null; sh.doneID = r.accountID || ""; sh.step = 3; if (sh.doneID) sh.ctl.select(sh.doneID) })
   }
 
   // ---- chrome --------------------------------------------------------------------------------------
@@ -273,7 +280,7 @@ Window {
       border.color: Theme.cardBorder
       Icon { id: ewarn; x: 16; anchors.verticalCenter: parent.verticalCenter; name: "warnFill"; size: 14; color: Theme.red }
       Txt { id: emsg; x: 38; anchors.verticalCenter: parent.verticalCenter; width: ecopy.x - 8 - x; height: implicitHeight
-            wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight; text: sh.err }
+            wrapMode: Text.Wrap; text: sh.err }
       AccCopyIcon { id: ecopy; x: edis.x - 12 - width; anchors.verticalCenter: parent.verticalCenter; tip: "Copy error"; onCopy: sh.ctl.copy(sh.err) }
       PushButton { id: edis; x: parent.width - 16 - width; anchors.verticalCenter: parent.verticalCenter; text: "Dismiss"; onClicked: sh.err = "" }
     }
@@ -597,8 +604,9 @@ Window {
         Repeater {
           model: sh.sources
           delegate: Item {
-            readonly property bool ok: modelData.support === "chatgpt" || modelData.support === "chatGPTAccount"
-            readonly property string supportText: ({ chatgpt: "ChatGPT account", chatGPTAccount: "ChatGPT account", subscriptionOAuth: "Subscription OAuth",
+            readonly property bool ok: modelData.support === "supportedChatGPT"
+            // SourceSupport raw values (core Models.swift)
+            readonly property string supportText: ({ supportedChatGPT: "ChatGPT account", supportedOAuth: "Subscription OAuth",
                                                      apiKey: "API key", missingAuth: "Missing auth", malformedAuth: "Malformed auth",
                                                      keychainOnly: "Keychain only" })[modelData.support] || "Unknown format"
             width: parent.width
@@ -668,10 +676,9 @@ Window {
           }
         }
       }
+      // shortcut: import.plan gives `files` as a count only, so the manifest list is not drawn; add a file list to the plan to draw it
       SheetSection {
-        heading: "Manifest · " + ((parent.p.files || []).length) + " selected"
-        Repeater { model: (parent.parent.p.files || []).slice(0, 200)
-                   delegate: AccFact { ctl: sh.ctl; label: ""; value: typeof modelData === "string" ? modelData : (modelData.path || modelData.relativePath || "") } }
+        heading: "Manifest · " + (parent.p.files || 0) + " selected"
       }
     }
   }

@@ -44,6 +44,8 @@ Item {
   // The topics map only signals QML writes, so follow its values through bindings.
   readonly property bool appLoaded: !!app.hasLoaded
   onAppLoadedChanged: if (appLoaded && !historyLoaded) { reload(); loadBackups() }
+  // usageHistory.version goes up when the data behind usage.history changed (architecture.md 2.7).
+  Connections { target: Helper; function onTopicChanged(t) { if (t === "usageHistory.version" && page.historyLoaded) page.reload() } }
   readonly property var settingsTopic: Helper.topics.settings || null
   onSettingsTopicChanged: applyPrefs()
   Component.onCompleted: { applyPrefs(); reload(); loadBackups() }
@@ -77,8 +79,9 @@ Item {
       if (got.s && got.y) { sum = got.s; year = got.y; historyLoaded = true }
       loading = false
     }
-    Helper.call("usage.history", { period: period, grouping: grouping }, function (r, e) { got.s = e ? null : r.summary; done() })
-    Helper.call("usage.history", { period: "year", grouping: "model" }, function (r, e) { got.y = e ? null : r.summary; done() })
+    // points: false leaves out the raw points (a year of them per reply); older helpers ignore it.
+    Helper.call("usage.history", { period: period, grouping: grouping, points: false }, function (r, e) { got.s = e ? null : r.summary; done() })
+    Helper.call("usage.history", { period: "year", grouping: "model", points: false }, function (r, e) { got.y = e ? null : r.summary; done() })
   }
 
   function loadBackups() {
@@ -335,6 +338,7 @@ Item {
     })
     function clickDay(back) {   // a real click on the newest day with tokens, `back` days before today
       s.push(function () {
+        if (!page.shown || !heat.lay) { Harness.log("CLICK no heatmap"); return }
         var ys = page.shown.yearTotals, i = ys.length - 1 - back; while (i > 0 && ys[i] <= 0) --i
         var r = O.heatRect(heat.lay, i), p = heat.mapToItem(null, r.x + r.w / 2, r.y + r.h / 2)
         Harness.move(w, p.x, p.y); Harness.click(w, p.x, p.y)
@@ -376,6 +380,13 @@ Item {
     if (demoState.indexOf("mac") === 0) {
       shot("mac-top")
       s.push(function () { scroll.scrollTo(1e6) }); s.push(500); shot("mac-bottom")
+      s.push(function () {   // a real click on Open Backup: Maintenance, Backup tab
+        var b = backupsCard.openButton, p = b.mapToItem(null, b.width / 2, b.height / 2)
+        Harness.move(w, p.x, p.y); Harness.click(w, p.x, p.y)
+      })
+      s.push(1200)
+      s.push(function () { var m = w.page(w.pageIndex); Harness.log("OPENBACKUP page=" + w.pages[w.pageIndex].route + " tab=" + (m ? m.tab : "none")) })
+      shot("open-backup")
       return s
     }
     shot("top")

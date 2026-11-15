@@ -96,12 +96,15 @@ Item {
       function () { sheet.startLogin({ providerID: s.filesP.id }) }, 5000, function () { state("files-login"); shot(sheet, "real-files-noemulator") },
       function () { sheet.hide(); page.openSheet("add") }, 900,
       function () { sheet.selID = "droid"; sheet.cont() }, 400, function () { shot(sheet, "real-droid") },
-      function () { sheet.fields = { name: "Droid synthetic", key: "fk-synthetic-000000000000000000000000" }; sheet.save() }, 8000,
+      function () { sheet.setField("key", "fk-synthetic-000000000000000000000000"); sheet.save() }, 8000,
       function () { state("droid"); shot(sheet, "real-droid-saved") },
       function () { sheet.hide(); page.openSheet("import") }, 4000, function () { state("import"); shot(sheet, "real-import") },
-      function () { sheet.discover(App.arg("codex-home", "")) }, 4000,
+      function () { Helper.call("import.discover", { folder: App.arg("codex-home", "") }, function (r, e) {
+                      Harness.log("RAW " + JSON.stringify(r) + " isArray=" + Array.isArray(r) + " err=" + JSON.stringify(e)) })
+                    sheet.discover(App.arg("codex-home", "")) }, 4000,
       function () { state("import-folder"); Harness.log("SOURCES " + JSON.stringify(sheet.sources)); shot(sheet, "real-import-folder") },
       function () { sheet.review() }, 4000, function () { state("import-review"); shot(sheet, "real-import-review") },
+      function () { sheet.commit() }, 5000, function () { state("import-done"); Harness.log("RESULT " + JSON.stringify(sheet.result)); shot(sheet, "real-import-done") },
       function () { sheet.dismiss() }, 1500, function () { shot(win, "real-after") },
       function () { Harness.quit(0) }])
     steps = q

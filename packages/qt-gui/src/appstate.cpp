@@ -16,7 +16,11 @@
 #include <QKeyEvent>
 
 AppState::AppState(QStringList args, QString fontFamily, QObject *parent)
-    : QObject(parent), m_args(std::move(args)), m_fontFamily(std::move(fontFamily)) {}
+    : QObject(parent), m_args(std::move(args)), m_fontFamily(std::move(fontFamily)) {
+  connect(&m_shortcut, &GlobalShortcut::availableChanged, this, &AppState::globalShortcutsChanged);
+  connect(&m_shortcut, &GlobalShortcut::activated, this, &AppState::shortcutActivated);
+  connect(&m_shortcut, &GlobalShortcut::refused, this, &AppState::shortcutRefused);
+}
 
 QString AppState::arg(const QString &name, const QString &def) const {
   const QString key = "--" + name;
@@ -50,13 +54,25 @@ static const char *kRunKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\C
 static QString autostartFile() {
   return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/autostart/switch.desktop";
 }
+// Desktop Entry spec "The Exec key": quote the path, backslash-escape " ` $ \ inside the quotes, then escape
+// each backslash again for the string value, and double % (a field code otherwise).
+static QByteArray execQuoted(QString path) {
+  QString q;
+  for (QChar c : path) {
+    if (c == '"' || c == '`' || c == '$' || c == '\\') q += '\\';
+    q += c == '%' ? QString("%%") : QString(c);
+  }
+  return "\"" + q.replace("\\", "\\\\").toUtf8() + "\"";
+}
 #endif
 
 bool AppState::loginEnabled() const {
 #ifdef Q_OS_WIN
   return QSettings(kRunKey, QSettings::NativeFormat).contains("Switch");
 #else
-  return QFileInfo::exists(autostartFile());
+  // settings.md 8.3: the entry exists and is not Hidden=true.
+  QFile f(autostartFile());
+  return f.open(QIODevice::ReadOnly) && !("\n" + f.readAll()).contains("\nHidden=true");
 #endif
 }
 
@@ -71,11 +87,13 @@ void AppState::setLoginEnabled(bool on) {
   if (key.status() != QSettings::NoError) m_loginError = "the Run registry key could not be written";
 #else
   const QString path = autostartFile();
+  // An AppImage runs from a temporary mount; APPIMAGE names the file the user keeps.
+  const QString target = qEnvironmentVariableIsSet("APPIMAGE") ? qEnvironmentVariable("APPIMAGE") : exe;
   if (on) {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QSaveFile f(path);
-    const QByteArray body = "[Desktop Entry]\nType=Application\nName=Switch\nExec=\"" + exe.toUtf8() +
-                            "\" --background\nX-GNOME-Autostart-enabled=true\n";
+    const QByteArray body = "[Desktop Entry]\nType=Application\nName=Switch\nExec=" + execQuoted(target) +
+                            " --background\nX-GNOME-Autostart-enabled=true\n";
     if (!f.open(QIODevice::WriteOnly) || f.write(body) != body.size() || !f.commit()) m_loginError = f.errorString();
   } else if (QFileInfo::exists(path) && !QFile::remove(path)) {
     m_loginError = "the autostart file could not be removed";

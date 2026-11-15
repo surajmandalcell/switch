@@ -67,19 +67,20 @@ Card {
       Item {
         id: grid
         width: parent.width
-        readonly property bool short: card.count <= 7
+        // Not "short": Qt 6.10's QML compiler reads it as a reserved word.
+        readonly property bool oneRow: card.count <= 7
         readonly property int pad: card.days.length ? card.days[0].date.getUTCDay() : 0
         readonly property int weeks: Math.ceil((pad + card.days.length) / 7)
         readonly property real cell: {
-          if (short) return 18
+          if (oneRow) return 18
           var sizes = card.period === 4 ? [9, 8, 7, 6, 5] : [13, 9, 8, 7, 6, 5]
           for (var i = 0; i < sizes.length; ++i) if (15 + weeks * (sizes[i] + 3) <= width) return sizes[i]
           return 5
         }
-        height: short ? 14 + 5 + 18 : 7 * (cell + 3)
+        height: oneRow ? 14 + 5 + 18 : 7 * (cell + 3)
         activeFocusOnTab: true
-        Keys.onLeftPressed: card.move(short ? -1 : -7)
-        Keys.onRightPressed: card.move(short ? 1 : 7)
+        Keys.onLeftPressed: card.move(oneRow ? -1 : -7)
+        Keys.onRightPressed: card.move(oneRow ? 1 : 7)
         Keys.onUpPressed: card.move(-1)
         Keys.onDownPressed: card.move(1)
         Accessible.role: Accessible.Table
@@ -87,7 +88,7 @@ Card {
         FocusFill { anchors.margins: -4; radius: 6 }
 
         Repeater {
-          model: grid.short ? card.days : []
+          model: grid.oneRow ? card.days : []
           delegate: Column {
             x: index * (18 + 6)
             spacing: 5
@@ -104,11 +105,11 @@ Card {
           }
         }
         Repeater {
-          model: grid.short ? [] : ["M", "W", "F"]
+          model: grid.oneRow ? [] : ["M", "W", "F"]
           delegate: Txt { y: (1 + index * 2) * (grid.cell + 3) + (grid.cell - height) / 2; role: "caption"; color: Theme.secondary; text: modelData; font.pixelSize: Math.min(9, grid.cell + 1) }
         }
         Repeater {
-          model: grid.short ? [] : card.days
+          model: grid.oneRow ? [] : card.days
           delegate: Rectangle {
             readonly property int slot: grid.pad + index
             x: 15 + Math.floor(slot / 7) * (grid.cell + 3)

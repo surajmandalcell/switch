@@ -27,6 +27,8 @@ public:
   // 8 px margin, open below a top tray and above a bottom one. Returns {x, y, arrowX, arrowDown, maxHeight}
   // for a body `width` wide and `height` tall (arrow included, no shadow margin).
   Q_INVOKABLE QVariantMap place(QRect anchor, int width, int height) const;
+  // A notification balloon from the tray icon, where no desktop notification service exists.
+  void showMessage(const QString &title, const QString &text);
 
 signals:
   void toggleRequested(QRect anchor);

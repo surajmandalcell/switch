@@ -13,6 +13,11 @@ Item {
   readonly property bool active: !!Harness && App.arg("script", "") === "history"
 
   Timer { id: tm; onTriggered: d.next() }
+  // a step that waits (up to `ms`) until cond() is true; the real helper can need tens of seconds to index
+  property var waitCond: null
+  Timer { id: poll; interval: 200; repeat: true; property int left: 0
+          onTriggered: if (d.waitCond() || --left <= 0) { stop(); d.next() } }
+  function waitFor(cond, ms) { return function () { d.waitCond = cond; poll.left = ms / 200; poll.start(); return true } }
   function next() {
     while (idx < steps.length) {
       var s = steps[idx++]
@@ -61,6 +66,7 @@ Item {
   function report() {
     Harness.log("PERFEND " + d.perfName)
     var t = d.times.slice(2).sort(function (a, b) { return a - b })
+    if (t.length === 0) { Harness.log("PERF " + d.perfName + " no frames"); return }
     var sum = 0; for (var k = 0; k < t.length; ++k) sum += t[k]
     Harness.log("PERF " + d.perfName + " frames=" + t.length + " avgMs=" + (sum / t.length).toFixed(1) + " p50Ms=" + t[Math.floor(t.length * 0.5)].toFixed(1)
                 + " p95Ms=" + t[Math.floor(t.length * 0.95)].toFixed(1) + " maxMs=" + t[t.length - 1].toFixed(1)
@@ -72,6 +78,7 @@ Item {
                 + " delegatesMade=" + made + " msPerDelegate=" + (made ? ((gui - d.idleGui * d.times.length) / made).toFixed(2) : "0")
                 + " aliveMax=" + d.alive + " " + mem())
   }
+  property real t0: 0
   property real cpu0: 0
   property int made0: 0
   property real idleGui: 0
@@ -87,23 +94,28 @@ Item {
   function readFile(p) { var x = new XMLHttpRequest(); x.open("GET", "file://" + p, false); try { x.send(); return x.responseText } catch (e) { return "" } }
   function kb(text, key) { var m = new RegExp("^" + key + ":\\s+(\\d+)", "m").exec(text); return m ? Math.round(m[1] / 1024) + "MB" : "?" }
   function mem() { var s = readFile("/proc/self/status"); return "rss=" + kb(s, "VmRSS") + " peakRss=" + kb(s, "VmHWM") + " pss=" + kb(readFile("/proc/self/smaps_rollup"), "Pss") }
-  function perf(name, list, cont) {
-    perfName = name; d.list = list; times = []; alive = 0; after = cont
+  function perf(name, list, cont, stepPx) {
+    perfName = name; d.list = list; times = []; alive = 0; after = cont; step = stepPx || 60
     if (list) list.scrollTo(-1e9)
     cpu0 = guiCpuMs(); made0 = page.delegatesMade
     Harness.log("PERFBEGIN " + name)
     fa.start()
   }
 
-  // Real helper only (make-transcripts.py "Edge:" threads; real.sh deletes the removed one 25 s in)
+  // Real helper only (make-transcripts.py "Edge:" threads; real.sh deletes the removed one on "EDGE ready-to-remove")
   function edgeId(prefix) { for (var k = 0; k < page.threads.length; ++k) if (page.threads[k].title.indexOf(prefix) === 0) return page.threads[k].id; return "" }
+  function openEdge(s, p, prefix) {
+    s.push(function () { d.t0 = Date.now(); p.selectChat(edgeId(prefix)) })
+    s.push(waitFor(function () { return (!!p.detail && !p.chatLoading && p.detail.thread.title.indexOf(prefix) === 0) || p.listError !== "" }, 120000))
+    s.push(function () { Harness.log("EDGE open " + JSON.stringify(prefix) + " in " + (Date.now() - d.t0) + " ms, first page " + p.messages.length + " messages") })
+    s.push(500)
+  }
   function edgeSteps(s, p) {
-    s.push(function () { p.threadSearch.text = ""; p.selectChat(edgeId("Edge: 5,000")) })
-    s.push(2000)
-    s.push(function () { perf("huge-5000", p.messageList, function () { d.next() }); return true })
+    s.push(function () { p.threadSearch.text = "" })
+    openEdge(s, p, "Edge: 5,000")
+    s.push(function () { perf("huge-5000", p.messageList, function () { d.next() }, 600); return true })
     s.push(function () { Harness.log("EDGE huge loaded=" + p.messages.length + " rows=" + p.msgModel.count + " " + mem()); shot("history-edge-huge") })
-    s.push(function () { p.selectChat(edgeId("Edge: a 2,000")) })
-    s.push(1500)
+    openEdge(s, p, "Edge: a 2,000")
     s.push(function () {
       var m = p.messages[p.messages.length - 1], code = null
       m.pres.blocks.forEach(function (b) { if (b.type === "code") code = b })
@@ -113,12 +125,13 @@ Item {
     })
     s.push(800)
     s.push(function () { p.messageList.scrollBy(1500); shot("history-edge-code-open") })
-    s.push(function () { p.selectChat(edgeId("Edge: broken")) })
-    s.push(1500)
+    openEdge(s, p, "Edge: broken")
     s.push(function () { Harness.log("EDGE broken messages=" + p.messages.length + " warning=" + JSON.stringify(p.warningText)); shot("history-edge-broken") })
-    s.push(function () { p.selectChat(edgeId("Edge: right to left")) })
-    s.push(1500)
+    openEdge(s, p, "Edge: right to left")
     s.push(function () { Harness.log("EDGE rtl messages=" + p.messages.length); shot("history-edge-rtl") })
+    // real.sh deletes the transcript when it sees this line, then the open chat is reloaded
+    s.push(function () { Harness.log("EDGE ready-to-remove listed=" + (edgeId("Edge: removed") !== "")) })
+    s.push(4000)
     s.push(function () { p.selectChat(edgeId("Edge: removed")) })
     s.push(2000)
     s.push(function () { Harness.log("EDGE removed detail=" + !!p.detail + " error=" + JSON.stringify(p.listError)); shot("history-edge-removed"); p.listSig = ""; p.refreshList() })
@@ -129,7 +142,7 @@ Item {
   Component.onCompleted: if (active) start()
   function start() {
     var p = page
-    var s = [1800]
+    var s = [waitFor(function () { return p.threads.length > 2 && !!p.detail && !p.chatLoading }, 120000), 1200]
     s.push(function () {
       var fails = MD.selfCheck()
       Harness.log(fails.length ? "SELFCHECK FAIL " + fails.join(" ; ") : "SELFCHECK ok")
@@ -147,7 +160,7 @@ Item {
     s.push(300)
     s.push(function () { shot("history-menu"); Theme.menu.choose(0) })
     s.push(200)
-    s.push(function () { Harness.log("COPY title=" + JSON.stringify(p.lastCopied)) })
+    s.push(function () { Harness.log("COPY title=" + JSON.stringify(p.lastCopied)); Harness.move(win, 100, win.height - 40) })  // the hover tooltip goes away
     // collapse "Repository" (block 2) and "Inputs" (block 5)
     s.push(function () { p.toggleBlock(p.messages[0].id, 2); p.toggleBlock(p.messages[0].id, 5) })
     s.push(400)
@@ -166,7 +179,7 @@ Item {
     // the Copy button with real input: visible messages, raw text
     s.push(function () { p.messageList.scrollTo(-1e9); var q = at(p.messageSearch, 0.08, 1); Harness.click(win, q.x, q.y + 12 + 16) })
     s.push(200)
-    s.push(function () { Harness.log("COPY visible=" + p.lastCopied.length + " chars, starts " + JSON.stringify(p.lastCopied.substring(0, 60))); shot("history-copied") })
+    s.push(function () { Harness.log("COPY visible=" + p.lastCopied.length + " chars, starts " + JSON.stringify(p.lastCopied.substring(0, 60))); shot("history-copied"); Harness.move(win, 100, win.height - 40) })
     // role filter: Tools off
     s.push(function () { p.toggleFilter(4) })
     s.push(700)
@@ -187,7 +200,7 @@ Item {
     // a click on the long-title row (real input)
     s.push(function () { var q = at(p.threadList.view.itemAtIndex(2), 0.5, 0.5); Harness.click(win, q.x, q.y) })
     s.push(700)
-    s.push(function () { shot("history-long") })
+    s.push(function () { shot("history-long"); Harness.move(win, 100, win.height - 40) })
     // keyboard path with real key events: search field, Tab through the chain, filter by Space, list by Down, fold by Space
     s.push(function () { p.threadSearch.input.forceActiveFocus(); Harness.key(win, Qt.Key_Shift) })
     s.push(300)
@@ -201,6 +214,8 @@ Item {
     s.push(700)
     s.push(function () { var a = p.selectedID; p.threadList.view.forceActiveFocus(); Harness.key(win, Qt.Key_Down); Harness.log("KEYS down in list: moved=" + (a !== p.selectedID)); Harness.key(win, Qt.Key_Up) })
     s.push(900)
+    s.push(function () { p.selectChat(p.threads[0].id) })   // the Markdown prompt with foldable sections
+    s.push(1200)
     s.push(function () {
       p.messageList.scrollTo(-1e9); p.messageList.view.forceActiveFocus()
       var chain = [], ok = false

@@ -8,9 +8,11 @@ Item {
   property string help: ""
   property bool helpWraps: false   // Privacy mode only (settings.md 1.3)
   property string detail: ""       // third line, monospaced, middle ellipsis (Data locations paths)
+  property string error: ""        // extra red line under the help, such as a failed write (claude-shell)
   property bool last: false
   default property alias control: ctl.data
-  readonly property real contentH: Math.max(16 + (help !== "" ? 2 + helpText.height : 0) + (detail !== "" ? 2 + 14 : 0), ctl.height)
+  readonly property real contentH: Math.max(16 + (help !== "" ? 2 + helpText.height : 0) + (detail !== "" ? 2 + 14 : 0)
+                                            + (error !== "" ? 2 + errText.height : 0), ctl.height)
   readonly property real sep: last ? 0 : Theme.hair
 
   width: parent ? parent.width : 400
@@ -39,6 +41,7 @@ Item {
         wrapMode: row.helpWraps ? Text.Wrap : Text.NoWrap
         ToolTipArea { text: row.helpWraps || !helpText.truncated ? "" : row.help }
       }
+      Txt { id: errText; visible: row.error !== ""; width: parent.width; role: "secondary"; color: Theme.red; wrapMode: Text.Wrap; text: row.error }
       Txt {
         visible: row.detail !== ""
         width: parent.width

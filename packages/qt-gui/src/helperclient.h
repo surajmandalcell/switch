@@ -30,7 +30,8 @@ public:
   struct Config {
     QString program;            // absolute path of the bundled switch-core, never looked up on PATH
     QString root;               // test root: sets AI_MANAGER_ROOT=<root>/switch and HOME=<root>/home
-    QStringList topics{"app", "notices", "accounts", "settings", "tray", "login", "providerStatus", "activity"};
+    QStringList topics{"app", "notices", "accounts", "settings", "tray", "login", "providerStatus", "activity",
+                       "usageHistory.version"};   // Overview fetches usage.history again when it goes up
     int requestTimeoutMs = 65000; // the helper's own limit is 60 s
     int maxBackoffMs = 30000;
   };
