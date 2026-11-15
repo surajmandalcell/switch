@@ -7,16 +7,31 @@ Item {
   id: hdr
   property string placeholder: "Search accounts and settings…"
   readonly property var win: Window.window
-  height: 52
+  // The helper's notices.error under the top bar on every page (shell.md 2.2 Error bar, rpc.md "Every page");
+  // Accounts turns this off because it merges the topic with its own action errors.
+  property bool showsNotices: true
+  readonly property string noticeError: showsNotices && Helper.topics.notices ? (Helper.topics.notices.error || "") : ""
+  height: 52 + (errBar.visible ? errBar.height + 12 : 0)
   objectName: "page-header"
   Accessible.role: Accessible.ToolBar
   Accessible.name: "Toolbar"
   function focusSearch() { search.focusInput() }
 
+  AccErrorBar {
+    id: errBar
+    visible: hdr.noticeError !== ""
+    x: 20
+    y: 52
+    width: parent.width - 40
+    text: hdr.noticeError
+    onDismiss: Helper.call("notices.dismiss", { which: "error" }, function () {})
+    onCopy: App.copy(hdr.noticeError)
+  }
+
   Row {
+    y: (52 - height) / 2
     anchors.right: parent.right
     anchors.rightMargin: 20
-    anchors.verticalCenter: parent.verticalCenter
     spacing: 8
 
     PushButton { square: true; icon: "plus"; tip: "Add Account"

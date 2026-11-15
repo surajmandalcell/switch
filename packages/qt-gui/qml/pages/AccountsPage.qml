@@ -296,7 +296,7 @@ Item {
   function openSheet(mode) { if (mode === "import") sheet.openImport(); else sheet.openAdd() }
 
   // ---- layout ------------------------------------------------------------------------------------
-  PageHeader { id: header; width: parent.width; placeholder: "Search accounts…" }
+  PageHeader { id: header; width: parent.width; placeholder: "Search accounts…"; showsNotices: false }
   AccErrorBar {
     id: errorBar
     visible: page.errorText !== "" && !sheet.visible

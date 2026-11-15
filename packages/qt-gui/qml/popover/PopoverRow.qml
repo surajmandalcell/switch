@@ -65,6 +65,7 @@ Item {
     // account eye (3.4): shown on row hover or focus; half visible while the account is hidden from the menu bar
     IconButton {
       id: eyeBtn
+      objectName: "eye"
       x: parent.width - 18 + 3
       anchors.verticalCenter: parent.verticalCenter
       icon: row.acct.showsInTray === false ? "eyeSlash" : "eye"
@@ -92,6 +93,7 @@ Item {
   }
   PopButton {
     visible: row.hasPrompt && !!row.acct.promptButton
+    objectName: "act-prompt"
     x: parent.width - width - 2
     y: parent.height - height - (6 + 2 * row.reveal) - 40 * (row.expansion - row.reveal)   // Rows:54-56, 693-696
     text: row.acct.promptButton || ""
@@ -211,7 +213,7 @@ Item {
           x: 24
           anchors.verticalCenter: parent.verticalCenter
           spacing: 6
-          Repeater { model: row.acct.band || []; PopButton { text: modelData; enabled: modelData !== "Switch" || row.acct.isVerified !== false; onClicked: row.action(modelData) } }
+          Repeater { model: row.acct.band || []; PopButton { objectName: "act-" + modelData; text: modelData; enabled: modelData !== "Switch" || row.acct.isVerified !== false; onClicked: row.action(modelData) } }
         }
       }
     }
