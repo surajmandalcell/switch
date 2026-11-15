@@ -24,6 +24,23 @@ final class PlatformAppLocationsTests: XCTestCase {
         try? String(contentsOf: folder.appending(path: "registry.json"), encoding: .utf8)
     }
 
+    /// Foundation lists no application support folder (on Windows: USERPROFILE is a new, empty folder).
+    private final class EmptyProfile: FileManager, @unchecked Sendable {
+        let home: URL
+        init(home: URL) { self.home = home; super.init() }
+        override var homeDirectoryForCurrentUser: URL { home }
+        override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [] }
+    }
+
+    func testDefaultPathsWithAnEmptyProfileFolderDoNotTrap() throws {
+        let home = root.appending(path: "home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let paths = ManagerPaths.standard(fileManager: EmptyProfile(home: home))
+        XCTAssertEqual(paths.orcaAccountsRoot.path,
+                       home.appending(path: ManagerPaths.applicationSupportInHome).appending(path: "Orca/codex-accounts").path)
+        XCTAssertEqual(paths.defaultHome.path, home.appending(path: ".codex").path)
+    }
+
     func testOldOnlyMovesOnceWithMarker() throws {
         try write(old, "old")
         XCTAssertNil(try AppLocations.migrateDataRoot(from: old, to: new))

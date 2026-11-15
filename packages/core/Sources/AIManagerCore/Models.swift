@@ -72,9 +72,21 @@ public struct ManagerPaths: Sendable {
     static let dataFolderName = "AI Manager"
     #endif
 
+    /// The per-user application support folder under the home, for when Foundation lists none.
+    #if os(Windows)
+    static let applicationSupportInHome = "AppData/Roaming"
+    #elseif os(Linux)
+    static let applicationSupportInHome = ".local/share"
+    #else
+    static let applicationSupportInHome = "Library/Application Support"
+    #endif
+
     public static func standard(fileManager: FileManager = .default) -> Self {
         let home = fileManager.homeDirectoryForCurrentUser
-        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        // Windows Foundation returns no URL when the profile has no AppData\Roaming (USERPROFILE set to a new,
+        // empty folder, as the app's --root isolation does); indexing [0] then trapped before serve started.
+        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? home.appending(path: applicationSupportInHome, directoryHint: .isDirectory)
         let factoryHome = ProcessInfo.processInfo.environment["FACTORY_HOME_OVERRIDE"]
             .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).appending(path: ".factory") }
 #if os(Windows)
