@@ -180,6 +180,82 @@ Item {
     run(s)
   }
 
+  // --script popactions --second <codex home>: on a real helper with a temporary root, imports the test home's
+  // Codex login and a second synthetic one, then clicks the popover's account eye, service eye, Switch, Open
+  // and Sign in, logging the stored setting, the tray topic, and the action outcome after each (ACT lines).
+  function trayRows() {
+    var g = Helper.topics.tray && Helper.topics.tray.groups ? Helper.topics.tray.groups : [], out = []
+    for (var i = 0; i < g.length; ++i) for (var j = 0; j < g[i].rows.length; ++j) out.push(g[i].rows[j])
+    return out
+  }
+  function logTray(tag) {
+    var g = Helper.topics.tray && Helper.topics.tray.groups ? Helper.topics.tray.groups : []
+    Harness.log("ACT " + tag + " groups=" + g.map(function (x) { return x.providerID + (x.showsInTray ? "" : "(hidden)") }).join(",")
+                + " rows=" + trayRows().map(function (r) { return r.id.slice(0, 8) + (r.isDefault ? "*" : "") + (r.showsInTray ? "" : "(hidden)")
+                                                            + (r.prompt ? "[" + r.promptButton + "]" : "") }).join(","))
+  }
+  function popClick(name) {
+    var it = win.popover ? find(win.popover.contentItem, name) : null
+    if (!it || !it.visible) { Harness.log("ACT MISSING " + name); return }
+    var p = it.mapToItem(null, it.width / 2, it.height / 2)
+    Harness.click(win.popover, p.x, p.y)
+  }
+  function popActions() {
+    var other = "", first = ""
+    function pickRows() { var r = trayRows(); first = r.length ? r[0].id : ""; other = ""
+                          for (var i = 0; i < r.length; ++i) if (!r[i].isDefault) other = r[i].id }
+    function open() { win.popoverClosedAt = 0; if (!win.popover || !win.popover.visible) win.togglePopover(anchor(false)) }
+    function stored(k) { return JSON.stringify(Prefs.stored[k] || []) }
+    run([2500, function () {
+      Helper.call("providers.importLive", { providerID: "codex" }, function (r, e) { Harness.log("ACT importLive " + (e ? "error " + e.code : "ok")) })
+    }, 1500, function () {
+      Helper.call("import.plan", { source: App.arg("second", "") }, function (r, e) {
+        if (e || !r) { Harness.log("ACT import.plan error " + (e ? e.code : "")); return }
+        var plan = r.plan || r
+        Helper.call("import.commit", { planID: plan.planID }, function (r2, e2) { Harness.log("ACT import.commit " + (e2 ? "error " + e2.code : "ok")) })
+      })
+    }, 3000, function () { pickRows(); logTray("start") ; open() }, 1200, function () { shot(win.popover, "act-1-open") },
+    // account eye on the non-default row, then back
+    function () { var row = find(win.popover.contentItem, "pop-row-" + other); var eye = row ? find(row, "eye") : null
+                  if (!eye) { Harness.log("ACT MISSING eye"); return }
+                  var p = eye.mapToItem(null, eye.width / 2, eye.height / 2); Harness.click(win.popover, p.x, p.y) }, 1500,
+    function () { Harness.log("ACT eye stored menuBarHiddenAccounts=" + stored("menuBarHiddenAccounts")); logTray("after-account-eye"); shot(win.popover, "act-2-account-eye") },
+    function () { var row = find(win.popover.contentItem, "pop-row-" + other), eye = find(row, "eye"), p = eye.mapToItem(null, eye.width / 2, eye.height / 2)
+                  Harness.click(win.popover, p.x, p.y) }, 1500,
+    function () { Harness.log("ACT eye restored menuBarHiddenAccounts=" + stored("menuBarHiddenAccounts")); logTray("after-account-eye-2") },
+    // service eye, then back
+    function () { popClick("pop-svc-eye-codex") }, 1500,
+    function () { Harness.log("ACT svc stored menuBarHiddenServices=" + stored("menuBarHiddenServices")); logTray("after-service-eye"); shot(win.popover, "act-3-service-eye") },
+    function () { popClick("pop-svc-eye-codex") }, 1500,
+    function () { Harness.log("ACT svc restored menuBarHiddenServices=" + stored("menuBarHiddenServices")); logTray("after-service-eye-2") },
+    // Switch on the non-default row
+    function () { var r = trayRows(); for (var i = 0; i < r.length; ++i) if (r[i].id === other) win.popover.setExpanded(i) }, 600,
+    function () { shot(win.popover, "act-4-expanded"); var row = find(win.popover.contentItem, "pop-row-" + other), b = row ? find(row, "act-Switch") : null
+                  if (!b) { Harness.log("ACT MISSING act-Switch"); return }
+                  var p = b.mapToItem(null, b.width / 2, b.height / 2); Harness.click(win.popover, p.x, p.y) }, 2500,
+    function () { Harness.log("ACT switch result=" + win.lastPopAction + " popoverVisible=" + win.popover.visible); logTray("after-switch") },
+    // Open Codex on the (new) default row
+    function () { pickRows(); open() }, 1000,
+    function () { var r = trayRows(), id = ""; for (var i = 0; i < r.length; ++i) if (r[i].isDefault) { id = r[i].id; win.popover.setExpanded(i) }
+                  first = id }, 600,
+    function () { var row = find(win.popover.contentItem, "pop-row-" + first), b = row ? find(row, "act-Open Codex") : null
+                  if (!b) { Harness.log("ACT MISSING act-Open Codex"); return }
+                  var p = b.mapToItem(null, b.width / 2, b.height / 2); Harness.click(win.popover, p.x, p.y) }, 2500,
+    function () { Harness.log("ACT open result=" + win.lastPopAction + " popoverVisible=" + win.popover.visible) },
+    // Sign in on a prompt row, after a usage check marks the fake logins
+    function () { trayRows().forEach(function (r) { Helper.call("usage.refresh", { accountID: r.id }, function () {}) }) }, 5000,
+    function () { logTray("after-refresh"); open() }, 1200,
+    function () { shot(win.popover, "act-5-prompt"); var r = trayRows(), id = ""
+                  for (var i = 0; i < r.length; ++i) if (r[i].prompt) id = r[i].id
+                  if (!id) { Harness.log("ACT NO PROMPT ROW"); return }
+                  var row = find(win.popover.contentItem, "pop-row-" + id), b = row ? find(row, "act-prompt") : null
+                  var p = b.mapToItem(null, b.width / 2, b.height / 2); Harness.click(win.popover, p.x, p.y) }, 2500,
+    function () { var a = win.page(1)
+                  Harness.log("ACT signin result=" + win.lastPopAction + " popoverVisible=" + win.popover.visible + " page=" + win.pages[win.pageIndex].route
+                              + " sheet=" + (a && a.sheet ? a.sheet.visible : "none")); shot(win, "act-6-signin") },
+    function () { Harness.quit(0) }])
+  }
+
   // A page or popover that failed to load is logged as FAILED and still captured (its placeholder); the run
   // goes on and exits 1 at the end only because of those failures.
   property var failed: []
@@ -192,6 +268,7 @@ Item {
     if (Harness && script === "shortcut") return shortcut()
     if (Harness && script === "states") return states()
     if (Harness && script === "a11y") return a11y()
+    if (Harness && script === "popactions") return popActions()
     if (!Harness || script !== "shots") return
     var s = [1200]
     var only = App.arg("pages", "")   // comma list of page titles; no popover when set

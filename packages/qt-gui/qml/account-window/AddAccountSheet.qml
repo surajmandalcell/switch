@@ -120,8 +120,8 @@ Window {
     })
   }
   function startLogin(params) {
-    var name = pname
-    call("login.start", params, function (d) { return "Couldn’t start sign-in. " + d + " Confirm that " + name + " is installed, then try again." },
+    // the helper's detail names the failed check (CLI or terminal), so no shared recovery line
+    call("login.start", params, function (d) { return "Couldn’t start sign-in. " + d },
          function (r) { sh.login = r.login || null; sh.kind = "signin"; sh.step = 2; if (sh.login && sh.login.state === "completed") sh.finish(r.accountID || sh.boundID, "") })
   }
   function checkNow(choice) {
@@ -694,7 +694,8 @@ Window {
             width: parent.width
             spacing: 8
             Icon { name: "check"; size: 12; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
-            AccFact { ctl: sh.ctl; width: parent.width - 20; label: ""; value: modelData.relativePath }
+            Txt { width: parent.width - 20; elide: Text.ElideMiddle; font.family: "monospace"; text: modelData.relativePath
+                  anchors.verticalCenter: parent.verticalCenter }
           }
         }
       }

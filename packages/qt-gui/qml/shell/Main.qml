@@ -154,6 +154,7 @@ Window {
     return e.replace(/^qrc:\/qt\/qml\/SwitchUI\//, "")
   }
   // The popover also loads by URL, so an error in its files leaves the window and pages working.
+  property string lastPopAction: ""
   function makePopover() {
     var c = Qt.createComponent("PopoverWindow.qml")
     if (c.status !== Component.Ready) { console.error("popover failed to load: " + loadError("PopoverWindow.qml")); return null }
@@ -166,11 +167,13 @@ Window {
     // popover.md 5.1: Switch closes on success; Open, Sign in, and Allow access close at once
     p.rowAction.connect(function (name, acct, provider) {
       var row = { id: acct.id, providerID: provider, label: acct.label }
+      // the outcome only (no reply data), so a capture run can prove the action
+      function result(r, e) { win.lastPopAction = name + (e ? " error " + (e.data && e.data.kind || e.code) : (r && r.error ? " failed" : " ok")) }
       if (name === "Switch")
-        Helper.call("accounts.setDefault", { accountID: acct.id }, function (r, e) { if (!e && !(r && r.error)) p.close() })
-      else if (name === "Sign in") { p.close(); var a = win.showPage("Accounts"); if (a && a.signIn) a.signIn(row) }
-      else if (name === "Allow access") { p.close(); win.present(); Helper.call("usage.refresh", { accountID: acct.id }, function () {}) }
-      else { p.close(); Helper.call("accounts.open", { accountID: acct.id }, function () {}) }
+        Helper.call("accounts.setDefault", { accountID: acct.id }, function (r, e) { result(r, e); if (!e && !(r && r.error)) p.close() })
+      else if (name === "Sign in") { p.close(); var a = win.showPage("Accounts"); if (a && a.signIn) a.signIn(row); result(null, null) }
+      else if (name === "Allow access") { p.close(); win.present(); Helper.call("usage.refresh", { accountID: acct.id }, result) }
+      else { p.close(); Helper.call("accounts.open", { accountID: acct.id }, result) }
     })
     // The eyes flip one id in a sorted settings list; the Mac writes account ids in upper case, the helper reads both.
     p.toggleHidden.connect(function (key, id) {

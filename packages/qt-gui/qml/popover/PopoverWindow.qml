@@ -182,7 +182,8 @@ Window {
                   y: 6 - Theme.hair / 2
                   width: parent.width
                   height: Theme.hair
-                  opacity: 0.5
+                  // menubar-*.png peaks: light #E6E6E6 on #F2F2F2 (50%), dark #353535 on #262626 (about 70% of white 9.8%)
+                  opacity: Theme.dark ? 0.7 : 0.5
                   gradient: Gradient {
                     orientation: Gradient.Horizontal
                     GradientStop { position: 0; color: Theme.rgba(Theme.separator, 0) }
@@ -200,6 +201,7 @@ Window {
                 ProviderTile { y: 5; provider: grp.group.id; name: grp.group.name; size: 16 }
                 Txt { x: 24; anchors.verticalCenter: parent.verticalCenter; role: "secondary"; wght: 600; color: Theme.secondary; text: grp.group.name }
                 IconButton {
+                  objectName: "pop-svc-eye-" + grp.group.id
                   x: parent.width - 18
                   anchors.verticalCenter: parent.verticalCenter
                   icon: grp.group.showsInTray ? "eye" : "eyeSlash"
@@ -217,6 +219,7 @@ Window {
                 Repeater {
                   model: grp.group.accounts
                   delegate: PopoverRow {
+                    objectName: "pop-row-" + modelData.id
                     readonly property int ri: pop.base(grp.gi) + index
                     acct: modelData
                     provider: grp.group.id

@@ -31,7 +31,7 @@ Item {
   }
   readonly property var gGeneral: ["login", "tray", "place", "shortcut", "version"]
   readonly property var gAppearance: ["appearance", "percent", "reset-times", "hours"]
-  readonly property var gAccounts: ["domain", "hide-email", "privacy", "status", "claude-shell"]
+  readonly property var gAccounts: ["domain", "hide-email", "privacy", "status", "claude-shell", "terminal"]
   readonly property var gAuto: ["auto", "auto-threshold", "auto-clis", "auto-resume"]
   readonly property var gMenu: ["menu-usage", "menu-one-per-service", "menu-tokens", "menu-refresh"]
   readonly property var gNotify: ["notify.notifyAlmostOut", "notify.notifyPaceAlerts", "notify.notifyAvailableAgain", "notify.notifySignInAgain"]
@@ -206,6 +206,23 @@ Item {
               if (err) shellLine.error = "Couldn’t update the shell setup. " + (err.message || "")
               shellLine.read()
             })
+          }
+        } }
+      // rpc.md Settings: Linux and Windows add terminalEmulator, a program name or path ("" = the first one found)
+      SRow { sid: "terminal"; group: page.gAccounts; title: "Terminal app"; help: "Opens sign-ins and tools. Empty uses the first one found."
+        FieldBox {
+          id: term
+          objectName: "pref-terminalEmulator"
+          width: 220
+          placeholder: "First one found"
+          text: Prefs.value("terminalEmulator") || ""
+          Connections {
+            target: term.input
+            function onEditingFinished() {
+              if (term.text === (Prefs.value("terminalEmulator") || "")) return
+              Prefs.set("terminalEmulator", term.text.trim())
+              term.text = Qt.binding(function () { return Prefs.value("terminalEmulator") || "" })
+            }
           }
         } }
     }
