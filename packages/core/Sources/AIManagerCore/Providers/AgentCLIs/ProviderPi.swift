@@ -113,7 +113,7 @@ enum PiUsage {
 
     static func scan(now: Date, directories: [URL] = sessionDirectories()) throws -> ProviderUsage {
         let existing = directories.filter { FileManager.default.fileExists(atPath: $0.path) }
-        guard !existing.isEmpty else { throw ProviderError.unavailable("Pi has no session history on this Mac.") }
+        guard !existing.isEmpty else { throw ProviderError.unavailable("Pi has no session history on \(PlatformText.thisComputer).") }
         let cutoff = now.addingTimeInterval(-31 * 86400)
         var entries: [Entry] = []
         for directory in existing {

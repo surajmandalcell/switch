@@ -51,6 +51,8 @@ struct WireProvider: Encodable {
     let dashboard: String?
     /// The provider's own login exists in the user's home (`providers.detectSignedIn`).
     let signedIn: Bool
+    /// The login files a `files` provider reads, as the Mac "Read from" row shows them (`~/.codebuff/credentials.json`).
+    let credentialPaths: [String]
 
     init(_ descriptor: ProviderDescriptor, signedIn: Set<String>) {
         let spec = ProviderCatalog.spec(descriptor.id)
@@ -65,6 +67,7 @@ struct WireProvider: Encodable {
         login = spec?.login
         dashboard = spec?.dashboard?.absoluteString
         self.signedIn = signedIn.contains(descriptor.id.rawValue)
+        credentialPaths = spec?.files.map { "~/" + $0.path } ?? []
     }
 }
 

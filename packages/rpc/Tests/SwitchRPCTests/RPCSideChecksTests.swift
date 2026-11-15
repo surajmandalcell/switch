@@ -120,6 +120,7 @@ extension RPCRuntimeTests {
         let codebuff = try XCTUnwrap(providers.first { $0["id"] as? String == "codebuff" })
         XCTAssertEqual(codebuff["style"] as? String, "files")
         XCTAssertEqual(codebuff["signedIn"] as? Bool, true)
+        XCTAssertEqual(codebuff["credentialPaths"] as? [String], ["~/.config/manicode/credentials.json"])
         XCTAssertNotNil(codebuff["dashboard"] as? String)
         let secret = try XCTUnwrap(providers.first { ($0["fields"] as? [Any])?.isEmpty == false })
         XCTAssertEqual(secret["style"] as? String, "secret")
@@ -181,5 +182,66 @@ extension RPCRuntimeTests {
         XCTAssertEqual(blocks.map(\.kind), ["heading", "unorderedList"])
         let data = try? JSONEncoder().encode(blocks)
         XCTAssertFalse(String(decoding: data ?? Data(), as: UTF8.self).isEmpty)
+    }
+
+    /// Adding a key: the provider checks it before it is saved, and the same key again names the saved account.
+    func testAddChecksTheKeyFirstAndNamesADuplicate() async throws {
+        let bad = "\(canary)-bad"
+        let spec = ProviderSpec(id: provider.rawValue, name: "RPC Test", style: .secret, fields: [.apiKey("TEST_RPC_KEY")],
+                                fetch: { credential in
+            guard credential.fields["apiKey"] != bad else { throw ProviderError.unauthorized("The key was rejected.") }
+            return FetchResult(ProviderUsage(windows: [], plan: "Pro", email: nil))
+        })
+        let manager = try AccountManager(paths: paths, writerCheck: { _ in .inactive }, providerSpecs: [spec])
+        let session = try session(manager: manager)
+        let rejected = try await call(session, 1, "providers.add", #"{"providerID":"test-rpc","fields":{"apiKey":"\#(bad)"}}"#)
+        XCTAssertNotNil(rejected["error"])
+        var saved = try await manager.status().accounts.count
+        XCTAssertEqual(saved, 0, "a rejected key is never saved")
+        let added = try await call(session, 2, "providers.add", #"{"providerID":"test-rpc","fields":{"apiKey":"\#(canary)"}}"#)
+        let id = try XCTUnwrap(result(added)?["accountID"] as? String)
+        let again = try await call(session, 3, "providers.add", #"{"providerID":"test-rpc","fields":{"apiKey":" \#(canary) "}}"#)
+        XCTAssertEqual(result(again)?["accountID"] as? String, id)
+        XCTAssertTrue((result(again)?["notice"] as? String ?? "").hasPrefix("This key is already added as "), "\(again)")
+        saved = try await manager.status().accounts.count
+        XCTAssertEqual(saved, 1)
+        try await session.close()
+        XCTAssertFalse(session.raw.contains(canary))
+    }
+
+    /// Accounts needs: the Droid usage-key flag, the import file list, the sign-in CLI check, and the machine name.
+    func testAccountsPageNeeds() async throws {
+        XCTAssertEqual(PlatformText.thisComputer, Self.isMac ? "this Mac" : "this computer")
+        let trap = KeychainTrap()
+        let (manager, droid) = try await droidManager(trap, hint: "s***@example.com")
+        let session = try session(manager: manager)
+        func usageKey(_ frames: [[String: Any]]) -> Bool? {
+            let rows = (changes(frames, "accounts").last?["value"] as? [String: Any])?["rows"] as? [[String: Any]]
+            return rows?.first?["hasUsageKey"] as? Bool
+        }
+        session.send(#"{"jsonrpc":"2.0","id":1,"method":"state.subscribe","params":{"topics":["accounts"]}}"#)
+        session.send(#"{"jsonrpc":"2.0","method":"initialized"}"#)
+        try await session.wait { usageKey($0) != nil }
+        XCTAssertEqual(usageKey(session.frames), false)
+        let set = try await call(session, 2, "droid.setUsageKey",
+                                 #"{"accountID":"\#(droid.uuidString.lowercased())","key":"\#(canary)"}"#)
+        XCTAssertEqual(result(set)?["status"] as? String, "done", "\(set)")
+        try await session.wait { usageKey($0) == true }
+
+        // Codex in an isolated root has no CLI: the error names the CLI check, not the terminal.
+        let login = try await call(session, 3, "login.start", #"{"providerID":"codex"}"#)
+        let message = (login["error"] as? [String: Any])?["message"] as? String ?? ""
+        XCTAssertTrue(message.contains(PlatformText.missingCommand(AccountPresentation.providerName(.codex), "codex")), message)
+        XCTAssertFalse(message.contains("is installed"), message)
+        try await session.close()
+        XCTAssertFalse(session.raw.contains(canary))
+    }
+
+    static var isMac: Bool {
+#if os(macOS)
+        true
+#else
+        false
+#endif
     }
 }

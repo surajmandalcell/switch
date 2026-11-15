@@ -10,11 +10,17 @@ public struct ImportPlanSummary: Codable, Equatable, Sendable {
         public var externalTargetBytes: Int64?
     }
 
+    public struct File: Codable, Equatable, Sendable {
+        public var relativePath: String
+    }
+
     public var planID: String
     public var label: String
     public var mode: String
     public var source: String
     public var files: Int
+    /// The files the import copies, one entry per manifest row.
+    public var fileList: [File]
     public var requiredBytes: Int64
     public var conflicts: [Conflict]
     public var warnings: [String]
@@ -25,6 +31,7 @@ public struct ImportPlanSummary: Codable, Equatable, Sendable {
         mode = plan.mode.rawValue
         source = plan.source.path
         files = plan.manifest.count
+        fileList = plan.manifest.map { File(relativePath: $0.relativePath) }
         requiredBytes = plan.requiredBytes
         conflicts = plan.conflicts.map {
             Conflict(relativePath: $0.relativePath, affectsAllAccounts: $0.affectsAllAccounts,
@@ -47,11 +54,17 @@ extension AppEngine {
 
     // MARK: Adding
 
-    /// A secret-provider account from its fields (API key and the like).
+    /// A secret-provider account from its fields (API key and the like). The provider checks the key first, so a
+    /// rejected key is never saved; a key that is already saved answers with that account and says so.
     public func addProviderAccount(_ providerID: ProviderID, fields: [String: String]) async throws -> ActionResult {
         try await perform(failure: "Couldn’t save the account.", recovery: "Check the credentials and try again.") {
-            let record = try await self.requireManager().addProviderAccount(providerID: providerID, fields: fields)
-            return await self.saved(record)
+            let added = try await self.requireManager().addCheckedProviderAccount(providerID: providerID, fields: fields)
+            guard added.existing else { return await self.saved(added.record) }
+            let text = "This key is already added as \(self.label(added.record.identity))."
+            await self.setNotice(text)
+            var result = ActionResult.done(notice: text)
+            result.accountID = added.record.id.uuidString.lowercased()
+            return result
         }
     }
 
@@ -165,8 +178,8 @@ extension AppEngine {
         if let accountID { provider = try await account(accountID).identity.providerID }
         guard let provider else { throw AIManagerError.operationFailed("Choose a provider or an account to sign in.") }
         let name = AccountPresentation.providerName(provider)
-        return try await perform(failure: "Couldn’t start sign-in.",
-                                 recovery: "Confirm that \(name) is installed, then try again.") {
+        // Each failure names its own check (the CLI or the terminal), so there is no shared recovery line.
+        return try await perform(failure: "Couldn’t start sign-in.") {
             let manager = try self.requireManager()
             let start: AccountLoginStart
             do {
@@ -176,6 +189,9 @@ extension AppEngine {
                 } else {
                     start = try await manager.startAccountLogin(providerID: provider)
                 }
+            } catch AIManagerError.cliNotFound {
+                let command = [ProviderID.droid: "droid", .grokBuild: "grok"][provider] ?? "codex"
+                throw AIManagerError.operationFailed(PlatformText.missingCommand(name, command))
             } catch let error as DroidAccountError {
                 guard case .confirmSignIn = error, let request = ConfirmationRequest.droid(error, self.describe(error)) else {
                     throw error

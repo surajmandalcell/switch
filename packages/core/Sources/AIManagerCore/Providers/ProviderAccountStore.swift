@@ -110,9 +110,8 @@ struct ProviderAccountStore {
 
     // MARK: Add and import
 
-    /// `name` labels an account that has no email; `auto` marks it as added by discovery.
-    func addSecret(_ providerID: ProviderID, fields: [String: String], name: String? = nil,
-                   auto: Bool = false) throws -> AccountRecord {
+    /// The spec and the trimmed values of a typed credential; a required field left empty throws.
+    func secretFields(_ providerID: ProviderID, _ fields: [String: String]) throws -> (ProviderSpec, [String: String]) {
         guard let spec = spec(providerID), spec.style == .secret else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) does not take typed credentials.")
         }
@@ -125,6 +124,19 @@ struct ProviderAccountStore {
             }
             values[field.key] = value
         }
+        return (spec, values)
+    }
+
+    /// The saved account of this provider that holds the same key, if any.
+    func savedSecret(_ spec: ProviderSpec, _ values: [String: String]) throws -> AccountRecord? {
+        let key = identity(spec, ProviderCredential(fields: values)).key
+        return try accounts().first { $0.identity.providerID == spec.id && $0.identity.userID == key }
+    }
+
+    /// `name` labels an account that has no email; `auto` marks it as added by discovery.
+    func addSecret(_ providerID: ProviderID, fields: [String: String], name: String? = nil,
+                   auto: Bool = false) throws -> AccountRecord {
+        let (spec, values) = try secretFields(providerID, fields)
         return try saveCredential(spec, ProviderCredential(fields: values),
                                   source: vaultURL(spec.id, UUID()).deletingLastPathComponent(),
                                   rule: .ifNone, auto: auto, name: name)
@@ -323,8 +335,7 @@ struct ProviderAccountStore {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) has no sign-in command.")
         }
         guard let executable = resolveExecutable(command) else {
-            throw AIManagerError.operationFailed(
-                "\(spec.name) sign-in needs `\(command)`. Install it, then try again.")
+            throw AIManagerError.operationFailed(PlatformText.missingCommand(spec.name, command))
         }
         try pruneStaleLogins()
         let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date(), accountID: accountID)

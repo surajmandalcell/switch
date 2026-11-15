@@ -35,7 +35,7 @@ public enum DroidAccountError: LocalizedError, Equatable {
         case .running: "Factory.app is running. Switching changes its account for new requests."
         case .confirmSignIn(let name): "Sign in to \(name)? Droid's masked email cannot prove the full account identity."
         case .loginInProgress: "A Droid sign-in is already open. Finish or cancel it before starting another."
-        case .existingLoginRequired: "Sign in to Factory on this Mac first, then add a Droid account. An existing login is required for the shared encryption key."
+        case .existingLoginRequired: "Sign in to Factory on \(PlatformText.thisComputer) first, then add a Droid account. An existing login is required for the shared encryption key."
         case .writeLockBusy: "Droid is writing its login, or its write lock needs attention. Finish that operation and retry."
         case .duplicateIdentity(let name, let hint): "This looks like \(name) (\(hint)). Add it anyway?"
         }

@@ -236,7 +236,7 @@ enum GrokBuildUsage {
             // A copied transcript repeats an event; count it once per model.
             entries += turns(in: url).filter { $0.date >= since && ($0.key.map { seen.insert($0).inserted } ?? true) }
         }
-        return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
+        return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (\(PlatformText.thisComputer))")
     }
 
     /// Completed turns of one `updates.jsonl`, one entry per model, with the model and a key for

@@ -32,6 +32,23 @@ func withAutoreleasePool<T>(_ body: () throws -> T) rethrows -> T {
 #endif
 }
 
+public enum PlatformText {
+    /// The machine in user-facing text: "this Mac" on macOS, "this computer" on Linux and Windows.
+    public static let thisComputer: String = {
+#if os(macOS)
+        return "this Mac"
+#else
+        return "this computer"
+#endif
+    }()
+
+    /// The sign-in CLI check failed; the text says so, apart from a terminal that could not open.
+    public static func missingCommand(_ name: String, _ command: String) -> String {
+        "\(name) sign-in needs the `\(command)` command, and Switch did not find it on \(thisComputer). "
+            + "Install it, or add its folder to PATH, then try again."
+    }
+}
+
 enum CoreSupport {
     static let settings = ["config.toml", "AGENTS.md", "agents", "rules", "context", "skills", "hooks.json"]
     static let historyDirectories = ["sessions", "archived_sessions"]
