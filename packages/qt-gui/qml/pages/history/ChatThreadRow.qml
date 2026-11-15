@@ -36,7 +36,7 @@ Item {
     x: 6
     width: parent.width - 12
     anchors.verticalCenter: parent.verticalCenter
-    ChatTitle {
+    Txt {
       width: parent.width
       text: r.thread.title || ""
       elide: Text.ElideRight
