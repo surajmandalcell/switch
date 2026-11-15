@@ -241,6 +241,13 @@ Window {
 
   Component.onCompleted: {
     Theme.dpr = Screen.devicePixelRatio
+    // Windows places a frameless window at the screen corner; center it in the work area and keep it above the taskbar.
+    if (Qt.platform.os === "windows") {
+      var a = App.workArea(win)
+      win.height = Math.max(minimumHeight, Math.min(win.height, a.height))
+      win.x = a.x + Math.max(0, (a.width - win.width) / 2)
+      win.y = a.y + Math.max(0, (a.height - win.height) / 2)
+    }
     Theme.fontFamily = App.fontFamily
     // A --theme flag pins the appearance for captures; otherwise Settings > Appearance drives it.
     if (App.arg("theme") !== "") Theme.mode = App.arg("theme")
