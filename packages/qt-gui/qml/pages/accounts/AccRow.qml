@@ -101,7 +101,7 @@ Item {
         visible: !!r.acc && r.acc.autoImported === true
         anchors.verticalCenter: parent.verticalCenter
         name: "info"; size: 12; color: Theme.secondary
-        Accessible.name: "Added automatically from the " + r.pname + " login on this Mac."
+        Accessible.name: "Added automatically from the " + r.pname + " login on this computer."
         ToolTipArea { text: info.Accessible.name }
       }
     }

@@ -24,8 +24,14 @@ TextEdit {
   font.weight: bold ? Font.Bold : Font.Normal
   font.letterSpacing: mono ? 0 : -0.006 * px
   font.hintingPreference: Font.PreferNoHinting
+  // Paragraph direction from the first strong letter (Unicode bidi rule P2): Hebrew or Arabic make it right to
+  // left. Qt rich text keeps a left-to-right paragraph otherwise, so an Arabic sentence ends on the wrong side.
+  readonly property bool rtl: {
+    var m = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]|[֐-ࣿיִ-﷿ﹰ-﻿]/.exec(html.replace(/<[^>]*>/g, ""))
+    return !!m && m[0] >= "֐"
+  }
   text: "<html><head><style>a { color: " + Theme.link + "; text-decoration: none } code { font-family: '" + Theme.monoFamily + "' }</style></head><body>"
-        + "<div style=\"white-space:pre-wrap; line-height:" + lineH + "px\">" + html + "</div></body></html>"
+        + "<div" + (rtl ? " dir=\"rtl\"" : "") + " style=\"white-space:pre-wrap; line-height:" + lineH + "px\">" + html + "</div></body></html>"
   onLinkActivated: function (l) { Qt.openUrlExternally(l) }
   HoverHandler { cursorShape: te.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor }
 }

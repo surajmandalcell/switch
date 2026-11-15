@@ -1,7 +1,12 @@
 #include "globalshortcut.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QLoggingCategory>
+#include <QSaveFile>
+#include <QStandardPaths>
 
 #ifdef SWITCH_DBUS
 #include <QDBusArgument>
@@ -97,6 +102,42 @@ static int keyOf(const QVariant &combo) {
   return GlobalShortcut::qtKey(c.value("keyCode", -1).toInt());
 }
 
+// The app id: the Wayland app_id (main.cpp), the portal registration, and the desktop entry name.
+static const char *kAppId = "com.mandalsuraj.Switch";
+
+QByteArray GlobalShortcut::desktopExec(const QString &path) {
+  // Quote, backslash-escape " ` $ \ inside the quotes, escape each backslash again for the string value,
+  // and double % (a field code otherwise).
+  QString q;
+  for (QChar c : path) {
+    if (c == '"' || c == '`' || c == '$' || c == '\\') q += '\\';
+    q += c == '%' ? QString("%%") : QString(c);
+  }
+  return "\"" + q.replace("\\", "\\\\").toUtf8() + "\"";
+}
+
+void GlobalShortcut::writeAppImageEntry() {
+  const QString image = qEnvironmentVariable("APPIMAGE");
+  if (image.isEmpty()) return;
+  QFile shipped(qEnvironmentVariable("APPDIR") + "/" + kAppId + ".desktop");
+  const QByteArray in = shipped.open(QIODevice::ReadOnly) ? shipped.readAll()
+                                                          : QByteArray("[Desktop Entry]\nType=Application\nName=Switch\nExec=\n");
+  QByteArrayList out;
+  for (const QByteArray &line : in.split('\n')) {
+    if (line.startsWith("TryExec=")) continue;
+    out << (line.startsWith("Exec=") ? "Exec=" + desktopExec(image) : line);
+  }
+  const QByteArray body = out.join('\n');
+  const QString path = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/applications/" + kAppId + ".desktop";
+  QFile current(path);
+  if (current.open(QIODevice::ReadOnly) && current.readAll() == body) return;
+  current.close();
+  QDir().mkpath(QFileInfo(path).absolutePath());
+  QSaveFile f(path);
+  if (f.open(QIODevice::WriteOnly) && f.write(body) == body.size() && f.commit()) qCInfo(lcShortcut) << "wrote the AppImage desktop entry";
+  else qCWarning(lcShortcut) << "AppImage desktop entry not written:" << f.errorString();
+}
+
 #ifndef SWITCH_DBUS
 // shortcut: no registration off Linux (Windows wants RegisterHotKey, shell.md 5.2); the row stays off there.
 GlobalShortcut::GlobalShortcut(QObject *parent) : QObject(parent) {}
@@ -109,7 +150,6 @@ static const char *kService = "org.freedesktop.portal.Desktop";
 static const char *kPath = "/org/freedesktop/portal/desktop";
 static const char *kIface = "org.freedesktop.portal.GlobalShortcuts";
 static const char *kId = "menu";
-static const char *kAppId = "com.mandalsuraj.Switch";
 
 struct PortalShortcut {
   QString id;
@@ -147,6 +187,7 @@ GlobalShortcut::GlobalShortcut(QObject *parent) : QObject(parent) {
     return;
   }
   bus.connect(kService, kPath, kIface, "Activated", this, SLOT(onActivated(QDBusMessage)));
+  writeAppImageEntry();   // the portal looks the app id up in the desktop entries at Register
   // A host (non-sandboxed) app names its app id before any other portal call; GlobalShortcuts refuses a host app
   // without one ("An app id is required"). The id must be reverse-DNS and match the installed <id>.desktop file.
   auto reg = QDBusMessage::createMethodCall(kService, kPath, "org.freedesktop.host.portal.Registry", "Register");

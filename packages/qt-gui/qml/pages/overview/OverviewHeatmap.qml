@@ -72,6 +72,7 @@ Item {
     MouseArea {
       id: area
       anchors.fill: parent
+      Accessible.ignored: true   // the pointer path; the "Daily activity" table above is the accessible one
       hoverEnabled: true
       cursorShape: hm.hoverIndex >= 0 && hm.ds.yearTotals[hm.hoverIndex] > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
       property point down

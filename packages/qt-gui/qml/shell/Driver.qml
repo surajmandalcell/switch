@@ -10,12 +10,15 @@ Item {
   property int idx: 0
 
   Timer { id: tm; onTriggered: d.next() }
-  function run(list) { steps = list; idx = 0; next() }
+  property int gen: 0
+  function run(list) { steps = list; idx = 0; gen++; next() }
   function next() {
+    var g = gen
     while (idx < steps.length) {
       var s = steps[idx++]
       if (typeof s === "number") { tm.interval = s; tm.start(); return }
       s()
+      if (gen !== g) return   // the step started a new run (states()); that run owns the list and the timer now
     }
   }
   function tag() { return (Theme.dark ? "dark" : "light") + "@" + App.arg("scale", "1") + "x" }

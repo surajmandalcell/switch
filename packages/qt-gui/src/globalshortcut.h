@@ -29,6 +29,11 @@ public:
   static int qtKey(int macKeyCode);
   // The X11 keysym for a Qt key (0 when none).
   static uint keysym(int qtKey);
+  // A program path as a quoted Exec value (Desktop Entry spec "The Exec key").
+  static QByteArray desktopExec(const QString &path);
+  // In an AppImage: the user's desktop entry under the app id with Exec at $APPIMAGE, rewritten when the
+  // path changes (integration tools rename the shipped entry, and the portal looks the app id up).
+  static void writeAppImageEntry();
 
 signals:
   void availableChanged();

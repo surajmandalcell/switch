@@ -57,6 +57,12 @@ private slots:
     }
     QCOMPARE(codes.size(), 82);
   }
+  // Desktop Entry spec "The Exec key": shell-level escapes inside quotes, backslashes doubled again, % doubled.
+  void desktopExec() {
+    QCOMPARE(GlobalShortcut::desktopExec("/opt/Switch/bin/switch"), QByteArray("\"/opt/Switch/bin/switch\""));
+    QCOMPARE(GlobalShortcut::desktopExec("/opt/My Apps/a\"b$c%d\\e"),
+             QByteArray("\"/opt/My Apps/a\\\\\"b\\\\$c%%d\\\\\\\\e\""));
+  }
   void keysyms() {
     QCOMPARE(GlobalShortcut::keysym(Qt::Key_S), 0x73u);
     QCOMPARE(GlobalShortcut::keysym(Qt::Key_5), 0x35u);
