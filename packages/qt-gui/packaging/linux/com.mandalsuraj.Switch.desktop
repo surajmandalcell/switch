@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Switch
+Comment=Keep your coding accounts in one place and see how much each one has left
+Exec=switch-app
+Icon=com.mandalsuraj.Switch
+Terminal=false
+Categories=Utility;
+StartupWMClass=switch
