@@ -18,6 +18,10 @@ Item {
   readonly property bool searching: !!win && !win.searchBlank
   readonly property var hits: { var m = {}; if (win) win.settingsHits.forEach(function (e) { m[e.id] = true }); return m }
   readonly property var hitAccounts: searching ? win.accountHits : []
+  // --script states --page Settings: the Accounts card (claude-shell and Terminal app rows)
+  function captureSteps(d) {
+    return [function () { scroll.scrollTo(accountsCard.y) }, 400, function () { d.shot(Window.window, "settings-accounts") }]
+  }
   function shows(id) { return !searching || hits[id] === true }
   function anyShows(ids) { return ids.some(shows) }
   // (an inline component cannot see this file's ids, so it reads the window's search state itself)
@@ -119,7 +123,9 @@ Item {
           Accessible.description: "Records a shortcut that opens the menu popover from anywhere"
           onClicked: { recording = !recording; hint = ""; if (recording) forceActiveFocus() }
           // shell.md 5.1 Refused, reworded for Linux; Main.qml clears the stored combo.
-          Connections { target: App; function onShortcutRefused() { rec.hint = "The desktop or another app already uses this shortcut." } }
+          Connections { target: App; function onShortcutRefused() {
+            rec.hint = Qt.platform.os === "windows" ? "Windows or another app already uses this shortcut."
+                                                    : "The desktop or another app already uses this shortcut." } }
           Keys.onPressed: function (e) {
             if (!recording) return
             e.accepted = true
@@ -127,7 +133,7 @@ Item {
             if (e.key === Qt.Key_Backspace || e.key === Qt.Key_Delete) { Prefs.set("globalShortcut", null); recording = false; return }
             if (e.key === Qt.Key_Control || e.key === Qt.Key_Alt || e.key === Qt.Key_Meta || e.key === Qt.Key_Shift || e.key === Qt.Key_Super_L) return
             var m = e.modifiers
-            if (!(m & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) { hint = "Include Ctrl, Alt, or Super."; return }
+            if (!(m & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) { hint = "Include Ctrl, Alt, or " + page.superName + "."; return }
             var code = App.macKeyCode(e.key)
             if (code < 0) return   // a key the Mac format cannot store (media keys and similar): keep recording
             Prefs.set("globalShortcut", { keyCode: code, modifiers: ((m & Qt.MetaModifier) ? 256 : 0) | ((m & Qt.ShiftModifier) ? 512 : 0)
@@ -179,6 +185,7 @@ Item {
     }
 
     Card {
+      id: accountsCard
       title: "Accounts"
       visible: page.anyShows(page.gAccounts)
       SRow { sid: "domain"; group: page.gAccounts; title: "Show full email addresses"; help: "Show the full address, including the domain ending such as .com or .co.uk."; PrefSwitch { key: "showEmailDomains" } }
@@ -343,12 +350,14 @@ Item {
     }
   }
 
+  // settings.md 8.4: the Command-equivalent key is the Windows key on Windows and Super on Linux.
+  readonly property string superName: Qt.platform.os === "windows" ? "Win" : "Super"
   // shell.md 5.1 on Linux and Windows: the shortcut as text, modifiers in the Mac order (Control, Option, Shift, Command).
   function comboText(c) {
     var m = c.modifiers || 0, key = App.qtKey(c.keyCode), names = { 16777220: "Return", 16777217: "Tab", 32: "Space", 16777219: "Backspace", 16777216: "Esc",
       16777234: "Left", 16777236: "Right", 16777235: "Up", 16777237: "Down", 16777232: "Home", 16777233: "End",
       16777238: "Page Up", 16777239: "Page Down", 16777223: "Delete" }
     var k = key >= 16777264 && key <= 16777283 ? "F" + (key - 16777263) : (names[key] || (key > 0 && key < 0x110000 ? String.fromCharCode(key).toUpperCase() : "Key " + c.keyCode))
-    return ((m & 4096) ? "Ctrl+" : "") + ((m & 2048) ? "Alt+" : "") + ((m & 512) ? "Shift+" : "") + ((m & 256) ? "Super+" : "") + k
+    return ((m & 4096) ? "Ctrl+" : "") + ((m & 2048) ? "Alt+" : "") + ((m & 512) ? "Shift+" : "") + ((m & 256) ? page.superName + "+" : "") + k
   }
 }

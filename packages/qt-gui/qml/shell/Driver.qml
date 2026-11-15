@@ -64,6 +64,9 @@ Item {
       // Open at Login round trip (the test reads the autostart file while it is on)
       App.loginEnabled = true
       Harness.log("LOGIN on=" + App.loginEnabled + " error=" + App.loginError)
+      // A notification (D-Bus on Linux, the tray balloon or toast on Windows), for a desktop capture to show
+      Notify.post("shortcut-test", "Switch", "Notification test", "Posted by the shortcut script.", false)
+      Harness.log("NOTIFY posted tray=" + Tray.available)
       win.show(2)
     }, 3000, function () {
       shot(win, "settings-shortcut")
