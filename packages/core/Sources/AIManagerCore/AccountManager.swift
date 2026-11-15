@@ -1052,6 +1052,21 @@ public actor AccountManager {
         try providerStore.addSecret(providerID, fields: fields)
     }
 
+    /// The helper's add flow: a key that a saved account holds returns that account (`existing`), and the provider
+    /// checks a new key before it is saved, so a rejected key never reaches the store. A check that fails for
+    /// another reason (offline, provider down) saves the key unverified, as the Mac add does.
+    public func addCheckedProviderAccount(providerID: ProviderID, fields: [String: String]) async throws
+        -> (record: AccountRecord, existing: Bool) {
+        let (spec, values) = try providerStore.secretFields(providerID, fields)
+        if let saved = try providerStore.savedSecret(spec, values) { return (saved, true) }
+        do {
+            _ = try await spec.fetch(ProviderCredential(fields: values))
+        } catch let error as ProviderError where error.needsSignIn {
+            throw error
+        } catch {}
+        return (try providerStore.addSecret(providerID, fields: values), false)
+    }
+
     @discardableResult
     public func importLiveProviderAccount(providerID: ProviderID) throws -> AccountRecord {
         if providerID == .droid { return try importDroidAccount(name: "Droid 1") }
@@ -2031,11 +2046,11 @@ extension AccountManager {
     }
 
     /// Whether a usage key is saved for the account. Never returns the key.
-    public func hasDroidUsageAPIKey(accountID: UUID) -> Bool {
+    public nonisolated func hasDroidUsageAPIKey(accountID: UUID) -> Bool {
         CoreSupport.entryExists(droidUsageKey(accountID))
     }
 
-    private func droidUsageKey(_ id: UUID) -> URL {
+    private nonisolated func droidUsageKey(_ id: UUID) -> URL {
         paths.applicationSupport.appending(path: "droid-usage/\(id.uuidString).json")
     }
 

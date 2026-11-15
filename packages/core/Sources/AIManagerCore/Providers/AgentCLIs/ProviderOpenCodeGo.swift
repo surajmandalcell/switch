@@ -157,7 +157,7 @@ enum OpenCodeGoUsage {
                 }
             }
         }
-        return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (this Mac)")
+        return MajorsSpend.report(entries, now: now, calendar: calendar, title: "Spend (\(PlatformText.thisComputer))")
     }
 
     static func httpDate(_ text: String?) -> Date? {

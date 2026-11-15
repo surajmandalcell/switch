@@ -100,7 +100,7 @@ public enum CleanupSources {
             ("opencode", .opencode, "opencode", ProviderID(rawValue: "opencode"), user.appending(path: ".local/share/opencode")),
         ]
         for (id, tool, title, provider, home) in found where exists(home) {
-            add(id, tool, title, "Found on this Mac", provider, home: home)
+            add(id, tool, title, "Found on \(PlatformText.thisComputer)", provider, home: home)
         }
         return result
     }

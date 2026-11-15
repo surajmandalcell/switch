@@ -24,6 +24,8 @@ public struct AccountRow: Codable, Equatable, Sendable {
     public var availability: String?
     /// The unmasked label, only for Copy Name and the account search (the Mac `realAccountLabel`). Never show it.
     public var realLabel: String
+    /// Droid rows only: a usage key is saved (`droid.setUsageKey`). Never the key itself.
+    public var hasUsageKey: Bool?
 }
 
 public struct AccountsValue: Codable, Equatable, Sendable {
@@ -147,7 +149,8 @@ extension AppEngine {
                 fetchedAt: isCodex ? codex?.fetchedAt : provider?.usage?.fetchedAt,
                 checkedAt: isCodex ? codex?.lastAttemptAt : provider?.checkedAt,
                 availability: isCodex ? nil : provider?.usage?.availability?.rawValue,
-                realLabel: AccountPresentation.label(account.identity))
+                realLabel: AccountPresentation.label(account.identity),
+                hasUsageKey: account.identity.providerID == .droid ? manager?.hasDroidUsageAPIKey(accountID: account.id) : nil)
         }
         let pending = status.pendingRecovery.map {
             AccountsValue.PendingRecovery(id: $0.id.uuidString.lowercased(), kind: $0.kind, conflicted: $0.phase == .conflicted)
