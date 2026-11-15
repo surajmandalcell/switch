@@ -92,8 +92,16 @@ enum ClaudeUsage {
         let found: String? = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
+                #if os(Windows)
+                // No /usr/bin/env: look up claude (.exe, .cmd) on PATH; not found keeps the default version.
+                guard let found = executable ?? executableCandidates(named: "claude", environment: ProcessInfo.processInfo.environment)
+                    .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else { return continuation.resume(returning: nil) }
+                process.executableURL = found
+                process.arguments = ["--version"]
+                #else
                 process.executableURL = executable ?? URL(fileURLWithPath: "/usr/bin/env")
                 process.arguments = executable == nil ? ["claude", "--version"] : ["--version"]
+                #endif
                 let output = Pipe()
                 process.standardOutput = output
                 process.standardError = FileHandle.nullDevice
