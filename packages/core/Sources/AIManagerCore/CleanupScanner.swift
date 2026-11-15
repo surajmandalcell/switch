@@ -741,11 +741,20 @@ enum ToolWriterProbe {
     private static func openPaths(tool: CleanupTool) -> (paths: [URL], unknown: Bool) {
         var unknown = false
         var paths: [URL] = []
+        #if os(Windows)
+        // No pgrep: the Toolhelp snapshot names each program ("codex.exe"). No snapshot leaves the state unknown.
+        guard let running = WindowsProcesses.snapshot() else { return ([], true) }
+        #endif
         for name in processNames(tool) {
+            #if os(Windows)
+            let pids = running.filter { programMatches($0.name, name) }.map(\.pid)
+            #else
             guard let (status, data) = run("/usr/bin/pgrep", ["-x", name]) else { unknown = true; continue }
             if status == 1 { continue }
             guard status == 0, let text = String(data: data, encoding: .utf8) else { unknown = true; continue }
-            for pid in text.split(whereSeparator: \.isWhitespace).compactMap({ Int32($0) }) {
+            let pids = text.split(whereSeparator: \.isWhitespace).compactMap { Int32($0) }
+            #endif
+            for pid in pids {
                 do { paths += try CodexWriterProbe.openPaths(pid: pid) }
                 catch {
                     // The process ended between the two calls, or its paths cannot be read.
@@ -754,6 +763,12 @@ enum ToolWriterProbe {
             }
         }
         return (paths, unknown)
+    }
+
+    /// A Windows program file name ("Codex.EXE") names the tool `name` ("codex"), like `pgrep -x`.
+    static func programMatches(_ program: String, _ name: String) -> Bool {
+        let lower = program.lowercased()
+        return lower == name || lower == name + ".exe"
     }
 
     fileprivate static func run(_ executable: String, _ arguments: [String]) -> (Int32, Data)? {
@@ -773,6 +788,10 @@ enum ToolWriterProbe {
 /// What is running now: each program's real path (links resolved) and each full command line.
 enum RunningProcesses {
     static func snapshot() -> [String] {
+        #if os(Windows)
+        // No ps: each readable process's command line, from the process itself.
+        return WindowsProcesses.list().flatMap { lines(argv: $0.argv) }
+        #else
         var lines: [String] = []
         if let (status, data) = ToolWriterProbe.run("/bin/ps", ["-axww", "-o", "comm="]), status == 0 {
             for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
@@ -785,5 +804,14 @@ enum RunningProcesses {
             lines += String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
         }
         return lines
+        #endif
+    }
+
+    /// A Windows command line as the program and the whole line, with "\" as "/" so the "/" path checks match.
+    // shortcut: matching stays case-sensitive, switch to case-folded paths if a Windows home differs only in case.
+    static func lines(argv: [String]) -> [String] {
+        let slashed = argv.map { $0.replacingOccurrences(of: "\\", with: "/") }
+        guard let program = slashed.first else { return [] }
+        return [program, slashed.joined(separator: " ")]
     }
 }

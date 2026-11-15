@@ -53,22 +53,42 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(items.count, 100)
     }
 
-    #if os(Linux)
+    #if os(Linux) || os(Windows)
     func testToolWriterProbeFindsRunningToolInItsHome() throws {
+        #if os(Windows)
+        let executable = root.appending(path: "grok.exe")
+        try files.copyItem(atPath: "C:/Windows/System32/PING.EXE", toPath: executable.path)
+        let arguments = ["-n", "30", "127.0.0.1"]
+        #else
         let executable = root.appending(path: "grok")
         try files.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        let arguments = ["30"]
+        #endif
         let process = Process()
         process.executableURL = executable
-        process.arguments = ["30"]
+        process.arguments = arguments
         process.currentDirectoryURL = home
+        process.standardOutput = FileHandle.nullDevice
         try process.run()
         defer {
             if process.isRunning { process.terminate() }
             process.waitUntilExit()
         }
         XCTAssertEqual(ToolWriterProbe.check(tool: .grok, home: home), .active)
+        // The live process list holds the program's full path, as ps does.
+        let program = executable.path.replacingOccurrences(of: "\\", with: "/")
+        XCTAssertTrue(RunningProcesses.snapshot().contains { $0.contains(program) }, "\(program) missing from the process list")
     }
     #endif
+
+    func testWindowsProgramNamesAndCommandLinesMatchThePosixChecks() {
+        XCTAssertTrue(ToolWriterProbe.programMatches("Codex.EXE", "codex"))
+        XCTAssertTrue(ToolWriterProbe.programMatches("agy", "agy"))
+        XCTAssertFalse(ToolWriterProbe.programMatches("codex-helper.exe", "codex"))
+        XCTAssertEqual(RunningProcesses.lines(argv: [#"C:\Users\a\.codex\bin\codex.exe"#, "--home", #"C:\Users\a\.codex"#]),
+                       ["C:/Users/a/.codex/bin/codex.exe", "C:/Users/a/.codex/bin/codex.exe --home C:/Users/a/.codex"])
+        XCTAssertEqual(RunningProcesses.lines(argv: []), [])
+    }
 
     func testTrashReopenRestorePermanentRemovalAndRetainedActivity() async throws {
         let source = try transcript("sessions/2026/one.jsonl")
