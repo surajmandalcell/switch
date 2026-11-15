@@ -219,9 +219,18 @@ struct CleanupScanner {
 
     /// A running process starts from, or has an argument inside, this path.
     private func inUse(_ path: String) -> Bool {
-        processes.values.contains { line in
-            line == path || line.hasPrefix(path + "/") || line.contains(path + "/") || line.contains(path + " ") || line.hasSuffix(path)
-        }
+        #if os(Windows)
+        let ignoringCase = true // Windows paths ignore letter case: "C:/Users/A/.codex" is "c:/users/a/.codex".
+        #else
+        let ignoringCase = false
+        #endif
+        return processes.values.contains { Self.line($0, uses: path, ignoringCase: ignoringCase) }
+    }
+
+    /// A process line starts from, or has an argument inside, `path`.
+    static func line(_ line: String, uses path: String, ignoringCase: Bool) -> Bool {
+        let (line, path) = ignoringCase ? (line.lowercased(), path.lowercased()) : (line, path)
+        return line == path || line.hasPrefix(path + "/") || line.contains(path + "/") || line.contains(path + " ") || line.hasSuffix(path)
     }
 
     static func modified(_ info: stat) -> Double {
@@ -808,7 +817,6 @@ enum RunningProcesses {
     }
 
     /// A Windows command line as the program and the whole line, with "\" as "/" so the "/" path checks match.
-    // shortcut: matching stays case-sensitive, switch to case-folded paths if a Windows home differs only in case.
     static func lines(argv: [String]) -> [String] {
         let slashed = argv.map { $0.replacingOccurrences(of: "\\", with: "/") }
         guard let program = slashed.first else { return [] }
