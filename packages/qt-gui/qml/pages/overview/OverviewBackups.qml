@@ -9,11 +9,12 @@ Card {
   property bool loaded: false
   property int pending: 0
   signal openBackup()
+  readonly property alias openButton: openBtn   // the capture script clicks it
   title: "Recent backups"
   bottomInset: rows.length ? -2 : 0
   accessory: [
     Badge { visible: card.pending > 0; text: card.pending + " interrupted"; dot: Theme.amber; anchors.verticalCenter: parent.verticalCenter },
-    PushButton { text: "Open Backup"; icon: "database"; onClicked: card.openBackup() }
+    PushButton { id: openBtn; text: "Open Backup"; icon: "database"; onClicked: card.openBackup() }
   ]
 
   // date.formatted(date: .abbreviated, time: .shortened) in the client locale: the locale's long date without

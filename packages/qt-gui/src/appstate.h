@@ -5,6 +5,8 @@
 #include <QRect>
 #include <QStringList>
 
+#include "globalshortcut.h"
+
 class AppState : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString fontFamily MEMBER m_fontFamily CONSTANT)
@@ -12,8 +14,8 @@ class AppState : public QObject {
   Q_PROPERTY(bool loginEnabled READ loginEnabled WRITE setLoginEnabled NOTIFY loginChanged)
   Q_PROPERTY(QString loginError READ loginError NOTIFY loginChanged)
   Q_PROPERTY(QString homePath READ homePath CONSTANT)
-  // shortcut: no global-shortcut registration yet (X11 grab or the GlobalShortcuts portal); the row stays off
-  Q_PROPERTY(bool globalShortcuts READ globalShortcuts CONSTANT)
+  // The menu shortcut can be registered (Linux: the GlobalShortcuts portal answered); else the row is off.
+  Q_PROPERTY(bool globalShortcuts READ globalShortcuts NOTIFY globalShortcutsChanged)
 public:
   AppState(QStringList args, QString fontFamily, QObject *parent = nullptr);
   Q_INVOKABLE QString arg(const QString &name, const QString &def = QString()) const;
@@ -28,11 +30,16 @@ public:
   void setLoginEnabled(bool on);
   QString loginError() const { return m_loginError; }
   QString homePath() const;
-  bool globalShortcuts() const { return false; }
+  bool globalShortcuts() const { return m_shortcut.available(); }
+  // shell.md 5.2 apply(combo): the stored {key, modifiers} or null; shortcutRefused when the desktop says no.
+  Q_INVOKABLE void applyShortcut(const QVariant &combo) { m_shortcut.apply(combo); }
 
 signals:
   void keyboardModeChanged();
   void loginChanged();
+  void globalShortcutsChanged();
+  void shortcutActivated();
+  void shortcutRefused();
 
 protected:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -42,4 +49,5 @@ private:
   QString m_fontFamily;
   bool m_keyboardMode = false;
   QString m_loginError;
+  GlobalShortcut m_shortcut;
 };

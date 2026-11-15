@@ -57,10 +57,10 @@ Window {
     }
   }
 
-  // Global search (shell.md 4): one query for the window; the Settings index comes from the helper when it
-  // has app.searchIndex, else the local copy in Search.js.
+  // Global search (shell.md 4): one query for the window; the Settings index comes from the helper's
+  // app.searchIndex (demo.json in --demo), so Settings hits stay empty until it answers.
   property var providerNames: ({})
-  property var searchIndex: Search.ENTRIES
+  property var searchIndex: []
   property string selectedAccountID: ""   // Accounts reads this: a search pick selects that account
   readonly property bool searchBlank: Search.blank(searchQuery)
   readonly property var settingsHits: Search.settings(searchQuery, searchIndex)
@@ -163,6 +163,23 @@ Window {
     p.quit.connect(function () { Qt.quit() })
     p.refresh.connect(function () { win.refreshAll(function () { p.refreshing = false }) })
     p.visibleChanged.connect(function () { if (!p.visible) win.popoverClosedAt = Date.now() })
+    // popover.md 5.1: Switch closes on success; Open, Sign in, and Allow access close at once
+    p.rowAction.connect(function (name, acct, provider) {
+      var row = { id: acct.id, providerID: provider, label: acct.label }
+      if (name === "Switch")
+        Helper.call("accounts.setDefault", { accountID: acct.id }, function (r, e) { if (!e && !(r && r.error)) p.close() })
+      else if (name === "Sign in") { p.close(); var a = win.showPage("Accounts"); if (a && a.signIn) a.signIn(row) }
+      else if (name === "Allow access") { p.close(); win.present(); Helper.call("usage.refresh", { accountID: acct.id }, function () {}) }
+      else { p.close(); Helper.call("accounts.open", { accountID: acct.id }, function () {}) }
+    })
+    // The eyes flip one id in a sorted settings list; the Mac writes account ids in upper case, the helper reads both.
+    p.toggleHidden.connect(function (key, id) {
+      var l = (Prefs.value(key) || []).slice(), i = l.indexOf(id), j = l.indexOf(String(id).toUpperCase())
+      if (i >= 0 || j >= 0) l = l.filter(function (x) { return x !== id && x !== String(id).toUpperCase() })
+      else l.push(id)
+      l.sort()
+      Prefs.set(key, l)
+    })
     return p
   }
   function togglePopover(rect) {
@@ -171,10 +188,18 @@ Window {
     if (popover.visible) popover.close()
     else if (Date.now() - popoverClosedAt > 150) {
       popover.open(rect)
-      // shell.md 5.2: "Refresh when the menu opens"
-      if (Prefs.value("refreshWhenMenuOpens") === true) { popover.refreshing = true; popover.refresh() }
+      // shell.md 5.2 "Refresh when the menu opens": the helper's tray.opened runs app.refresh when that setting is on
+      var p = popover, spin = Prefs.value("refreshWhenMenuOpens") === true
+      if (Helper.hasMethod("tray.opened")) {
+        if (spin) p.refreshing = true
+        Helper.call("tray.opened", {}, function () { if (spin) p.refreshing = false })
+      } else if (spin) { p.refreshing = true; p.refresh() }
     }
   }
+  // popover.md 1.4 and 8.1: the status item cannot show the percent strip off the Mac, so its tooltip carries
+  // one line per tray account (the helper's tray.tooltip); "Switch" when the list is empty.
+  Binding { target: Tray; property: "tooltip"; value: (Helper.topics.tray && Helper.topics.tray.tooltip) || "Switch" }
+  Connections { target: Notify; function onActivated() { win.present() } }   // a click on a Switch notification
   Connections {
     target: Tray
     function onToggleRequested(rect) { win.togglePopover(rect) }
@@ -182,6 +207,18 @@ Window {
     function onRefreshRequested() { win.refreshAll() }
     function onSettingsRequested() { win.present(); win.show(2) }
     function onQuitRequested() { Qt.quit() }
+  }
+  // shell.md 5.2: register the stored menu shortcut at launch and on every change; a press toggles the popover
+  // like a tray click; a refused combo is stored as none.
+  QtObject {
+    property var combo: Prefs.value("globalShortcut") || null
+    onComboChanged: App.applyShortcut(combo)
+    Component.onCompleted: App.applyShortcut(combo)
+  }
+  Connections {
+    target: App
+    function onShortcutActivated() { win.togglePopover(Tray.iconRect()) }
+    function onShortcutRefused() { Prefs.set("globalShortcut", null) }
   }
 
   Shortcut { sequences: ["Ctrl+1"]; onActivated: win.show(0) }

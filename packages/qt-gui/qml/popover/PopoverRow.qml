@@ -13,11 +13,14 @@ Item {
   readonly property int shown: acct.shown
   readonly property int extra: acct.lines.length - acct.shown
   readonly property bool hasToken: !!acct.token
+  readonly property bool hasPrompt: !!acct.prompt   // 3.8: one 24 high prompt line replaces the usage lines
   signal toggle()
+  signal action(string name)   // a band or prompt button title: Switch, Open <tool>, Sign in, Allow access
+  signal eye()
 
   width: 336
   readonly property bool hasBand: !!acct.band && acct.band.length > 0
-  height: 6 + 18 + 4 + (shown * 18 + extra * 18 * expansion) + (hasToken ? 4 + 14 : 0) + (hasBand ? 40 * expansion : 0) + 6
+  height: 6 + 18 + (hasPrompt ? 4 + 24 : 4 + shown * 18 + extra * 18 * expansion) + (hasToken ? 4 + 14 : 0) + (hasBand ? 40 * expansion : 0) + 6
 
   // hover fill, 4 beyond the content on the sides, 4 below
   Rectangle {
@@ -30,7 +33,7 @@ Item {
     Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   }
   HoverHandler { id: hh }
-  MouseArea { x: -4; width: 344; height: parent.height + 4; onClicked: row.toggle() }
+  MouseArea { x: -4; width: 344; height: parent.height + 4; enabled: !!row.acct.canExpand; onClicked: row.toggle() }
 
   // header line
   Item {
@@ -38,19 +41,49 @@ Item {
     width: parent.width
     height: 18
     Icon { x: 2; anchors.verticalCenter: parent.verticalCenter; name: "check"; size: 12; color: Theme.label; visible: row.acct.isDefault }
-    Txt { x: 24; width: parent.width - 24 - 28; anchors.verticalCenter: parent.verticalCenter; text: row.acct.label; elide: Text.ElideRight }
-    Item {
-      x: parent.width - 18
-      width: 18
-      height: 18
-      opacity: hh.hovered ? 1 : 0
-      Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
-      Icon { anchors.centerIn: parent; name: "eye"; size: 12; color: Theme.secondary }
+    Txt { x: 24; width: parent.width - 24 - 28 - (row.hasPrompt ? 54 : 0); anchors.verticalCenter: parent.verticalCenter; text: row.acct.label; elide: Text.ElideRight }
+    // account eye (3.4): shown on row hover or focus; half visible while the account is hidden from the menu bar
+    IconButton {
+      id: eyeBtn
+      x: parent.width - 18 + 3
+      anchors.verticalCenter: parent.verticalCenter
+      icon: row.acct.showsInTray === false ? "eyeSlash" : "eye"
+      glyph: 12
+      tip: row.acct.showsInTray === false ? "Show account in menu bar" : "Hide account from menu bar"
+      Accessible.name: tip + ": " + row.acct.label
+      opacity: hh.hovered || activeFocus ? 1 : (row.acct.showsInTray === false ? 0.5 : 0)
+      Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
+      onClicked: row.eye()
     }
+  }
+
+  // prompt line (3.8): text left, the Sign in or Allow access button bottom-right over the row
+  Txt {
+    visible: row.hasPrompt
+    x: 24
+    y: 6 + 18 + 4
+    width: parent.width - 24 - (row.acct.promptButton === "Allow access" ? 90 : 60)
+    height: 24
+    verticalAlignment: Text.AlignVCenter
+    role: "secondary"
+    color: Theme.secondary
+    text: row.acct.prompt || ""
+    elide: Text.ElideRight
+  }
+  PopButton {
+    visible: row.hasPrompt && !!row.acct.promptButton
+    x: parent.width - width - 2
+    y: parent.height - height - (6 + 2 * row.reveal) - 40 * (row.expansion - row.reveal)   // Rows:54-56, 693-696
+    text: row.acct.promptButton || ""
+    Accessible.role: Accessible.Button
+    Accessible.name: (text === "Allow access" ? "Allow access to " : "Sign in to ") + row.acct.label
+    ToolTipArea { text: parent.text === "Allow access" ? "Open Switch to allow access to Droid’s login" : "Open Switch to sign in" }
+    onClicked: row.action(text)
   }
 
   // usage lines: the first `shown` always, the rest revealed
   Item {
+    visible: !row.hasPrompt
     y: 6 + 18 + 4
     width: parent.width
     height: row.shown * 18 + row.extra * 18 * row.expansion
@@ -129,7 +162,7 @@ Item {
 
   // token line, kept under the last visible line while the extra lines reveal
   Item {
-    visible: row.hasToken
+    visible: row.hasToken && !row.hasPrompt
     y: 6 + 18 + 4 + row.shown * 18 + row.extra * 18 * row.expansion + 4 - row.extra * 18 * (row.expansion - Math.min(row.reveal, row.expansion))
     width: parent.width
     height: 14
@@ -158,7 +191,7 @@ Item {
           x: 24
           anchors.verticalCenter: parent.verticalCenter
           spacing: 6
-          Repeater { model: row.acct.band || []; PopButton { text: modelData } }
+          Repeater { model: row.acct.band || []; PopButton { text: modelData; enabled: modelData !== "Switch" || row.acct.isVerified !== false; onClicked: row.action(modelData) } }
         }
       }
     }

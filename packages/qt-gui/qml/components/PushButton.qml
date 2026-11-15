@@ -53,7 +53,17 @@ Item {
       border.color: b.prominent ? Theme.primaryBorder : Theme.controlBorder
     }
   }
-  FocusFill { radius: 6; visible: b.activeFocus && App.keyboardMode && b.enabled }
+  FocusFill { radius: 6; visible: !b.prominent && b.activeFocus && App.keyboardMode && b.enabled }
+  // An accent tint vanishes on the accent fill, so a prominent button gets the Mac ring: 3 px accent, 1 px gap outside
+  Rectangle {
+    visible: b.prominent && b.activeFocus && App.keyboardMode && b.enabled
+    anchors.fill: parent
+    anchors.margins: -4
+    radius: 10
+    color: "transparent"
+    border.width: 3
+    border.color: Theme.rgba(Theme.accent, 0.5)
+  }
 
   Row {
     id: content

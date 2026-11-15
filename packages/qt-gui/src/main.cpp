@@ -11,6 +11,7 @@
 
 #include "appstate.h"
 #include "helperclient.h"
+#include "notifier.h"
 #include "tray.h"
 #ifdef SWITCH_HARNESS
 #include "harness.h"
@@ -20,7 +21,10 @@
 int main(int argc, char *argv[]) {
   // One logical DPI everywhere, so a QML pointSize of px * 0.75 is exactly px logical pixels.
   qputenv("QT_FONT_DPI", "96");
+#ifndef Q_OS_WIN
+  // Windows keeps Qt's default Direct3D 11, which also runs (WARP) where no OpenGL driver is installed.
   if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND")) QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+#endif
 
   QApplication app(argc, argv);
   app.setApplicationName("Switch");
@@ -46,7 +50,11 @@ int main(int argc, char *argv[]) {
   } else {
     HelperClient::Config cfg;
     // The bundled helper next to the binary, never one from PATH (architecture.md 1).
+#ifdef Q_OS_WIN
+    cfg.program = state.arg("helper", QCoreApplication::applicationDirPath() + "/switch-core.exe");
+#else
     cfg.program = state.arg("helper", QCoreApplication::applicationDirPath() + "/switch-core");
+#endif
     cfg.root = state.arg("root");
     helper.start(cfg);
   }
@@ -55,11 +63,22 @@ int main(int argc, char *argv[]) {
   Tray tray;
   app.setQuitOnLastWindowClosed(!tray.available());
 
+  // Quota alerts come from the helper (rpc.md notify.post, group switch.quota); pages post action messages
+  // through Notify.post. A click raises the main window (Main.qml listens to Notify.activated).
+  Notifier notifier;
+  QObject::connect(&notifier, &Notifier::fallback, &tray, &Tray::showMessage);
+  QObject::connect(&helper, &HelperClient::notification, &notifier, [&notifier](const QString &method, const QJsonObject &p) {
+    if (method != "notify.post") return;
+    notifier.post(p.value("id").toString(), p.value("title").toString(), p.value("subtitle").toString(),
+                  p.value("body").toString(), p.value("group").toString() == "switch.quota");
+  });
+
   QQmlApplicationEngine engine;
   helper.setEngine(&engine);
   engine.rootContext()->setContextProperty("App", &state);
   engine.rootContext()->setContextProperty("Helper", &helper);
   engine.rootContext()->setContextProperty("Tray", &tray);
+  engine.rootContext()->setContextProperty("Notify", &notifier);
 #ifdef SWITCH_HARNESS
   Harness harness(state.arg("out", QDir::currentPath()));
   engine.rootContext()->setContextProperty("Harness", &harness);

@@ -70,8 +70,8 @@ Switch links Qt under the LGPL v3. CMake enforces these rules and fails the conf
   Keyboard on any link line. Charts are our own QML (`Shape`, `Canvas`).
 - No dependency beyond Qt. Bundled fonts: Inter and JetBrains Mono, both SIL OFL 1.1; ship their license files.
 
-Linked Qt modules: Core, Gui, Qml, Quick, Widgets (tray menu), GuiPrivate (harness builds only),
-Test (test only). QML modules loaded at run time: QtQuick, QtQuick.Window, QtQuick.Shapes,
+Linked Qt modules: Core, Gui, Qml, Quick, Widgets (tray menu), DBus (Linux only: the GlobalShortcuts
+portal and desktop notifications), GuiPrivate (harness builds only), Test (test only). QML modules loaded at run time: QtQuick, QtQuick.Window, QtQuick.Shapes,
 QtQuick.Effects (all part of Qt Declarative, LGPL). Image plugin loaded at run time: `qsvg` (Qt Svg, LGPL)
 for the provider icons in `assets/providers/icon/`; a package must ship it. A shipping build sets `-DSWITCH_HARNESS=OFF
 -DSWITCH_TESTS=OFF`.
@@ -137,3 +137,26 @@ packages/qt-gui/scripts/remote-oci.zsh <worker> [build|shots|all|clean]   # defa
 - Cleanup: `remote-oci.zsh <worker> clean` deletes `/mnt/sdb/data/switch/qt/<worker>` (about 40-90 MB each).
   The image takes 1.9 GB on oci2's system disk. To refresh Tumbleweed, rebuild it with the command at the top of
   the Dockerfile, check `qtpaths6 --qt-version` against lin1, and remove the old image by its ID.
+
+## Windows: open items
+
+Done in code, not yet built on Windows: helper `switch-core.exe` next to the app (`main.cpp`), `USERPROFILE` set
+with `--root` (`HelperClient::launch`), Direct3D 11 instead of forced OpenGL (`main.cpp`), white tray mark on a dark
+taskbar (`Tray::Tray`), `WIN32_EXECUTABLE` for shipping builds (`CMakeLists.txt`). To decide or test on Windows:
+
+- Build: MSVC Qt 6.12, `windeployqt` (must ship `qsvg`, the Direct3D compiler, `opengl32sw.dll` only if needed); `scripts/*.sh` are Linux only.
+- Exe icon: no `.ico` or `.rc` exists; `setWindowIcon(appicon.png)` covers only the taskbar at run time. Make one from the Mac `AppIcon.png`.
+- Window chrome (`Main.qml` `flags`, `TrafficLights`, `startSystemResize(Qt.BottomEdge)`): frameless means no DWM shadow, Windows 11 corners or Snap Layouts; shell.md keeps the left buttons. Test Aero Snap, maximize (height only), and the shadow; decide DWM attributes.
+- Dark title bar: no native title bar is shown, so `DWMWA_USE_IMMERSIVE_DARK_MODE` matters only if chrome goes native; check the Account sheet (`Qt.Dialog | Frameless`).
+- Per-monitor DPI: `QT_FONT_DPI=96` (`main.cpp`) sets only Qt's logical DPI after scaling, so 150% should still scale by 1.5; confirm sizes at 100/150/175% and when the window moves between monitors.
+- Fonts: Inter variable through DirectWrite (weights 400-700), `NoSubpixelAntialias` and hinting against the Mac captures.
+- Tray popover (`Tray::place`): bottom taskbar is handled; left or right taskbars and an icon in the overflow area (`QSystemTrayIcon::geometry`) are not. Test all four edges.
+- Tray tone (`Tray::Tray`): read once at start; a taskbar mode change needs a restart. Linux never sets `darkTray`.
+- Helper stop (`HelperClient::stop`): closes stdin, then `kill` (TerminateProcess) after 2 s; check the helper exits 0 and no console window flashes at start.
+- Single instance: not built on any platform; Windows wants a named mutex plus a pipe to show the first window (shell.md 1.5).
+- Notifications: none in the GUI yet; Windows wants a silent toast with a registered AppUserModelID (shell.md 6.4).
+- Global shortcut: `GlobalShortcut` (Linux: the XDG GlobalShortcuts portal) is off on Windows; Windows wants `RegisterHotKey` (shell.md 5); key text says "Super" (`SettingsPage.qml` `comboText`).
+- Terminal emulator setting (rpc.md `terminalEmulator`): no UI yet; decide whether Windows shows it (Windows Terminal or console).
+- Windows paths in QML: `AccFact.isPath` and `AccDailyCard` test for a leading `/`; `AddAccountSheet` splits on `/`; the demo data locations in `SettingsPage.qml` are XDG paths.
+- Copy: "~/.zshrc", "Terminal" and "Super" are Mac or Linux words (shell.md 4, Search.js, SettingsPage.qml).
+- Open at Login (`AppState::setLoginEnabled`, HKCU Run): test the quoted path with spaces and `--background`.

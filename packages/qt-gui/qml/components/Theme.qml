@@ -51,8 +51,9 @@ QtObject {
   readonly property color secondary:  dark ? w(0.549) : k(0.498)
   readonly property color tertiary:   dark ? w(0.247) : k(0.259)
   readonly property color quaternary: dark ? w(0.098) : k(0.098)
-  // Dark separator: the Mac capture measures white 12% (#424242 on the #282828 card), not 9.8%.
-  readonly property color separator:  dark ? w(0.12) : k(0.098)
+  // Dark separator: overview-dark.png card dividers measure #3D3D3D on the #282828 card, white 9.8%
+  // (#424242 there is the selected row fill, rowHighlight).
+  readonly property color separator:  dark ? w(0.098) : k(0.098)
   readonly property color green:  dark ? "#30D158" : "#34C759"
   readonly property color yellow: dark ? "#FFD600" : "#FFCC00"
   readonly property color red:    dark ? "#FF4245" : "#FF383C"
@@ -60,7 +61,9 @@ QtObject {
   readonly property color link:   dark ? "#419CFF" : "#0068DA"
 
   // 1.2 app tokens
-  readonly property color page:       dark ? "#1E1E1E" : "#F6F6F6"
+  // Dark page = windowBackgroundColor: #323232 in the real window captures (overview-dark.png, accounts-dark.png).
+  // The #1E1E1E in compare/settings-dark-mac.png is an offscreen render without window chrome.
+  readonly property color page:       dark ? "#323232" : "#F6F6F6"
   readonly property color card:       dark ? "#282828" : "#FFFFFF"
   readonly property color cardBorder: dark ? w(0.05) : k(0.10)
   readonly property color hairline:   separator

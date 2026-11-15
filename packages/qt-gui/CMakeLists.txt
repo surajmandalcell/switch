@@ -53,10 +53,17 @@ qt_add_executable(switch
   src/appstate.cpp src/appstate.h
   src/helperclient.cpp src/helperclient.h
   src/tray.cpp src/tray.h
+  src/globalshortcut.cpp src/globalshortcut.h
+  src/notifier.cpp src/notifier.h
 )
 if(SWITCH_HARNESS)
   target_sources(switch PRIVATE src/harness.cpp src/harness.h)
   target_compile_definitions(switch PRIVATE SWITCH_HARNESS)
+endif()
+# Windows: a shipping build is a GUI program (no console window); harness builds keep the console for their logs.
+# The property does nothing on other platforms.
+if(NOT SWITCH_HARNESS)
+  set_target_properties(switch PROPERTIES WIN32_EXECUTABLE ON)
 endif()
 
 # qmlcachegen stops the whole build at the first QML syntax error and has no keep-going flag. When a build
@@ -88,6 +95,12 @@ target_link_libraries(switch PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6:
 if(SWITCH_HARNESS)
   target_link_libraries(switch PRIVATE Qt6::GuiPrivate)
 endif()
+# Linux only: Qt D-Bus (LGPL, Qt base) for the XDG GlobalShortcuts portal and desktop notifications.
+if(UNIX AND NOT APPLE)
+  find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
+  target_link_libraries(switch PRIVATE Qt6::DBus)
+  target_compile_definitions(switch PRIVATE SWITCH_DBUS)
+endif()
 
 if(SWITCH_TESTS)
   qt_add_executable(tst_helperclient tests/tst_helperclient.cpp src/helperclient.cpp src/helperclient.h)
@@ -95,10 +108,18 @@ if(SWITCH_TESTS)
   target_link_libraries(tst_helperclient PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
   enable_testing()
   add_test(NAME helperclient COMMAND tst_helperclient)
+  qt_add_executable(tst_globalshortcut tests/tst_globalshortcut.cpp src/globalshortcut.cpp src/globalshortcut.h)
+  target_include_directories(tst_globalshortcut PRIVATE src)
+  target_link_libraries(tst_globalshortcut PRIVATE Qt6::Core Qt6::Test)
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(tst_globalshortcut PRIVATE Qt6::DBus)
+    target_compile_definitions(tst_globalshortcut PRIVATE SWITCH_DBUS)
+  endif()
+  add_test(NAME globalshortcut COMMAND tst_globalshortcut)
 endif()
 
 # Fail the configure step if a GPL-only or excluded Qt module reaches a link line.
-foreach(t switch tst_helperclient)
+foreach(t switch tst_helperclient tst_globalshortcut)
   if(TARGET ${t})
     get_target_property(_libs ${t} LINK_LIBRARIES)
     foreach(l ${_libs})

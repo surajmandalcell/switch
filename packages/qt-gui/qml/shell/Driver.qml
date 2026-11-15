@@ -46,6 +46,21 @@ Item {
     s.push(function () { Harness.quit(0) })
     run(s)
   }
+  // --script shortcut: records Ctrl+Alt+S as the menu shortcut, logs the portal state, waits 20 s for an
+  // outside press (kglobalaccel invokeShortcut in the test), logs each toggle, and captures Settings.
+  function shortcut() {
+    App.shortcutActivated.connect(function () {
+      Qt.callLater(function () { Harness.log("SHORTCUT activated popover=" + (win.popover ? win.popover.visible : "none")) })
+    })
+    App.shortcutRefused.connect(function () { Harness.log("SHORTCUT refused") })
+    run([2500, function () {
+      Harness.log("SHORTCUT available=" + App.globalShortcuts)
+      Prefs.set("globalShortcut", { key: Qt.Key_S, modifiers: 4096 | 2048 })
+    }, 20000, function () {
+      Harness.log("SHORTCUT stored=" + JSON.stringify(Prefs.value("globalShortcut")))
+      win.show(2)
+    }, 800, function () { shot(win, "settings-shortcut"); Harness.quit(0) }])
+  }
 
   // --script states --page <title>: the shown page's own capture steps (its captureSteps(driver) list).
   function states() {
@@ -54,6 +69,99 @@ Item {
       if (!p || typeof p.captureSteps !== "function") { Harness.log("NO STATES"); Harness.quit(1); return }
       run(p.captureSteps(d).concat([function () { Harness.quit(0) }]))
     }])
+  }
+
+  // --script a11y: accessibility dump. Walks every page, the search drop-down, the menu, the alert and the
+  // popover, and logs each interactive item (on the Tab chain, taking clicks, or a control role) with its
+  // scope, role, name and path. "A11Y MISSING" = no name, "A11Y NOROLE" = clickable with no role. Then it
+  // tabs through Settings, logs the Tab order, and captures the focus tint. Exits 1 when a shared part
+  // (shell, header, overlay, popover, Settings) has a defect; page scopes are only reported.
+  readonly property var roleNames: {
+    var m = {}
+    m[Accessible.Button] = "Button"; m[Accessible.CheckBox] = "CheckBox"; m[Accessible.RadioButton] = "RadioButton"
+    m[Accessible.ComboBox] = "ComboBox"; m[Accessible.PageTab] = "PageTab"; m[Accessible.PageTabList] = "PageTabList"
+    m[Accessible.ListItem] = "ListItem"; m[Accessible.EditableText] = "EditableText"; m[Accessible.Slider] = "Slider"
+    m[Accessible.SpinBox] = "SpinBox"; m[Accessible.Link] = "Link"; m[Accessible.MenuItem] = "MenuItem"
+    m[Accessible.ButtonMenu] = "ButtonMenu"; m[Accessible.ButtonDropDown] = "ButtonDropDown"; m[Accessible.ScrollBar] = "ScrollBar"
+    return m
+  }
+  function roleName(r) { return roleNames[r] || ("role" + r) }
+  function typeName(o) { return String(o).split("(")[0].replace(/_QMLTYPE_\d+|_QML_\d+/, "") }
+  function hint(it, depth) {
+    if (typeof it.text === "string" && it.text !== "") return it.text
+    if (typeof it.tip === "string" && it.tip !== "") return "tip " + it.tip
+    if (typeof it.icon === "string" && it.icon !== "") return "icon " + it.icon
+    if (depth > 0) for (var i = 0; i < it.children.length; ++i) { var h = hint(it.children[i], depth - 1); if (h) return h }
+    return ""
+  }
+  function clicks(it) {
+    for (var i = 0; i < it.children.length; ++i) {
+      var c = it.children[i]
+      if ("pressAndHoldInterval" in c && c.visible && c.enabled && c.acceptedButtons !== Qt.NoButton && !c.Accessible.ignored) return true
+    }
+    for (var k = 0; k < it.resources.length; ++k) if ("tapCount" in it.resources[k] && it.resources[k].enabled) return true
+    return false
+  }
+  property var seen: new Set()
+  property var tally: ({})
+  property bool a11yBad: false
+  function walk(it, scope, path) {
+    if (!it || !it.visible || seen.has(it)) return
+    seen.add(it)
+    if (it.objectName === "page-header") scope = "header"
+    else if (Theme.pageHost && it.parent === Theme.pageHost && "status" in it) scope = "page:" + win.pages[win.pageIndex].title
+    var name = it.objectName !== "" ? it.objectName : typeName(it)
+    path = path.concat([name]).slice(-5)
+    var acc = it.Accessible
+    var control = acc.role in roleNames && acc.role !== Accessible.PageTabList && acc.role !== Accessible.ScrollBar
+    if (!acc.ignored && (it.activeFocusOnTab || control || clicks(it))) {
+      var t = tally[scope] || (tally[scope] = { items: 0, missing: 0, norole: 0 })
+      t.items++
+      var shared = scope.indexOf("page:") !== 0 || scope === "page:Settings"
+      var line = scope + " " + roleName(acc.role) + " \"" + acc.name + "\" " + path.join("/") + " [" + hint(it, 3) + "]"
+      if (acc.name === "") { t.missing++; Harness.log("A11Y MISSING " + line); if (shared) a11yBad = true }
+      else if (!(acc.role in roleNames)) { t.norole++; Harness.log("A11Y NOROLE " + line); if (shared) a11yBad = true }
+      else Harness.log("A11Y OK " + line)
+    }
+    for (var i = 0; i < it.children.length; ++i) walk(it.children[i], scope, path)
+  }
+  function focusDesc() {
+    var a = win.activeFocusItem
+    return a ? typeName(a) + " " + roleName(a.Accessible.role) + " \"" + a.Accessible.name + "\" [" + hint(a, 2) + "]" : "none"
+  }
+  function a11y() {
+    var s = [1200]
+    for (var i = 0; i < win.pages.length; ++i) (function (i) {
+      s.push(function () { win.show(i) }, 700, function () { walk(win.contentItem, "shell", []) })
+    })(i)
+    // search drop-down (Overview), the More menu, a Rename-style alert with a field, the expanded popover
+    s.push(function () { win.show(0); win.searchQuery = "a"; win.searchFocused = true }, 400,
+           function () { walk(win.contentItem, "shell", []); win.searchFocused = false; win.searchQuery = "" })
+    s.push(function () { Theme.menu.open(win.page(0).header, ["Refresh All Usage", "Add Account", "-", "Settings"], -1, null) }, 200,
+           function () { walk(Theme.menu, "menu", []); Theme.menu.close() })
+    s.push(function () { Theme.alert.open({ title: "Rename account", message: "Shown in Switch only.", action: "Rename", field: "Work", fieldLabel: "Name" }) }, 200,
+           function () { walk(Theme.alert, "alert", []) },
+           function () { Harness.key(win, Qt.Key_Tab) }, 200, function () { shot(win, "a11y-focus-alert") },
+           function () { Theme.alert.close() })
+    s.push(function () { win.togglePopover(anchor(false)) }, 900,
+           function () { if (win.popover) { win.popover.setExpanded(0) } }, 400,
+           function () { if (win.popover) { walk(win.popover.contentItem, "popover", []); win.popover.close() } }, 300)
+    // Tab order: from the sidebar through the Settings header and rows; capture the first of each control kind
+    var kinds = {}
+    s.push(function () { win.show(2); win.requestActivate(); win.contentItem.forceActiveFocus() }, 500)
+    for (var n = 1; n <= 40; ++n) (function (n) {
+      s.push(function () { Harness.key(win, Qt.Key_Tab) }, 80, function () {
+        Harness.log("TAB " + n + " " + focusDesc())
+        var a = win.activeFocusItem
+        var k = a ? (n <= 5 ? "sidebar" : roleName(a.Accessible.role)) : ""
+        if (k !== "" && !kinds[k]) { kinds[k] = true; shot(win, "a11y-focus-" + k.toLowerCase()) }
+      })
+    })(n)
+    s.push(function () {
+      for (var sc in tally) Harness.log("A11Y COUNT " + sc + " items=" + tally[sc].items + " missing=" + tally[sc].missing + " norole=" + tally[sc].norole)
+      Harness.quit(a11yBad ? 1 : 0)
+    })
+    run(s)
   }
 
   // A page or popover that failed to load is logged as FAILED and still captured (its placeholder); the run
@@ -65,7 +173,9 @@ Item {
   }
   function start(script) {
     if (Harness && script === "prefs") return prefs()
+    if (Harness && script === "shortcut") return shortcut()
     if (Harness && script === "states") return states()
+    if (Harness && script === "a11y") return a11y()
     if (!Harness || script !== "shots") return
     var s = [1200]
     var only = App.arg("pages", "")   // comma list of page titles; no popover when set

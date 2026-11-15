@@ -23,13 +23,14 @@ Window {
   Connections { target: Helper; function onTopicChanged(t) { if (t === "tray") pop.fresh = null } }
 
   // Wire rows to the row view: collapsed lines first, then the expanded ones; a heading line names a pool.
-  // shortcut: prompt rows (Sign in, Allow access) and the eyes are not drawn yet
   function view(t) {
     return (t && t.groups ? t.groups : []).map(function (g) {
-      return { id: g.providerID, name: g.name, accounts: g.rows.map(function (r) {
+      return { id: g.providerID, name: g.name, showsInTray: g.showsInTray !== false, accounts: g.rows.map(function (r) {
         var all = r.canExpand && r.expandedLines ? r.expandedLines : r.lines
-        return { id: r.id, label: r.label, isDefault: r.isDefault, shown: r.lines.length, token: r.tokens || "",
-                 band: r.openToolTitle ? [r.openToolTitle] : [],
+        return { id: r.id, label: r.label, isDefault: r.isDefault, isVerified: r.isVerified, shown: r.lines.length, token: r.tokens || "",
+                 prompt: r.prompt || "", promptButton: r.promptButton || "", showsInTray: r.showsInTray !== false,
+                 canExpand: r.canExpand !== false, accessibilityLabel: r.accessibilityLabel || r.label,
+                 band: (r.showsSwitch ? ["Switch"] : []).concat(r.openToolTitle ? [r.openToolTitle] : []),
                  lines: all.map(function (l) { return l.isHeading ? { heading: l.label } : { label: l.label, used: l.used, reset: l.resetText || "" } }) }
       }) }
     })
@@ -46,6 +47,8 @@ Window {
   signal openSettings()
   signal quit()
   signal refresh()   // the owner sets refreshing back to false when every reply is in
+  signal rowAction(string name, var acct, string provider)   // Switch, Open <tool>, Sign in, Allow access (5.1)
+  signal toggleHidden(string key, string id)                  // menuBarHiddenServices or menuBarHiddenAccounts
 
   property int layoutIndex: -1
   property int expandedIndex: -1
@@ -153,6 +156,16 @@ Window {
         Column {
           id: inner
           width: parent.width
+          // empty state (3.8): two centered lines in at least 50
+          Column {
+            visible: pop.groups.length === 0
+            width: parent.width
+            height: visible ? 50 : 0
+            topPadding: 8
+            spacing: 4
+            Txt { anchors.horizontalCenter: parent.horizontalCenter; wght: 700; text: "No accounts yet" }
+            Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary; text: "Open Switch to add an account." }
+          }
           Repeater {
             model: pop.groups
             delegate: Column {
@@ -189,11 +202,13 @@ Window {
                 IconButton {
                   x: parent.width - 18
                   anchors.verticalCenter: parent.verticalCenter
-                  icon: "eye"
+                  icon: grp.group.showsInTray ? "eye" : "eyeSlash"
                   glyph: 11
-                  tip: "Hide from menu bar"
-                  opacity: gh.hovered ? 1 : 0
+                  tip: grp.group.showsInTray ? "Hide from menu bar" : "Show in menu bar"
+                  Accessible.name: tip + ": " + grp.group.name
+                  opacity: gh.hovered || activeFocus ? 1 : (grp.group.showsInTray ? 0 : 0.5)
                   Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
+                  onClicked: pop.toggleHidden("menuBarHiddenServices", grp.group.id)
                 }
               }
               Column {
@@ -209,6 +224,8 @@ Window {
                     expansion: pop.layoutIndex === ri ? 1 : 0
                     barProgress: pop.bars
                     onToggle: pop.toggle(ri)
+                    onAction: function (name) { pop.rowAction(name, modelData, grp.group.id) }
+                    onEye: pop.toggleHidden("menuBarHiddenAccounts", modelData.id)
                   }
                 }
               }
@@ -222,6 +239,7 @@ Window {
         y: parent.height - 44
         width: parent.width
         height: 44
+        Rectangle { visible: pop.groups.length === 0; width: parent.width; height: Theme.hair; color: Theme.separator }
         PopButton { x: 12; anchors.verticalCenter: parent.verticalCenter; text: "Open Switch"; hint: "Ctrl O"; onClicked: pop.openMain() }
         Row {
           anchors.right: parent.right

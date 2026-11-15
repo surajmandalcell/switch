@@ -85,13 +85,17 @@ Item {
   function resolve(op, choice) { act("recovery.resolve", { operationID: op.id, choice: choice }) }
   function recover() { act("recovery.recover", {}) }
 
+  // Other pages (Overview "Open Backup") open this tab; a settings read that is still on its way must not undo it.
+  property bool tabPicked: false
+  function showBackupTab() { tabPicked = true; tab = "Backup" }
+
   function load() {
     if (!helperUp) return
     var keys = ["maintenanceTab", "maintenanceSource", "cleanupRange", "cleanupFrom", "cleanupThrough", "cleanupExpanded", "cleanupProjects", "cleanupTitle"]
     var go = function (v) {
       v = v || {}
       cleanupTab.restoring = true
-      if (v.maintenanceTab) tab = String(v.maintenanceTab).toLowerCase() === "backup" ? "Backup" : "Cleanup"
+      if (v.maintenanceTab && !tabPicked) tab =String(v.maintenanceTab).toLowerCase() === "backup" ? "Backup" : "Cleanup"
       if (v.maintenanceSource) sourceID = v.maintenanceSource
       if (v.cleanupRange && F.RANGES.indexOf(v.cleanupRange) >= 0) cleanupTab.range = v.cleanupRange
       if (v.cleanupFrom) cleanupTab.from = v.cleanupFrom * 1000
@@ -283,7 +287,7 @@ Item {
     var idle = function () { return !c.loading && !c.modelBusy }
     var steps = [
       until("scan", function () { return !!c.scan && idle() }), log("scanned"), shot("cleanup"),
-      function () { c.range = "All time"; selectAll(); c.makeReview() }, until("review", function () { return !!c.review }), bottom, 300, log("reviewed"), shot("review"),
+      function () { c.range = "All time"; Harness.log("LIVE a"); selectAll(); Harness.log("LIVE b"); c.makeReview(); Harness.log("LIVE c") }, until("review", function () { return !!c.review }), bottom, 300, log("reviewed"), shot("review"),
       function () { c.confirmApply() }, until("alert", function () { return Theme.alert.visible }), shot("alert"),
       function () { Theme.alert.accept() }, until("apply", function () { return idle() && c.trash.length > 0 }), bottom, 300, log("applied"), shot("trash"),
       function () { c.restoreBatch(c.trash[0]) }, until("restore", function () { return idle() && c.trash.length === 0 }), bottom, 300, log("restored"), shot("restored"),
@@ -320,20 +324,23 @@ Item {
           if (!deadline) deadline = Date.now() + s.ms
           var ok = false
           try { ok = s.cond() } catch (e) { Harness.log("LIVE wait error " + s.name + " " + e) }
+          if (!ok && Date.now() < deadline && (Date.now() % 2000) < 200) Harness.log("LIVE wait " + s.name)
           if (!ok && Date.now() < deadline) { liveTimer.interval = 200; liveTimer.start(); return }
           if (!ok) Harness.log("LIVE timeout waiting for " + s.name)
           deadline = 0; i++
           continue
         }
         i++
+        Harness.log("LIVE step " + i)
         try { s() } catch (e) { Harness.log("LIVE step error " + e) }
       }
       Harness.log("LIVE done")
       Harness.quit(0)
     }
-    return [function () { page.liveTick = next; next() }, 600000]
+    return [function () { Harness.log("LIVE start " + steps.length); page.liveTick = next; next() }, 600000]
   }
   property var liveTick: null
+  Connections { target: Qt.application; function onAboutToQuit() { Harness.log("LIVE aboutToQuit win=" + (page.Window.window ? page.Window.window.visible : "none")) } }
   Timer { id: liveTimer; onTriggered: page.liveTick() }
 
   function focusName(w) { var a = w.activeFocusItem; return a ? String(a).split("(")[0] + " '" + (a.text || a.label || a.objectName || "") + "' activeFocus=" + a.activeFocus + " keyboardMode=" + App.keyboardMode : "none" }
@@ -369,7 +376,7 @@ Item {
       function () { Harness.key(w, Qt.Key_Right); Harness.key(w, Qt.Key_Right); Harness.key(w, Qt.Key_Down) }, 300, shot("focus-calendar"),
       function () { Harness.key(w, Qt.Key_Escape); c.range = "Older than 30 days" }, 300,
       function () { c.titleQuery = ""; page.barError = "Waiting for Backup Drive. Connect the destination and try again." }, 300, shot("error"),
-      function () { page.barError = ""; tab = "Backup" }, 500, shot("backup"),
+      function () { page.barError = ""; page.showBackupTab() }, 500, shot("backup"),
       function () { scrollArea.scrollTo(10000) }, 300, shot("backup-bottom"),
       function () { scrollArea.scrollTo(0); b.running = { setID: b.sets[1].id, index: 1, count: 2, files: 1284, bytes: 912000000 } }, 300, shot("backup-running"),
       function () { b.running = null; b.restoreRequest = { snapshot: b.history[0].snapshot, set: b.history[0].set, title: b.history[0].set.name } }, 400, shot("backup-sheet"),
