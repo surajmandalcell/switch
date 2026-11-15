@@ -38,6 +38,15 @@ Item {
       anchors.verticalCenter: parent.verticalCenter
       role: "body"
       text: m.known ? A.pctWord(m.w.usedPercent, Theme.showUsed) : "–"
+      // a button: a click flips between percent left and used
+      activeFocusOnTab: m.known
+      Accessible.role: Accessible.Button
+      Accessible.name: m.title + " " + text
+      Accessible.description: Theme.showUsed ? "Show the percentage left" : "Show the percentage used"
+      Accessible.onPressAction: if (m.known) m.ctl.toggleShowUsed()
+      Keys.onSpacePressed: m.ctl.toggleShowUsed()
+      Keys.onReturnPressed: m.ctl.toggleShowUsed()
+      FocusFill { anchors.margins: -3; radius: 4 }
       ToolTipArea { text: m.known ? (Theme.showUsed ? "Click to show the percentage left" : "Click to show the percentage used") : "" }
       MouseArea { anchors.fill: parent; enabled: m.known; cursorShape: Qt.PointingHandCursor; onClicked: m.ctl.toggleShowUsed() }
     }
@@ -59,6 +68,15 @@ Item {
       role: "secondary"
       color: Theme.secondary
       text: m.resetLine
+      // a button: a click flips between the countdown and the exact time
+      activeFocusOnTab: m.resetLine !== ""
+      Accessible.role: Accessible.Button
+      Accessible.name: text
+      Accessible.description: "Switch between countdown and exact time"
+      Accessible.onPressAction: if (m.resetLine !== "") m.ctl.toggleExact()
+      Keys.onSpacePressed: m.ctl.toggleExact()
+      Keys.onReturnPressed: m.ctl.toggleExact()
+      FocusFill { anchors.margins: -3; radius: 4 }
       ToolTipArea { text: m.resetLine !== "" ? m.resetLine + "\n" + A.resetText(m.w.resetsAt, m.ctl.now, m.w.usedPercent, !m.ctl.exact, m.ctl.h24) : "" }
       MouseArea { anchors.fill: parent; enabled: m.resetLine !== ""; cursorShape: Qt.PointingHandCursor; onClicked: m.ctl.toggleExact() }
     }

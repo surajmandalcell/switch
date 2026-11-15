@@ -544,6 +544,8 @@ Item {
             elide: Text.ElideRight
             opacity: titleSel.activeFocus ? 0 : 1
             text: page.summary ? page.summary.title : ""
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
             ToolTipArea { text: titleT.text }
             TextInput {
               id: titleSel

@@ -9,10 +9,24 @@ Item {
   property real contentHeight: 16      // the tallest content line; children center on it
   default property alias content: box.data
   readonly property real contentWidth: box.width
+  property string name: ""             // the row's visible title, for screen readers
+  property bool expandable: false      // a category or project row: a click, Return or Space opens it
+  property bool open: false
   signal clicked()
 
   width: parent ? parent.width : 0
   height: Math.max(minHeight, contentHeight + 8)
+  Accessible.role: expandable ? Accessible.Button : Accessible.ListItem
+  Accessible.name: name
+  Accessible.description: expandable ? (open ? "Expanded" : "Collapsed") : ""
+  Accessible.onPressAction: if (expandable) clicked()
+  activeFocusOnTab: expandable
+  Keys.onSpacePressed: clicked()
+  Keys.onReturnPressed: clicked()
+  Keys.onEnterPressed: clicked()
+  Keys.onRightPressed: if (!open) clicked()
+  Keys.onLeftPressed: if (open) clicked()
+  FocusFill { x: 6; y: 2; width: parent.width - 12; height: parent.height - 4; anchors.fill: undefined; radius: 6 }
 
   Rectangle {
     x: 6; y: 2
@@ -24,7 +38,7 @@ Item {
     Behavior on opacity { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   }
   HoverHandler { id: hover }
-  TapHandler { onTapped: r.clicked() }
+  TapHandler { enabled: r.expandable; onTapped: r.clicked() }
   Item {
     id: box
     x: 16 + r.indent

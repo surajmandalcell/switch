@@ -373,6 +373,11 @@ Window {
               width: list.width
               height: 20 + 16 + 2
               opacity: ok ? 1 : 0.64
+              Accessible.role: Accessible.ListItem
+              Accessible.name: modelData.displayName
+              Accessible.description: sh.subtitle(modelData)
+              Accessible.selected: picked
+              Accessible.onPressAction: if (ok) sh.selID = modelData.id
               Rectangle { anchors.fill: parent; radius: 6; color: parent.picked ? Theme.rowHighlight : (rowHover.hovered && parent.ok ? Theme.rowHover : "transparent") }
               HoverHandler { id: rowHover }
               ProviderTile { x: 8; anchors.verticalCenter: parent.verticalCenter; size: 20; provider: modelData.id; name: modelData.displayName }
@@ -612,6 +617,10 @@ Window {
             width: parent.width
             height: srcCol.height + 16
             opacity: ok ? 1 : 0.58
+            Accessible.role: Accessible.ListItem
+            Accessible.name: (modelData.identity && modelData.identity.email ? modelData.identity.email : modelData.path) + ", " + supportText
+            Accessible.selected: sh.sourceID === modelData.id
+            Accessible.onPressAction: if (ok) sh.sourceID = modelData.id
             Rectangle { anchors.fill: parent; radius: 6; color: sh.sourceID === modelData.id ? Theme.rowHighlight : "transparent" }
             Icon { x: 8; y: 10; name: "check"; size: 12; color: Theme.accent; visible: sh.sourceID === modelData.id }
             Column {

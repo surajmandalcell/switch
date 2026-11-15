@@ -55,6 +55,8 @@ Item {
     width: cl.gutter
     height: parent.height
     visible: cl.overflows
+    Accessible.role: Accessible.ScrollBar
+    Accessible.name: cl.accessibleName + " scroll bar"
     readonly property real track: height - 2
     readonly property real total: lv.contentHeight + lv.topMargin + lv.bottomMargin
     readonly property real knobH: Math.max(24, track * lv.height / Math.max(1, total))

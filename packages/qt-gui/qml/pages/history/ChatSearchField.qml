@@ -15,6 +15,7 @@ Rectangle {
   color: Theme.controlFill
   border.width: Theme.hair
   border.color: Theme.controlBorder
+  Accessible.ignored: true   // the input inside carries the role and name; this frame only widens the click area
 
   Rectangle { anchors.fill: parent; radius: 6; color: Theme.focusTint; opacity: input.activeFocus ? 1 : 0
               Behavior on opacity { NumberAnimation { duration: Theme.dHover } } }

@@ -39,8 +39,8 @@ Item {
         else f.clicked()
       }
     }
-    Accessible.role: f.isPath ? Accessible.Button : Accessible.StaticText
-    Accessible.name: f.isPath ? "Copy path: " + f.value : f.value
+    Accessible.role: f.isPath || f.clickable ? Accessible.Button : Accessible.StaticText
+    Accessible.name: f.isPath ? "Copy path: " + f.value : (f.clickable && f.label ? f.label + " " + f.value : f.value)
   }
   Badge {
     id: copied

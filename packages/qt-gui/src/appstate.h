@@ -33,6 +33,9 @@ public:
   bool globalShortcuts() const { return m_shortcut.available(); }
   // shell.md 5.2 apply(combo): the stored {key, modifiers} or null; shortcutRefused when the desktop says no.
   Q_INVOKABLE void applyShortcut(const QVariant &combo) { m_shortcut.apply(combo); }
+  // The stored keyCode is a Mac virtual key (settings.md 2.1); the recorder and display work in Qt keys.
+  Q_INVOKABLE int macKeyCode(int qtKey) const { return GlobalShortcut::macKeyCode(qtKey); }
+  Q_INVOKABLE int qtKey(int macKeyCode) const { return GlobalShortcut::qtKey(macKeyCode); }
 
 signals:
   void keyboardModeChanged();

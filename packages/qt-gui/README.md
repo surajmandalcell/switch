@@ -68,7 +68,8 @@ Switch links Qt under the LGPL v3. CMake enforces these rules and fails the conf
   target pins `QT_QMLCACHEGEN_EXECUTABLE qmlcachegen`, and configure fails if `Qt6::qmlsc` exists.
 - No Qt Graphs, Qt Charts, Quick 3D, Shader Tools, Quick Timeline, Data Visualization or Virtual
   Keyboard on any link line. Charts are our own QML (`Shape`, `Canvas`).
-- No dependency beyond Qt. Bundled fonts: Inter and JetBrains Mono, both SIL OFL 1.1; ship their license files.
+- No dependency beyond Qt, except libxcb on Linux (MIT; Qt's xcb platform plugin already needs it, so nothing new
+  ships) for the X11 menu-shortcut grab. Bundled fonts: Inter and JetBrains Mono, both SIL OFL 1.1; ship their license files.
 
 Linked Qt modules: Core, Gui, Qml, Quick, Widgets (tray menu), DBus (Linux only: the GlobalShortcuts
 portal and desktop notifications), GuiPrivate (harness builds only), Test (test only). QML modules loaded at run time: QtQuick, QtQuick.Window, QtQuick.Shapes,

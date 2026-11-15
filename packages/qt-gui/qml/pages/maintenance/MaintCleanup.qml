@@ -283,14 +283,8 @@ Column {
     property bool open: false
     signal toggled()
     width: 12; height: 16
-    Accessible.role: Accessible.Button
-    Accessible.name: open ? "Collapse" : "Expand"
-    activeFocusOnTab: true
-    Keys.onSpacePressed: toggled()
-    Keys.onReturnPressed: toggled()
-    Keys.onRightPressed: if (!open) toggled()
-    Keys.onLeftPressed: if (open) toggled()
-    FocusFill { anchors.margins: -2; radius: 4 }
+    // The row around it is the keyboard and screen reader target (MaintListRow expandable).
+    Accessible.ignored: true
     Icon { anchors.centerIn: parent; name: "chevronRight"; size: 11; color: Theme.secondary; rotation: parent.open ? 90 : 0
            Behavior on rotation { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.motion ? 250 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } } }
     MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: parent.toggled() }
@@ -302,6 +296,7 @@ Column {
     property var owner
     signal activeFocusInside()
     minHeight: 36
+    name: ir.item ? ir.item.title : ""
     MaintCheck { anchors.verticalCenter: parent.verticalCenter; label: ir.item.title; value: ir.owner.rev >= 0 && ir.owner.selection[ir.item.id] ? 2 : 0
                  onClicked: ir.owner.toggle([ir.item]); onActiveFocusChanged: if (activeFocus) ir.activeFocusInside() }
     Txt { x: 24; anchors.verticalCenter: parent.verticalCenter; width: ir.contentWidth - x - 8 - 96 - 8 - 80; text: ir.item.title; elide: Text.ElideMiddle
@@ -523,6 +518,9 @@ Column {
             id: catRow
             minHeight: 52
             contentHeight: catText.height
+            name: block.cat.title
+            expandable: true
+            open: block.open
             onClicked: cl.toggleExpanded(block.cat.id)
             Disclosure { anchors.verticalCenter: parent.verticalCenter; open: block.open; onToggled: cl.toggleExpanded(block.cat.id) }
             MaintCheck { x: 20; anchors.verticalCenter: parent.verticalCenter; label: block.cat.title; value: cl.stateOf(modelData.items)
@@ -559,6 +557,9 @@ Column {
                 MaintListRow {
                   id: prow
                   indent: 28
+                  name: grp.name
+                  expandable: true
+                  open: grp.open
                   onClicked: cl.toggleExpanded(modelData.id)
                   Disclosure { anchors.verticalCenter: parent.verticalCenter; open: grp.open; onToggled: cl.toggleExpanded(modelData.id) }
                   MaintCheck { x: 20; anchors.verticalCenter: parent.verticalCenter; label: grp.name; value: cl.stateOf(modelData.items); onClicked: cl.toggle(modelData.items) }

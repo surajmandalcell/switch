@@ -80,6 +80,14 @@ Card {
             anchors.verticalCenter: parent.verticalCenter
             role: "body"
             text: card.w ? A.pctWord(card.w.usedPercent, Theme.showUsed) : ""
+            activeFocusOnTab: visible
+            Accessible.role: Accessible.Button
+            Accessible.name: (card.w ? card.w.title + " " : "") + text
+            Accessible.description: Theme.showUsed ? "Show the percentage left" : "Show the percentage used"
+            Accessible.onPressAction: card.ctl.toggleShowUsed()
+            Keys.onSpacePressed: card.ctl.toggleShowUsed()
+            Keys.onReturnPressed: card.ctl.toggleShowUsed()
+            FocusFill { anchors.margins: -3; radius: 4 }
             ToolTipArea { text: Theme.showUsed ? "Click to show the percentage left" : "Click to show the percentage used" }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: card.ctl.toggleShowUsed() }
           }
@@ -102,6 +110,14 @@ Card {
           role: "secondary"
           color: Theme.secondary
           text: card.w && card.w.resetsAt ? A.resetText(card.w.resetsAt, card.ctl.now, card.w.usedPercent, card.ctl.exact, card.ctl.h24) : ""
+          activeFocusOnTab: text !== ""
+          Accessible.role: Accessible.Button
+          Accessible.name: text
+          Accessible.description: "Switch between countdown and exact time"
+          Accessible.onPressAction: if (rs.text !== "") card.ctl.toggleExact()
+          Keys.onSpacePressed: card.ctl.toggleExact()
+          Keys.onReturnPressed: card.ctl.toggleExact()
+          FocusFill { anchors.margins: -3; radius: 4 }
           ToolTipArea { text: rs.text !== "" ? rs.text + "\n" + A.resetText(card.w.resetsAt, card.ctl.now, card.w.usedPercent, !card.ctl.exact, card.ctl.h24) : "" }
           MouseArea { anchors.fill: parent; enabled: rs.text !== ""; cursorShape: Qt.PointingHandCursor; onClicked: card.ctl.toggleExact() }
         }

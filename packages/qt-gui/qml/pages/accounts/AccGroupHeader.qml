@@ -1,4 +1,5 @@
 import QtQuick
+import "Acc.js" as A
 
 // ServiceGroupHeader (accounts.md 2.3): 32 high; tile 16, name (Secondary semibold, primary color), "×N",
 // the tray eye (24 square) at the right; a 1 x 4 guide stub under the tile. Right click: the group menu.
@@ -13,6 +14,9 @@ Item {
   readonly property string name: ctl.pname(provider)
   width: parent ? parent.width : 400
   height: 32
+  // the header itself only takes the right-click menu and the group drag; both have menu or keyboard twins
+  Accessible.role: Accessible.Grouping
+  Accessible.name: h.name + ", " + A.plural(h.count, "account", "accounts")
 
   HoverHandler { id: hover }
   ProviderTile { x: 16; anchors.verticalCenter: parent.verticalCenter; size: 16; provider: h.provider; name: h.name }
