@@ -136,6 +136,9 @@ Item {
       function () { Theme.alert.open({ title: "Delete grace@example?", message: "Remove this account's saved sign-in from Switch.", action: "Delete account", destructive: true }) }, 300,
       function () { Harness.key(win, Qt.Key_Tab) }, 200, function () { Harness.log("ALERT " + focusName(win.activeFocusItem)); shot(win, "accounts-focus-alert") },
       function () { Harness.key(win, Qt.Key_Escape) }, 300, function () { Harness.log("ALERTCLOSED " + !Theme.alert.visible) },
+      // the focused card's percent is a button now: Tab reaches it and shows the tint
+      function () { tabTo(win, function (it) { return !!it && /left$|used$/.test(it.Accessible.name) }, 80) }, 300,
+      function () { Harness.log("PCTFOCUS " + focusName(win.activeFocusItem)); shot(win, "accounts-focus-percent") },
       function () { page.openSheet("add") }, 900,
       function () { Harness.key(sheet, Qt.Key_Down); Harness.key(sheet, Qt.Key_Down) }, 200,
       function () { Harness.log("SHEETSEL " + sheet.selID); shot(sheet, "sheet-focus-list") },

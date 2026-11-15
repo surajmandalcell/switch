@@ -99,14 +99,15 @@ Item {
       SRow {
         sid: "shortcut"; group: page.gGeneral
         title: "Menu shortcut"
-        // shell.md 5.2: without the GlobalShortcuts portal (or off Linux) the row is off
+        // shell.md 5.2: without the GlobalShortcuts portal or an X11 display (or off Linux) the row is off
         help: App.globalShortcuts ? "Open or close the menu popover from anywhere. Off until you record one."
                                   : "Global shortcuts need a supported desktop"
         Txt { visible: rec.hint !== ""; text: rec.hint; role: "secondary"; color: Theme.amber; anchors.verticalCenter: parent.verticalCenter }
         PushButton {
           id: rec
-          // Stored as { key: Qt key code, modifiers: the Carbon mask (Command 256, Shift 512, Option 2048, Control 4096) }
-          readonly property var combo: Prefs.value("globalShortcut") || null
+          // settings.md 2.1: { keyCode: Mac virtual key, modifiers: the Carbon mask (Command 256, Shift 512, Option 2048,
+          // Control 4096) }; an unknown key code loads as none.
+          readonly property var combo: { var c = Prefs.value("globalShortcut"); return c && typeof c.keyCode === "number" && App.qtKey(c.keyCode) ? c : null }
           property bool recording: false
           property string hint: ""
           enabled: App.globalShortcuts
@@ -127,7 +128,9 @@ Item {
             if (e.key === Qt.Key_Control || e.key === Qt.Key_Alt || e.key === Qt.Key_Meta || e.key === Qt.Key_Shift || e.key === Qt.Key_Super_L) return
             var m = e.modifiers
             if (!(m & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) { hint = "Include Ctrl, Alt, or Super."; return }
-            Prefs.set("globalShortcut", { key: e.key, modifiers: ((m & Qt.MetaModifier) ? 256 : 0) | ((m & Qt.ShiftModifier) ? 512 : 0)
+            var code = App.macKeyCode(e.key)
+            if (code < 0) return   // a key the Mac format cannot store (media keys and similar): keep recording
+            Prefs.set("globalShortcut", { keyCode: code, modifiers: ((m & Qt.MetaModifier) ? 256 : 0) | ((m & Qt.ShiftModifier) ? 512 : 0)
                                                                  | ((m & Qt.AltModifier) ? 2048 : 0) | ((m & Qt.ControlModifier) ? 4096 : 0) })
             hint = ""
             recording = false
@@ -325,10 +328,10 @@ Item {
 
   // shell.md 5.1 on Linux and Windows: the shortcut as text, modifiers in the Mac order (Control, Option, Shift, Command).
   function comboText(c) {
-    var m = c.modifiers || 0, names = { 16777220: "Return", 16777217: "Tab", 32: "Space", 16777219: "Backspace", 16777216: "Esc",
+    var m = c.modifiers || 0, key = App.qtKey(c.keyCode), names = { 16777220: "Return", 16777217: "Tab", 32: "Space", 16777219: "Backspace", 16777216: "Esc",
       16777234: "Left", 16777236: "Right", 16777235: "Up", 16777237: "Down", 16777232: "Home", 16777233: "End",
       16777238: "Page Up", 16777239: "Page Down", 16777223: "Delete" }
-    var k = c.key >= 16777264 && c.key <= 16777275 ? "F" + (c.key - 16777263) : (names[c.key] || (c.key < 0x110000 ? String.fromCharCode(c.key).toUpperCase() : "Key " + c.key))
+    var k = key >= 16777264 && key <= 16777283 ? "F" + (key - 16777263) : (names[key] || (key > 0 && key < 0x110000 ? String.fromCharCode(key).toUpperCase() : "Key " + c.keyCode))
     return ((m & 4096) ? "Ctrl+" : "") + ((m & 2048) ? "Alt+" : "") + ((m & 512) ? "Shift+" : "") + ((m & 256) ? "Super+" : "") + k
   }
 }

@@ -100,6 +100,17 @@ if(UNIX AND NOT APPLE)
   find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
   target_link_libraries(switch PRIVATE Qt6::DBus)
   target_compile_definitions(switch PRIVATE SWITCH_DBUS)
+  # libxcb (MIT; Qt's xcb platform plugin already needs it) for the X11 shortcut grab when no portal exists.
+  # Without its headers the app builds with the portal only.
+  find_path(XCB_INCLUDE_DIR xcb/xcb.h)
+  find_library(XCB_LIBRARY xcb)
+  if(XCB_INCLUDE_DIR AND XCB_LIBRARY)
+    target_include_directories(switch PRIVATE ${XCB_INCLUDE_DIR})
+    target_link_libraries(switch PRIVATE ${XCB_LIBRARY})
+    target_compile_definitions(switch PRIVATE SWITCH_XCB)
+  else()
+    message(WARNING "libxcb headers not found: the menu shortcut has no X11 fallback (install libxcb1-dev or libxcb-devel)")
+  endif()
 endif()
 
 if(SWITCH_TESTS)

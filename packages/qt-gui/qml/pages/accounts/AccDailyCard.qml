@@ -99,6 +99,10 @@ Card {
               color: card.cellColor(modelData.tokens)
               border.width: card.sel === index ? 1 : 0
               border.color: Theme.label
+              Accessible.role: Accessible.Cell
+              Accessible.name: card.longDay(modelData.date) + ": " + A.group3(modelData.tokens) + " tokens"
+              Accessible.selected: card.sel === index
+              Accessible.onPressAction: card.sel = index
               ToolTipArea { text: card.longDay(modelData.date) + ": " + A.group3(modelData.tokens) + " tokens" }
               MouseArea { anchors.fill: parent; onClicked: card.sel = index }
             }
@@ -119,6 +123,10 @@ Card {
             color: card.cellColor(modelData.tokens)
             border.width: card.sel === index ? 1 : 0
             border.color: Theme.label
+            Accessible.role: Accessible.Cell
+            Accessible.name: card.longDay(modelData.date) + ": " + A.group3(modelData.tokens) + " tokens"
+            Accessible.selected: card.sel === index
+            Accessible.onPressAction: card.sel = index
             Rectangle { anchors.fill: parent; radius: parent.radius; color: Theme.ink(0.07); visible: hov.hovered }
             HoverHandler { id: hov }
             ToolTipArea { text: card.longDay(modelData.date) + ": " + A.group3(modelData.tokens) + " tokens" }
@@ -145,6 +153,9 @@ Card {
           height: 18
           Txt { width: parent.width - right.width - 12; elide: Text.ElideMiddle; text: modelData.project; font.family: String(modelData.project).charAt(0) === "/" ? "monospace" : Theme.fontFamily
                 role: "secondary"; anchors.verticalCenter: parent.verticalCenter
+                Accessible.role: String(modelData.project).charAt(0) === "/" ? Accessible.Button : Accessible.StaticText
+                Accessible.name: String(modelData.project).charAt(0) === "/" ? "Copy path: " + modelData.project : String(modelData.project)
+                Accessible.onPressAction: if (String(modelData.project).charAt(0) === "/") card.ctl.copy(modelData.project)
                 MouseArea { anchors.fill: parent; enabled: String(modelData.project).charAt(0) === "/"; cursorShape: Qt.PointingHandCursor; onClicked: card.ctl.copy(modelData.project) }
                 ToolTipArea { text: String(modelData.project).charAt(0) === "/" ? "Click to copy " + modelData.project : modelData.project } }
           Row {

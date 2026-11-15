@@ -55,7 +55,7 @@ Item {
     App.shortcutRefused.connect(function () { Harness.log("SHORTCUT refused") })
     run([2500, function () {
       Harness.log("SHORTCUT available=" + App.globalShortcuts)
-      Prefs.set("globalShortcut", { key: Qt.Key_S, modifiers: 4096 | 2048 })
+      Prefs.set("globalShortcut", { keyCode: App.macKeyCode(Qt.Key_S), modifiers: 4096 | 2048 })   // Ctrl+Alt+S
     }, 20000, function () {
       Harness.log("SHORTCUT stored=" + JSON.stringify(Prefs.value("globalShortcut")))
       // Open at Login round trip (the test reads the autostart file while it is on)

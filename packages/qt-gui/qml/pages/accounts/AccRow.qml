@@ -54,6 +54,8 @@ Item {
     width: 18
     height: 36
     visible: !!r.table
+    // pointer-only handle; Move up and Move down in the row menu are its keyboard and reader twin
+    Accessible.ignored: true
     opacity: (r.hovered && r.table && r.table.canReorder && !r.table.carried) || gripMa.pressed ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 120 } }
     Icon { anchors.centerIn: parent; name: "grip"; size: 12; color: gripMa.containsMouse || gripMa.pressed ? Theme.secondary : Theme.tertiary }

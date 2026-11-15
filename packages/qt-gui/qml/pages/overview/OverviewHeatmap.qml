@@ -19,8 +19,8 @@ Item {
   Behavior on engaged { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
   height: Math.round(gridH + 8 + 16)   // whole points, as the Mac card ends on a pixel row
   property string summary: ""
-  Accessible.role: Accessible.Graphic
-  Accessible.name: summary
+  Accessible.role: Accessible.Table
+  Accessible.name: "Daily activity"
 
   function heatColor(level) { return level === 0 ? Theme.ink(0.065) : Theme.rgba(Theme.accent, [0.26, 0.5, 0.76, 1][Math.min(level, 4) - 1]) }
 
@@ -119,7 +119,10 @@ Item {
   // Keyboard (fills the spec 2.5 gap): Tab focuses the grid on the newest day; the arrow keys move a day
   // (up, down) or a week (left, right); Return or Space opens the day sheet for a day with tokens.
   activeFocusOnTab: true
-  Accessible.description: hover ? hover.tip.title + ", " + hover.tip.rows[hover.tip.rows.length - 1].value + " tokens" : ""
+  // the focused day ("Sat, Oct 3, 2026, 1.3B tokens"), else the year summary
+  Accessible.description: hoverIndex >= 0 && ds
+    ? O.long(ds.yearDays[hoverIndex]) + ", " + (ds.yearTotals[hoverIndex] > 0 ? O.tokens(ds.yearTotals[hoverIndex]) + " tokens" : "no tokens")
+    : summary
   onActiveFocusChanged: if (activeFocus && ds && lay) key(hoverIndex >= 0 ? hoverIndex : ds.yearDays.length - 1); else if (!activeFocus) leave()
   Keys.onPressed: function (e) {
     if (!ds || !lay) return
