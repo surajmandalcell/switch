@@ -32,6 +32,11 @@ int main(int argc, char *argv[]) {
   // registration use it, so set it before the application starts the platform.
   QGuiApplication::setDesktopFileName("com.mandalsuraj.Switch");
   QApplication app(argc, argv);
+  // Qt 6.12 Wayland: with the threaded render loop, hiding the popover and showing it again soon after can
+  // crash the render thread in QWaylandWindow::beginFrame (3 of 4 packaged runs). The basic loop renders on
+  // the GUI thread and has no such race. Read when the first window starts its scene graph, so set it here.
+  if (QGuiApplication::platformName().startsWith("wayland") && !qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
+    qputenv("QSG_RENDER_LOOP", "basic");
   app.setApplicationName("Switch");
   app.setApplicationVersion("0.1.0");
   app.setWindowIcon(QIcon(":/qt/qml/SwitchUI/assets/appicon.png"));
