@@ -13,14 +13,18 @@ Item {
 
   Repeater {
     model: [
-      { c: "#FF5F57", g: "tlClose" },
-      { c: "#FEBC2E", g: "tlMin" },
-      { c: "#28C840", g: "tlZoom" }
+      { c: "#FF5F57", g: "tlClose", n: "Close" },
+      { c: "#FEBC2E", g: "tlMin", n: "Minimize" },
+      { c: "#28C840", g: "tlZoom", n: "Zoom" }
     ]
     delegate: Item {
       x: index * 20
       width: 12
       height: 12
+      // pointer only, like the Mac window buttons; Ctrl+W and Ctrl+M are the keyboard path
+      Accessible.role: Accessible.Button
+      Accessible.name: modelData.n
+      Accessible.onPressAction: index === 0 ? tl.close() : (index === 1 ? tl.minimize() : tl.zoom())
       Rectangle {
         anchors.fill: parent
         radius: 6

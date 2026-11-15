@@ -19,8 +19,7 @@ Rectangle {
   color: Theme.controlFill
   border.width: Theme.hair
   border.color: Theme.controlBorder
-  Accessible.role: Accessible.EditableText
-  Accessible.name: placeholder.replace("…", "")
+  Accessible.ignored: true   // the input below is the accessible text field
   function focusInput() { input.forceActiveFocus(); input.selectAll() }
 
   Rectangle {
@@ -31,7 +30,7 @@ Rectangle {
     Behavior on opacity { NumberAnimation { duration: Theme.dHover } }
   }
   // the whole field focuses the input (ui-quality: complete control surface is clickable)
-  MouseArea { anchors.fill: parent; cursorShape: Qt.IBeamCursor; onPressed: input.forceActiveFocus() }
+  MouseArea { anchors.fill: parent; cursorShape: Qt.IBeamCursor; onPressed: input.forceActiveFocus(); Accessible.ignored: true }
   Icon { id: glass; x: 8; anchors.verticalCenter: parent.verticalCenter; name: "search"; size: 15; color: Theme.secondary }
   TextInput {
     id: input
@@ -40,6 +39,9 @@ Rectangle {
     height: parent.height
     verticalAlignment: TextInput.AlignVCenter
     clip: true
+    activeFocusOnTab: true
+    Accessible.role: Accessible.EditableText
+    Accessible.name: field.placeholder.replace("…", "")   // shell.md 4.1: the placeholder without the ellipsis
     color: Theme.label
     selectionColor: Theme.rgba(Theme.accent, 0.3)
     selectedTextColor: Theme.label

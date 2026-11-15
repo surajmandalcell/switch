@@ -12,8 +12,16 @@ Item {
   height: 24
   width: square ? 24 : content.width + 12
   opacity: enabled ? 1 : 0.45
+  property string name: text   // accessible name; icon-only buttons set it (popover.md 3.12)
+  activeFocusOnTab: enabled
+  Accessible.role: Accessible.Button
+  Accessible.name: name
+  Accessible.onPressAction: if (enabled) clicked()
+  Keys.onSpacePressed: if (enabled) clicked()
+  Keys.onReturnPressed: if (enabled) clicked()
 
   Rectangle { anchors.fill: parent; radius: 5; color: Theme.popButtonFill }
+  FocusFill { radius: 5 }   // popover.md: focus fill focusTint
   Rectangle {
     anchors.fill: parent
     radius: 5

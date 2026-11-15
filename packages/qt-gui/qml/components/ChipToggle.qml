@@ -14,6 +14,9 @@ Item {
   Accessible.role: Accessible.CheckBox
   Accessible.name: text
   Accessible.checked: checked
+  Accessible.checkable: true
+  Accessible.onToggleAction: flip()
+  Accessible.onPressAction: flip()
   Keys.onSpacePressed: flip()
   function flip() { checked = !checked; toggled(checked) }
 

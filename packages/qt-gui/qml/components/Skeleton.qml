@@ -6,6 +6,7 @@ Rectangle {
   radius: 4
   color: Theme.skeleton
   clip: true
+  Accessible.ignored: true
   Rectangle {
     id: band
     width: sk.width * 0.6

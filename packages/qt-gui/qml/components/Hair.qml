@@ -5,4 +5,5 @@ Rectangle {
   property color tone: Theme.hairline
   height: Theme.hair
   color: tone
+  Accessible.ignored: true
 }

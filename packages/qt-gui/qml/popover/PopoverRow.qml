@@ -18,6 +18,26 @@ Item {
   signal action(string name)   // a band or prompt button title: Switch, Open <tool>, Sign in, Allow access
   signal eye()
 
+  // popover.md 3.13: "<account>, <service>[, Default], <per line: pool label NN% left|used>"; rows that expand take focus
+  property string service: provider   // the service display name for the accessible name
+  activeFocusOnTab: !!acct.canExpand
+  Accessible.role: Accessible.Button
+  Accessible.name: {
+    var p = [acct.label || "", service]
+    if (acct.isDefault) p.push("Default")
+    if (hasPrompt) p.push(acct.prompt)
+    var ls = acct.lines || []
+    for (var i = 0; i < Math.min(ls.length, acct.shown || 0); ++i)
+      if (ls[i].label !== undefined) p.push(ls[i].label + " " + Theme.shownPercent(ls[i].used) + "% " + (Theme.showUsed ? "used" : "left"))
+    return p.join(", ")
+  }
+  Accessible.expandable: !!acct.canExpand
+  Accessible.expanded: expansion > 0
+  Accessible.onPressAction: if (acct.canExpand) toggle()
+  Keys.onSpacePressed: if (acct.canExpand) toggle()
+  Keys.onReturnPressed: if (acct.canExpand) toggle()
+  Rectangle { x: -4; width: 344; height: parent.height + 4; radius: 6; color: Theme.popoverFocus; visible: row.activeFocus && App.keyboardMode }
+
   width: 336
   readonly property bool hasBand: !!acct.band && acct.band.length > 0
   height: 6 + 18 + (hasPrompt ? 4 + 24 : 4 + shown * 18 + extra * 18 * expansion) + (hasToken ? 4 + 14 : 0) + (hasBand ? 40 * expansion : 0) + 6

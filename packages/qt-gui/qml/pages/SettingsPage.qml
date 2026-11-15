@@ -133,7 +133,7 @@ Item {
             recording = false
           }
         }
-        IconButton { visible: !!rec.combo && rec.enabled; icon: "xmarkCircle"; glyph: 13; tip: "Clear global shortcut"; onClicked: Prefs.set("globalShortcut", null) }
+        IconButton { anchors.verticalCenter: parent.verticalCenter; visible: !!rec.combo && rec.enabled; icon: "xmarkCircle"; glyph: 13; tip: "Clear global shortcut"; onClicked: Prefs.set("globalShortcut", null) }
       }
       SRow {
         sid: "version"; group: page.gGeneral
@@ -275,7 +275,7 @@ Item {
           title: modelData.title
           help: modelData.detail
           detail: modelData.path
-          PushButton { text: "Reveal"; icon: "folder"; onClicked: App.reveal(loc.detail) }
+          PushButton { text: "Reveal"; icon: "folder"; Accessible.name: "Reveal " + loc.title; onClicked: App.reveal(loc.detail) }
         }
       }
     }

@@ -24,7 +24,12 @@ Card {
       readonly property string provider: mc.accounts ? (mc.names[modelData.providerID] || modelData.providerID) : ""
       Accessible.role: Accessible.Button
       Accessible.name: mc.accounts ? modelData.label + ", " + provider : modelData.title
+      Accessible.onPressAction: mc.picked(modelData)
+      activeFocusOnTab: true
+      Keys.onReturnPressed: mc.picked(modelData)
+      Keys.onSpacePressed: mc.picked(modelData)
       Rectangle { x: 6; width: parent.width - 12; height: parent.height; radius: 6; color: Theme.rowHover; visible: ma.containsMouse }
+      FocusFill { anchors.fill: undefined; x: 6; width: parent.width - 12; height: parent.height; radius: 6 }
       Row {
         x: 16
         spacing: 8

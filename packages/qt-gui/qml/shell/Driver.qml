@@ -58,8 +58,16 @@ Item {
       Prefs.set("globalShortcut", { key: Qt.Key_S, modifiers: 4096 | 2048 })
     }, 20000, function () {
       Harness.log("SHORTCUT stored=" + JSON.stringify(Prefs.value("globalShortcut")))
+      // Open at Login round trip (the test reads the autostart file while it is on)
+      App.loginEnabled = true
+      Harness.log("LOGIN on=" + App.loginEnabled + " error=" + App.loginError)
       win.show(2)
-    }, 800, function () { shot(win, "settings-shortcut"); Harness.quit(0) }])
+    }, 3000, function () {
+      shot(win, "settings-shortcut")
+      App.loginEnabled = false
+      Harness.log("LOGIN off=" + !App.loginEnabled + " error=" + App.loginError)
+      Harness.quit(0)
+    }])
   }
 
   // --script states --page <title>: the shown page's own capture steps (its captureSteps(driver) list).
@@ -83,6 +91,8 @@ Item {
     m[Accessible.ListItem] = "ListItem"; m[Accessible.EditableText] = "EditableText"; m[Accessible.Slider] = "Slider"
     m[Accessible.SpinBox] = "SpinBox"; m[Accessible.Link] = "Link"; m[Accessible.MenuItem] = "MenuItem"
     m[Accessible.ButtonMenu] = "ButtonMenu"; m[Accessible.ButtonDropDown] = "ButtonDropDown"; m[Accessible.ScrollBar] = "ScrollBar"
+    m[Accessible.Grouping] = "Grouping"; m[Accessible.PopupMenu] = "PopupMenu"; m[Accessible.AlertMessage] = "AlertMessage"
+    m[Accessible.List] = "List"; m[Accessible.Table] = "Table"; m[Accessible.Cell] = "Cell"; m[Accessible.StaticText] = "StaticText"
     return m
   }
   function roleName(r) { return roleNames[r] || ("role" + r) }
@@ -106,15 +116,18 @@ Item {
   property var tally: ({})
   property bool a11yBad: false
   function walk(it, scope, path) {
-    if (!it || !it.visible || seen.has(it)) return
+    if (!it || !it.visible) return
+    var fresh = !seen.has(it)   // walk again (new pages and rows appear below), report once
     seen.add(it)
     if (it.objectName === "page-header") scope = "header"
     else if (Theme.pageHost && it.parent === Theme.pageHost && "status" in it) scope = "page:" + win.pages[win.pageIndex].title
     var name = it.objectName !== "" ? it.objectName : typeName(it)
     path = path.concat([name]).slice(-5)
     var acc = it.Accessible
-    var control = acc.role in roleNames && acc.role !== Accessible.PageTabList && acc.role !== Accessible.ScrollBar
-    if (!acc.ignored && (it.activeFocusOnTab || control || clicks(it))) {
+    var control = acc.role in roleNames && [Accessible.PageTabList, Accessible.ScrollBar, Accessible.Grouping, Accessible.PopupMenu,
+                                            Accessible.AlertMessage, Accessible.List, Accessible.Table, Accessible.Cell,
+                                            Accessible.StaticText].indexOf(acc.role) < 0
+    if (fresh && !acc.ignored && (it.activeFocusOnTab || control || clicks(it))) {
       var t = tally[scope] || (tally[scope] = { items: 0, missing: 0, norole: 0 })
       t.items++
       var shared = scope.indexOf("page:") !== 0 || scope === "page:Settings"
@@ -127,7 +140,7 @@ Item {
   }
   function focusDesc() {
     var a = win.activeFocusItem
-    return a ? typeName(a) + " " + roleName(a.Accessible.role) + " \"" + a.Accessible.name + "\" [" + hint(a, 2) + "]" : "none"
+    return a ? typeName(a) + " " + roleName(a.Accessible.role) + " \"" + a.Accessible.name + "\" [" + hint(a, 2) + "] focus=" + a.activeFocus + " keyboard=" + App.keyboardMode : "none"
   }
   function a11y() {
     var s = [1200]
@@ -149,11 +162,11 @@ Item {
     // Tab order: from the sidebar through the Settings header and rows; capture the first of each control kind
     var kinds = {}
     s.push(function () { win.show(2); win.requestActivate(); win.contentItem.forceActiveFocus() }, 500)
-    for (var n = 1; n <= 40; ++n) (function (n) {
+    for (var n = 1; n <= 45; ++n) (function (n) {
       s.push(function () { Harness.key(win, Qt.Key_Tab) }, 80, function () {
         Harness.log("TAB " + n + " " + focusDesc())
         var a = win.activeFocusItem
-        var k = a ? (n <= 5 ? "sidebar" : roleName(a.Accessible.role)) : ""
+        var k = a ? (a.objectName.indexOf("sidebar-") === 0 ? "sidebar" : roleName(a.Accessible.role)) : ""
         if (k !== "" && !kinds[k]) { kinds[k] = true; shot(win, "a11y-focus-" + k.toLowerCase()) }
       })
     })(n)

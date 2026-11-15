@@ -50,12 +50,14 @@ Item {
   function close() { visible = false; if (anchorItem) anchorItem.forceActiveFocus() }
   function choose(i) { if (i >= 0 && !on(i)) return; var cb = callback; close(); if (cb && i >= 0) cb(i) }
 
-  MouseArea { anchors.fill: parent; onPressed: root.close() }
+  MouseArea { anchors.fill: parent; onPressed: root.close(); Accessible.ignored: true }
 
   Item {
     id: panel
     width: root.panelW
     height: root.panelH
+    Accessible.role: Accessible.PopupMenu
+    Accessible.name: anchorItem ? anchorItem.Accessible.name : ""
     Keys.onUpPressed: root.step(-1)
     Keys.onDownPressed: root.step(1)
     Keys.onReturnPressed: root.choose(root.hot)
@@ -82,6 +84,12 @@ Item {
           readonly property bool hot: root.hot === index && live
           width: panel.width
           height: sep ? root.sepH : root.itemH
+          Accessible.role: sep ? Accessible.Separator : Accessible.MenuItem
+          Accessible.name: sep ? "" : root.lab(modelData)
+          Accessible.checkable: !sep && root.current >= 0
+          Accessible.checked: checkedRow
+          Accessible.selected: hot
+          Accessible.onPressAction: root.choose(index)
           Component.onCompleted: if (!sep) root.widest = Math.max(root.widest, label.implicitWidth)
           Rectangle { visible: parent.sep; x: 10; width: parent.width - 20; y: 5; height: Theme.hair; color: Theme.separator }
           Rectangle { x: root.pad; width: parent.width - root.pad * 2; height: parent.height; radius: 5; color: Theme.accent; visible: parent.hot && !parent.sep }

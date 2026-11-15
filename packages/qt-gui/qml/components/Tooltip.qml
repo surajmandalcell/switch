@@ -10,6 +10,8 @@ Item {
   anchors.fill: parent
   z: 1000
   visible: box.opacity > 0.001
+  Accessible.role: Accessible.ToolTip
+  Accessible.name: text
 
   function show(item, t) {
     if (!item || item.Window.window !== tip.Window.window) return

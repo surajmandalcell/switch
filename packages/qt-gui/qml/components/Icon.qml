@@ -11,6 +11,7 @@ Item {
   readonly property var layers: IconData.icons[name] || []
   width: size
   height: size
+  Accessible.ignored: true   // decoration: the control around it carries the name
 
   Shape {
     width: 16
