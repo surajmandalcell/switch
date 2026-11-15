@@ -30,7 +30,8 @@ entry, and GLib skips an entry whose `Exec` program it cannot find. The template
 `~/.local/share/icons/hicolor`, and a `~/.local/bin/switch-app` link; `./install.sh --remove` undoes it.
 The AppImage embeds the same entry and icon at its top level. AppImage integration tools rename the
 entry (such as `appimagekit_<hash>-com.mandalsuraj.Switch.desktop`), which the portal does not
-match, so the global shortcut needs the app to write its own entry with `Exec=$APPIMAGE` (open item).
+match, so the app writes its own `~/.local/share/applications/com.mandalsuraj.Switch.desktop` with
+`Exec="$APPIMAGE"` at start and rewrites it when the AppImage moves (`GlobalShortcut::writeAppImageEntry`).
 
 The script finds the dependencies with tools: `qmlimportscanner` for the QML modules, then `ldd` on
 every ELF file until no new library from the Qt prefix appears. Every ELF file gets a `RUNPATH` of
