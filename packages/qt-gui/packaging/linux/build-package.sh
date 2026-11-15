@@ -47,6 +47,11 @@ find "$APP/qml" -name qmldir -printf '%h\n' | sort -r | while read -r d; do
   grep -qxF "$QT/qml/$rel" <<<"$MODS" || grep -qF "$QT/qml/$rel/" <<<"$MODS" || rm -rf "$d"
 done
 find "$APP/qml" -type d -name designer -prune -exec rm -rf {} +
+# Quick Controls styles: the app selects Basic (main.cpp), and QtQuick.Controls lists every other style as an
+# optional import, so only Basic and the shared impl stay. Their libraries then never enter the closure below.
+for d in "$APP"/qml/QtQuick/Controls/*/; do
+  case $(basename "$d") in Basic|impl) ;; *) rm -rf "$d" ;; esac
+done
 
 # 3. Library closure: copy every library an ELF file here loads from the Qt prefix, until nothing is new.
 # Everything else must come from the host; that list is written to host-libs.txt.

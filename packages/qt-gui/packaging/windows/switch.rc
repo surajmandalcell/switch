@@ -1,0 +1,3 @@
+// The first icon resource is the one Explorer shows for switch.exe. switch.ico is the Mac app icon
+// (packages/mac-gui/Resources/Icons/AppIcon.png) trimmed to its tile, at 16 to 256 px.
+IDI_ICON1 ICON "switch.ico"

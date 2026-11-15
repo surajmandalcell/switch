@@ -25,6 +25,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputBaseFilename=Switch-{#AppVersion}-setup
+SetupIconFile=switch.ico
 UninstallDisplayIcon={app}\switch.exe
 UninstallDisplayName=Switch
 CloseApplications=force
@@ -47,4 +48,5 @@ Filename: "{app}\switch.exe"; Description: "Open Switch"; Flags: nowait postinst
 
 [UninstallRun]
 ; A running app or helper would keep its files; stop only processes started from this folder ("{{" is a literal "{").
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -Command ""Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -like '{app}\*' } | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }"""; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
+; Get-Process, not WMI: a standard user may not query WMI (from an SSH sign-in, for example).
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -Command ""Get-Process | Where-Object {{ $_.Path -like '{app}\*' } | Stop-Process -Force"""; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
