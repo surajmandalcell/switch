@@ -323,6 +323,13 @@ Item {
       function () { Harness.log("LIVE cancel took " + (Date.now() - cancelAt) + " ms") }, 1000, log("cancelled"), shot("backup-cancelled"),
       // the next run of the same sets removes the cancelled run's .in-progress folder (BackupEngine.cleanup)
       function () { b.backUpNow() }, 1000, until("second run", function () { return !b.running }, 180000), 500, log("after-second-run"),
+      // Cancel a restore of the large Claude snapshot (only quitting cancels a restore in the app)
+      function () { var h = b.history.filter(function (x) { return x.set.sourceID === "claude" })[0]
+                    if (h) b.restore({ snapshot: h.snapshot, set: h.set }, null, App.arg("restoreTo", "") + "/big")
+                    else Harness.log("LIVE no claude snapshot") }, 300,
+      function () { Harness.log("LIVE restore running=" + b.restoring + " bar=" + JSON.stringify(page.barError)); cancelAt = Date.now(); Helper.cancelCall(b.restoreCall) },
+      until("restore cancel", function () { return !b.restoring }),
+      function () { Harness.log("LIVE restore cancel took " + (Date.now() - cancelAt) + " ms") }, 500,
       function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked")
     ]
     // Interrupted work first (seed-recovery.sh): the helper blocks cleanup while it is pending.
@@ -339,6 +346,10 @@ Item {
       function () { var o = b.recovery.filter(function (x) { return x.id.indexOf("33333333") === 0 })[0]; if (o) page.resolve(o, "restoreBackup") }, 1500,
       function () { if (Theme.alert.visible) Theme.alert.accept() },
       until("restore backup", function () { return b.recovery.length === 0 }), 500,
+      // Keep current needs the current credential to match a registered account; a refused one is cleared here
+      // with Restore backup so the rest of the run is not blocked by pending recovery.
+      function () { b.recovery.forEach(function (o) { page.resolve(o, "restoreBackup") }) },
+      until("recovery cleared", function () { return b.recovery.length === 0 }), 500,
       function () { Harness.log("LIVE recovery left " + b.recovery.length + " bar=" + JSON.stringify(page.barError)) }, shot("recovery-done"),
       function () { page.barError = ""; tab = "Cleanup"; cleanupTab.reload() }
     ]
