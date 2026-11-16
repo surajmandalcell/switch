@@ -79,6 +79,7 @@ Item {
         return
       }
       if (r && r.error) showError(r.error)
+      if (r && r.notice && Harness) Harness.log("LIVE notice " + r.notice)
       backupTab.load()
     })
   }
@@ -318,7 +319,20 @@ Item {
       function () { b.setChecked(row("claude"), true) }, until("claude on", function () { return b.checkedSets.length === 2 }), log("claude-checked"),
       function () { b.backUpNow() }, until("progress", function () { return !!b.running && b.running.index === b.running.count - 1 && b.running.bytes > 0 }, 60000), log("running"), shot("backup-running"),
       function () { b.cancelBackup() }, until("cancel", function () { return !b.running }), 1000, log("cancelled"), shot("backup-cancelled"),
-      function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked")
+      function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked"),
+      // Interrupted work (seed-recovery.sh): Finish pending work, then Keep current and Restore backup on the conflicts.
+      function () { b.load() }, until("recovery rows", function () { return b.recovery.length > 0 }), 500,
+      function () { Harness.log("LIVE recovery " + JSON.stringify(b.recovery.map(function (o) { return o.phase }))) }, shot("recovery"),
+      function () { page.recover() }, 1500, function () { if (Theme.alert.visible) Theme.alert.accept() },
+      until("finish", function () { return b.recovery.every(function (o) { return o.phase === "conflicted" }) }), 500,
+      function () { Harness.log("LIVE after finish " + JSON.stringify(b.recovery.map(function (o) { return o.id.slice(0, 8) + ":" + o.phase }))) },
+      function () { var o = b.recovery.filter(function (x) { return x.id.indexOf("22222222") === 0 })[0]; if (o) page.resolve(o, "preserveCurrent") }, 1500,
+      function () { if (Theme.alert.visible) Theme.alert.accept() },
+      until("keep", function () { return !b.recovery.some(function (x) { return x.id.indexOf("22222222") === 0 }) }),
+      function () { var o = b.recovery.filter(function (x) { return x.id.indexOf("33333333") === 0 })[0]; if (o) page.resolve(o, "restoreBackup") }, 1500,
+      function () { if (Theme.alert.visible) Theme.alert.accept() },
+      until("restore backup", function () { return b.recovery.length === 0 }), 500,
+      function () { Harness.log("LIVE recovery left " + b.recovery.length) }, shot("recovery-done")
     ]
     // A small sequencer of its own: the Driver knows only numbers and functions, these steps also wait on conditions.
     var i = 0, deadline = 0
