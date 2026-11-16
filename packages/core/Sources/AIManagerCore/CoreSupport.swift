@@ -105,6 +105,32 @@ enum CoreSupport {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Copies a regular file to a new owner-only `target` in 1 MB chunks and returns the same digest as
+    /// `digest(file:)`, so a backup reads each file once. Cancel is checked before every chunk: a large file
+    /// cannot hold up a cancelled run.
+    static func copyHashing(_ source: URL, to target: URL) throws -> String {
+        let input = open(source.path, O_RDONLY | O_CLOEXEC)
+        guard input >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        let reader = FileHandle(fileDescriptor: input, closeOnDealloc: true)
+        defer { try? reader.close() }
+        let output = open(target.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600))
+        guard output >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        let writer = FileHandle(fileDescriptor: output, closeOnDealloc: true)
+        defer { try? writer.close() }
+        var hasher = SHA256()
+        while true {
+            try Task.checkCancellation()
+            var ended = false
+            try withAutoreleasePool {
+                guard let data = try reader.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
+                hasher.update(data: data)
+                try writer.write(contentsOf: data)
+            }
+            if ended { break }
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     static func privateDirectory(_ url: URL, fileManager: FileManager) throws {
 #if os(Windows)
         try WindowsFiles.privateDirectory(url)
