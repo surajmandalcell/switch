@@ -146,10 +146,9 @@ with `--root` (`HelperClient::launch`), Direct3D 11 instead of forced OpenGL (`m
 taskbar (`Tray::Tray`), `WIN32_EXECUTABLE` for shipping builds (`CMakeLists.txt`). To decide or test on Windows:
 
 - Build: MSVC Qt 6.12, `windeployqt` (must ship `qsvg`, the Direct3D compiler, `opengl32sw.dll` only if needed); `scripts/*.sh` are Linux only.
-- Exe icon: no `.ico` or `.rc` exists; `setWindowIcon(appicon.png)` covers only the taskbar at run time. Make one from the Mac `AppIcon.png`.
 - Window chrome (`Main.qml` `flags`, `TrafficLights`, `startSystemResize(Qt.BottomEdge)`): frameless means no DWM shadow, Windows 11 corners or Snap Layouts; shell.md keeps the left buttons. Test Aero Snap, maximize (height only), and the shadow; decide DWM attributes.
 - Dark title bar: no native title bar is shown, so `DWMWA_USE_IMMERSIVE_DARK_MODE` matters only if chrome goes native; check the Account sheet (`Qt.Dialog | Frameless`).
-- Per-monitor DPI: `QT_FONT_DPI=96` (`main.cpp`) sets only Qt's logical DPI after scaling, so 150% should still scale by 1.5; confirm sizes at 100/150/175% and when the window moves between monitors.
+- Per-monitor DPI: verified at 100% and 150% (no `QT_FONT_DPI` override: Qt took its scale factor from it, so 96 kept 150% at 100%). Still to test: 175% and a move between monitors.
 - Fonts: Inter variable through DirectWrite (weights 400-700), `NoSubpixelAntialias` and hinting against the Mac captures.
 - Tray popover (`Tray::place`): bottom taskbar is handled; left or right taskbars and an icon in the overflow area (`QSystemTrayIcon::geometry`) are not. Test all four edges.
 - Tray tone (`Tray::Tray`): read once at start; a taskbar mode change needs a restart. Linux never sets `darkTray`.
