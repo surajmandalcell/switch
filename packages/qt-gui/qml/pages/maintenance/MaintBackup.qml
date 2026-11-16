@@ -22,6 +22,7 @@ Column {
   property var local: ({ checked: {}, shared: {}, folder: "" })   // demo-only edits
   property var running: null          // {setID, index, count, files, bytes}
   property real runCall: -1
+  property real restoreCall: -1
   property string runToken: ""
   property bool restoring: false
   property var free: null
@@ -199,7 +200,9 @@ Column {
     var p = { setID: req.set.id, snapshotID: req.snapshot.id, includeLogins: shared.includeLogins && !shared.promptsOnly }
     if (items) p.items = items
     if (destination) p.destination = destination
-    page.rpc("backup.restore", p, function (res, err) {
+    // The Mac has no Cancel for a restore (maintenance.md 4.2); the call id lets quitting, or a live test, stop it.
+    restoreCall = page.rpc("backup.restore", p, function (res, err) {
+      restoreCall = -1
       restoring = false
       restoreRequest = null
       if (err) page.showError(err.message)
