@@ -6,7 +6,7 @@ IconButton {
   signal copy()
   property bool done: false
   property bool warn: true          // the Mac draws "Copy reason" (no usage yet) in Secondary, not amber
-  icon: done ? "check" : "copy"
+  icon: done ? "check" : "docOnDoc"
   tone: "normal"
   onClicked: { b.copy(); done = true; t.restart() }
   Timer { id: t; interval: 900; onTriggered: b.done = false }

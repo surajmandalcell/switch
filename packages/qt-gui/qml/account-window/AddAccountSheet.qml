@@ -590,7 +590,7 @@ Window {
         spacing: 8
         PushButton { visible: !!parent.parent.row; text: parent.parent.row && parent.parent.row.isDefault ? "Using as default" : "Make Default"
                      enabled: !!parent.parent.row && !parent.parent.row.isDefault && !sh.ctl.busy; onClicked: sh.ctl.switchDefault(parent.parent.row) }
-        PushButton { visible: A.isBuiltIn(sh.providerID) && !!parent.parent.row; icon: "play"; text: "Open " + A.toolName(sh.providerID, sh.ctl.names)
+        PushButton { visible: A.isBuiltIn(sh.providerID) && !!parent.parent.row; icon: "playOutline"; text: "Open " + A.toolName(sh.providerID, sh.ctl.names)
                      onClicked: sh.ctl.openAccount(parent.parent.row) }
       }
     }
