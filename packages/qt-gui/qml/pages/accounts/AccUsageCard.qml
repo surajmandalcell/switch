@@ -31,7 +31,8 @@ Card {
       if (hidden.length) out.push({ k: "hidden" })
       return out
     }
-    if (codex) return [{ k: "codexph" }]
+    // accounts.md 2.10: Codex with no snapshot or no limits keeps its "Codex" sub-header
+    if (codex || (row.providerID === "codex" && !hasUsage)) return [{ k: "codexph" }]
     if (!hasUsage) {
       var t = A.emptyTitles(row.providerID, [])
       for (var i = 0; i < t.length; ++i) out.push({ k: "ph", title: t[i] })
@@ -74,12 +75,7 @@ Card {
       text: card.why
       ToolTipArea { text: card.why }
     },
-    AccCopyIcon {
-      visible: card.hasUsage ? !!card.row.error : true
-      anchors.verticalCenter: parent.verticalCenter
-      tip: card.hasUsage ? "Copy usage error" : "Copy reason"
-      onCopy: card.ctl.copy(card.hasUsage ? card.row.error : card.why)
-    },
+    // Mac order: refresh, then copy
     Item {
       width: 14
       height: 14
@@ -92,6 +88,13 @@ Card {
         enabled: !card.ctl.busy
         onClicked: card.ctl.refresh(card.row)
       }
+    },
+    AccCopyIcon {
+      visible: card.hasUsage ? !!card.row.error : true
+      warn: card.hasUsage
+      anchors.verticalCenter: parent.verticalCenter
+      tip: card.hasUsage ? "Copy usage error" : "Copy reason"
+      onCopy: card.ctl.copy(card.hasUsage ? card.row.error : card.why)
     }
   ]
 
@@ -137,7 +140,7 @@ Card {
   Component {
     id: codexPhC
     Column {
-      spacing: 8
+      spacing: 15   // measured on the Mac capture: Codex to Session and meter to meter
       Txt { role: "section"; text: "Codex" }
       AccMeter { width: parent.width; ctl: card.ctl; w: null; title: "Session"; provider: "codex"; tip: card.why }
       AccMeter { width: parent.width; ctl: card.ctl; w: null; title: "Weekly"; provider: "codex"; tip: card.why }

@@ -91,22 +91,16 @@ Card {
             ToolTipArea { text: Theme.showUsed ? "Click to show the percentage left" : "Click to show the percentage used" }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: card.ctl.toggleShowUsed() }
           }
-          Rectangle {
-            visible: !card.w
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: why.implicitWidth + 12
-            height: 18
-            radius: 9
-            color: Theme.rgba(Theme.secondary, 0.08)
-            Txt { id: why; anchors.centerIn: parent; role: "secondary"; color: Theme.secondary; text: A.reason(card.row, card.pname, "short")
-                  ToolTipArea { text: why.text } }
-          }
+          // plain Secondary text, as the Mac draws it (no pill)
+          Txt { id: why; visible: !card.w; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                role: "secondary"; color: Theme.secondary; text: A.reason(card.row, card.pname, "short")
+                ToolTipArea { text: why.text } }
         }
         UsageBar { width: parent.width; used: card.w ? card.w.usedPercent : -1; provider: card.row.providerID }
         Txt {
           id: rs
           height: 14
+          visible: text !== ""   // the Mac block has no empty reset line, so title and track sit centered
           role: "secondary"
           color: Theme.secondary
           text: card.w && card.w.resetsAt ? A.resetText(card.w.resetsAt, card.ctl.now, card.w.usedPercent, card.ctl.exact, card.ctl.h24) : ""
