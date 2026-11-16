@@ -547,11 +547,10 @@ private enum BackupIO {
                             try Links.hardLink(at: target, to: priorFile, fileManager: fm)
                             hash = prior.sha256
                         } else {
-                            try fm.copyItem(at: source, to: target)
+                            hash = try CoreSupport.copyHashing(source, to: target)
                             try noLinks(target, leafMayBeLink: false)
                             guard try metadata(target).st_mode & S_IFMT == S_IFREG else { throw BackupError.changed(path) }
                             try fm.setAttributes([.posixPermissions: NSNumber(value: before.st_mode & 0o7777)], ofItemAtPath: target.path)
-                            hash = try CoreSupport.digest(file: target)
                             copied = true
                         }
                     } else { return } // sockets, devices and pipes carry no data to back up
