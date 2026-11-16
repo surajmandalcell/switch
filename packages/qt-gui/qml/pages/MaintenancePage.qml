@@ -286,6 +286,7 @@ Item {
     var row = function (id) { return b.rows.filter(function (r) { return r.sourceID === id })[0] }
     // A wait step: the run goes on when `cond` is true, or after `ms` with a LIVE timeout line.
     var until = function (name, cond, ms) { return { name: name, cond: cond, ms: ms || 30000 } }
+    var cancelAt = 0
     var idle = function () { return !c.loading && !c.modelBusy }
     var steps = [
       until("scan", function () { return !!c.scan && idle() }), log("scanned"), shot("cleanup"),
@@ -318,7 +319,8 @@ Item {
       // a second tool with large files, then Cancel in the middle of the run
       function () { b.setChecked(row("claude"), true) }, until("claude on", function () { return b.checkedSets.length === 2 }), log("claude-checked"),
       function () { b.backUpNow() }, until("progress", function () { return !!b.running && b.running.index === b.running.count - 1 && b.running.bytes > 0 }, 60000), log("running"), shot("backup-running"),
-      function () { b.cancelBackup() }, until("cancel", function () { return !b.running }), 1000, log("cancelled"), shot("backup-cancelled"),
+      function () { cancelAt = Date.now(); b.cancelBackup() }, until("cancel", function () { return !b.running }),
+      function () { Harness.log("LIVE cancel took " + (Date.now() - cancelAt) + " ms") }, 1000, log("cancelled"), shot("backup-cancelled"),
       // the next run of the same sets removes the cancelled run's .in-progress folder (BackupEngine.cleanup)
       function () { b.backUpNow() }, 1000, until("second run", function () { return !b.running }, 180000), 500, log("after-second-run"),
       function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked")
