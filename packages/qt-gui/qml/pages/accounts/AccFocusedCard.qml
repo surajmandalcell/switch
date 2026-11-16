@@ -20,11 +20,12 @@ Card {
 
   Item {
     width: parent.width
-    height: 16 + top.height + 16 + 28 + 16
+    // 18 above, 19 between: measured on the Mac capture (card 124 px high with a 44 tile)
+    height: 18 + top.height + 19 + 28 + 16
     Item {
       id: top
       x: 16
-      y: 16
+      y: 18
       width: parent.width - 32
       height: Math.max(44, block.height)
       ProviderTile { id: tile; size: 44; provider: card.row.providerID; name: card.pname; anchors.verticalCenter: parent.verticalCenter }
@@ -65,7 +66,7 @@ Card {
       Column {
         id: block
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.top: parent.top   // the Mac starts the block at the tile's top edge, not centered
         width: 300
         spacing: 6
         Accessible.role: Accessible.StaticText
@@ -91,10 +92,18 @@ Card {
             ToolTipArea { text: Theme.showUsed ? "Click to show the percentage left" : "Click to show the percentage used" }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: card.ctl.toggleShowUsed() }
           }
-          // plain Secondary text, as the Mac draws it (no pill)
-          Txt { id: why; visible: !card.w; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                role: "secondary"; color: Theme.secondary; text: A.reason(card.row, card.pname, "short")
-                ToolTipArea { text: why.text } }
+          // a soft pill: the Mac capture (mac-refs/accounts-light.png) draws one here
+          Rectangle {
+            visible: !card.w
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: why.implicitWidth + 12
+            height: 18
+            radius: 9
+            color: Theme.rgba(Theme.secondary, 0.04)   // #F5F5F5 on white, sampled from the Mac capture
+            Txt { id: why; anchors.centerIn: parent; role: "secondary"; color: Theme.secondary; text: A.reason(card.row, card.pname, "short")
+                  ToolTipArea { text: why.text } }
+          }
         }
         UsageBar { width: parent.width; used: card.w ? card.w.usedPercent : -1; provider: card.row.providerID }
         Txt {
@@ -121,7 +130,7 @@ Card {
     // Action row (ACC:1468-1520)
     Row {
       x: 16
-      y: top.y + top.height + 16
+      y: top.y + top.height + 19
       spacing: 8
       PushButton {
         text: card.signedOut ? "Sign in again" : (card.row.isDefault ? "Using as default" : "Make Default")
@@ -132,7 +141,7 @@ Card {
       }
       PushButton {
         visible: A.isBuiltIn(card.row.providerID)
-        icon: "play"
+        icon: "playOutline"
         text: (card.row.isDefault ? "Open " : "Use & Open ") + A.toolName(card.row.providerID, card.ctl.names)
         enabled: !card.ctl.busy
         onClicked: card.ctl.openAccount(card.row)
@@ -148,11 +157,11 @@ Card {
     Row {
       anchors.right: parent.right
       anchors.rightMargin: 16
-      y: top.y + top.height + 16
+      y: top.y + top.height + 19
       spacing: 8
       PushButton { visible: !!card.row.needsDroidAccess; text: "Allow access"; tip: "Allow Switch to read Droid's login for usage"
                    enabled: !card.ctl.busy && !card.row.isRefreshing; onClicked: card.ctl.allow(card.row) }
-      PushButton { icon: "copy"; text: "Copy"; tip: "Copy the account name"; onClicked: card.ctl.copyName(card.row) }
+      PushButton { icon: "docOnDoc"; text: "Copy"; tip: "Copy the account name"; onClicked: card.ctl.copyName(card.row) }
       PushButton { id: more; square: true; icon: "ellipsis"; tip: "More actions for this account"; Accessible.name: "More actions"
                    onClicked: card.ctl.moreMenu(card.row, more) }
     }
