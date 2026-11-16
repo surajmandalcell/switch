@@ -19,11 +19,6 @@
 #endif
 
 int main(int argc, char *argv[]) {
-#ifndef Q_OS_WIN
-  // One logical DPI everywhere, so a QML pointSize of px * 0.75 is exactly px logical pixels. Not on Windows: there
-  // Qt takes the high-DPI scale factor from the logical DPI, so 96 would keep a 150% display at 100%.
-  qputenv("QT_FONT_DPI", "96");
-#endif
   // The only Quick Controls in the app are the non-native folder dialog's; the packages ship only the Basic style.
   if (!qEnvironmentVariableIsSet("QT_QUICK_CONTROLS_STYLE")) qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
 #ifndef Q_OS_WIN
