@@ -72,6 +72,7 @@ Item {
   // repeat the call with the token.
   function act(method, params) {
     rpc(method, params, function (r, e) {
+      if (Harness && demoState === "live") Harness.log("LIVE reply " + method + " " + JSON.stringify(e ? { error: e } : r))
       if (e) { showError(e.message); return }
       if (r && r.status === "needsConfirmation") {
         var c = r.confirmation
@@ -79,7 +80,6 @@ Item {
         return
       }
       if (r && r.error) showError(r.error)
-      if (r && r.notice && Harness) Harness.log("LIVE notice " + r.notice)
       backupTab.load()
     })
   }
@@ -319,9 +319,14 @@ Item {
       function () { b.setChecked(row("claude"), true) }, until("claude on", function () { return b.checkedSets.length === 2 }), log("claude-checked"),
       function () { b.backUpNow() }, until("progress", function () { return !!b.running && b.running.index === b.running.count - 1 && b.running.bytes > 0 }, 60000), log("running"), shot("backup-running"),
       function () { b.cancelBackup() }, until("cancel", function () { return !b.running }), 1000, log("cancelled"), shot("backup-cancelled"),
-      function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked"),
-      // Interrupted work (seed-recovery.sh): Finish pending work, then Keep current and Restore backup on the conflicts.
-      function () { b.load() }, until("recovery rows", function () { return b.recovery.length > 0 }), 500,
+      // the next run of the same sets removes the cancelled run's .in-progress folder (BackupEngine.cleanup)
+      function () { b.backUpNow() }, 1000, until("second run", function () { return !b.running }, 180000), 500, log("after-second-run"),
+      function () { b.setChecked(row("claude"), false) }, until("claude off", function () { return b.checkedSets.length === 1 }), 500, log("claude-unchecked"), shot("backup-unchecked")
+    ]
+    // Interrupted work first (seed-recovery.sh): the helper blocks cleanup while it is pending.
+    // Finish pending work, then Keep current and Restore backup on the two conflicts.
+    var recoverySteps = [
+      function () { tab = "Backup"; b.load() }, until("recovery rows", function () { return b.recovery.length > 0 }), 500,
       function () { Harness.log("LIVE recovery " + JSON.stringify(b.recovery.map(function (o) { return o.phase }))) }, shot("recovery"),
       function () { page.recover() }, 1500, function () { if (Theme.alert.visible) Theme.alert.accept() },
       until("finish", function () { return b.recovery.every(function (o) { return o.phase === "conflicted" }) }), 500,
@@ -332,8 +337,10 @@ Item {
       function () { var o = b.recovery.filter(function (x) { return x.id.indexOf("33333333") === 0 })[0]; if (o) page.resolve(o, "restoreBackup") }, 1500,
       function () { if (Theme.alert.visible) Theme.alert.accept() },
       until("restore backup", function () { return b.recovery.length === 0 }), 500,
-      function () { Harness.log("LIVE recovery left " + b.recovery.length) }, shot("recovery-done")
+      function () { Harness.log("LIVE recovery left " + b.recovery.length + " bar=" + JSON.stringify(page.barError)) }, shot("recovery-done"),
+      function () { page.barError = ""; tab = "Cleanup"; cleanupTab.reload() }
     ]
+    steps = recoverySteps.concat(steps)
     // A small sequencer of its own: the Driver knows only numbers and functions, these steps also wait on conditions.
     var i = 0, deadline = 0
     var next = function () {
