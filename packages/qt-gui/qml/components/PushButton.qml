@@ -12,7 +12,7 @@ Item {
   property bool square: false
   property real controlHeight: 28
   property real minWidth: 0
-  property color textColor: prominent ? "white" : Theme.label
+  property color textColor: prominent ? (enabled ? "white" : (Theme.dark ? "#9A9A9A" : "#E6E6E6")) : Theme.label
   property alias hovered: hover.hovered
   readonly property bool pressed: mouse.pressed
   signal clicked()
@@ -30,13 +30,17 @@ Item {
 
   scale: pressed && enabled && !Theme.reduceMotion ? 0.97 : 1
   Behavior on scale { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
-  readonly property real dim: enabled ? 1 : 0.45
+  // A disabled prominent button is gray, not faded blue, as AppKit draws it. Sampled from the Mac references
+  // (mac-refs/maintenance-*): fill #D1D1D1 with text #E6E6E6 in Light, fill #474747 with text #9A9A9A in Dark.
+  readonly property bool grayed: prominent && !enabled
+  readonly property real dim: enabled || grayed ? 1 : 0.45
 
   Rectangle {
     anchors.fill: parent
     radius: 6
     opacity: b.dim
-    color: b.prominent ? (b.pressed ? Theme.rgba(Theme.accent, 0.8) : Theme.accent) : (b.pressed ? Theme.controlPressed : Theme.controlFill)
+    color: b.grayed ? (Theme.dark ? "#474747" : "#D1D1D1")
+         : b.prominent ? (b.pressed ? Theme.rgba(Theme.accent, 0.8) : Theme.accent) : (b.pressed ? Theme.controlPressed : Theme.controlFill)
     Behavior on color { ColorAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
     Rectangle {
       anchors.fill: parent
@@ -49,7 +53,7 @@ Item {
       anchors.fill: parent
       radius: 6
       color: "transparent"
-      border.width: Theme.hair
+      border.width: b.grayed ? 0 : Theme.hair
       border.color: b.prominent ? Theme.primaryBorder : Theme.controlBorder
     }
   }

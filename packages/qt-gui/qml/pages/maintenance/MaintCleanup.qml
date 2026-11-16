@@ -412,8 +412,9 @@ Column {
             id: projRow
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
-            Txt { id: projText; text: cl.projects.length === 0 ? "All projects" : F.num(cl.projects.length) + " projects" }
-            Icon { name: "chevronDown"; size: 10; color: Theme.secondary; anchors.verticalCenter: parent.verticalCenter }
+            // A borderless menu button: accent text and chevron, as the Mac draws it
+            Txt { id: projText; color: Theme.accent; text: cl.projects.length === 0 ? "All projects" : F.num(cl.projects.length) + " projects" }
+            Icon { name: "chevronDown"; size: 10; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
           }
           MouseArea {
             anchors.fill: parent
