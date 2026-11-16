@@ -5,10 +5,11 @@ IconButton {
   id: b
   signal copy()
   property bool done: false
+  property bool warn: true          // the Mac draws "Copy reason" (no usage yet) in Secondary, not amber
   icon: done ? "check" : "copy"
   tone: "normal"
   onClicked: { b.copy(); done = true; t.restart() }
   Timer { id: t; interval: 900; onTriggered: b.done = false }
   // IconButton tints by tone; amber and green are this control's own colors.
-  Component.onCompleted: children[1].color = Qt.binding(function () { return b.done ? Theme.green : Theme.amber })
+  Component.onCompleted: children[1].color = Qt.binding(function () { return b.done ? Theme.green : b.warn ? Theme.amber : Theme.secondary })
 }
