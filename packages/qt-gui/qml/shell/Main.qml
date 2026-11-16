@@ -203,6 +203,7 @@ Window {
   }
   // popover.md 1.4 and 8.1: the status item cannot show the percent strip off the Mac, so its tooltip carries
   // one line per tray account (the helper's tray.tooltip); "Switch" when the list is empty.
+  Binding { target: Theme; property: "trayName"; value: (Helper.topics.app && Helper.topics.app.trayName) || "" }
   Binding { target: Tray; property: "tooltip"; value: (Helper.topics.tray && Helper.topics.tray.tooltip) || "Switch" }
   Connections { target: Notify; function onActivated() { win.present() } }   // a click on a Switch notification
   Connections {

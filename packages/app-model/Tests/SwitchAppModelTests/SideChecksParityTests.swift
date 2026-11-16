@@ -59,6 +59,29 @@ final class SideChecksParityTests: XCTestCase {
         return result.alerts.map(\.kind)
     }
 
+    /// Settings text names the platform's tray place; the Mac keeps its original strings.
+    func testSettingsTextUsesThePlatformTrayWord() throws {
+        let text = SettingsSearch.entries.flatMap { [$0.section, $0.title, $0.help] }
+        let entry = { (id: String) in try XCTUnwrap(SettingsSearch.entries.first { $0.id == id }) }
+#if os(macOS)
+        XCTAssertEqual(try entry("tray").help, "Hide the window and keep Switch available from its menu-bar icon.")
+        XCTAssertEqual(try entry("menu-usage").help, "Accounts without their own choice show cached usage in Menubar.")
+        XCTAssertEqual(try entry("menu-usage").section, "Menu bar")
+#else
+        let word = PlatformText.trayName
+#if os(Windows)
+        XCTAssertEqual(word, "notification area")
+#else
+        XCTAssertEqual(word, "system tray")
+#endif
+        XCTAssertEqual(try entry("tray").title, "Minimize to \(word)")
+        XCTAssertEqual(try entry("tray").help, "Hide the window and keep Switch available from its \(word) icon.")
+        XCTAssertEqual(try entry("menu-usage").section, PlatformText.trayTitle)
+        XCTAssertFalse(text.contains { $0.localizedCaseInsensitiveContains("menu bar") || $0.contains("menu-bar") || $0.contains("Menubar") }, "\(text)")
+#endif
+        XCTAssertEqual(AppStateValue(dataLocation: "").trayName, PlatformText.trayName)
+    }
+
     func testNotificationEngine() throws {
         var store = QuotaNotificationStore()
         try expect(pass(&store, input([paced(70)])).isEmpty, "A window primed in the red raised an alert")

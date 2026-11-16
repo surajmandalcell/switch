@@ -114,9 +114,9 @@ Item {
       opacity: r.hovered || (r.activeFocus && App.keyboardMode) ? 1 : (r.trayHidden ? 0.5 : 0)
       Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.OutQuad } }
       Accessible.role: Accessible.Button
-      Accessible.name: (r.trayHidden ? "Show account in menu bar" : "Hide account from menu bar") + ": " + r.row.label
+      Accessible.name: (r.trayHidden ? "Show account in the " : "Hide account from the ") + Theme.trayName + ": " + r.row.label
       Icon { anchors.centerIn: parent; size: 12; name: r.trayHidden ? "eyeSlash" : "eye"; color: Theme.secondary }
-      ToolTipArea { text: r.trayHidden ? "Show account in menu bar" : "Hide account from menu bar" }
+      ToolTipArea { text: (r.trayHidden ? "Show account in the " : "Hide account from the ") + Theme.trayName }
       MouseArea { anchors.fill: parent; onClicked: r.ctl.toggleAccount(r.row.id) }
     }
   }

@@ -81,7 +81,8 @@ Item {
         title: "Open at Login"
         // settings.md 6.1 help lines; Linux and Windows have no approval or not-found state (shell.md 6.4)
         help: App.loginError !== "" ? "Switch couldn’t update its login item: " + App.loginError
-              : (App.loginEnabled ? "Switch opens in the menu bar when you sign in." : "Open Switch in the menu bar when you sign in.")
+              : (App.loginEnabled ? "Switch opens in the " + Theme.trayName + " when you sign in."
+                                  : "Open Switch in the " + Theme.trayName + " when you sign in.")
         Switch {
           objectName: "switch-login"
           checked: App.loginEnabled
@@ -90,8 +91,8 @@ Item {
       }
       SRow {
         sid: "tray"; group: page.gGeneral
-        title: "Minimize to menu bar"
-        help: "Hide the window and keep Switch available from its menu-bar icon."
+        title: "Minimize to " + Theme.trayName
+        help: "Hide the window and keep Switch available from its " + Theme.trayName + " icon."
         PrefSwitch { id: swTray; key: "minimizeToTray" }
       }
       SRow {
@@ -161,7 +162,7 @@ Item {
       SRow {
         sid: "appearance"; group: page.gAppearance
         title: "Appearance"
-        help: "Choose the window and menu bar appearance."
+        help: "Choose the window and " + Theme.trayName + " appearance."
         PrefSegmented { key: "windowAppearance"; values: ["system", "light", "dark"]; model: ["System", "Light", "Dark"] }
       }
       SRow {
@@ -264,10 +265,10 @@ Item {
     }
 
     Card {
-      title: "Menu bar"
+      title: Theme.trayTitle
       visible: page.anyShows(page.gMenu)
-      SRow { sid: "menu-usage"; group: page.gMenu; title: "Show account usage"; help: "Accounts without their own choice show cached usage in Menubar."; PrefSwitch { key: "showAccountUsageInMenuBar" } }
-      SRow { sid: "menu-one-per-service"; group: page.gMenu; title: "One account per service"; help: "The menu bar shows the default account of each service, or its first account with usage."; PrefSwitch { key: "menuBarOneAccountPerService" } }
+      SRow { sid: "menu-usage"; group: page.gMenu; title: "Show account usage"; help: "Accounts without their own choice show cached usage in the " + Theme.trayName + "."; PrefSwitch { key: "showAccountUsageInMenuBar" } }
+      SRow { sid: "menu-one-per-service"; group: page.gMenu; title: "One account per service"; help: "The " + Theme.trayName + " shows the default account of each service, or its first account with usage."; PrefSwitch { key: "menuBarOneAccountPerService" } }
       SRow { sid: "menu-tokens"; group: page.gMenu; title: "Token summary"; help: "Choose the period shown beside each account’s usage."
         PrefPopUp { key: "menuBarTokenPeriod"; values: ["sinceReset", "today", "yesterday", "weekly", "monthly", "yearly"]
                     options: ["Since reset", "Today", "Yesterday", "Weekly", "Monthly", "Yearly"] } }

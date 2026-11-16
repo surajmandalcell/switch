@@ -237,7 +237,7 @@ Item {
       p === "droid" ? { text: "Rename…", enabled: !busy && !pref("privacyMode", false), a: function () { rename(row) } } : null,
       b ? { text: p === "claude-code" ? "Copy Config Path" : "Copy auth path", a: function () { copyAuthPath(row) } } : null,
       "-",
-      { text: "Show in Menubar", checked: on, a: function () { Prefs.set(menubarKey(row.id), !on) } },
+      { text: "Show in " + Theme.trayTitle, checked: on, a: function () { Prefs.set(menubarKey(row.id), !on) } },
       { text: "Use Settings Default", enabled: ovr !== null, a: function () { Prefs.set(menubarKey(row.id), null) } },
       "-",
       { text: "Refresh Usage", enabled: !busy, a: function () { refresh(row) } },
@@ -267,7 +267,7 @@ Item {
   function groupMenu(item, x, y, p) {
     var order = groups.map(function (g) { return g.provider }), i = order.indexOf(p), canMove = query.trim() === ""
     openMenu(menuAt(item, x, y), [
-      { text: serviceHidden(p) ? "Show in menu bar" : "Hide from menu bar", a: function () { toggleService(p) } },
+      { text: (serviceHidden(p) ? "Show in the " : "Hide from the ") + Theme.trayName, a: function () { toggleService(p) } },
       canMove ? { text: "Move service up", enabled: i > 0, a: function () { moveService(p, -1) } } : null,
       canMove ? { text: "Move service down", enabled: i < order.length - 1, a: function () { moveService(p, 1) } } : null
     ])

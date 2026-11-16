@@ -42,6 +42,30 @@ public enum PlatformText {
 #endif
     }()
 
+    /// Where the app icon lives in user-facing text: "menu bar" on macOS, "notification area" on Windows,
+    /// "system tray" on Linux.
+    public static let trayName: String = {
+#if os(macOS)
+        return "menu bar"
+#elseif os(Windows)
+        return "notification area"
+#else
+        return "system tray"
+#endif
+    }()
+
+    /// `trayName` as a heading: "Menu bar", "Notification area", "System tray".
+    public static let trayTitle = trayName.prefix(1).uppercased() + trayName.dropFirst()
+
+    /// The app icon there: the Mac keeps its hyphenated "menu-bar icon".
+    public static let trayIcon: String = {
+#if os(macOS)
+        return "menu-bar icon"
+#else
+        return "\(trayName) icon"
+#endif
+    }()
+
     /// The sign-in CLI check failed; the text says so, apart from a terminal that could not open.
     public static func missingCommand(_ name: String, _ command: String) -> String {
         "\(name) sign-in needs the `\(command)` command, and Switch did not find it on \(thisComputer). "
