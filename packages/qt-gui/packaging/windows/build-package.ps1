@@ -1,7 +1,7 @@
 # Builds the Windows app folder that switch.iss installs: switch.exe and switch-core.exe, the Qt files windeployqt
 # finds, the Swift runtime DLLs that switch-core.exe imports (followed recursively), and the MSVC runtime DLLs
 # app-local, so a per-user install needs no administrator rights. Run it where MSVC, Qt, and Swift are installed.
-# usage: build-package.ps1 -App <switch.exe> -Core <release switch-core.exe> -QmlDir <qt-gui\qml> -Out <folder>
+# usage: build-package.ps1 -App <switch.exe built with -DSWITCH_HARNESS=OFF> -Core <release switch-core.exe> -QmlDir <qt-gui\qml> -Out <folder>
 #        [-Qt <Qt msvc2022_64 dir>] [-SwiftRuntime <dir with swiftCore.dll>] [-VcVars <vcvars64.bat>]
 param(
   [Parameter(Mandatory)] [string] $App,
@@ -32,6 +32,12 @@ function Get-Imports([string[]] $Files) {
   }
   $names | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique
 }
+
+# A shipping switch.exe is a GUI program (PE subsystem 2). A harness build (SWITCH_HARNESS, the CMake default) is a
+# console program (3) and opens a console window beside the app; configure the app with -DSWITCH_HARNESS=OFF.
+$bytes = [IO.File]::ReadAllBytes($App)
+$subsystem = [BitConverter]::ToUInt16($bytes, [BitConverter]::ToInt32($bytes, 0x3c) + 0x5c)
+if ($subsystem -ne 2) { throw "$App is not a GUI program (PE subsystem $subsystem); build it with -DSWITCH_HARNESS=OFF" }
 
 if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
 New-Item -ItemType Directory -Force $Out | Out-Null
