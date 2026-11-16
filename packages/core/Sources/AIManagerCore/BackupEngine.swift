@@ -679,13 +679,14 @@ private enum BackupIO {
         }
         // Verify the complete selection before changing any current file.
         for entry in entries {
+            try Task.checkCancellation()
             let source = stored.folder.appending(path: "files/" + entry.path)
             try noLinks(source, leafMayBeLink: entry.kind == .symlink)
             let info = try metadata(source)
             let kind = info.st_mode & S_IFMT
             guard (entry.kind == .file && kind == S_IFREG) || (entry.kind == .directory && kind == S_IFDIR)
                     || (entry.kind == .symlink && kind == S_IFLNK) else { throw BackupError.unsafe("snapshot entry type changed") }
-            if entry.kind == .file, try CoreSupport.digest(file: source) != entry.sha256 { throw BackupError.unsafe("snapshot checksum mismatch") }
+            if entry.kind == .file, try CoreSupport.digest(file: source, cancellable: true) != entry.sha256 { throw BackupError.unsafe("snapshot checksum mismatch") }
             if entry.kind == .symlink, try fm.destinationOfSymbolicLink(atPath: source.path) != entry.linkTarget { throw BackupError.unsafe("snapshot link changed") }
             try noLinks(place(entry.path)!, leafMayBeLink: true)
         }
@@ -728,9 +729,9 @@ private enum BackupIO {
             if entry.kind == .symlink {
                 try fm.createSymbolicLink(atPath: temporary.path, withDestinationPath: entry.linkTarget!)
             } else {
-                try fm.copyItem(at: stored.folder.appending(path: "files/" + entry.path), to: temporary)
+                let copied = try CoreSupport.copyHashing(stored.folder.appending(path: "files/" + entry.path), to: temporary)
                 try fm.setAttributes([.posixPermissions: NSNumber(value: entry.mode)], ofItemAtPath: temporary.path)
-                guard try CoreSupport.digest(file: temporary) == entry.sha256 else { throw BackupError.unsafe("restore checksum mismatch") }
+                guard copied == entry.sha256 else { throw BackupError.unsafe("restore checksum mismatch") }
             }
             try noLinks(target, leafMayBeLink: true)
             guard rename(temporary.path, target.path) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }

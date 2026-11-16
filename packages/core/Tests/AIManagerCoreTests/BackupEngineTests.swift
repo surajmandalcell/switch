@@ -429,6 +429,32 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertTrue(listed.isEmpty)
     }
 
+    func testCancelStopsARestoreInsideOneLargeFile() async throws {
+        // A 2 GB sparse file: its restore copy plus digest takes seconds, so only a check between chunks stops in time.
+        let big = home.appending(path: "sessions/big.jsonl")
+        try fm.createDirectory(at: big.deletingLastPathComponent(), withIntermediateDirectories: true)
+        XCTAssertTrue(fm.createFile(atPath: big.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: 2 << 30)
+        try handle.close()
+        let set = makeSet()
+        let snapshot = try await engine.snapshot(set)
+        let target = root.appending(path: "restored-big")
+        let engine = self.engine!
+        let task = Task { try await engine.restore(snapshot, set: set, to: target) }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let start = Date()
+        task.cancel()
+        let result = await task.result
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 1.0, "cancel took \(elapsed) s")
+        if case .success = result { XCTFail("the restore finished instead of stopping") }
+        // The half-copied temporary file is removed; the file never appears under its own name.
+        XCTAssertFalse(fm.fileExists(atPath: target.appending(path: "sessions/big.jsonl").path))
+        let leftovers = (try? fm.contentsOfDirectory(atPath: target.appending(path: "sessions").path)) ?? []
+        XCTAssertTrue(leftovers.allSatisfy { !$0.hasPrefix(".switch-restore-") }, "\(leftovers)")
+    }
+
     func testCancelledSnapshotLeavesNothingListed() async throws {
         for index in 0..<300 { try write("sessions/f\(index).jsonl", String(repeating: "z", count: 2_000)) }
         let set = makeSet()

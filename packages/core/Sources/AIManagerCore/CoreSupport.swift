@@ -87,7 +87,8 @@ enum CoreSupport {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    static func digest(file url: URL) throws -> String {
+    /// `cancellable`: check Cancel before every chunk (backup work), so a large file cannot hold up a cancelled run.
+    static func digest(file url: URL, cancellable: Bool = false) throws -> String {
         // open(), not FileHandle(forReadingFrom:): Foundation on Windows cannot open a path over 260 characters.
         let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
@@ -95,6 +96,7 @@ enum CoreSupport {
         defer { try? handle.close() }
         var hasher = SHA256()
         while true {
+            if cancellable { try Task.checkCancellation() }
             var ended = false
             try withAutoreleasePool {
                 guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { ended = true; return }
