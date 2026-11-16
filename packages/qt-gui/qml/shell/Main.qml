@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Window
 import "Search.js" as Search
 
-// Main window (shell.md 1, 2): 1200 wide, height-only resizable (min 800), custom 52 pt bar with the
+// Main window (shell.md 1, 2): 1200 wide, height-only resizable (min 800, or the work area when smaller), custom 52 pt bar with the
 // window buttons, 220 sidebar, page host. Pages build on first visit and stay alive; a switch swaps them
 // in one frame with no animation (2.4).
 Window {
@@ -11,7 +11,9 @@ Window {
   height: Math.max(800, Number(App.arg("height", "900")))   // --height 800 for the Mac reference captures
   minimumWidth: 1200
   maximumWidth: 1200
-  minimumHeight: 800
+  // shell.md 1: a work area under 800 high shrinks the window to fit (the pages scroll); offscreen captures keep 800.
+  readonly property int workHeight: Qt.platform.pluginName === "offscreen" ? 0 : App.workArea(win).height
+  minimumHeight: workHeight > 0 ? Math.min(800, workHeight) : 800
   visible: !App.flag("background")
   color: "transparent"
   title: "Switch"
@@ -142,7 +144,7 @@ Window {
     var a = App.workArea(win)
     restoreRect = { y: win.y, height: win.height }
     win.y = a.y
-    win.height = Math.max(a.height, 800)
+    win.height = Math.max(a.height, minimumHeight)
   }
   function closeWindow() { if (Tray.available) win.hide(); else Qt.quit() }
 
@@ -241,10 +243,11 @@ Window {
 
   Component.onCompleted: {
     Theme.dpr = Screen.devicePixelRatio
-    // Windows places a frameless window at the screen corner; center it in the work area and keep it above the taskbar.
+    // shell.md 1 first-open height: min(900, usable height), never below the minimum.
+    if (workHeight > 0) win.height = Math.max(minimumHeight, Math.min(win.height, workHeight))
+    // Windows places a frameless window at the screen corner; center it in the work area.
     if (Qt.platform.os === "windows") {
       var a = App.workArea(win)
-      win.height = Math.max(minimumHeight, Math.min(win.height, a.height))
       win.x = a.x + Math.max(0, (a.width - win.width) / 2)
       win.y = a.y + Math.max(0, (a.height - win.height) / 2)
     }
