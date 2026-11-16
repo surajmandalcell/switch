@@ -20,6 +20,10 @@ QtObject {
   property real dpr: 1
   readonly property real hair: 1 / dpr
   property string fontFamily: "Inter Variable"
+  // Where the app icon lives, from the helper's `app` topic (core PlatformText): "notification area" on Windows,
+  // "system tray" on Linux.
+  property string trayName: ""
+  readonly property string trayTitle: trayName.charAt(0).toUpperCase() + trayName.slice(1)
   // code, paths and IDs (design-system 2.3: SF Mono stand-in), bundled in fonts/ so it looks the same everywhere
   property string monoFamily: "JetBrains Mono"
   // Inter against SF Pro: the same cap height needs about 0.97 of the size.

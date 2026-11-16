@@ -47,6 +47,8 @@ public struct AppStateValue: Codable, Equatable, Sendable {
     /// The live tool folders the Accounts page names: `codex` (defaultHome), `grok`, `droid`, and `user` (the home
     /// they sit in; the root's in a test home).
     public var homes: [String: String] = [:]
+    /// The word for where the app icon lives ("menu bar", "notification area", "system tray"), for the UI's own text.
+    public var trayName = PlatformText.trayName
 
     static func homes(_ paths: ManagerPaths) -> [String: String] {
         ["codex": paths.defaultHome.path, "grok": paths.grokHome.path, "droid": paths.droidHome.path,

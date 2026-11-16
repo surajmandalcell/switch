@@ -70,7 +70,7 @@ Item {
       anchors.verticalCenter: parent.verticalCenter
       icon: row.acct.showsInTray === false ? "eyeSlash" : "eye"
       glyph: 12
-      tip: row.acct.showsInTray === false ? "Show account in menu bar" : "Hide account from menu bar"
+      tip: (row.acct.showsInTray === false ? "Show account in the " : "Hide account from the ") + Theme.trayName
       Accessible.name: tip + ": " + row.acct.label
       opacity: hh.hovered || activeFocus ? 1 : (row.acct.showsInTray === false ? 0.5 : 0)
       Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }

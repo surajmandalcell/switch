@@ -1,4 +1,5 @@
 import Foundation
+import AIManagerCore
 
 // Foundation-only search logic: the Settings index the toolbar search reads (`app.searchIndex`), and the
 // Settings strings it shares with the Mac page. Moved from the Mac app (plan E2).
@@ -19,11 +20,12 @@ public enum SettingsSearch {
 
   public static let entries: [Entry] = {
     let c = SettingsCopy.self
+    let tray = PlatformText.trayName, trayTitle = PlatformText.trayTitle
     var list: [Entry] = [
       Entry(id: "login", section: "General", title: "Open at Login",
-            help: "Open Switch in the menu bar when you sign in.", keywords: "startup launch boot login item"),
-      Entry(id: "tray", section: "General", title: "Minimize to menu bar",
-            help: "Hide the window and keep Switch available from its menu-bar icon.", keywords: "tray dock hide"),
+            help: "Open Switch in the \(tray) when you sign in.", keywords: "startup launch boot login item"),
+      Entry(id: "tray", section: "General", title: "Minimize to \(tray)",
+            help: "Hide the window and keep Switch available from its \(PlatformText.trayIcon).", keywords: "tray dock hide"),
       Entry(id: "place", section: "General", title: "When Switch opens",
             help: "Choose the page shown when Switch starts.", keywords: "startup launch home last page"),
       Entry(id: "shortcut", section: "General", title: c.menuShortcut, help: c.menuShortcutHelp,
@@ -31,7 +33,7 @@ public enum SettingsSearch {
       Entry(id: "version", section: "General", title: c.version, help: c.versionHelp,
             keywords: "update upgrade release build about"),
       Entry(id: "appearance", section: "Appearance", title: "Appearance",
-            help: "Choose the window and menu bar appearance.", keywords: "theme dark light mode system"),
+            help: "Choose the window and \(tray) appearance.", keywords: "theme dark light mode system"),
       Entry(id: "percent", section: "Appearance", title: "Usage percentage",
             help: "Show the share left or the share used in every usage view.", keywords: "left used percent remaining"),
       Entry(id: "reset-times", section: "Appearance", title: c.resetTimes, help: c.resetTimesHelp,
@@ -65,13 +67,13 @@ public enum SettingsSearch {
             help: c.autoSwitchRunningCLIsHelp, keywords: "automatic rotate limit terminal restart"),
       Entry(id: "auto-resume", section: "Auto switch", title: c.autoSwitchResume,
             help: c.autoSwitchResumeHelp, keywords: "automatic rotate limit message prompt"),
-      Entry(id: "menu-usage", section: "Menu bar", title: "Show account usage",
-            help: "Accounts without their own choice show cached usage in Menubar.", keywords: "menubar popover"),
-      Entry(id: "menu-one-per-service", section: "Menu bar", title: c.onePerService, help: c.onePerServiceHelp,
+      Entry(id: "menu-usage", section: trayTitle, title: "Show account usage",
+            help: c.showAccountUsageHelp, keywords: "menubar popover"),
+      Entry(id: "menu-one-per-service", section: trayTitle, title: c.onePerService, help: c.onePerServiceHelp,
             keywords: "menubar tray single default account service provider"),
-      Entry(id: "menu-tokens", section: "Menu bar", title: "Token summary",
+      Entry(id: "menu-tokens", section: trayTitle, title: "Token summary",
             help: "Choose the period shown beside each account’s usage.", keywords: "menubar popover period"),
-      Entry(id: "menu-refresh", section: "Menu bar", title: c.refreshOnOpen, help: c.refreshOnOpenHelp,
+      Entry(id: "menu-refresh", section: trayTitle, title: c.refreshOnOpen, help: c.refreshOnOpenHelp,
             keywords: "menubar popover update"),
     ]
     list += c.notificationRows.map {
@@ -174,7 +176,13 @@ public enum SettingsCopy {
   public static let refreshOnOpen = "Refresh when the menu opens"
   public static let refreshOnOpenHelp = "Check usage each time the popover opens."
   public static let onePerService = "One account per service"
-  public static let onePerServiceHelp = "The menu bar shows the default account of each service, or its first account with usage."
+  public static let onePerServiceHelp =
+    "The \(PlatformText.trayName) shows the default account of each service, or its first account with usage."
+  #if os(macOS)
+  public static let showAccountUsageHelp = "Accounts without their own choice show cached usage in Menubar."
+  #else
+  public static let showAccountUsageHelp = "Accounts without their own choice show cached usage in the \(PlatformText.trayName)."
+  #endif
   public static let resetSettings = "Reset settings"
   public static let resetSettingsHelp =
     "Return every Settings choice, hidden usage row, and the menu shortcut to its default. Accounts stay."

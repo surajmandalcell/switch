@@ -206,7 +206,7 @@ Window {
                   anchors.verticalCenter: parent.verticalCenter
                   icon: grp.group.showsInTray ? "eye" : "eyeSlash"
                   glyph: 11
-                  tip: grp.group.showsInTray ? "Hide from menu bar" : "Show in menu bar"
+                  tip: (grp.group.showsInTray ? "Hide from the " : "Show in the ") + Theme.trayName
                   Accessible.name: tip + ": " + grp.group.name
                   opacity: gh.hovered || activeFocus ? 1 : (grp.group.showsInTray ? 0 : 0.5)
                   Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }

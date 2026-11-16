@@ -38,11 +38,11 @@ Item {
     opacity: hover.hovered || (activeFocus && App.keyboardMode) ? 1 : (h.trayHidden ? 0.5 : 0)
     Behavior on opacity { NumberAnimation { duration: Theme.motion ? 180 : 0; easing.type: Easing.OutQuad } }
     Accessible.role: Accessible.Button
-    Accessible.name: (h.trayHidden ? "Show in menu bar" : "Hide from menu bar") + ": " + h.name
+    Accessible.name: (h.trayHidden ? "Show in the " : "Hide from the ") + Theme.trayName + ": " + h.name
     Keys.onSpacePressed: h.ctl.toggleService(h.provider)
     FocusFill { radius: 6 }
     Icon { anchors.centerIn: parent; size: 13; name: h.trayHidden ? "eyeSlash" : "eye"; color: Theme.secondary }
-    ToolTipArea { text: h.trayHidden ? "Show in menu bar" : "Hide from menu bar" }
+    ToolTipArea { text: (h.trayHidden ? "Show in the " : "Hide from the ") + Theme.trayName }
     MouseArea { anchors.fill: parent; onClicked: h.ctl.toggleService(h.provider) }
   }
   Rectangle { x: 23.5; y: 28; width: 1; height: 4; color: Theme.guideLine }
