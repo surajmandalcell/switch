@@ -386,6 +386,8 @@ Item {
     var c = cleanupTab, b = backupTab, w = d.win, v = demoState
     var shot = function (name) { return function () { d.shot(w, "maint" + (v ? "-" + v : "") + "-" + name) } }
     if (v === "live") return liveSteps(d, shot)
+    // --maint parity: the real helper on a seed-synthetic root, both tabs as the Mac references show them
+    if (v === "parity") return [5000, shot("cleanup"), function () { tab = "Backup" }, 3000, shot("backup")]
     if (v !== "") return [400, shot("main"), function () { scrollArea.scrollTo(10000) }, 300, shot("bottom")]
     return [
       shot("cleanup"),
