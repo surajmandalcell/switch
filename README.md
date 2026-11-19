@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://github.com/surajmandalcell/switch/releases/latest"><b>Download for Mac</b></a> &nbsp;·&nbsp;
-  <a href="https://samhq.app">Website</a> &nbsp;·&nbsp;
+  <a href="https://switch.samhq.app">Website</a> &nbsp;·&nbsp;
   <a href="#installation">Installation</a> &nbsp;·&nbsp;
   <a href="https://github.com/surajmandalcell/switch/issues">Report a problem</a>
 </p>

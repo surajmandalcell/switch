@@ -4,7 +4,7 @@ account_id = "5dadb33ff9ed908a878e1564bfb89737"
 compatibility_date = "2026-10-01"
 workers_dev = false
 routes = [
-  { pattern = "samhq.app", custom_domain = true },
+  { pattern = "switch.samhq.app", custom_domain = true },
   # The old address, kept as an alias for now
   { pattern = "switch.mandalsuraj.com", custom_domain = true },
 ]
