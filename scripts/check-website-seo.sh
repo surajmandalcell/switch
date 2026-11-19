@@ -3,7 +3,7 @@
 set -euo pipefail
 
 public="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/packages/website/public"
-origin="https://switch.mandalsuraj.com"
+origin="https://samhq.app"
 
 xmllint --noout "$public/sitemap.xml"
 grep -qx "Sitemap: $origin/sitemap.xml" "$public/robots.txt"

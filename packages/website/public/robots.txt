@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://switch.mandalsuraj.com/sitemap.xml
+Sitemap: https://samhq.app/sitemap.xml
