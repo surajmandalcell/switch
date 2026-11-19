@@ -1,4 +1,4 @@
-// Serves switch.mandalsuraj.com from the Railway container. The custom domain
+// Serves samhq.app (and the old switch.mandalsuraj.com) from the Railway container. The custom domain
 // gives the Worker its DNS record and certificate; the Railway service stays
 // the only place the site lives.
 const ORIGIN = 'https://switch-site-production-1191.up.railway.app';
