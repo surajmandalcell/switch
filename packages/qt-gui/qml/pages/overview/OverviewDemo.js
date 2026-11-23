@@ -123,6 +123,7 @@ function macSummary(period, state) {
 // The usage.history `summary` for a period and grouping; state "nousage" gives zeros.
 function summary(period, grouping, state) {
   if (state.indexOf("mac") === 0) return macSummary(period, state)
+  if (period === "today") return todaySummary(grouping, state)
   var y = year(), n = period === "month" ? 30 : (period === "year" ? 365 : 7), from = 365 - n
   var zero = state === "nousage" || state === "empty"
   var groups = GROUPS[grouping].map(function (x, k) {
@@ -140,6 +141,29 @@ function summary(period, grouping, state) {
   }).length
   return { period: period, grouping: grouping, days: days, dailyTotals: dailyTotals, groups: groups,
            totals: { tokens: tokens, costUSD: tokens ? tokens / 1e6 * 1.9 : null, activeAccounts: active,
+                     busiestDay: best >= 0 ? days[best] : null, busiestDayTokens: bv } }
+}
+
+// Today on the demo clock (2 PM): 24 local hour starts, 15 started, each group's share of the last
+// demo day spread over a working-day curve.
+var STARTED = 15
+function todaySummary(grouping, state) {
+  var y = year(), zero = state === "nousage" || state === "empty", days = []
+  for (var h = 0; h < 24; ++h) days.push(new Date(2026, 10, 14, h).toISOString())
+  var shape = days.map(function (_, h) { return h < STARTED ? Math.max(0.02, Math.sin(Math.PI * (h - 7) / 12)) : 0 })
+  var groups = GROUPS[grouping].map(function (x, k) {
+    var r = rnd(O.hash(x.key) + 99), base = y.split[grouping][k][364] / 10
+    var daily = shape.map(function (v) { return zero ? 0 : Math.round(base * v * (0.5 + r())) })
+    var t = sum(daily)
+    var label = grouping === "project" ? O.projectLabel(x.key) : (x.key === "unknown" ? "Unknown model" : x.key)
+    return { key: x.key, label: label, services: x.services, tokens: t, costUSD: t ? t / 1e6 * 1.9 : null, daily: daily }
+  }).sort(function (a, b) { return b.tokens - a.tokens || (a.key < b.key ? -1 : 1) })
+  var dailyTotals = days.map(function (_, d) { return sum(groups.map(function (g) { return g.daily[d] })) })
+  var best = -1, bv = 0
+  for (var d = 0; d < 24; ++d) if (dailyTotals[d] > bv) { bv = dailyTotals[d]; best = d }
+  var tokens = sum(dailyTotals)
+  return { period: "today", grouping: grouping, days: days, startedHours: STARTED, dailyTotals: dailyTotals, groups: groups,
+           totals: { tokens: tokens, costUSD: tokens ? tokens / 1e6 * 1.9 : null, activeAccounts: zero ? 0 : 5,
                      busiestDay: best >= 0 ? days[best] : null, busiestDayTokens: bv } }
 }
 
