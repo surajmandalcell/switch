@@ -164,6 +164,7 @@ public struct TrayAccount: Equatable, Sendable {
     public var usage: TrayUsage?
     public var showsUsage: Bool
     public var needsDroidAccess: Bool
+    var barChoices: TrayBarChoices?
 
     public init(id: UUID = UUID(), identity: String, isVerified: Bool = true, isActive: Bool = false,
                 usage: TrayUsage? = nil, showsUsage: Bool = true, providerID: ProviderID = .codex,
@@ -208,6 +209,8 @@ public enum TrayPresentation {
         public var helpTitle: String?
         public var pool: String?
         public var isHeading = false
+        var key: String?
+        var atGlance = false
     }
 
     public struct WindowName: Equatable, Sendable {
@@ -299,17 +302,49 @@ public enum TrayPresentation {
         return result
     }
 
+    // shortcut: copy of MenuBarRows.swift.MenuBarPresentation.chosen; delete when the Mac app adopts SwitchAppModel
+    private static func chosen(_ rows: [Line], _ choices: TrayBarChoices?, expanded: Bool) -> [Line] {
+        guard let choices else {
+            let all = grouped(rows)
+            return expanded ? all : collapsed(all)
+        }
+        let kept = rows.compactMap { row -> Line? in
+            guard let key = row.key, choices.expanded.contains(key) else { return nil }
+            var line = row
+            line.atGlance = choices.glance.contains(key)
+            return line
+        }
+        let lines = grouped(kept).map { line -> Line in
+            guard line.isHeading else { return line }
+            var heading = line
+            heading.atGlance = kept.contains { $0.pool == line.label && $0.atGlance }
+            return heading
+        }
+        return expanded ? lines : lines.filter(\.atGlance)
+    }
+
+    // shortcut: copy of MenuBarRows.swift.MenuBarPresentation.barTitles; delete when the Mac app adopts SwitchAppModel
+    static func barTitles(_ accounts: [TrayAccount]) -> [String] {
+        var seen: Set<String> = []
+        let titles = accounts.compactMap(\.usage).flatMap { usage in
+            usage.providerWindows?.map(\.title) ?? [usage.primaryLabel, usage.secondaryLabel]
+        }.filter { !$0.isEmpty && seen.insert($0).inserted }
+        return grouped(titles.map {
+            Line(pool: windowName(minutes: nil, title: $0).pool, key: $0)
+        }).compactMap(\.key)
+    }
+
     public static func content(for account: TrayAccount, expanded: Bool = true) -> Content {
         guard !account.showsPrompt else { return .signIn }
         guard let usage = account.usage else { return .lines([]) }
         if let providerWindows = usage.providerWindows, !providerWindows.isEmpty {
             let visible = providerWindows.filter { $0.used != nil || $0.balance?.isEmpty == false }
-            let rows = grouped(visible.map {
+            let rows = visible.map {
                 let name = windowName(minutes: $0.minutes, title: $0.title)
                 return Line(label: name.label, used: $0.used, resetsAt: $0.resetsAt, minutes: $0.minutes,
-                            balance: $0.balance, helpTitle: $0.title, pool: name.pool)
-            })
-            return .lines(expanded ? rows : collapsed(rows))
+                            balance: $0.balance, helpTitle: $0.title, pool: name.pool, key: $0.title)
+            }
+            return .lines(chosen(rows, account.barChoices, expanded: expanded))
         }
         var windows: [(title: String, used: Int?, reset: Date?, minutes: Int?, detail: String?)] = []
         if usage.usedPercentage != nil || usage.primaryDetail?.isEmpty == false {
@@ -323,12 +358,12 @@ public enum TrayPresentation {
             guard let balance = usage.balanceText, !balance.isEmpty else { return .lines([]) }
             return .lines([Line(balance: balance)])
         }
-        let rows = grouped(windows.map {
+        let rows = windows.map {
             let name = windowName(minutes: $0.minutes, title: $0.title)
             return Line(label: name.label, used: $0.used, resetsAt: $0.reset, minutes: $0.minutes,
-                        balance: $0.used == nil ? $0.detail : nil, pool: name.pool)
-        })
-        return .lines(expanded ? rows : collapsed(rows))
+                        balance: $0.used == nil ? $0.detail : nil, pool: name.pool, key: $0.title)
+        }
+        return .lines(chosen(rows, account.barChoices, expanded: expanded))
     }
 
     public static func lines(for account: TrayAccount, expanded: Bool = false) -> [Line] {

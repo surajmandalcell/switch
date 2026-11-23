@@ -45,6 +45,47 @@ extension AppEngineAccountsTests {
         return try XCTUnwrap(value)
     }
 
+    func testTrayBarChoicesValidatePersistRepublishAndReset() async throws {
+        let windows = ["Session", "Weekly", "Core Monthly"].map { UsageWindow(id: $0, title: $0, usedPercent: 40) }
+        let (engine, _) = try await start(Script(windows: windows), clock: ManualClock())
+        let defaults = try await engine.trayBars(providerID: provider)
+        XCTAssertEqual(defaults.bars.filter(\.isDefaultGlance).map(\.id), ["Session", "Weekly"])
+        XCTAssertTrue(defaults.bars.allSatisfy(\.isDefaultExpanded))
+        XCTAssertFalse(defaults.isCustom)
+
+        let changed = try await engine.setTrayBars(providerID: provider, glance: ["Core Monthly"], expanded: ["Weekly"])
+        XCTAssertEqual(changed.bars.filter(\.glance).map(\.id), ["Core Monthly"])
+        XCTAssertEqual(changed.bars.filter(\.expanded).map(\.id), ["Weekly", "Core Monthly"])
+        XCTAssertTrue(changed.isCustom)
+        let saved = try await engine.settingsValues(["menuBarBars"]).values["menuBarBars"]
+        XCTAssertNotNil(saved)
+        let row = try await trayRow(engine)
+        XCTAssertEqual(row.lines.map(\.label), ["Core", "Monthly"])
+        XCTAssertEqual(row.expandedLines.map(\.label), ["Weekly", "Core", "Monthly"])
+
+        for bad in [[], ["unknown"], ["Weekly", "Weekly"]] {
+            do {
+                _ = try await engine.setTrayBars(providerID: provider, glance: bad, expanded: [])
+                XCTFail("invalid glance selection accepted")
+            } catch {
+                XCTAssertEqual(error as? SettingsError, .invalidValue("menuBarBars"))
+            }
+        }
+        let reset = try await engine.resetTrayBars(providerID: provider)
+        XCTAssertFalse(reset.isCustom)
+        XCTAssertEqual(reset.bars.filter(\.glance).map(\.id), ["Session", "Weekly"])
+        let removed = try await engine.settingsValues(["menuBarBars"]).values["menuBarBars"]
+        XCTAssertNil(removed)
+        let restored = try await trayRow(engine)
+        XCTAssertEqual(restored.lines.map(\.label), ["Session", "Weekly"])
+        await engine.stop()
+    }
+
+    private func trayRow(_ engine: AppEngine) async throws -> TrayRowValue {
+        let value = try await trayNow(engine)
+        return try XCTUnwrap(value.groups.first?.rows.first)
+    }
+
     func testTrayLabelsMaskEmails() {
         let codex = AccountIdentity(providerID: .codex, email: "ada.lovelace@example.com", authMode: .chatGPT)
         let droid = AccountIdentity(providerID: .droid, email: "grace@example.com", accountID: "Work", authMode: .chatGPT)
