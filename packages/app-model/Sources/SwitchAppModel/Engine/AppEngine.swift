@@ -66,9 +66,9 @@ public actor AppEngine {
     var history: UsageHistorySnapshot?
     var historyEngine: UsageHistory?
     var historyLoadedAt: Date?
-    /// The one conversation index for the engine's life. A fresh index per call re-read its whole cache file
-    /// (750 ms and about 20 MiB per call for 2000 conversations).
+    /// Keep the indexes for the engine's life so requests reuse their loaded caches.
     public nonisolated let chatHistory: ChatHistoryIndex
+    let claudeChatHistory: ClaudeChatIndex
     var historyVersion = VersionValue()
     var usageHistoryVersion = VersionValue()
     // Side checks (SideChecks.swift): incident dots, Claude and Droid activity, Droid conversation binding.
@@ -110,7 +110,7 @@ public actor AppEngine {
     // The open sign-in sessions (`login` topic).
     var logins: [LoginStatus] = []
     // Cleanup (Cleanup.swift): the last scan's items by id, and the reviewed plan.
-    var cleanupScan: (id: UUID, source: CleanupSource, items: [String: CleanupItem])?
+    var cleanupScan: (id: UUID, source: CleanupSource, items: [String: CleanupItem], summary: CleanupSummary)?
     var cleanupPlan: (source: CleanupSource, plan: ConversationCleanupPlan)?
     // Auto switch (AutoSwitchLoop.swift): providers told "nothing left" this episode, the last failed switch.
     var autoSwitchNoneLeft = Set<String>()
@@ -128,6 +128,7 @@ public actor AppEngine {
         self.codexCache = codexCache
         chatHistory = ChatHistoryIndex(home: paths.sharedRoot,
                                        cacheFile: paths.applicationSupport.appending(path: "cache/chat-history-v1.json"))
+        claudeChatHistory = Self.makeClaudeChatHistory(paths: paths)
         self.settings = settings ?? JSONFileSettingsStore.open(paths: paths, environment: ProcessInfo.processInfo.environment)
         (changes, continuation) = AsyncStream.makeStream(of: TopicChange.self)
         app = AppStateValue(isUnavailable: manager == nil, dataLocation: paths.applicationSupport.path,
