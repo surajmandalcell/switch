@@ -210,17 +210,36 @@ public struct UsageHistorySnapshot: Sendable {
         }
         let start = calendar.startOfDay(for: now)
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
-        let hours = max(Int((end.timeIntervalSince(start) / 3600).rounded()), 1)
+        // One bucket per local clock hour: a new bucket starts when the local hour changes or the clock
+        // goes back, so a half-hour DST jump (Lord Howe) and a repeated hour each keep their own bucket.
+        let first = Int64((start.timeIntervalSince1970 / 900).rounded(.down))
+        var hourOfQuarter: [Int] = []
+        var starts: [Date] = []
+        var last: (hour: Int, minute: Int)?
+        var quarter = first
+        while Double(quarter) * 900 < end.timeIntervalSince1970 {
+            let date = Date(timeIntervalSince1970: Double(quarter) * 900)
+            let clock = calendar.dateComponents([.hour, .minute], from: date)
+            let (hour, minute) = (clock.hour ?? 0, clock.minute ?? 0)
+            if last.map({ hour != $0.hour || minute <= $0.minute }) ?? true { starts.append(date) }
+            last = (hour, minute)
+            hourOfQuarter.append(starts.count - 1)
+            quarter += 1
+        }
         let formatter = ISO8601DateFormatter()
         formatter.timeZone = calendar.timeZone
-        let names = (0..<hours).map { formatter.string(from: start.addingTimeInterval(Double($0) * 3600)) }
+        let names = starts.map { formatter.string(from: $0) }
+        // Slots after the current quarter (a clock skew or a bad timestamp) are not usage yet.
+        let current = Int64((now.timeIntervalSince1970 / 900).rounded(.down))
         let placed = slots.compactMap { slot -> (Int, UsageHistoryPoint)? in
-            let offset = Double(slot.quarter) * 900 - start.timeIntervalSince1970
-            guard offset >= 0, Int(offset / 3600) < hours else { return nil }
-            return (Int(offset / 3600), slot.point)
+            let index = Int(slot.quarter - first)
+            guard slot.quarter <= current, hourOfQuarter.indices.contains(index) else { return nil }
+            return (hourOfQuarter[index], slot.point)
         }
         var summary = Self.summarize(period: period, grouping: grouping, days: names, placed: placed)
-        summary.startedHours = min(max(Int(now.timeIntervalSince(start) / 3600) + 1, 1), hours)
+        let nowIndex = Int(current - first)
+        summary.startedHours = hourOfQuarter.indices.contains(nowIndex)
+            ? hourOfQuarter[nowIndex] + 1 : (nowIndex < 0 ? 1 : names.count)
         return summary
     }
 
