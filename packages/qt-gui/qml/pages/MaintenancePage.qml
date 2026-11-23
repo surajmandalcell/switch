@@ -395,7 +395,7 @@ Item {
       function () { scrollArea.scrollTo(0); c.toggleExpanded("conversations"); c.toggleExpanded("conversations/" + Demo.P1); c.toggleExpanded("logs") }, 400,
       function () { scrollArea.scrollTo(200) }, 300, shot("cleanup-open"),
       function () { c.toggleExpanded("conversations"); c.toggleExpanded("conversations/" + Demo.P1); c.toggleExpanded("logs"); c.makeReview(); c.showReviewItems = true }, 300,
-      function () { scrollArea.scrollTo(10000) }, 300, shot("cleanup-review"),
+      function () { scrollArea.scrollTo(0) }, 300, shot("cleanup-review"),
       function () { c.confirmApply() }, 300, shot("cleanup-alert"),
       function () { Theme.alert.close(); c.review = null; c.purgeBatch(c.trash[0]) }, 300, shot("cleanup-purge"),
       function () { Theme.alert.close(); scrollArea.scrollTo(0); picker.clicked() }, 400, shot("cleanup-picker"),
