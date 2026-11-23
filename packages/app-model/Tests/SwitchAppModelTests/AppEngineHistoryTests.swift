@@ -36,9 +36,17 @@ final class AppEngineHistoryTests: XCTestCase {
                                                    historyAccounts: owners, ledger: nil, providerUsage: usage,
                                                    environment: [:])
         XCTAssertNil(isolated.claude)
-        XCTAssertNil(isolated.grokSessions)
-        XCTAssertNil(isolated.droidSessions)
         XCTAssertNil(isolated.pricing)
+        // The test home's own Grok and Droid folders are read (the CLI history acceptance test needs them).
+        XCTAssertEqual(isolated.grokSessions, root.appending(path: "user/.grok/sessions", directoryHint: .isDirectory))
+        XCTAssertNotNil(isolated.droidSessions)
+        var outside = paths(isolated: true)
+        outside.grokHome = URL(fileURLWithPath: "/real/.grok")
+        outside.droidHome = URL(fileURLWithPath: "/real/.factory")
+        let leaking = UsageHistorySourceList.make(paths: outside, accounts: [], historyAccounts: [], ledger: nil,
+                                                  providerUsage: [:], environment: [:])
+        XCTAssertNil(leaking.grokSessions, "A test home never reads a Grok folder outside itself")
+        XCTAssertNil(leaking.droidSessions)
         XCTAssertEqual(isolated.accounts, ["codex": [codex.id.uuidString.lowercased()]])
         XCTAssertEqual(isolated.charts.map(\.accountID), [other.id.uuidString.lowercased()], "Codex is scanned, not charted")
 

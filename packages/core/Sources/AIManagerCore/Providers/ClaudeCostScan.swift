@@ -434,6 +434,7 @@ public actor ClaudeCostScanner {
         var builtAt: Date
         var unpriced: Bool
         var rows: [ClaudeHistoryRow]
+        var slots: [ClaudeHistoryRow]
     }
 
     private var historyCache: CacheFile?
@@ -532,13 +533,20 @@ public actor ClaudeCostScanner {
     /// it grows past tens of megabytes.
     public func history(days: Int = 365, now: Date = Date(),
                         account: (String) -> String? = { _ in nil }) async -> [ClaudeHistoryRow] {
+        await historyWithSlots(days: days, now: now, account: account).days
+    }
+
+    /// `history`, plus the same usage per 15-minute slot (`day` holds the slot number, epoch seconds
+    /// / 900) since the start of yesterday (UTC), for the Today view.
+    public func historyWithSlots(days: Int = 365, now: Date = Date(), account: (String) -> String? = { _ in nil })
+        async -> (days: [ClaudeHistoryRow], slots: [ClaudeHistoryRow]) {
         let today = Int((now.timeIntervalSince1970 / 86_400).rounded(.down))
         let first = today - (max(days, 1) - 1)
         let since = Double(first) * 86_400
         let files = discover().filter { $0.mtime >= since }
         let signature = files.map { "\($0.path)\0\($0.size)\0\($0.mtime)" }
         if let memo = historyMemo, memo.signature == signature, memo.day == today,
-           !memo.unpriced || now.timeIntervalSince(memo.builtAt) < 30 * 60 { return memo.rows }
+           !memo.unpriced || now.timeIntervalSince(memo.builtAt) < 30 * 60 { return (memo.rows, memo.slots) }
 
         var cache = historyCache ?? loadCache()
         var next: [String: FileRecord] = [:]
@@ -579,30 +587,30 @@ public actor ClaudeCostScanner {
         if kept.contains(where: { $0.costUSD == nil && $0.model != nil }) {
             table = ModelRateTable(await pricing())
         }
-        struct Key: Hashable { var day: Int; var model: String?; var origin: Int }
-        var sums: [Key: (tokens: Int64, cost: Double?)] = [:]
-        var unpriced = false
-        for event in kept {
-            let key = Key(day: Int((event.time.timeIntervalSince1970 / 86_400).rounded(.down)),
-                          model: event.model, origin: event.origin)
-            let cost = Self.cost(of: event, table: &table)
-            if cost == nil { unpriced = true }
-            var sum = sums[key] ?? (0, nil)
-            sum.tokens += Int64(event.total)
-            if let cost { sum.cost = (sum.cost ?? 0) + cost }
-            sums[key] = sum
-        }
-        var dayNames: [Int: String] = [:]
         struct RowKey: Hashable { var day: Int; var model: String?; var project: String; var account: String? }
         var merged: [RowKey: (tokens: Int64, cost: Double?)] = [:]
-        for (key, sum) in sums {
-            let origin = origins[key.origin]
-            let rowKey = RowKey(day: key.day, model: key.model, project: origin.project, account: origin.account)
-            var row = merged[rowKey] ?? (0, nil)
-            row.tokens += sum.tokens
-            if let cost = sum.cost { row.cost = (row.cost ?? 0) + cost }
-            merged[rowKey] = row
+        var quarters: [RowKey: (tokens: Int64, cost: Double?)] = [:]
+        let firstQuarter = Double(today - 1) * 96
+        var unpriced = false
+        for event in kept {
+            let cost = Self.cost(of: event, table: &table)
+            if cost == nil { unpriced = true }
+            let origin = origins[event.origin]
+            func add(_ key: RowKey, to sums: inout [RowKey: (tokens: Int64, cost: Double?)]) {
+                var sum = sums[key] ?? (0, nil)
+                sum.tokens += Int64(event.total)
+                if let cost { sum.cost = (sum.cost ?? 0) + cost }
+                sums[key] = sum
+            }
+            add(RowKey(day: Int((event.time.timeIntervalSince1970 / 86_400).rounded(.down)), model: event.model,
+                       project: origin.project, account: origin.account), to: &merged)
+            let quarter = (event.time.timeIntervalSince1970 / 900).rounded(.down)
+            if quarter >= firstQuarter {
+                add(RowKey(day: Int(quarter), model: event.model, project: origin.project, account: origin.account),
+                    to: &quarters)
+            }
         }
+        var dayNames: [Int: String] = [:]
         func dayName(_ day: Int) -> String {
             if let known = dayNames[day] { return known }
             let name = Self.utcDayName(day)
@@ -613,8 +621,12 @@ public actor ClaudeCostScanner {
             ClaudeHistoryRow(day: dayName(key.day), model: key.model, project: key.project,
                              accountID: key.account, tokens: sum.tokens, costUSD: sum.cost)
         }.sorted { ($0.day, $0.project, $0.model ?? "") < ($1.day, $1.project, $1.model ?? "") }
-        historyMemo = HistoryMemo(signature: signature, day: today, builtAt: now, unpriced: unpriced, rows: rows)
-        return rows
+        let slots = quarters.map { key, sum in
+            ClaudeHistoryRow(day: String(key.day), model: key.model, project: key.project,
+                             accountID: key.account, tokens: sum.tokens, costUSD: sum.cost)
+        }
+        historyMemo = HistoryMemo(signature: signature, day: today, builtAt: now, unpriced: unpriced, rows: rows, slots: slots)
+        return (rows, slots)
     }
 
     /// The sessions (one log file each) with usage on one UTC day, from the same cache and dedup as

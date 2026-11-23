@@ -103,11 +103,35 @@ public struct UsageDaySession: Identifiable, Sendable, Equatable {
     }
 }
 
+/// Tokens in one 15-minute slot, for the Today view. Only sources with event times have slots:
+/// Codex, Claude Code, and Grok Build transcripts. Codex account totals, Droid, and provider charts
+/// keep daily numbers only.
+public struct UsageSlotPoint: Equatable, Sendable {
+    /// Seconds since 1970 divided by 900.
+    public var quarter: Int64
+    /// The slot's usage; `day` is the slot's UTC day.
+    public var point: UsageHistoryPoint
+
+    public init(quarter: Int64, point: UsageHistoryPoint) {
+        self.quarter = quarter
+        self.point = point
+    }
+
+    init(quarter: Int64, service: String, accountID: String? = nil, model: String?, project: String,
+         tokens: Int64, costUSD: Double?) {
+        self.init(quarter: quarter, point: UsageHistoryPoint(
+            day: ClaudeCostScanner.utcDayName(Int(quarter / 96)), service: service, accountID: accountID,
+            model: model, project: project, tokens: tokens, costUSD: costUSD))
+    }
+}
+
 public enum UsagePeriod: String, Codable, CaseIterable, Sendable {
-    case week, month, year
+    /// Local midnight to now, one bucket per hour.
+    case today, week, month, year
 
     public var days: Int {
         switch self {
+        case .today: 1
         case .week: 7
         case .month: 30
         case .year: 365
@@ -144,8 +168,11 @@ public struct UsageTotals: Codable, Equatable, Sendable {
 public struct UsageSummary: Codable, Equatable, Sendable {
     public let period: UsagePeriod
     public let grouping: UsageGrouping
-    /// Oldest first, ending today (UTC).
+    /// Oldest first, ending today (UTC). For `.today`: the start of each local hour, ISO 8601 with
+    /// the local offset, from local midnight to the next one (23 or 25 hours on a DST change day).
     public let days: [String]
+    /// For `.today`, how many hours have begun. Later hours are still to come, not zero.
+    public var startedHours: Int? = nil
     /// Tokens per day across everything, aligned with `days` (the heatmap for `.year`).
     public let dailyTotals: [Int64]
     /// Most tokens first.
@@ -159,18 +186,66 @@ public struct UsageHistorySnapshot: Sendable {
     public let today: String
     /// Sources that failed to read, such as "ledger". Their data is missing, not zero.
     public let unavailableSources: [String]
+    /// Usage per 15-minute slot since the start of yesterday (UTC), for `.today`.
+    public let slots: [UsageSlotPoint]
 
-    public init(points: [UsageHistoryPoint], today: String, unavailableSources: [String] = []) {
+    public init(points: [UsageHistoryPoint], today: String, unavailableSources: [String] = [],
+                slots: [UsageSlotPoint] = []) {
         self.points = points
         self.today = today
         self.unavailableSources = unavailableSources
+        self.slots = slots
     }
 
-    /// One pass over the points; cheap enough to call on every period or grouping change.
-    public func summary(period: UsagePeriod, grouping: UsageGrouping) -> UsageSummary {
-        let days = Self.days(period.days, endingAt: today)
-        var index: [String: Int] = [:]
-        for (offset, day) in days.enumerated() { index[day] = offset }
+    /// One pass over the points; cheap enough to call on every period or grouping change. `now` and
+    /// `calendar` set the local day for `.today`; the other periods use UTC days.
+    public func summary(period: UsagePeriod, grouping: UsageGrouping, now: Date = Date(),
+                        calendar: Calendar = .current) -> UsageSummary {
+        guard period == .today else {
+            let days = Self.days(period.days, endingAt: today)
+            var index: [String: Int] = [:]
+            for (offset, day) in days.enumerated() { index[day] = offset }
+            return Self.summarize(period: period, grouping: grouping, days: days,
+                                  placed: points.compactMap { point in index[point.day].map { ($0, point) } })
+        }
+        let start = calendar.startOfDay(for: now)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        // One bucket per local clock hour: a new bucket starts when the local hour changes or the clock
+        // goes back, so a half-hour DST jump (Lord Howe) and a repeated hour each keep their own bucket.
+        let first = Int64((start.timeIntervalSince1970 / 900).rounded(.down))
+        var hourOfQuarter: [Int] = []
+        var starts: [Date] = []
+        var last: (hour: Int, minute: Int)?
+        var quarter = first
+        while Double(quarter) * 900 < end.timeIntervalSince1970 {
+            let date = Date(timeIntervalSince1970: Double(quarter) * 900)
+            let clock = calendar.dateComponents([.hour, .minute], from: date)
+            let (hour, minute) = (clock.hour ?? 0, clock.minute ?? 0)
+            if last.map({ hour != $0.hour || minute <= $0.minute }) ?? true { starts.append(date) }
+            last = (hour, minute)
+            hourOfQuarter.append(starts.count - 1)
+            quarter += 1
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = calendar.timeZone
+        let names = starts.map { formatter.string(from: $0) }
+        // Slots after the current quarter (a clock skew or a bad timestamp) are not usage yet.
+        let current = Int64((now.timeIntervalSince1970 / 900).rounded(.down))
+        let placed = slots.compactMap { slot -> (Int, UsageHistoryPoint)? in
+            let index = Int(slot.quarter - first)
+            guard slot.quarter <= current, hourOfQuarter.indices.contains(index) else { return nil }
+            return (hourOfQuarter[index], slot.point)
+        }
+        var summary = Self.summarize(period: period, grouping: grouping, days: names, placed: placed)
+        let nowIndex = Int(current - first)
+        summary.startedHours = hourOfQuarter.indices.contains(nowIndex)
+            ? hourOfQuarter[nowIndex] + 1 : (nowIndex < 0 ? 1 : names.count)
+        return summary
+    }
+
+    /// Groups points already placed in a bucket of `days`.
+    private static func summarize(period: UsagePeriod, grouping: UsageGrouping, days: [String],
+                                  placed: [(Int, UsageHistoryPoint)]) -> UsageSummary {
         let zeros = [Int64](repeating: 0, count: days.count)
 
         struct Accumulator {
@@ -186,8 +261,7 @@ public struct UsageHistorySnapshot: Sendable {
         var cost: Double?
         var accounts = Set<String>()
 
-        for point in points {
-            guard let slot = index[point.day] else { continue }
+        for (slot, point) in placed {
             if point.isAccountTotal {
                 accountViews[point.service, default: zeros][slot] += point.tokens
             } else {
@@ -209,7 +283,7 @@ public struct UsageHistorySnapshot: Sendable {
                 label = point.model ?? "Unknown model"
             case .project:
                 key = point.project
-                label = point.project.map(Self.projectLabel) ?? ""
+                label = point.project.map(projectLabel) ?? ""
             }
             guard let key else { continue }
             var group = groups[key] ?? Accumulator(label: label, daily: zeros)
@@ -324,6 +398,9 @@ public actor UsageHistory {
         let today = ClaudeCostScanner.utcDayName(Int((now.timeIntervalSince1970 / 86_400).rounded(.down)))
         let start = ClaudeCostScanner.utcDayName(Int((now.timeIntervalSince1970 / 86_400).rounded(.down)) - Self.windowDays + 1)
         var points: [UsageHistoryPoint] = []
+        var slots: [UsageSlotPoint] = []
+        // From the start of yesterday (UTC): local midnight is never further back in any time zone.
+        let firstQuarter = Int64((now.timeIntervalSince1970 / 86_400).rounded(.down) - 1) * 96
         var unavailable: [String] = []
         do { try await loadHistoricalAccounts() } catch { unavailable.append("history-accounts") }
 
@@ -333,19 +410,32 @@ public actor UsageHistory {
             } catch {
                 unavailable.append("ledger")
             }
+            do {
+                slots += try await ledgerSlots(ledger, from: firstQuarter, through: Int64(now.timeIntervalSince1970 / 900))
+            } catch {
+                unavailable.append("ledger-hours")
+            }
         }
         if let claude = sources.claude {
             let homes = sources.claudeHomes.map { ($0.key, $0.value.resolvingSymlinksInPath().path + "/") }
-            let rows = await claude.history(days: Self.windowDays, now: now) { path in
+            let rows = await claude.historyWithSlots(days: Self.windowDays, now: now) { path in
                 homes.first { path.hasPrefix($0.1) }?.0
             }
-            points += rows.map {
+            points += rows.days.map {
                 UsageHistoryPoint(day: $0.day, service: ProviderID.claudeCode.rawValue, accountID: $0.accountID,
                                   model: $0.model, project: $0.project, tokens: $0.tokens, costUSD: $0.costUSD)
             }
+            slots += rows.slots.compactMap { row in
+                Int64(row.day).map {
+                    UsageSlotPoint(quarter: $0, service: ProviderID.claudeCode.rawValue, accountID: row.accountID,
+                                   model: row.model, project: row.project, tokens: row.tokens, costUSD: row.costUSD)
+                }
+            }
         }
         if let sessions = sources.grokSessions {
-            points += grokPoints(sessions, start: start, today: today, now: now)
+            let grok = grokPoints(sessions, start: start, today: today, now: now, firstQuarter: firstQuarter)
+            points += grok.days
+            slots += grok.slots
         }
         if let sessions = sources.droidSessions {
             points += await droidPoints(sessions, start: start, now: now)
@@ -384,7 +474,11 @@ public actor UsageHistory {
             points[index].accountID = Self.owner(service: points[index].service, accountID: points[index].accountID,
                                                  accounts: attributionAccounts)
         }
-        return UsageHistorySnapshot(points: points, today: today, unavailableSources: unavailable)
+        for index in slots.indices {
+            slots[index].point.accountID = Self.owner(
+                service: slots[index].point.service, accountID: slots[index].point.accountID, accounts: attributionAccounts)
+        }
+        return UsageHistorySnapshot(points: points, today: today, unavailableSources: unavailable, slots: slots)
     }
 
     private func loadHistoricalAccounts() async throws {
@@ -475,6 +569,23 @@ public actor UsageHistory {
                                             project: row.project, tokens: row.tokens, costUSD: cost))
         }
         return points
+    }
+
+    /// Codex transcript tokens per 15-minute slot. Account totals have no slots.
+    private func ledgerSlots(_ ledger: CodexUsageStatisticsCache, from first: Int64, through last: Int64)
+        async throws -> [UsageSlotPoint] {
+        let rows = try await ledger.threadQuarters(from: first, through: last)
+        var rates: [String: ModelRate] = [:]
+        if let pricing = sources.pricing, rows.contains(where: { $0.model != nil && $0.input + $0.output > 0 }) {
+            rates = await pricing()
+        }
+        var table = ModelRateTable(rates)
+        return rows.map { row in
+            UsageSlotPoint(
+                quarter: row.quarter, service: ProviderID.codex.rawValue, model: row.model, project: row.project,
+                tokens: row.tokens,
+                costUSD: Self.codexCost(model: row.model, input: row.input, cached: row.cached, output: row.output, table: &table))
+        }
     }
 
     /// Cached input is part of input; reasoning is part of output.
@@ -602,8 +713,9 @@ public actor UsageHistory {
 
     /// ponytail: the Grok turn cache lives in memory, so a restart re-reads the logs of the last
     /// year once; persist it like the Claude cache if that first call gets slow.
-    private func grokPoints(_ sessions: URL, start: String, today: String, now: Date) -> [UsageHistoryPoint] {
-        guard let first = Self.epochDay(start) else { return [] }
+    private func grokPoints(_ sessions: URL, start: String, today: String, now: Date, firstQuarter: Int64)
+        -> (days: [UsageHistoryPoint], slots: [UsageSlotPoint]) {
+        guard let first = Self.epochDay(start) else { return ([], []) }
         let since = Date(timeIntervalSince1970: Double(first) * 86_400)
         let root = sessions.resolvingSymlinksInPath()
         var live: [String: GrokFile] = [:]
@@ -624,6 +736,7 @@ public actor UsageHistory {
         grokFiles = live
         var seen = Set<String>()
         var sums: [String: UsageHistoryPoint] = [:]
+        var slots: [String: UsageSlotPoint] = [:]
         for path in live.keys.sorted() {
             let project = Self.grokProject(path: path, root: root.path)
             for turn in live[path]?.turns ?? [] where turn.date >= since && turn.date < now.addingTimeInterval(86_400) {
@@ -636,9 +749,19 @@ public actor UsageHistory {
                 point.tokens += Int64(turn.tokens)
                 if let cost = turn.cost { point.costUSD = (point.costUSD ?? 0) + cost }
                 sums[id] = point
+                let quarter = Int64((turn.date.timeIntervalSince1970 / 900).rounded(.down))
+                guard quarter >= firstQuarter else { continue }
+                let slotID = "\(quarter)\0\(turn.model ?? "")\0\(project)"
+                var slot = slots[slotID] ?? UsageSlotPoint(
+                    quarter: quarter, service: ProviderID.grokBuild.rawValue, model: turn.model, project: project,
+                    tokens: 0, costUSD: nil)
+                slot.point.tokens += Int64(turn.tokens)
+                if let cost = turn.cost { slot.point.costUSD = (slot.point.costUSD ?? 0) + cost }
+                slots[slotID] = slot
             }
         }
-        return sums.values.sorted { ($0.day, $0.project ?? "", $0.model ?? "") < ($1.day, $1.project ?? "", $1.model ?? "") }
+        return (sums.values.sorted { ($0.day, $0.project ?? "", $0.model ?? "") < ($1.day, $1.project ?? "", $1.model ?? "") },
+                Array(slots.values))
     }
 
     /// Grok keeps `sessions/<percent-encoded working folder>/<session>/updates.jsonl`.

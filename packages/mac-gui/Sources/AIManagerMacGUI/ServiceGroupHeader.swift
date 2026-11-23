@@ -62,6 +62,7 @@ struct ServiceGroupHeader: View, Equatable {
     .accessibilityAddTraits(.isHeader)
     .contextMenu {
       Button(help) { MenuBarServicePreferences.toggleVisibility(provider) }
+      Button("Choose Bars…") { MenuBarBarsDialog.show(provider) }
       if canReorder, let index = order.firstIndex(of: provider) {
         Button("Move service up") { move(to: order[index - 1]) }.disabled(index == 0)
         Button("Move service down") { move(to: order[index + 1]) }.disabled(index == order.count - 1)

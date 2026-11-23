@@ -109,6 +109,35 @@ enum AIManagerMenuBarContract {
     }
     expect(P.lines(for: account("droid", usage: droidSix)).map(\.label) == ["Session", "Weekly"],
       "A collapsed row keeps more than two usage rows or a heading without rows")
+    // Choose Bars: picks by window title; no pick keeps the default rule, also for a bar it never saw.
+    func picked(_ choices: MenuBarBarChoices, expanded: Bool = false) -> [String] {
+      var droid = account("droid", usage: droidSix)
+      droid.barChoices = choices
+      return P.lines(for: droid, expanded: expanded).map { ($0.isHeading ? "#" : "") + ($0.key ?? $0.label ?? "") }
+    }
+    expect(picked(.init(expanded: ["Unknown": false])) == ["5-hour", "Weekly"]
+      && picked(.init(expanded: ["Unknown": false]), expanded: true) == droidRows.map { ($0.isHeading ? "#" : "") + ($0.key ?? $0.label ?? "") },
+      "A pick for an unknown bar changes the default rows")
+    expect(picked(.init(glance: ["5-hour": false, "Core weekly": true])) == ["Weekly", "#Core", "Core weekly"],
+      "At a glance picks are not applied: \(picked(.init(glance: ["5-hour": false, "Core weekly": true])))")
+    expect(picked(.init(glance: ["Core weekly": true], expanded: ["Monthly": false, "Weekly": false]), expanded: true)
+        == ["5-hour", "Weekly", "#Core", "Core 5-hour", "Core weekly", "Core monthly"],
+      "Expanded picks drop a glance bar or keep a hidden one")
+    let droidAccount = account("droid", usage: droidSix)
+    let states = MenuBarBarsState.rows([droidAccount], .init(glance: ["5-hour": false]))
+    expect(MenuBarBarsState.rows([droidAccount], .init()).map(\.glance) == [true, true, false, false, false, false]
+      && states.map(\.title) == ["5-hour", "Weekly", "Monthly", "Core 5-hour", "Core weekly", "Core monthly"]
+      && states.map(\.glance) == [false, true, false, false, false, false] && states.allSatisfy(\.expanded),
+      "Choose Bars rows do not match the popover: \(states)")
+    let barSuite = "switch-bars-\(UUID().uuidString)"
+    let barDefaults = UserDefaults(suiteName: barSuite)!
+    MenuBarBarPreferences.set(.init(glance: ["Weekly": false], expanded: ["Monthly": false]), for: .droid, defaults: barDefaults)
+    expect(MenuBarBarPreferences.choices(for: .droid, defaults: barDefaults)
+        == .init(glance: ["Weekly": false], expanded: ["Monthly": false])
+      && MenuBarBarPreferences.choices(for: .codex, defaults: barDefaults).isDefault, "Bar picks do not persist per service")
+    MenuBarBarPreferences.set(.init(), for: .droid, defaults: barDefaults)
+    expect(barDefaults.object(forKey: MenuBarBarPreferences.key(.droid)) == nil, "Reset to Default leaves a stored pick")
+    barDefaults.removePersistentDomain(forName: barSuite)
     if case .lines(let lines) = P.content(for: two) {
       expect(lines.map(\.label) == ["Session", "Weekly"] && lines.map(\.used) == [24, 59],
         "Two-window row lines are wrong")
@@ -175,6 +204,55 @@ enum AIManagerMenuBarContract {
     failures.append(contentsOf: await PopoverMotionCheck.failures())
     if let path = ProcessInfo.processInfo.environment["AI_MANAGER_POPOVER_SHOTS"] {
       failures.append(contentsOf: renderSnapshots(to: URL(fileURLWithPath: path)))
+      failures.append(contentsOf: renderBarShots(to: URL(fileURLWithPath: path)))
+    }
+    return failures
+  }
+
+  /// Choose Bars proof: the Claude group before and after hiding Weekly at a glance (Weekly Fable shown
+  /// instead), collapsed and expanded, and the dialog, in Light and Dark.
+  private static func renderBarShots(to directory: URL) -> [String] {
+    let picks = MenuBarBarChoices(glance: ["Weekly": false, "Weekly Fable": true], expanded: ["Monthly credits": false])
+    func png(_ view: some View, _ size: NSSize, _ appearance: NSAppearance.Name, _ file: String) -> String? {
+      let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)).renderScaled())
+      let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless,
+        backing: .buffered, defer: false)
+      window.appearance = NSAppearance(named: appearance)
+      window.contentView = host
+      host.frame = NSRect(origin: .zero, size: size)
+      host.layoutSubtreeIfNeeded()
+      window.displayIfNeeded()
+      RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+      host.layoutSubtreeIfNeeded()
+      guard let data = RenderScale.png(of: host) else { return "Choose Bars shot \(file) is unavailable" }
+      do { try data.write(to: directory.appendingPathComponent(file)) } catch { return "\(error)" }
+      return nil
+    }
+    var failures: [String] = []
+    for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+      for (state, choices) in [("before", MenuBarBarChoices()), ("after", picks)] {
+        for expanded in [false, true] {
+          let accounts = MenuBarPopoverPreviewData.sixAccountSnapshot.accounts.prefix(1).map {
+            var account = $0
+            account.barChoices = choices
+            return account
+          }
+          let store = MenuBarPopoverStore(snapshot: MenuBarSnapshot(accounts: accounts),
+            actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }),
+            visibleScreenHeight: 2_000)
+          store.reduceMotion = true
+          if expanded { store.toggleExpanded(store.rows[0]) }
+          let size = NSSize(width: MenuBarPopover.width, height: store.contentHeight)
+          if let failure = png(MenuBarPopover(store: store), size, appearance,
+            "bars-popover-\(state)\(expanded ? "-expanded" : "")-\(label).png") { failures.append(failure) }
+        }
+      }
+      let store = MenuBarPopoverStore(snapshot: MenuBarPopoverPreviewData.sixAccountSnapshot,
+        actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }, openTool: { _ in }),
+        visibleScreenHeight: 2_000)
+      let sheet = MenuBarBarsSheet(provider: .claudeCode, store: store, choices: picks) {}
+      let size = NSHostingView(rootView: sheet).fittingSize
+      if let failure = png(sheet, size, appearance, "bars-dialog-\(label).png") { failures.append(failure) }
     }
     return failures
   }

@@ -2,7 +2,7 @@ import Foundation
 import AIManagerCore
 
 // Foundation-only search logic: the Settings index the toolbar search reads (`app.searchIndex`), and the
-// Settings strings it shares with the Mac page. Moved from the Mac app (plan E2).
+// Settings strings it shares with the Mac page.
 
 /// The Settings rows the toolbar search finds. Every row of `SettingsPage` has one entry; the page
 /// shows a row only when its id matches. A term must appear in the section, title, help, or keywords.

@@ -5,7 +5,6 @@ import SwiftUI
 /// OnePlusUI needs macOS 15 and Switch supports macOS 14.
 private enum AboutMetrics {
   static let window = CGSize(width: 380, height: 480)
-  static let heroTop: CGFloat = 10
   static let heroIcon: CGFloat = 84
   static let heroIconShadow = (opacity: 0.18, radius: CGFloat(8), y: CGFloat(4))
   static let heroTitleTop: CGFloat = 10
@@ -43,7 +42,7 @@ enum SwitchAbout {
   nonisolated static let animationKey = "aboutAnimation"
   static let tagline = "Coding accounts and usage. Right in your menu bar."
   static let copyright = "© 2026 Suraj Mandal"
-  private static let repository = URL(string: "https://github.com/surajmandalcell/switch")!
+  private static let repository = URL(string: "https://github.com/samhqapp/switch")!
   static let website = AboutLink(label: "Website", title: "switch.samhq.app", url: URL(string: "https://switch.samhq.app")!)
   static let releaseNotes = AboutLink(
     label: "Release notes", title: "GitHub releases", url: repository.appendingPathComponent("releases"))
@@ -241,7 +240,8 @@ struct SwitchAboutSettings: View {
 
   var body: some View {
     VStack(spacing: AIMTheme.cardGap) {
-      hero
+      // A titled card like every other Settings section, so About does not start bare under Reset.
+      AIMSection("About") { hero }
       AIMSection("Links") {
         ForEach(SwitchAbout.links) { AboutLinkRow(link: $0) }
       }
@@ -273,7 +273,6 @@ struct SwitchAboutSettings: View {
       .padding(.top, AboutMetrics.buttonsTop)
     }
     .frame(maxWidth: .infinity)
-    .padding(.top, AboutMetrics.heroTop)
   }
 }
 

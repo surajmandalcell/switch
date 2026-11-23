@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Effects
 
 // The pop-up and More menus (4.15), drawn by the app because the Mac one is AppKit's: a solid surface
-// (owner rule: menus are not see-through), the chosen item lined up over its button, check mark,
+// (menus are not see-through), the chosen item lined up over its button, check mark,
 // accent highlight. An option "-" is a separator. Keys: Up, Down, Return, Escape.
 Item {
   id: root

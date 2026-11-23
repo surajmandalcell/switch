@@ -25,7 +25,7 @@ struct MaintenancePage: View {
       HStack(spacing: AIMTheme.sectionSpacing) {
         AIMSegmentedPicker(
           options: MaintenanceSection.allCases, selection: $section,
-          accessibilityLabel: "Maintenance section", label: \.rawValue, segmentWidth: 120,
+          accessibilityLabel: "Utilities section", label: \.rawValue, segmentWidth: 120,
           icon: { $0 == .cleanup ? .cleanup : .backup })
           .uiLint(.align("cards-start", .start))
         Spacer(minLength: 0)
@@ -280,7 +280,8 @@ struct RecentBackupsCard: View {
           Spacer(minLength: AIMTheme.rowSpacing)
           AIMButton(title: "Set up a backup", tone: .primary, action: open)
         }
-        .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, AIMTheme.contentInset)
+        // Ends 8 pt from the bottom, matching the header button's 8 pt from the top (see textRowsEndInset).
+        .padding(.horizontal, AIMTheme.cardInset).padding(.top, AIMTheme.contentInset).padding(.bottom, 8)
       } else {
         VStack(spacing: 0) {
           ForEach(Array(recent.enumerated()), id: \.element.id) { index, backup in
