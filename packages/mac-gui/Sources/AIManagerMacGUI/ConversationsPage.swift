@@ -21,8 +21,8 @@ struct HistoryPage: View {
   @State private var filterOpen = false
   @ObservedObject private var copied = ChatCopyNotice.shared
 
-  /// The loaded threads the filter keeps.
-  // shortcut: filters only the newest 1000 threads the index returns; move into ChatHistoryIndex if lists grow past that.
+  /// The loaded threads the filter keeps. The index already filters before its limit; this keeps the
+  /// list right in the moment before the filtered result arrives.
   private var threads: [ChatThreadSummary] {
     appFilter.isEmpty ? model.chatHistory.threads
       : model.chatHistory.threads.filter { HistoryThreadFilter.matches($0, appFilter) }
@@ -46,13 +46,13 @@ struct HistoryPage: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .task { await model.refreshChatHistory(query: threadQuery) }
+    .task { await model.refreshChatHistory(query: threadQuery, sources: appFilter) }
     #if AI_MANAGER_PREVIEW
     // `-preview.historyFilterOpen YES` draws the real filter panel in place, because the
     // offscreen snapshot window cannot host a popover window.
     .overlay(alignment: .topLeading) {
       if UserDefaults.standard.bool(forKey: "preview.historyFilterOpen") {
-        HistoryFilterPanel(threads: model.chatHistory.threads, selection: $appFilter)
+        HistoryFilterPanel(counts: HistoryThreadFilter.counts(model.chatHistory), selection: $appFilter)
           .clipShape(RoundedRectangle(cornerRadius: 10))
           .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AIMTheme.line))
           .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
@@ -60,7 +60,9 @@ struct HistoryPage: View {
       }
     }
     #endif
-    .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
+    .task(id: [threadQuery] + appFilter.map(\.rawValue).sorted()) {
+      await model.searchChatHistory(query: threadQuery, sources: appFilter)
+    }
     .onChange(of: threadQuery) { _, query in
       shown = Self.pageSize
       UserDefaults.standard.set(query, forKey: ChatPlace.threadQueryKey)
@@ -133,7 +135,7 @@ struct HistoryPage: View {
     .help(label)
     .accessibilityLabel(label)
     .popover(isPresented: $filterOpen, arrowEdge: .bottom) {
-      HistoryFilterPanel(threads: model.chatHistory.threads, selection: $appFilter)
+      HistoryFilterPanel(counts: HistoryThreadFilter.counts(model.chatHistory), selection: $appFilter)
         .focusEffectDisabled()
     }
   }
@@ -153,7 +155,7 @@ struct HistoryPage: View {
       } else if threads.isEmpty {
         VStack(spacing: 4) {
           AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
-          if !model.chatHistory.threads.isEmpty {
+          if !appFilter.isEmpty && HistoryThreadFilter.counts(model.chatHistory).values.contains(where: { $0 > 0 }) {
             Text("No conversations in this filter").aimText(.body)
             Button("Reset filter") { appFilter = [] }
               .buttonStyle(.plain).aimText(.secondary, tint: AIMTheme.linkColor)
@@ -200,10 +202,7 @@ struct HistoryPage: View {
 
   private var historyCountText: String {
     let result = model.chatHistory
-    if !appFilter.isEmpty {
-      return "\(threads.count.formatted()) of \(result.totalThreadCount.formatted()) conversations"
-    }
-    if threadQuery.isEmpty { return "\(result.totalThreadCount.formatted()) conversations" }
+    if threadQuery.isEmpty && appFilter.isEmpty { return "\(result.totalThreadCount.formatted()) conversations" }
     return "\(result.matchingThreadCount.formatted()) of \(result.totalThreadCount.formatted()) conversations"
   }
 
@@ -353,6 +352,13 @@ enum HistoryThreadFilter {
     defaults.set(selection.map(\.rawValue).sorted(), forKey: defaultsKey)
   }
 
+  /// Matching conversations per app across the whole library, before the filter and the list limit.
+  /// A provider that does not count (a test double) falls back to the loaded rows.
+  static func counts(_ snapshot: ChatHistorySnapshot) -> [ChatThreadSource: Int] {
+    snapshot.sourceCounts.isEmpty
+      ? snapshot.threads.reduce(into: [:]) { $0[$1.appSource, default: 0] += 1 } : snapshot.sourceCounts
+  }
+
   static func matches(_ thread: ChatThreadSummary, _ selection: Set<ChatThreadSource>) -> Bool {
     selection.isEmpty || selection.contains(thread.appSource)
   }
@@ -372,22 +378,17 @@ enum HistoryThreadFilter {
 /// The filter popover: All providers, each provider with its apps, then Reset. Rows stay open
 /// after a click, so several apps can be checked in one visit.
 private struct HistoryFilterPanel: View {
-  let threads: [ChatThreadSummary]
+  let counts: [ChatThreadSource: Int]
   @Binding var selection: Set<ChatThreadSource>
 
-  private var counts: [ChatThreadSource: Int] {
-    threads.reduce(into: [:]) { $0[$1.appSource, default: 0] += 1 }
-  }
-
   var body: some View {
-    let counts = counts
     let present = Set(counts.keys)
     let sources = ChatThreadSource.allCases.filter(present.contains)
     let providers = [ProviderID.codex, .claudeCode].filter { provider in
       sources.contains { HistoryThreadFilter.provider($0) == provider }
     }
     VStack(alignment: .leading, spacing: 0) {
-      row("All providers", count: threads.count, checked: selection.isEmpty) { selection = [] }
+      row("All providers", count: counts.values.reduce(0, +), checked: selection.isEmpty) { selection = [] }
       AIMHairline().padding(.vertical, 4)
       ForEach(providers, id: \.self) { provider in
         let apps = sources.filter { HistoryThreadFilter.provider($0) == provider }
