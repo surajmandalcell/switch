@@ -325,7 +325,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     usage = nil
                 }
-                return MenuBarAccountSnapshot(
+                var snapshot = MenuBarAccountSnapshot(
                     id: account.id,
                     identity: account.identity.notificationLabel,
                     detail: Self.accountDetail(account),
@@ -336,6 +336,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
                     providerID: providerID, identityIsFormatted: true,
                     needsDroidAccess: providerID == .droid && state?.needsKeychainAccess == true,
                     realName: account.identity.realAccountLabel)
+                snapshot.barChoices = MenuBarBarPreferences.choices(for: providerID)
+                return snapshot
             },
             lastRefreshedAt: (usageSnapshots.values.map(\.fetchedAt)
                 + providerUsage.values.compactMap { $0.usage?.fetchedAt }).max(),
