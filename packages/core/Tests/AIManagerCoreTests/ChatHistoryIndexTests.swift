@@ -389,6 +389,14 @@ final class ChatHistoryIndexTests: XCTestCase {
         let rebuilt = try await index.refresh()
         XCTAssertEqual(rebuilt.reparsedFileCount, 1)
         XCTAssertEqual(rebuilt.totalThreadCount, 1)
+        // The app filter runs inside the index: other apps leave no rows but keep their count.
+        let app = try XCTUnwrap(rebuilt.threads.first?.appSource)
+        let other = await index.search(query: "", limit: 1, sources: [.claude])
+        XCTAssertEqual(other.threads.count, 0)
+        XCTAssertEqual(other.matchingThreadCount, 0)
+        XCTAssertEqual(other.sourceCounts, [app: 1])
+        let same = await index.search(query: "", limit: 1, sources: [app])
+        XCTAssertEqual(same.threads.count, 1)
     }
 
     func testIndexSearchAndDetailUseCodexMessagesWithoutDuplicates() async throws {
