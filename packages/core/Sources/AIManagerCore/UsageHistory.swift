@@ -298,7 +298,8 @@ public struct UsageHistorySnapshot: Sendable {
             group.services[point.service, default: 0] += point.tokens
             if let value = point.costUSD {
                 group.cost = (group.cost ?? 0) + value
-                group.hourlyCost?[slot] = (group.hourlyCost?[slot] ?? 0) + value
+                let previousCost = group.hourlyCost?[slot] ?? 0
+                group.hourlyCost?[slot] = previousCost + value
             }
             groups[key] = group
         }
