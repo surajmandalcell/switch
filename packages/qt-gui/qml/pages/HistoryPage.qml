@@ -1,4 +1,6 @@
 import QtQuick
+import QtQuick.Effects
+import QtQuick.Window
 import QtCore
 import "ChatMarkdown.js" as MD
 import "HistoryDemo.js" as Demo
@@ -15,6 +17,9 @@ Item {
   property alias messageSearch: messageSearch
   property alias titleSel: titleSel
   property alias msgModel: msgModel
+  property alias copyAll: copyAll
+  property alias filterButton: filterButton
+  property alias filterPanel: filterPanel
   readonly property bool demo: Helper.status === "demo"
 
   // thread list
@@ -122,7 +127,7 @@ Item {
     return fmtDate(d, false, d.getFullYear() !== new Date().getFullYear()) + atWord + fmtTime(d)
   }
   readonly property var appLabels: ({ codex: "Codex", cli: "Codex CLI", exec: "Codex exec", app: "Codex app", chrome: "Codex Chrome",
-                                      subagent: "Subagent", vscode: "VS Code" })
+                                      subagent: "Subagent", vscode: "VS Code", claude: "Claude Code" })
   function context(t) {
     var parts = [appLabels[t.appSource] || "Codex"]
     if (t.workingDirectory) { var p = t.workingDirectory.replace(/\/+$/, "").split(/[\\/]/).pop(); if (p) parts.push(p) }
@@ -132,7 +137,8 @@ Item {
     if (t.archived) parts.push("Archived")
     return parts.join(" · ")
   }
-  readonly property string countText: threadQuery === "" ? num(total) + " conversations" : num(matching) + " of " + num(total) + " conversations"
+  readonly property string countText: threadQuery === "" && appFilter.length === 0 ? num(total) + " conversations"
+                                                                                  : num(matching) + " of " + num(total) + " conversations"
   readonly property string warningText: {
     var parts = []
     if (skipped > 0) parts.push(skipped + " transcript file" + (skipped === 1 ? " was" : "s were") + " skipped")
@@ -143,6 +149,50 @@ Item {
   // ---- clipboard: plain text, never moves focus ----------------------------------------------------------------
   TextEdit { id: clip; visible: false; textFormat: TextEdit.PlainText }
   function copyText(t) { lastCopied = t; clip.text = t; clip.selectAll(); clip.copy(); clip.text = "" }
+
+  // ---- right-click copy menus: each copy shows the "Copied" note at the bottom --------------------------------
+  property bool copiedNote: false
+  Timer { id: copiedNoteTimer; interval: 1200; onTriggered: page.copiedNote = false }
+  function copyMenu(anchor, items) {
+    Theme.menu.open(anchor, items.map(function (i) { return i[0] }), -1, function (k) {
+      copyText(items[k][1]); copiedNote = true; copiedNoteTimer.restart()
+    })
+  }
+  function threadMenu(anchor, t) {
+    var items = [["Copy Title", t.title || ""]]
+    if (t.workingDirectory) items.push(["Copy Path", t.workingDirectory])
+    items.push(["Copy Thread ID", t.threadID || t.id])
+    if (t.model) items.push(["Copy Model", t.model])
+    copyMenu(anchor, items)
+  }
+  function messageMenu(anchor, m) {
+    var items = [["Copy Message", m.text || ""]]
+    if (m.model) items.push(["Copy Model", m.model])
+    if (m.timestamp) items.push(["Copy Date", msgDate(m.timestamp)])
+    copyMenu(anchor, items)
+  }
+
+  // ---- app filter (Mac HistoryThreadFilter): the apps whose conversations show; empty shows all -------------------
+  readonly property var allSources: ["codex", "cli", "exec", "app", "chrome", "subagent", "vscode", "claude"]
+  property var appFilter: []
+  property var appCounts: ({})           // matching conversations per app, before the filter and the limit
+  function setAppFilter(next) {
+    appFilter = next.slice().sort()
+    save("history.appFilter", JSON.stringify(appFilter))
+    listDebounce.stop()
+    refreshList()
+  }
+  // Every app present checked again means All (empty); unchecking the last app keeps the selection.
+  function toggleApps(sources) {
+    var present = allSources.filter(function (s) { return appCounts[s] !== undefined })
+    var next = (appFilter.length ? appFilter : present).slice()
+    var all = sources.every(function (s) { return next.indexOf(s) >= 0 })
+    if (all) next = next.filter(function (s) { return sources.indexOf(s) < 0 })
+    else sources.forEach(function (s) { if (next.indexOf(s) < 0) next.push(s) })
+    if (next.length === 0) return
+    setAppFilter(present.every(function (s) { return next.indexOf(s) >= 0 }) ? [] : next)
+  }
+  function listKey() { return threadQuery + "\u0001" + appFilter.join(",") }
 
   // ---- thread list ----------------------------------------------------------------------------------------------
   ListModel { id: threadModel }
@@ -161,17 +211,18 @@ Item {
   }
 
   function refreshList() {
-    var gen = ++listGen, q = threadQuery, params = { query: q, limit: 1000 }
-    if (listRev !== undefined && listRevQuery === q && listSig !== "") params.libraryRevision = listRev
+    var gen = ++listGen, q = threadQuery, key = listKey(), apps = appFilter, params = { query: q, limit: 1000 }
+    if (apps.length) params.apps = apps
+    if (listRev !== undefined && listRevQuery === key && listSig !== "") params.libraryRevision = listRev
     hcall("history.list", params, function (r, err) {
-      if (gen !== listGen || q !== threadQuery) return
+      if (gen !== listGen || key !== listKey()) return
       listLoading = false
       if (err) { listError = "The chat library could not refresh. " + (err.message || ""); return }
       listError = ""
       if (r.unchanged) return
       listRev = r.libraryRevision
-      listRevQuery = q
-      applyList(r)
+      listRevQuery = key
+      applyList(r, apps)
     })
   }
 
@@ -182,12 +233,23 @@ Item {
   }
   property string listSig: ""
   property string listSigQuery: "\u0000"
-  function applyList(r) {
-    var sig = signature(r)
-    if (sig === listSig && listSigQuery === threadQuery) return
-    var queryChanged = listSigQuery !== threadQuery
+  function applyList(r, apps) {
+    if (r.appCounts) appCounts = r.appCounts
+    else {
+      // a helper without app counts: count the loaded rows and filter them here
+      var c = {}
+      for (var n = 0; n < r.threads.length; ++n) { var s = r.threads[n].appSource || "codex"; c[s] = (c[s] || 0) + 1 }
+      appCounts = c
+      if (apps && apps.length) {
+        var kept = r.threads.filter(function (t) { return apps.indexOf(t.appSource || "codex") >= 0 })
+        r = { total: r.total, matching: kept.length, skippedFiles: r.skippedFiles, unreadableRecords: r.unreadableRecords, threads: kept }
+      }
+    }
+    var sig = signature(r), key = listKey()
+    if (sig === listSig && listSigQuery === key) return
+    var queryChanged = listSigQuery !== key
     listSig = sig
-    listSigQuery = threadQuery
+    listSigQuery = key
     total = r.total; matching = r.matching; skipped = r.skippedFiles; unreadable = r.unreadableRecords
     var list = r.threads.slice().sort(function (a, b) {
       var d = new Date(b.updatedAt) - new Date(a.updatedAt)
@@ -210,14 +272,15 @@ Item {
 
   function selectVisible() {
     // the saved or open thread stays open while listed, or while a search hides it
-    if (selectedID !== "" && (threadIndex[selectedID] || threadQuery.trim() !== "") && !detail && !chatLoading) { selectChat(selectedID); return }
+    var hidden = threadQuery.trim() !== "" || appFilter.length > 0
+    if (selectedID !== "" && (threadIndex[selectedID] || hidden) && !detail && !chatLoading) { selectChat(selectedID); return }
     if (selectedID !== "" && threadIndex[selectedID]) {
       var t = threadIndex[selectedID]
       // the open thread grew: reload it from the start with the current search and filter
       if (detail && (t.messageCount !== detail.thread.messageCount || t.fileByteCount !== detail.thread.fileByteCount)) loadDetail(false)
       return
     }
-    if (selectedID !== "" && threadQuery.trim() !== "") return
+    if (selectedID !== "" && hidden) return
     if (threads.length) selectChat(threads[0].id)
   }
 
@@ -386,7 +449,7 @@ Item {
     if (next >= 0 && next < items.length) items[next].it.forceActiveFocus(Qt.TabFocusReason)
     else if (!fwd && cur >= 0) v.forceActiveFocus(Qt.BacktabFocusReason)
     else if (fwd) threadSearch.input.forceActiveFocus(Qt.TabFocusReason)   // past the last control: wrap to the page start
-    else filterButtons.itemAt(3).forceActiveFocus(Qt.BacktabFocusReason)  // before the list: the last filter button
+    else copyAll.forceActiveFocus(Qt.BacktabFocusReason)  // before the list: the copy button
   }
 
   // ---- lifecycle ---------------------------------------------------------------------------------------------------
@@ -398,6 +461,7 @@ Item {
   Component.onCompleted: {
     filterMask = normalizedMask(load("chat.messageFilterMask", 15))
     selectedID = load("chat.selectedID", "")
+    try { appFilter = (JSON.parse(load("history.appFilter", "[]")) || []).filter(function (s) { return allSources.indexOf(s) >= 0 }).sort() } catch (e) {}
     threadSearch.text = load("chat.threadQuery", "")
     if (threadQuery === "") refreshList()
     if (visible) { appeared = true; appear.restart() }
@@ -450,6 +514,18 @@ Item {
           text: page.countText
           ToolTipArea { text: page.countText }
         }
+        // a ghost icon button: the glyph fills and takes the accent color while a filter is on
+        IconButton {
+          id: filterButton
+          width: 20
+          height: 20
+          glyph: 16
+          anchors.verticalCenter: parent.verticalCenter
+          icon: page.appFilter.length ? "filterCircleFill" : "filterCircle"
+          tone: page.appFilter.length ? "active" : "normal"
+          tip: page.appFilter.length ? "Filter conversations, " + page.appFilter.length + " on" : "Filter conversations"
+          onClicked: filterPanel.visible ? filterPanel.close() : filterPanel.open(filterButton)
+        }
       }
     ]
 
@@ -474,10 +550,28 @@ Item {
           visible: !page.listLoading && page.threads.length === 0
           anchors.centerIn: parent
           spacing: 4
+          readonly property bool filtered: page.appFilter.length > 0
+                                          && Object.keys(page.appCounts).some(function (s) { return page.appCounts[s] > 0 })
           Icon { anchors.horizontalCenter: parent.horizontalCenter; name: "history"; size: 15; color: Theme.secondary }
-          Txt { anchors.horizontalCenter: parent.horizontalCenter; text: page.threadQuery === "" ? "No conversations yet" : "No matching conversations" }
-          Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary
+          Txt { anchors.horizontalCenter: parent.horizontalCenter
+                text: parent.filtered ? "No conversations in this filter" : page.threadQuery === "" ? "No conversations yet" : "No matching conversations" }
+          Txt { visible: !parent.filtered; anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary
                 text: page.threadQuery === "" ? "New Codex chats appear here." : "Try another word or thread ID." }
+          Txt {
+            id: resetLink
+            visible: parent.filtered
+            anchors.horizontalCenter: parent.horizontalCenter
+            role: "secondary"
+            color: Theme.link
+            text: "Reset filter"
+            activeFocusOnTab: visible
+            Accessible.role: Accessible.Button
+            Accessible.name: text
+            Accessible.onPressAction: page.setAppFilter([])
+            Keys.onSpacePressed: page.setAppFilter([])
+            FocusFill { visible: resetLink.activeFocus && App.keyboardMode }
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: page.setAppFilter([]) }
+          }
         }
         ChatList {
           id: threadList
@@ -504,7 +598,7 @@ Item {
             time: thread.updatedAt ? page.fmtTime(new Date(thread.updatedAt)) : ""
             selected: thread.id === page.selectedID
             onActivated: { threadList.view.forceActiveFocus(); page.selectChat(thread.id) }
-            onMenuRequested: Theme.menu.open(tr, ["Copy title"], -1, function () { page.copyText(tr.thread.title) })
+            onMenuRequested: page.threadMenu(tr, tr.thread)
             Component.onCompleted: page.delegatesMade++
           }
           onKeyPressed: function (e) {
@@ -573,13 +667,14 @@ Item {
               Keys.onPressed: function (e) { if (e.matches(StandardKey.Copy) && selectedText === "") { page.copyText(text); e.accepted = true } }
             }
             MouseArea { anchors.fill: parent; acceptedButtons: Qt.RightButton
-                        onClicked: Theme.menu.open(titleT, ["Copy title"], -1, function () { page.copyText(titleT.text) }) }
+                        onClicked: page.threadMenu(titleT, page.summary) }
           }
           Item {
             width: parent.width
             height: 14
             Txt { id: ctxT; width: Math.max(0, parent.width - counts.width - 8); role: "secondary"; color: Theme.secondary; elide: Text.ElideRight
-                  text: page.summary ? page.context(page.summary) : ""; ToolTipArea { text: ctxT.text } }
+                  text: page.summary ? page.context(page.summary) : ""; ToolTipArea { text: ctxT.text }
+                  MouseArea { anchors.fill: parent; acceptedButtons: Qt.RightButton; onClicked: page.threadMenu(ctxT, page.summary) } }
             Row {
               id: counts
               x: parent.width - width
@@ -602,7 +697,8 @@ Item {
         y: 58 + Theme.hair
         width: parent.width
         height: 96
-        readonly property real unit: Math.max(0, width - 24 - 48) / 548
+        // four filter toggles share the width; the copy action sits apart after a divider (Mac: (w - 36 - 57) / 456)
+        readonly property real unit: Math.max(0, width - 24 - 36 - 57) / 456
         ChatSearchField {
           id: messageSearch
           x: 12
@@ -617,18 +713,6 @@ Item {
           x: 12
           y: 52
           spacing: 12
-          ChatToolbarButton {
-            id: copyAll
-            width: 92 * sbar.unit
-            text: "Copy"
-            icon: copied ? "check" : "copy"
-            tip: "Copy the visible messages"
-            enabled: page.messages.length > 0
-            property bool copied: false
-            Accessible.name: copied ? "Copied" : "Copy"
-            Timer { id: copiedTimer; interval: 1200; onTriggered: copyAll.copied = false }
-            onClicked: { page.copyVisible(); copied = true; copiedTimer.restart() }
-          }
           Repeater {
             id: filterButtons
             model: [{ t: "Prompts", i: "curlybraces", b: 1, w: 110 }, { t: "Responses", i: "bubbleRight", b: 2, w: 126 },
@@ -642,6 +726,22 @@ Item {
               Accessible.description: selected ? "Shown" : "Hidden"
               onClicked: page.toggleFilter(modelData.b)
             }
+          }
+          Rectangle { width: 1; height: 20; color: Theme.separator; anchors.verticalCenter: parent.verticalCenter }
+          // an action, not a filter: a ghost icon with no rim and no selected fill
+          IconButton {
+            id: copyAll
+            width: 24
+            height: 24
+            glyph: 15
+            anchors.verticalCenter: parent.verticalCenter
+            icon: copied ? "check" : "copy"
+            tone: copied ? "success" : "normal"
+            tip: copied ? "Copied" : "Copy conversation"
+            enabled: page.messages.length > 0
+            property bool copied: false
+            Timer { id: copiedTimer; interval: 1200; onTriggered: copyAll.copied = false }
+            onClicked: { page.copyVisible(); copied = true; copiedTimer.restart() }
           }
         }
       }
@@ -705,6 +805,7 @@ Item {
                 fadeIn: dl.fade && page.fadeOnce(dl.mid)
                 onToggle: function (id) { page.toggleBlock(dl.mid, id) }
                 onCopy: function (t) { page.copyText(t) }
+                onMetaMenu: function (at) { page.messageMenu(at, msg) }
                 Component.onCompleted: page.delegatesMade++
               }
             }
@@ -755,6 +856,92 @@ Item {
     }
     function onContentHeightChanged() { if (page.pinned) messageList.scrollTo(1e9) }
     function onHeightChanged() { if (page.pinned) messageList.scrollTo(1e9) }
+  }
+
+  HistoryFilterPanel { id: filterPanel; page: page }
+
+  // the brief "Copied" note after a menu copy: a capsule 20 above the bottom, no clicks
+  Rectangle {
+    id: copiedToast
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: page.height - 20 - height
+    z: 95
+    width: toastRow.implicitWidth + 24
+    height: 28
+    radius: 14
+    color: Theme.card
+    border.width: Theme.hair
+    border.color: Theme.separator
+    enabled: false
+    opacity: page.copiedNote ? 1 : 0
+    visible: opacity > 0
+    Behavior on opacity { NumberAnimation { duration: Theme.dState } }
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: page.copiedNote ? "Copied" : ""
+    layer.enabled: true
+    layer.effect: MultiEffect { shadowEnabled: true; shadowColor: "black"; shadowOpacity: 0.15; shadowBlur: 0.5; shadowVerticalOffset: 2 }
+    Row {
+      id: toastRow
+      anchors.centerIn: parent
+      spacing: 6
+      Icon { name: "check"; size: 13; color: Theme.label; anchors.verticalCenter: parent.verticalCenter }
+      Txt { text: "Copied"; anchors.verticalCenter: parent.verticalCenter }
+    }
+  }
+
+  // --script states --page History: the filter, the copy menus, the Copied note, and the bottom bar
+  function captureSteps(d) {
+    var w = Window.window, s = [], p = page
+    function shot(name) { s.push(function () { d.shot(w, "history-" + name) }) }
+    function at(item, fx, fy) { return item.mapToItem(null, item.width * fx, item.height * fy) }
+    s.push(function () { if (p.appFilter.length) p.setAppFilter([]); p.threadSearch.text = "" })
+    s.push(1500)
+    s.push(function () { Harness.log("STATE count=" + p.countText + " apps=" + JSON.stringify(p.appCounts)) })
+    shot("default")
+    s.push(function () { var q = at(p.filterButton, 0.5, 0.5); Harness.click(w, q.x, q.y) })
+    s.push(500)
+    shot("filter-open")
+    // a click on the Claude Code row (real input): the popover stays open with only Claude checked
+    s.push(function () {
+      Harness.log("FILTER rows=" + p.filterPanel.rows.map(function (x) { return x.t || "-" }).join("|"))
+      var q = at(p.filterPanel.rowItem("codex"), 0.5, 0.5); Harness.click(w, q.x, q.y)
+    })
+    s.push(900)
+    s.push(function () { Harness.log("FILTER after codex click appFilter=" + JSON.stringify(p.appFilter) + " count=" + p.countText) })
+    shot("filter-claude-open")
+    s.push(function () { p.filterPanel.close() })
+    s.push(500)
+    shot("filtered")
+    // a filter with no rows: one Codex thread searched, Claude only
+    s.push(function () { p.threadSearch.text = "reference-0" })
+    s.push(1200)
+    shot("filter-empty")
+    s.push(function () { p.threadSearch.text = ""; p.setAppFilter([]) })
+    s.push(1200)
+    // a row's right-click menu (the harness clicks only the left button), pick Copy Thread ID
+    s.push(function () { var it = p.threadList.view.itemAtIndex(1); p.threadMenu(it, it.thread) })
+    s.push(400)
+    shot("thread-menu")
+    s.push(function () { Theme.menu.choose(2) })
+    s.push(250)
+    s.push(function () { Harness.log("COPY menu=" + JSON.stringify(p.lastCopied)) })
+    shot("copied-toast")
+    s.push(1800)
+    // the message strip's menu, then the bottom-bar copy button (real click)
+    s.push(function () { p.messageList.scrollTo(-1e9) })
+    s.push(400)
+    s.push(function () { var it = p.messageList.view.itemAtIndex(0).item; p.messageMenu(it.children[0].children[0], it.msg) })
+    s.push(400)
+    shot("message-menu")
+    s.push(function () { Theme.menu.close() })
+    s.push(300)
+    s.push(function () { var q = at(p.copyAll, 0.5, 0.5); Harness.click(w, q.x, q.y) })
+    s.push(250)
+    s.push(function () { Harness.log("COPY bar=" + p.lastCopied.length + " chars copied=" + p.copyAll.copied) })
+    shot("bottom-bar-copied")
+    s.push(1500)
+    shot("bottom-bar")
+    return s
   }
 
   HistoryShots { page: page }

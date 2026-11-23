@@ -99,17 +99,21 @@ function build() {
   }
   for (var t = 0; t < 1098; ++t) {
     var id = "reference-" + t
+    // Claude Code threads sit beside the Codex apps (every fourth row from 6), plus a few CLI, app, and plain Codex rows
+    var src = t === 0 ? "exec" : t === 4 ? "vscode" : t === 1 ? "claude" : (t >= 6 && t % 4 === 1) ? "claude"
+            : t % 9 === 7 ? "cli" : t % 11 === 8 ? "app" : t % 13 === 10 ? "codex" : "subagent"
     var title = t === 2 ? "Explain why the very long conversation title in this row keeps one line and ends with an ellipsis when the card is narrow"
                         : TITLES[t % TITLES.length]
     threads.push({ id: id, threadID: id, title: title, preview: "A synthetic conversation for the History reader.",
                    workingDirectory: "/Projects/Reader", updatedAt: new Date(now - t * 180000).toISOString(),
                    archived: t === 5, messageCount: t === 0 ? first.length : 2, fileByteCount: t === 0 ? PROMPT.length : 200,
                    source: "/Synthetic/" + id + ".jsonl", totalTokens: t === 0 ? 59000000 : 1200,
-                   appSource: t === 0 ? "exec" : (t === 4 ? "vscode" : "subagent"),
-                   model: t === 2 ? "gpt-6.1-sol-extended-context-preview-2026-11" : (t % 3 === 0 ? "gpt-6.1-sol" : "gpt-6-luna") })
+                   appSource: src,
+                   model: src === "claude" ? "claude-opus-5-5" : t === 2 ? "gpt-6.1-sol-extended-context-preview-2026-11" : (t % 3 === 0 ? "gpt-6.1-sol" : "gpt-6-luna") })
     messages[id] = t === 0 ? first : [
       { id: id + "#0", role: "user", text: "Review this conversation.", timestamp: new Date(now).toISOString(), model: null },
-      { id: id + "#1", role: "assistant", text: "The conversation is ready.", timestamp: new Date(now).toISOString(), model: "gpt-6-luna" }]
+      { id: id + "#1", role: "assistant", text: "The conversation is ready.", timestamp: new Date(now).toISOString(),
+        model: src === "claude" ? "claude-opus-5-5" : "gpt-6-luna" }]
   }
 }
 
@@ -120,7 +124,13 @@ function list(p) {
   build()
   var ts = terms(p.query || "")
   var hit = threads.filter(function (t) { return matches(t.title + "\n" + t.preview + "\n" + t.workingDirectory + "\n" + t.threadID, ts) })
-  return { threads: hit.slice(0, p.limit || 100), total: threads.length, matching: hit.length, skippedFiles: 2, unreadableRecords: 1 }
+  // appCounts: matches per app before the `apps` filter and the limit, as the helper sends them
+  var counts = {}
+  for (var k = 0; k < hit.length; ++k) counts[hit[k].appSource] = (counts[hit[k].appSource] || 0) + 1
+  var apps = p.apps || []
+  if (apps.length) hit = hit.filter(function (t) { return apps.indexOf(t.appSource) >= 0 })
+  return { threads: hit.slice(0, p.limit || 100), total: threads.length, matching: hit.length, appCounts: counts,
+           skippedFiles: 2, unreadableRecords: 1 }
 }
 
 // the helper's `roles` mask (rpc.md history.detail): 1 prompts, 2 responses, 4 tools, 8 other
