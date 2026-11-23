@@ -77,26 +77,13 @@ public struct TrayValue: Codable, Equatable, Sendable {
 }
 
 extension AppEngine {
-    /// The popover and status item now (Mac `menuBarSnapshot`). Nothing until the accounts load.
-    public func trayValue(now: Date? = nil) -> TrayValue {
-        guard let status else { return TrayValue() }
+    func trayAccounts(now: Date? = nil) -> [TrayAccount] {
+        guard let status else { return [] }
         let now = now ?? clock.now
         let privacy = PrivacySettings(settings)
-        func bool(_ key: String) -> Bool { settings.effective(key) == .bool(true) }
-        func strings(_ key: String) -> [String] {
-            guard case .array(let items) = settings.effective(key) else { return [] }
-            return items.compactMap { if case .string(let text) = $0 { text } else { nil } }
-        }
-        let showsUsed = bool("showUsageAsUsed"), exact = bool("resetTimesExact")
-        var hourFormat: String = if case .string(let text) = settings.effective("timeFormat") { text } else { "auto" }
-        if hourFormat == "auto", let clientHourFormat { hourFormat = clientHourFormat }
         let period: String = if case .string(let text) = settings.effective("menuBarTokenPeriod") { text } else { "sinceReset" }
-        let order = strings("menuBarServiceOrder").map(ProviderID.init(rawValue:))
-        let hiddenServices = Set(strings("menuBarHiddenServices").map(ProviderID.init(rawValue:)))
-        let hiddenAccounts = Set(strings("menuBarHiddenAccounts").compactMap(UUID.init(uuidString:)))
-        let onePerService = bool("menuBarOneAccountPerService")
-
-        let accounts = status.accounts.map { account -> TrayAccount in
+        let storedBars = storedTrayBars
+        return status.accounts.map { account -> TrayAccount in
             let providerID = account.identity.providerID
             let isCodex = providerID == .codex
             let state = providerUsage[account.id]
@@ -119,13 +106,34 @@ extension AppEngine {
                 provider.windows = provider.windows.filter { !hidden.contains($0.id) }
                 usage = TrayUsage(providerUsage: provider)
             }
-            return TrayAccount(id: account.id, identity: Self.trayLabel(account.identity, privacy),
-                               isVerified: account.verification.state != .needsSignIn && account.verification.state != .unsupported,
-                               isActive: status.defaultAccountIDs[providerID.rawValue] == account.id, usage: usage,
-                               showsUsage: showsUsage, providerID: providerID,
-                               needsDroidAccess: providerID == .droid && state?.needsKeychainAccess == true)
+            var row = TrayAccount(id: account.id, identity: Self.trayLabel(account.identity, privacy),
+                                  isVerified: account.verification.state != .needsSignIn && account.verification.state != .unsupported,
+                                  isActive: status.defaultAccountIDs[providerID.rawValue] == account.id, usage: usage,
+                                  showsUsage: showsUsage, providerID: providerID,
+                                  needsDroidAccess: providerID == .droid && state?.needsKeychainAccess == true)
+            row.barChoices = TrayBarChoices(storedBars[providerID.rawValue])
+            return row
         }
-        let ordered = TrayPresentation.orderedAccounts(accounts, order: order)
+    }
+
+    /// The popover and status item now (Mac `menuBarSnapshot`). Nothing until the accounts load.
+    public func trayValue(now: Date? = nil) -> TrayValue {
+        guard status != nil else { return TrayValue() }
+        let now = now ?? clock.now
+        func bool(_ key: String) -> Bool { settings.effective(key) == .bool(true) }
+        func strings(_ key: String) -> [String] {
+            guard case .array(let items) = settings.effective(key) else { return [] }
+            return items.compactMap { if case .string(let text) = $0 { text } else { nil } }
+        }
+        let showsUsed = bool("showUsageAsUsed"), exact = bool("resetTimesExact")
+        var hourFormat: String = if case .string(let text) = settings.effective("timeFormat") { text } else { "auto" }
+        if hourFormat == "auto", let clientHourFormat { hourFormat = clientHourFormat }
+        let order = strings("menuBarServiceOrder").map(ProviderID.init(rawValue:))
+        let hiddenServices = Set(strings("menuBarHiddenServices").map(ProviderID.init(rawValue:)))
+        let hiddenAccounts = Set(strings("menuBarHiddenAccounts").compactMap(UUID.init(uuidString:)))
+        let onePerService = bool("menuBarOneAccountPerService")
+
+        let ordered = TrayPresentation.orderedAccounts(trayAccounts(now: now), order: order)
         let shown = TrayPresentation.statusGroups(ordered, hiddenServices: hiddenServices, hiddenAccounts: hiddenAccounts,
                                                   onePerService: onePerService).flatMap { $0 }
 

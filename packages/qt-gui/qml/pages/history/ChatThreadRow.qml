@@ -2,7 +2,7 @@ import QtQuick
 
 // Thread row (history.md 1.3): 280 x 44, 6 pt side padding. Title (Body, one line), then app label · model
 // (shrinks first) ... time (tabular, never shrinks). Selected: radius 6 row highlight; hover: tile fill. A 45%
-// hairline inset 6 at the bottom of every row. Right-click offers "Copy title".
+// hairline inset 6 at the bottom of every row. Right-click opens the copy menu (title, path, thread ID, model).
 Item {
   id: r
   property var thread: ({})
@@ -15,7 +15,7 @@ Item {
   Accessible.name: thread.title + ", " + label + ", " + (thread.model ? thread.model + " · " : "") + r.time
   Accessible.selected: selected
   readonly property string label: ({ codex: "Codex", cli: "Codex CLI", exec: "Codex exec", app: "Codex app", chrome: "Codex Chrome",
-                                      subagent: "Subagent", vscode: "VS Code" })[thread.appSource] || "Codex"
+                                      subagent: "Subagent", vscode: "VS Code", claude: "Claude Code" })[thread.appSource] || "Codex"
 
   Rectangle {
     anchors.fill: parent

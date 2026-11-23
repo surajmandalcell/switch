@@ -36,6 +36,9 @@ var icons = {
   "warnFill": [{ d: "M8 1.9L14.9 13.6H1.1Z", f: true }, { d: "M8 6.2v3.3", w: 1.5, c: "#B0000000" }, { d: circle(8, 11.5, 0.85), f: true, c: "#B0000000" }],
   "xmark":    [{ d: "M4 4L12 12M12 4L4 12", w: 1.5 }],
   "minus":    [{ d: "M3.5 8h9", w: 1.6 }],
+  // line.3.horizontal.decrease.circle and its .fill (the lines cut out in white)
+  "filterCircle":     [{ d: circle(8, 8, 6.4), w: 1.2 }, { d: "M5 6.1h6M6.1 8.1h3.8M7.2 10.1h1.6", w: 1.2 }],
+  "filterCircleFill": [{ d: circle(8, 8, 7), f: true }, { d: "M5 6.1h6M6.1 8.1h3.8M7.2 10.1h1.6", w: 1.3, c: "#FFFFFF" }],
   // the x is a hole (odd-even fill), as in xmark.circle.fill
   "xmarkCircle": [{ d: circle(8, 8, 6.4) + "M9.66 5.28L10.72 6.34 9.06 8 10.72 9.66 9.66 10.72 8 9.06 6.34 10.72 5.28 9.66 6.94 8 5.28 6.34 6.34 5.28 8 6.94Z", f: true }],
   "folder":   [{ d: "M1.8 4.2q0-1 1-1h3.4l1.4 1.5h5.6q1 0 1 1v6.9q0 1-1 1H2.8q-1 0-1-1Z", w: 1.3 }],
@@ -45,11 +48,13 @@ var icons = {
   "grip":     [{ d: "M3 4.5h10M3 8h10M3 11.5h10", w: 1.4 }],
   "play":     [{ d: "M4.6 2.8v10.4q0 .8.7.4l8.2-4.9q.7-.5 0-.9L5.3 2.4q-.7-.4-.7.4z", f: true }],
   "arrowRight": [{ d: "M2.8 8h10M9 4l4 4-4 4", w: 1.5 }],
+  "arrowUpRight": [{ d: "M4 12L12 4M6 4h6v6", w: 1.5 }],   // SF arrow.up.right (Settings > About links)
   // SF "play" (outline) and "doc.on.doc" (two dog-eared pages, the back one up and right)
   "playOutline": [{ d: "M4.6 3.1v9.8q0 .7.6.4l7.9-4.6q.6-.4 0-.8L5.2 2.7q-.6-.3-.6.4z", w: 1.2 }],
   "docOnDoc": [{ d: "M6.3 4.5V2.5q0-1 1-1h3.2l2.6 2.6v6q0 1-1 1h-1.3M10.5 1.6v2.6h2.5", w: 1.15 },
                { d: "M3.9 4.5h3.3l2.6 2.6v6.4q0 1-1 1H3.9q-1 0-1-1v-8q0-1 1-1zM7.2 4.6v2.6h2.5", w: 1.15 }],
   "checkCircle": [{ d: circle(8, 8, 6.2), w: 1.3 }, { d: "M5.2 8.2l2 2 3.7-4.3", w: 1.4 }],
+  "checkCircleFill": [{ d: circle(8, 8, 6.8), f: true }, { d: "M5.2 8.2l2 2 3.7-4.3", w: 1.6, c: "#FFFFFF" }],
 
   // Sidebar glyphs: our own drawings, fitted to the Mac 17 pt captures' coverage (shapes, weights, offsets).
   "house":    [{ d: "M1.1 8.6L7.6 3.1 14.1 8.6", w: 1.25 },

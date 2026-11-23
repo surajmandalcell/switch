@@ -21,6 +21,14 @@ function short(day) { var p = parts(day); return MONTHS[p[1] - 1] + " " + p[2] }
 function long(day) { var p = parts(day); return WEEKDAYS[weekday(day)] + ", " + MONTHS[p[1] - 1] + " " + p[2] + ", " + p[0] }
 function title(day) { var p = parts(day); return WEEKDAYS_LONG[weekday(day)] + ", " + MONTHS_LONG[p[1] - 1] + " " + p[2] }
 function month(day) { return MONTHS[parts(day)[1] - 1] }
+// Today's buckets are ISO 8601 hour starts ("2026-11-14T15:00:00Z"), labeled by the local hour (OverviewHour).
+function hourly(days) { return days.length > 0 && days[0].indexOf("T") >= 0 }
+function hourOf(iso) { return new Date(iso).getHours() }
+function hourLabel(iso, h24) { var h = hourOf(iso); return h24 ? String(h) : ((h + 11) % 12 + 1) + (h < 12 ? " AM" : " PM") }
+// A tooltip or axis title for one bucket: "3 PM" for Today, else "Nov 23".
+function bucket(day, h24) { return day.indexOf("T") >= 0 ? hourLabel(day, h24) : short(day) }
+var HOURLY_NOTE = "Codex account totals, Droid, and provider charts have no hourly data."
+var HOURLY_HELP = "Codex account totals, Droid, and provider charts keep only daily numbers, so they are not in the hourly charts."
 function dayString(e) {
   var d = new Date(e * 86400000)
   return d.getUTCFullYear() + "-" + ("0" + (d.getUTCMonth() + 1)).slice(-2) + "-" + ("0" + d.getUTCDate()).slice(-2)
@@ -133,6 +141,9 @@ function make(summary, year, rows, pal) {
   var named = {}
   for (var r = 0; r < rows.length; ++r) if (named[rows[r].id.toLowerCase()] === undefined) named[rows[r].id.toLowerCase()] = rows[r].label
   var live = summary.groups.filter(function (g) { return g.tokens > 0 })
+  // Today: the hours still to come are left off, so the charts end at now instead of dropping to zero.
+  var span = summary.startedHours !== undefined && summary.startedHours !== null ? summary.startedHours : summary.days.length
+  function cut(d) { return d.slice(0, span) }
   var ranks = {}, taken = {}, series = []
   for (var i = 0; i < Math.min(live.length, MAX_SERIES); ++i) {
     var g = live[i], service = g.services && g.services.length ? g.services[0] : ""
@@ -143,15 +154,15 @@ function make(summary, year, rows, pal) {
       var shared = sharedName(g.key)
       var label = shared || named[g.key.toLowerCase()]
       s = { id: g.key, label: label !== undefined ? label : "Removed account", color: accountColor(service, rank, pal),
-            tokens: g.tokens, daily: g.daily, service: service || null }
+            tokens: g.tokens, daily: cut(g.daily), service: service || null }
     } else {
-      s = { id: g.key, label: g.label, color: slotColor(g.key, taken), tokens: g.tokens, daily: g.daily, service: null }
+      s = { id: g.key, label: g.label, color: slotColor(g.key, taken), tokens: g.tokens, daily: cut(g.daily), service: null }
     }
     s.tip = tipLabel(s)
     series.push(s)
   }
   if (live.length > MAX_SERIES) {
-    var daily = summary.days.map(function () { return 0 }), tok = 0
+    var daily = cut(summary.days).map(function () { return 0 }), tok = 0
     for (var k = MAX_SERIES; k < live.length; ++k) {
       tok += live[k].tokens
       for (var d = 0; d < daily.length; ++d) daily[d] += live[k].daily[d]
@@ -174,6 +185,7 @@ function make(summary, year, rows, pal) {
   var yearTokens = year.dailyTotals.reduce(function (a, b) { return a + b }, 0)
   return {
     period: summary.period, grouping: summary.grouping, days: summary.days, series: series, totals: summary.totals,
+    hourly: summary.period === "today" || hourly(summary.days), h24: !!pal.h24,
     yearDays: year.days, yearTotals: year.dailyTotals, yearTools: yearTools, heatCuts: cuts, yearTokens: yearTokens,
     yearOffset: year.days.length ? weekday(year.days[0]) : 0
   }
@@ -191,14 +203,14 @@ function noun(g) { return g === "account" ? "account" : (g === "model" ? "model"
 function emptyText(ds) {
   if (ds.grouping === "account" && ds.series.length === 0 && ds.totals.tokens > 0)
     return "By account needs history that belongs to one account. Claude Code profiles that share history show under Models and Projects."
-  return "No usage in the last " + ds.days.length + " days. Use Codex, Claude Code, or Grok Build and it shows here."
+  return "No usage " + (ds.hourly ? "today" : "in the last " + ds.days.length + " days") + ". Use Codex, Claude Code, or Grok Build and it shows here."
 }
 
 // VoiceOver values of the four charts (5.1).
 function streamSummary(ds) {
   var t = ds.totals
-  return "Last " + ds.days.length + " days, " + tokens(t.tokens) + " tokens by " + noun(ds.grouping)
-         + (t.busiestDay ? ", most on " + short(t.busiestDay) : "")
+  return (ds.hourly ? "Today" : "Last " + ds.days.length + " days") + ", " + tokens(t.tokens) + " tokens by " + noun(ds.grouping)
+         + (t.busiestDay ? (ds.hourly ? ", most at " : ", most on ") + bucket(t.busiestDay, ds.h24) : "")
 }
 function heatmapSummary(ds) {
   var best = -1, bv = 0
@@ -206,7 +218,7 @@ function heatmapSummary(ds) {
   return "Last 12 months, " + tokens(ds.yearTokens) + " tokens" + (best >= 0 ? ", most on " + short(ds.yearDays[best]) : "")
 }
 function ridgeSummary(ds) {
-  return "Daily usage by " + noun(ds.grouping) + ". "
+  return (ds.hourly ? "Hourly" : "Daily") + " usage by " + noun(ds.grouping) + ". "
          + ds.series.slice(0, 3).map(function (s) { return s.label + ", " + tokens(s.tokens) + " tokens" }).join(". ")
 }
 function waffleSummary(ds) {
@@ -237,6 +249,10 @@ function monotone(xs, ys) {
 function curve(xs, ys, connect) { return (connect ? " L" : "M") + f(xs[0]) + " " + f(ys[0]) + monotone(xs, ys) }
 function reversed(a) { return a.slice().reverse() }
 
+// One sample (today's first hour) draws as a band or ridge one slot wide, not a zero-width line.
+function padded(series) {
+  return series.map(function (s) { return s.daily.length === 1 ? Object.assign({}, s, { daily: [s.daily[0], s.daily[0]] }) : s })
+}
 function xs(width, count) {
   var a = []
   for (var i = 0; i < count; ++i) a.push(width * i / Math.max(1, count - 1))
@@ -260,9 +276,14 @@ function bandPath(x, top, bot) { return curve(x, top, false) + curve(reversed(x)
 
 // MARK: date axis (OverviewDateAxis)
 
-function axis(days) {
+function axis(days, h24) {
   if (days.length < 2) return []
   var last = days.length - 1, out = [], i
+  if (hourly(days)) {   // Today's hours: 12 AM, 6 AM, 12 PM, 6 PM, then the last hour
+    for (i = 0; i < last - 2; ++i) if (hourOf(days[i]) % 6 === 0) out.push({ i: i, text: hourLabel(days[i], h24) })
+    out.push({ i: last, text: hourLabel(days[last], h24) })
+    return out
+  }
   if (days.length <= 7) for (i = 0; i <= last; i += 2) out.push({ i: i, text: WEEKDAYS[weekday(days[i])] })
   else for (i = 0; i < 5; ++i) { var idx = Math.round(i * last / 4); out.push({ i: idx, text: short(days[idx]) }) }
   return out
@@ -436,6 +457,11 @@ function selfCheck() {
      ["$1.9K", "$12K", "$338", "$7.01", "$0.5", "$7"])
   eq("blend", [blend("#0AA17D", 0.38, true), blend("#FFFFFF", 0.5, true), blend("#000000", 0.3, false)], ["#7ec5af", "#ffffff", "#000000"])
   eq("axis 30", axis(Array.apply(null, Array(30)).map(function (_, i) { return dayString(20700 + i) })).map(function (a) { return a.i }), [0, 7, 15, 22, 29])
+  var hours = []
+  for (var h = 0; h < 24; ++h) hours.push(new Date(2026, 10, 14, h).toISOString())
+  eq("axis today", axis(hours, false).map(function (a) { return a.text }), ["12 AM", "6 AM", "12 PM", "6 PM", "11 PM"])
+  eq("hour 24h", hourLabel(hours[15], true), "15")
+  eq("padded", padded([{ daily: [5] }])[0].daily, [5, 5])
   var L = ridgeLayout(272, 7)
   eq("ridge last base", Math.round(ridgeBase(L, 6) * 1000) / 1000, 272 - 24)
   return bad

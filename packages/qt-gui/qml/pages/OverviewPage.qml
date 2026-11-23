@@ -12,7 +12,7 @@ Item {
   property alias scroll: scroll
   property alias chart: stream
   property alias sheet: sheet
-  property string period: "week"          // week | month
+  property string period: "week"          // today | week | month
   property string grouping: "account"     // account | model | project
   // Capture states for --demo: "", "loading", "empty", "nousage", "nobackups".
   property string demoState: App.arg("overview-state", "")
@@ -20,7 +20,15 @@ Item {
   readonly property var app: Helper.topics.app || ({})
   readonly property var rows: demo && demoState === "empty" ? [] : demo && demoState.indexOf("mac") === 0 ? Demo.MAC.rows
                               : (Helper.topics.accounts ? Helper.topics.accounts.rows || [] : [])
-  readonly property var pal: ({ brands: Theme.brands, dark: Theme.dark, other: Theme.tertiary })
+  readonly property var pal: ({ brands: Theme.brands, dark: Theme.dark, other: Theme.tertiary, h24: h24 })
+  // The Settings time format; demo captures use 12-hour so they stay stable.
+  readonly property bool h24: {
+    var f = Prefs.value("timeFormat")
+    if (f === "12h" || f === "24h") return f === "24h"
+    var s = Qt.locale().timeFormat(Locale.ShortFormat)
+    return !demo && s.indexOf("AP") < 0 && s.indexOf("ap") < 0
+  }
+  readonly property bool today: period === "today"
 
   property var sum: null
   property var year: null
@@ -55,9 +63,17 @@ Item {
     var v = Helper.topics.settings ? Helper.topics.settings.values : null
     if (prefsApplied || !v) return
     prefsApplied = true
-    if (v.overviewPeriod === "month") period = "month"   // a stored "year" loads as week
+    if (v.overviewPeriod === "month" || v.overviewPeriod === "today") period = v.overviewPeriod   // a stored "year" loads as week
     if (["account", "model", "project"].indexOf(v.overviewGrouping) >= 0) grouping = v.overviewGrouping
   }
+  // Today's hours start over at local midnight (NSCalendarDayChanged on the Mac).
+  Timer {
+    id: midnight
+    running: !page.demo
+    interval: page.toMidnight()
+    onTriggered: { page.reload(); interval = page.toMidnight(); start() }
+  }
+  function toMidnight() { var n = new Date(), m = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1); return m - n + 1000 }
   function save(key, value) { if (!demo && prefsApplied) Helper.call("settings.set", { key: key, value: value }, function () {}) }
 
   // Both summaries swap in together; the old charts stay until then.
@@ -76,6 +92,10 @@ Item {
     var got = { }
     function done() {
       if (n !== seq || got.s === undefined || got.y === undefined) return
+      // A helper without hourly data errors on Today: show the cards' empty state, not last week's charts.
+      if (!got.s && got.y && period === "today")
+        got.s = { period: "today", grouping: grouping, days: [], dailyTotals: [], groups: [], startedHours: 0,
+                  totals: { tokens: 0, costUSD: null, activeAccounts: 0, busiestDay: null, busiestDayTokens: 0 } }
       if (got.s && got.y) { sum = got.s; year = got.y; historyLoaded = true }
       loading = false
     }
@@ -167,11 +187,11 @@ Item {
     Card {
       visible: !page.emptyPage
       title: "Usage"
-      note: page.period === "month" ? "(last 30 days)" : "(last 7 days)"
+      note: page.today ? "(today)" : page.period === "month" ? "(last 30 days)" : "(last 7 days)"
       divider: false
       accessory: [
-        Segmented { name: "Period"; model: ["Week", "Month"]; current: page.period === "month" ? 1 : 0
-                    onPicked: function (i) { page.period = i ? "month" : "week" } },
+        Segmented { name: "Period"; model: ["Today", "Week", "Month"]; current: ["today", "week", "month"].indexOf(page.period)
+                    onPicked: function (i) { page.period = ["today", "week", "month"][i] } },
         Segmented { name: "Group by"; model: ["Accounts", "Models", "Projects"]
                     current: ["account", "model", "project"].indexOf(page.grouping)
                     onPicked: function (i) { page.grouping = ["account", "model", "project"][i] } }
@@ -185,14 +205,14 @@ Item {
           readonly property real tw: (parent.width - 32 - 36) / 4
           readonly property var t: page.shown ? page.shown.totals : null
           StatTile { width: parent.tw; label: "Tokens"; loading: !page.shown
-                     value: parent.t ? O.tokens(parent.t.tokens) : "–"; detail: "In the last " + (page.period === "month" ? 30 : 7) + " days" }
+                     value: parent.t ? O.tokens(parent.t.tokens) : "–"; detail: page.today ? "Today so far" : "In the last " + (page.period === "month" ? 30 : 7) + " days" }
           StatTile { width: parent.tw; label: "Estimated cost"; loading: !page.shown
                      value: parent.t && parent.t.costUSD !== null && parent.t.costUSD !== undefined ? O.currency(parent.t.costUSD) : "–"
                      detail: "API-rate estimate, not billed" }
           StatTile { width: parent.tw; label: "Active accounts"; loading: !page.shown
-                     value: parent.t ? String(parent.t.activeAccounts) : "–"; detail: "With usage in this period" }
-          StatTile { width: parent.tw; label: "Busiest day"; loading: !page.shown
-                     value: parent.t && parent.t.busiestDay ? O.short(parent.t.busiestDay) : "–"
+                     value: parent.t ? String(parent.t.activeAccounts) : "–"; detail: page.today ? "With usage today" : "With usage in this period" }
+          StatTile { width: parent.tw; label: page.today ? "Busiest hour" : "Busiest day"; loading: !page.shown
+                     value: parent.t && parent.t.busiestDay ? O.bucket(parent.t.busiestDay, page.h24) : "–"
                      detail: !parent.t ? " " : (parent.t.busiestDay ? O.tokens(parent.t.busiestDayTokens) + " tokens" : "No usage yet") }
         }
       }
@@ -201,11 +221,11 @@ Item {
     // 2. Tokens per day
     Card {
       visible: !page.emptyPage
-      title: "Tokens per day"
+      title: page.today ? "Tokens per hour" : "Tokens per day"
       note: page.groupNote
       Item {
         width: parent.width
-        height: 14 + 220 + 10 + 18 + 14
+        height: 14 + 220 + 10 + 18 + (hourNote.visible ? 6 + hourNote.height : 0) + 14
         readonly property bool has: !!page.shown && page.shown.series.length > 0
         StreamChart {
           id: stream
@@ -214,6 +234,7 @@ Item {
           width: parent.width
           series: parent.has ? page.shown.series : []
           days: parent.has ? page.shown.days : []
+          h24: page.h24
           gate: gate
           summary: page.shown ? O.streamSummary(page.shown) : ""
         }
@@ -222,6 +243,15 @@ Item {
         OverviewLegend { visible: !!page.shown; x: 16; y: 14 + 220 + 10; width: parent.width - 32
                          series: page.shown ? page.shown.series : []; active: stream.hover ? stream.hoverKey : "" }
         Skeleton { visible: !page.shown; x: 16; y: 14 + 220 + 10; width: 180; height: 18 }
+        Txt {
+          id: hourNote
+          visible: page.today
+          x: 16; y: 14 + 220 + 10 + 18 + 6
+          width: parent.width - 32
+          role: "caption"; color: Theme.secondary; elide: Text.ElideRight
+          text: O.HOURLY_NOTE
+          ToolTipArea { text: O.HOURLY_HELP }
+        }
       }
     }
 
@@ -266,6 +296,7 @@ Item {
           width: parent.width
           series: parent.has ? page.shown.series : []
           days: parent.has ? page.shown.days : []
+          h24: page.h24
           gate: gate
           summary: page.shown ? O.ridgeSummary(page.shown) : ""
         }
@@ -331,6 +362,7 @@ Item {
       shot(name)
       s.push(function () { Harness.move(w, 5, w.height - 5) }); s.push(500)
     }
+    s.push(function () { Harness.log("SELFCHECK " + JSON.stringify(O.selfCheck())) })
     s.push(function () {   // the locale-dependent strings, for a check under other LANG values
       var t = new Date("2026-11-14T21:05:00Z")
       Harness.log("LOCALE " + Qt.locale().name + " | " + backupsCard.when(t) + " | " + t.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
@@ -371,6 +403,8 @@ Item {
         })
       })
       s.push(20000); s.push(function () { Harness.log(state("REAL backup")); scroll.scrollTo(1e6) }); s.push(500); shot("real-bottom")
+      s.push(function () { scroll.scrollTo(0); page.period = "today" }); s.push(3000)
+      s.push(function () { Harness.log(state("REAL today")) }); shot("real-today")
       s.push(function () { scroll.scrollTo(0); page.period = "month"; page.grouping = "model" }); s.push(3000)
       s.push(function () { Harness.log(state("REAL month")) }); shot("real-month-models")
       return s
@@ -400,6 +434,13 @@ Item {
     hover(ridges, 0.45, 0.33, "hover-ridge")
     hover(waffle, 0.2, 0.5, "hover-waffle")
     s.push(function () { scroll.scrollTo(1e6) }); s.push(400); shot("bottom")
+    // Today: 24 hour slots, the started hours drawn, then Month below
+    s.push(function () { scroll.scrollTo(0); page.period = "today" }); s.push(600)
+    s.push(function () { Harness.log(state("TODAY") + " axis=" + JSON.stringify(O.axis(page.shown.days, page.h24).map(function (a) { return a.text }))) })
+    shot("today-top")
+    hover(stream, 0.4, 0.5, "today-hover-stream")
+    hover(stream, 0.95, 0.5, "today-hover-clamp")
+    scrollTo(ridges); hover(ridges, 0.3, 0.33, "today-hover-ridge")
     s.push(function () { scroll.scrollTo(0); page.period = "month"; page.grouping = "model" }); s.push(600); shot("month-models")
     s.push(function () { page.grouping = "project" }); s.push(600)
     s.push(function () { scroll.scrollTo(1e6) }); s.push(400); shot("projects-bottom")

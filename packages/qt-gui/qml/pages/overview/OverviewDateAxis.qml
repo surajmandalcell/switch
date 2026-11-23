@@ -6,9 +6,10 @@ import "Overview.js" as O
 Item {
   id: ax
   property var days: []
+  property bool h24: false
   height: 16
   Repeater {
-    model: O.axis(ax.days)
+    model: O.axis(ax.days, ax.h24)
     delegate: Txt {
       readonly property real px: ax.width * modelData.i / Math.max(1, ax.days.length - 1)
       readonly property bool first: index === 0

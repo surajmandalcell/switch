@@ -24,7 +24,11 @@ final class AppEngineAccountsTests: XCTestCase {
     final class Script: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
+        let windows: [UsageWindow]
         var error: ProviderError?
+        init(windows: [UsageWindow] = [UsageWindow(id: "session", title: "Session", usedPercent: 40)]) {
+            self.windows = windows
+        }
         var calls: Int { lock.lock(); defer { lock.unlock() }; return count }
         func fetch() throws -> FetchResult {
             lock.lock()
@@ -32,8 +36,7 @@ final class AppEngineAccountsTests: XCTestCase {
             let error = error
             lock.unlock()
             if let error { throw error }
-            return FetchResult(ProviderUsage(windows: [UsageWindow(id: "session", title: "Session", usedPercent: 40)],
-                                             plan: "Pro"))
+            return FetchResult(ProviderUsage(windows: windows, plan: "Pro"))
         }
     }
 
