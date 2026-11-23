@@ -76,6 +76,25 @@ final class UsageHistoryTodayTests: XCTestCase {
         XCTAssertEqual(fall.startedHours, 25)
     }
 
+    /// Lord Howe jumps from 02:00 to 02:30: hour 2 lasts 30 minutes and every later hour keeps its :00 start.
+    /// A slot after the current quarter is left out of the totals and the busiest hour.
+    func testHalfHourDSTJumpKeepsClockHoursAndFutureSlotsStayOut() {
+        let lordHowe = calendar("Australia/Lord_Howe")
+        let summary = UsageHistorySnapshot(points: [], today: "2026-10-03", slots: [
+            slot("2026-10-04T03:15:00+11:00", tokens: 7),
+            slot("2026-10-04T04:20:00+11:00", tokens: 5),  // the current quarter counts
+            slot("2026-10-04T15:00:00+11:00", tokens: 999),  // later today, not usage yet
+        ]).summary(period: .today, grouping: .model, now: date("2026-10-04T04:25:00+11:00"), calendar: lordHowe)
+        XCTAssertEqual(summary.days.count, 24, "23.5 hours, with a short 2 o'clock hour")
+        XCTAssertEqual(summary.days[2], "2026-10-04T02:30:00+11:00")
+        XCTAssertEqual(summary.days[3], "2026-10-04T03:00:00+11:00")
+        XCTAssertEqual(summary.dailyTotals[3], 7)
+        XCTAssertEqual(summary.dailyTotals[4], 5)
+        XCTAssertEqual(summary.startedHours, 5)
+        XCTAssertEqual(summary.totals.tokens, 12)
+        XCTAssertEqual(summary.totals.busiestDay, "2026-10-04T03:00:00+11:00")
+    }
+
     func testFutureHoursAreNotStartedAndDayPointsStayOut() {
         let utc = calendar("UTC")
         let snap = UsageHistorySnapshot(
