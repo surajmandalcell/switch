@@ -256,6 +256,8 @@ struct OverviewPage: View {
   @State private var grouping: UsageGrouping
   @State private var dataset: OverviewDataset?
   @State private var daySheet: OverviewDayPick?
+  /// Bumped at local midnight, so an open page rebuilds Today for the new day.
+  @State private var dayChanges = 0
   @AppStorage(EmailPrivacy.key) private var hideEmails = false
   @AppStorage(EmailPrivacy.privacyModeKey) private var privacyMode = false
 
@@ -292,6 +294,7 @@ struct OverviewPage: View {
     var accounts: [UUID]
     var hideEmails: Bool
     var privacyMode: Bool
+    var dayChanges: Int
   }
 
   var body: some View {
@@ -320,8 +323,13 @@ struct OverviewPage: View {
     .task(id: model.hasLoaded) { await model.loadUsageHistory() }
     .task(id: LoadKey(
       period: period, grouping: grouping, snapshot: model.usageHistoryVersion,
-      accounts: accounts.map(\.id), hideEmails: hideEmails, privacyMode: privacyMode)
+      accounts: accounts.map(\.id), hideEmails: hideEmails, privacyMode: privacyMode, dayChanges: dayChanges)
     ) { await rebuild() }
+    // The system posts this at local midnight (and after a clock or time zone change), on any thread.
+    .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: RunLoop.main)) { _ in
+      dayChanges += 1
+      Task { await model.loadUsageHistory(maxAge: 0) }
+    }
     .onChange(of: period) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.periodKey) }
     .onChange(of: grouping) { _, value in UserDefaults.standard.set(value.rawValue, forKey: Self.groupingKey) }
     .sheet(item: $daySheet) { pick in

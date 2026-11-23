@@ -3196,11 +3196,17 @@ enum AIManagerNativeContract {
       let summary = snapshot.summary(period: .today, grouping: grouping, now: DemoData.now)
       let data = OverviewDataset.make(summary: summary, year: year, accounts: accounts, hideEmails: false)
       let started = summary.startedHours ?? 0
-      expect(data.hourly && (23...25).contains(data.days.count) && started > 1 && !data.series.isEmpty
+      // Just after local midnight only one hour has begun, so 1 is valid here.
+      expect(data.hourly && (23...25).contains(data.days.count) && started >= 1 && !data.series.isEmpty
         && data.series.allSatisfy { $0.daily.count == started } && data.streamSummary.hasPrefix("Today, ")
         && data.ridgeSummary.hasPrefix("Hourly usage"),
         "The Overview today by \(grouping.rawValue) is not hourly up to now")
     }
+    let firstHour = OverviewStreamLayout.layers(
+      [OverviewSeries(id: "m", label: "m", color: .blue, tokens: 5, daily: [5])], size: CGSize(width: 230, height: 100),
+      slots: 24)
+    expect(firstHour.first.map { $0.top.count == 2 && $0.top[1].x == 10 && $0.top[0].y < $0.bottom[0].y } ?? false,
+      "The first hour of today draws no band")
     let hourAxis = OverviewDateAxis.labels(snapshot.summary(period: .today, grouping: .model, now: DemoData.now).days)
     expect(hourAxis.count == 5 && hourAxis.first?.fraction == 0, "The Today axis is not every 6 hours")
     let demoServices = Set(snapshot.summary(period: .month, grouping: .account).groups.flatMap(\.services))
