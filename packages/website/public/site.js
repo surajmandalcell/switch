@@ -1,5 +1,5 @@
 (() => {
-  const GH = 'https://github.com/surajmandalcell/switch';
+  const GH = 'https://github.com/samhqapp/switch';
   // Pinned to the current release until the release assets get a stable name for releases/latest/download.
   const DL = GH + '/releases/download/v3.8.2/Switch-v3.8.2-mac-arm64.zip';
   const base = document.body.dataset.base || '';
