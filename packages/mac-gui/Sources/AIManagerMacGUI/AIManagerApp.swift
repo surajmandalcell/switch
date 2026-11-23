@@ -18,6 +18,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         EventLog.standard.recordStart(event: "app_start", version: UpdateChecker.installedVersion)
+        CrashReports.start()
         AIMNativeFocusPolicy.install()
         NSApp.disableRelaunchOnLogin()
         AIManagerBrand.installApplicationIcon()

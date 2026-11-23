@@ -1,6 +1,15 @@
 {
   "pins" : [
     {
+      "identity" : "indiecrumb-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/samhqapp/indiecrumb-swift",
+      "state" : {
+        "revision" : "07fd81fbebd199662ef4872287c34fafcd216ec9",
+        "version" : "0.2.1"
+      }
+    },
+    {
       "identity" : "swift-asn1",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",

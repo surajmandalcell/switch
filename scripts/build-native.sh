@@ -101,6 +101,11 @@ fi
   "$app_path/Contents/Info.plist"
 /usr/bin/plutil -replace AIManagerSourceDirty -bool "$source_dirty" \
   "$app_path/Contents/Info.plist"
+# Public IndieCrumb ingest key for the crash prompt; without it the app shows no prompt.
+if [[ -n "${INDIECRUMB_KEY:-}" ]]; then
+  /usr/bin/plutil -replace IndieCrumbKey -string "$INDIECRUMB_KEY" \
+    "$app_path/Contents/Info.plist"
+fi
 
 test_root="${AI_MANAGER_TEST_ROOT:-}"
 test_executable="${AI_MANAGER_TEST_CODEX_EXECUTABLE:-}"
