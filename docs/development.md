@@ -118,6 +118,10 @@ Pass `--background` to the app executable to start in the menu bar without openi
 
 `scripts/check-release-readiness.sh` checks local package readiness.
 
+Changes reach `master` only through PRs. Each feature release (`X.Y.0`) is
+tracked by a milestone and a release issue from
+`.github/ISSUE_TEMPLATE/release.md`, which lists every step below.
+
 The first Switch version must be newer than the repository's legacy
 `v2.1.2` tag. To publish an ad hoc signed release from a clean, pushed commit:
 
@@ -207,7 +211,7 @@ Run `node packages/website/copy-preview.cjs --serve` to compare three copy sets
 at `http://127.0.0.1:8850/`. The floating dock switches between current and proposed
 copy without changing the website layout or demos. The server stops after eight hours.
 Apply the owner's chosen copy to `public/index.html` and the FAQ in `public/kit.js`.
-Pushing website changes to `master` deploys the Railway site automatically.
+Merging website changes into `master` deploys the Railway site automatically.
 
 ## Sources of truth
 

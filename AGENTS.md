@@ -11,11 +11,19 @@ Preserve general security and data-recovery requirements from the existing docum
 Use synthetic credentials and temporary homes for automated tests.
 Never commit real auth, transcripts, private config, or workstation backups.
 
-After app or shared-core changes, rebuild and test the matching CLI, update the
-installed commands, and publish the matching `@smdl/switch` npm version.
-The owner authorizes these routine CLI updates without another approval step.
-Verify the registry version and a fresh package install before reporting completion.
-Keep required signing, validation, and password or OTP stops.
+## Branches, PRs, and releases
 
-Work on the existing branch. Do not execute or push the inherited remote branch-deletion workflow.
+Never push to `master`. Put each change on a short feature branch and merge it
+through a PR that fills `.github/pull_request_template.md`. This rule allows
+those branches. After app or shared-core changes, rebuild and test the matching
+CLI and update the installed commands; do not publish per change.
+
+Ship feature releases (`X.Y.0`). Ship a patch release only for a real
+production bug. Each release has a GitHub milestone with its PRs, a
+version-bump PR, a release issue from `.github/ISSUE_TEMPLATE/release.md`, a
+tag, and a GitHub Release with notes. The `@smdl/switch` npm CLI ships with the
+same release. At release time, verify the registry version and a fresh package
+install. Keep required signing, notarization, validation, and password or OTP stops.
+
+Do not execute or push the inherited remote branch-deletion workflow.
 Remove that workflow behavior in G1 before an implementation push.
