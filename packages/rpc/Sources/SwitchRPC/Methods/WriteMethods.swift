@@ -70,9 +70,13 @@ private struct MissionParams: Decodable {
 private struct ForceParams: Decodable { let force: Bool? }
 private struct PermissionParams: Decodable { let status: String }
 private struct DismissParams: Decodable { let which: String? }
+private struct TrayBarsParams: Decodable {
+    let providerID: String
+    let glance: [String]
+    let expanded: [String]
+}
 
-/// User actions of architecture.md section 2.9. Each goes through the engine's action lane (`-32001` while another
-/// runs) and replies `{status, notice?, error?, confirmation?, accountID?, login?, plan?}`.
+/// User actions of architecture.md section 2.9 and tray settings writes.
 extension RPCServer {
     static let writeMethods = [
         "accounts.setDefault", "accounts.check", "usage.refresh", "accounts.rename", "accounts.delete",
@@ -83,7 +87,7 @@ extension RPCServer {
         "droid.setUsageKey", "recovery.recover", "recovery.resolve", "accounts.repairLink", "usage.clearCache",
         "history.reindex", "history.clearIndex", "providerStatus.refresh", "activity.refresh", "droid.setMissionOwner",
         "droid.resumeMission", "droid.startMissionHere", "droid.refreshConversations", "providers.detectSignedIn",
-        "notifications.setPermission", "notices.dismiss",
+        "notifications.setPermission", "notices.dismiss", "tray.bars.set", "tray.bars.reset",
     ]
     static let confirmationLifetime: TimeInterval = 120
 
@@ -99,6 +103,13 @@ extension RPCServer {
             return try await engine.reorderAccounts(ids)
         case "app.refresh": return try await engine.refreshAll()
         case "tray.opened": return try await engine.trayOpened()
+        case "tray.bars.set":
+            let params = try params(TrayBarsParams.self, method: method, frame: frame)
+            return try await engine.setTrayBars(providerID: ProviderID(rawValue: params.providerID),
+                                                glance: params.glance, expanded: params.expanded)
+        case "tray.bars.reset":
+            let id = try params(ProviderParams.self, method: method, frame: frame).providerID
+            return try await engine.resetTrayBars(providerID: ProviderID(rawValue: id))
         case "claude.shellIntegration.set":
             return try await engine.setClaudeShellIntegration(try params(EnabledParams.self, method: method, frame: frame).enabled)
         case "droid.setUsageKey":

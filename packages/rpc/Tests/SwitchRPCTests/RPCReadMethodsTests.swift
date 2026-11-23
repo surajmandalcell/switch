@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import AIManagerCore
 @testable import SwitchRPC
-import SwitchAppModel
+@testable import SwitchAppModel
 
 /// One test per read method, on synthetic data in the temporary home of `RPCRuntimeTests`.
 extension RPCRuntimeTests {
@@ -57,6 +57,79 @@ extension RPCRuntimeTests {
     func testProvidersList() async throws {
         let providers = try await list("providers.list")
         XCTAssertTrue(providers.contains { $0["id"] as? String == "codex" && $0["displayName"] != nil })
+    }
+
+    func testRPC310ParityHistoryAndToday() async throws {
+        try writeConversation()
+        let claude = root.appending(path: ".claude/projects/work/session.jsonl")
+        try FileManager.default.createDirectory(at: claude.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let text = "Claude copy " + String(repeating: "x", count: 21_001)
+        try Data("""
+        {"timestamp":"2026-11-13T10:00:00Z","type":"user","sessionId":"claude","cwd":"/work","message":{"role":"user","content":"\(text)"}}
+
+        """.utf8).write(to: claude)
+        let filtered = try await object("history.list", #"{"query":"Claude copy","apps":["claude"],"limit":1}"#)
+        XCTAssertEqual(filtered["appCounts"] as? [String: Int], ["claude": 1, "codex": 1])
+        let thread = try XCTUnwrap((filtered["threads"] as? [[String: Any]])?.first)
+        XCTAssertEqual(thread["appSource"] as? String, "claude")
+        let id = try XCTUnwrap(thread["id"] as? String)
+        let detailParams = try JSONSerialization.data(withJSONObject: ["id": id])
+        let detail = try await object("history.detail", String(decoding: detailParams, as: UTF8.self))
+        XCTAssertEqual((detail["messages"] as? [[String: Any]])?.first?["text"] as? String, text)
+        for invalid in [#"{"apps":["unknown"]}"#, #"{"apps":"claude"}"#] {
+            let reply = try await call("history.list", invalid)
+            XCTAssertEqual(errorCode(reply), -32602)
+        }
+
+        let history = try await object("usage.history", #"{"period":"today","grouping":"model","points":false}"#)
+        let summary = try XCTUnwrap(history["summary"] as? [String: Any])
+        let hours = try XCTUnwrap(summary["days"] as? [String])
+        XCTAssertTrue((23...25).contains(hours.count))
+        XCTAssertEqual(summary["period"] as? String, "today")
+        XCTAssertNotNil(summary["startedHours"])
+        XCTAssertNil(history["points"])
+        XCTAssertTrue((history["unavailableSources"] as? [String])?.contains("provider-charts") == true)
+    }
+
+    func testRPC310ParityTrayBarsAndCleanupSummary() async throws {
+        let bars = try await object("tray.bars.get", #"{"providerID":"codex"}"#)
+        XCTAssertEqual(bars["isCustom"] as? Bool, false)
+        let emptyGlance = try await call("tray.bars.set", #"{"providerID":"codex","glance":[],"expanded":[]}"#)
+        XCTAssertEqual(errorCode(emptyGlance), -32602)
+        let missing = try await call("tray.bars.reset", #"{"providerID":"unknown"}"#)
+        XCTAssertEqual(errorCode(missing), -32003)
+        let reset = try await object("tray.bars.reset", #"{"providerID":"codex"}"#)
+        XCTAssertEqual(reset["isCustom"] as? Bool, false)
+
+        let log = paths.sharedRoot.appending(path: "log/test.log")
+        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("test".utf8).write(to: log)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)],
+                                              ofItemAtPath: log.path)
+        let manager = try manager()
+        _ = try await manager.addProviderAccount(providerID: provider, fields: ["apiKey": canary])
+        let server = RPCServer(manager: manager, paths: paths, version: "test-version", log: { _ in })
+        await server.engine.setRefreshesInIsolation(true)
+        let session = Session(server)
+        session.send(#"{"jsonrpc":"2.0","id":9,"method":"state.subscribe","params":{"topics":["tray"]}}"#)
+        session.send(#"{"jsonrpc":"2.0","method":"initialized"}"#)
+        try await session.wait { !self.changes($0, "tray").isEmpty }
+        let custom = try await call(session, 10, "tray.bars.set",
+                                    #"{"providerID":"test-rpc","glance":["Session"],"expanded":[]}"#)
+        XCTAssertEqual(result(custom)?["isCustom"] as? Bool, true)
+        let bar = (result(custom)?["bars"] as? [[String: Any]])?.first
+        XCTAssertEqual(bar?["id"] as? String, "Session")
+        XCTAssertEqual(bar?["expanded"] as? Bool, true)
+
+        let empty = try await call(session, 1, "cleanup.summary", "{}")
+        XCTAssertEqual(result(empty)?["safeBytes"] as? Int, 0)
+        let scan = try await call(session, 2, "cleanup.scan", #"{"sourceID":"codex"}"#)
+        XCTAssertNotNil(result(scan)?["scanID"])
+        let summary = try await call(session, 3, "cleanup.summary", "{}")
+        XCTAssertEqual(result(summary)?["safeBytes"] as? Int, 4)
+        XCTAssertEqual(result(summary)?["safeSourceIDs"] as? [String], ["0:log/test.log"])
+        XCTAssertEqual(result(summary)?["yourWorkBytes"] as? Int, 0)
+        try await session.close()
     }
 
     func testAppSearchIndex() async throws {
