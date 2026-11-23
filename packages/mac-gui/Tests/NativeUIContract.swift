@@ -204,6 +204,12 @@ enum AIManagerNativeContract {
            "A normal launch must keep opening the main window")
     expect(!AIManagerLaunchContext.shouldShowMainWindow(arguments: ["Switch"], event: loginEvent),
            "A login launch must stay in the menu bar")
+    expect(AIManagerLaunchContext.mainWindow(arguments: ["Switch"], event: ordinaryEvent, isActive: false)
+      == .onFirstActivation, "An open -g launch shows its window over the front app before any activation")
+    expect(AIManagerLaunchContext.mainWindow(arguments: ["Switch"], event: ordinaryEvent, isActive: true) == .now,
+      "An active launch must open the main window at once")
+    expect(AIManagerLaunchContext.mainWindow(arguments: ["Switch"], event: loginEvent, isActive: false) == .none,
+      "A login launch must not wait to open the main window")
     expect(!AIManagerLaunchContext.launchedAsLoginItem(event: ordinaryEvent),
       "An ordinary launch is mistaken for a login-item launch")
     expect(LaunchAtLoginSettings.detail(for: .enabled).contains("menu bar")

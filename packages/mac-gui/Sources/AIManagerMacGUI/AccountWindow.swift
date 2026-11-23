@@ -13,6 +13,20 @@ enum AIManagerLaunchContext {
     !arguments.contains("--background") && !launchedAsLoginItem(event: event)
   }
 
+  enum MainWindow: Equatable { case none, now, onFirstActivation }
+
+  /// A launch that finishes inactive (`open -g`) waits for the first activation (Dock click,
+  /// Command-Tab, reopen): a window shown over the front app catches the owner's next click and
+  /// makes Switch the front app.
+  static func mainWindow(
+    arguments: [String] = ProcessInfo.processInfo.arguments,
+    event: NSAppleEventDescriptor? = NSAppleEventManager.shared().currentAppleEvent,
+    isActive: Bool
+  ) -> MainWindow {
+    guard shouldShowMainWindow(arguments: arguments, event: event) else { return .none }
+    return isActive ? .now : .onFirstActivation
+  }
+
   static func launchedAsLoginItem(
     event: NSAppleEventDescriptor? = NSAppleEventManager.shared().currentAppleEvent
   ) -> Bool {
